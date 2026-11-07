@@ -25,13 +25,15 @@ assert.equal(plan.length, 1);
 const slide = plan[0];
 assert.equal(slide.kind, "slide", "drawings that match point for point slide");
 if (slide.kind === "slide") {
-  assert.deepEqual(slide.groups.map((g) => [g.key, slidePath(g, 0)]), editorPaths(a), "the first frame is the drawing where it starts");
-  assert.deepEqual(slide.groups.map((g) => [g.key, slidePath(g, 1)]), editorPaths(b), "the last frame is the editor's own drawing where it ends");
+  // The same shapes as the editor's paths: the same numbers, to a hundredth of a pixel.
+  const numbers = (d: string) => (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number).map((x) => Math.round(x * 100));
+  assert.deepEqual(slide.groups.map((g) => [g.key, numbers(slidePath(g, 0))]), editorPaths(a).map(([k, d]) => [k, numbers(d)]), "the first frame is the drawing where it starts");
+  assert.deepEqual(slide.groups.map((g) => [g.key, numbers(slidePath(g, 1))]), editorPaths(b).map(([k, d]) => [k, numbers(d)]), "the last frame is the editor's own drawing where it ends");
   assert.deepEqual(slideAt(slide.labels[0].from, slide.labels[0].to, 0.5), [22, 5.5], "a label slides half way");
 }
 // A structure drawn moved (its at) slides from where it is on the page.
 const moved = glidePlan([part([0, 1, 2], a, [100, 0])], [part([0, 1, 2], b)])!;
-if (moved[0].kind === "slide") assert.ok(slidePath(moved[0].groups[0], 0).startsWith("M100.00 0.00"), "a moved drawing starts where it is shown");
+if (moved[0].kind === "slide") assert.ok(slidePath(moved[0].groups[0], 0).startsWith("M100 0L"), "a moved drawing starts where it is shown");
 else assert.fail("a moved drawing with the same labels slides");
 
 // A hashed wedge drawn with one more stripe does not match point for point: that bond fades, and every other bond
@@ -53,6 +55,15 @@ assert.ok(swapped.kind === "slide" && swapped.labels[0].was?.text === "O" && swa
 assert.equal(glidePlan([part([0, 1, 2], a)], [part([0, 1], b)]), undefined, "a structure that is not the same atoms: no plan");
 assert.equal(glidePlan([part([0, 1, 2], a)], [part([0, 1, 2], b), part([3], b)]), undefined, "a structure more: no plan");
 
+// A turn goes round its centre: half way through a turn of 90°, a point is on the arc, not on the chord across it.
+const square = drawing([[[10, 0], [11, 0], [11, 1], [10, 1]]], [undefined]);
+const turned = drawing([[[0, 10], [0, 11], [-1, 11], [-1, 10]]], [undefined]);
+const turning = glidePlan([part([0], square)], [part([0], turned)], { centre: [0, 0], angle: Math.PI / 2 })![0];
+if (turning.kind === "slide") {
+  const [x, y] = (slidePath(turning.groups[0], 0.5).match(/-?[\d.]+/g) ?? []).map(Number);
+  assert.ok(Math.abs(Math.hypot(x, y) - 10) < 0.01, `half way round, the first point is still 10 from the centre (${Math.hypot(x, y).toFixed(2)})`);
+  assert.deepEqual((slidePath(turning.groups[0], 1).match(/-?[\d.]+/g) ?? []).map(Number).map((v) => Math.round(v)), [0, 10, 0, 11, -1, 11, -1, 10], "and it ends where the turned drawing is");
+} else assert.fail("a turned drawing slides");
 // A thousand atoms' ink, a frame: well under a millisecond's work for each structure's paths.
 const big = (shift: number) => drawing(Array.from({ length: 3000 }, (_, i): P[] => [[i + shift, 0], [i + 1, shift], [i + 1, 1], [i, 1]]), Array.from({ length: 3000 }, () => undefined));
 const heavy = glidePlan([part([0], big(0))], [part([0], big(1))])!;

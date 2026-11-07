@@ -10,11 +10,14 @@ type P = [number, number];
 export type PartIn = { ids: number[]; drawing: Drawing; at: P; k: number; turn: number };
 // One colour of a structure's ink: its points at the start and at the end (x, y, x, y, …), and how many points each
 // polygon has, in the order the editor draws them (structurePaths), so the last frame is the editor's own path.
-export type Group = { key: string; from: Float64Array; to: Float64Array; sizes: number[] };
+export type Group = { key: string; from: Float64Array; to: Float64Array; sizes: number[]; turn?: Turn };
+// A turn (Turn 15°, Rotate…): the points go round the centre (px) by the angle (radians, as on the page), so the
+// structure keeps its shape on the way; whatever the turned drawing differs by from the new one is added in as it goes.
+export type Turn = { centre: P; angle: number };
 // A label slides from where it was to where it is; one whose text changed (OH turned to HO by Rotate 180°) slides as
 // two, the old text fading out and the new one in (was). fades: ink that does not match point for point (a hashed
 // wedge drawn with one stripe more), as paths for each colour key, the old fading out and the new in.
-export type Slide = { kind: "slide"; id: number; groups: Group[]; labels: { label: Label; was?: Label; from: P; to: P }[]; fades: { key: string; out: string; in: string }[] };
+export type Slide = { kind: "slide"; id: number; groups: Group[]; labels: { label: Label; was?: Label; from: P; to: P; turn?: Turn }[]; fades: { key: string; out: string; in: string }[] };
 export type Fade = { kind: "fade"; id: number; from: PartIn; to: PartIn };
 export type GlidePart = Slide | Fade;
 
@@ -29,7 +32,7 @@ const placed = (p: PartIn, poly: P[]): P[] => {
 const level = (p: PartIn) => !p.turn && p.k === 1;
 
 const path = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
-function slideOf(a: PartIn, b: PartIn): Slide | undefined {
+function slideOf(a: PartIn, b: PartIn, turn?: Turn): Slide | undefined {
   const da = a.drawing, db = b.drawing;
   if (da.labels.length !== db.labels.length) return undefined;
   // The polygons by what drew them (render.ts owners): each bond, ring circle, ellipse or symbol slides if its
@@ -63,41 +66,61 @@ function slideOf(a: PartIn, b: PartIn): Slide | undefined {
     const la = da.labels[i], lb = db.labels[i];
     if (la.angle || lb.angle || !level(a) || !level(b)) return undefined;
     const same = la.text === lb.text && la.size === lb.size && la.colour === lb.colour && la.bold === lb.bold && la.italic === lb.italic && la.font === lb.font;
-    labels.push({ label: lb, ...(same ? {} : { was: la }), from: [la.x + a.at[0], la.y + a.at[1]], to: [lb.x + b.at[0], lb.y + b.at[1]] });
+    labels.push({ label: lb, ...(same ? {} : { was: la }), from: [la.x + a.at[0], la.y + a.at[1]], to: [lb.x + b.at[0], lb.y + b.at[1]], turn });
   }
   const keys = [...new Set([...out.keys(), ...into.keys()])];
   return {
     kind: "slide", id: b.ids[0], labels,
-    groups: [...groups].map(([key, g]) => ({ key, from: Float64Array.from(g.from), to: Float64Array.from(g.to), sizes: g.sizes })),
+    groups: [...groups].map(([key, g]) => ({ key, from: Float64Array.from(g.from), to: Float64Array.from(g.to), sizes: g.sizes, turn })),
     fades: keys.map((key) => ({ key, out: path(out.get(key) ?? []), in: path(into.get(key) ?? []) })),
   };
 }
 
 // The plan: for each structure where it ends, how it gets there. undefined when the two drawings do not have the same
 // structures (atoms added or taken away), so the editor glides the slow way.
-export function glidePlan(from: PartIn[], to: PartIn[]): GlidePart[] | undefined {
+export function glidePlan(from: PartIn[], to: PartIn[], turn?: Turn): GlidePart[] | undefined {
   if (from.length !== to.length) return undefined;
   const was = new Map(from.map((p) => [p.ids.join(","), p]));
   const plan: GlidePart[] = [];
   for (const b of to) {
     const a = was.get(b.ids.join(","));
     if (!a) return undefined;
-    plan.push(slideOf(a, b) ?? { kind: "fade", id: b.ids[0], from: a, to: b });
+    plan.push(slideOf(a, b, turn && pageTurn(a, b, turn)) ?? { kind: "fade", id: b.ids[0], from: a, to: b });
   }
   return plan;
 }
 
-// A group's path t (0 to 1) of the way: the same form as the editor's (Editor.tsx toPath), so at 1 it is the same text.
+// The way round a turn goes on the page: the drawing's y runs down the page, so a turn's sign is the one that takes the
+// old drawing's points nearest the new one's.
+function pageTurn(a: PartIn, b: PartIn, turn: Turn): Turn {
+  const pa = a.drawing.polygons.flatMap((poly) => placed(a, poly)).slice(0, 12), pb = b.drawing.polygons.flatMap((poly) => placed(b, poly)).slice(0, 12);
+  const miss = (angle: number) => pa.reduce((sum, q, k) => { const r = round(q, turn.centre, angle); return sum + (pb[k] ? Math.hypot(r[0] - pb[k][0], r[1] - pb[k][1]) : 0); }, 0);
+  return miss(turn.angle) <= miss(-turn.angle) ? turn : { ...turn, angle: -turn.angle };
+}
+const round = ([x, y]: readonly number[], [cx, cy]: P, angle: number): P => {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c];
+};
+// A point t of the way: on a straight line, or round a turn's centre with the difference from the new drawing added in.
+const along = (fx: number, fy: number, tx: number, ty: number, t: number, turn?: Turn): P => {
+  if (!turn) return [fx + (tx - fx) * t, fy + (ty - fy) * t];
+  const [ex, ey] = round([fx, fy], turn.centre, turn.angle), [rx, ry] = round([fx, fy], turn.centre, turn.angle * t);
+  return [rx + (tx - ex) * t, ry + (ty - ey) * t];
+};
+// A group's path t (0 to 1) of the way, in the editor's form (Editor.tsx toPath): at 0 and 1 the same shapes.
 export function slidePath(g: Group, t: number): string {
   let out = "", k = 0;
   for (const n of g.sizes) {
     out += "M";
     for (let j = 0; j < n; j++, k += 2) {
-      const x = g.from[k] + (g.to[k] - g.from[k]) * t, y = g.from[k + 1] + (g.to[k + 1] - g.from[k + 1]) * t;
-      out += `${j ? "L" : ""}${x.toFixed(2)} ${y.toFixed(2)}`;
+      // Rounded to a hundredth of a pixel, as the editor's own paths are (toFixed(2) is several times slower).
+      let x: number, y: number;
+      if (g.turn) [x, y] = along(g.from[k], g.from[k + 1], g.to[k], g.to[k + 1], t, g.turn);
+      else { x = g.from[k] + (g.to[k] - g.from[k]) * t; y = g.from[k + 1] + (g.to[k + 1] - g.from[k + 1]) * t; }
+      out += (j ? "L" : "") + Math.round(x * 100) / 100 + " " + Math.round(y * 100) / 100;
     }
     out += "Z";
   }
   return out;
 }
-export const slideAt = (from: P, to: P, t: number): P => [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+export const slideAt = (from: P, to: P, t: number, turn?: Turn): P => along(from[0], from[1], to[0], to[1], t, turn);

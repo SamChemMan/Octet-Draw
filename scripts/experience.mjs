@@ -163,14 +163,17 @@ const once = async (url, scenario, rate) => {
     let last = first;
     for (let k = first + 1, gap = 0; k < frames.length && gap <= 2; k++) frames[k][1] ? ((last = k), (gap = 0)) : gap++;
     const moving = frames.slice(first, last + 1).filter((f) => f[1]);
-    return { latency: frames[first][0], frames: moving.length, span: frames[last][0] - frames[first][0] };`);
+    // Jitter: the longest frame of the glide against its median frame (frames of uneven length read as stutter).
+    const gaps = frames.slice(first + 1, last + 1).map((f, k) => f[0] - frames[first + k][0]).sort((a, b) => a - b);
+    const jitter = gaps.length >= 3 ? Math.round(gaps[gaps.length - 1] - gaps[gaps.length >> 1]) : 0;
+    return { latency: frames[first][0], frames: moving.length, span: frames[last][0] - frames[first][0], jitter, longest: gaps[gaps.length - 1] ?? 0 };`);
 };
 const median = (xs) => { const s = xs.filter((x) => x !== undefined).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : undefined; };
 const measure = async (url, scenario, rate) => {
   const runs = [];
   for (let k = 0; k < plan.runs; k++) runs.push(await once(url, scenario, rate));
   if (runs.some((r) => r.missing)) return { missing: true };
-  return { latency: median(runs.map((r) => r.latency)), frames: median(runs.map((r) => r.frames)), span: median(runs.map((r) => r.span)) };
+  return { latency: median(runs.map((r) => r.latency)), frames: median(runs.map((r) => r.frames)), span: median(runs.map((r) => r.span)), jitter: median(runs.map((r) => r.jitter)), longest: median(runs.map((r) => r.longest)) };
 };
 
 // ——— The rules ———
@@ -194,6 +197,9 @@ try {
       // Smooth on a cheap laptop: frames a second over the glide (decision 0024: 60 is smooth, under about 12 jerks).
       const fps = now.span ? (1000 * now.frames) / now.span : 0, floor = plan.glide.fps?.[rate];
       if (floor && now.span >= plan.glide.span && fps < floor) fail("smooth", `the glide ran at ${Math.round(fps)} frames a second (at least ${floor})`);
+      // Even: no frame of the glide much longer than its others (a hitch reads as stutter, however fast the rest).
+      const jitter = plan.glide.jitter?.[rate];
+      if (jitter !== undefined && now.jitter > jitter) fail("even", `a frame of the glide took ${now.jitter} ms longer than its median frame (at most ${jitter})`);
     }
     if (!was.missing && was.latency !== undefined && now.latency > was.latency * plan.slower.ratio + plan.slower.ms)
       fail("speed", `the canvas answered in ${now.latency} ms, ${base} in ${was.latency} ms (allowed: ${Math.round(was.latency * plan.slower.ratio + plan.slower.ms)} ms)`);
@@ -202,7 +208,7 @@ try {
   ws.close(); chrome.kill(); servers.base.server.close(); servers.head.server.close(); cleanup();
 }
 
-const cell = (r) => (r.missing ? "missing" : `${r.latency ?? "-"} ms, ${r.frames} frames over ${r.span} ms`);
+const cell = (r) => (r.missing ? "missing" : `${r.latency ?? "-"} ms, ${r.frames} frames over ${r.span} ms, longest frame ${Math.round(r.longest ?? 0)} ms`);
 const table = [`| Scenario | CPU | ${base} | ${head ?? "this commit"} |`, "| --- | --- | --- | --- |", ...rows.map((r) => `| ${r.scenario} | ${r.rate}x | ${cell(r.was)} | ${cell(r.now)} |`)].join("\n");
 writeFileSync(join(out, "experience.md"), `${table}\n\n${failures.length ? failures.map((f) => `- ${f}`).join("\n") : "Nothing is worse."}\n`);
 writeFileSync(join(out, "experience.json"), JSON.stringify({ base, head: head ?? "HEAD", rows, failures }, null, 1));

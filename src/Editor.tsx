@@ -126,6 +126,7 @@ import { Exit, reduced, timing, tween } from "./motion";
 import { between, moving } from "./glide";
 import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
+import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
@@ -354,14 +355,6 @@ function rub(m: Mol, a: P, b: P, r: number, bonds: Set<number>, atoms: Set<numbe
   }
 }
 
-// Whether only the structures differ between two drawings, so a glide between them can be a fast one (GlideLayer.tsx):
-// the same text, arrows, shapes, cycles and grids, and nothing drawn from the atoms outside their ink and labels (ring
-// fills, halos, a draw order, compound numbers under a structure).
-function onlyStructures(a: Mol, b: Mol): boolean {
-  const same = <T,>(x: T[] = [], y: T[] = []) => x.length === y.length && x.every((v, i) => v === y[i]);
-  return a.atoms.length === b.atoms.length && same(a.arrows, b.arrows) && same(a.shapes, b.shapes) && same(a.captions, b.captions) && same(a.cycles, b.cycles) &&
-    !a.fills?.length && !b.fills?.length && !b.grids?.length && !b.captions?.some((c) => c.under?.length) && !b.atoms.some((x) => x.halo || x.order) && !b.bonds.some((x) => x.halo);
-}
 // Groups ink by colour: one list of polygons per colour, in first-seen order (undefined is the document's ink).
 function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [string | undefined, P[][]][] {
   const groups = new Map<string | undefined, P[][]>();
@@ -1010,13 +1003,17 @@ export default function Editor() {
   // the system's settings, moves it at once. A command that comes again before the last glide is over (a key held
   // down) glides on from the picture on screen. path: the way there when it is not a straight line (a turn).
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
-  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideShown = useRef<Mol>(undefined);
+  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined; turn?: { centre: P; degrees: number }; before?: SVGGElement }>(undefined), glideShown = useRef<Mol>(undefined);
   // The fast glide (glideplan.ts, GlideLayer.tsx): when only structures move, their frames slide the ink already drawn,
   // and the editor draws the drawing twice in all (where it starts and where it ends), not once a frame.
-  const [fast, setFast] = useState<{ to: Mol; plan: GlidePart[]; ids: Set<number>; n: number }>(), fastNow = useRef<{ from: Mol; to: Mol; t: number }>(undefined), fastCount = useRef(0);
-  const glideTo = (mol: Mol, path?: (t: number) => Mol) => {
-    const f = fastNow.current, from = glideShown.current ?? (f && between(f.from, f.to, f.t)) ?? doc;
-    if (!reduced() && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined };
+  const [fast, setFast] = useState<{ to: Mol; plan: GlidePart[]; dom?: DomTween; n: number }>(), fastNow = useRef<{ from: Mol; to: Mol; t: number }>(undefined), fastCount = useRef(0), glidingNow = useRef(false), fastDom = useRef<DomTween>(undefined);
+  // turn: a turn's centre (drawing) and degrees, so its fast glide goes round, not across.
+  const glideTo = (mol: Mol, path?: (t: number) => Mol, turn?: { centre: P; degrees: number }) => {
+    const f = fastNow.current, from = glideShown.current ?? (f && between(f.from, f.to, f.t)) ?? doc, world = document.getElementById("world");
+    // The canvas as it is, for the fast glide of everything but the structures' ink (domtween.ts): mid-glide, the glide
+    // layer's copy as it is this frame, so text and arrows glide on from where they are too.
+    const before = f && fastDom.current ? copyOf(fastDom.current.root) : world ? copyOf(world) : undefined;
+    if (!reduced() && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined, turn: from === doc ? turn : undefined, before };
     set(mol, true);
   };
   // The glide starts before the new drawing is first painted, from where the atoms were.
@@ -1025,13 +1022,17 @@ export default function Editor() {
     glideNext.current = undefined;
     if (!next) return;
     const to = doc;
-    if (!next.path && partCache.current && onlyStructures(next.from, to)) {
+    const world = document.getElementById("world");
+    if ((!next.path || next.turn) && partCache.current && world) {
       const parts = (m: Mol) => renderParts(m, frame, measure, L, partCache.current!.cache, true), a = parts(next.from), b = parts(to);
-      const plan = !a.electrons.length && !b.electrons.length && !a.beads.length && !b.beads.length ? glidePlan(a.parts, b.parts) : undefined;
+      const turn = next.turn && { centre: [next.turn.centre[0] * L, -next.turn.centre[1] * L] as P, angle: (next.turn.degrees * Math.PI) / 180 };
+      const plan = glidePlan(a.parts, b.parts, turn);
       if (plan) {
         fastNow.current = { from: next.from, to, t: 0 };
-        setFast({ to, plan, ids: new Set(plan.map((x) => x.id)), n: ++fastCount.current });
-        return () => { fastNow.current = undefined; setFast(undefined); };
+        const dom = next.before && domTween(next.before, world);
+        fastDom.current = dom;
+        setFast({ to, plan, dom, n: ++fastCount.current });
+        return () => { fastNow.current = undefined; fastDom.current = undefined; setFast(undefined); };
       }
     }
     const path = next.path ?? ((t: number) => between(next.from, to, t));
@@ -3117,7 +3118,7 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]]) && !fast?.ids.has(ids[0])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing, fast]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure that settles into ink (FEEL-43): its atoms from this one on.
   const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
@@ -3139,7 +3140,7 @@ export default function Editor() {
         cache.set(d, texts);
       }
       if (turn) texts = texts.map((t, i) => <g key={i} transform={`rotate(${-turn} ${d.labelAt[i][0]} ${d.labelAt[i][1]})`}>{t}</g>);
-      return texts.length ? <g key={ids[0]} className={ids[0] >= settling ? "settle" : undefined} transform={moveBy(at, k, turn)}>{texts}</g> : null;
+      return texts.length ? <g key={ids[0]} data-glide="structure" className={ids[0] >= settling ? "settle" : undefined} transform={moveBy(at, k, turn)}>{texts}</g> : null;
     });
   }, [drawing, darkPaper, style.labelFont, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where each stereo flag goes, worked out once per change of the atoms or bonds.
@@ -4063,7 +4064,7 @@ export default function Editor() {
     const c = turnCentre(), mol = turnedParts(doc, degrees, c), from = doc;
     lastRepeat.current = { rotate: degrees };
     lastTurn.current = { mol, selection, picked, centre: c };
-    glideTo(mol, (t) => turnedParts(from, degrees * t, c));
+    glideTo(mol, (t) => turnedParts(from, degrees * t, c), { centre: c, degrees });
   };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of what is chosen as drawn.
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
@@ -5292,18 +5293,22 @@ export default function Editor() {
   }
   useEffect(() => {
     if (home) return;
-    let timer = window.setTimeout(() => {
+    let timer = 0;
+    const start = () => {
+      // Not while a glide runs: the names wait until the drawing is still.
+      if (glidingNow.current) { timer = window.setTimeout(start, 100); return; }
       const { items, wanted } = accessItems(), base = doc;
       setAccess({ doc: base, items });
       let k = 0;
       const fill = () => {
         const t0 = performance.now();
-        while (k < wanted.length && performance.now() - t0 < 8) { const [key, atoms] = wanted[k++]; fillFact(key, atoms, base); }
-        if (k < wanted.length) timer = window.setTimeout(fill, 0);
+        while (k < wanted.length && performance.now() - t0 < 8 && !glidingNow.current) { const [key, atoms] = wanted[k++]; fillFact(key, atoms, base); }
+        if (k < wanted.length) timer = window.setTimeout(fill, glidingNow.current ? 100 : 0);
         else setFactsAdded((n) => n + 1);
       };
       if (wanted.length) timer = window.setTimeout(fill, 0);
-    }, 300);
+    };
+    timer = window.setTimeout(start, 300);
     return () => clearTimeout(timer);
   }, [doc, drawing, placed, arrows, cycleArrows, loaded, namesLoaded, factsAdded, home]); // eslint-disable-line react-hooks/exhaustive-deps
   // The objects as the drawing is now: those worked out, or worked out at once when the drawing changed since.
@@ -5823,7 +5828,19 @@ export default function Editor() {
   // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
   // below).
   const settled = shown === doc;
-  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a glide runs, only the canvas works (decision 0024): the side panels keep what they last drew and catch up
+  // when it ends, and work for them (the panel's context, the screen reader's names) waits. A panel a moment late is
+  // fine; a glide that stutters is not.
+  const gliding = !!fast || glide?.to === doc || !!glideNext.current;
+  glidingNow.current = gliding;
+  const stillPanels = useRef(new Map<string, React.ReactNode>()), lastPanel = useRef<Context>(undefined);
+  const holdPanels = (name: string, make: () => React.ReactNode) => {
+    if (gliding && stillPanels.current.has(name)) return stillPanels.current.get(name);
+    const made = make();
+    stillPanels.current.set(name, made);
+    return made;
+  };
+  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
@@ -7795,10 +7812,33 @@ export default function Editor() {
       </g>
     </>
   ) : null;
+  // The selected bonds and atoms as one path each (the layer's one opacity makes overlaps one tint): a thousand atoms are
+  // two elements, not two thousand, so the canvas and a glide (domtween.ts) stay quick. A labelled atom's mark is its
+  // label's box with round corners, any other atom's a circle; each drawn clockwise, so overlaps join.
+  const selectedPaths = () => {
+    let bonds = "", atoms = "";
+    const n = (x: number) => Math.round(x * 100) / 100;
+    shown.bonds.forEach((b, i) => {
+      if (!selection.has(b.atoms[0]) || !selection.has(b.atoms[1]) || shown.atoms[b.atoms[0]].hidden || shown.atoms[b.atoms[1]].hidden) return;
+      const [p, q] = shown.bonds[i].atoms.map((k) => pos(shown, k));
+      bonds += `M${n(p[0] * L)} ${n(-p[1] * L)}L${n(q[0] * L)} ${n(-q[1] * L)}`;
+    });
+    for (const i of selection) {
+      if (i >= shown.atoms.length || shown.atoms[i].hidden) continue;
+      const box = drawing.label[i], pad = 0.16 * L;
+      if (box) {
+        const [x, y, w, h] = [box[0] - pad, box[1] - pad, box[2] - box[0] + 2 * pad, box[3] - box[1] + 2 * pad], r = Math.min(0.32 * L, (box[3] - box[1]) / 2 + pad, w / 2);
+        atoms += `M${n(x + r)} ${n(y)}H${n(x + w - r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + w)} ${n(y + r)}V${n(y + h - r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + w - r)} ${n(y + h)}H${n(x + r)}A${n(r)} ${n(r)} 0 0 1 ${n(x)} ${n(y + h - r)}V${n(y + r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + r)} ${n(y)}Z`;
+      } else {
+        const [cx, cy] = [pos(shown, i)[0] * L, -pos(shown, i)[1] * L], r = 0.32 * L;
+        atoms += `M${n(cx - r)} ${n(cy)}A${n(r)} ${n(r)} 0 1 1 ${n(cx + r)} ${n(cy)}A${n(r)} ${n(r)} 0 1 1 ${n(cx - r)} ${n(cy)}Z`;
+      }
+    }
+    return [bonds && <path key="sb" className="selected-bonds" d={bonds} strokeWidth={0.36 * L} />, atoms && <path key="sa" className="selected-atoms" d={atoms} />];
+  };
   const selected = drag?.kind === "erase" ? [] : [
     // Hidden H atoms (Toggle Hydrogen Display) and their bonds are selected with their structure but not marked.
-    ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) && !shown.atoms[b.atoms[0]].hidden && !shown.atoms[b.atoms[1]].hidden ? [bondMark(i, `sb${i}`, "")] : [])),
-    ...[...selection].filter((i) => i < shown.atoms.length && !shown.atoms[i].hidden).map((i) => atomMark(i, `sa${i}`, "")),
+    ...selectedPaths(),
     ...[...picked].map((id) => captionMark(id, `sc${id}`, "") ?? arrowMark(id, `sr${id}`, "")),
     // A picked cycle's arrows; of a picked step or side arrow, its own alone.
     ...cycleArrows.filter((a) => picked.has(a.cycle) && (branchPick?.cycle !== a.cycle || a.branch === branchPick.branch) && (stepPick?.cycle !== a.cycle || (a.branch === undefined && a.step === stepPick.step))).map((a) => <polyline key={`sy${a.id}`} className="arrow-mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />),
@@ -8206,7 +8246,7 @@ export default function Editor() {
   const inkFill = (key: string) => { const [colour, alpha] = key.split("|"); return { fill: colour ? textInk(colour) : "var(--ink)", fillOpacity: Number(alpha) < 1 ? Number(alpha) : undefined }; };
   const ink = useMemo(() => (
     <>
-      {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+      {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} data-glide="structure" className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
       {drawing.beads.length > 0 && (
         // Polymer beads: spheres lit from the top left, over the bond they end.
         <>
@@ -8226,29 +8266,29 @@ export default function Editor() {
   const over = useMemo(() => (
     <>
       {(shown.shapes ?? []).filter(level).map(shapeLines)}
-      {!fast && shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] && !(settings.hideAbs && a.enhanced === "abs") ? (
+      {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] && !(settings.hideAbs && a.enhanced === "abs") ? (
         // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them. Settings > Drawing >
         // Hide abs flags hides the absolute ones (ChemDraw's Hide Absolute Stereoflags).
         <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * scaleOf(a) * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * scaleOf(a) * markDirs.get(i)![1]) * L + 0.25 * frame.size * scaleOf(a)}
           style={{ font: `${frame.size * 0.7 * scaleOf(a)}px ${fontStack(style.labelFont)}` }}>{a.enhanced}</text>
       ) : null)}
-      {!fast && drawing.maps.map((n) => (
+      {drawing.maps.map((n) => (
         // Atom map numbers: in brand blue, in the label's face, where render puts them (clear of the label and bonds).
         <text key={`map${n.atom}`} className="atom-map" textAnchor="middle" x={n.at[0]} y={n.at[1] + n.h / 2} style={{ font: labelFont({ ...shown.atoms[n.atom], size: n.size }) }}>{n.text}</text>
       ))}
-      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]) && !fast?.ids.has(drawing.parts[k].ids[0]))}
+      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
       {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs, fast]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
     drawing.parts.forEach(({ ids, drawing: d, at, k: grown, turn }, k) => {
       const o = shown.atoms[ids[0]]?.order;
       if (o) things.push([o, (
-        <g key={`os${ids[0]}`}>
+        <g key={`os${ids[0]}`} data-glide="structure">
           {structurePaths(d).map(([key, path]) => { const [colour, alpha] = key.split("|"); return <path key={key} d={path} transform={moveBy(at, grown, turn)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
           {labelTexts[k]}
         </g>
@@ -8374,7 +8414,7 @@ export default function Editor() {
             {copied?.page && <rect key={copied.n} className="page-copied" x={(-pages[0][1] / 2) * mm * L} y={(-pages[0][2] / 2) * mm * L} width={pages[0][1] * mm * L} height={pages[0][2] * mm * L} vectorEffect="non-scaling-stroke" />}
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
-          <g id="world">
+          <g id="world" className={fast ? (fast.dom ? "gliding" : "gliding-structures") : undefined}>
           {/* An experiment's details at the top of its page: part of the page as it prints and exports, not of a part copied. */}
           {details && (!exporting || exporting === doc) && (
             <g className="details" fill="var(--ink)">
@@ -8387,7 +8427,7 @@ export default function Editor() {
             ? `translate(${drag.anchor[0] * L * (1 - drag.size[0])} ${-drag.anchor[1] * L * (1 - drag.size[0])}) scale(${drag.size[0]})` : undefined}>
           {lifted.back}
           {under}
-          {!fast && marks}
+          {marks}
           {ink}
           {offer && (() => {
             // The offered arrow, faint, with the key that takes it.
@@ -8403,8 +8443,10 @@ export default function Editor() {
             );
           })()}
           {over}
+          {lifted.front}
+          </g>
           {fast && (
-            <GlideLayer key={fast.n} plan={fast.plan} ink={inkFill} text={(l) => ({ fill: l.colour ? textInk(l.colour) : "var(--ink)", fillOpacity: l.alpha, textDecoration: l.underline ? "underline" : undefined, style: { font: labelFont(l) } })}
+            <GlideLayer key={fast.n} plan={fast.plan} dom={fast.dom} ink={inkFill} text={(l) => ({ fill: l.colour ? textInk(l.colour) : "var(--ink)", fillOpacity: l.alpha, textDecoration: l.underline ? "underline" : undefined, style: { font: labelFont(l) } })}
               part={(x: PartIn) => (
                 <g transform={moveBy(x.at, x.k, x.turn)}>
                   {structurePaths(x.drawing).map(([key, path]) => <path key={key} d={path} {...inkFill(key)} />)}
@@ -8412,10 +8454,8 @@ export default function Editor() {
                 </g>
               )}
               skip={(t) => { const f = fastNow.current; return !!f && !between(f.from, f.to, t); }}
-              onFrame={(t) => { if (fastNow.current) fastNow.current.t = t; }} onDone={() => { fastNow.current = undefined; setFast(undefined); }} />
+              onFrame={(t) => { if (fastNow.current) fastNow.current.t = t; }} onDone={() => { fastNow.current = undefined; fastDom.current = undefined; setFast(undefined); }} />
           )}
-          {lifted.front}
-          </g>
           {(pen || drag?.kind === "pen") && (() => {
             // The Pen's points as small squares, and the handle being dragged out of the point being placed.
             const r = 3.5 / view.zoom, now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : undefined;
@@ -8990,6 +9030,7 @@ export default function Editor() {
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
+      {holdPanels("panels", () => (<>
       <Exit>{spectrum && <Live store={hovers}>{(hover) => (
         <SpectrumPanel
           spectrumKey={spectrum}
@@ -9104,6 +9145,7 @@ export default function Editor() {
           />
         );
       }}</Live>
+      </>))}
       <Exit>{sideAsk && (
         <ContextMenu label="Side arrow" at={sideAsk} keyboard sub={() => undefined} onClose={() => setSideAsk(undefined)} onChoose={(k) => chooseSide(sideAsk, k as "in" | "out" | "both")}
           groups={[sideAsk.choices.map((k) => ({ key: k, name: { in: "Reagent", out: "Product", both: "Reagent and product" }[k], icon: <SideGlyph ends={k} /> }))]} />
