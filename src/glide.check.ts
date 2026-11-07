@@ -2,7 +2,7 @@
 // was, end where it is, keep what did not move, and leave out a frame that does not draw well.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { between, MOST_GLIDE, moving } from "./glide.ts";
+import { between, moving } from "./glide.ts";
 import type { Mol } from "./render.ts";
 
 // Ethanol and a reaction arrow. The clean-up moves the oxygen and the arrow; the first carbon stays.
@@ -20,7 +20,6 @@ const b: Mol = {
 assert.equal(moving(a, b), 3, "two atoms and the arrow move");
 assert.equal(moving(a, { ...a }), 0, "nothing moves");
 assert.equal(moving(a, { ...b, atoms: b.atoms.slice(1) }), undefined, "a drawing with an atom less does not glide");
-assert.ok(MOST_GLIDE === 300);
 
 const start = between(a, b, 0)!, end = between(a, b, 1)!, mid = between(a, b, 0.5)!;
 assert.deepEqual(start.atoms.map((x) => x.location), a.atoms.map((x) => x.location), "it starts where the atoms were");

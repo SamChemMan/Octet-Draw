@@ -3,8 +3,6 @@
 import type { Mol } from "./render";
 
 type P = [number, number];
-// At most this many atoms (and objects) glide. With more, the drawing changes at once, so a big drawing stays quick.
-export const MOST_GLIDE = 300;
 
 const near = (p: readonly number[], q: readonly number[]) => Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9;
 // How many atoms b moves from where a has them, and how many arrows, shapes, captions and cycles it changes; undefined

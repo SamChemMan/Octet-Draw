@@ -50,6 +50,43 @@ On a slow computer 1.1.0 stopped each pass after 100 ms, so its large structures
 from run to run. A large structure on a very slow computer is the one case still slower than 1.1.0 (within the
 experience check's 25%), and it now glides.
 
+## Every glide shows
+
+Sam, 7 November 2026: no case may drop a glide or an animation. A very large drawing may take a little longer, as
+long as it never feels slow. The research this follows:
+
+- About 0.1 s is the limit for a reply to feel instant, and about 1 s for the user's flow of thought to go on
+  (Miller 1968; Card, Robertson and Mackinlay 1991; Nielsen, Usability Engineering, 1993:
+  https://www.nngroup.com/articles/response-times-3-important-limits/).
+- Smooth motion needs a frame every 16 ms (60 a second; Google's RAIL model, Irish and Lewis 2015). Motion reads as
+  continuous from about 10 to 12 frames a second, and frames of uneven length read as stutter (McDonnell, Newell and
+  O'Sullivan 2007 found the rate needed depends on the speed and kind of motion).
+
+So:
+
+- Every Clean Up, turn (of any angle), Rotate 180°, Flip, Align, Distribute, Line up and cycle tidy glides, however
+  large the drawing. The limit of 300 atoms is gone.
+- A command that comes again before the last glide is over (a key held down) glides on from the picture on screen.
+  It no longer jumps.
+- Each frame takes a glide at most a sixth of the way (`LEAST_FRAMES` in `src/tween.ts`), so it always shows at least
+  6 frames. At 60 frames a second the glide takes its 180 ms. Only when one frame takes longer than 30 ms (a drawing
+  of hundreds of atoms on a slow computer) does it last longer, never a jump.
+- The glide's first frame is the drawing it starts from, which is drawn already, so it costs nothing.
+- Reduced motion, which the user chose in the system's settings, moves the drawing at once. This is the one case,
+  and it is the user's own choice (accessibility).
+
+Measured from a real click (`scripts/experience.mjs`, this computer, which is about 3 times slower than an M1):
+
+| | 1.1.1 | Now |
+| --- | --- | --- |
+| Clean Up, 885-atom peptide | no glide | 7 frames over 282 ms |
+| Rotate 180°, 885-atom peptide | no glide | 7 frames over 293 ms |
+| Turn 15° twice, 60 ms apart | glide cut at 84 ms | 17 frames over 288 ms |
+
+With the computer 4 times slower again, the 885-atom glides take about 1 s at about 6 frames a second. That is the
+one case under 10 frames a second; making each frame of such a drawing cheaper (drawing less than the whole editor
+again each frame) is the next step.
+
 ## Decision
 
 A release never takes away or makes worse something users had in the release before it, unless Sam approves that

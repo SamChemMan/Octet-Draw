@@ -149,7 +149,11 @@ const once = async (url, scenario, rate) => {
       };
       requestAnimationFrame(tick);
     });`);
-  for (const type of ["mousePressed", "mouseReleased"]) await call("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+  // clicks: the button pressed again that soon after (gap ms), as a key held down repeats it.
+  for (let k = 0; k < (scenario.clicks ?? 1); k++) {
+    if (k) await sleep(scenario.gap ?? 60);
+    for (const type of ["mousePressed", "mouseReleased"]) await call("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+  }
   return run(`
     const frames = await window.__frames;
     // The answer is the first frame that changed; the glide is the changed frames that follow it (a frame or two
