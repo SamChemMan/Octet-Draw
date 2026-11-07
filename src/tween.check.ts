@@ -49,6 +49,17 @@ for (const busy of [400, 150, 0]) {
   assert.ok(seen.length >= 10, `after ${busy} ms of work the glide still has its frames (${seen.length})`);
   assert.ok(seen.every(([, t], k) => k === 0 || t >= seen[k - 1][1]), "the glide only goes forward");
 }
+// Frames that take long (a very large drawing on a slow computer: 120 ms each) make the motion longer, never a jump:
+// at least LEAST_FRAMES frames, each at most 1/LEAST_FRAMES of the way on.
+const { LEAST_FRAMES } = await import("./tween.ts");
+{
+  now = 0; timeline = 0; queue = [];
+  const seen: [number, number][] = [];
+  frames((t) => seen.push([now, t]), { duration: DURATION, easing: "ease-out" });
+  for (let t = 120; queue.length && t < 10000; t += 120) frame(t);
+  assert.ok(seen.length >= LEAST_FRAMES, `slow frames: the glide still has ${LEAST_FRAMES} frames (${seen.length})`);
+  assert.ok(seen.slice(0, -1).every(([, t]) => t < 1) && seen[seen.length - 1][1] === 1, "slow frames: it ends at 1, and only at the end");
+}
 // Stopped, it draws no more frames.
 queue = [];
 const stop = frames(() => {}, { duration: DURATION, easing: "ease-out" });

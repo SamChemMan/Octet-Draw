@@ -123,7 +123,7 @@ import { Select } from "./Select";
 import { expandGeneric, layoutGrid, MOST } from "./expand";
 import { NoticeBar, type Notice } from "./NoticeBar";
 import { Exit, reduced, timing, tween } from "./motion";
-import { between, MOST_GLIDE, moving } from "./glide";
+import { between, moving } from "./glide";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
@@ -992,18 +992,18 @@ export default function Editor() {
   // The drawings made by a scale of the whole drawing, each with how far it zoomed the view (commitScale). Undo and redo
   // of such a scale zoom back and again, so the drawing and the page look as they did.
   const zoomedBy = useRef(new WeakMap<Mol, number>());
-  // Clean up, Rotate 180°, Flip, a turn of 15° or more, Align, Distribute, Line up, and a catalytic cycle made or tidied
-  // glide into place (FEEL-38). Not during an AI app's call (mcpCalling): its tools measure what is on screen, and
-  // waiting for each glide made every call slower. The drawing changes at once, as one undo step. Only the picture on screen moves to it
-  // (glide). There is no glide with reduced motion, with more than MOST_GLIDE atoms moving, or for a command that comes
-  // again before the last glide is over (a key held down). path: the way there when it is not a straight line (a turn);
-  // false: no glide.
+  // Clean up, Rotate 180°, Flip, every turn, Align, Distribute, Line up, and a catalytic cycle made or tidied glide into
+  // place (FEEL-38). The drawing changes at once, as one undo step. Only the picture on screen moves to it (glide).
+  // Every such change glides, however large the drawing (decision 0024), except with reduced motion, which the user
+  // chose in the system's settings, and during an AI app's call (mcpCalling): its tools measure what is on screen, and
+  // waiting for each glide made every call slower (open with Sam, decision 0024). A command that comes again before the
+  // last glide is over (a key held down) glides on from the picture on screen. path: the way there when it is not a
+  // straight line (a turn).
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
-  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideAt = useRef(0);
-  const glideTo = (mol: Mol, path?: ((t: number) => Mol) | false) => {
-    const now = performance.now(), again = now - glideAt.current < timing().duration, n = moving(doc, mol);
-    glideAt.current = now;
-    if (path !== false && !again && !reduced() && n && n <= MOST_GLIDE && !mcpCalling.current) glideNext.current = { from: doc, path };
+  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideShown = useRef<Mol>(undefined);
+  const glideTo = (mol: Mol, path?: (t: number) => Mol) => {
+    const from = glideShown.current ?? doc;
+    if (!reduced() && !mcpCalling.current && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined };
     set(mol, true);
   };
   // The glide starts before the new drawing is first painted, from where the atoms were.
@@ -1012,15 +1012,17 @@ export default function Editor() {
     glideNext.current = undefined;
     if (!next) return;
     const to = doc, path = next.path ?? ((t: number) => between(next.from, to, t));
+    // At 0 the picture is the drawing it starts from, whose structures are drawn already (renderParts keeps them).
     const step = (t: number) => {
-      if (t >= 1) return setGlide(undefined);
-      const mol = path(t);
-      if (mol) setGlide({ to, mol });
+      if (t >= 1) { glideShown.current = undefined; return setGlide(undefined); }
+      const mol = t === 0 ? next.from : path(t);
+      if (mol) { glideShown.current = mol; setGlide({ to, mol }); }
     };
     step(0);
-    // A new drawing (an edit, undo) ends the glide at once. Redo can bring back the same drawing, so none is kept.
+    // A new drawing (an edit, undo) ends the glide at once (a command that glides starts the next one from where this
+    // one is). Redo can bring back the same drawing, so none is kept.
     const stop = tween(step);
-    return () => { stop(); setGlide(undefined); };
+    return () => { stop(); glideShown.current = undefined; setGlide(undefined); };
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // A structure placed from Name to structure settles from its faint ghost into full ink (FEEL-43): the first atom it
   // has, in the drawing it went into.
@@ -4172,13 +4174,13 @@ export default function Editor() {
     return k !== undefined ? pos(doc, k) : selectionMiddle();
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
-  // A turn of 15° or more glides round the centre, so the structure keeps its shape on the way (a 1° turn is at once).
+  // A turn glides round the centre, so the structure keeps its shape on the way; a key held down turns on smoothly.
   // Every turn by an angle (the Turn keys and actions, Rotate…) is the one Edit > Repeat does next.
   const rotateBy = (degrees: number) => {
     const c = turnCentre(), mol = turnedParts(doc, degrees, c), from = doc;
     lastRepeat.current = { rotate: degrees };
     lastTurn.current = { mol, selection, picked, centre: c };
-    glideTo(mol, Math.abs(degrees) >= 15 && ((t) => turnedParts(from, degrees * t, c)));
+    glideTo(mol, (t) => turnedParts(from, degrees * t, c));
   };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of what is chosen as drawn.
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
