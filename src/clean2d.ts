@@ -213,7 +213,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   const lens = bonds.map(([a, b]) => Math.hypot(xy[2 * a] - xy[2 * b], xy[2 * a + 1] - xy[2 * b + 1])).sort((p, q) => p - q);
   const T = lens.length % 2 ? lens[lens.length >> 1] : (lens[lens.length / 2] + lens[lens.length / 2 - 1]) / 2;
   if (!(T > 0)) return;
-  const H = T * 1e-5; // the gradient's step
+  const H = T * 1e-5; // the room round each pair search (collect)
   // Pairs of atoms in one block (they are not pushed apart), and pairs in one biconnected block (ring angles).
   const pairsOf = (comps: Uint8Array[]) => {
     const same = new Uint8Array(n * n);
@@ -385,11 +385,13 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     }
     return [v, { edges: [...edges], around: [...around] }];
   }));
-  // The work, in energy terms worked out: each round's gradient (four shifts of each base atom's group, each summing
-  // the bonds, angles and close pairs it touches), then each energy along its step (every atom, bond, angle and
-  // following atom at 1.5 a term, every pair it checks at 0.5), and n² for the setup above. An angle of the second pass
-  // at an atom of d bonds costs d + d²/4 (its bonds are sorted by angle). Fitted to the times of src/cleanup.check.ts's
-  // and src/cleanup-geometry.check.ts's structures, a unit takes 6 to 13 ns on an M1 Pro.
+  // The work, in energy terms worked out: each round's gradient (counted as four shifts of each base atom's group,
+  // each summing the bonds, angles and close pairs it touches, as the gradient was measured up to 1.1.1), then each
+  // energy along its step (every atom, bond, angle and following atom at 1.5 a term, every pair it checks at 0.5), and
+  // n² for the setup above. An angle of the second pass at an atom of d bonds costs d + d²/4 (its bonds are sorted by
+  // angle). Fitted to the times of src/cleanup.check.ts's and src/cleanup-geometry.check.ts's structures, a unit took
+  // 6 to 13 ns on an M1 Pro. The exact gradient (gradient, after 1.1.1) and a line search that stops at its lowest point
+  // make a unit about twice as quick, and the count is kept, so a pass stops where it did.
   const angleCost = (i: number) => (external ? nei[i].length * (1 + nei[i].length / 4) : angles[i].length / 2);
   const shared = new Float64Array(n);
   let fixed = 2 * n, evalCost = n + E;
@@ -405,35 +407,70 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     for (let u = 0; u < n; u++) r += shared[u] * (starts[u + 1] - starts[u]);
     return r;
   };
-  const mark = new Int32Array(n).fill(-1), saved = new Float64Array(2 * n);
-  // The energy terms that moving base atom v's group changes.
-  const local = (v: number) => {
-    const m = moves.get(v)!, { edges, around } = touched.get(v)!;
-    let r = 0;
-    for (const e of edges) r += edgeTerm(e);
-    for (const i of around) r += angleTerm(i);
-    for (let k = 0; k < m.length; k += 3) {
-      const u = m[k];
-      for (let q = starts[u]; q < starts[u + 1]; q++) { const j = partners[q]; if (!(mark[j] >= 0 && mark[j] < k)) r += pairTerm(u, j); }
-    }
-    return r;
+  // The energy's exact gradient for every atom (ga), in one sweep over the terms: the same as moving each atom a
+  // little each way and measuring (diff), with no step to choose. Then each base atom's gradient: its group moves with
+  // it, each atom turned and scaled by its coefficients.
+  const ga = new Float64Array(2 * n);
+  const turnOf = (ix: number, iy: number, w: number, k: number) => {
+    // d(angle of w seen from i) / d(position of w), times k, onto w and (negated) onto i.
+    const x = pos[2 * w] - ix, y = pos[2 * w + 1] - iy, r2 = x * x + y * y;
+    return [(-y / r2) * k, (x / r2) * k];
   };
-  const diff = (v: number): [number, number] => {
-    const m = moves.get(v)!;
-    for (let k = 0; k < m.length; k += 3) { const u = m[k]; mark[u] = k; saved[2 * u] = pos[2 * u]; saved[2 * u + 1] = pos[2 * u + 1]; }
-    const shift = (sx: number, sy: number) => {
-      for (let k = 0; k < m.length; k += 3) {
-        const u = m[k];
-        pos[2 * u] = saved[2 * u] + (m[k + 1] * sx - m[k + 2] * sy) * H;
-        pos[2 * u + 1] = saved[2 * u + 1] + (m[k + 1] * sy + m[k + 2] * sx) * H;
+  const gradient = () => {
+    ga.fill(0);
+    for (let e = 0; e < E; e++) {
+      const a = ea[e], b = eb[e], dx = pos[2 * a] - pos[2 * b], dy = pos[2 * a + 1] - pos[2 * b + 1], l = Math.sqrt(dx * dx + dy * dy);
+      if (!l) continue;
+      const k = (2 * (l - T)) / (T * T * l);
+      ga[2 * a] += k * dx; ga[2 * a + 1] += k * dy; ga[2 * b] -= k * dx; ga[2 * b + 1] -= k * dy;
+    }
+    for (let i = 0; i < n; i++)
+      for (let q = starts[i]; q < starts[i + 1]; q++) {
+        const j = partners[q];
+        if (j <= i) continue;
+        const dx = pos[2 * i] - pos[2 * j], dy = pos[2 * i + 1] - pos[2 * j + 1], d2 = dx * dx + dy * dy;
+        if (d2 >= T * T || !d2) continue;
+        const l = Math.sqrt(d2), k = (2 * (l - T)) / (T * T * l);
+        ga[2 * i] += k * dx; ga[2 * i + 1] += k * dy; ga[2 * j] -= k * dx; ga[2 * j + 1] -= k * dy;
       }
-      const r = local(v);
-      for (let k = 0; k < m.length; k += 3) { const u = m[k]; pos[2 * u] = saved[2 * u]; pos[2 * u + 1] = saved[2 * u + 1]; }
-      return r;
+    const push = (i: number, w: number, k: number) => {
+      const [gx, gy] = turnOf(pos[2 * i], pos[2 * i + 1], w, k);
+      ga[2 * w] += gx; ga[2 * w + 1] += gy; ga[2 * i] -= gx; ga[2 * i + 1] -= gy;
     };
-    const dx = shift(1, 0) - shift(-1, 0), dy = shift(0, 1) - shift(0, -1);
-    for (let k = 0; k < m.length; k += 3) mark[m[k]] = -1;
-    return [dx / (2 * H), dy / (2 * H)];
+    for (const i of centres) {
+      const ix = pos[2 * i], iy = pos[2 * i + 1];
+      if (external) {
+        const deg = nei[i].length;
+        if (deg === 2) {
+          const [v, w] = nei[i], x1 = pos[2 * v] - ix, y1 = pos[2 * v + 1] - iy, x2 = pos[2 * w] - ix, y2 = pos[2 * w + 1] - iy;
+          const alpha = Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2), d0 = Math.abs(alpha), d1 = 2 * Math.PI - d0;
+          const [p0, p1] = straight[i] ? [Math.PI, Math.PI] : [(2 * Math.PI) / 3, (4 * Math.PI) / 3];
+          // E = (d0 - p0)² + (d1 - p1)², d1 = 2π - d0, d0 = |alpha|, alpha = angle(w) - angle(v).
+          const k = (2 * (d0 - p0) - 2 * (d1 - p1)) * Math.sign(alpha);
+          push(i, w, k); push(i, v, -k);
+          continue;
+        }
+        const order = nei[i].map((w) => [Math.atan2(pos[2 * w + 1] - iy, pos[2 * w] - ix), w]).sort((a, b) => a[0] - b[0]);
+        const target = (2 * Math.PI) / deg, gap = (k: number) => (k === deg - 1 ? order[0][0] + 2 * Math.PI : order[k + 1][0]) - order[k][0] - target;
+        // Each angle starts one gap and ends the one before it.
+        for (let k = 0; k < deg; k++) push(i, order[k][1], 2 * gap((k + deg - 1) % deg) - 2 * gap(k));
+        continue;
+      }
+      const a = angles[i], goal = goals[i];
+      for (let k = 0; k < a.length; k += 2) {
+        const v1 = a[k], v2 = a[k + 1], x1 = pos[2 * v1] - ix, y1 = pos[2 * v1 + 1] - iy, x2 = pos[2 * v2] - ix, y2 = pos[2 * v2 + 1] - iy;
+        const alpha = Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2);
+        const target = straight[i] ? (alpha > 0 ? Math.PI : -Math.PI) : alpha < 0 ? -goal[k >> 1] : goal[k >> 1];
+        const c = 2 * (alpha - target);
+        push(i, v2, c); push(i, v1, -c);
+      }
+    }
+    for (const v of uniq) {
+      const m = moves.get(v)!;
+      let gx = 0, gy = 0;
+      for (let k = 0; k < m.length; k += 3) { const u = m[k], c = m[k + 1], s = m[k + 2]; gx += ga[2 * u] * c + ga[2 * u + 1] * s; gy += ga[2 * u + 1] * c - ga[2 * u] * s; }
+      grads[2 * v] = gx; grads[2 * v + 1] = gy;
+    }
   };
 
   const B = base.length, g = new Float64Array(2 * B), grads = new Float64Array(2 * n), start = new Float64Array(2 * n), energies = new Float64Array(HALVINGS + 1);
@@ -449,7 +486,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   for (let round = 0; round < rounds; round++) {
     collect(reach * H);
     work += gradWork();
-    for (const v of uniq) [grads[2 * v], grads[2 * v + 1]] = diff(v);
+    gradient();
     let len = 0, over = 0;
     base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; len += g[2 * j] ** 2 + g[2 * j + 1] ** 2; over += g[2 * j] * last[2 * j] + g[2 * j + 1] * last[2 * j + 1]; });
     const beta = settling && lastLen ? Math.max(0, (len - over) / lastLen) : 0;
@@ -479,6 +516,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
       work += 1.5 * evalCost + 0.5 * starts[n];
       pos.set(start);
       if (energies[tried] < energies[best]) best = tried;
+      else if (best && tried > best) break; // past the lowest point: smaller steps only climb back
       if (++tried > 1 && (work > budget || performance.now() > deadline)) break;
     }
     if (!best) {
