@@ -78,17 +78,38 @@ So:
   there. In 1.2 one check, `noMotion()` in `src/Editor.tsx`, covers both, at every motion: glides, the view, the page
   outlines, the shake and the settle.
 
-Measured from a real click (`scripts/experience.mjs`, this computer, which is about 3 times slower than an M1):
+### Smooth on a cheap laptop: the fast glide
 
-| | 1.1.1 | Now |
-| --- | --- | --- |
-| Clean Up, 885-atom peptide | no glide | 7 frames over 282 ms |
-| Rotate 180°, 885-atom peptide | no glide | 7 frames over 293 ms |
-| Turn 15° twice, 60 ms apart | glide cut at 84 ms | 17 frames over 288 ms |
+Sam, 7 November 2026: many users are students on cheap Windows laptops, and a glide must be smooth there too, at any
+size. Each frame used to draw the whole drawing again and have React make the editor again: about 300 ms of work a
+frame for 885 atoms on a slow laptop. Now (`src/glideplan.ts`, `src/GlideLayer.tsx`):
 
-With the computer 4 times slower again, the 885-atom glides take about 1 s at about 6 frames a second. That is the
-one case under 10 frames a second; making each frame of such a drawing cheaper (drawing less than the whole editor
-again each frame) is the next step.
+- A glide that moves only structures draws them twice in all, where they start and where they end. Each frame
+  slides the points of the ink already drawn, and each label, and writes the paths straight to the page: about 3 ms
+  for 3,000 polygons, with nothing drawn again.
+- The renderer says which bond, ring circle or symbol drew each polygon (`owners` in `src/render.ts`). What matches
+  point for point slides; a bond that does not (a hashed wedge drawn with a stripe more) fades from its old drawing
+  to its new one. A label whose text changes (OH to HO in Rotate 180°) slides as two, the old text fading out.
+- The frames where Rotate 180° squeezes every bond are left out, as before.
+- A glide that moves text, arrows, a ring fill or halos, or lone pairs, still draws each frame the old way, at least 6
+  frames. The fast glide for those is the next step.
+- The rings of a drawing are kept by its bonds, not its bond list, so Rotate 180° no longer finds them again (a
+  quarter of a second for 885 atoms on a slow laptop).
+
+From a real click (`scripts/experience.mjs`; "slow" is this computer 4 times slower, about 12 times slower than an
+M1, slower than most cheap laptops):
+
+| | 1.1.1 | Now | Now, slow |
+| --- | --- | --- | --- |
+| Clean Up, cholesterol | 2 frames over 22 ms | 13 frames over 199 ms | 13 frames over 213 ms |
+| Clean Up, taxol | 2 frames over 15 ms | 13 frames over 196 ms | 14 frames over 230 ms |
+| Clean Up, 245-atom peptide | 2 frames over 22 ms | 14 frames over 212 ms | 13 frames over 264 ms |
+| Clean Up, 885-atom peptide | no glide | 13 frames over 213 ms | 7 frames over 315 ms |
+| Rotate 180°, 885-atom peptide | no glide (answer 132 ms) | 13 frames over 210 ms (101 ms) | 7 frames over 328 ms |
+| Turn 15° twice, 60 ms apart | cut at 95 ms | 19 frames over 312 ms | 15 frames over 436 ms |
+
+The experience check now also asks for at least 40 frames a second, and 18 when 4 times slower (`fps` in
+`scripts/experience.json`). The slowest case, 885 atoms on the slow computer, runs at about 22.
 
 ## Decision
 

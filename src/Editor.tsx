@@ -124,6 +124,8 @@ import { expandGeneric, layoutGrid, MOST } from "./expand";
 import { NoticeBar, type Notice } from "./NoticeBar";
 import { Exit, reduced, timing, tween } from "./motion";
 import { between, moving } from "./glide";
+import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
+import { GlideLayer } from "./GlideLayer";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
@@ -285,11 +287,20 @@ function pictureUrl(p: Record<string, string>): string | undefined {
 // structure), so each structure is worked out once.
 const calculated = new WeakMap<Structure, Calculated>();
 // A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
-// of colour or fill, and undo find them again at once.
-const ringLists = new WeakMap<Mol["bonds"], number[][]>();
+// of colour or fill, and undo find them again at once. Kept by the bonds themselves too (which atoms each joins), so a
+// command that makes a new bond list with the same bonds (Rotate 180°, Flip) finds them at once: for 885 atoms that
+// was a quarter of a second on a slow laptop.
+const ringLists = new WeakMap<Mol["bonds"], number[][]>(), ringsByBonds = new Map<string, number[][]>();
 function drawnRings(m: Mol): number[][] {
   let found = ringLists.get(m.bonds);
-  if (!found) ringLists.set(m.bonds, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: m.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })));
+  if (found) return found;
+  const key = `${m.atoms.length}:${m.bonds.map((b) => `${b.atoms[0]}-${b.atoms[1]}`).join(",")}`;
+  found = ringsByBonds.get(key);
+  if (!found) {
+    ringsByBonds.set(key, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: m.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })));
+    if (ringsByBonds.size > 16) ringsByBonds.delete(ringsByBonds.keys().next().value!);
+  }
+  ringLists.set(m.bonds, found);
   return found;
 }
 
@@ -343,6 +354,14 @@ function rub(m: Mol, a: P, b: P, r: number, bonds: Set<number>, atoms: Set<numbe
   }
 }
 
+// Whether only the structures differ between two drawings, so a glide between them can be a fast one (GlideLayer.tsx):
+// the same text, arrows, shapes, cycles and grids, and nothing drawn from the atoms outside their ink and labels (ring
+// fills, halos, a draw order, compound numbers under a structure).
+function onlyStructures(a: Mol, b: Mol): boolean {
+  const same = <T,>(x: T[] = [], y: T[] = []) => x.length === y.length && x.every((v, i) => v === y[i]);
+  return a.atoms.length === b.atoms.length && same(a.arrows, b.arrows) && same(a.shapes, b.shapes) && same(a.captions, b.captions) && same(a.cycles, b.cycles) &&
+    !a.fills?.length && !b.fills?.length && !b.grids?.length && !b.captions?.some((c) => c.under?.length) && !b.atoms.some((x) => x.halo || x.order) && !b.bonds.some((x) => x.halo);
+}
 // Groups ink by colour: one list of polygons per colour, in first-seen order (undefined is the document's ink).
 function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [string | undefined, P[][]][] {
   const groups = new Map<string | undefined, P[][]>();
@@ -992,8 +1011,11 @@ export default function Editor() {
   // down) glides on from the picture on screen. path: the way there when it is not a straight line (a turn).
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
   const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideShown = useRef<Mol>(undefined);
+  // The fast glide (glideplan.ts, GlideLayer.tsx): when only structures move, their frames slide the ink already drawn,
+  // and the editor draws the drawing twice in all (where it starts and where it ends), not once a frame.
+  const [fast, setFast] = useState<{ to: Mol; plan: GlidePart[]; ids: Set<number>; n: number }>(), fastNow = useRef<{ from: Mol; to: Mol; t: number }>(undefined), fastCount = useRef(0);
   const glideTo = (mol: Mol, path?: (t: number) => Mol) => {
-    const from = glideShown.current ?? doc;
+    const f = fastNow.current, from = glideShown.current ?? (f && between(f.from, f.to, f.t)) ?? doc;
     if (!reduced() && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined };
     set(mol, true);
   };
@@ -1002,7 +1024,17 @@ export default function Editor() {
     const next = glideNext.current;
     glideNext.current = undefined;
     if (!next) return;
-    const to = doc, path = next.path ?? ((t: number) => between(next.from, to, t));
+    const to = doc;
+    if (!next.path && partCache.current && onlyStructures(next.from, to)) {
+      const parts = (m: Mol) => renderParts(m, frame, measure, L, partCache.current!.cache, true), a = parts(next.from), b = parts(to);
+      const plan = !a.electrons.length && !b.electrons.length && !a.beads.length && !b.beads.length ? glidePlan(a.parts, b.parts) : undefined;
+      if (plan) {
+        fastNow.current = { from: next.from, to, t: 0 };
+        setFast({ to, plan, ids: new Set(plan.map((x) => x.id)), n: ++fastCount.current });
+        return () => { fastNow.current = undefined; setFast(undefined); };
+      }
+    }
+    const path = next.path ?? ((t: number) => between(next.from, to, t));
     // At 0 the picture is the drawing it starts from, whose structures are drawn already (renderParts keeps them).
     const step = (t: number) => {
       if (t >= 1) { glideShown.current = undefined; return setGlide(undefined); }
@@ -3085,7 +3117,7 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]]) && !fast?.ids.has(ids[0])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing, fast]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure that settles into ink (FEEL-43): its atoms from this one on.
   const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
@@ -8170,6 +8202,8 @@ export default function Editor() {
       <Live store={hovers}>{hovered}</Live>
     </>
   );
+  // A colour key's fill (colour|strength), as the ink below draws each structure's paths.
+  const inkFill = (key: string) => { const [colour, alpha] = key.split("|"); return { fill: colour ? textInk(colour) : "var(--ink)", fillOpacity: Number(alpha) < 1 ? Number(alpha) : undefined }; };
   const ink = useMemo(() => (
     <>
       {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
@@ -8192,22 +8226,22 @@ export default function Editor() {
   const over = useMemo(() => (
     <>
       {(shown.shapes ?? []).filter(level).map(shapeLines)}
-      {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] && !(settings.hideAbs && a.enhanced === "abs") ? (
+      {!fast && shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] && !(settings.hideAbs && a.enhanced === "abs") ? (
         // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them. Settings > Drawing >
         // Hide abs flags hides the absolute ones (ChemDraw's Hide Absolute Stereoflags).
         <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * scaleOf(a) * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * scaleOf(a) * markDirs.get(i)![1]) * L + 0.25 * frame.size * scaleOf(a)}
           style={{ font: `${frame.size * 0.7 * scaleOf(a)}px ${fontStack(style.labelFont)}` }}>{a.enhanced}</text>
       ) : null)}
-      {drawing.maps.map((n) => (
+      {!fast && drawing.maps.map((n) => (
         // Atom map numbers: in brand blue, in the label's face, where render puts them (clear of the label and bonds).
         <text key={`map${n.atom}`} className="atom-map" textAnchor="middle" x={n.at[0]} y={n.at[1] + n.h / 2} style={{ font: labelFont({ ...shown.atoms[n.atom], size: n.size }) }}>{n.text}</text>
       ))}
-      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
+      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]) && !fast?.ids.has(drawing.parts[k].ids[0]))}
       {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs, fast]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
@@ -8353,7 +8387,7 @@ export default function Editor() {
             ? `translate(${drag.anchor[0] * L * (1 - drag.size[0])} ${-drag.anchor[1] * L * (1 - drag.size[0])}) scale(${drag.size[0]})` : undefined}>
           {lifted.back}
           {under}
-          {marks}
+          {!fast && marks}
           {ink}
           {offer && (() => {
             // The offered arrow, faint, with the key that takes it.
@@ -8369,6 +8403,17 @@ export default function Editor() {
             );
           })()}
           {over}
+          {fast && (
+            <GlideLayer key={fast.n} plan={fast.plan} ink={inkFill} text={(l) => ({ fill: l.colour ? textInk(l.colour) : "var(--ink)", fillOpacity: l.alpha, textDecoration: l.underline ? "underline" : undefined, style: { font: labelFont(l) } })}
+              part={(x: PartIn) => (
+                <g transform={moveBy(x.at, x.k, x.turn)}>
+                  {structurePaths(x.drawing).map(([key, path]) => <path key={key} d={path} {...inkFill(key)} />)}
+                  {x.drawing.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
+                </g>
+              )}
+              skip={(t) => { const f = fastNow.current; return !!f && !between(f.from, f.to, t); }}
+              onFrame={(t) => { if (fastNow.current) fastNow.current.t = t; }} onDone={() => { fastNow.current = undefined; setFast(undefined); }} />
+          )}
           {lifted.front}
           </g>
           {(pen || drag?.kind === "pen") && (() => {
