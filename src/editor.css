@@ -171,6 +171,15 @@ circle.mark {
   stroke: var(--select);
   stroke-linecap: round;
 }
+/* The selected atoms and bonds, one path each (Editor.tsx selectedPaths). */
+.selection-marks .selected-atoms {
+  fill: var(--select);
+}
+.selection-marks .selected-bonds {
+  fill: none;
+  stroke: var(--select);
+  stroke-linecap: round;
+}
 
 /* A group wholly selected: a dotted frame round it, a hairline at any zoom. */
 .group-frame rect {
@@ -6564,3 +6573,8 @@ button.variant.add {
 .scrollbar.dragging .scroll-thumb {
   background: color-mix(in oklab, var(--ink) 58%, transparent);
 }
+
+/* A glide (decision 0024, GlideLayer.tsx): the canvas waits, hidden, under the glide layer, which draws every frame of
+   the glide; without a copy of the rest of the canvas, only the structures wait. */
+#world.gliding > :not(.glide-layer),
+#world.gliding-structures [data-glide="structure"] { visibility: hidden; }

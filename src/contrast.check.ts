@@ -102,7 +102,7 @@ for (const bad of [undefined, null, 7, "", "red", "#abc", "#abcdefg", "#ggg000",
   assert.equal(readSelectColour(bad), SELECT_DEFAULT, `${JSON.stringify(bad)} reads as the default`);
 // Every mark of the selection is drawn in it: the tint under selected objects, the hover, the marquee and lasso, the
 // frame, handles, picked grid cells, TLC spots and lanes, and the rulers' band.
-for (const sel of [".selection-marks circle", ".selection-marks line", ".selection-marks rect", ".selection-marks .arrow-mark", ".group-frame rect", ".box", ".selection-frame", ".resize-handle", ".turn-handle circle", ".handle", ".grid-pick", ".spot-picked", ".lane-picked", ".ruler-edge"])
+for (const sel of [".selection-marks circle", ".selection-marks line", ".selection-marks rect", ".selection-marks .selected-atoms", ".selection-marks .selected-bonds", ".selection-marks .arrow-mark", ".group-frame rect", ".box", ".selection-frame", ".resize-handle", ".turn-handle circle", ".handle", ".grid-pick", ".spot-picked", ".lane-picked", ".ruler-edge"])
   assert.ok(rules.some((r) => r.selector === sel && /:\s*var\(--select\)/.test(r.body)), `${sel} is drawn in the selection colour`);
 for (const sel of [".mark", ".box", ".grid-pick", ".ruler-band"])
   assert.ok(rules.some((r) => r.selector === sel && /fill:\s*var\(--select-tint\)/.test(r.body)), `${sel} is filled with the selection's tint`);

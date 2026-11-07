@@ -81,35 +81,40 @@ So:
 ### Smooth on a cheap laptop: the fast glide
 
 Sam, 7 November 2026: many users are students on cheap Windows laptops, and a glide must be smooth there too, at any
-size. Each frame used to draw the whole drawing again and have React make the editor again: about 300 ms of work a
-frame for 885 atoms on a slow laptop. Now (`src/glideplan.ts`, `src/GlideLayer.tsx`):
+size. Then: a short delay in the side panels is fine; a glide that stutters is not. Each frame used to draw the whole
+drawing again and have React make the editor again: about 300 ms of work a frame for 885 atoms on a slow laptop. Now
+no frame of a glide draws anything again:
 
-- A glide that moves only structures draws them twice in all, where they start and where they end. Each frame
-  slides the points of the ink already drawn, and each label, and writes the paths straight to the page: about 3 ms
-  for 3,000 polygons, with nothing drawn again.
-- The renderer says which bond, ring circle or symbol drew each polygon (`owners` in `src/render.ts`). What matches
-  point for point slides; a bond that does not (a hashed wedge drawn with a stripe more) fades from its old drawing
-  to its new one. A label whose text changes (OH to HO in Rotate 180°) slides as two, the old text fading out.
-- The frames where Rotate 180° squeezes every bond are left out, as before.
-- A glide that moves text, arrows, a ring fill or halos, or lone pairs, still draws each frame the old way, at least 6
-  frames. The fast glide for those is the next step.
-- The rings of a drawing are kept by its bonds, not its bond list, so Rotate 180° no longer finds them again (a
-  quarter of a second for 885 atoms on a slow laptop).
+- The structures (`src/glideplan.ts`, `src/GlideLayer.tsx`): drawn twice in all, where they start and where they end.
+  Each frame slides the points of each bond's ink and each label, and writes the paths straight to the page (about
+  1.3 ms for 3,000 polygons). The renderer says which bond, ring circle or symbol drew each polygon (`owners` in
+  `src/render.ts`): what matches point for point slides, a bond that does not (a hashed wedge with a stripe more)
+  fades from its old drawing to its new one, and a label whose text changes (OH to HO) crossfades as it slides. A turn
+  goes round its centre, so the structure keeps its shape on the way.
+- Everything else on the canvas (`src/domtween.ts`): arrows, text, shapes, ring fills, halos and the selection. The
+  canvas is copied just before the command and paired, element by element, with the canvas after it; each number
+  that changes slides, in a copy of the canvas, and an element with no partner fades. The real canvas waits, hidden,
+  under the glide. The selection is two paths, not one shape for each atom and bond, so a large selection slides too.
+- Nothing else works while a glide runs: the side panels keep what they last drew and catch up at the end, and the
+  screen reader's names wait.
+- Rotate 180°'s squeezed frames are left out, as before. The rings of a drawing are kept by its bonds, so Rotate 180°
+  does not find them again (a quarter of a second for 885 atoms on a slow laptop).
 
-From a real click (`scripts/experience.mjs`; "slow" is this computer 4 times slower, about 12 times slower than an
-M1, slower than most cheap laptops):
+From a real click (`scripts/experience.mjs`). This computer is about 3 times slower than an M1, about as quick as a
+cheap laptop; "slow" is it 4 times slower again, slower than any laptop sold now. The longest frame is the stutter:
+17 ms is a steady 60 frames a second.
 
 | | 1.1.1 | Now | Now, slow |
 | --- | --- | --- | --- |
-| Clean Up, cholesterol | 2 frames over 22 ms | 13 frames over 199 ms | 13 frames over 213 ms |
-| Clean Up, taxol | 2 frames over 15 ms | 13 frames over 196 ms | 14 frames over 230 ms |
-| Clean Up, 245-atom peptide | 2 frames over 22 ms | 14 frames over 212 ms | 13 frames over 264 ms |
-| Clean Up, 885-atom peptide | no glide | 13 frames over 213 ms | 7 frames over 315 ms |
-| Rotate 180°, 885-atom peptide | no glide (answer 132 ms) | 13 frames over 210 ms (101 ms) | 7 frames over 328 ms |
-| Turn 15° twice, 60 ms apart | cut at 95 ms | 19 frames over 312 ms | 15 frames over 436 ms |
+| Clean Up, taxol | 2 frames over 15 ms | 13 frames over 200 ms, longest 17 ms | 13 over 225 ms, longest 35 ms |
+| Clean Up, 885-atom peptide | no glide | 14 frames over 211 ms, longest 17 ms | 7 over 302 ms, longest 56 ms |
+| Rotate 180°, 885-atom peptide | no glide | 11 frames over 202 ms, longest 19 ms | 7 over 282 ms, longest 49 ms |
+| Clean Up Reaction, with its arrow | slow glide | 12 frames over 199 ms, longest 17 ms | 13 over 212 ms, longest 31 ms |
+| Turn 15° twice, 60 ms apart | cut at 95 ms | 17 frames over 293 ms, longest 23 ms | 17 over 354 ms, longest 76 ms |
 
-The experience check now also asks for at least 40 frames a second, and 18 when 4 times slower (`fps` in
-`scripts/experience.json`). The slowest case, 885 atoms on the slow computer, runs at about 22.
+The experience check asks for at least 40 frames a second with no frame more than 10 ms over the median on this
+computer (the cheap laptop's line), and 18 frames a second with no frame more than 80 ms over on the slow one
+(`glide` in `scripts/experience.json`).
 
 ## Decision
 
