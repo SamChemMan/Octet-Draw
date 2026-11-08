@@ -67,7 +67,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
-import { toChemfig } from "./chemfig";
+import { chemfigNotice, toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { conditionItems, formatAmount, formulaWeight, inert, keyColumns, parseAmount, solve, type Field } from "./stoich";
@@ -1303,7 +1303,7 @@ export default function Editor() {
     try {
       const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
       const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), chemfig: f.format === "tex" ? chemfigOf(mol, f.chemfigCompact) : undefined, dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
-      if (path) { setExportView(undefined); saved(path); }
+      if (path) { setExportView(undefined); saved(path, f.format === "tex" ? (file) => chemfigNotice(`Saved ${file}`, mol, style.interpret) : undefined); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
@@ -1324,9 +1324,11 @@ export default function Editor() {
   }
   // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
   // in the system's file manager.
-  function saved(path: string) {
+  // note: what to say in place of Saved (an export to chemfig says what the code leaves out), given the file's name.
+  function saved(path: string, note?: (name: string) => string | undefined) {
     const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
-    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
+    const text = note?.(fileName(path));
+    setNotice(text ?? `Saved ${fileName(path)}.`, text ? "info" : "done", reveal || undefined);
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -6386,16 +6388,18 @@ export default function Editor() {
   }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
-  const copyText = useRef<string>(undefined);
+  const copyText = useRef<string>(undefined), copyNote = useRef<[string, NoticeKind]>(undefined);
   // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). In the app, the app puts it there
   // (CH-7): the webview lets a page copy only during a click, and a menu command is not one. In a browser, the copy
-  // event puts it there, or else the Clipboard API.
-  const copyPlain = (text: string) => {
-    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice("Copied.", "done"), (err) => setNotice(failure("Octet cannot copy this.", err)));
+  // event puts it there, or else the Clipboard API. note: what to say once it is copied, in place of Copied (Copy As
+  // chemfig says what the code leaves out).
+  const copyPlain = (text: string, note: [string, NoticeKind] = ["Copied.", "done"]) => {
+    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice(...note), (err) => setNotice(failure("Octet cannot copy this.", err)));
     copyText.current = text;
+    copyNote.current = note;
     if (document.execCommand("copy")) return;
-    copyText.current = undefined;
-    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
+    copyText.current = copyNote.current = undefined;
+    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice(...note), () => setNotice("Octet cannot copy this."));
   };
   // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs) and GTK gives them Ctrl+X, C
   // and V before the page. In a text field they work on its text through the app's clipboard, as copyPlain does (the
@@ -6427,7 +6431,9 @@ export default function Editor() {
     const [name, write] = COPY_AS[what], mol = withCaptionAtoms(part, style.interpret).mol;
     let text = "";
     try { text = mol.atoms.length && loaded ? write(mol).trimEnd() : ""; } catch { text = ""; }
-    if (text) copyPlain(text);
+    // chemfig says what the code leaves out, or draws differently.
+    const note = what === "chemfig" ? chemfigNotice("Copied", mol, style.interpret) : undefined;
+    if (text) copyPlain(text, note ? [note, "info"] : undefined);
     else if (mol.atoms.length) setNotice(`Octet cannot write this structure as ${name}.`);
     else setNotice("There is no structure to copy.", "info");
   };
@@ -7643,8 +7649,8 @@ export default function Editor() {
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
-        copyText.current = undefined;
-        setNotice("Copied.", "done");
+        setNotice(...(copyNote.current ?? (["Copied.", "done"] as [string, NoticeKind])));
+        copyText.current = copyNote.current = undefined;
         return Promise.resolve(true);
       }
       if (partPick) return Promise.resolve(false);

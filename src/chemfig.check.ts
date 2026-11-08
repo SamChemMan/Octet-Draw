@@ -3,8 +3,8 @@
 // closed by hooks, wedges the right way round, separate structures kept in their places, and lone pairs, unpaired
 // electrons and circled and partial charges where the page draws them.
 import assert from "node:assert/strict";
-import { toChemfig } from "./chemfig.ts";
-import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
+import { chemfigNotice, toChemfig } from "./chemfig.ts";
+import { QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5;
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
@@ -226,6 +226,26 @@ assert.equal(toChemfig(mol([], [])), "");
   for (let k = 0; k < n; k += 10) { atoms.push(A("O", k * c30, (k % 2 ? s30 : 0) + 1)); bonds.push(B(k, atoms.length - 1)); }
   const code = toChemfig(mol(atoms, bonds), {}, { compact: true });
   assert.equal(code.split("OH").length - 1, n / 10);
+}
+
+// What Copy As and Export say: the parts the code leaves out, by kind, and the parts it draws differently. Nothing
+// when the code shows it all; a name under a structure and a caption read as chemistry are in the code.
+{
+  const base = (more: Partial<Mol> = {}, a: Partial<Atom> = {}): Mol => ({ atoms: [A("C", 0, 0, a), A("C", 1, 0)], bonds: [B(0, 1)], ...more });
+  const arrow = (id: number, kind: NonNullable<Mol["arrows"]>[number]["kind"]) => ({ id, kind, from: [0, 1] as [number, number], to: [1, 1] as [number, number] });
+  const caption = (id: number, text: string, more = {}) => ({ id, text, x: 0, y: -1, ...more });
+  assert.equal(chemfigNotice("Copied", base(), true), undefined);
+  assert.equal(chemfigNotice("Copied", base({ arrows: [arrow(1, "curved")] }), true), "Copied without 1 curved arrow: Octet cannot export it to chemfig yet.");
+  assert.equal(chemfigNotice("Saved a.tex", base({ arrows: [arrow(1, "curved"), arrow(2, "fishhook")], shapes: [{ id: 3, kind: "box", from: [0, 0], to: [1, 1] }] }), true),
+    "Saved a.tex without 2 curved arrows and 1 shape: Octet cannot export them to chemfig yet.");
+  assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "heat")] }), true), "Copied without text: Octet cannot export it to chemfig yet.");
+  assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "NaCl"), caption(5, "Name", { under: [0, 1] })] }), true), undefined);
+  assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "NaCl")] }), false), "Copied without text: Octet cannot export it to chemfig yet.", "with Interpret Chemically off, NaCl is text");
+  assert.equal(chemfigNotice("Copied", base({ bonds: [B(0, 1, QUADRUPLE)] }), true), "Copied. Octet exports 1 quadruple bond to chemfig differently.");
+  assert.equal(chemfigNotice("Copied", base({ bonds: [B(0, 1, QUADRUPLE)] }, { cip: true, halo: "#ff0000" }), true),
+    "Copied without 1 highlight and R/S and E/Z labels: Octet cannot export them to chemfig yet. Octet exports 1 quadruple bond to chemfig differently.");
+  // A hidden atom's marks are not in the drawing either.
+  assert.equal(chemfigNotice("Copied", base({}, { hidden: true, halo: "#ff0000" }), true), undefined);
 }
 
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.

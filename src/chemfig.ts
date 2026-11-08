@@ -8,6 +8,7 @@
 import { pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
+import { chemicalCaption } from "./edit.ts";
 import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import type { DocStyle } from "./docstyle.ts";
 
@@ -411,3 +412,62 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   return [...notes, code].join("\n");
 }
 
+// What the user is told after Copy As or Export (head: "Copied", "Saved name.tex"): the parts of mol that the code
+// leaves out, as this export cannot write them yet, and the parts it writes differently. Undefined when the code shows
+// all of it. interpret: the document's Interpret Chemically (a caption read as chemistry is in the code, as a label).
+export function chemfigNotice(head: string, mol: Mol, interpret: boolean): string | undefined {
+  const atoms = mol.atoms.filter((a) => !a.hidden), kept = new Set(mol.atoms.flatMap((a, i) => (a.hidden ? [] : [i])));
+  const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept.has(i)));
+  const left = new Map<string, number>(), changed = new Map<string, number>();
+  const add = (to: Map<string, number>, what: string, n = 1) => { if (n) to.set(what, (to.get(what) ?? 0) + n); };
+  // Each kind as [one, many]. Some go without a number: text, and marks shown for a whole structure (with whether the
+  // name is plural).
+  const KINDS: Record<string, [string, string]> = {
+    curved: ["curved arrow", "curved arrows"], arrow: ["arrow", "arrows"], line: ["line", "lines"], orbital: ["orbital", "orbitals"], cut: ["fragmentation line", "fragmentation lines"],
+    bracket: ["bracket", "brackets"], shape: ["shape", "shapes"], tlc: ["TLC plate", "TLC plates"], table: ["table", "tables"], picture: ["picture", "pictures"],
+    cycle: ["catalytic cycle", "catalytic cycles"], spectrum: ["spectrum", "spectra"], fill: ["ring fill", "ring fills"], highlight: ["highlight", "highlights"],
+    number: ["atom number", "atom numbers"], map: ["map number", "map numbers"], query: ["query property", "query properties"], attach: ["attachment point", "attachment points"],
+    bead: ["polymer bead", "polymer beads"], enhanced: ["enhanced stereo mark", "enhanced stereo marks"], hmark: ["hydrogen dot or hash", "hydrogen dots and hashes"], turned: ["turned label", "turned labels"],
+    quadruple: ["quadruple bond", "quadruple bonds"], either: ["crossed double bond", "crossed double bonds"], dashed: ["dashed double bond", "dashed double bonds"], bold: ["bold double bond", "bold double bonds"],
+  };
+  const COUNTLESS: Record<string, [string, boolean]> = { text: ["text", false], cip: ["R/S and E/Z labels", true], shade: ["depth shading", false], circle: ["aromatic circles", true] };
+  for (const a of mol.arrows ?? []) add(left, a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" ? "curved" : a.kind === "line" || a.kind === "arc" || a.kind === "curve" ? "line" : a.kind === "orbital" ? "orbital" : a.kind === "cut" ? "cut" : "arrow");
+  // Text that is not a name under a structure in the code, nor a label read as chemistry.
+  if ((mol.captions ?? []).some((c) => !c.under?.some((i) => kept.has(i)) && !chemicalCaption(c, interpret))) add(left, "text");
+  for (const s of mol.shapes ?? []) add(left, s.kind === "brackets" || s.kind === "parens" || s.kind === "braces" ? "bracket" : s.kind === "tlc" || s.kind === "table" || s.kind === "picture" ? s.kind : s.kind === "highlight" ? "highlight" : "shape");
+  add(left, "cycle", mol.cycles?.length ?? 0);
+  add(left, "spectrum", mol.spectra?.length ?? 0);
+  add(left, "fill", mol.fills?.length ?? 0);
+  for (const a of atoms) {
+    if (a.halo) add(left, "highlight");
+    if (a.number) add(left, "number");
+    if (a.map) add(left, "map");
+    if (a.query) add(left, "query");
+    if (a.attach) add(left, "attach");
+    if (a.bead) add(left, "bead");
+    if (a.enhanced) add(left, "enhanced");
+    if (a.hmark) add(left, "hmark");
+    if (a.labelAngle) add(left, "turned");
+  }
+  // Marks shown for a whole structure: no count.
+  if (atoms.some((a) => a.cip)) add(left, "cip");
+  if (atoms.some((a) => a.shade)) add(left, "shade");
+  if (atoms.some((a) => a.circle)) add(left, "circle");
+  for (const b of bonds) {
+    if (b.halo) add(left, "highlight");
+    if (b.type === QUADRUPLE) add(changed, "quadruple");
+    else if (b.type === 2 && b.display === "either") add(changed, "either");
+    else if (b.type === 2 && (b.display === "dashed" || b.display === "aromatic")) add(changed, "dashed");
+    else if (b.type === 2 && b.display === "bold") add(changed, "bold");
+  }
+  const list = (m: Map<string, number>) => {
+    const items = [...m].map(([k, n]) => COUNTLESS[k]?.[0] ?? `${n} ${KINDS[k][n === 1 ? 0 : 1]}`);
+    return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : items[0];
+  };
+  // One thing (it, looks), or more (them, look).
+  const one = (m: Map<string, number>) => m.size === 1 && [...m].every(([k, n]) => (COUNTLESS[k] ? !COUNTLESS[k][1] : n === 1));
+  if (!left.size && !changed.size) return undefined;
+  // The limit is Octet's export, not chemfig's.
+  const without = left.size ? `${head} without ${list(left)}: Octet cannot export ${one(left) ? "it" : "them"} to chemfig yet.` : `${head}.`;
+  return changed.size ? `${without} Octet exports ${list(changed)} to chemfig differently.` : without;
+}
