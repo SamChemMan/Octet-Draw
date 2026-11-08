@@ -538,6 +538,43 @@ export function circledRings(mol: Mol): number[][] {
   return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
 }
 
+// The marks drawn round an atom, in the order they take their places: a circled charge, a partial charge, the query
+// indicator ChemDraw draws beside an atom with query properties (X2, H, R…), unpaired electrons (a triplet's two),
+// then lone pairs (a singlet's pair first). The page draws them, and chemfig.ts writes them.
+export type MarkKind = "charge" | "partial" | "radical" | "pair" | "query";
+export function markKinds(a: Atom): MarkKind[] {
+  const kinds: MarkKind[] = [];
+  if (a.circled && a.charge) kinds.push("charge");
+  if (a.partial) kinds.push("partial");
+  if (atomIndicator(a.query)) kinds.push("query");
+  for (let r = 0; r < Math.min(2, a.radical === 3 ? 0 : a.radical ?? 0); r++) kinds.push("radical");
+  if (a.radical === 3) kinds.push("pair");
+  for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push("pair");
+  return kinds;
+}
+// Each mark's key in Atom.angles: charge and partial, else radical0, radical1, pair0 and on.
+export const markKeys = (kinds: MarkKind[]) => kinds.map((kind, k) => (kind === "charge" || kind === "partial" ? kind : `${kind}${kinds.slice(0, k).filter((x) => x === kind).length}`));
+// Where each mark goes round its atom, as an angle in radians with y down (the page's frame). taken: the directions
+// already used (bonds, the label past its first letter, a sign), in that frame. A mark placed by hand keeps its angle
+// (degrees anticlockwise in Atom.angles). A charge, partial charge or query indicator first goes up and to the right
+// when that is clear; the rest share the widest gaps between what is taken.
+export function markAngles(kinds: MarkKind[], keys: string[], taken: number[], angles?: Record<string, number>): number[] {
+  const TAU = 2 * Math.PI, turn = (x: number) => ((x % TAU) + TAU) % TAU, used = [...taken], at = new Map<number, number>();
+  const clearOf = (t: number, need: number) => used.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
+  keys.forEach((key, k) => { const deg = angles?.[key]; if (deg !== undefined) { at.set(k, (-deg * Math.PI) / 180); used.push((-deg * Math.PI) / 180); } });
+  const UP_RIGHT = -Math.PI / 4;
+  if (!at.has(0) && (kinds[0] === "charge" || kinds[0] === "partial" || kinds[0] === "query") && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); used.push(UP_RIGHT); }
+  const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
+  const sorted = used.map(turn).sort((x, y) => x - y);
+  const gaps = sorted.length
+    ? sorted.map((t, j) => ({ start: t, size: j + 1 < sorted.length ? sorted[j + 1] - t : sorted[0] + TAU - t, n: 0 }))
+    : [{ start: -Math.PI / 2 - Math.PI / Math.max(1, rest.length), size: TAU, n: 0 }];
+  for (const _ of rest) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
+  let next = 0;
+  for (const g of gaps.sort((x, y) => x.start - y.start)) for (let j = 0; j < g.n; j++) at.set(rest[next++], g.start + (g.size * (j + 1)) / (g.n + 1));
+  return kinds.map((_, k) => at.get(k)!);
+}
+
 // radical: Atom.radical; a singlet (3) is one pair, so it takes two hydrogens, as a triplet does.
 export function hydrogens(label: string, charge: number, used: number, radical = 0) {
   const v = VALENCE[label];
@@ -1096,38 +1133,16 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
   mol.atoms.forEach((a, i) => {
     if (a.hidden) return;
-    const kinds: ('charge' | 'partial' | 'radical' | 'pair' | 'query')[] = [];
-    if (a.circled && a.charge) kinds.push('charge');
-    if (a.partial) kinds.push('partial');
-    // The query indicator ChemDraw draws beside an atom with query properties (X2, H, R…).
-    const indicator = atomIndicator(a.query);
-    if (indicator) kinds.push('query');
-    for (let r = 0; r < Math.min(2, a.radical === 3 ? 0 : a.radical ?? 0); r++) kinds.push('radical');
-    if (a.radical === 3) kinds.push('pair');
-    for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
+    const kinds = markKinds(a), indicator = atomIndicator(a.query);
     if (!kinds.length) return;
     // Marks are sized by the atom's drawn label size, and drawn in its line width.
     const X = pts[i], z = s.size * ratio[i], hw = atomZ[i].hw, shape = placedPoints(shapes[i]);
     // Directions already taken: the bonds, the label past its first letter (H, a charge sign), a skeletal charge.
     const taken = nbrs[i].map((j) => { const d = dir(i, j); return Math.atan2(d[1], d[0]); });
     for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
-    const clearOf = (t: number, need: number) => taken.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
-    const at = new Map<number, number>(); // index in kinds → angle
-    // Marks placed by hand keep their angle (y is down here, so the angle turns the other way).
-    const keys = kinds.map((kind, k) => (kind === 'charge' || kind === 'partial' ? kind : `${kind}${kinds.slice(0, k).filter((x) => x === kind).length}`));
-    keys.forEach((key, k) => { const deg = a.angles?.[key]; if (deg !== undefined) { at.set(k, (-deg * Math.PI) / 180); taken.push((-deg * Math.PI) / 180); } });
-    const UP_RIGHT = -Math.PI / 4;
-    if (!at.has(0) && (kinds[0] === 'charge' || kinds[0] === 'partial' || kinds[0] === 'query') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
-    const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
-    const sorted = taken.map(turn).sort((x, y) => x - y);
-    const gaps = sorted.length
-      ? sorted.map((t, j) => ({ start: t, size: j + 1 < sorted.length ? sorted[j + 1] - t : sorted[0] + TAU - t, n: 0 }))
-      : [{ start: -Math.PI / 2 - Math.PI / Math.max(1, rest.length), size: TAU, n: 0 }];
-    for (const _ of rest) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
-    let next = 0;
-    for (const g of gaps.sort((x, y) => x.start - y.start)) for (let j = 0; j < g.n; j++) at.set(rest[next++], g.start + (g.size * (j + 1)) / (g.n + 1));
+    const keys = markKeys(kinds), at = markAngles(kinds, keys, taken, a.angles);
     kinds.forEach((kind, k) => {
-      const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
+      const t = at[k], d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
       // The mark as discs (centre offset across, radius); how far out it goes is found by search.
       const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
       const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : kind === 'query' ? indicator : '', ink = text ? grown(measure(text), ratio[i]) : undefined;

@@ -1,9 +1,10 @@
 // Run: node src/chemfig.check.ts. Fails loudly if Copy As chemfig (src/chemfig.ts) stops writing chemfig code that
 // draws the structure as the page does: each bond at its angle and length, labels read away from their bonds, rings
-// closed by hooks, wedges the right way round, and separate structures kept in their places.
+// closed by hooks, wedges the right way round, separate structures kept in their places, and lone pairs, unpaired
+// electrons and circled and partial charges where the page draws them.
 import assert from "node:assert/strict";
 import { toChemfig } from "./chemfig.ts";
-import type { Atom, Bond, Mol } from "./render.ts";
+import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5;
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
@@ -70,7 +71,7 @@ assert.match(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(0, 1, 1, { display: "wavy" 
 assert.equal(cf(mol([A("O", 0, 0)], [])), "\\chemfig{H_2O}");
 assert.equal(cf(mol([A("N", 0, 0, { charge: 1 })], [])), "\\chemfig{NH_4^{+}}");
 assert.equal(cf(mol([A("C", 0, 0, { isotope: 13 })], [])), "\\chemfig{{^{13}C}H_4}");
-assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30, { charge: -1 }), A("C", 2 * c30, 0)], [B(0, 1), B(1, 2)])), "\\chemfig{-[:30]\\charge{90:1pt=$\\scriptstyle -$}{}-[:-30]}");
+assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30, { charge: -1 }), A("C", 2 * c30, 0)], [B(0, 1), B(1, 2)])), "\\chemfig{-[:30]\\charge{90:1pt[anchor=180+\\chargeangle]=$\\scriptstyle -$}{}-[:-30]}");
 // A coloured label: each of its atoms takes the colour, and they stay separate atoms.
 assert.equal(cf(mol([A("C", 0, 0), A("O", 1, 0, { colour: "#ff0000" })], [B(0, 1)])), "\\chemfig{-{\\color[RGB]{255,0,0}O}|{\\color[RGB]{255,0,0}H}}");
 // An abbreviation reads backwards where its bond comes from the right (MeO), and meets the bond at its O.
@@ -104,6 +105,49 @@ assert.equal(toChemfig(mol([A("C", 0, 0), A("C", c30, s30), A("O", c30, 1 + s30)
 assert.equal(toChemfig(mol([A("Na", 0, 0, { charge: 1 }), A("Cl", 2, 0, { charge: -1 })], [])), "\\chemfig{\n\tNa^{+}\n\t(\n\t\t-[,2,,,draw=none]Cl^{-}\n\t)\n}");
 assert.equal(toChemfig(mol([A("O", 0, 0)], [])), "\\chemfig{\n\tH_2O\n}");
 assert.equal(toChemfig(mol([], [])), "");
+// Lone pairs (\:, or \| as bars), unpaired electrons (\.) and circled and partial charges, with chemfig's \charge on
+// the atom the bonds meet. Dots sit 1pt clear of a label, 2pt from a skeletal carbon; a sign or δ touches its place
+// with its near side.
+{
+  const acetone = (o: Partial<Atom>, c: Partial<Atom> = {}) => mol([A("C", 0, 0), A("C", c30, s30, c), A("C", 2 * c30, 0), A("O", c30, 1 + s30, o)], [B(0, 1), B(1, 2), B(1, 3, 2)]);
+  assert.equal(cf(acetone({ pairs: 2 })), "\\chemfig{-[:30](=[:90]\\charge{150:1pt=\\:,30:1pt=\\:}{O})-[:-30]}");
+  assert.equal(cf(acetone({ pairs: 2, bars: true })), "\\chemfig{-[:30](=[:90]\\charge{150:1pt=\\|,30:1pt=\\|}{O})-[:-30]}");
+  // A pair dragged by hand keeps its place; the next takes the widest gap left.
+  assert.equal(cf(acetone({ pairs: 2, angles: { pair0: 45 } })), "\\chemfig{-[:30](=[:90]\\charge{45:1pt=\\:,158:1pt=\\:}{O})-[:-30]}");
+  const chain = (c: Partial<Atom>) => mol([A("C", 0, 0), A("C", c30, s30, c), A("C", 2 * c30, 0)], [B(0, 1), B(1, 2)]);
+  assert.equal(cf(chain({ radical: 1 })), "\\chemfig{-[:30]\\charge{90:2pt=\\.}{}-[:-30]}", "a radical on a skeletal carbon");
+  assert.equal(cf(chain({ radical: 2 })), "\\chemfig{-[:30]\\charge{-90:2pt=\\.,90:2pt=\\.}{}-[:-30]}", "a triplet's two electrons");
+  assert.equal(cf(chain({ radical: 3 })), "\\chemfig{-[:30]\\charge{90:2pt=\\:}{}-[:-30]}", "a singlet's pair");
+  assert.equal(cf(chain({ charge: -1, pairs: 1 })), "\\chemfig{-[:30]\\charge{90:1pt[anchor=180+\\chargeangle]=$\\scriptstyle -$,-90:2pt=\\:}{}-[:-30]}", "a carbanion's sign and pair");
+  // A circled charge is a mark, not part of the label; so is a partial charge.
+  const circled = cf(mol([A("C", 0, 0), A("N", c30, s30, { charge: 1, circled: true }), A("C", 2 * c30, 0), A("C", c30, 1 + s30)], [B(0, 1), B(1, 2), B(1, 3, 2)]));
+  assert.match(circled, /\\charge\{45:0pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle \\oplus\$\}\{N\}/);
+  assert.doesNotMatch(circled, /\^\{/);
+  assert.match(cf(acetone({ partial: "-" }, { partial: "+" })), /\\charge\{45:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle\\delta\^\{\+\}\$\}\{\}.*\\charge\{45:0pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle\\delta\^\{-\}\$\}\{O\}/);
+  // The marks of a coloured atom take its colour; the \charge itself is never in braces.
+  assert.equal(cf(chain({ radical: 1, colour: "#ff0000" })), "\\chemfig{-[:30]\\charge{[.style={fill={rgb,255:red,255;green,0;blue,0}},|style={color={rgb,255:red,255;green,0;blue,0},line width=0.4pt}]90:2pt=\\.}{}-[:-30]}");
+  // On a label, the marks go round the atom the bonds meet (the O of OH, the N of H2N), not the whole label.
+  assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30), A("O", 2 * c30, 0, { pairs: 2 })], [B(0, 1), B(1, 2)])), "\\chemfig{-[:30]-[:-30]\\charge{-105:1pt=\\:,75:1pt=\\:}{O}H}");
+  assert.match(cf(mol([A("N", 0, 0, { pairs: 1 }), A("C", c30, s30)], [B(0, 1)])), /^\\chemfig\{H_2\|\\charge\{[^}]*\}\{N\}-\[:30\]\}$/);
+
+  // The same places as the page: the renderer's own marks (render.ts), for one-letter labels and skeletal carbons.
+  const pt = 4 / 3, box: [number, number][] = [[0, -9.5], [9.6, -9.5], [9.6, 0], [0, 0]], ink = (): Ink => ({ width: 9.6, ascent: 9.5, outline: box });
+  const S = { bond: 14.4 * pt, line: 0.6 * pt, bold: 2 * pt, spacing: 0.18 * 14.4 * pt, hash: 2.5 * pt, margin: 1.69 * pt, size: 10 * pt };
+  const angles = (code: string) => [...code.matchAll(/(-?\d+):\d+pt(?:\[[^\]]*\])?=/g)].map((x) => Number(x[1]));
+  for (const m of [acetone({ pairs: 2 }), acetone({ pairs: 2, angles: { pair0: 45 } }), chain({ radical: 1 }), chain({ radical: 2 }), chain({ radical: 3 }), chain({ pairs: 1, charge: -1 }),
+    mol([A("C", 0, 0), A("O", c30, s30, { pairs: 2 }), A("C", 2 * c30, 0)], [B(0, 1), B(1, 2)]), mol([A("C", 0, 0), A("O", 1, 0, { partial: "-", pairs: 2 })], [B(0, 1, 2)])]) {
+    const d = render(m, S, ink), i = m.atoms.findIndex((a) => a.pairs || a.radical || a.partial);
+    const page = d.electrons.filter((e) => e.atom === i).map((e) => Math.round((Math.atan2(-e.at[1] - m.atoms[i].location[1] * d.scale, e.at[0] - m.atoms[i].location[0] * d.scale) * 180) / Math.PI));
+    assert.deepEqual(angles(cf(m)), page, JSON.stringify(m.atoms[i]));
+  }
+  // Given the page's drawing, each mark goes exactly where the page has it (its label's real outline counted); a mark
+  // drawn on the atom itself gives no direction, so that one is worked out.
+  const water = mol([A("C", 0, 0), A("O", 1, 0, { pairs: 2 })], [B(0, 1)]);
+  const page = { scale: 10, electrons: [{ atom: 1, at: [10, -20] as [number, number], key: "pair0" }, { atom: 1, at: [10, 0] as [number, number], key: "pair1" }] };
+  assert.match(toChemfig(water, {}, { compact: true, page }), /\\charge\{90:1pt=\\:,(-?\d+):1pt=\\:\}\{O\}/);
+  assert.notEqual(toChemfig(water, {}, { compact: true, page }).match(/\\charge\{90:1pt=\\:,(-?\d+)/)![1], "0");
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
 const flat = (s: string) => s.replace(/\n\t*/g, "");
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));

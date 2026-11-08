@@ -1214,7 +1214,12 @@ export default function Editor() {
   }
   // A part's structures as chemfig code (chemfig.ts), with the captions read as chemistry as labels.
   function chemfigOf(part: Mol, compact = false): string | undefined {
-    try { return toChemfig(withCaptionAtoms(part, style.interpret).mol, style, { compact }) || undefined; } catch { return undefined; }
+    try { return chemfigCode(withCaptionAtoms(part, style.interpret).mol, compact) || undefined; } catch { return undefined; }
+  }
+  // chemfig code for structures as drawn (captions read as chemistry already among their atoms): drawn as the page
+  // draws them, so lone pairs, radicals and circled charges go where the page has them.
+  function chemfigCode(mol: Mol, compact: boolean): string {
+    return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L) });
   }
   // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers and what
   // only shapes others (defs, masks, clips). Text
@@ -6410,7 +6415,7 @@ export default function Editor() {
   // 26.1) and MOL V2000 Text (⇧⌥⌘O). Octet adds chemfig, LaTeX code that draws the structures as the page does.
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
-    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], chemfig: ["chemfig", (m) => toChemfig(m, style, { compact: settings.files.chemfigCompact })],
+    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], chemfig: ["chemfig", (m) => chemfigCode(m, settings.files.chemfigCompact)],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;

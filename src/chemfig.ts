@@ -3,13 +3,15 @@
 // any ring or layout comes out as drawn (chemfig's *n ring syntax only draws regular polygons). The structure is
 // written as a tree from its leftmost atom: side chains are branches, and each bond that closes a ring is a hook
 // (?[1] on the first atom, ?[1,{=}] on the second). Separate structures hang off the first one by bonds chemfig does
-// not draw, so they keep their places. Arrows, text and shapes are not written.
+// not draw, so they keep their places. Lone pairs, unpaired electrons, and circled and partial charges go where the
+// page draws them, with chemfig's \charge. Arrows, text and shapes are not written.
 import { pieces, units } from "./labels.ts";
-import { H_FIRST, HBOND, QUADRUPLE, hydrogens, orderOf, type Bond, type Mol } from "./render.ts";
+import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Drawing, type Mol } from "./render.ts";
 import type { DocStyle } from "./docstyle.ts";
 
 type P = [number, number];
-type Group = { atoms: string[]; anchor: number }; // chemfig's atoms of a label, and the one the bonds meet (0-based)
+// chemfig's atoms of a label, the one the bonds meet (0-based), and an H stacked above or below it.
+type Group = { atoms: string[]; anchor: number; stack?: "above" | "below" };
 
 // Text chemfig reads as one atom: one capital letter at the start (outside braces) and nothing it reads as a bond,
 // a branch, a ring or a hook. Anything else goes in braces, which chemfig does not split.
@@ -31,8 +33,11 @@ const rgb = (hex?: string) => {
   return m && hex!.toLowerCase() !== "#000000" ? m.slice(1).map((h) => parseInt(h, 16)) : undefined;
 };
 
-// layout.compact: the code on one line, as chemfig's manual writes it. Without it, an atom a line, indented by branch.
-export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, layout: { compact?: boolean } = {}): string {
+// options.compact: the code on one line, as chemfig's manual writes it. Without it, an atom a line, indented by branch.
+// options.page: the page's drawing of mol (render.ts: its electrons and scale), so each mark goes exactly where the
+// page has it, its label's real outline counted. Without it, marks() works their places out from the bonds and labels.
+export type PageMarks = Pick<Drawing, "electrons" | "scale">;
+export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, options: { compact?: boolean; page?: PageMarks } = {}): string {
   const atoms = mol.atoms, kept = atoms.map((a) => !a.hidden);
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept[i]) && b.atoms[0] !== b.atoms[1]);
   if (!kept.some(Boolean)) return "";
@@ -51,14 +56,10 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const steep = Math.hypot(v[0], v[1]) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const rtl = a.align ? a.align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
     const tint = (g: Group): Group => (colour ? { ...g, atoms: g.atoms.map((s) => `{\\color[RGB]{${colour.join(",")}}${s}}`) } : g);
-    if (!labelled[i]) {
-      // A skeletal carbon's charge sits beside it, away from its bonds. chemfig joins the bonds through a \charge
-      // with nothing in it, so it is the whole atom, not in braces.
-      if (!charge) return { atoms: [], anchor: 0 };
-      const angle = Math.round((Math.atan2(-v[1], -v[0]) * 180) / Math.PI), c = colour ? `\\color[RGB]{${colour.join(",")}}` : "";
-      return { atoms: [`\\charge{${angle}:1pt=$${c}\\scriptstyle ${sign(charge, a.circled)}$}{}`], anchor: 0 };
-    }
-    const ch = charge ? `^{${sign(charge, a.circled)}}` : "";
+    // A skeletal carbon has no label: marks() adds its charge and its other marks.
+    if (!labelled[i]) return { atoms: [], anchor: 0 };
+    // A circled charge is a mark beside the label (marks()); a plain one is written after the label.
+    const ch = charge && !a.circled ? `^{${sign(charge)}}` : "";
     if (a.text) {
       const us = units(a.text), order = rtl ? [...us].reverse() : us;
       const out = order.map((u) => atom(u.kind === "bracket" ? pieces(u).map((p) => tex(p.text) + (p.count ? sub(p.count) : "")).join("") : tex(u.text) + (u.count ? sub(u.count) : "")));
@@ -73,11 +74,61 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const back = rtl || (!a.align && !deg(i) && !!h && H_FIRST.has(a.label));
     // An H the bonds leave no room for beside the atom stacks above or below it (indole's NH).
     const stack = h && (a.align === "above" || a.align === "below" ? a.align : !a.align && !back && steep && deg(i) >= 2 ? (v[1] < 0 ? "above" : "below") : undefined);
-    if (stack) return tint({ atoms: [atom(`\\chem${stack}{${el}}{${hs}}${ch}`)], anchor: 0 });
+    if (stack) return tint({ atoms: [atom(`\\chem${stack}{${el}}{${hs}}${ch}`)], anchor: 0, stack });
     if (!hs) return tint({ atoms: [atom(el + ch)], anchor: 0 });
     return tint(back ? { atoms: [atom(hs), atom(el + ch)], anchor: 1 } : { atoms: [el, atom(hs + ch)], anchor: 0 });
   }
-  const groups = atoms.map((_, i) => (kept[i] ? group(i) : { atoms: [], anchor: 0 }));
+  // Lone pairs, unpaired electrons, and circled and partial charges, as chemfig's \charge round the atom its bonds
+  // meet, where the page puts them (render.ts markAngles): where they were dragged, else in the widest gaps between
+  // the atom's bonds, the rest of its label and its charge sign. Lewis dots and bars turn to face out (chemfig's
+  // lewisautorot). A skeletal carbon's \charge, with its charge sign too, is the whole atom: chemfig joins the bonds
+  // through it. The \charge is never in braces, which would hide it.
+  function marks(i: number, g: Group): Group {
+    const a = atoms[i], kinds = markKinds(a), skeletal = !labelled[i] && !!a.charge && !a.circled;
+    if (!kinds.length && !skeletal) return g;
+    // Directions in the page's frame (y down, radians), as markAngles takes them.
+    const down = (q: P) => Math.atan2(-(q[1] - at(i)[1]), q[0] - at(i)[0]), v = pull(i);
+    const taken = nbrs[i].map(({ to }) => down(at(to)));
+    if (g.stack) taken.push(g.stack === "above" ? -Math.PI / 2 : Math.PI / 2);
+    else if (g.atoms.length > 1) { if (g.anchor < g.atoms.length - 1) taken.push(0); if (g.anchor > 0) taken.push(Math.PI); }
+    // A plain charge sign goes up and to the right of a label (to the left of one read backwards), or away from a
+    // skeletal carbon's bonds.
+    const signAt = skeletal ? Math.atan2(v[1], -v[0]) : labelled[i] && a.charge && !a.circled ? (g.anchor > 0 ? (-3 * Math.PI) / 4 : -Math.PI / 4) : undefined;
+    if (signAt !== undefined) taken.push(signAt);
+    const keys = markKeys(kinds), guessed = markAngles(kinds, keys, taken, a.angles);
+    // Where the page drew a mark (its electrons, px with y down, about the atom at location × scale), when it is given.
+    const drawn = (key: string) => {
+      const e = options.page?.electrons.find((x) => x.atom === i && x.key === key), k = options.page?.scale ?? 1;
+      const d = e && [e.at[0] - a.location[0] * k, e.at[1] + a.location[1] * k];
+      // A mark drawn on the atom itself gives no direction: the angle is worked out instead.
+      return d && Math.hypot(d[0], d[1]) > 1e-3 ? Math.atan2(d[1], d[0]) : undefined;
+    };
+    const ts = kinds.map((_, k) => drawn(keys[k]) ?? guessed[k]), sign0 = skeletal ? drawn("charge") ?? signAt : signAt;
+    // chemfig's place for a mark: the angle in degrees anticlockwise (y up), from -179 to 180, and how far out. Dots
+    // and bars sit a little clear of a label, and further from an empty atom, which has no box. A sign or δ touches
+    // the place with its near side (anchor=180+\chargeangle), not its middle, so it stays off the label and bonds.
+    const where = (t: number, gap: number) => {
+      const d = ((Math.round((-t * 180) / Math.PI) % 360) + 360) % 360;
+      return `${d > 180 ? d - 360 : d}:${gap}pt`;
+    };
+    const dots = (t: number) => where(t, labelled[i] ? 1 : 2), text = (t: number) => `${where(t, labelled[i] ? 0 : 1)}[anchor=180+\\chargeangle]`;
+    const c = rgb(a.colour), paint = c ? `\\color[RGB]{${c.join(",")}}` : "", tikz = c ? `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}` : "";
+    const items = kinds.flatMap((kind, k) => {
+      if (kind === "radical") return [`${dots(ts[k])}=\\.`];
+      if (kind === "pair") return [`${dots(ts[k])}=${a.bars ? "\\|" : "\\:"}`];
+      if (kind === "charge") return [`${text(ts[k])}=$${paint}\\scriptstyle ${sign(a.charge!, true)}$`];
+      if (kind === "partial") return [`${text(ts[k])}=$${paint}\\scriptstyle\\delta^{${a.partial === "+" ? "+" : "-"}}$`];
+      return []; // the query indicator: chemfig has no query properties
+    });
+    if (skeletal) items.unshift(`${text(sign0!)}=$${paint}\\scriptstyle ${sign(a.charge!)}$`);
+    if (!items.length) return g;
+    // Dots and bars in the atom's colour.
+    const dotStyle = tikz ? `[.style={fill=${tikz}},|style={color=${tikz},line width=0.4pt}]` : "";
+    const wrap = (content: string) => `\\charge{${dotStyle}${items.join(",")}}{${content}}`;
+    if (!g.atoms.length) return { atoms: [wrap("")], anchor: 0 };
+    return { ...g, atoms: g.atoms.map((s, k) => (k === g.anchor ? wrap(s) : s)) };
+  }
+  const groups = atoms.map((_, i) => (kept[i] ? marks(i, group(i)) : { atoms: [], anchor: 0 }));
 
   // Where a double bond's second line goes, as the page puts it: 1 left of atoms[0] → atoms[1], -1 right, 0 centred.
   function side(b: Bond): number {
@@ -210,7 +261,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   write(roots[0], 0, "", roots.slice(1));
   // Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
-  const code = layout.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+  const code = options.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
   return wavy ? `% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble.\n${code}` : code;
 }
 
