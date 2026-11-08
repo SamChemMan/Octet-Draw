@@ -1213,8 +1213,8 @@ export default function Editor() {
     return steps.length ? toReaction(part, steps, "rdf", v2000) : undefined;
   }
   // A part's structures as chemfig code (chemfig.ts), with the captions read as chemistry as labels.
-  function chemfigOf(part: Mol): string | undefined {
-    try { return toChemfig(withCaptionAtoms(part, style.interpret).mol, style) || undefined; } catch { return undefined; }
+  function chemfigOf(part: Mol, compact = false): string | undefined {
+    try { return toChemfig(withCaptionAtoms(part, style.interpret).mol, style, { compact }) || undefined; } catch { return undefined; }
   }
   // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers and what
   // only shapes others (defs, masks, clips). Text
@@ -1297,7 +1297,7 @@ export default function Editor() {
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
     try {
       const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), chemfig: f.format === "tex" ? chemfigOf(mol) : undefined, dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), chemfig: f.format === "tex" ? chemfigOf(mol, f.chemfigCompact) : undefined, dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
       if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -6410,7 +6410,7 @@ export default function Editor() {
   // 26.1) and MOL V2000 Text (⇧⌥⌘O). Octet adds chemfig, LaTeX code that draws the structures as the page does.
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
-    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], chemfig: ["chemfig", (m) => toChemfig(m, style)],
+    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], chemfig: ["chemfig", (m) => toChemfig(m, style, { compact: settings.files.chemfigCompact })],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;

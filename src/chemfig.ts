@@ -31,7 +31,8 @@ const rgb = (hex?: string) => {
   return m && hex!.toLowerCase() !== "#000000" ? m.slice(1).map((h) => parseInt(h, 16)) : undefined;
 };
 
-export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}): string {
+// layout.compact: the code on one line, as chemfig's manual writes it. Without it, an atom a line, indented by branch.
+export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, layout: { compact?: boolean } = {}): string {
   const atoms = mol.atoms, kept = atoms.map((a) => !a.hidden);
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept[i]) && b.atoms[0] !== b.atoms[1]);
   if (!kept.some(Boolean)) return "";
@@ -189,14 +190,27 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     out[g.anchor] += hs;
     return joined(out);
   };
-  function write(u: number, extra: string[] = []): string {
-    const kids = [...children[u]].sort((x, y) => height[x] - height[y]), last = kids.pop();
-    const edge = (v: number) => { const { char, tikz } = look(via[v]!, u); return bondCode(u, v, char, tikzOf(tikz)) + write(v); };
-    return text(u) + extra.join("") + kids.map((v) => `(${edge(v)})`).join("") + (last === undefined ? "" : edge(last));
+  const edge = (u: number, v: number) => { const { char, tikz } = look(via[v]!, u); return bondCode(u, v, char, tikzOf(tikz)); };
+  // The code as lines, each with its depth in branches: an atom with the bond to it, and each branch's brackets on
+  // lines of their own. The chain runs on from atom to atom (a loop, so a long chain needs no deep recursion).
+  // others: structures that hang off this atom by bonds chemfig does not draw.
+  const lines: [number, string][] = [];
+  function write(u: number, depth: number, lead: string, others: number[] = []) {
+    for (let at = u, head = lead; ; ) {
+      const line = head + text(at);
+      if (line) lines.push([depth, line]);
+      const kids = [...children[at]].sort((x, y) => height[x] - height[y]), last = kids.pop();
+      const branch = (code: string, v: number) => { lines.push([depth, "("]); write(v, depth + 1, code); lines.push([depth, ")"]); };
+      for (const r of others) branch(bondCode(at, r, "-", "draw=none"), r);
+      for (const v of kids) branch(edge(at, v), v);
+      if (last === undefined) return;
+      [head, at, others] = [edge(at, last), last, []];
+    }
   }
-  // The other structures, each as a branch off the first by a bond chemfig does not draw.
-  const others = roots.slice(1).map((r) => `(${bondCode(roots[0], r, "-", "draw=none")}${write(r)})`);
-  const code = `\\chemfig{${write(roots[0], others)}}`;
+  write(roots[0], 0, "", roots.slice(1));
+  // Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
+  // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
+  const code = layout.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
   return wavy ? `% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble.\n${code}` : code;
 }
 
