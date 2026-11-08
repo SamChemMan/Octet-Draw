@@ -201,6 +201,33 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(toChemfig(named([{ text: "Acetic acid" }])), "\\chemname*{\\chemfig{\n\t-[:30]\n\t(\n\t\t=[:90]O\n\t)\n\t-[:-30]OH\n}}{Acetic acid}");
 }
 
+// Characters beyond ASCII in LaTeX's own forms, so pdfLaTeX sets them with what chemfig loads: Greek and signs in
+// maths in a label and in text in a name, script digits as one script, accented letters as they are in text (in an
+// \mbox in maths). Anything else stays, and a comment names it.
+{
+  const end = (text: string, name?: string) => cf({ atoms: [A("C", 0, 0), A("C", c30, s30), A("C", 2 * c30, 0, { text })], bonds: [B(0, 1), B(1, 2)], ...(name ? { captions: [{ id: 1, text: name, x: 0, y: -2, under: [0, 1, 2] }] } : {}) });
+  assert.equal(end("Rδ·OTf"), "\\chemfig{-[:30]-[:-30]R|{\\delta}|{\\cdot}OTf}");
+  assert.equal(end("R′"), "\\chemfig{-[:30]-[:-30]R|{'}}");
+  assert.equal(end("Né"), "\\chemfig{-[:30]-[:-30]N|{\\mbox{é}}}");
+  assert.match(end("R", "α-pinene, 5 °C, ±2 ‰ – Δ"), /\{\$\\alpha\$-pinene, 5 \\textdegree\{\}C, \$\\pm\$2 \\textperthousand\{\} -- \$\\Delta\$\}$/);
+  assert.match(end("R", "H₂O ¹³C, 3 Å, β′"), /\{H\\textsubscript\{2\}O \\textsuperscript\{13\}C, 3 \\AA\{\}, \$\\beta'\$\}$/);
+  assert.match(end("R", "Ångström, Müller"), /\{\\AA\{\}ngström, Müller\}$/);
+  assert.match(end("R", "5$α"), /\{5\\\$\$\\alpha\$\}$/, "an escaped dollar stays apart from the maths after it");
+  // Raised digits in a label are one script (_{1}_{3} would be an error).
+  assert.match(cf(mol([A("C", 0, 0), A("C", 1, 0, { text: "R¹³" })], [B(0, 1)])), /\^\{13\}/);
+  const star = end("R★");
+  assert.match(star, /^% pdfLaTeX cannot set ★: replace it, or compile with LuaLaTeX or XeLaTeX and a font that has it\.\n\\chemfig\{/);
+  assert.doesNotMatch(end("Né", "Müller"), /^%/, "accented letters need no comment");
+}
+
+// A long chain (here 20,000 atoms, with a branch on every tenth) is written without running out of stack.
+{
+  const n = 20000, atoms = Array.from({ length: n }, (_, k) => A("C", k * c30, k % 2 ? s30 : 0)), bonds = Array.from({ length: n - 1 }, (_, k) => B(k, k + 1));
+  for (let k = 0; k < n; k += 10) { atoms.push(A("O", k * c30, (k % 2 ? s30 : 0) + 1)); bonds.push(B(k, atoms.length - 1)); }
+  const code = toChemfig(mol(atoms, bonds), {}, { compact: true });
+  assert.equal(code.split("OH").length - 1, n / 10);
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
 const flat = (s: string) => s.replace(/\n\t*/g, "");
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));

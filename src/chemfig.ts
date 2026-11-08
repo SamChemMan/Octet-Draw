@@ -7,6 +7,7 @@
 // page draws them, with chemfig's \charge. Arrows, text and shapes are not written.
 import { pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
+import { ESCAPES } from "./escapes.ts";
 import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import type { DocStyle } from "./docstyle.ts";
 
@@ -23,8 +24,45 @@ function atom(s: string): string {
 }
 // The atoms of a group joined: chemfig starts an atom at a capital, and | starts one anywhere else.
 const joined = (atoms: string[]) => atoms.map((a, k) => (k && !/^[A-Z]/.test(a) ? `|${a}` : a)).join("");
+// Characters beyond ASCII as LaTeX writes them, in maths mode (labels) and text mode (names), with no package that
+// chemfig does not load: Greek by the names Octet takes when \delta is typed (escapes.ts), and the signs chemistry
+// uses. Accented Latin letters pdfLaTeX sets in text as they are; in maths they go in an \mbox. Anything else is left
+// as it is, and the code says so (unset()).
+const GREEK = new Map<string, string>();
+for (const [name, c] of Object.entries(ESCAPES)) if (/[Ͱ-Ͽ]/.test(c) && !GREEK.has(c)) GREEK.set(c, name);
+const SIGNS: Record<string, [math: string, text: string]> = {
+  "°": ["^{\\circ}", "\\textdegree{}"], "±": ["\\pm", "$\\pm$"], "∓": ["\\mp", "$\\mp$"], "×": ["\\times", "$\\times$"], "÷": ["\\div", "$\\div$"],
+  "·": ["\\cdot", "$\\cdot$"], "•": ["\\bullet", "\\textbullet{}"], "−": ["-", "$-$"], "–": ["-", "--"], "—": ["-", "---"],
+  "≤": ["\\leq", "$\\leq$"], "≥": ["\\geq", "$\\geq$"], "≠": ["\\neq", "$\\neq$"], "≈": ["\\approx", "$\\approx$"], "∼": ["\\sim", "$\\sim$"],
+  "≡": ["\\equiv", "$\\equiv$"], "∝": ["\\propto", "$\\propto$"], "∞": ["\\infty", "$\\infty$"], "′": ["'", "$'$"], "″": ["''", "$''$"],
+  "‰": ["\\mbox{\\textperthousand}", "\\textperthousand{}"], "√": ["\\surd", "$\\surd$"], "∂": ["\\partial", "$\\partial$"], "∇": ["\\nabla", "$\\nabla$"],
+  "∫": ["\\int", "$\\int$"], "∑": ["\\sum", "$\\sum$"], "⋯": ["\\cdots", "$\\cdots$"], "…": ["\\ldots", "\\ldots{}"], "ħ": ["\\hbar", "$\\hbar$"],
+  "Å": ["\\mbox{\\AA}", "\\AA{}"], "µ": ["\\mu", "$\\mu$"], "→": ["\\rightarrow", "$\\rightarrow$"], "←": ["\\leftarrow", "$\\leftarrow$"],
+  "↔": ["\\leftrightarrow", "$\\leftrightarrow$"], "⇌": ["\\rightleftharpoons", "$\\rightleftharpoons$"], "↑": ["\\uparrow", "$\\uparrow$"], "↓": ["\\downarrow", "$\\downarrow$"],
+  "‡": ["\\ddagger", "\\ddag{}"], "†": ["\\dagger", "\\dag{}"], "✱": ["\\ast", "$\\ast$"], "⊕": ["\\oplus", "$\\oplus$"], "⊖": ["\\ominus", "$\\ominus$"],
+  "‘": ["`", "`"], "’": ["'", "'"], "“": ["``", "``"], "”": ["''", "''"], " ": ["\\,", "~"],
+};
+// Raised and lowered digits and signs (H₂O, ¹³C): each run as one script, since _{1}_{3} is an error in maths.
+const SCRIPTS = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉₊₋", PLAIN = "0123456789+-";
+function unicode(s: string, text: boolean): string {
+  const out = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]+|[₀₁₂₃₄₅₆₇₈₉₊₋]+/g, (run) => {
+    const up = SCRIPTS.indexOf(run[0]) < 12, d = [...run].map((c) => PLAIN[SCRIPTS.indexOf(c) % 12]).join("");
+    return text ? `\\text${up ? "super" : "sub"}script{${d}}` : `${up ? "^" : "_"}{${d}}`;
+  }).replace(/[^\x00-\x7f]/g, (c) => {
+    const greek = GREEK.get(c), sign = SIGNS[c];
+    if (greek) return text ? `$\\${greek}$` : `\\${greek}`;
+    if (sign) return sign[text ? 1 : 0];
+    // An accented Latin letter (é, ü, ß): as it is in text; in maths, set as text.
+    return /[À-ÿ]/.test(c) && !text ? `\\mbox{${c}}` : c;
+  });
+  // Maths side by side in text is one piece: $\beta'$, not $\beta$$'$ (an escaped \$ stays).
+  return text ? out.replace(/(?<!\\)\$\$/g, "") : out;
+}
+// Characters pdfLaTeX cannot set with what chemfig loads, left in the code as they are: anything beyond ASCII but an
+// accented Latin letter (which pdfLaTeX sets in text, and which maths puts in an \mbox).
+const unset = (code: string) => [...new Set(code.match(/[^\x00-\x7f]/g) ?? [])].filter((c) => !/[À-ÿ]/.test(c));
 // Text in TeX's maths mode, with TeX's special characters escaped.
-const tex = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (c) => (c === "\\" ? "\\backslash " : c === "~" ? "\\sim " : c === "^" ? "\\hat{}" : `\\${c}`));
+const tex = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (c) => (c === "\\" ? "\\backslash " : c === "~" ? "\\sim " : c === "^" ? "\\hat{}" : `\\${c}`)).replace(/[^\x00-\x7f]+/g, (s) => unicode(s, false));
 // A character of a label with its look: raised or lowered (a mass number, a count, a charge, or set by hand), bold,
 // italic, underlined.
 type Look = { bold?: boolean; italic?: boolean; underline?: boolean };
@@ -47,7 +85,7 @@ function typeset(cs: Char[]): string {
     for (let j = k; j < e; ) {
       let f = j;
       while (f < e && same(cs[f], cs[j])) f++;
-      body += looked(cs.slice(j, f).map((x) => tex(x.c)).join(""), cs[j], !!cs[j].script);
+      body += looked(tex(cs.slice(j, f).map((x) => x.c).join("")), cs[j], !!cs[j].script);
       j = f;
     }
     const s = cs[k].script;
@@ -62,7 +100,7 @@ const num = (x: number) => String(+x.toFixed(2));
 // run in its look (bold, italic, underlined, raised or lowered, coloured) on top of the caption's own, and TeX's
 // special characters escaped. Font and size are left to the document.
 function nameOf(c: Caption): string {
-  const esc = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (x) => (x === "\\" ? "\\textbackslash{}" : x === "~" ? "\\textasciitilde{}" : x === "^" ? "\\textasciicircum{}" : `\\${x}`));
+  const esc = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (x) => (x === "\\" ? "\\textbackslash{}" : x === "~" ? "\\textasciitilde{}" : x === "^" ? "\\textasciicircum{}" : `\\${x}`)).replace(/[^\x00-\x7f]+/g, (s) => unicode(s, true));
   const piece = (text: string, r: TextRun) => {
     let t = esc(text);
     if (r.script) t = `\\text${r.script === "super" ? "superscript" : "subscript"}{${t}}`;
@@ -115,18 +153,26 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
       // A written label's characters styled as they were typed (its runs): bold, italic, underlined, or raised or
       // lowered by hand, each on top of the label's own look. A count in a script set by hand takes that script.
       const runs = a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((r) => [...r.text].map(() => r)) : undefined;
+      // Raised or lowered digits typed as such (R¹³, which reads as a unit a digit) are one unit, so they are one script.
+      const scriptOnly = (u: { text: string; count?: string; kind: string }) => u.kind !== "bracket" && !u.count && /^[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉₊₋]+$/.test(u.text);
+      const merged = units(a.text).reduce<ReturnType<typeof units>>((list, u) => {
+        const last = list[list.length - 1];
+        if (last && scriptOnly(last) && scriptOnly(u)) list[list.length - 1] = { ...last, text: last.text + u.text };
+        else list.push(u);
+        return list;
+      }, []);
       let n = 0;
-      const typed = units(a.text).map((u) => {
+      const typed = merged.map((u) => {
         const parts = u.kind === "bracket" ? pieces(u) : [u], start = n;
         const cs = parts.flatMap((p) => [...chars(p.text, look), ...chars(p.count ?? "", look, "sub")]).map((x, k): Char => {
           const r = runs?.[start + k];
           return { ...x, ...(r?.bold ? { bold: true } : {}), ...(r?.italic ? { italic: true } : {}), ...(r?.underline ? { underline: true } : {}), ...(r?.script ? { script: r.script } : {}) };
         });
         n += cs.length;
-        return { text: typeset(cs), raised: cs.length > 0 && cs.every((_, k) => runs?.[start + k]?.script) };
+        return { text: typeset(cs), raised: scriptOnly(u) || (cs.length > 0 && cs.every((_, k) => runs?.[start + k]?.script)) };
       });
-      // A unit all in a script set by hand (the III of Fe with III raised) stays with the unit before it, whichever way
-      // the label reads, as on the page.
+      // A unit all in a script (the III of Fe with III raised, the ¹³ of R¹³) stays with the unit before it, whichever
+      // way the label reads, as on the page.
       const joinedUnits: string[] = [];
       typed.forEach((t, k) => { if (t.raised && k) joinedUnits[joinedUnits.length - 1] += t.text; else joinedUnits.push(t.text); });
       const out = (rtl ? joinedUnits.reverse() : joinedUnits).map(atom);
@@ -299,8 +345,14 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const roots: number[] = [];
   for (const i of order) if (!seen[i]) { roots.push(i); walk(i); }
   // How long a chain runs on from each atom: the longest child is written last, as the main chain, without brackets.
+  // Worked out leaves first, from each tree's atoms in the order the walk reached them, so a long chain needs no deep
+  // recursion.
   const height = atoms.map(() => 0);
-  for (const r of roots) (function h(u: number): number { return (height[u] = children[u].reduce((m, c) => Math.max(m, 1 + h(c)), 0)); })(r);
+  for (const r of roots) {
+    const reached = [r];
+    for (let k = 0; k < reached.length; k++) reached.push(...children[reached[k]]);
+    for (let k = reached.length - 1; k >= 0; k--) { const u = reached[k]; height[u] = children[u].reduce((m, c) => Math.max(m, 1 + height[c]), 0); }
+  }
 
   const text = (i: number) => {
     const g = groups[i], hs = hooks[i].join("");
@@ -351,6 +403,11 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const names = named.filter((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0])))).map(nameOf);
     return names.length ? `\\chemname*{${chemfig(rs)}}{${names.join("\\\\")}}` : chemfig(rs);
   }).join(options.compact ? "\\qquad" : "\n\\qquad\n");
-  return wavy ? `% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble.\n${code}` : code;
+  // What the code needs beyond chemfig, as comments before it.
+  const left = unset(code), notes = [
+    ...(wavy ? ["% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble."] : []),
+    ...(left.length ? [`% pdfLaTeX cannot set ${left.join(" ")}: replace ${left.length > 1 ? "them" : "it"}, or compile with LuaLaTeX or XeLaTeX and a font that has ${left.length > 1 ? "them" : "it"}.`] : []),
+  ];
+  return [...notes, code].join("\n");
 }
 
