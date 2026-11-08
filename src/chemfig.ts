@@ -9,7 +9,8 @@ import { formulaCaption, formulaTextRuns, pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 import { chemicalCaption } from "./edit.ts";
-import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
+import { H_FIRST, HBOND, QUADRUPLE, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, shapeCorners, turnedWith, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
+import { polymerLabel, polymerTags } from "./query.ts";
 import type { DocStyle } from "./docstyle.ts";
 
 type P = [number, number];
@@ -375,10 +376,13 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // lines of their own. The chain runs on from atom to atom (a loop, so a long chain needs no deep recursion).
   // others: structures that hang off this atom by bonds chemfig does not draw.
   let lines: [number, string][] = [];
+  let decor: string[] = []; // branches the next root written takes first (a bracket's nodes)
   function write(u: number, depth: number, lead: string, others: number[] = []) {
     for (let at = u, head = lead; ; ) {
       const line = head + text(at);
       if (line) lines.push([depth, line]);
+      for (const d of decor) lines.push([depth, d]);
+      decor = [];
       const kids = [...children[at]].sort((x, y) => height[x] - height[y]), last = kids.pop();
       const branch = (code: string, v: number) => { lines.push([depth, "("]); write(v, depth + 1, code); lines.push([depth, ")"]); };
       for (const r of others) branch(bondCode(at, r, "-", "draw=none"), r);
@@ -390,10 +394,14 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // One \chemfig for structures (their roots, left to right): the first written from its root, the others hanging off
   // it. Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
+  // Brackets round its atoms come with it: their nodes hang off the first root, and \polymerdelim follows (after).
   const chemfig = (rs: number[], compact = !!options.compact) => {
     lines = [];
+    const mine = brackets.filter((b) => rs.includes(roots[component[b.inside[0]]]));
+    decor = mine.flatMap((b) => b.branches(rs[0]));
     write(rs[0], 0, "", rs.slice(1));
-    return compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+    const code = compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+    return { code, after: mine.map((b) => (compact ? b.delim : `\n${b.delim}`)).join("") };
   };
   // Names under structures (captions kept under their atoms: a name, a compound number), with chemfig's \chemname*,
   // which puts each under its own structure, as the page does, whatever came before. Names under one structure stack in
@@ -401,6 +409,38 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // each structure, with the others its names also cover, is a \chemfig of its own, left to right.
   const component = atoms.map(() => -1);
   roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...children[u]); } });
+  // Brackets (brackets, parentheses and braces, and polymer brackets) round atoms, with chemfig's \polymerdelim: its
+  // two nodes at the middles of the bracket's sides, placed by bonds chemfig does not draw from the structure's first
+  // atom, and empty atoms at its corners so the picture's box holds it (\polymerdelim's lines take no room). Its
+  // height, its turn, one side only, the usage label at the lower right (n), and the mark and repeat tags at the upper
+  // right, as the page draws them. Node names carry a hash of the drawing, so two drawings in one document do not clash.
+  // A bracket round no atom is not written.
+  const hash = [...JSON.stringify(atoms.map((a) => a.location))].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261).toString(36).slice(0, 4);
+  const toPoint = (u: number, p: P, content: string) => {
+    const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], g = groups[u];
+    let angle = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI);
+    if (angle <= -180) angle += 360;
+    const right = angle > -90 && angle < 90, from = g.atoms.length > 1 && g.anchor !== (right ? g.atoms.length - 1 : 0) ? String(g.anchor + 1) : "";
+    return `(-[:${angle},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]${content})`;
+  };
+  const brackets = (mol.shapes ?? []).filter(isBracket).flatMap((sh) => {
+    const inside = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && inShape(sh, at(i)) ? [i] : []));
+    if (!inside.length) return [];
+    const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]), ym = (y0 + y1) / 2;
+    const turned = (q: P) => turnedWith(sh, q) as P, half = num(1.5 * (y1 - y0)), name = `oct${hash}${sh.id}`;
+    const c = shapeCorners(sh), corners = sh.angle ? [c.from, c.to, c.c1, c.c2] : [c.from, c.to];
+    const tags = [sh.mark ?? "", sh.polymer ? polymerTags(sh.polymer) : ""].filter(Boolean).join(" ");
+    const pair = sh.kind === "brackets" ? ["[", "]"] : sh.kind === "parens" ? ["(", ")"] : ["\\{", "\\}"];
+    const delims = sh.side === "left" ? `${pair[0]}.` : sh.side === "right" ? `.${pair[1]}` : pair.join("");
+    const keys = [`delimiters={${delims}}`, `height=${half}em`, `depth=${half}em`, `indice={${sh.polymer ? tex(polymerLabel(sh.polymer)) : ""}}`, ...(sh.angle ? ["h align=false", `rotate=${Math.round(sh.angle)}`] : [])];
+    return [{
+      inside, delim: `\\polymerdelim[${keys.join(", ")}]{${name}o}{${name}c}`,
+      branches: (u: number) => [
+        toPoint(u, turned([x0, ym]), `@{${name}o}`), toPoint(u, turned([x1, ym]), `@{${name}c}`), ...corners.map((q) => toPoint(u, q, "")),
+        ...(tags ? [toPoint(u, turned(sh.side === "left" ? [x0 - 0.3, y1 - 0.1] : [x1 + 0.3, y1 - 0.1]), atom(`\\scriptstyle ${tex(tags)}`))] : []),
+      ],
+    }];
+  });
   const named = (mol.captions ?? []).filter((c) => c.under?.some((i) => component[i] >= 0)).sort((p, q) => p.id - q.id);
   const parent = roots.map((_, k) => k), find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
   for (const c of named) {
@@ -421,7 +461,8 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // A structure (its roots) as a compound, named when it has names. A label on an arrow is compact, inside [ ].
   const compound = (rs: number[], compact?: boolean) => {
     const names = named.filter((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0])))).map(nameOf);
-    return names.length ? `\\chemname*{${chemfig(rs, compact)}}{${names.join("\\\\")}}` : chemfig(rs, compact);
+    const { code, after } = chemfig(rs, compact);
+    return (names.length ? `\\chemname*{${code}}{${names.join("\\\\")}}` : code) + after;
   };
   // Text on more than one line stacks (\\ alone does nothing in a compound or a label).
   const stack = (s: string) => (s.includes("\\\\") ? `\\shortstack{${s}}` : s);
@@ -457,11 +498,12 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // The structures in no reaction, as before: named ones each a \chemfig of their own, the others together.
   const hasName = (rs: number[]) => named.some((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0]))));
   const rest = sets.filter((rs) => !used.has(find(roots.indexOf(rs[0])))), unnamed = rest.filter((rs) => !hasName(rs)).flat();
-  const loose = !schemes.length ? sets.map((rs) => compound(rs)) : [...rest.filter(hasName).map((rs) => compound(rs)), ...(unnamed.length ? [chemfig(unnamed)] : [])];
+  const loose = !schemes.length ? sets.map((rs) => compound(rs)) : [...rest.filter(hasName).map((rs) => compound(rs)), ...(unnamed.length ? [compound(unnamed)] : [])];
   const code = [...blocks, loose.filter(Boolean).join(options.compact ? "\\qquad" : "\n\\qquad\n")].filter(Boolean).join("\n\n");
   // What the code needs beyond chemfig, as comments before it.
   const left = unset(code), notes = [
     ...(wavy ? ["% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble."] : []),
+    ...(brackets.length ? ["% Brackets (\\polymerdelim) need two LaTeX runs to be in place."] : []),
     ...(left.length ? [`% pdfLaTeX cannot set ${left.join(" ")}: replace ${left.length > 1 ? "them" : "it"}, or compile with LuaLaTeX or XeLaTeX and a font that has ${left.length > 1 ? "them" : "it"}.`] : []),
   ];
   return [...notes, code].join("\n");
@@ -497,7 +539,11 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
   }
   // Text that is not in the code: not a name under a structure, a label read as chemistry, or a part of a scheme.
   if ((mol.captions ?? []).some((c) => !written.has(c.id) && !c.under?.some((i) => kept.has(i)) && !chemicalCaption(c, interpret))) add(left, "text");
-  for (const s of mol.shapes ?? []) add(left, s.kind === "brackets" || s.kind === "parens" || s.kind === "braces" ? "bracket" : s.kind === "tlc" || s.kind === "table" || s.kind === "picture" ? s.kind : s.kind === "highlight" ? "highlight" : "shape");
+  // Brackets round atoms are in the code (\polymerdelim); a bracket round nothing is not.
+  for (const s of mol.shapes ?? []) {
+    if (isBracket(s) && mol.atoms.some((a, i) => kept.has(i) && inShape(s, [a.location[0], a.location[1]]))) continue;
+    add(left, isBracket(s) ? "bracket" : s.kind === "tlc" || s.kind === "table" || s.kind === "picture" ? s.kind : s.kind === "highlight" ? "highlight" : "shape");
+  }
   add(left, "cycle", mol.cycles?.length ?? 0);
   add(left, "spectrum", mol.spectra?.length ?? 0);
   add(left, "fill", mol.fills?.length ?? 0);

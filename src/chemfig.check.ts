@@ -282,6 +282,28 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.match(toChemfig(onArrow, {}, { compact: true, schemes: [{ ...schemes[0], above: new Map([[10, [{ caption: 7 }]]]) }] }), /\\arrow\{->\[\{H\\textsubscript\{2\}SO\\textsubscript\{4\}, heat\}\]/);
 }
 
+// Brackets round atoms with \polymerdelim: nodes at the middles of its sides and empty atoms at its corners, placed by
+// bonds chemfig does not draw from the first atom; the kind, height, one side, turn, usage label and mark as on the
+// page; a comment that it needs two runs. A bracket round nothing is not written, and the notice says so.
+{
+  const fe = (sh: Partial<NonNullable<Mol["shapes"]>[number]>): Mol => ({ atoms: [A("Fe", 0, 0)], bonds: [], shapes: [{ id: 8, kind: "brackets", from: [-0.7, -0.8], to: [0.7, 0.8], ...sh }] });
+  const code = cf(fe({ mark: "3+" })), name = /@\{(oct\w+?)o\}/.exec(code)![1];
+  assert.equal(code, "% Brackets (\\polymerdelim) need two LaTeX runs to be in place.\n"
+    + `\\chemfig{Fe(-[:180,0.7,,,draw=none]@{${name}o})(-[:0,0.7,,,draw=none]@{${name}c})(-[:-131,1.06,,,draw=none])(-[:49,1.06,,,draw=none])(-[:35,1.22,,,draw=none]{\\scriptstyle 3+})}`
+    + `\\polymerdelim[delimiters={[]}, height=2.4em, depth=2.4em, indice={}]{${name}o}{${name}c}`);
+  assert.match(name, /^oct\w+8$/, "the name carries the drawing's hash and the bracket's id");
+  assert.match(cf(fe({ kind: "parens", side: "right", polymer: { usage: "sru" } })), /delimiters=\{\.\)\}, height=2\.4em, depth=2\.4em, indice=\{n\}/);
+  assert.match(cf(fe({ kind: "braces", polymer: { usage: "mult", label: "3" } })), /delimiters=\{\\\{\\\}\}.*indice=\{3\}/);
+  assert.match(cf(fe({ angle: 30 })), /h align=false, rotate=30\]/);
+  // A drawing moved elsewhere gets other names, so two in one document do not clash.
+  const moved = cf({ ...fe({}), atoms: [A("Fe", 5, 0)], shapes: [{ id: 8, kind: "brackets", from: [4.3, -0.8], to: [5.7, 0.8] }] });
+  assert.doesNotMatch(moved, new RegExp(name));
+  assert.equal(chemfigNotice("Copied", fe({}), true), undefined);
+  const empty: Mol = { ...fe({}), shapes: [{ id: 8, kind: "brackets", from: [3, 3], to: [4, 4] }] };
+  assert.equal(chemfigNotice("Copied", empty, true), "Copied without 1 bracket: Octet cannot export it to chemfig yet.");
+  assert.doesNotMatch(cf(empty), /polymerdelim/);
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));
 console.log("chemfig.check: all pass");
