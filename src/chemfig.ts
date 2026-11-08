@@ -1,15 +1,16 @@
 // LaTeX chemfig code for a drawing's structures (Edit > Copy As > chemfig, and File > Export… as .tex): one
 // \chemfig{…} that draws them as the page does. Every bond takes the absolute angle and length it has on the page, so
-// any ring or layout comes out as drawn (chemfig's *n ring syntax only draws regular polygons). The structure is
-// written as a tree from its leftmost atom: side chains are branches, and each bond that closes a ring is a hook
-// (?[1] on the first atom, ?[1,{=}] on the second). Separate structures hang off the first one by bonds chemfig does
-// not draw, so they keep their places. Lone pairs, unpaired electrons, and circled and partial charges go where the
-// page draws them, with chemfig's \charge. Arrows, text and shapes are not written.
+// any layout comes out as drawn. The structure is written as a tree from its leftmost atom: side chains are branches.
+// An isolated regular ring is written in chemfig's ring syntax (*6(-=-=-=), **6 with its aromatic circle); any other
+// ring bond by bond, each bond that closes it a hook (?[1] on the first atom, ?[1,{=}] on the second). Separate
+// structures hang off the first one by bonds chemfig does not draw, so they keep their places. Lone pairs, unpaired
+// electrons, circled and partial charges and atom and map numbers go where the page draws them, with chemfig's \charge.
+// Reactions in a row are schemes, brackets \polymerdelim; other arrows, text and shapes are not written.
 import { formulaCaption, formulaTextRuns, pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 import { chemicalCaption } from "./edit.ts";
-import { H_FIRST, HBOND, QUADRUPLE, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, shapeCorners, turnedWith, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
+import { H_FIRST, HBOND, QUADRUPLE, circledRings, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, shapeCorners, turnedWith, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import { polymerLabel, polymerTags } from "./query.ts";
 import type { DocStyle } from "./docstyle.ts";
 
@@ -125,6 +126,49 @@ const rgb = (hex?: string) => {
   return m && hex!.toLowerCase() !== "#000000" ? m.slice(1).map((h) => parseInt(h, 16)) : undefined;
 };
 
+// The rings written in chemfig's ring syntax (*6(-=-=-=)), each as its atoms counterclockwise: those chemfig draws as
+// the page has them. chemfig draws a ring as a regular polygon with sides a bond long, and turns it so the bond into it
+// points at its middle. So: rings of 3 to 8 atoms that share no atom with another ring (fused, spiro and bridged rings
+// are written bond by bond), regular with sides of 1, and with every bond out of the ring pointing straight out from its
+// middle (within 3°). Hidden atoms and hydrogen bonds do not count. Only atoms in a cycle are searched (the 2-core), so
+// long chains cost nothing.
+export function syntaxRings(mol: Mol): number[][] {
+  const kept = mol.atoms.map((a) => !a.hidden), nb: number[][] = mol.atoms.map(() => []);
+  for (const b of mol.bonds) if (b.type !== HBOND && b.atoms[0] !== b.atoms[1] && b.atoms.every((i) => kept[i])) { nb[b.atoms[0]].push(b.atoms[1]); nb[b.atoms[1]].push(b.atoms[0]); }
+  const at = (i: number): P => [mol.atoms[i].location[0], mol.atoms[i].location[1]];
+  // The 2-core: atoms left after taking off, again and again, those with one neighbour or none.
+  const left = nb.map((n) => n.length), core = left.map(() => true), off = left.flatMap((n, i) => (n < 2 ? [i] : []));
+  for (const i of off) { if (!core[i]) continue; core[i] = false; for (const j of nb[i]) if (core[j] && --left[j] < 2) off.push(j); }
+  // The smallest ring through each bond in the core (a breadth-first search round it), each ring once.
+  const found = new Map<string, number[]>();
+  for (let p = 0; p < nb.length; p++) for (const q of nb[p]) {
+    if (q < p || !core[p] || !core[q]) continue;
+    const back = new Map<number, number>([[p, -1]]), queue = [p];
+    for (let k = 0; k < queue.length && !back.has(q); k++) for (const r of nb[queue[k]]) if (core[r] && !back.has(r) && !(queue[k] === p && r === q)) { back.set(r, queue[k]); queue.push(r); }
+    const ring: number[] = [];
+    for (let x = back.has(q) ? q : -1; x !== -1; x = back.get(x)!) ring.push(x);
+    if (ring.length) found.set([...ring].sort((x, y) => x - y).join(), ring);
+  }
+  const all = [...found.values()], count = new Map<number, number>();
+  for (const r of all) for (const i of r) count.set(i, (count.get(i) ?? 0) + 1);
+  return all.flatMap((ring) => {
+    const n = ring.length;
+    if (n < 3 || n > 8 || ring.some((i) => count.get(i)! > 1)) return [];
+    const c = ring.reduce<P>((s, i) => [s[0] + at(i)[0] / n, s[1] + at(i)[1] / n], [0, 0]), r = 1 / (2 * Math.sin(Math.PI / n));
+    const t = (i: number) => Math.atan2(at(i)[1] - c[1], at(i)[0] - c[0]), ccw = [...ring].sort((x, y) => t(x) - t(y));
+    const regular = ccw.every((i, k) => {
+      const next = ccw[(k + 1) % n], gap = ((t(next) - t(i) + 4 * Math.PI) % (2 * Math.PI)) - (2 * Math.PI) / n;
+      return Math.abs(Math.hypot(at(i)[0] - c[0], at(i)[1] - c[1]) - r) < 0.03 && Math.abs(gap) < (2 * Math.PI) / 180 && nb[i].includes(next);
+    });
+    // Every bond out of the ring points straight out from the middle.
+    const radial = ring.every((i) => nb[i].filter((j) => !ring.includes(j)).every((j) => {
+      const out = Math.atan2(at(i)[1] - c[1], at(i)[0] - c[0]), d = Math.atan2(at(j)[1] - at(i)[1], at(j)[0] - at(i)[0]);
+      return Math.abs(Math.atan2(Math.sin(d - out), Math.cos(d - out))) < (3 * Math.PI) / 180;
+    }));
+    return regular && radial ? [ccw] : [];
+  });
+}
+
 // options.compact: the code on one line, as chemfig's manual writes it. Without it, an atom a line, indented by branch.
 // options.page: the page's drawing of mol (render.ts: its electrons and scale), so each mark goes exactly where the
 // page has it, its label's real outline counted. Without it, marks() works their places out from the bonds and labels.
@@ -138,6 +182,9 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const atoms = mol.atoms, kept = atoms.map((a) => !a.hidden);
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept[i]) && b.atoms[0] !== b.atoms[1]);
   if (!kept.some(Boolean)) return "";
+  // Rings in ring syntax, and those of them the page draws with a circle (Toggle Aromatic Display): **6(------).
+  const ringList = syntaxRings(mol), ringKey = (r: number[]) => [...r].sort((x, y) => x - y).join();
+  const circled = new Set(circledRings(mol).map(ringKey));
   const at = (i: number): P => [atoms[i].location[0], atoms[i].location[1]];
   const nbrs: { to: number; bond: Bond }[][] = atoms.map(() => []);
   for (const b of bonds) { nbrs[b.atoms[0]].push({ to: b.atoms[1], bond: b }); nbrs[b.atoms[1]].push({ to: b.atoms[0], bond: b }); }
@@ -363,14 +410,16 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // A bond from u to v: its character and [angle, length, departure atom, arrival atom, TikZ]. chemfig leaves the
   // last atom of a group and meets the first of the next when the bond points right (between -90° and 90°), else the
   // reverse; the atoms are given only where that is not the label's attaching atom.
-  function bondCode(u: number, v: number, char: string, tikz: string): string {
+  // side: a ring's side, which takes no angle or length (the ring sets them). With rings in ring syntax, every other
+  // bond gives its angle, 0 too: chemfig's default there is a ring's bisector, or the turn at the start.
+  function bondCode(u: number, v: number, char: string, tikz: string, side = false): string {
     const d: P = [at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]], length = Math.hypot(d[0], d[1]);
     let angle = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI);
     if (angle <= -180) angle += 360;
     const right = angle > -90 && angle < 90, gu = groups[u], gv = groups[v];
     const from = gu.atoms.length > 1 && gu.anchor !== (right ? gu.atoms.length - 1 : 0) ? String(gu.anchor + 1) : "";
     const to = gv.atoms.length > 1 && gv.anchor !== (right ? 0 : gv.atoms.length - 1) ? String(gv.anchor + 1) : "";
-    const fields = [angle ? `:${angle}` : "", Math.abs(length - 1) > 0.02 ? num(length) : "", from, to, tikz];
+    const fields = side ? ["", "", from, to, tikz] : [angle || ringList.length ? `:${angle}` : "", Math.abs(length - 1) > 0.02 ? num(length) : "", from, to, tikz];
     while (fields.length && !fields[fields.length - 1]) fields.pop();
     return char + (fields.length ? `[${fields.join(",")}]` : "");
   }
@@ -381,14 +430,31 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const hooks: string[][] = atoms.map(() => []), done = new Set<Bond>();
   const plain = (b: Bond) => b.type === 1 && !b.stereo && !b.display && !b.colour;
   let hookCount = 0;
+  // A ring in ring syntax is taken whole where the walk first meets it (its entry): its atoms counterclockwise from
+  // there (ringAt), its bonds done. Its atoms' other bonds are walked as usual: their branches go inside the ring's code.
+  const ringOf = new Map<number, number[]>(), ringAt = new Map<number, number[]>();
+  for (const r of ringList) for (const i of r) ringOf.set(i, r);
+  const enter = (v: number, stack: number[]) => {
+    const r = ringOf.get(v);
+    if (!r || ringAt.has(v) || r.some((i) => ringAt.has(i))) return;
+    const k = r.indexOf(v), path = [...r.slice(k), ...r.slice(0, k)];
+    ringAt.set(v, path);
+    path.forEach((i, j) => {
+      seen[i] = true;
+      const w = path[(j + 1) % path.length];
+      done.add(nbrs[i].find((x) => x.to === w)!.bond);
+    });
+    stack.push(...path.slice(1).reverse());
+  };
   function walk(root: number) {
     const stack = [root];
     seen[root] = true;
+    enter(root, stack);
     while (stack.length) {
       const u = stack[stack.length - 1], next = nbrs[u].filter((x) => !done.has(x.bond)).sort((x, y) => Number(plain(x.bond)) - Number(plain(y.bond)))[0];
       if (!next) { stack.pop(); continue; }
       done.add(next.bond);
-      if (!seen[next.to]) { seen[next.to] = true; via[next.to] = next.bond; children[u].push(next.to); stack.push(next.to); continue; }
+      if (!seen[next.to]) { seen[next.to] = true; via[next.to] = next.bond; children[u].push(next.to); stack.push(next.to); enter(next.to, stack); continue; }
       // A ring closes: next.to is on the path to u, so it is written first. chemfig draws the hook's bond from there.
       const name = String(++hookCount), { char, tikz } = look(next.bond, next.to);
       hooks[next.to].push(`?[${name}]`);
@@ -400,14 +466,22 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   }
   const order = atoms.map((_, i) => i).filter((i) => kept[i]).sort((i, j) => at(i)[0] - at(j)[0] || at(j)[1] - at(i)[1]);
   const roots: number[] = [];
-  for (const i of order) if (!seen[i]) { roots.push(i); walk(i); }
+  // A structure whose leftmost atom is in a ring in ring syntax starts at the ring's atom with the one before it
+  // straight above (chemfig's own way round, so it needs no turn), where the ring has one.
+  const upright = (i: number) => {
+    const r = ringOf.get(i), k = r?.findIndex((v, j) => { const w = r[(j + r.length - 1) % r.length]; return Math.abs(at(w)[0] - at(v)[0]) < 0.02 && at(w)[1] > at(v)[1]; });
+    return r && k !== undefined && k >= 0 ? r[k] : i;
+  };
+  for (const i of order) if (!seen[i]) { const r = upright(i); roots.push(r); walk(r); }
   // How long a chain runs on from each atom: the longest child is written last, as the main chain, without brackets.
   // Worked out leaves first, from each tree's atoms in the order the walk reached them, so a long chain needs no deep
   // recursion.
+  // The atoms just below an atom in the tree: its children, and a ring's other atoms at its entry.
+  const below = (u: number) => [...children[u], ...(ringAt.get(u)?.slice(1) ?? [])];
   const height = atoms.map(() => 0);
   for (const r of roots) {
     const reached = [r];
-    for (let k = 0; k < reached.length; k++) reached.push(...children[reached[k]]);
+    for (let k = 0; k < reached.length; k++) reached.push(...below(reached[k]));
     for (let k = reached.length - 1; k >= 0; k--) { const u = reached[k]; height[u] = children[u].reduce((m, c) => Math.max(m, 1 + height[c]), 0); }
   }
 
@@ -426,18 +500,59 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   let decor: string[] = []; // branches the next root written takes first (a bracket's nodes)
   function write(u: number, depth: number, lead: string, others: number[] = []) {
     for (let at = u, head = lead; ; ) {
-      const line = head + text(at);
+      const ring = ringAt.get(at);
+      // A ring's entry opens its code: chemfig turns it so the bond into it points at its middle (a first atom turns
+      // it with [:θ] at the start, so its last side comes down onto it as chemfig's own does). Everything off the entry
+      // goes inside as its branches, then each atom of the ring with its bond and branches, then the side back.
+      const first = !lead && !depth && at === u && ring ? turnFor(ring) : "";
+      const line = first + head + text(at) + (ring ? `${circled.has(ringKey(ring)) ? "**" : "*"}${ring.length}(` : "");
       if (line) lines.push([depth, line]);
-      for (const d of decor) lines.push([depth, d]);
+      const inner = ring ? depth + 1 : depth;
+      for (const d of decor) lines.push([inner, d]);
       decor = [];
-      const kids = [...children[at]].sort((x, y) => height[x] - height[y]), last = kids.pop();
-      const branch = (code: string, v: number) => { lines.push([depth, "("]); write(v, depth + 1, code); lines.push([depth, ")"]); };
-      for (const r of others) branch(bondCode(at, r, "-", "draw=none"), r);
+      const kids = [...children[at]].sort((x, y) => height[x] - height[y]), last = ring ? undefined : kids.pop();
+      const branch = (code: string, v: number, d = inner) => { lines.push([d, "("]); write(v, d + 1, code); lines.push([d, ")"]); };
+      for (const r of others) branch(hangCode(at, r), r);
       for (const v of kids) branch(edge(at, v), v);
+      if (ring) {
+        for (let k = 1; k <= ring.length; k++) {
+          const p = ring[k - 1], q = ring[k % ring.length];
+          lines.push([inner, ringBond(p, q) + (k < ring.length ? text(q) : "")]);
+          if (k < ring.length) for (const v of [...children[q]].sort((x, y) => height[x] - height[y])) branch(edge(q, v), v);
+        }
+        lines.push([depth, ")"]);
+        return;
+      }
       if (last === undefined) return;
       [head, at, others] = [edge(at, last), last, []];
     }
   }
+  // A ring's side: its bond character and options, and the atoms it leaves and meets in labels, but no angle or length
+  // (the ring sets them). In a ring drawn with a circle the sides are single lines, as on the page. A double bond with
+  // its second line inside is a plain =, as chemfig puts it inside a ring (counterclockwise, inside is on the left).
+  function ringBond(p: number, q: number): string {
+    const b = nbrs[p].find((x) => x.to === q)!.bond, { char, tikz } = look(b, p);
+    return bondCode(p, q, circled.has(ringKey(ringOf.get(p)!)) ? "-" : char === "=^" ? "=" : char, tikzOf(tikz), true);
+  }
+  // The turn a ring written first needs: chemfig's own has its last side coming straight down onto its first atom.
+  const turnFor = (ring: number[]) => {
+    const last = ring[ring.length - 1], t = Math.round((Math.atan2(at(last)[1] - at(ring[0])[1], at(last)[0] - at(ring[0])[0]) * 180) / Math.PI) - 90;
+    const d = ((t % 360) + 540) % 360 - 180;
+    return d ? `[:${d}]` : "";
+  };
+  // A structure hanging off another by a bond chemfig does not draw. When it starts with a ring, the bond reaches it
+  // through a point straight out from the ring's middle, so chemfig turns the ring as the page has it.
+  const hangCode = (u: number, r: number) => {
+    const ring = ringAt.get(r);
+    if (!ring) return bondCode(u, r, "-", "draw=none");
+    const c = ring.reduce<P>((s, i) => [s[0] + at(i)[0] / ring.length, s[1] + at(i)[1] / ring.length], [0, 0]);
+    const out: P = [at(r)[0] - c[0], at(r)[1] - c[1]], l = Math.hypot(out[0], out[1]), p: P = [at(r)[0] + out[0] / l, at(r)[1] + out[1] / l];
+    const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], a = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI), g = groups[u];
+    const right = a > -90 && a < 90, from = g.atoms.length > 1 && g.anchor !== (right ? g.atoms.length - 1 : 0) ? String(g.anchor + 1) : "";
+    const inward = Math.round((Math.atan2(-out[1], -out[0]) * 180) / Math.PI), gr = groups[r], rin = inward > -90 && inward < 90;
+    const to = gr.atoms.length > 1 && gr.anchor !== (rin ? 0 : gr.atoms.length - 1) ? String(gr.anchor + 1) : "";
+    return `-[:${a},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]-[:${inward},,,${to},draw=none]`;
+  };
   // One \chemfig for structures (their roots, left to right): the first written from its root, the others hanging off
   // it. Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
@@ -466,7 +581,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // the page's order (by id). A \chemname names a whole \chemfig, so when the names belong to more than one structure,
   // each structure, with the others its names also cover, is a \chemfig of its own, left to right.
   const component = atoms.map(() => -1);
-  roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...children[u]); } });
+  roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...below(u)); } });
   // Brackets (brackets, parentheses and braces, and polymer brackets) round atoms, with chemfig's \polymerdelim: its
   // two nodes at the middles of the bracket's sides, placed by bonds chemfig does not draw from the structure's first
   // atom, and empty atoms at its corners so the picture's box holds it (\polymerdelim's lines take no room). Its
@@ -617,7 +732,9 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
   // Marks shown for a whole structure: no count.
   if (atoms.some((a) => a.cip)) add(left, "cip");
   if (atoms.some((a) => a.shade)) add(left, "shade");
-  if (atoms.some((a) => a.circle)) add(left, "circle");
+  // A circle is drawn for a ring in ring syntax (**6); one in a fused ring, or a ring drawn bond by bond, is not.
+  const inSyntax = new Set(syntaxRings(mol).map((r) => [...r].sort((x, y) => x - y).join()));
+  if (circledRings(mol).some((r) => !inSyntax.has([...r].sort((x, y) => x - y).join()))) add(left, "circle");
   for (const b of bonds) {
     if (b.halo) add(left, "highlight");
     if (b.type === QUADRUPLE) add(changed, "quadruple");

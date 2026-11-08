@@ -3,7 +3,7 @@
 // closed by hooks, wedges the right way round, separate structures kept in their places, and lone pairs, unpaired
 // electrons and circled and partial charges where the page draws them.
 import assert from "node:assert/strict";
-import { chemfigNotice, toChemfig, type Scheme } from "./chemfig.ts";
+import { chemfigNotice, syntaxRings, toChemfig, type Scheme } from "./chemfig.ts";
 import { QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5;
@@ -36,19 +36,48 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30), A("O", c30, 1 + s30), A("O"
 // Bond lengths other than the document's are written as chemfig's length factor.
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1.5, 0)], [B(0, 1)])), "\\chemfig{-[,1.5]}");
 
-// Benzene: the ring is closed by a hook, and each double bond's second line goes inside the ring (chemfig's =^ or
-// =_, by the way the bond is written).
+// Benzene in chemfig's ring syntax, its double bonds inside, as chemfig puts them; started at the atom with the one
+// before it straight above, chemfig's own way round, so it needs no turn.
 {
   const atoms = ring(6, 0, 0, 150);
   const code = cf(mol(atoms, [B(0, 1, 2), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 0)]));
-  assert.equal(code, "\\chemfig{?[1]=^[:-90]-[:-30]=^[:30]-[:90]=^[:150]?[1]}");
+  assert.equal(code, "\\chemfig{*6(-=-=-=)}");
 }
-// A ring is closed by a plain bond where it can be; where it cannot, the hook writes the bond.
+// A ring written bond by bond (here its sides are 1.5, and chemfig's ring syntax draws sides of 1) is closed by a
+// hook: by a plain bond where it can be; where it cannot, the hook writes the bond.
 {
-  const atoms = ring(6, 0, 0, 150);
-  assert.equal(cf(mol(atoms, [B(0, 1), B(1, 2), B(2, 3), B(3, 4), B(4, 5), B(5, 0, 2)])), "\\chemfig{?[1]=_[:30]-[:-30]-[:-90]-[:-150]-[:150]?[1]}");
-  assert.match(cf(mol(atoms, [B(0, 1, 2), B(1, 2), B(2, 3), B(3, 4), B(4, 5), B(5, 0, 2)])), /\?\[1,\{=[_^]?\}\]/);
+  const big = ring(6, 0, 0, 150).map((a) => ({ ...a, location: [a.location[0] * 1.5, a.location[1] * 1.5, 0] as [number, number, number] }));
+  assert.equal(cf(mol(big, [B(0, 1), B(1, 2), B(2, 3), B(3, 4), B(4, 5), B(5, 0, 2)])), "\\chemfig{?[1]=_[:30,1.5]-[:-30,1.5]-[:-90,1.5]-[:-150,1.5]-[:150,1.5]?[1]}");
+  assert.equal(cf(mol(big, [B(0, 1, 2), B(1, 2), B(2, 3), B(3, 4), B(4, 5), B(5, 0, 2)])), "\\chemfig{?[1]=^[:-90,1.5]-[:-30,1.5]-[:30,1.5]-[:90,1.5]-[:150,1.5]?[1,{=_}]}");
 }
+// Rings in chemfig's ring syntax: isolated, regular rings whose bonds out point straight out from the middle. A ring
+// drawn with a circle is **6 with single sides. A first ring the other way up is turned with [:θ], and then every
+// other bond gives its angle (0 too, as in a ring a missing angle is the bisector). Branches off the ring go inside its
+// code, those of its first atom first. A ring in a fused system, or with a bond out at a slant, is written bond by bond.
+{
+  const kek = (o: number) => [0, 1, 2, 3, 4, 5].map((k) => B(o + k, o + ((k + 1) % 6), k % 2 ? 1 : 2));
+  const outOf = (h: Atom[], k: number, label = "C") => { const [x, y] = h[k].location, l = Math.hypot(x, y); return A(label, x + x / l, y + y / l); };
+  const benzene = ring(6, 0, 0, 30);
+  assert.equal(cf(mol(benzene.map((a) => ({ ...a, circle: true })), kek(0))), "\\chemfig{**6(------)}");
+  assert.equal(chemfigNotice("Copied", mol(benzene.map((a) => ({ ...a, circle: true })), kek(0)), true), undefined, "the circle is in the code");
+  const flat = ring(6, 0, 0, 0);
+  assert.equal(cf(mol([...flat, outOf(flat, 0)], [...kek(0), B(0, 6)])), "\\chemfig{[:-30]*6(-=-(-[:0])=-=)}");
+  assert.equal(cf(mol(benzene.map((a, k) => (k === 3 ? { ...a, label: "N" } : a)), kek(0))), "\\chemfig{N*6(-=-=-=)}");
+  // Phenol: the walk starts at the ring (its leftmost atom), and the OH is a branch inside its code.
+  assert.equal(cf(mol([...benzene, outOf(benzene, 1, "O")], [...kek(0), B(1, 6)])), "\\chemfig{*6(-=-=(-[:90,,,1]OH)-=)}");
+  // A methyl at a slant: bond by bond, with hooks.
+  const slant = mol([...benzene, A("C", benzene[0].location[0] + 1, benzene[0].location[1])], [...kek(0), B(0, 6)]);
+  assert.match(cf(slant), /\?\[1\]/);
+  // A second ring hanging off the first reaches it through a point straight out from its middle.
+  const two = mol([...benzene, ...ring(6, 4, 0, 30)], [...kek(0), ...kek(6)]);
+  assert.equal(cf(two), "\\chemfig{*6((-[:-9,3.17,,,draw=none]-[:30,,,,draw=none]*6(-=-=-=))-=-=-=)}");
+  // Naphthalene's rings share atoms: no ring syntax, and its circles are reported as left out.
+  const left = ring(6, 0, 0, 30), right = ring(6, 2 * c30, 0, 30), naph = [...left, right[0], right[1], right[5], right[4]].map((a) => ({ ...a, circle: true as const }));
+  const naphBonds = [B(0, 1, 2), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 0), B(0, 7), B(7, 6, 2), B(6, 8), B(8, 9, 2), B(9, 5)];
+  assert.equal(syntaxRings(mol(naph, naphBonds)).length, 0);
+  assert.equal(chemfigNotice("Copied", mol(naph, naphBonds), true), "Copied without aromatic circles: Octet cannot export them to chemfig yet.");
+}
+
 // Naphthalene: two hooks, each named once on its first atom and once with its bond.
 {
   const left = ring(6, 0, 0, 30), right = ring(6, 2 * c30, 0, 30);
