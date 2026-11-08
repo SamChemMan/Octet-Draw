@@ -584,6 +584,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_cdxml", "CDXML Text", "CmdOrCtrl+D")?,
         &item("copy_mol", "MOL Text", "Alt+CmdOrCtrl+O")?,
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
+        &item("copy_chemfig", "chemfig (LaTeX)", "")?,
     ])?;
     section.replace("Edit".into());
     // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.
