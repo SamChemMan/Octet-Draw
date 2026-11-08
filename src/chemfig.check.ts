@@ -148,6 +148,59 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.notEqual(toChemfig(water, {}, { compact: true, page }).match(/\\charge\{90:1pt=\\:,(-?\d+)/)![1], "0");
 }
 
+// A label's look: its own bold, italic and underline go on all of it (H, counts and sign too), in maths alphabets that
+// shrink in a script; bold italic needs no package. A written label's runs style their characters, and a part raised
+// or lowered by hand takes that script and stays with the unit before it.
+{
+  const end = (more: Partial<Atom>, label = "O") => cf(mol([A("C", 0, 0), A("C", c30, s30), A(label, 2 * c30, 0, more)], [B(0, 1), B(1, 2)]));
+  assert.equal(end({ bold: true }), "\\chemfig{-[:30]-[:-30]{\\mathbf{O}}|{\\mathbf{H}}}");
+  assert.equal(end({ italic: true }), "\\chemfig{-[:30]-[:-30]{\\mathit{O}}|{\\mathit{H}}}");
+  assert.equal(end({ underline: true }), "\\chemfig{-[:30]-[:-30]{\\underline{O}}|{\\underline{H}}}");
+  assert.equal(end({ bold: true, italic: true }), "\\chemfig{-[:30]-[:-30]{\\mbox{\\boldmath$\\mathit{O}$}}|{\\mbox{\\boldmath$\\mathit{H}$}}}");
+  assert.equal(end({ bold: true, charge: 1 }, "N"), "\\chemfig{-[:30]-[:-30]{\\mathbf{N}}|{\\mathbf{H}_{\\mathbf{3}}^{\\mathbf{+}}}}");
+  assert.equal(end({ italic: true, isotope: 13 }, "C"), "\\chemfig{-[:30]-[:-30]{^{\\mathit{13}}\\mathit{C}}|{\\mathit{H}_{\\mathit{3}}}}");
+  assert.equal(end({ bold: true, text: "OMe" }), "\\chemfig{-[:30]-[:-30]{\\mathbf{O}}|{\\mathbf{Me}}}");
+  // A bold label keeps its lone pairs and its colour.
+  assert.match(end({ bold: true, pairs: 2 }), /\\charge\{[^}]*\}\{\{\\mathbf\{O\}\}\}\|\{\\mathbf\{H\}\}/);
+  assert.equal(end({ bold: true, colour: "#ff0000" }), "\\chemfig{-[:30]-[:-30]{\\color[RGB]{255,0,0}{\\mathbf{O}}}|{\\color[RGB]{255,0,0}{\\mathbf{H}}}}");
+  // Runs: part of a written label styled as it was typed.
+  assert.equal(end({ text: "NHBoc", runs: [{ text: "NH" }, { text: "Boc", bold: true }] }, "N"), "\\chemfig{-[:30]-[:-30]NH|{\\mathbf{Boc}}}");
+  assert.equal(end({ text: "CO2Et", runs: [{ text: "CO2" }, { text: "Et", italic: true }] }, "C"), "\\chemfig{-[:30]-[:-30]CO_2|{\\mathit{Et}}}");
+  assert.equal(end({ text: "OTf", runs: [{ text: "O" }, { text: "T", underline: true }, { text: "f" }] }), "\\chemfig{-[:30]-[:-30]O|{\\underline{T}f}}");
+  const iron = { text: "Fe(III)", runs: [{ text: "Fe" }, { text: "(III)", script: "super" as const }] };
+  assert.equal(end(iron, "Fe"), "\\chemfig{-[:30]-[:-30]Fe^{(III)}}");
+  assert.equal(cf(mol([A("Fe", 0, 0, iron), A("C", c30, s30)], [B(0, 1)])), "\\chemfig{Fe^{(III)}-[:30]}", "the raised part stays after Fe when the label reads backwards");
+  // Runs that do not spell the label's text (left from an edit) are not used.
+  assert.equal(end({ text: "OMe", runs: [{ text: "OEt", bold: true }] }), "\\chemfig{-[:30]-[:-30]OMe}");
+  // A count in bold italic shrinks with its script.
+  assert.match(end({ text: "CH2CH3", bold: true, italic: true }, "C"), /_\{\\mbox\{\\boldmath\$\\scriptstyle\\mathit\{2\}\$\}\}/);
+}
+
+// Names under structures (captions kept under their atoms) with \chemname*, each under its own structure as on the
+// page: lines joined by \\, names under one structure in the page's order, runs in their looks, TeX's characters
+// escaped.
+{
+  const acid = (dx = 0) => [A("C", dx, 0), A("C", dx + c30, s30), A("O", dx + c30, 1 + s30), A("O", dx + 2 * c30, 0)];
+  const named = (captions: Partial<NonNullable<Mol["captions"]>[number]>[], atoms = acid(), bonds = [B(0, 1), B(1, 2, 2), B(1, 3)]): Mol =>
+    ({ atoms, bonds, captions: captions.map((c, k) => ({ id: k + 1, text: "", x: 0, y: -2, under: [0, 1, 2, 3], ...c })) });
+  const acetic = "\\chemfig{-[:30](=[:90]O)-[:-30]OH}";
+  assert.equal(cf(named([{ text: "Acetic acid" }])), `\\chemname*{${acetic}}{Acetic acid}`);
+  assert.equal(cf(named([{ id: 6, text: "acetic acid" }, { id: 5, text: "1", bold: true }])), `\\chemname*{${acetic}}{\\textbf{1}\\\\acetic acid}`);
+  assert.equal(cf(named([{ text: "(S)-tert-butyl\n50% yield", runs: [{ text: "(" }, { text: "S", italic: true }, { text: ")-" }, { text: "tert", italic: true }, { text: "-butyl\n50% yield" }] }])),
+    `\\chemname*{${acetic}}{(\\textit{S})-\\textit{tert}-butyl\\\\50\\% yield}`);
+  assert.equal(cf(named([{ text: "red", colour: "#ff0000", underline: true }, { text: "x^2", runs: [{ text: "x" }, { text: "2", script: "super" }] }])),
+    `\\chemname*{${acetic}}{\\textcolor[RGB]{255,0,0}{\\underline{red}}\\\\x\\textsuperscript{2}}`);
+  assert.equal(cf(named([{ text: "a_b & c#" }])), `\\chemname*{${acetic}}{a\\_b \\& c\\#}`);
+  // One name over two ions keeps them in one \chemfig.
+  assert.equal(cf(named([{ text: "Sodium chloride", under: [0, 1] }], [A("Na", 0, 0, { charge: 1 }), A("Cl", 2, 0, { charge: -1 })], [])), "\\chemname*{\\chemfig{Na^{+}(-[,2,,,draw=none]Cl^{-})}}{Sodium chloride}");
+  // Names on two structures: each its own \chemfig, left to right, and a structure with no name stands on its own.
+  assert.equal(cf(named([{ text: "A" }, { text: "2", bold: true, under: [4, 5, 6, 7] }], [...acid(), ...acid(4), A("O", 8, 0)], [B(0, 1), B(1, 2, 2), B(1, 3), B(4, 5), B(5, 6, 2), B(5, 7)])),
+    `\\chemname*{${acetic}}{A}\\qquad\\chemname*{${acetic}}{\\textbf{2}}\\qquad\\chemfig{H_2O}`);
+  // With no names, separate structures stay in one \chemfig, in their places. A caption not under a structure is not a name.
+  assert.equal(cf(named([{ text: "free text", under: undefined }])), acetic);
+  assert.equal(toChemfig(named([{ text: "Acetic acid" }])), "\\chemname*{\\chemfig{\n\t-[:30]\n\t(\n\t\t=[:90]O\n\t)\n\t-[:-30]OH\n}}{Acetic acid}");
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
 const flat = (s: string) => s.replace(/\n\t*/g, "");
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));

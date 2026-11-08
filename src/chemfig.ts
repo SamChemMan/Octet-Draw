@@ -6,7 +6,8 @@
 // not draw, so they keep their places. Lone pairs, unpaired electrons, and circled and partial charges go where the
 // page draws them, with chemfig's \charge. Arrows, text and shapes are not written.
 import { pieces, units } from "./labels.ts";
-import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Drawing, type Mol } from "./render.ts";
+import { plainOf, runsOf, type TextRun } from "./richtext.ts";
+import { H_FIRST, HBOND, QUADRUPLE, hydrogens, markAngles, markKeys, markKinds, orderOf, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import type { DocStyle } from "./docstyle.ts";
 
 type P = [number, number];
@@ -24,9 +25,57 @@ function atom(s: string): string {
 const joined = (atoms: string[]) => atoms.map((a, k) => (k && !/^[A-Z]/.test(a) ? `|${a}` : a)).join("");
 // Text in TeX's maths mode, with TeX's special characters escaped.
 const tex = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (c) => (c === "\\" ? "\\backslash " : c === "~" ? "\\sim " : c === "^" ? "\\hat{}" : `\\${c}`));
-const sub = (n: string) => (n.length > 1 ? `_{${n}}` : `_${n}`);
+// A character of a label with its look: raised or lowered (a mass number, a count, a charge, or set by hand), bold,
+// italic, underlined.
+type Look = { bold?: boolean; italic?: boolean; underline?: boolean };
+type Char = Look & { c: string; script?: "sub" | "super" };
+const chars = (text: string, look: Look, script?: "sub" | "super"): Char[] => [...text].map((c) => ({ c, ...look, ...(script ? { script } : {}) }));
+// Characters as TeX in chemfig's maths mode: each script in one _{…} or ^{…}, and each run of one look in maths
+// alphabets, which shrink in a script as text commands do not. Bold italic is \boldmath round \mathit, which needs no
+// package (\boldsymbol needs amsmath). A lone plain count stays bare (CH_3).
+function typeset(cs: Char[]): string {
+  const looked = (s: string, l: Look, small: boolean) => {
+    const t = l.bold && l.italic ? `\\mbox{\\boldmath$${small ? "\\scriptstyle" : ""}\\mathit{${s}}$}` : l.bold ? `\\mathbf{${s}}` : l.italic ? `\\mathit{${s}}` : s;
+    return l.underline ? `\\underline{${t}}` : t;
+  };
+  const same = (x: Look, y: Look) => !!x.bold === !!y.bold && !!x.italic === !!y.italic && !!x.underline === !!y.underline;
+  let out = "";
+  for (let k = 0; k < cs.length; ) {
+    let e = k;
+    while (e < cs.length && cs[e].script === cs[k].script) e++;
+    let body = "";
+    for (let j = k; j < e; ) {
+      let f = j;
+      while (f < e && same(cs[f], cs[j])) f++;
+      body += looked(cs.slice(j, f).map((x) => tex(x.c)).join(""), cs[j], !!cs[j].script);
+      j = f;
+    }
+    const s = cs[k].script;
+    out += !s ? body : s === "sub" && e - k === 1 && body.length === 1 ? `_${body}` : `${s === "sub" ? "_" : "^"}{${body}}`;
+    k = e;
+  }
+  return out;
+}
 const sign = (charge: number, circled?: boolean) => (circled ? (charge > 0 ? "\\oplus" : "\\ominus") : `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}`);
 const num = (x: number) => String(+x.toFixed(2));
+// A name under a structure (a caption kept under its atoms) as TeX text for \chemname: its lines joined by \\, each
+// run in its look (bold, italic, underlined, raised or lowered, coloured) on top of the caption's own, and TeX's
+// special characters escaped. Font and size are left to the document.
+function nameOf(c: Caption): string {
+  const esc = (s: string) => s.replace(/[\\#$%&~_^{}]/g, (x) => (x === "\\" ? "\\textbackslash{}" : x === "~" ? "\\textasciitilde{}" : x === "^" ? "\\textasciicircum{}" : `\\${x}`));
+  const piece = (text: string, r: TextRun) => {
+    let t = esc(text);
+    if (r.script) t = `\\text${r.script === "super" ? "superscript" : "subscript"}{${t}}`;
+    if (r.bold || c.bold) t = `\\textbf{${t}}`;
+    if (r.italic || c.italic) t = `\\textit{${t}}`;
+    if (r.underline || c.underline) t = `\\underline{${t}}`;
+    const colour = rgb(r.colour ?? c.colour);
+    return colour ? `\\textcolor[RGB]{${colour.join(",")}}{${t}}` : t;
+  };
+  const lines: string[] = [""];
+  for (const r of runsOf(c)) r.text.split("\n").forEach((part, k) => { if (k) lines.push(""); if (part) lines[lines.length - 1] += piece(part, r); });
+  return lines.join("\\\\");
+}
 // #rrggbb as an xcolor colour, or undefined for none or black (the document's ink).
 const rgb = (hex?: string) => {
   const m = hex && /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
@@ -58,11 +107,29 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const tint = (g: Group): Group => (colour ? { ...g, atoms: g.atoms.map((s) => `{\\color[RGB]{${colour.join(",")}}${s}}`) } : g);
     // A skeletal carbon has no label: marks() adds its charge and its other marks.
     if (!labelled[i]) return { atoms: [], anchor: 0 };
+    // The label's own bold, italic and underline (the Text menu on the label) go on all of it, its H, counts and sign.
+    const look: Look = { ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     // A circled charge is a mark beside the label (marks()); a plain one is written after the label.
-    const ch = charge && !a.circled ? `^{${sign(charge)}}` : "";
+    const ch = charge && !a.circled ? typeset(chars(sign(charge), look, "super")) : "";
     if (a.text) {
-      const us = units(a.text), order = rtl ? [...us].reverse() : us;
-      const out = order.map((u) => atom(u.kind === "bracket" ? pieces(u).map((p) => tex(p.text) + (p.count ? sub(p.count) : "")).join("") : tex(u.text) + (u.count ? sub(u.count) : "")));
+      // A written label's characters styled as they were typed (its runs): bold, italic, underlined, or raised or
+      // lowered by hand, each on top of the label's own look. A count in a script set by hand takes that script.
+      const runs = a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((r) => [...r.text].map(() => r)) : undefined;
+      let n = 0;
+      const typed = units(a.text).map((u) => {
+        const parts = u.kind === "bracket" ? pieces(u) : [u], start = n;
+        const cs = parts.flatMap((p) => [...chars(p.text, look), ...chars(p.count ?? "", look, "sub")]).map((x, k): Char => {
+          const r = runs?.[start + k];
+          return { ...x, ...(r?.bold ? { bold: true } : {}), ...(r?.italic ? { italic: true } : {}), ...(r?.underline ? { underline: true } : {}), ...(r?.script ? { script: r.script } : {}) };
+        });
+        n += cs.length;
+        return { text: typeset(cs), raised: cs.length > 0 && cs.every((_, k) => runs?.[start + k]?.script) };
+      });
+      // A unit all in a script set by hand (the III of Fe with III raised) stays with the unit before it, whichever way
+      // the label reads, as on the page.
+      const joinedUnits: string[] = [];
+      typed.forEach((t, k) => { if (t.raised && k) joinedUnits[joinedUnits.length - 1] += t.text; else joinedUnits.push(t.text); });
+      const out = (rtl ? joinedUnits.reverse() : joinedUnits).map(atom);
       if (!out.length) return { atoms: [], anchor: 0 };
       out[out.length - 1] = atom(out[out.length - 1] + ch);
       return tint({ atoms: out, anchor: rtl ? out.length - 1 : 0 });
@@ -70,7 +137,8 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     if (a.centre) return { atoms: ["*"].map(atom), anchor: 0 };
     const used = nbrs[i].reduce((n, { bond }) => n + orderOf(bond.type), 0);
     const h = style.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
-    const el = atom((a.isotope ? `^{${a.isotope}}` : "") + tex(a.label)), hs = h ? `H${h > 1 ? sub(String(h)) : ""}` : "";
+    const el = atom(typeset([...chars(a.isotope ? String(a.isotope) : "", look, "super"), ...chars(a.label, look)]));
+    const hs = h ? typeset([...chars("H", look), ...chars(h > 1 ? String(h) : "", look, "sub")]) : "";
     const back = rtl || (!a.align && !deg(i) && !!h && H_FIRST.has(a.label));
     // An H the bonds leave no room for beside the atom stacks above or below it (indole's NH).
     const stack = h && (a.align === "above" || a.align === "below" ? a.align : !a.align && !back && steep && deg(i) >= 2 ? (v[1] < 0 ? "above" : "below") : undefined);
@@ -245,7 +313,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // The code as lines, each with its depth in branches: an atom with the bond to it, and each branch's brackets on
   // lines of their own. The chain runs on from atom to atom (a loop, so a long chain needs no deep recursion).
   // others: structures that hang off this atom by bonds chemfig does not draw.
-  const lines: [number, string][] = [];
+  let lines: [number, string][] = [];
   function write(u: number, depth: number, lead: string, others: number[] = []) {
     for (let at = u, head = lead; ; ) {
       const line = head + text(at);
@@ -258,10 +326,31 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
       [head, at, others] = [edge(at, last), last, []];
     }
   }
-  write(roots[0], 0, "", roots.slice(1));
-  // Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
+  // One \chemfig for structures (their roots, left to right): the first written from its root, the others hanging off
+  // it. Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
-  const code = options.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+  const chemfig = (rs: number[]) => {
+    lines = [];
+    write(rs[0], 0, "", rs.slice(1));
+    return options.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+  };
+  // Names under structures (captions kept under their atoms: a name, a compound number), with chemfig's \chemname*,
+  // which puts each under its own structure, as the page does, whatever came before. Names under one structure stack in
+  // the page's order (by id). A \chemname names a whole \chemfig, so when the names belong to more than one structure,
+  // each structure, with the others its names also cover, is a \chemfig of its own, left to right.
+  const component = atoms.map(() => -1);
+  roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...children[u]); } });
+  const named = (mol.captions ?? []).filter((c) => c.under?.some((i) => component[i] >= 0)).sort((p, q) => p.id - q.id);
+  const parent = roots.map((_, k) => k), find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+  for (const c of named) {
+    const ks = [...new Set(c.under!.filter((i) => component[i] >= 0).map((i) => find(component[i])))];
+    for (const k of ks.slice(1)) parent[find(k)] = find(ks[0]);
+  }
+  const sets = named.length ? [...new Set(roots.map((_, k) => find(k)))].map((g) => roots.filter((_, k) => find(k) === g)) : [roots];
+  const code = sets.map((rs) => {
+    const names = named.filter((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0])))).map(nameOf);
+    return names.length ? `\\chemname*{${chemfig(rs)}}{${names.join("\\\\")}}` : chemfig(rs);
+  }).join(options.compact ? "\\qquad" : "\n\\qquad\n");
   return wavy ? `% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble.\n${code}` : code;
 }
 
