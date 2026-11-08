@@ -5,7 +5,7 @@
 // (?[1] on the first atom, ?[1,{=}] on the second). Separate structures hang off the first one by bonds chemfig does
 // not draw, so they keep their places. Lone pairs, unpaired electrons, and circled and partial charges go where the
 // page draws them, with chemfig's \charge. Arrows, text and shapes are not written.
-import { pieces, units } from "./labels.ts";
+import { formulaCaption, formulaTextRuns, pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 import { chemicalCaption } from "./edit.ts";
@@ -97,7 +97,8 @@ function typeset(cs: Char[]): string {
 }
 const sign = (charge: number, circled?: boolean) => (circled ? (charge > 0 ? "\\oplus" : "\\ominus") : `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}`);
 const num = (x: number) => String(+x.toFixed(2));
-// A name under a structure (a caption kept under its atoms) as TeX text for \chemname: its lines joined by \\, each
+// A caption as TeX text: a name under a structure (for \chemname), a condition on an arrow, or text in a scheme's row.
+// Its lines joined by \\, each
 // run in its look (bold, italic, underlined, raised or lowered, coloured) on top of the caption's own, and TeX's
 // special characters escaped. Font and size are left to the document.
 function nameOf(c: Caption): string {
@@ -112,7 +113,9 @@ function nameOf(c: Caption): string {
     return colour ? `\\textcolor[RGB]{${colour.join(",")}}{${t}}` : t;
   };
   const lines: string[] = [""];
-  for (const r of runsOf(c)) r.text.split("\n").forEach((part, k) => { if (k) lines.push(""); if (part) lines[lines.length - 1] += piece(part, r); });
+  // Conditions on an arrow with no runs of their own are drawn as formulas (H₂SO₄), as the page draws them.
+  const runs: TextRun[] = c.runs?.length ? c.runs : formulaCaption(c) ? formulaTextRuns(c.text) : runsOf(c);
+  for (const r of runs) r.text.split("\n").forEach((part, k) => { if (k) lines.push(""); if (part) lines[lines.length - 1] += piece(part, r); });
   return lines.join("\\\\");
 }
 // #rrggbb as an xcolor colour, or undefined for none or black (the document's ink).
@@ -124,8 +127,13 @@ const rgb = (hex?: string) => {
 // options.compact: the code on one line, as chemfig's manual writes it. Without it, an atom a line, indented by branch.
 // options.page: the page's drawing of mol (render.ts: its electrons and scale), so each mark goes exactly where the
 // page has it, its label's real outline counted. Without it, marks() works their places out from the bonds and labels.
+// options.schemes: the reactions in mol as Octet reads them (reaction.ts, interpret.ts), each as its row in order
+// (structures by their atoms, text by its caption, plus signs and arrows by their ids) and each arrow's conditions above
+// and below it. They are written as chemfig's \schemestart rows.
 export type PageMarks = Pick<Drawing, "electrons" | "scale">;
-export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, options: { compact?: boolean; page?: PageMarks } = {}): string {
+export type SchemeItem = { atoms: number[] } | { caption: number };
+export type Scheme = { row: (SchemeItem | { plus: number } | { arrow: number })[]; above: Map<number, SchemeItem[]>; below: Map<number, SchemeItem[]> };
+export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, options: { compact?: boolean; page?: PageMarks; schemes?: Scheme[] } = {}): string {
   const atoms = mol.atoms, kept = atoms.map((a) => !a.hidden);
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept[i]) && b.atoms[0] !== b.atoms[1]);
   if (!kept.some(Boolean)) return "";
@@ -382,10 +390,10 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // One \chemfig for structures (their roots, left to right): the first written from its root, the others hanging off
   // it. Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
-  const chemfig = (rs: number[]) => {
+  const chemfig = (rs: number[], compact = !!options.compact) => {
     lines = [];
     write(rs[0], 0, "", rs.slice(1));
-    return options.compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
+    return compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
   };
   // Names under structures (captions kept under their atoms: a name, a compound number), with chemfig's \chemname*,
   // which puts each under its own structure, as the page does, whatever came before. Names under one structure stack in
@@ -399,11 +407,58 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const ks = [...new Set(c.under!.filter((i) => component[i] >= 0).map((i) => find(component[i])))];
     for (const k of ks.slice(1)) parent[find(k)] = find(ks[0]);
   }
-  const sets = named.length ? [...new Set(roots.map((_, k) => find(k)))].map((g) => roots.filter((_, k) => find(k) === g)) : [roots];
-  const code = sets.map((rs) => {
+  // A structure of a reaction (in its row, or a condition) is a compound of its own, with the other pieces it is drawn
+  // as (a salt's ions).
+  const schemes = options.schemes ?? [], items = schemes.flatMap((s) => [...s.row, ...[...s.above.values(), ...s.below.values()].flat()]);
+  const groupOf = (list: number[]) => { const i = list.find((j) => component[j] >= 0); return i === undefined ? undefined : find(component[i]); };
+  for (const it of items) if ("atoms" in it) {
+    const ks = [...new Set(it.atoms.filter((i) => component[i] >= 0).map((i) => find(component[i])))];
+    for (const k of ks.slice(1)) parent[find(k)] = find(ks[0]);
+  }
+  const separate = named.length > 0 || items.length > 0;
+  const sets = separate ? [...new Set(roots.map((_, k) => find(k)))].map((g) => roots.filter((_, k) => find(k) === g)) : [roots];
+  const setOf = (g: number) => sets.find((rs) => find(roots.indexOf(rs[0])) === g)!;
+  // A structure (its roots) as a compound, named when it has names. A label on an arrow is compact, inside [ ].
+  const compound = (rs: number[], compact?: boolean) => {
     const names = named.filter((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0])))).map(nameOf);
-    return names.length ? `\\chemname*{${chemfig(rs)}}{${names.join("\\\\")}}` : chemfig(rs);
-  }).join(options.compact ? "\\qquad" : "\n\\qquad\n");
+    return names.length ? `\\chemname*{${chemfig(rs, compact)}}{${names.join("\\\\")}}` : chemfig(rs, compact);
+  };
+  // Text on more than one line stacks (\\ alone does nothing in a compound or a label).
+  const stack = (s: string) => (s.includes("\\\\") ? `\\shortstack{${s}}` : s);
+  const used = new Set<number>();
+  const piece = (it: SchemeItem, label: boolean) => {
+    if ("caption" in it) { const c = mol.captions?.find((x) => x.id === it.caption); return c ? stack(nameOf(c)) : ""; }
+    const g = groupOf(it.atoms);
+    if (g === undefined) return "";
+    used.add(g);
+    return compound(setOf(g), label || undefined);
+  };
+  // Reactions as chemfig's schemes: the row's compounds, \+ for each plus sign, and an \arrow for each arrow with its
+  // conditions above and below it (structures and text, stacked), at the arrow's angle, and as long as the page's arrow
+  // (a bond is chemfig's 3em, an arrow 5em at 1), so the conditions fit as they do on the page. chemfig writes one row:
+  // a row the page wraps onto more lines is one long row.
+  const ARROWS: Partial<Record<string, string>> = { equilibrium: "<=>", resonance: "<->", nogo: "-/>", hash: "-/>" };
+  const arrowCode = (id: number) => {
+    const a = mol.arrows?.find((x) => x.id === id), s = schemes.find((x) => x.row.some((p) => "arrow" in p && p.arrow === id))!;
+    if (!a) return "";
+    const label = (list: SchemeItem[] = []) => { const ps = list.map((it) => piece(it, true)).filter(Boolean); return ps.length ? `{${ps.length > 1 ? stack(ps.join("\\\\")) : ps[0]}}` : ""; };
+    const above = label(s.above.get(id)), below = label(s.below.get(id));
+    const d = [a.to[0] - a.from[0], a.to[1] - a.from[1]], angle = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI), coeff = +(0.6 * Math.hypot(d[0], d[1])).toFixed(1);
+    const fields = [angle ? String(angle) : "", Math.abs(coeff - 1) > 0.05 ? num(coeff) : ""];
+    while (fields.length && !fields[fields.length - 1]) fields.pop();
+    return `\\arrow{${ARROWS[a.kind] ?? "->"}${above || below ? `[${above}][${below}]` : ""}}${fields.length ? `[${fields.join(",")}]` : ""}`;
+  };
+  const tab = (s: string) => s.split("\n").map((l) => `\t${l}`).join("\n");
+  const blocks = schemes.map((s) => {
+    const ps = s.row.map((p) => ("plus" in p ? "\\+" : "arrow" in p ? arrowCode(p.arrow) : piece(p, false))).filter(Boolean);
+    // Readable: a piece a line, each line ended by % (in a scheme a line break is a space, which would move things).
+    return options.compact ? `\\schemestart ${ps.join("")}\\schemestop` : `\\schemestart%\n${ps.map(tab).join("%\n")}%\n\\schemestop`;
+  });
+  // The structures in no reaction, as before: named ones each a \chemfig of their own, the others together.
+  const hasName = (rs: number[]) => named.some((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0]))));
+  const rest = sets.filter((rs) => !used.has(find(roots.indexOf(rs[0])))), unnamed = rest.filter((rs) => !hasName(rs)).flat();
+  const loose = !schemes.length ? sets.map((rs) => compound(rs)) : [...rest.filter(hasName).map((rs) => compound(rs)), ...(unnamed.length ? [chemfig(unnamed)] : [])];
+  const code = [...blocks, loose.filter(Boolean).join(options.compact ? "\\qquad" : "\n\\qquad\n")].filter(Boolean).join("\n\n");
   // What the code needs beyond chemfig, as comments before it.
   const left = unset(code), notes = [
     ...(wavy ? ["% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble."] : []),
@@ -415,7 +470,8 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
 // What the user is told after Copy As or Export (head: "Copied", "Saved name.tex"): the parts of mol that the code
 // leaves out, as this export cannot write them yet, and the parts it writes differently. Undefined when the code shows
 // all of it. interpret: the document's Interpret Chemically (a caption read as chemistry is in the code, as a label).
-export function chemfigNotice(head: string, mol: Mol, interpret: boolean): string | undefined {
+// schemes: the reactions written as schemes (toChemfig's), whose arrows, plus signs and text are in the code.
+export function chemfigNotice(head: string, mol: Mol, interpret: boolean, schemes: Scheme[] = []): string | undefined {
   const atoms = mol.atoms.filter((a) => !a.hidden), kept = new Set(mol.atoms.flatMap((a, i) => (a.hidden ? [] : [i])));
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept.has(i)));
   const left = new Map<string, number>(), changed = new Map<string, number>();
@@ -429,11 +485,18 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean): strin
     number: ["atom number", "atom numbers"], map: ["map number", "map numbers"], query: ["query property", "query properties"], attach: ["attachment point", "attachment points"],
     bead: ["polymer bead", "polymer beads"], enhanced: ["enhanced stereo mark", "enhanced stereo marks"], hmark: ["hydrogen dot or hash", "hydrogen dots and hashes"], turned: ["turned label", "turned labels"],
     quadruple: ["quadruple bond", "quadruple bonds"], either: ["crossed double bond", "crossed double bonds"], dashed: ["dashed double bond", "dashed double bonds"], bold: ["bold double bond", "bold double bonds"],
+    retro: ["retrosynthetic arrow", "retrosynthetic arrows"], hash: ["hashed no-reaction arrow", "hashed no-reaction arrows"], dipole: ["dipole arrow", "dipole arrows"], block: ["block arrow", "block arrows"],
   };
   const COUNTLESS: Record<string, [string, boolean]> = { text: ["text", false], cip: ["R/S and E/Z labels", true], shade: ["depth shading", false], circle: ["aromatic circles", true] };
-  for (const a of mol.arrows ?? []) add(left, a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" ? "curved" : a.kind === "line" || a.kind === "arc" || a.kind === "curve" ? "line" : a.kind === "orbital" ? "orbital" : a.kind === "cut" ? "cut" : "arrow");
-  // Text that is not a name under a structure in the code, nor a label read as chemistry.
-  if ((mol.captions ?? []).some((c) => !c.under?.some((i) => kept.has(i)) && !chemicalCaption(c, interpret))) add(left, "text");
+  // A scheme's arrows are in the code; those chemfig has no arrow for are written as the nearest it has.
+  const items = schemes.flatMap((s) => [...s.row, ...[...s.above.values(), ...s.below.values()].flat()]);
+  const written = new Set(items.flatMap((p) => ("arrow" in p ? [p.arrow] : "plus" in p ? [p.plus] : "caption" in p ? [p.caption] : [])));
+  for (const a of mol.arrows ?? []) {
+    if (written.has(a.id)) { if (a.kind in KINDS) add(changed, a.kind); continue; }
+    add(left, a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" ? "curved" : a.kind === "line" || a.kind === "arc" || a.kind === "curve" ? "line" : a.kind === "orbital" ? "orbital" : a.kind === "cut" ? "cut" : "arrow");
+  }
+  // Text that is not in the code: not a name under a structure, a label read as chemistry, or a part of a scheme.
+  if ((mol.captions ?? []).some((c) => !written.has(c.id) && !c.under?.some((i) => kept.has(i)) && !chemicalCaption(c, interpret))) add(left, "text");
   for (const s of mol.shapes ?? []) add(left, s.kind === "brackets" || s.kind === "parens" || s.kind === "braces" ? "bracket" : s.kind === "tlc" || s.kind === "table" || s.kind === "picture" ? s.kind : s.kind === "highlight" ? "highlight" : "shape");
   add(left, "cycle", mol.cycles?.length ?? 0);
   add(left, "spectrum", mol.spectra?.length ?? 0);

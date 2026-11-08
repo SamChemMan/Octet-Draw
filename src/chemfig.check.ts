@@ -3,7 +3,7 @@
 // closed by hooks, wedges the right way round, separate structures kept in their places, and lone pairs, unpaired
 // electrons and circled and partial charges where the page draws them.
 import assert from "node:assert/strict";
-import { chemfigNotice, toChemfig } from "./chemfig.ts";
+import { chemfigNotice, toChemfig, type Scheme } from "./chemfig.ts";
 import { QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5;
@@ -13,6 +13,9 @@ const mol = (atoms: Atom[], bonds: Bond[]): Mol => ({ atoms, bonds });
 // The compact layout, which the checks below spell out; each drawing is kept to check the readable layout against.
 const written: Mol[] = [];
 const cf = (m: Mol) => (written.push(m), toChemfig(m, {}, { compact: true }));
+// The code without the readable layout's line breaks and tabs (a scheme's lines end with %, and its compact
+// \schemestart is followed by a space).
+const flat = (s: string) => s.replace(/%?\n\t*/g, "").replace(/\\schemestart /g, "\\schemestart");
 // A regular ring of n atoms with bonds of length 1 round (cx, cy), its first atom at angle t (degrees).
 const ring = (n: number, cx: number, cy: number, t: number, label = "C") => {
   const r = 1 / (2 * Math.sin(Math.PI / n));
@@ -248,7 +251,37 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(chemfigNotice("Copied", base({}, { hidden: true, halo: "#ff0000" }), true), undefined);
 }
 
+// Reactions as chemfig's schemes: the row in order (each structure a compound, named when it has names, \+ for a
+// plus sign), each arrow as its kind with its conditions above and below (stacked), its angle, and its length from the
+// page. Structures in no reaction come after, together.
+{
+  const atoms = [A("C", 0, 0), A("C", c30, s30), A("O", 2 * c30, 0), A("S", 4, 0, { text: "H2SO4" }), A("C", 10, 0), A("C", 10 + c30, s30),
+    A("C", 6.5, 1.5), A("C", 6.5 + c30, 2), A("C", 10, -5), A("C", 10 + c30, -4.5), A("Br", 10 + 2 * c30, -5), A("O", 20, 0)];
+  const m: Mol = {
+    atoms, bonds: [B(0, 1), B(1, 2), B(4, 5, 2), B(6, 7), B(8, 9), B(9, 10)],
+    captions: [{ id: 1, text: "+", x: 3, y: 0 }, { id: 2, text: "heat", x: 7, y: 1 }, { id: 3, text: "THF\n0 °C", x: 7, y: -1 }, { id: 4, text: "98%", x: 11, y: -2.5 }, { id: 5, text: "1", bold: true, x: 0, y: -1, under: [0, 1, 2] }],
+    arrows: [{ id: 10, kind: "reaction", from: [5.5, 0], to: [8.5, 0] }, { id: 11, kind: "equilibrium", from: [10.4, -1.5], to: [10.4, -3.5] }],
+  };
+  const schemes: Scheme[] = [{
+    row: [{ atoms: [0, 1, 2] }, { plus: 1 }, { atoms: [3] }, { arrow: 10 }, { atoms: [4, 5] }, { arrow: 11 }, { atoms: [8, 9, 10] }],
+    above: new Map([[10, [{ atoms: [6, 7] }, { caption: 2 }]]]), below: new Map([[10, [{ caption: 3 }]], [11, [{ caption: 4 }]]]),
+  }];
+  const compact = toChemfig(m, {}, { compact: true, schemes }), readable = toChemfig(m, {}, { schemes });
+  assert.equal(compact, "\\schemestart \\chemname*{\\chemfig{-[:30]-[:-30]OH}}{\\textbf{1}}\\+\\chemfig{H_2SO_4}"
+    + "\\arrow{->[{\\shortstack{\\chemfig{-[:30]}\\\\heat}}][{\\shortstack{THF\\\\0 \\textdegree{}C}}]}[,1.8]\\chemfig{=[:30]}"
+    + "\\arrow{<=>[][{98\\%}]}[-90,1.2]\\chemfig{-[:30]-[:-30]Br}\\schemestop\n\n\\chemfig{H_2O}");
+  assert.equal(flat(readable), flat(compact));
+  assert.match(readable, /^\\schemestart%\n\t\\chemname\*\{\\chemfig\{\n\t\t-\[:30\]/, "a piece a line, each ended by %, the code indented a tab more");
+  // What is in a scheme is not reported as left out; an arrow kind chemfig has none of is reported as written differently.
+  assert.equal(chemfigNotice("Copied", m, true, schemes), undefined);
+  const retro = { ...m, arrows: [{ ...m.arrows![0], kind: "retro" as const }, m.arrows![1]], captions: [...m.captions!, { id: 6, text: "note", x: 0, y: 5 }] };
+  assert.equal(chemfigNotice("Copied", retro, true, schemes), "Copied without text: Octet cannot export it to chemfig yet. Octet exports 1 retrosynthetic arrow to chemfig differently.");
+  assert.equal(chemfigNotice("Copied", m, true), "Copied without 2 arrows and text: Octet cannot export them to chemfig yet.", "without schemes, the arrows are left out");
+  // Conditions on an arrow are formulas, as the page draws them.
+  const onArrow = { ...m, captions: [...m.captions!, { id: 7, text: "H2SO4, heat", x: 7, y: 2, on: { arrow: 10, side: "above" as const } }] };
+  assert.match(toChemfig(onArrow, {}, { compact: true, schemes: [{ ...schemes[0], above: new Map([[10, [{ caption: 7 }]]]) }] }), /\\arrow\{->\[\{H\\textsubscript\{2\}SO\\textsubscript\{4\}, heat\}\]/);
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
-const flat = (s: string) => s.replace(/\n\t*/g, "");
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));
 console.log("chemfig.check: all pass");
