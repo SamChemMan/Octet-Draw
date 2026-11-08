@@ -304,6 +304,28 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.doesNotMatch(cf(empty), /polymerdelim/);
 }
 
+// Atom numbers and map numbers, as small text beside the atom with \charge: an atom number in a gap between its
+// bonds, out of its ring, clear of its marks; a map number where the page drew it, else after a label that reads one
+// way (on the label's last letter, after the H of OH) or on the atom's open side. Neither is reported as left out.
+// As \charge's marks are not in the picture's box, empty atoms at the corners the numbers need keep them in a cropped
+// figure: only on a side they reach past the structure.
+{
+  const chain = mol(Array.from({ length: 3 }, (_, k) => A("C", k * c30, k % 2 ? s30 : 0, { number: String(k + 1) })), [B(0, 1), B(1, 2)]);
+  assert.equal(cf(chain), "\\chemfig{\\charge{-150:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 1$}{}(-[:-150,0.53,,,draw=none])(-[:25,2.43,,,draw=none])"
+    + "-[:30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 2$}{}-[:-30]\\charge{-30:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 3$}{}}");
+  // In a ring, a number faces out of the ring.
+  const hex = ring(6, 0, 0, 90).map((a, k) => (k === 0 ? { ...a, number: "1" } : a));
+  assert.match(cf(mol(hex, hex.map((_, k) => B(k, (k + 1) % 6)))), /\\charge\{90:9pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 1\$\}\{\}/);
+  const mapped = mol([A("C", 0, 0, { map: 1 }), A("C", c30, s30, { map: 2 }), A("O", 2 * c30, 0, { map: 3 })], [B(0, 1), B(1, 2)]);
+  assert.equal(cf(mapped), "\\chemfig{\\charge{-150:3pt[anchor=180+\\chargeangle]=$\\scriptstyle 1$}{}(-[:19,2.62,,,draw=none])-[:30]\\charge{90:3pt[anchor=180+\\chargeangle]=$\\scriptstyle 2$}{}"
+    + "-[:-30]O|\\charge{0:1pt[anchor=180+\\chargeangle]=$\\scriptstyle 3$}{H}}");
+  // Where the page drew a map number wins (here straight below the O).
+  const page = { scale: 10, electrons: [], maps: [{ atom: 2, text: "3", at: [2 * c30 * 10, 8] as [number, number], size: 7, h: 5 }] };
+  assert.match(toChemfig(mapped, {}, { compact: true, page }), /\\charge\{-90:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 3\$\}\{O\}H/);
+  assert.equal(chemfigNotice("Copied", chain, true), undefined);
+  assert.equal(chemfigNotice("Copied", mapped, true), undefined);
+}
+
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
 for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));
 console.log("chemfig.check: all pass");

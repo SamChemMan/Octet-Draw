@@ -131,7 +131,7 @@ const rgb = (hex?: string) => {
 // options.schemes: the reactions in mol as Octet reads them (reaction.ts, interpret.ts), each as its row in order
 // (structures by their atoms, text by its caption, plus signs and arrows by their ids) and each arrow's conditions above
 // and below it. They are written as chemfig's \schemestart rows.
-export type PageMarks = Pick<Drawing, "electrons" | "scale">;
+export type PageMarks = Pick<Drawing, "electrons" | "scale"> & Partial<Pick<Drawing, "maps">>;
 export type SchemeItem = { atoms: number[] } | { caption: number };
 export type Scheme = { row: (SchemeItem | { plus: number } | { arrow: number })[]; above: Map<number, SchemeItem[]>; below: Map<number, SchemeItem[]> };
 export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabels" | "carbonLabels" | "hideH">> = {}, options: { compact?: boolean; page?: PageMarks; schemes?: Scheme[] } = {}): string {
@@ -207,9 +207,11 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // the atom's bonds, the rest of its label and its charge sign. Lewis dots and bars turn to face out (chemfig's
   // lewisautorot). A skeletal carbon's \charge, with its charge sign too, is the whole atom: chemfig joins the bonds
   // through it. The \charge is never in braces, which would hide it.
+  // Also the atom's number (Show Atom Number) and its reaction map number, as small text beside it.
+  const reach: { atom: number; p: P }[] = []; // where each mark reaches (where())
   function marks(i: number, g: Group): Group {
     const a = atoms[i], kinds = markKinds(a), skeletal = !labelled[i] && !!a.charge && !a.circled;
-    if (!kinds.length && !skeletal) return g;
+    if (!kinds.length && !skeletal && !a.number && !a.map) return g;
     // Directions in the page's frame (y down, radians), as markAngles takes them.
     const down = (q: P) => Math.atan2(-(q[1] - at(i)[1]), q[0] - at(i)[0]), v = pull(i);
     const taken = nbrs[i].map(({ to }) => down(at(to)));
@@ -231,11 +233,16 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     // chemfig's place for a mark: the angle in degrees anticlockwise (y up), from -179 to 180, and how far out. Dots
     // and bars sit a little clear of a label, and further from an empty atom, which has no box. A sign or δ touches
     // the place with its near side (anchor=180+\chargeangle), not its middle, so it stays off the label and bonds.
-    const where = (t: number, gap: number) => {
+    // size: how big the mark is (pt): dots small, text a small number's size.
+    const where = (t: number, gap: number, size = 7) => {
       const d = ((Math.round((-t * 180) / Math.PI) % 360) + 360) % 360;
+      // How far out the mark reaches, roughly (bond lengths, a bond being 3em, about 30pt): past a label, its gap, and
+      // its size. chemfig leaves overlaid marks out of the picture's box; chemfig() puts them back in.
+      const out = (labelled[i] ? 0.15 : 0) + (gap + size) / 30;
+      reach.push({ atom: i, p: [at(i)[0] + Math.cos(t) * out, at(i)[1] - Math.sin(t) * out] });
       return `${d > 180 ? d - 360 : d}:${gap}pt`;
     };
-    const dots = (t: number) => where(t, labelled[i] ? 1 : 2), text = (t: number) => `${where(t, labelled[i] ? 0 : 1)}[anchor=180+\\chargeangle]`;
+    const dots = (t: number) => where(t, labelled[i] ? 1 : 2, 3), text = (t: number) => `${where(t, labelled[i] ? 0 : 1)}[anchor=180+\\chargeangle]`;
     const c = rgb(a.colour), paint = c ? `\\color[RGB]{${c.join(",")}}` : "", tikz = c ? `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}` : "";
     const items = kinds.flatMap((kind, k) => {
       if (kind === "radical") return [`${dots(ts[k])}=\\.`];
@@ -245,12 +252,52 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
       return []; // the query indicator: chemfig has no query properties
     });
     if (skeletal) items.unshift(`${text(sign0!)}=$${paint}\\scriptstyle ${sign(a.charge!)}$`);
-    if (!items.length) return g;
+    // The numbers stay clear of the bonds, the rest of the label and the marks (y down, as above).
+    const avoid = [...taken, ...ts, ...(sign0 === undefined ? [] : [sign0])];
+    const number = (t: number, gap: number, n: string) => `${where(t, gap)}[anchor=180+\\chargeangle]=$${paint}\\scriptstyle ${tex(n)}$`;
+    if (a.number) {
+      const t = beside(i, avoid);
+      avoid.push(t);
+      items.push(number(t, labelled[i] ? 3 : 9, a.number));
+    }
+    // A map number where the page drew it (its maps, px with y down) when it is given; else, as the page puts it, after
+    // a label that reads one way (OH, H2N), level with the atom, or on the atom's open side.
+    // Beside a label, level with it, it follows the label's last letter that way (after the H of OH), so its \charge is
+    // on that atom of the label (end).
+    let end: { at: number; item: string } | undefined;
+    if (a.map) {
+      const m = options.page?.maps?.find((x) => x.atom === i), k = options.page?.scale ?? 1;
+      const d = m && [m.at[0] - a.location[0] * k, m.at[1] + a.location[1] * k];
+      const t = d && Math.hypot(d[0], d[1]) > 1e-3 ? Math.atan2(d[1], d[0]) : labelled[i] && g.atoms.length > 1 && !g.stack ? (g.anchor > 0 ? Math.PI : 0) : beside(i, avoid);
+      const level = labelled[i] && g.atoms.length > 1 && !g.stack && Math.abs(Math.cos(t)) > 0.9, side = Math.cos(t) > 0 ? g.atoms.length - 1 : 0;
+      // (It reaches a letter further for each letter of the label it follows.)
+      if (level && side !== g.anchor) {
+        end = { at: side, item: number(t, 1, String(a.map)) };
+        reach.push({ atom: i, p: [at(i)[0] + Math.sign(Math.cos(t)) * (0.45 + 0.3 * Math.abs(side - g.anchor)), at(i)[1]] });
+      }
+      else items.push(number(t, labelled[i] ? 1 : 3, String(a.map)));
+    }
+    if (!items.length && !end) return g;
     // Dots and bars in the atom's colour.
     const dotStyle = tikz ? `[.style={fill=${tikz}},|style={color=${tikz},line width=0.4pt}]` : "";
-    const wrap = (content: string) => `\\charge{${dotStyle}${items.join(",")}}{${content}}`;
+    const wrap = (content: string, list = items) => (list.length ? `\\charge{${dotStyle}${list.join(",")}}{${content}}` : content);
     if (!g.atoms.length) return { atoms: [wrap("")], anchor: 0 };
-    return { ...g, atoms: g.atoms.map((s, k) => (k === g.anchor ? wrap(s) : s)) };
+    return { ...g, atoms: g.atoms.map((s, k) => (k === g.anchor ? wrap(s) : k === end?.at ? wrap(s, [end.item]) : s)) };
+  }
+  // Where a number goes beside an atom, as the page puts an atom number (Editor besideAtom): in the middle of a gap
+  // between its bonds, wider gaps first, then those facing away from its ring (or the atoms two bonds off); the first
+  // that is clear of avoid (directions taken, y down). Radians, y down.
+  function beside(i: number, avoid: number[]): number {
+    const up = nbrs[i].map(({ to }) => Math.atan2(at(to)[1] - at(i)[1], at(to)[0] - at(i)[0])).sort((x, y) => x - y);
+    const ring = nbrs[i].map(({ to }) => smallestRing(i, to)).find(Boolean);
+    const around = ring ?? [...new Set(nbrs[i].flatMap(({ to }) => nbrs[to].map((x) => x.to)))].filter((j) => j !== i);
+    const mean = around.reduce<P>((s, j) => [s[0] + at(j)[0] / around.length, s[1] + at(j)[1] / around.length], [0, 0]);
+    const away = around.length ? Math.atan2(at(i)[1] - mean[1], at(i)[0] - mean[0]) : Math.PI / 2;
+    const gaps = !up.length ? [{ m: Math.PI / 2, score: 0 }] : up.length === 1 ? [{ m: up[0] + Math.PI, score: 1 }, { m: up[0] + Math.PI / 2, score: 0 }, { m: up[0] - Math.PI / 2, score: 0 }]
+      : up.map((t, k) => { const next = k + 1 < up.length ? up[k + 1] : up[0] + 2 * Math.PI, m = (t + next) / 2; return { m, score: next - t + 0.3 * Math.cos(m - away) }; });
+    gaps.sort((p, q) => q.score - p.score);
+    const clear = (m: number) => avoid.every((t) => Math.abs(Math.atan2(Math.sin(-m - t), Math.cos(-m - t))) > Math.PI / 6);
+    return -(gaps.find((g) => clear(g.m)) ?? gaps[0]).m;
   }
   const groups = atoms.map((_, i) => (kept[i] ? marks(i, group(i)) : { atoms: [], anchor: 0 }));
 
@@ -399,6 +446,17 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     lines = [];
     const mine = brackets.filter((b) => rs.includes(roots[component[b.inside[0]]]));
     decor = mine.flatMap((b) => b.branches(rs[0]));
+    // Marks that reach past the structure (numbers, lone pairs) put empty atoms at the corners of the box they need,
+    // as \charge's marks are not in the picture's box, and a cropped figure (the standalone class) would cut them off.
+    const ours = (i: number) => component[i] >= 0 && rs.includes(roots[component[i]]);
+    const pts = atoms.flatMap((_, i) => (ours(i) ? [at(i)] : [])), out = reach.filter((r) => ours(r.atom)).map((r) => r.p);
+    const box = (ps: P[]) => [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))];
+    // (Labels reach about 0.3 bond lengths past their atoms already; a corner is added only on a side marks pass that.)
+    if (out.length) {
+      const [x0, y0, x1, y1] = box(pts), [u0, v0, u1, v1] = box([...pts, ...out]);
+      if (u0 < x0 - 0.3 || v0 < y0 - 0.3) decor.push(toPoint(rs[0], [Math.min(u0, x0), Math.min(v0, y0)], ""));
+      if (u1 > x1 + 0.3 || v1 > y1 + 0.3) decor.push(toPoint(rs[0], [Math.max(u1, x1), Math.max(v1, y1)], ""));
+    }
     write(rs[0], 0, "", rs.slice(1));
     const code = compact || !lines.length ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([d, t]) => "\t".repeat(d + 1) + t).join("\n")}\n}`;
     return { code, after: mine.map((b) => (compact ? b.delim : `\n${b.delim}`)).join("") };
@@ -524,7 +582,7 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
     curved: ["curved arrow", "curved arrows"], arrow: ["arrow", "arrows"], line: ["line", "lines"], orbital: ["orbital", "orbitals"], cut: ["fragmentation line", "fragmentation lines"],
     bracket: ["bracket", "brackets"], shape: ["shape", "shapes"], tlc: ["TLC plate", "TLC plates"], table: ["table", "tables"], picture: ["picture", "pictures"],
     cycle: ["catalytic cycle", "catalytic cycles"], spectrum: ["spectrum", "spectra"], fill: ["ring fill", "ring fills"], highlight: ["highlight", "highlights"],
-    number: ["atom number", "atom numbers"], map: ["map number", "map numbers"], query: ["query property", "query properties"], attach: ["attachment point", "attachment points"],
+    query: ["query property", "query properties"], attach: ["attachment point", "attachment points"],
     bead: ["polymer bead", "polymer beads"], enhanced: ["enhanced stereo mark", "enhanced stereo marks"], hmark: ["hydrogen dot or hash", "hydrogen dots and hashes"], turned: ["turned label", "turned labels"],
     quadruple: ["quadruple bond", "quadruple bonds"], either: ["crossed double bond", "crossed double bonds"], dashed: ["dashed double bond", "dashed double bonds"], bold: ["bold double bond", "bold double bonds"],
     retro: ["retrosynthetic arrow", "retrosynthetic arrows"], hash: ["hashed no-reaction arrow", "hashed no-reaction arrows"], dipole: ["dipole arrow", "dipole arrows"], block: ["block arrow", "block arrows"],
@@ -549,8 +607,6 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
   add(left, "fill", mol.fills?.length ?? 0);
   for (const a of atoms) {
     if (a.halo) add(left, "highlight");
-    if (a.number) add(left, "number");
-    if (a.map) add(left, "map");
     if (a.query) add(left, "query");
     if (a.attach) add(left, "attach");
     if (a.bead) add(left, "bead");
