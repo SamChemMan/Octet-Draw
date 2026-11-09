@@ -337,7 +337,7 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "NaCl")] }), false), "Copied without text: Octet cannot export it to chemfig yet.", "with Interpret Chemically off, NaCl is text");
   assert.equal(chemfigNotice("Copied", base({ bonds: [B(0, 1, QUADRUPLE)] }), true), "Copied. Octet exports 1 quadruple bond to chemfig differently.");
   assert.equal(chemfigNotice("Copied", base({ bonds: [B(0, 1, QUADRUPLE)] }, { cip: true, halo: "#ff0000" }), true),
-    "Copied without 1 highlight and R/S and E/Z labels: Octet cannot export them to chemfig yet. Octet exports 1 quadruple bond to chemfig differently.");
+    "Copied without 1 highlight: Octet cannot export it to chemfig yet. Octet exports 1 quadruple bond to chemfig differently.");
   // A hidden atom's marks are not in the drawing either.
   assert.equal(chemfigNotice("Copied", base({}, { hidden: true, halo: "#ff0000" }), true), undefined);
 }
@@ -415,6 +415,27 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.match(toChemfig(mapped, {}, { compact: true, page }), /\\charge\{-90:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 3\$\}\{O\}H/);
   assert.equal(chemfigNotice("Copied", chain, true), undefined);
   assert.equal(chemfigNotice("Copied", mapped, true), undefined);
+}
+
+// Show Stereochemistry: R, S, r and s beside the atom as small text (\charge, as an atom number, after it in the next
+// clear gap), E and Z half a bond out from the double bond's middle on the side with fewer neighbours, hung off an end
+// of the bond by a bond chemfig does not draw. The letter italic, the parentheses (Settings) upright. Only on atoms of a
+// structure with it on (cip), as on the page.
+{
+  const centre = (more: Partial<Atom> = {}) => mol([A("C", 0, 0, more), A("C", c30, s30), A("O", 0, -1), A("N", -c30, s30)], [B(0, 1), B(0, 2, 1, { stereo: 1 }), B(0, 3)]);
+  const rs = { atoms: ["R", undefined, undefined, undefined], bonds: [undefined, undefined, undefined], parens: true };
+  const st = (m: Mol, stereo: typeof rs, style = {}) => { const c = toChemfig(m, style, { compact: true, stereo }); assert.equal(flat(toChemfig(m, style, { stereo })), flat(c)); return c; };
+  assert.equal(st(centre({ cip: true }), rs), "\\chemfig{H_2N-[:-30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle (\\mathit{R})$}{}(<[:-90,,,1]OH)-[:30]}");
+  assert.equal(st(centre({ cip: true }), { ...rs, atoms: ["s"], parens: false }), "\\chemfig{H_2N-[:-30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle \\mathit{s}$}{}(<[:-90,,,1]OH)-[:30]}");
+  // With Show Stereochemistry off for the structure, nothing.
+  assert.equal(st(centre(), rs), cf(centre()));
+  // With the atom's number too: the number first, the label in the next clear gap.
+  assert.equal(st(centre({ cip: true, number: "2" }), rs), "\\chemfig{H_2N-[:-30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 2$,-30:9pt[anchor=180+\\chargeangle]=$\\scriptstyle (\\mathit{R})$}{}(<[:-90,,,1]OH)-[:30]}");
+  // (E)-but-2-ene: the E above the middle of its double bond, away from the two methyls below it, in the bond's colour.
+  const butene = mol([A("C", 0, 0, { cip: true }), A("C", c30, s30, { cip: true }), A("C", 2 * c30, 0, { cip: true }), A("C", 3 * c30, s30, { cip: true })], [B(0, 1), B(1, 2, 2, { colour: "#ff0000" }), B(2, 3)]);
+  assert.equal(st(butene, { atoms: [], bonds: [undefined, "E", undefined], parens: true }), "\\chemfig{-[:30](-[:15,0.71,,,draw=none]{\\color[RGB]{255,0,0}\\scriptstyle (\\mathit{E})})=_[:-30,,,,color={rgb,255:red,255;green,0;blue,0}]-[:30]}");
+  // Labels are written, so not reported as left out.
+  assert.equal(chemfigNotice("Copied", centre({ cip: true }), true), undefined);
 }
 
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.

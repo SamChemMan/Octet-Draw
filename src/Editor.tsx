@@ -1214,11 +1214,12 @@ export default function Editor() {
   }
   // A part's structures as chemfig code (chemfig.ts), with the captions read as chemistry as labels.
   // Drawn as the page draws it, so lone pairs, radicals and circled charges go where the page has them, and with its
-  // reactions as chemfig's schemes.
+  // reactions as chemfig's schemes, and its R/S and E/Z labels where Show Stereochemistry shows them.
   function chemfigOf(part: Mol, compact = false): string | undefined {
     try {
       const { mol, captions } = withCaptionAtoms(part, style.interpret);
-      return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L), schemes: schemesIn(part, captions) }) || undefined;
+      const labels = loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined, stereo = labels && { ...labels, parens: settings.stereoParens };
+      return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L), schemes: schemesIn(part, captions), stereo }) || undefined;
     } catch { return undefined; }
   }
   // What the user is told after the chemfig code of a part is copied or saved (head: "Copied", "Saved name.tex").
