@@ -33,6 +33,9 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30), A("O", c30, 1 + s30)], [B(0
 // Acetic acid: the longest chain is the main one, the C=O a branch, its double bond centred (a terminal =O).
 assert.equal(cf(mol([A("C", 0, 0), A("C", c30, s30), A("O", c30, 1 + s30), A("O", 2 * c30, 0)], [B(0, 1), B(1, 2, 2), B(1, 3)])),
   "\\chemfig{-[:30](=[:90]O)-[:-30]OH}");
+// A bond straight down (or up) into a label meets it at its first atom unless told: into HN, read backwards (its other
+// bond goes right), it names the N.
+assert.equal(cf(mol([A("C", 0, 1), A("N", 0, 0), A("C", 1, 0)], [B(0, 1), B(1, 2)])), "\\chemfig{-[:-90,,,2]HN-}");
 // Bond lengths other than the document's are written as chemfig's length factor.
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1.5, 0)], [B(0, 1)])), "\\chemfig{-[,1.5]}");
 
@@ -71,20 +74,79 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", 1.5, 0)], [B(0, 1)])), "\\chemfig{-[,1
   // A second ring hanging off the first reaches it through a point straight out from its middle.
   const two = mol([...benzene, ...ring(6, 4, 0, 30)], [...kek(0), ...kek(6)]);
   assert.equal(cf(two), "\\chemfig{*6((-[:-9,3.17,,,draw=none]-[:30,,,,draw=none]*6(-=-=-=))-=-=-=)}");
-  // Naphthalene's rings share atoms: no ring syntax, and its circles are reported as left out.
-  const left = ring(6, 0, 0, 30), right = ring(6, 2 * c30, 0, 30), naph = [...left, right[0], right[1], right[5], right[4]].map((a) => ({ ...a, circle: true as const }));
+}
+// Fused rings in ring syntax: a ring fused at an atom of its parent is nested after that atom, built from it
+// counterclockwise, and ends on the parent's next atom (an empty atom), so the side they share is the parent's.
+{
+  const left = ring(6, 0, 0, 30), right = ring(6, 2 * c30, 0, 30), naphAtoms = [...left, right[0], right[1], right[5], right[4]];
   const naphBonds = [B(0, 1, 2), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 0), B(0, 7), B(7, 6, 2), B(6, 8), B(8, 9, 2), B(9, 5)];
-  assert.equal(syntaxRings(mol(naph, naphBonds)).length, 0);
-  assert.equal(chemfigNotice("Copied", mol(naph, naphBonds), true), "Copied without aromatic circles: Octet cannot export them to chemfig yet.");
+  const naph = naphAtoms.map((a) => ({ ...a, circle: true as const }));
+  assert.equal(cf(mol(naphAtoms, naphBonds)), "\\chemfig{*6(-=*6(-=-=-{})-=-=)}");
+  // With circles: every side single, the shared one too, and nothing reported as left out.
+  assert.equal(cf(mol(naph, naphBonds)), "\\chemfig{**6(--**6(-----{})----)}");
+  assert.equal(chemfigNotice("Copied", mol(naph, naphBonds), true), undefined);
+  // A circle in one ring only (the left one, which every atom of is marked): the other keeps its double bonds, and
+  // the shared side is single, as the page draws it, even when it is a double bond.
+  const one = naphAtoms.map((a, k) => (k < 6 ? { ...a, circle: true as const } : a));
+  assert.equal(cf(mol(one, naphBonds)), "\\chemfig{**6(--*6(-=-=-{})----)}");
+  const shifted = [B(0, 1), B(1, 2, 2), B(2, 3), B(3, 4, 2), B(4, 5), B(5, 0, 2), B(0, 7), B(7, 6, 2), B(6, 8), B(8, 9, 2), B(9, 5)];
+  assert.equal(cf(mol(one, shifted)), "\\chemfig{**6(--*6(-=-=-{})----)}");
+  assert.equal(cf(mol(naphAtoms, shifted)), "\\chemfig{*6(=-*6(-=-=-{})=-=-)}");
+  // A label in the nested ring, and a branch off it.
+  const quin = naphAtoms.map((a, k) => (k === 6 ? { ...a, label: "N" } : a));
+  assert.equal(cf(mol(quin, naphBonds)), "\\chemfig{*6(-=*6(-=-N=-{})-=-=)}");
+  // Atom 8 is the right ring's lower right atom: a methyl straight out from that ring's middle.
+  const [x8, y8] = naphAtoms[8].location, l8 = Math.hypot(x8 - 2 * c30, y8);
+  const methyl = A("C", x8 + (x8 - 2 * c30) / l8, y8 + y8 / l8);
+  assert.equal(cf(mol([...naphAtoms, methyl], [...naphBonds, B(8, 10)])), "\\chemfig{*6(-=*6(-=(-[:-30])-=-{})-=-=)}");
+  // A fusion atom with a label: the parent writes it, and the nested ring's last side ends on an invisible copy of it
+  // (\phantom, without its marks), so chemfig stops the side at the label's edge and nothing is printed twice.
+  assert.equal(cf(mol(naphAtoms.map((a, k) => (k === 0 ? { ...a, label: "N" } : a)), naphBonds)), "\\chemfig{*6(-=*6(-=-=-{\\phantom{N}})-N=-=)}");
+  // A charged skeletal carbon has no label (its sign is a mark the parent writes): the empty atom as usual.
+  assert.equal(cf(mol(naphAtoms.map((a, k) => (k === 0 ? { ...a, charge: 1 } : a)), naphBonds)), "\\chemfig{*6(-=*6(-=-=-{})-\\charge{-37:1pt[anchor=180+\\chargeangle]=$\\scriptstyle +$}{}=-=)}");
+  // Label Every Carbon, with circles.
+  assert.equal(toChemfig(mol(naph, naphBonds), { carbonLabels: true }, { compact: true }),
+    "\\chemfig{HC**6(-{\\chembelow{C}{H}}-C**6(-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\chemabove{C}{H}}-HC-[,,2,2])}");
+  assert.equal(chemfigNotice("Copied", mol(naph, naphBonds), true), undefined);
+  // Where ring syntax cannot draw the system as the page does, all of it is written bond by bond: a bond out at a
+  // slant, or a fusion atom with a bond out of the system.
+  const none = (m: Mol) => assert.equal(syntaxRings(m).length, 0);
+  none(mol([...naphAtoms, A("C", x8 + 1, y8)], [...naphBonds, B(8, 10)]));
+  none(mol([...naphAtoms, A("C", naphAtoms[0].location[0], naphAtoms[0].location[1] + 1)], [...naphBonds, B(0, 10)]));
+  // An atom in three rings (phenalene's middle, as in pyrene): no. Its hexagons' atoms, bonded where they are 1 apart.
+  const pts = [90, 210, 330].flatMap((p) => ring(6, Math.cos((p * Math.PI) / 180), Math.sin((p * Math.PI) / 180), p + 180)).filter((a, k, all) => all.findIndex((b) => Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) < 1e-6) === k);
+  const near = pts.flatMap((a, i) => pts.slice(i + 1).flatMap((b, d) => (Math.abs(Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) - 1) < 1e-6 ? [B(i, i + 1 + d)] : [])));
+  assert.equal(pts.length, 13);
+  none(mol(pts, near));
+  // Phenanthrene with its third ring below the second's lower right, Label Every Carbon and circles. chemfig turns a
+  // ring's sides itself, so an upright side can come out a hair either side of ±90°, where chemfig's own choice of the
+  // atom of a label a bond leaves or meets flips: a side straight up or down names both (an HC met at its H pushed the
+  // third ring out of shape, so its sides no longer met). Atoms row by row, bonds Kekulé.
+  const phenPts: [number, number][] = [[c30, 0.5], [0, 1], [-c30, 0.5], [-c30, -0.5], [0, -1], [c30, -0.5], [3 * c30, 0.5], [2 * c30, 1], [2 * c30, -1], [3 * c30, -0.5], [4 * c30, -1], [2 * c30, -2], [3 * c30, -2.5], [4 * c30, -2]];
+  const phenBonds = [B(0, 1, 2), B(0, 5), B(0, 7), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 8), B(6, 7, 2), B(6, 9), B(8, 9, 2), B(8, 11), B(9, 10), B(10, 13, 2), B(11, 12, 2), B(12, 13)];
+  const phen = mol(phenPts.map(([x, y]) => A("C", x, y, { circle: true })), phenBonds);
+  assert.equal(toChemfig(phen, { carbonLabels: true }, { compact: true }),
+    "\\chemfig{HC**6(-{\\chembelow{C}{H}}-C**6(-C**6(-[,,,2]HC-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\phantom{C}})-C-[,,,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\chemabove{C}{H}}-HC-[,,2,2])}");
+  assert.equal(chemfigNotice("Copied", phen, true), undefined);
+  // The same turned half round: the labels read the other way (CH for HC), and the upright sides still name both.
+  const turned = mol(phenPts.map(([x, y]) => A("C", -x, -y, { circle: true })), phenBonds);
+  assert.equal(toChemfig(turned, { carbonLabels: true }, { compact: true }),
+    "\\chemfig{HC**6(-C**6(-[,,,2]HC-{\\chembelow{C}{H}}-C**6(-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\phantom{C}})-C-[,,,1]CH-{\\chemabove{C}{H}}-HC-[,,2,2])}");
+  // Anthracene: the middle ring nested in the first, the last nested in the middle.
+  const third = ring(6, 4 * c30, 0, 30), anth = [...naphAtoms, third[1], third[0], third[5], third[4]];
+  const anthBonds = [...naphBonds, B(6, 10), B(10, 11, 2), B(11, 12), B(12, 13, 2), B(13, 8)];
+  assert.equal(cf(mol(anth, anthBonds)), "\\chemfig{*6(-=*6(-=*6(-=-=-{})-=-{})-=-=)}");
 }
 
-// Naphthalene: two hooks, each named once on its first atom and once with its bond.
+// Naphthalene drawn larger than chemfig's ring syntax draws (sides 1.5), bond by bond: two hooks, each named once on
+// its first atom and once with its bond.
 {
   const left = ring(6, 0, 0, 30), right = ring(6, 2 * c30, 0, 30);
   // right's atoms 2 and 4 are left's 0 and 5: keep right's other four.
-  const atoms = [...left, right[0], right[1], right[5], right[4]];
+  const atoms = [...left, right[0], right[1], right[5], right[4]].map((a) => ({ ...a, location: [a.location[0] * 1.5, a.location[1] * 1.5, 0] as [number, number, number] }));
   const bonds = [B(0, 1, 2), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 0), B(0, 7), B(7, 6, 2), B(6, 8), B(8, 9, 2), B(9, 5)];
   const code = cf(mol(atoms, bonds));
+  assert.doesNotMatch(code, /\*6/);
   for (const name of ["1", "2"]) assert.equal(code.split(`?[${name}`).length - 1, 2, code);
 }
 
