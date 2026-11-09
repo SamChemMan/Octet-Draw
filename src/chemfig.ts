@@ -11,7 +11,7 @@ import { formulaCaption, formulaTextRuns, pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 import { chemicalCaption } from "./edit.ts";
-import { H_FIRST, HBOND, QUADRUPLE, bendPoint, circledRings, curved, headsOf, sweepOf, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, scaleOf, shapeCorners, turnedWith, type Arrow, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
+import { H_FIRST, HBOND, QUADRUPLE, bendPoint, circledRings, curved, headsOf, sweepOf, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, scaleOf, shapeCorners, showsLabel, stereoSpot, turnedWith, type Arrow, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import { polymerLabel, polymerTags } from "./query.ts";
 import type { DocStyle } from "./docstyle.ts";
 
@@ -105,6 +105,13 @@ const num = (x: number) => String(+x.toFixed(2));
 // lines and pen curves are not written yet; nor a page's spectrum parts.
 const MOVED = new Set(["reaction", "resonance", "curved", "fishhook", "double", "line", "arc"]);
 export const chemmoved = (a: Pick<Arrow, "kind" | "role">) => MOVED.has(a.kind) && !a.role;
+// Half of a curved arrow's arc (render.ts: a circular arc, its bend how far its middle sits off the chord) as TikZ's
+// to[bend …, looseness …] from an end to the middle: the half sweeps half the arc (psi), its ends leave its chord at
+// psi/2 (bend, degrees), and TikZ's control points (0.3915 of the chord for each looseness) sit where a circle's do.
+export function arcHalf(bend: number): { bend: number; looseness: number } {
+  const psi = (sweepOf(bend) * Math.PI) / 360;
+  return { bend: (psi * 90) / Math.PI, looseness: (4 / 3) * Math.tan(psi / 4) / (2 * Math.sin(psi / 2) * 0.3915) };
+}
 // A caption as TeX text: a name under a structure (for \chemname), a condition on an arrow, or text in a scheme's row.
 // Its lines joined by \\, each
 // run in its look (bold, italic, underlined, raised or lowered, coloured) on top of the caption's own, and TeX's
@@ -131,6 +138,29 @@ const rgb = (hex?: string) => {
   const m = hex && /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   return m && hex!.toLowerCase() !== "#000000" ? m.slice(1).map((h) => parseInt(h, 16)) : undefined;
 };
+// A colour (rgb()) as a TikZ option's value, and as TeX's switch to it.
+const tikzColour = (c: number[]) => `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}`;
+const texColour = (c: number[]) => `\\color[RGB]{${c.join(",")}}`;
+// A wavy line (a wavy bond, a wavy arrow), as TikZ's snake; it needs a TikZ library, which the code says.
+const WAVY = ["decorate", "decoration={snake,amplitude=0.6pt,segment length=2.4pt}"];
+// A direction's angle in degrees, anticlockwise (y up), from -180 to 180.
+const degrees = (d: P) => (Math.atan2(d[1], d[0]) * 180) / Math.PI;
+// Which atoms of two labels (chemfig's) a bond between them leaves and meets, given only where chemfig would not pick
+// them itself. Unless told, chemfig leaves a label from its last atom when the bond points right (between -90° and
+// 90°), else from its first, and meets a label at its first atom when the bond points right, else at its last; but a
+// bond straight up or down meets it at its first, so there the atom it meets is always given. A ring's side (side)
+// chemfig turns itself, so an upright side can come out a hair either side of ±90°: there both atoms are always given.
+// exact: the bond's angle in degrees, which comes back rounded. Either label may be missing (a bond to a point).
+function letters(exact: number, gu?: Group, gv?: Group, side = false) {
+  let angle = Math.round(exact);
+  if (angle <= -180) angle += 360;
+  const right = angle > -90 && angle < 90, upright = side ? Math.abs(Math.abs(exact) - 90) < 1 : Math.abs(angle) === 90;
+  const from = gu && gu.atoms.length > 1 && ((side && upright) || gu.anchor !== (right ? gu.atoms.length - 1 : 0)) ? String(gu.anchor + 1) : "";
+  const to = gv && gv.atoms.length > 1 && (upright || gv.anchor !== (right ? 0 : gv.atoms.length - 1)) ? String(gv.anchor + 1) : "";
+  return { angle, from, to };
+}
+// A ring by its atoms, whatever atom it starts at and whichever way round.
+const ringKey = (r: number[]) => [...r].sort((x, y) => x - y).join();
 
 // The rings written in chemfig's ring syntax (*6(-=-=-=)), each as its atoms counterclockwise: those chemfig draws as
 // the page has them. chemfig draws a ring as a regular polygon with sides a bond long, and turns it so the bond into it
@@ -152,7 +182,7 @@ export function syntaxRings(mol: Mol): number[][] {
     for (let k = 0; k < queue.length && !back.has(q); k++) for (const r of nb[queue[k]]) if (core[r] && !back.has(r) && !(queue[k] === p && r === q)) { back.set(r, queue[k]); queue.push(r); }
     const ring: number[] = [];
     for (let x = back.has(q) ? q : -1; x !== -1; x = back.get(x)!) ring.push(x);
-    if (ring.length) found.set([...ring].sort((x, y) => x - y).join(), ring);
+    if (ring.length) found.set(ringKey(ring), ring);
   }
   const all = [...found.values()];
   // A ring on its own: 3 to 8 atoms, regular with sides of 1. Its atoms counterclockwise, and its middle.
@@ -209,7 +239,7 @@ export function syntaxRings(mol: Mol): number[][] {
 // options.schemes: the reactions in mol as Octet reads them (reaction.ts, interpret.ts), each as its row in order
 // (structures by their atoms, text by its caption, plus signs and arrows by their ids) and each arrow's conditions above
 // and below it. They are written as chemfig's \schemestart rows.
-export type PageMarks = Pick<Drawing, "electrons" | "scale"> & Partial<Pick<Drawing, "maps">>;
+export type PageMarks = Pick<Drawing, "electrons" | "scale"> & Partial<Pick<Drawing, "maps" | "sides">>;
 // options.stereo: the structure's R, S, r, s and E, Z labels (chem.ts stereoLabels, in mol's atom and bond order), and
 // parens: Settings > Drawing > Parentheses round R and S. Each is written where the page shows it: on an atom or double
 // bond of a structure with Show Stereochemistry on (its atoms' cip).
@@ -221,23 +251,25 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => kept[i]) && b.atoms[0] !== b.atoms[1]);
   if (!kept.some(Boolean)) return "";
   // Rings in ring syntax, and those of them the page draws with a circle (Toggle Aromatic Display): **6(------).
-  const ringList = syntaxRings(mol), ringKey = (r: number[]) => [...r].sort((x, y) => x - y).join();
+  const ringList = syntaxRings(mol);
   const circled = new Set(circledRings(mol).map(ringKey));
   const at = (i: number): P => [atoms[i].location[0], atoms[i].location[1]];
   const nbrs: { to: number; bond: Bond }[][] = atoms.map(() => []);
   for (const b of bonds) { nbrs[b.atoms[0]].push({ to: b.atoms[1], bond: b }); nbrs[b.atoms[1]].push({ to: b.atoms[0], bond: b }); }
   const deg = (i: number) => nbrs[i].length;
+  // The middle of some atoms (a ring's, the atoms round one).
+  const centroid = (ids: number[]): P => ids.reduce<P>((s, i) => [s[0] + at(i)[0] / ids.length, s[1] + at(i)[1] / ids.length], [0, 0]);
   // The sum of the directions to an atom's neighbours (y up): which way its bonds go.
   const pull = (i: number): P => nbrs[i].reduce<P>((v, { to }) => { const d = [at(to)[0] - at(i)[0], at(to)[1] - at(i)[1]], l = Math.hypot(d[0], d[1]) || 1; return [v[0] + d[0] / l, v[1] + d[1] / l]; }, [0, 0]);
   // Which atoms show a label, as the page decides (render.ts).
-  const labelled = atoms.map((a, i) => (a.centre ? !deg(i) : !a.attach && !a.bead && (a.label !== "C" || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!style.terminalLabels : !!style.carbonLabels))));
+  const labelled = atoms.map((a, i) => showsLabel(a, deg(i), { terminal: style.terminalLabels, carbons: style.carbonLabels }));
 
   // A label as chemfig's atoms. It reads away from its bonds, as on the page: H₂N and MeO where the bonds go right.
   function group(i: number): Group {
     const a = atoms[i], charge = a.charge ?? 0, v = pull(i), colour = rgb(a.colour);
     const steep = Math.hypot(v[0], v[1]) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const rtl = a.align ? a.align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
-    const tint = (g: Group): Group => (colour ? { ...g, atoms: g.atoms.map((s) => `{\\color[RGB]{${colour.join(",")}}${s}}`) } : g);
+    const tint = (g: Group): Group => (colour ? { ...g, atoms: g.atoms.map((s) => `{${texColour(colour)}${s}}`) } : g);
     // A skeletal carbon has no label: marks() adds its charge and its other marks.
     if (!labelled[i]) return { atoms: [], anchor: 0 };
     // The label's own bold, italic and underline (the Text menu on the label) go on all of it, its H, counts and sign.
@@ -331,7 +363,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
       return `${d > 180 ? d - 360 : d}:${gap}pt`;
     };
     const dots = (t: number) => where(t, labelled[i] ? 1 : 2, 3), text = (t: number) => `${where(t, labelled[i] ? 0 : 1)}[anchor=180+\\chargeangle]`;
-    const c = rgb(a.colour), paint = c ? `\\color[RGB]{${c.join(",")}}` : "", tikz = c ? `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}` : "";
+    const c = rgb(a.colour), paint = c ? texColour(c) : "", tikz = c ? tikzColour(c) : "";
     const items = kinds.flatMap((kind, k) => {
       if (kind === "radical") return [`${dots(ts[k])}=\\.`];
       if (kind === "pair") return [`${dots(ts[k])}=${a.bars ? "\\|" : "\\:"}`];
@@ -385,7 +417,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const up = nbrs[i].map(({ to }) => Math.atan2(at(to)[1] - at(i)[1], at(to)[0] - at(i)[0])).sort((x, y) => x - y);
     const ring = nbrs[i].map(({ to }) => smallestRing(i, to)).find(Boolean);
     const around = ring ?? [...new Set(nbrs[i].flatMap(({ to }) => nbrs[to].map((x) => x.to)))].filter((j) => j !== i);
-    const mean = around.reduce<P>((s, j) => [s[0] + at(j)[0] / around.length, s[1] + at(j)[1] / around.length], [0, 0]);
+    const mean = centroid(around);
     const away = around.length ? Math.atan2(at(i)[1] - mean[1], at(i)[0] - mean[0]) : Math.PI / 2;
     const gaps = !up.length ? [{ m: Math.PI / 2, score: 0 }] : up.length === 1 ? [{ m: up[0] + Math.PI, score: 1 }, { m: up[0] + Math.PI / 2, score: 0 }, { m: up[0] - Math.PI / 2, score: 0 }]
       : up.map((t, k) => { const next = k + 1 < up.length ? up[k + 1] : up[0] + 2 * Math.PI, m = (t + next) / 2; return { m, score: next - t + 0.3 * Math.cos(m - away) }; });
@@ -395,15 +427,29 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   }
   // Each atom's label (bare: without its marks) as chemfig's atoms.
   const bare = atoms.map((_, i) => (kept[i] ? group(i) : { atoms: [], anchor: 0 })), groups = atoms.map((_, i) => (kept[i] ? marks(i, bare[i]) : bare[i]));
+  // A bond chemfig does not draw, from atom u to a point p, then content (a node, a mark, an empty atom): what places
+  // a thing where the page has it. Its length to 2 decimals; its angle in whole degrees, from -180 to 180, and the atom
+  // of u's label it leaves named where chemfig would not pick it (letters()). precise: the angle to 2 decimals. named:
+  // the atom always named. raw: the angle as rounded, not brought into -180 to 180.
+  const hop = (u: number, p: P, content = "", { precise = false, named = false, raw = false } = {}) => {
+    const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], g = groups[u], exact = degrees(d), rule = letters(exact, g);
+    const angle = precise ? num(exact) : raw ? String(Math.round(exact)) : String(rule.angle);
+    const from = named ? (g.atoms.length > 1 ? String(g.anchor + 1) : "") : rule.from;
+    return `-[:${angle},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]${content}`;
+  };
 
   // Where a double bond's second line goes, as the page puts it: 1 left of atoms[0] → atoms[1], -1 right, 0 centred.
+  // The page's own, when its drawing is given (its sides are on screen, where y runs down, so left and right swap).
+  const bondIndex = new Map(mol.bonds.map((b, k) => [b, k]));
   function side(b: Bond): number {
+    const drawn = options.page?.sides?.[bondIndex.get(b)!];
+    if (drawn !== undefined) return drawn ? -drawn : 0;
     if (b.position) return b.position === "centre" ? 0 : b.position === "left" ? 1 : -1;
     const [p, q] = b.atoms, d: P = [at(q)[0] - at(p)[0], at(q)[1] - at(p)[1]], n: P = [-d[1], d[0]];
     const sd = (j: number) => Math.sign((at(j)[0] - at(p)[0]) * n[0] + (at(j)[1] - at(p)[1]) * n[1]);
     const ring = smallestRing(p, q);
     if (ring) {
-      const c = ring.reduce<P>((s, j) => [s[0] + at(j)[0] / ring.length, s[1] + at(j)[1] / ring.length], [0, 0]);
+      const c = centroid(ring);
       return Math.sign((c[0] - at(p)[0]) * n[0] + (c[1] - at(p)[1]) * n[1]);
     }
     if (deg(p) === 1 || deg(q) === 1) {
@@ -427,11 +473,10 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     return ring.length <= 8 ? ring : undefined;
   }
 
-  let wavy = false; // a wavy bond needs a TikZ library, which the code says
   // A bond drawn from atom u: its chemfig bond character and the TikZ options that chemfig has no character for.
   function look(b: Bond, u: number): { char: string; tikz: string[] } {
     const forward = b.atoms[0] === u, tikz: string[] = [], c = rgb(b.colour);
-    if (c) tikz.push(`color={rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}`);
+    if (c) tikz.push(`color=${tikzColour(c)}`);
     // A wedge's narrow end is at atoms[0]; chemfig's < is narrow at the atom it leaves, > wide.
     const cram = (s: string) => (forward ? "<" : ">") + s;
     if (b.type === HBOND) return { char: "-", tikz: [...tikz, "dotted"] };
@@ -448,7 +493,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
       case "bold": return { char: "-", tikz: [...tikz, "line width=2pt"] };
       case "dashed": return { char: "-", tikz: [...tikz, "dashed"] };
       case "hashed": return { char: "-", tikz: [...tikz, "line width=2pt", "dash pattern=on 0.4pt off 1.2pt"] };
-      case "wavy": wavy = true; return { char: "-", tikz: [...tikz, "decorate", "decoration={snake,amplitude=0.6pt,segment length=2.4pt}"] };
+      case "wavy": return { char: "-", tikz: [...tikz, ...WAVY] };
       case "dative": return { char: "-", tikz: [...tikz, forward ? "-stealth" : "stealth-"] };
       default: return { char: "-", tikz };
     }
@@ -461,17 +506,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // side: a ring's side, which takes no angle or length (the ring sets them). With rings in ring syntax, every other
   // bond gives its angle, 0 too: chemfig's default there is a ring's bisector, or the turn at the start.
   function bondCode(u: number, v: number, char: string, tikz: string, side = false): string {
-    const d: P = [at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]], length = Math.hypot(d[0], d[1]), exact = (Math.atan2(d[1], d[0]) * 180) / Math.PI;
-    let angle = Math.round(exact);
-    if (angle <= -180) angle += 360;
-    const right = angle > -90 && angle < 90, gu = groups[u], gv = groups[v];
-    // Unless told, chemfig leaves a label from its last atom when the bond points right (between -90° and 90°), else
-    // from its first, and meets a label at its first atom when the bond points right, else at its last; but a bond
-    // straight up or down meets it at its first, so there the atom it meets is always given. A ring's sides chemfig
-    // turns itself, so an upright side can come out a hair either side of ±90°: there both atoms are always given.
-    const upright = side ? Math.abs(Math.abs(exact) - 90) < 1 : Math.abs(angle) === 90;
-    const from = gu.atoms.length > 1 && ((side && upright) || gu.anchor !== (right ? gu.atoms.length - 1 : 0)) ? String(gu.anchor + 1) : "";
-    const to = gv.atoms.length > 1 && (upright || gv.anchor !== (right ? 0 : gv.atoms.length - 1)) ? String(gv.anchor + 1) : "";
+    const d: P = [at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]], length = Math.hypot(d[0], d[1]), { angle, from, to } = letters(degrees(d), groups[u], groups[v], side);
     const fields = side ? ["", "", from, to, tikz] : [angle || ringList.length ? `:${angle}` : "", Math.abs(length - 1) > 0.02 ? num(length) : "", from, to, tikz];
     while (fields.length && !fields[fields.length - 1]) fields.pop();
     return char + (fields.length ? `[${fields.join(",")}]` : "");
@@ -511,20 +546,17 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     for (const r of placed) r.forEach((i, j) => { seen[i] = true; done.add(nbrs[i].find((x) => x.to === r[(j + 1) % r.length])!.bond); });
     stack.push(...system.filter((i) => i !== v).reverse());
   };
-  // A double bond's E or Z where the page puts it: half a bond out from its middle, on the side with fewer of its
-  // neighbours (Editor stereoMarks). chemfig has no text on a bond, so it hangs off an end of the bond (not one in two
-  // rings, whose code takes no branch) by a bond chemfig does not draw, as an atom of its own (tags: branches).
+  // A double bond's E or Z where the page puts it (render.ts stereoSpot). chemfig has no text on a bond, so it hangs
+  // off an end of the bond (not one in two rings, whose code takes no branch) by a bond chemfig does not draw, as an
+  // atom of its own (tags: branches).
   const tags: string[][] = atoms.map(() => []);
   options.stereo?.bonds.forEach((c, k) => {
     const b = mol.bonds[k];
     if (!c || !b || !bonds.includes(b) || !atoms[b.atoms[0]].cip) return;
-    const [p, q] = b.atoms.map(at), m: P = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, n: P = [-(q[1] - p[1]) / d, (q[0] - p[0]) / d];
-    const ends = new Set(b.atoms), score = bonds.filter((o) => o !== b && o.atoms.some((i) => ends.has(i)))
-      .map((o) => { const far = at(ends.has(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - m[0]) * n[0] + (far[1] - m[1]) * n[1]); }).reduce((x, y) => x + y, 0);
-    const side = score > 0 ? -1 : 1, f = (scaleOf(atoms[b.atoms[0]]) + scaleOf(atoms[b.atoms[1]])) / 2, spot: P = [m[0] + side * n[0] * 0.5 * f, m[1] + side * n[1] * 0.5 * f];
-    const u = b.atoms.find((i) => (ringsOf.get(i)?.length ?? 0) < 2) ?? b.atoms[0], g = groups[u], v: P = [spot[0] - at(u)[0], spot[1] - at(u)[1]];
-    const colour = rgb(b.colour), paint = colour ? `\\color[RGB]{${colour.join(",")}}` : "";
-    tags[u].push(`-[:${Math.round((Math.atan2(v[1], v[0]) * 180) / Math.PI)},${num(Math.hypot(v[0], v[1]))},${g.atoms.length > 1 ? g.anchor + 1 : ""},,draw=none]{${paint}\\scriptstyle ${stereoText(c)}}`);
+    const f = (scaleOf(atoms[b.atoms[0]]) + scaleOf(atoms[b.atoms[1]])) / 2, spot = stereoSpot(bonds, b, at, f);
+    const u = b.atoms.find((i) => (ringsOf.get(i)?.length ?? 0) < 2) ?? b.atoms[0];
+    const colour = rgb(b.colour), paint = colour ? texColour(colour) : "";
+    tags[u].push(hop(u, spot, `{${paint}\\scriptstyle ${stereoText(c)}}`, { named: true, raw: true }));
   });
   function walk(root: number) {
     const stack = [root];
@@ -549,7 +581,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // A structure whose leftmost atom is in a ring in ring syntax starts at the ring's atom with the one before it
   // straight above (chemfig's own way round, so it needs no turn), where the ring has one that is not a fusion atom;
   // else a fusion atom gives way to the ring's first atom that is not one (a system is never entered at a fusion atom).
-  const upright = (i: number) => {
+  const entryOf = (i: number) => {
     const rs = ringsOf.get(i);
     if (!rs) return i;
     const fused = (v: number) => ringsOf.get(v)!.length > 1;
@@ -562,7 +594,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     for (const r of system) for (const v of r) for (const s of ringsOf.get(v)!) if (!system.includes(s)) system.push(s);
     return system.flat().find((v) => !fused(v)) ?? i;
   };
-  for (const i of order) if (!seen[i]) { const r = upright(i); roots.push(r); walk(r); }
+  for (const i of order) if (!seen[i]) { const r = entryOf(i); roots.push(r); walk(r); }
   // How long a chain runs on from each atom: the longest child is written last, as the main chain, without brackets.
   // Worked out leaves first, from each tree's atoms in the order the walk reached them, so a long chain needs no deep
   // recursion.
@@ -643,7 +675,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   }
   // The turn a ring written first needs: chemfig's own has its last side coming straight down onto its first atom.
   const turnFor = (ring: number[]) => {
-    const last = ring[ring.length - 1], t = Math.round((Math.atan2(at(last)[1] - at(ring[0])[1], at(last)[0] - at(ring[0])[0]) * 180) / Math.PI) - 90;
+    const last = ring[ring.length - 1], t = Math.round(degrees([at(last)[0] - at(ring[0])[0], at(last)[1] - at(ring[0])[1]])) - 90;
     const d = ((t % 360) + 540) % 360 - 180;
     return d ? `[:${d}]` : "";
   };
@@ -652,14 +684,75 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const hangCode = (u: number, r: number) => {
     const ring = ringAt.get(r);
     if (!ring) return bondCode(u, r, "-", "draw=none");
-    const c = ring.reduce<P>((s, i) => [s[0] + at(i)[0] / ring.length, s[1] + at(i)[1] / ring.length], [0, 0]);
+    const c = centroid(ring);
     const out: P = [at(r)[0] - c[0], at(r)[1] - c[1]], l = Math.hypot(out[0], out[1]), p: P = [at(r)[0] + out[0] / l, at(r)[1] + out[1] / l];
-    const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], a = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI), g = groups[u];
-    const right = a > -90 && a < 90, from = g.atoms.length > 1 && g.anchor !== (right ? g.atoms.length - 1 : 0) ? String(g.anchor + 1) : "";
-    const inward = Math.round((Math.atan2(-out[1], -out[0]) * 180) / Math.PI), gr = groups[r], rin = inward > -90 && inward < 90;
-    const to = gr.atoms.length > 1 && (Math.abs(inward) === 90 || gr.anchor !== (rin ? 0 : gr.atoms.length - 1)) ? String(gr.anchor + 1) : "";
-    return `-[:${a},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]-[:${inward},,,${to},draw=none]`;
+    const inward = Math.round(degrees([-out[0], -out[1]])), { to } = letters(inward, undefined, groups[r]);
+    return `${hop(u, p, "", { raw: true })}-[:${inward},,,${to},draw=none]`;
   };
+  // Which structure (root, by its index) each atom written is in.
+  const component = atoms.map(() => -1);
+  roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...below(u)); } });
+  // Brackets (brackets, parentheses and braces, and polymer brackets) round atoms, with chemfig's \polymerdelim: its
+  // two nodes at the middles of the bracket's sides, placed by bonds chemfig does not draw from the structure's first
+  // atom, and empty atoms at its corners so the picture's box holds it (\polymerdelim's lines take no room). Its
+  // height, its turn, one side only, the usage label at the lower right (n), and the mark and repeat tags at the upper
+  // right, as the page draws them. Node names carry a hash of the drawing, so two drawings in one document do not clash.
+  // A bracket round no atom is not written.
+  const hash = [...JSON.stringify(atoms.map((a) => a.location))].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261).toString(36).slice(0, 4);
+  const toPoint = (u: number, p: P, content: string) => `(${hop(u, p, content)})`;
+  // Arrows not in a scheme (curved arrows of a mechanism, lines, a reaction arrow on its own), with chemfig's \chemmove:
+  // each end, and a curve's middle, is a node (@{name}) the page's way from the atom nearest it, placed by a bond chemfig
+  // does not draw (tags: a branch of that atom, so it stays with its structure in a scheme and comes out exact), and
+  // \chemmove draws between them. A curved arrow is the page's circular arc, in two halves through its middle, each a
+  // TikZ curve (to) as round as a circle's quarter. Heads are chemfig's own (CF), half heads its harpoons; colour and
+  // line style as the page has them.
+  const inRow = new Set((options.schemes ?? []).flatMap((s) => s.row.flatMap((p) => ("arrow" in p ? [p.arrow] : []))));
+  const hosts = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && (ringsOf.get(i)?.length ?? 0) < 2 ? [i] : []));
+  const moves = (mol.arrows ?? []).filter((a) => chemmoved(a) && !inRow.has(a.id) && hosts.length).map((a) => {
+    const name = `oct${hash}a${a.id}`, node = (p: P, end: string) => {
+      const u = hosts.reduce((b, i) => (Math.hypot(at(i)[0] - p[0], at(i)[1] - p[1]) < Math.hypot(at(b)[0] - p[0], at(b)[1] - p[1]) ? i : b), hosts[0]);
+      tags[u].push(hop(u, p, `@{${name}${end}}`, { precise: true, named: true }));
+      return `(${name}${end})`;
+    };
+    const s = node(a.from, "s"), e = node(a.to, "e"), bend = (curved(a) || a.point) && a.bend ? a.bend : 0;
+    let path = `${s}--${e}`;
+    if (bend) {
+      const h = arcHalf(bend), to = `to[bend ${bend > 0 ? "left" : "right"}=${num(h.bend)},looseness=${num(h.looseness)}]`;
+      path = `${s}${to}${node(bendPoint(a), "m")}${to}${e}`;
+    }
+    const heads = headsOf(a), shape = a.head ?? "solid";
+    const tip = (h: string) => {
+      if (h === "none") return "";
+      const keys = [...(shape === "hollow" ? ["open"] : []), ...(h === "left" ? ["harpoon"] : h === "right" ? ["harpoon", "swap"] : [])];
+      return `{CF${keys.length ? `[${keys.join(",")}]` : ""}}`;
+    };
+    // (\chemmove's own tip is CF: a line without heads says so.)
+    const c = rgb(a.colour), opts = [
+      `${tip(heads.start)}-${tip(heads.end)}`,
+      ...(c ? [`color=${tikzColour(c)}`] : []),
+      ...(a.width || a.style === "bold" ? [`line width=${num((a.width ?? 0.4) * (a.style === "bold" ? 2 : 1))}pt`] : []),
+      ...(a.style === "dashed" ? ["dashed"] : a.style === "doubled" ? ["double"] : a.style === "wavy" ? WAVY : []),
+    ];
+    return `\\draw${opts.length ? `[${opts.join(",")}]` : ""}${path};`;
+  });
+  const brackets = (mol.shapes ?? []).filter(isBracket).flatMap((sh) => {
+    const inside = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && inShape(sh, at(i)) ? [i] : []));
+    if (!inside.length) return [];
+    const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]), ym = (y0 + y1) / 2;
+    const turned = (q: P) => turnedWith(sh, q) as P, half = num(1.5 * (y1 - y0)), name = `oct${hash}${sh.id}`;
+    const c = shapeCorners(sh), corners = sh.angle ? [c.from, c.to, c.c1, c.c2] : [c.from, c.to];
+    const tags = [sh.mark ?? "", sh.polymer ? polymerTags(sh.polymer) : ""].filter(Boolean).join(" ");
+    const pair = sh.kind === "brackets" ? ["[", "]"] : sh.kind === "parens" ? ["(", ")"] : ["\\{", "\\}"];
+    const delims = sh.side === "left" ? `${pair[0]}.` : sh.side === "right" ? `.${pair[1]}` : pair.join("");
+    const keys = [`delimiters={${delims}}`, `height=${half}em`, `depth=${half}em`, `indice={${sh.polymer ? tex(polymerLabel(sh.polymer)) : ""}}`, ...(sh.angle ? ["h align=false", `rotate=${Math.round(sh.angle)}`] : [])];
+    return [{
+      inside, delim: `\\polymerdelim[${keys.join(", ")}]{${name}o}{${name}c}`,
+      branches: (u: number) => [
+        toPoint(u, turned([x0, ym]), `@{${name}o}`), toPoint(u, turned([x1, ym]), `@{${name}c}`), ...corners.map((q) => toPoint(u, q, "")),
+        ...(tags ? [toPoint(u, turned(sh.side === "left" ? [x0 - 0.3, y1 - 0.1] : [x1 + 0.3, y1 - 0.1]), atom(`\\scriptstyle ${tex(tags)}`))] : []),
+      ],
+    }];
+  });
   // One \chemfig for structures (their roots, left to right): the first written from its root, the others hanging off
   // it. Compact: on one line. Readable: an atom (or bracket) a line, indented by tabs as deep as its branch. chemfig
   // ignores the spaces and line breaks between bonds and atoms, so both draw the same.
@@ -687,81 +780,6 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // which puts each under its own structure, as the page does, whatever came before. Names under one structure stack in
   // the page's order (by id). A \chemname names a whole \chemfig, so when the names belong to more than one structure,
   // each structure, with the others its names also cover, is a \chemfig of its own, left to right.
-  const component = atoms.map(() => -1);
-  roots.forEach((r, k) => { for (const stack = [r]; stack.length; ) { const u = stack.pop()!; component[u] = k; stack.push(...below(u)); } });
-  // Brackets (brackets, parentheses and braces, and polymer brackets) round atoms, with chemfig's \polymerdelim: its
-  // two nodes at the middles of the bracket's sides, placed by bonds chemfig does not draw from the structure's first
-  // atom, and empty atoms at its corners so the picture's box holds it (\polymerdelim's lines take no room). Its
-  // height, its turn, one side only, the usage label at the lower right (n), and the mark and repeat tags at the upper
-  // right, as the page draws them. Node names carry a hash of the drawing, so two drawings in one document do not clash.
-  // A bracket round no atom is not written.
-  const hash = [...JSON.stringify(atoms.map((a) => a.location))].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261).toString(36).slice(0, 4);
-  const toPoint = (u: number, p: P, content: string) => {
-    const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], g = groups[u];
-    let angle = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI);
-    if (angle <= -180) angle += 360;
-    const right = angle > -90 && angle < 90, from = g.atoms.length > 1 && g.anchor !== (right ? g.atoms.length - 1 : 0) ? String(g.anchor + 1) : "";
-    return `(-[:${angle},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]${content})`;
-  };
-  // Arrows not in a scheme (curved arrows of a mechanism, lines, a reaction arrow on its own), with chemfig's \chemmove:
-  // each end, and a curve's middle, is a node (@{name}) the page's way from the atom nearest it, placed by a bond chemfig
-  // does not draw (tags: a branch of that atom, so it stays with its structure in a scheme and comes out exact), and
-  // \chemmove draws between them. A curved arrow is the page's circular arc, in two halves through its middle, each a
-  // TikZ curve (to) as round as a circle's quarter. Heads are chemfig's own (CF), half heads its harpoons; colour and
-  // line style as the page has them.
-  const inRow = new Set((options.schemes ?? []).flatMap((s) => s.row.flatMap((p) => ("arrow" in p ? [p.arrow] : []))));
-  const hosts = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && (ringsOf.get(i)?.length ?? 0) < 2 ? [i] : []));
-  let wavyArrow = false;
-  const moves = (mol.arrows ?? []).filter((a) => chemmoved(a) && !inRow.has(a.id) && hosts.length).map((a) => {
-    const name = `oct${hash}a${a.id}`, node = (p: P, end: string) => {
-      const u = hosts.reduce((b, i) => (Math.hypot(at(i)[0] - p[0], at(i)[1] - p[1]) < Math.hypot(at(b)[0] - p[0], at(b)[1] - p[1]) ? i : b), hosts[0]);
-      const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], angle = (Math.atan2(d[1], d[0]) * 180) / Math.PI, g = groups[u];
-      tags[u].push(`-[:${num(angle)},${num(Math.hypot(d[0], d[1]))},${g.atoms.length > 1 ? g.anchor + 1 : ""},,draw=none]@{${name}${end}}`);
-      return `(${name}${end})`;
-    };
-    const s = node(a.from, "s"), e = node(a.to, "e"), bend = (curved(a) || a.point) && a.bend ? a.bend : 0;
-    let path = `${s}--${e}`;
-    if (bend) {
-      // Each half sweeps half the arc (psi); its ends leave the chord at psi/2, with TikZ's control points (0.3915 of
-      // the chord for each looseness) where a circle's are.
-      const psi = (sweepOf(bend) * Math.PI) / 360, loose = (4 / 3) * Math.tan(psi / 4) / (2 * Math.sin(psi / 2) * 0.3915);
-      const to = `to[bend ${bend > 0 ? "left" : "right"}=${num((psi * 90) / Math.PI)},looseness=${num(loose)}]`;
-      path = `${s}${to}${node(bendPoint(a), "m")}${to}${e}`;
-    }
-    const heads = headsOf(a), shape = a.head ?? "solid";
-    const tip = (h: string) => {
-      if (h === "none") return "";
-      const keys = [...(shape === "hollow" ? ["open"] : []), ...(h === "left" ? ["harpoon"] : h === "right" ? ["harpoon", "swap"] : [])];
-      return `{CF${keys.length ? `[${keys.join(",")}]` : ""}}`;
-    };
-    // (\chemmove's own tip is CF: a line without heads says so.)
-    const c = rgb(a.colour), opts = [
-      `${tip(heads.start)}-${tip(heads.end)}`,
-      ...(c ? [`color={rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}`] : []),
-      ...(a.width || a.style === "bold" ? [`line width=${num((a.width ?? 0.4) * (a.style === "bold" ? 2 : 1))}pt`] : []),
-      ...(a.style === "dashed" ? ["dashed"] : a.style === "doubled" ? ["double"] : a.style === "wavy" ? ["decorate", "decoration={snake,amplitude=0.6pt,segment length=2.4pt}"] : []),
-    ];
-    if (a.style === "wavy") wavyArrow = true;
-    return `\\draw${opts.length ? `[${opts.join(",")}]` : ""}${path};`;
-  });
-  const brackets = (mol.shapes ?? []).filter(isBracket).flatMap((sh) => {
-    const inside = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && inShape(sh, at(i)) ? [i] : []));
-    if (!inside.length) return [];
-    const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]), ym = (y0 + y1) / 2;
-    const turned = (q: P) => turnedWith(sh, q) as P, half = num(1.5 * (y1 - y0)), name = `oct${hash}${sh.id}`;
-    const c = shapeCorners(sh), corners = sh.angle ? [c.from, c.to, c.c1, c.c2] : [c.from, c.to];
-    const tags = [sh.mark ?? "", sh.polymer ? polymerTags(sh.polymer) : ""].filter(Boolean).join(" ");
-    const pair = sh.kind === "brackets" ? ["[", "]"] : sh.kind === "parens" ? ["(", ")"] : ["\\{", "\\}"];
-    const delims = sh.side === "left" ? `${pair[0]}.` : sh.side === "right" ? `.${pair[1]}` : pair.join("");
-    const keys = [`delimiters={${delims}}`, `height=${half}em`, `depth=${half}em`, `indice={${sh.polymer ? tex(polymerLabel(sh.polymer)) : ""}}`, ...(sh.angle ? ["h align=false", `rotate=${Math.round(sh.angle)}`] : [])];
-    return [{
-      inside, delim: `\\polymerdelim[${keys.join(", ")}]{${name}o}{${name}c}`,
-      branches: (u: number) => [
-        toPoint(u, turned([x0, ym]), `@{${name}o}`), toPoint(u, turned([x1, ym]), `@{${name}c}`), ...corners.map((q) => toPoint(u, q, "")),
-        ...(tags ? [toPoint(u, turned(sh.side === "left" ? [x0 - 0.3, y1 - 0.1] : [x1 + 0.3, y1 - 0.1]), atom(`\\scriptstyle ${tex(tags)}`))] : []),
-      ],
-    }];
-  });
   const named = (mol.captions ?? []).filter((c) => c.under?.some((i) => component[i] >= 0)).sort((p, q) => p.id - q.id);
   const parent = roots.map((_, k) => k), find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
   for (const c of named) {
@@ -805,7 +823,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     if (!a) return "";
     const label = (list: SchemeItem[] = []) => { const ps = list.map((it) => piece(it, true)).filter(Boolean); return ps.length ? `{${ps.length > 1 ? stack(ps.join("\\\\")) : ps[0]}}` : ""; };
     const above = label(s.above.get(id)), below = label(s.below.get(id));
-    const d = [a.to[0] - a.from[0], a.to[1] - a.from[1]], angle = Math.round((Math.atan2(d[1], d[0]) * 180) / Math.PI), coeff = +(0.6 * Math.hypot(d[0], d[1])).toFixed(1);
+    const d: P = [a.to[0] - a.from[0], a.to[1] - a.from[1]], angle = Math.round(degrees(d)), coeff = +(0.6 * Math.hypot(d[0], d[1])).toFixed(1);
     const fields = [angle ? String(angle) : "", Math.abs(coeff - 1) > 0.05 ? num(coeff) : ""];
     while (fields.length && !fields[fields.length - 1]) fields.pop();
     return `\\arrow{${ARROWS[a.kind] ?? "->"}${above || below ? `[${above}][${below}]` : ""}}${fields.length ? `[${fields.join(",")}]` : ""}`;
@@ -824,6 +842,7 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   // The arrows after everything, as their nodes may be in more than one \chemfig (a scheme's compounds).
   const code = drawn + (!moves.length ? "" : options.compact ? `\\chemmove{${moves.join("")}}` : `\n\\chemmove{\n${moves.map((m) => `\t${m}`).join("\n")}\n}`);
   // What the code needs beyond chemfig, as comments before it.
+  const wavy = drawn.includes(WAVY[1]), wavyArrow = moves.some((m) => m.includes(WAVY[1]));
   const twice = [...(brackets.length ? ["Brackets (\\polymerdelim)"] : []), ...(moves.length ? ["arrows (\\chemmove)"] : [])].join(" and ");
   const left = unset(code), notes = [
     ...(wavy || wavyArrow ? [`% Wavy ${wavy && wavyArrow ? "bonds and arrows" : wavy ? "bonds" : "arrows"} need \\usetikzlibrary{decorations.pathmorphing} in the preamble.`] : []),
@@ -885,8 +904,8 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
   // Marks shown for a whole structure: no count.
   if (atoms.some((a) => a.shade)) add(left, "shade");
   // A circle is drawn for a ring in ring syntax (**6), fused or not; one in a ring drawn bond by bond is not.
-  const inSyntax = new Set(syntaxRings(mol).map((r) => [...r].sort((x, y) => x - y).join()));
-  if (circledRings(mol).some((r) => !inSyntax.has([...r].sort((x, y) => x - y).join()))) add(left, "circle");
+  const inSyntax = new Set(syntaxRings(mol).map(ringKey));
+  if (circledRings(mol).some((r) => !inSyntax.has(ringKey(r)))) add(left, "circle");
   for (const b of bonds) {
     if (b.halo) add(left, "highlight");
     if (b.type === QUADRUPLE) add(changed, "quadruple");

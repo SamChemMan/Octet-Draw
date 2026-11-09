@@ -575,6 +575,19 @@ export function markAngles(kinds: MarkKind[], keys: string[], taken: number[], a
   return kinds.map((_, k) => at.get(k)!);
 }
 
+// Where a double bond's E or Z goes (Show Stereochemistry; chemfig.ts writes it there too): half a bond out from its
+// middle (times f, its scale), on the side with fewer of its neighbours. bonds: the bonds round it; at: an atom's place.
+export function stereoSpot(bonds: Pick<Bond, "atoms">[], b: Pick<Bond, "atoms">, at: (i: number) => [number, number], f = 1): [number, number] {
+  const [p, q] = b.atoms.map(at), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
+  const side = bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = at(b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
+  return [mx + side * nx * 0.5 * f, my + side * ny * 0.5 * f];
+}
+// Whether an atom shows a label, as the page draws it (chemfig.ts writes the same). Heteroatoms and lone carbons get
+// one; skeletal carbons don't, even when charged, unless Show Terminal Carbon Labels (terminal) or Label Every Carbon
+// (carbons) asks. A multi-centre or variable attachment shows only as an asterisk, until a bond is drawn to it.
+// deg: how many bonds are drawn to it.
+export const showsLabel = (a: Atom, deg: number, s: Pick<Style, "terminal" | "carbons">) =>
+  a.centre ? !deg : !a.attach && !a.bead && !a.hidden && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? !!s.terminal : !!s.carbons));
 // radical: Atom.radical; a singlet (3) is one pair, so it takes two hydrogens, as a triplet does.
 export function hydrogens(label: string, charge: number, used: number, radical = 0) {
   const v = VALENCE[label];
@@ -818,9 +831,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const deg = (i: number) => nbrs[i].length;
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
-  // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  // A multi-centre or variable attachment shows only as an asterisk, until a bond is drawn to it.
-  const labelled = mol.atoms.map((a, i) => (a.centre ? !deg(i) : !a.attach && !a.bead && !a.hidden && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons))));
+  // Labels (showsLabel).
+  const labelled = mol.atoms.map((a, i) => showsLabel(a, deg(i), s));
   // The circle of an atom behind a bond seen end on (a Newman projection's back carbon): its radius, 0.4 bond lengths.
   const newman = new Map<number, number>();
   for (const back of endOn.values()) if (!labelled[back]) newman.set(back, 0.4 * zOf(scaleOf(mol.atoms[back])).L);

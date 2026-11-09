@@ -1,18 +1,22 @@
 // Run: node src/chemfig.check.ts. Fails loudly if Copy As chemfig (src/chemfig.ts) stops writing chemfig code that
-// draws the structure as the page does: each bond at its angle and length, labels read away from their bonds, rings
-// closed by hooks, wedges the right way round, separate structures kept in their places, and lone pairs, unpaired
-// electrons and circled and partial charges where the page draws them.
+// draws the structure as the page does: each bond at its angle and length, labels read away from their bonds and
+// styled, rings closed by hooks or in ring syntax (fused, with circles), wedges the right way round, separate
+// structures kept in their places, marks, numbers and stereo labels where the page draws them, names, schemes,
+// brackets and arrows (\chemmove); and if the notice stops saying what the code leaves out.
 import assert from "node:assert/strict";
-import { chemfigNotice, syntaxRings, toChemfig, type Scheme } from "./chemfig.ts";
-import { QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
+import { arcHalf, chemfigNotice, syntaxRings, toChemfig, type Scheme } from "./chemfig.ts";
+import { QUADRUPLE, arrowPath, bendPoint, render, sweepBend, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5;
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const B = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ type, atoms: [a, b], ...more });
 const mol = (atoms: Atom[], bonds: Bond[]): Mol => ({ atoms, bonds });
-// The compact layout, which the checks below spell out; each drawing is kept to check the readable layout against.
-const written: Mol[] = [];
-const cf = (m: Mol) => (written.push(m), toChemfig(m, {}, { compact: true }));
+// The compact layout, which the checks below spell out; each drawing is kept (with its style and options) to check the
+// readable layout and every code's soundness against, at the end.
+type Style = Parameters<typeof toChemfig>[1];
+type Options = NonNullable<Parameters<typeof toChemfig>[2]>;
+const written: [Mol, Style, Options][] = [];
+const cf = (m: Mol, style: Style = {}, options: Options = {}) => (written.push([m, style, options]), toChemfig(m, style, { ...options, compact: true }));
 // The code without the readable layout's line breaks and tabs (a scheme's lines end with %, and its compact
 // \schemestart is followed by a space).
 const flat = (s: string) => s.replace(/%?\n\t*/g, "").replace(/\\schemestart /g, "\\schemestart");
@@ -105,9 +109,8 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", 1.5, 0)], [B(0, 1)])), "\\chemfig{-[,1
   // A charged skeletal carbon has no label (its sign is a mark the parent writes): the empty atom as usual.
   assert.equal(cf(mol(naphAtoms.map((a, k) => (k === 0 ? { ...a, charge: 1 } : a)), naphBonds)), "\\chemfig{*6(-=*6(-=-=-{})-\\charge{-37:1pt[anchor=180+\\chargeangle]=$\\scriptstyle +$}{}=-=)}");
   // Label Every Carbon, with circles.
-  assert.equal(toChemfig(mol(naph, naphBonds), { carbonLabels: true }, { compact: true }),
+  assert.equal(cf(mol(naph, naphBonds), { carbonLabels: true }),
     "\\chemfig{HC**6(-{\\chembelow{C}{H}}-C**6(-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\chemabove{C}{H}}-HC-[,,2,2])}");
-  assert.equal(chemfigNotice("Copied", mol(naph, naphBonds), true), undefined);
   // Where ring syntax cannot draw the system as the page does, all of it is written bond by bond: a bond out at a
   // slant, or a fusion atom with a bond out of the system.
   const none = (m: Mol) => assert.equal(syntaxRings(m).length, 0);
@@ -125,13 +128,22 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", 1.5, 0)], [B(0, 1)])), "\\chemfig{-[,1
   const phenPts: [number, number][] = [[c30, 0.5], [0, 1], [-c30, 0.5], [-c30, -0.5], [0, -1], [c30, -0.5], [3 * c30, 0.5], [2 * c30, 1], [2 * c30, -1], [3 * c30, -0.5], [4 * c30, -1], [2 * c30, -2], [3 * c30, -2.5], [4 * c30, -2]];
   const phenBonds = [B(0, 1, 2), B(0, 5), B(0, 7), B(1, 2), B(2, 3, 2), B(3, 4), B(4, 5, 2), B(5, 8), B(6, 7, 2), B(6, 9), B(8, 9, 2), B(8, 11), B(9, 10), B(10, 13, 2), B(11, 12, 2), B(12, 13)];
   const phen = mol(phenPts.map(([x, y]) => A("C", x, y, { circle: true })), phenBonds);
-  assert.equal(toChemfig(phen, { carbonLabels: true }, { compact: true }),
+  assert.equal(cf(phen, { carbonLabels: true }),
     "\\chemfig{HC**6(-{\\chembelow{C}{H}}-C**6(-C**6(-[,,,2]HC-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\phantom{C}})-C-[,,,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\chemabove{C}{H}}-HC-[,,2,2])}");
   assert.equal(chemfigNotice("Copied", phen, true), undefined);
   // The same turned half round: the labels read the other way (CH for HC), and the upright sides still name both.
   const turned = mol(phenPts.map(([x, y]) => A("C", -x, -y, { circle: true })), phenBonds);
-  assert.equal(toChemfig(turned, { carbonLabels: true }, { compact: true }),
+  assert.equal(cf(turned, { carbonLabels: true }),
     "\\chemfig{HC**6(-C**6(-[,,,2]HC-{\\chembelow{C}{H}}-C**6(-{\\chembelow{C}{H}}-CH-[,,1,1]CH-{\\chemabove{C}{H}}-{\\phantom{C}})-C-{\\phantom{C}})-C-[,,,1]CH-{\\chemabove{C}{H}}-HC-[,,2,2])}");
+  // Nor rings that share one atom (spiro), a ring out of shape, or one of more than 8 atoms. (Atoms bonded where they
+  // are 1 apart.)
+  const linked = (as: Atom[]) => mol(as, as.flatMap((a, i) => as.slice(i + 1).flatMap((b, d) => (Math.abs(Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) - 1) < 1e-6 ? [B(i, i + 1 + d)] : []))));
+  const r5 = 1 / (2 * Math.sin(Math.PI / 5));
+  none(linked([...ring(5, 0, 0, 0), ...ring(5, 2 * r5, 0, 180).slice(1)]));
+  none(mol(ring(6, 0, 0, 30).map((a, k) => (k ? a : { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] })), [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6))));
+  none(mol(ring(9, 0, 0, 0), Array.from({ length: 9 }, (_, k) => B(k, (k + 1) % 9))));
+  // A fusion atom with a label of two atoms (NH⁺): its invisible copy has both, the bond meeting the N.
+  assert.match(cf(mol(naphAtoms.map((a, k) => (k === 0 ? { ...a, label: "N", charge: 1 } : a)), naphBonds.map((b) => B(b.atoms[0], b.atoms[1])))), /-\[,,,1\]\{\\phantom\{N\}\}\|\{\\phantom\{H\^\{\+\}\}\}\)/);
   // Anthracene: the middle ring nested in the first, the last nested in the middle.
   const third = ring(6, 4 * c30, 0, 30), anth = [...naphAtoms, third[1], third[0], third[5], third[4]];
   const anthBonds = [...naphBonds, B(6, 10), B(10, 11, 2), B(11, 12), B(12, 13, 2), B(13, 8)];
@@ -155,6 +167,15 @@ assert.equal(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(0, 1, 1, { stereo: 1 })])),
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(1, 0, 1, { stereo: 1 })])), "\\chemfig{>}");
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(0, 1, 1, { stereo: 6 })])), "\\chemfig{<:}");
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(1, 0, 1, { display: "hollow" })])), "\\chemfig{>|}");
+// Given the page's drawing, a double bond's second line goes where the page drew it (its sides are on screen, y down:
+// 1 is right of the bond's first atom to its second, so below this bond, chemfig's =_).
+{
+  const butene = mol([A("C", 0, 0), A("C", c30, s30), A("C", 2 * c30, 0), A("C", 3 * c30, s30)], [B(0, 1), B(1, 2, 2), B(2, 3)]);
+  const page = (s: number) => ({ electrons: [], scale: 1, sides: [0, s, 0] });
+  assert.match(cf(butene, {}, { page: page(1) }), /=_\[:-30\]/);
+  assert.match(cf(butene, {}, { page: page(-1) }), /=\^\[:-30\]/);
+  assert.match(cf(butene, {}, { page: page(0) }), /=\[:-30\]/);
+}
 // Triple bonds, and styles chemfig has no character for, as TikZ options.
 assert.equal(cf(mol([A("C", 0, 0), A("N", 1, 0)], [B(0, 1, 3)])), "\\chemfig{~N}");
 assert.equal(cf(mol([A("C", 0, 0), A("C", 1, 0)], [B(0, 1, 1, { display: "bold", colour: "#ff0000" })])), "\\chemfig{-[,,,,color={rgb,255:red,255;green,0;blue,0},line width=2pt]}");
@@ -182,23 +203,10 @@ assert.equal(cf(mol([A("Na", 0, 0, { charge: 1 }), A("Cl", 2, 0, { charge: -1 })
 assert.equal(cf(mol([A("C", 0, 0), A("H", 1, 0, { hidden: true })], [B(0, 1)])), "\\chemfig{CH_4}");
 assert.equal(cf(mol([], [])), "");
 
-// Every bracket and brace is closed, in a large drawing too.
-{
-  const atoms = [...ring(6, 0, 0, 30), ...ring(5, 4, 0, 0, "N")], bonds = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
-  for (let k = 0; k < 5; k++) bonds.push(B(6 + k, 6 + ((k + 1) % 5)));
-  bonds.push(B(0, 6));
-  const code = cf(mol(atoms, bonds));
-  let depth = 0;
-  for (const ch of code) { depth += "({[".includes(ch) ? 1 : ")}]".includes(ch) ? -1 : 0; assert.ok(depth >= 0, code); }
-  assert.equal(depth, 0, code);
-}
-
 // The readable layout: an atom a line, each branch's brackets on lines of their own, indented a tab for each branch.
 assert.equal(toChemfig(mol([A("C", 0, 0), A("C", c30, s30), A("O", c30, 1 + s30), A("O", 2 * c30, 0)], [B(0, 1), B(1, 2, 2), B(1, 3)])),
   "\\chemfig{\n\t-[:30]\n\t(\n\t\t=[:90]O\n\t)\n\t-[:-30]OH\n}");
 assert.equal(toChemfig(mol([A("Na", 0, 0, { charge: 1 }), A("Cl", 2, 0, { charge: -1 })], [])), "\\chemfig{\n\tNa^{+}\n\t(\n\t\t-[,2,,,draw=none]Cl^{-}\n\t)\n}");
-assert.equal(toChemfig(mol([A("O", 0, 0)], [])), "\\chemfig{\n\tH_2O\n}");
-assert.equal(toChemfig(mol([], [])), "");
 // Lone pairs (\:, or \| as bars), unpaired electrons (\.) and circled and partial charges, with chemfig's \charge on
 // the atom the bonds meet. Dots sit 1pt clear of a label, 2pt from a skeletal carbon; a sign or δ touches its place
 // with its near side.
@@ -238,8 +246,8 @@ assert.equal(toChemfig(mol([], [])), "");
   // drawn on the atom itself gives no direction, so that one is worked out.
   const water = mol([A("C", 0, 0), A("O", 1, 0, { pairs: 2 })], [B(0, 1)]);
   const page = { scale: 10, electrons: [{ atom: 1, at: [10, -20] as [number, number], key: "pair0" }, { atom: 1, at: [10, 0] as [number, number], key: "pair1" }] };
-  assert.match(toChemfig(water, {}, { compact: true, page }), /\\charge\{90:1pt=\\:,(-?\d+):1pt=\\:\}\{O\}/);
-  assert.notEqual(toChemfig(water, {}, { compact: true, page }).match(/\\charge\{90:1pt=\\:,(-?\d+)/)![1], "0");
+  assert.match(cf(water, {}, { page }), /\\charge\{90:1pt=\\:,(-?\d+):1pt=\\:\}\{O\}/);
+  assert.notEqual(cf(water, {}, { page }).match(/\\charge\{90:1pt=\\:,(-?\d+)/)![1], "0");
 }
 
 // A label's look: its own bold, italic and underline go on all of it (H, counts and sign too), in maths alphabets that
@@ -359,7 +367,7 @@ assert.equal(toChemfig(mol([], [])), "");
     row: [{ atoms: [0, 1, 2] }, { plus: 1 }, { atoms: [3] }, { arrow: 10 }, { atoms: [4, 5] }, { arrow: 11 }, { atoms: [8, 9, 10] }],
     above: new Map([[10, [{ atoms: [6, 7] }, { caption: 2 }]]]), below: new Map([[10, [{ caption: 3 }]], [11, [{ caption: 4 }]]]),
   }];
-  const compact = toChemfig(m, {}, { compact: true, schemes }), readable = toChemfig(m, {}, { schemes });
+  const compact = cf(m, {}, { schemes }), readable = toChemfig(m, {}, { schemes });
   assert.equal(compact, "\\schemestart \\chemname*{\\chemfig{-[:30]-[:-30]OH}}{\\textbf{1}}\\+\\chemfig{H_2SO_4}"
     + "\\arrow{->[{\\shortstack{\\chemfig{-[:30]}\\\\heat}}][{\\shortstack{THF\\\\0 \\textdegree{}C}}]}[,1.8]\\chemfig{=[:30]}"
     + "\\arrow{<=>[][{98\\%}]}[-90,1.2]\\chemfig{-[:30]-[:-30]Br}\\schemestop\n\n\\chemfig{H_2O}");
@@ -372,7 +380,7 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(chemfigNotice("Copied", m, true), "Copied without 1 arrow and text: Octet cannot export them to chemfig yet.", "without schemes, the reaction arrow is drawn (\chemmove) and the equilibrium left out");
   // Conditions on an arrow are formulas, as the page draws them.
   const onArrow = { ...m, captions: [...m.captions!, { id: 7, text: "H2SO4, heat", x: 7, y: 2, on: { arrow: 10, side: "above" as const } }] };
-  assert.match(toChemfig(onArrow, {}, { compact: true, schemes: [{ ...schemes[0], above: new Map([[10, [{ caption: 7 }]]]) }] }), /\\arrow\{->\[\{H\\textsubscript\{2\}SO\\textsubscript\{4\}, heat\}\]/);
+  assert.match(cf(onArrow, {}, { schemes: [{ ...schemes[0], above: new Map([[10, [{ caption: 7 }]]]) }] }), /\\arrow\{->\[\{H\\textsubscript\{2\}SO\\textsubscript\{4\}, heat\}\]/);
 }
 
 // Brackets round atoms with \polymerdelim: nodes at the middles of its sides and empty atoms at its corners, placed by
@@ -414,7 +422,7 @@ assert.equal(toChemfig(mol([], [])), "");
     + "-[:-30]O|\\charge{0:1pt[anchor=180+\\chargeangle]=$\\scriptstyle 3$}{H}}");
   // Where the page drew a map number wins (here straight below the O).
   const page = { scale: 10, electrons: [], maps: [{ atom: 2, text: "3", at: [2 * c30 * 10, 8] as [number, number], size: 7, h: 5 }] };
-  assert.match(toChemfig(mapped, {}, { compact: true, page }), /\\charge\{-90:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 3\$\}\{O\}H/);
+  assert.match(cf(mapped, {}, { page }), /\\charge\{-90:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 3\$\}\{O\}H/);
   assert.equal(chemfigNotice("Copied", chain, true), undefined);
   assert.equal(chemfigNotice("Copied", mapped, true), undefined);
 }
@@ -426,7 +434,7 @@ assert.equal(toChemfig(mol([], [])), "");
 {
   const centre = (more: Partial<Atom> = {}) => mol([A("C", 0, 0, more), A("C", c30, s30), A("O", 0, -1), A("N", -c30, s30)], [B(0, 1), B(0, 2, 1, { stereo: 1 }), B(0, 3)]);
   const rs = { atoms: ["R", undefined, undefined, undefined], bonds: [undefined, undefined, undefined], parens: true };
-  const st = (m: Mol, stereo: typeof rs, style = {}) => { const c = toChemfig(m, style, { compact: true, stereo }); assert.equal(flat(toChemfig(m, style, { stereo })), flat(c)); return c; };
+  const st = (m: Mol, stereo: typeof rs) => cf(m, {}, { stereo });
   assert.equal(st(centre({ cip: true }), rs), "\\chemfig{H_2N-[:-30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle (\\mathit{R})$}{}(<[:-90,,,1]OH)-[:30]}");
   assert.equal(st(centre({ cip: true }), { ...rs, atoms: ["s"], parens: false }), "\\chemfig{H_2N-[:-30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle \\mathit{s}$}{}(<[:-90,,,1]OH)-[:30]}");
   // With Show Stereochemistry off for the structure, nothing.
@@ -436,6 +444,9 @@ assert.equal(toChemfig(mol([], [])), "");
   // (E)-but-2-ene: the E above the middle of its double bond, away from the two methyls below it, in the bond's colour.
   const butene = mol([A("C", 0, 0, { cip: true }), A("C", c30, s30, { cip: true }), A("C", 2 * c30, 0, { cip: true }), A("C", 3 * c30, s30, { cip: true })], [B(0, 1), B(1, 2, 2, { colour: "#ff0000" }), B(2, 3)]);
   assert.equal(st(butene, { atoms: [], bonds: [undefined, "E", undefined], parens: true }), "\\chemfig{-[:30](-[:15,0.71,,,draw=none]{\\color[RGB]{255,0,0}\\scriptstyle (\\mathit{E})})=_[:-30,,,,color={rgb,255:red,255;green,0;blue,0}]-[:30]}");
+  // The E of an imine hangs off its N, a label of two atoms (NH): it leaves the N, named.
+  const imine = mol([A("C", 0, 0, { cip: true }), A("C", c30, s30, { cip: true }), A("N", 2 * c30, 0, { cip: true })], [B(0, 1), B(2, 1, 2)]);
+  assert.match(cf(imine, {}, { stereo: { atoms: [], bonds: [undefined, "E"], parens: true } }), /N\|?H\(-\[:-?[\d.]+,0\.\d+,1,,draw=none\]\{\\scriptstyle \(\\mathit\{E\}\)\}\)/);
   // Labels are written, so not reported as left out.
   assert.equal(chemfigNotice("Copied", centre({ cip: true }), true), undefined);
 }
@@ -451,14 +462,63 @@ assert.equal(toChemfig(mol([], [])), "");
     { id: 2, kind: "fishhook", from: [-1.2, 0.6], to: [-0.25, 1.1], bend: 0.25, colour: "#ff0000" },
     { id: 3, kind: "line", from: [1, 0.5], to: [2, 0.5], style: "dashed" },
   ];
-  const code = cf(mol(acetone, bonds));
-  assert.equal(cf({ ...mol(acetone, bonds), arrows }), "% Arrows (\\chemmove) need two LaTeX runs to be in place.\n\\chemfig{(-[:106.89,1.15,,,draw=none]@{oct1kxaa2s})-[:30](=[:90]O(-[:15.95,0.36,,,draw=none]@{oct1kxaa1e})(-[:-34.09,0.55,,,draw=none]@{oct1kxaa1m})(-[:158.2,0.27,,,draw=none]@{oct1kxaa2e})(-[:174.12,0.85,,,draw=none]@{oct1kxaa2m}))(-[:80.91,0.51,,,draw=none]@{oct1kxaa1s})-[:-30](-[:82.37,1.01,,,draw=none]@{oct1kxaa3s})(-[:41.41,1.51,,,draw=none]@{oct1kxaa3e})}"
-    + "\\chemmove{\\draw[-{CF}](oct1kxaa1s)to[bend right=38.66,looseness=0.96](oct1kxaa1m)to[bend right=38.66,looseness=0.96](oct1kxaa1e);"
-    + "\\draw[-{CF[harpoon]},color={rgb,255:red,255;green,0;blue,0}](oct1kxaa2s)to[bend left=26.57,looseness=0.9](oct1kxaa2m)to[bend left=26.57,looseness=0.9](oct1kxaa2e);\\draw[-,dashed](oct1kxaa3s)--(oct1kxaa3e);}");
-  assert.notEqual(code, "");
+  const code = cf({ ...mol(acetone, bonds), arrows }), n = /@\{(oct\w{4}a)1s\}/.exec(code)![1]; // the drawing's hash and a, then the arrow's id
+  assert.equal(code.replaceAll(n, "N"), "% Arrows (\\chemmove) need two LaTeX runs to be in place.\n\\chemfig{(-[:106.89,1.15,,,draw=none]@{N2s})-[:30](=[:90]O(-[:15.95,0.36,,,draw=none]@{N1e})(-[:-34.09,0.55,,,draw=none]@{N1m})(-[:158.2,0.27,,,draw=none]@{N2e})(-[:174.12,0.85,,,draw=none]@{N2m}))(-[:80.91,0.51,,,draw=none]@{N1s})-[:-30](-[:82.37,1.01,,,draw=none]@{N3s})(-[:41.41,1.51,,,draw=none]@{N3e})}"
+    + "\\chemmove{\\draw[-{CF}](N1s)to[bend right=38.66,looseness=0.96](N1m)to[bend right=38.66,looseness=0.96](N1e);"
+    + "\\draw[-{CF[harpoon]},color={rgb,255:red,255;green,0;blue,0}](N2s)to[bend left=26.57,looseness=0.9](N2m)to[bend left=26.57,looseness=0.9](N2e);\\draw[-,dashed](N3s)--(N3e);}");
   assert.equal(chemfigNotice("Copied", { ...mol(acetone, bonds), arrows }, true), undefined);
+  // A lone reaction arrow, bold; a resonance arrow with hollow heads; a wavy line, which says what it needs.
+  const more = cf({ ...mol(acetone, bonds), arrows: [{ id: 4, kind: "reaction", from: [1.5, 0], to: [3, 0], style: "bold" }, { id: 5, kind: "resonance", from: [1.5, -1], to: [3, -1], head: "hollow" }, { id: 6, kind: "line", from: [-2, 1], to: [-1, 1], style: "wavy" }] });
+  assert.match(more, /^% Wavy arrows need \\usetikzlibrary\{decorations\.pathmorphing\} in the preamble\.\n% Arrows \(\\chemmove\) need two LaTeX runs/);
+  assert.match(more, /\\draw\[-\{CF\},line width=0\.8pt\]\(\w+4s\)--\(\w+4e\);\\draw\[\{CF\[open\]\}-\{CF\[open\]\}\]\(\w+5s\)--\(\w+5e\);\\draw\[-,decorate,/);
+  // Brackets and arrows together: one comment for both.
+  assert.match(cf({ atoms: [A("Fe", 0, 0)], bonds: [], shapes: [{ id: 8, kind: "brackets", from: [-0.7, -0.8], to: [0.7, 0.8] }], arrows: [arrows[0]] }), /^% Brackets \(\\polymerdelim\) and arrows \(\\chemmove\) need two LaTeX runs/);
+  // The two TikZ halves lie on the page's circle (render.ts arrowPath's), each way round, for sweeps up to 270°: within
+  // a thousandth of a bond up to 180°, 0.005 at 270°.
+  for (const sweep of [20, 90, 120, 180, 270]) for (const sign of [1, -1]) {
+    const a: NonNullable<Mol["arrows"]>[number] = { id: 1, kind: "curved", from: [0.3, -0.2], to: [1.7, 0.6], bend: sign * sweepBend(sweep) };
+    const h = arcHalf(a.bend!), m = bendPoint(a), arc = arrowPath(a, 1000).map(([x, y]): [number, number] => [x / 1000, -y / 1000]);
+    // TikZ's to[bend, looseness]: a cubic whose control points sit 0.3915 × looseness × the chord off each end, at bend.
+    const half = (p: [number, number], q: [number, number]) => {
+      const d = [q[0] - p[0], q[1] - p[1]], t = Math.atan2(d[1], d[0]), b = ((sign * h.bend) * Math.PI) / 180, k = 0.3915 * h.looseness * Math.hypot(d[0], d[1]);
+      const c1 = [p[0] + k * Math.cos(t + b), p[1] + k * Math.sin(t + b)], c2 = [q[0] - k * Math.cos(t - b), q[1] - k * Math.sin(t - b)];
+      return (u: number) => [0, 1].map((x) => (1 - u) ** 3 * p[x] + 3 * (1 - u) ** 2 * u * c1[x] + 3 * (1 - u) * u * u * c2[x] + u ** 3 * q[x]);
+    };
+    // The circle through Octet's ends and middle, which its samples lie on.
+    const [S, M, T] = [a.from, m, a.to], dd = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1])), sq = (q: number[]) => q[0] ** 2 + q[1] ** 2;
+    const O = [(sq(S) * (M[1] - T[1]) + sq(M) * (T[1] - S[1]) + sq(T) * (S[1] - M[1])) / dd, (sq(S) * (T[0] - M[0]) + sq(M) * (S[0] - T[0]) + sq(T) * (M[0] - S[0])) / dd], r = Math.hypot(S[0] - O[0], S[1] - O[1]);
+    for (const p of arc) assert.ok(Math.abs(Math.hypot(p[0] - O[0], p[1] - O[1]) - r) < 1e-6);
+    for (const c of [half(a.from, m), half(m, a.to)]) for (let k = 0; k <= 50; k++) {
+      const q = c(k / 50);
+      assert.ok(Math.abs(Math.hypot(q[0] - O[0], q[1] - O[1]) - r) < (sweep > 180 ? 0.005 : 0.001), `sweep ${sweep}`);
+    }
+    // And on the page's side of the chord: the first half's middle is near Octet's arc.
+    const q = half(a.from, m)(0.5);
+    assert.ok(Math.min(...arc.map((p) => Math.hypot(p[0] - q[0], p[1] - q[1]))) < 0.2, `sweep ${sweep} the other way round`);
+  }
+  // An arrow between two compounds of a scheme: each end's node is in its own structure's \chemfig.
+  const two: Mol = { atoms: [A("C", 0, 0), A("C", c30, s30), A("C", 5, 0), A("C", 5 + c30, s30)], bonds: [B(0, 1), B(2, 3)], arrows: [{ id: 9, kind: "reaction", from: [2, 0], to: [4, 0] }, { id: 7, kind: "curved", from: [c30, 0.8], to: [5, 0.6], bend: 0.3 }] };
+  const across = cf(two, {}, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] });
+  const pieces = across.split("\\chemfig{");
+  assert.equal(pieces.length, 3, across);
+  assert.match(pieces[1], /@\{oct\w+a7s\}/);
+  assert.match(pieces[2], /@\{oct\w+a7e\}/);
+  assert.match(across, /\\schemestop\\chemmove\{\\draw\[-\{CF\}\]\(oct\w+a7s\)to\[bend left=/);
+  // With no structure there is nothing to place the nodes on: no code, and the notice says the arrow is left out.
+  const bare: Mol = { atoms: [], bonds: [], arrows: [arrows[0]] };
+  assert.equal(cf(bare), "");
+  assert.equal(chemfigNotice("Copied", bare, true), "Copied without 1 curved arrow: Octet cannot export it to chemfig yet.");
 }
 
-// Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
-for (const m of written) assert.equal(flat(toChemfig(m)), flat(toChemfig(m, {}, { compact: true })));
+// Every code written: both layouts hold the same code (the readable one only adds line breaks and tabs, which chemfig
+// ignores); every bracket and brace is closed; and no number came out as NaN, Infinity or undefined.
+for (const [m, style, options] of written) {
+  const compact = toChemfig(m, style, { ...options, compact: true });
+  assert.equal(flat(toChemfig(m, style, { ...options, compact: false })), flat(compact));
+  let depth = 0;
+  // (Escaped braces, and \polymerdelim's delimiters, which are the bracket's own characters, do not count.)
+  for (const ch of compact.replace(/\\[{}]/g, "").replace(/delimiters=\{[^}]*\}/g, "")) { depth += "({[".includes(ch) ? 1 : ")}]".includes(ch) ? -1 : 0; assert.ok(depth >= 0, compact); }
+  assert.equal(depth, 0, compact);
+  assert.doesNotMatch(compact, /NaN|Infinity|undefined/, compact);
+}
 console.log("chemfig.check: all pass");

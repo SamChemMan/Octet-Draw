@@ -88,7 +88,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -1217,15 +1217,25 @@ export default function Editor() {
   // reactions as chemfig's schemes, and its R/S and E/Z labels where Show Stereochemistry shows them.
   function chemfigOf(part: Mol, compact = false): string | undefined {
     try {
-      const { mol, captions } = withCaptionAtoms(part, style.interpret);
+      const { mol, schemes } = chemfigInput(part);
       const labels = loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined, stereo = labels && { ...labels, parens: settings.stereoParens };
-      return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L), schemes: schemesIn(part, captions), stereo }) || undefined;
+      return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L), schemes, stereo }) || undefined;
     } catch { return undefined; }
   }
   // What the user is told after the chemfig code of a part is copied or saved (head: "Copied", "Saved name.tex").
   const chemfigNote = (head: string, part: Mol) => {
-    const { mol, captions } = withCaptionAtoms(part, style.interpret);
-    return chemfigNotice(head, mol, style.interpret, schemesIn(part, captions));
+    const { mol, schemes } = chemfigInput(part);
+    return chemfigNotice(head, mol, style.interpret, schemes);
+  };
+  // The part with its captions read as chemistry among its atoms, and its reactions as schemes: worked out once for
+  // the code and the notice of one copy or save (kept with the part, for the Interpret Chemically setting it was read with).
+  const chemfigInputs = useRef(new WeakMap<Mol, { interpret: boolean; mol: Mol; schemes: Scheme[] }>());
+  const chemfigInput = (part: Mol) => {
+    const kept = chemfigInputs.current.get(part);
+    if (kept && kept.interpret === style.interpret) return kept;
+    const { mol, captions } = withCaptionAtoms(part, style.interpret), made = { interpret: style.interpret, mol, schemes: schemesIn(part, captions) };
+    chemfigInputs.current.set(part, made);
+    return made;
   };
   // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers and what
   // only shapes others (defs, masks, clips). Text
@@ -6149,11 +6159,9 @@ export default function Editor() {
     stereo.bonds.forEach((c, k) => {
       const b = shown.bonds[k];
       if (!c || !b || !shown.atoms[b.atoms[0]]?.cip) return;
-      // Beside the middle of the double bond, on the side with fewer neighbours.
-      const [p, q] = b.atoms.map((i) => pos(shown, i)), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
-      const side = shown.bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = pos(shown, b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
-      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
-      out.push({ key: `b${k}`, x: (mx + side * nx * 0.5 * f) * L, y: -(my + side * ny * 0.5 * f) * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
+      // Beside the middle of the double bond, on the side with fewer neighbours (render.ts stereoSpot).
+      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2, [x, y] = stereoSpot(shown.bonds, b, (i) => pos(shown, i) as [number, number], f);
+      out.push({ key: `b${k}`, x: x * L, y: -y * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
     });
     return out;
   }
