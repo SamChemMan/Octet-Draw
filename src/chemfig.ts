@@ -1,16 +1,17 @@
 // LaTeX chemfig code for a drawing's structures (Edit > Copy As > chemfig, and File > Export… as .tex): one
 // \chemfig{…} that draws them as the page does. Every bond takes the absolute angle and length it has on the page, so
 // any layout comes out as drawn. The structure is written as a tree from its leftmost atom: side chains are branches.
-// An isolated regular ring is written in chemfig's ring syntax (*6(-=-=-=), **6 with its aromatic circle); any other
-// ring bond by bond, each bond that closes it a hook (?[1] on the first atom, ?[1,{=}] on the second). Separate
-// structures hang off the first one by bonds chemfig does not draw, so they keep their places. Lone pairs, unpaired
-// electrons, circled and partial charges and atom and map numbers go where the page draws them, with chemfig's \charge.
-// Reactions in a row are schemes, brackets \polymerdelim; other arrows, text and shapes are not written.
+// A regular ring, or ortho-fused system of them, is written in chemfig's ring syntax (*6(-=-=-=), **6 with its aromatic
+// circle, fused rings nested); any other ring bond by bond, each bond that closes it a hook (?[1] on the first atom,
+// ?[1,{=}] on the second). Separate structures hang off the first one by bonds chemfig does not draw, so they keep their
+// places. Lone pairs, unpaired electrons, circled and partial charges, atom and map numbers and R/S labels go where the
+// page draws them, with chemfig's \charge. Reactions in a row are schemes, brackets \polymerdelim, other arrows and
+// lines \chemmove; other text and shapes are not written.
 import { formulaCaption, formulaTextRuns, pieces, units } from "./labels.ts";
 import { plainOf, runsOf, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 import { chemicalCaption } from "./edit.ts";
-import { H_FIRST, HBOND, QUADRUPLE, circledRings, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, scaleOf, shapeCorners, turnedWith, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
+import { H_FIRST, HBOND, QUADRUPLE, bendPoint, circledRings, curved, headsOf, sweepOf, hydrogens, inShape, isBracket, markAngles, markKeys, markKinds, orderOf, scaleOf, shapeCorners, turnedWith, type Arrow, type Bond, type Caption, type Drawing, type Mol } from "./render.ts";
 import { polymerLabel, polymerTags } from "./query.ts";
 import type { DocStyle } from "./docstyle.ts";
 
@@ -99,6 +100,11 @@ function typeset(cs: Char[]): string {
 }
 const sign = (charge: number, circled?: boolean) => (circled ? (charge > 0 ? "\\oplus" : "\\ominus") : `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}`);
 const num = (x: number) => String(+x.toFixed(2));
+// The arrows and lines chemmove draws when they are not in a scheme (toChemfig): straight arrows with heads of their
+// own, curved ones and lines. Equilibrium, retrosynthetic, no-go, dipole and block arrows, orbitals, fragmentation
+// lines and pen curves are not written yet; nor a page's spectrum parts.
+const MOVED = new Set(["reaction", "resonance", "curved", "fishhook", "double", "line", "arc"]);
+export const chemmoved = (a: Pick<Arrow, "kind" | "role">) => MOVED.has(a.kind) && !a.role;
 // A caption as TeX text: a name under a structure (for \chemname), a condition on an arrow, or text in a scheme's row.
 // Its lines joined by \\, each
 // run in its look (bold, italic, underlined, raised or lowered, coloured) on top of the caption's own, and TeX's
@@ -697,6 +703,47 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
     const right = angle > -90 && angle < 90, from = g.atoms.length > 1 && g.anchor !== (right ? g.atoms.length - 1 : 0) ? String(g.anchor + 1) : "";
     return `(-[:${angle},${num(Math.hypot(d[0], d[1]))},${from},,draw=none]${content})`;
   };
+  // Arrows not in a scheme (curved arrows of a mechanism, lines, a reaction arrow on its own), with chemfig's \chemmove:
+  // each end, and a curve's middle, is a node (@{name}) the page's way from the atom nearest it, placed by a bond chemfig
+  // does not draw (tags: a branch of that atom, so it stays with its structure in a scheme and comes out exact), and
+  // \chemmove draws between them. A curved arrow is the page's circular arc, in two halves through its middle, each a
+  // TikZ curve (to) as round as a circle's quarter. Heads are chemfig's own (CF), half heads its harpoons; colour and
+  // line style as the page has them.
+  const inRow = new Set((options.schemes ?? []).flatMap((s) => s.row.flatMap((p) => ("arrow" in p ? [p.arrow] : []))));
+  const hosts = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && (ringsOf.get(i)?.length ?? 0) < 2 ? [i] : []));
+  let wavyArrow = false;
+  const moves = (mol.arrows ?? []).filter((a) => chemmoved(a) && !inRow.has(a.id) && hosts.length).map((a) => {
+    const name = `oct${hash}a${a.id}`, node = (p: P, end: string) => {
+      const u = hosts.reduce((b, i) => (Math.hypot(at(i)[0] - p[0], at(i)[1] - p[1]) < Math.hypot(at(b)[0] - p[0], at(b)[1] - p[1]) ? i : b), hosts[0]);
+      const d: P = [p[0] - at(u)[0], p[1] - at(u)[1]], angle = (Math.atan2(d[1], d[0]) * 180) / Math.PI, g = groups[u];
+      tags[u].push(`-[:${num(angle)},${num(Math.hypot(d[0], d[1]))},${g.atoms.length > 1 ? g.anchor + 1 : ""},,draw=none]@{${name}${end}}`);
+      return `(${name}${end})`;
+    };
+    const s = node(a.from, "s"), e = node(a.to, "e"), bend = (curved(a) || a.point) && a.bend ? a.bend : 0;
+    let path = `${s}--${e}`;
+    if (bend) {
+      // Each half sweeps half the arc (psi); its ends leave the chord at psi/2, with TikZ's control points (0.3915 of
+      // the chord for each looseness) where a circle's are.
+      const psi = (sweepOf(bend) * Math.PI) / 360, loose = (4 / 3) * Math.tan(psi / 4) / (2 * Math.sin(psi / 2) * 0.3915);
+      const to = `to[bend ${bend > 0 ? "left" : "right"}=${num((psi * 90) / Math.PI)},looseness=${num(loose)}]`;
+      path = `${s}${to}${node(bendPoint(a), "m")}${to}${e}`;
+    }
+    const heads = headsOf(a), shape = a.head ?? "solid";
+    const tip = (h: string) => {
+      if (h === "none") return "";
+      const keys = [...(shape === "hollow" ? ["open"] : []), ...(h === "left" ? ["harpoon"] : h === "right" ? ["harpoon", "swap"] : [])];
+      return `{CF${keys.length ? `[${keys.join(",")}]` : ""}}`;
+    };
+    // (\chemmove's own tip is CF: a line without heads says so.)
+    const c = rgb(a.colour), opts = [
+      `${tip(heads.start)}-${tip(heads.end)}`,
+      ...(c ? [`color={rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}`] : []),
+      ...(a.width || a.style === "bold" ? [`line width=${num((a.width ?? 0.4) * (a.style === "bold" ? 2 : 1))}pt`] : []),
+      ...(a.style === "dashed" ? ["dashed"] : a.style === "doubled" ? ["double"] : a.style === "wavy" ? ["decorate", "decoration={snake,amplitude=0.6pt,segment length=2.4pt}"] : []),
+    ];
+    if (a.style === "wavy") wavyArrow = true;
+    return `\\draw${opts.length ? `[${opts.join(",")}]` : ""}${path};`;
+  });
   const brackets = (mol.shapes ?? []).filter(isBracket).flatMap((sh) => {
     const inside = atoms.flatMap((_, i) => (kept[i] && component[i] >= 0 && inShape(sh, at(i)) ? [i] : []));
     if (!inside.length) return [];
@@ -773,11 +820,14 @@ export function toChemfig(mol: Mol, style: Partial<Pick<DocStyle, "terminalLabel
   const hasName = (rs: number[]) => named.some((c) => c.under!.some((i) => component[i] >= 0 && find(component[i]) === find(roots.indexOf(rs[0]))));
   const rest = sets.filter((rs) => !used.has(find(roots.indexOf(rs[0])))), unnamed = rest.filter((rs) => !hasName(rs)).flat();
   const loose = !schemes.length ? sets.map((rs) => compound(rs)) : [...rest.filter(hasName).map((rs) => compound(rs)), ...(unnamed.length ? [compound(unnamed)] : [])];
-  const code = [...blocks, loose.filter(Boolean).join(options.compact ? "\\qquad" : "\n\\qquad\n")].filter(Boolean).join("\n\n");
+  const drawn = [...blocks, loose.filter(Boolean).join(options.compact ? "\\qquad" : "\n\\qquad\n")].filter(Boolean).join("\n\n");
+  // The arrows after everything, as their nodes may be in more than one \chemfig (a scheme's compounds).
+  const code = drawn + (!moves.length ? "" : options.compact ? `\\chemmove{${moves.join("")}}` : `\n\\chemmove{\n${moves.map((m) => `\t${m}`).join("\n")}\n}`);
   // What the code needs beyond chemfig, as comments before it.
+  const twice = [...(brackets.length ? ["Brackets (\\polymerdelim)"] : []), ...(moves.length ? ["arrows (\\chemmove)"] : [])].join(" and ");
   const left = unset(code), notes = [
-    ...(wavy ? ["% Wavy bonds need \\usetikzlibrary{decorations.pathmorphing} in the preamble."] : []),
-    ...(brackets.length ? ["% Brackets (\\polymerdelim) need two LaTeX runs to be in place."] : []),
+    ...(wavy || wavyArrow ? [`% Wavy ${wavy && wavyArrow ? "bonds and arrows" : wavy ? "bonds" : "arrows"} need \\usetikzlibrary{decorations.pathmorphing} in the preamble.`] : []),
+    ...(twice ? [`% ${twice[0].toUpperCase()}${twice.slice(1)} need two LaTeX runs to be in place.`] : []),
     ...(left.length ? [`% pdfLaTeX cannot set ${left.join(" ")}: replace ${left.length > 1 ? "them" : "it"}, or compile with LuaLaTeX or XeLaTeX and a font that has ${left.length > 1 ? "them" : "it"}.`] : []),
   ];
   return [...notes, code].join("\n");
@@ -809,6 +859,8 @@ export function chemfigNotice(head: string, mol: Mol, interpret: boolean, scheme
   const written = new Set(items.flatMap((p) => ("arrow" in p ? [p.arrow] : "plus" in p ? [p.plus] : "caption" in p ? [p.caption] : [])));
   for (const a of mol.arrows ?? []) {
     if (written.has(a.id)) { if (a.kind in KINDS) add(changed, a.kind); continue; }
+    // Others \chemmove draws, from nodes on the structures (so not in a drawing without one).
+    if (chemmoved(a) && atoms.length) continue;
     add(left, a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" ? "curved" : a.kind === "line" || a.kind === "arc" || a.kind === "curve" ? "line" : a.kind === "orbital" ? "orbital" : a.kind === "cut" ? "cut" : "arrow");
   }
   // Text that is not in the code: not a name under a structure, a label read as chemistry, or a part of a scheme.

@@ -329,9 +329,11 @@ assert.equal(toChemfig(mol([], [])), "");
   const arrow = (id: number, kind: NonNullable<Mol["arrows"]>[number]["kind"]) => ({ id, kind, from: [0, 1] as [number, number], to: [1, 1] as [number, number] });
   const caption = (id: number, text: string, more = {}) => ({ id, text, x: 0, y: -1, ...more });
   assert.equal(chemfigNotice("Copied", base(), true), undefined);
-  assert.equal(chemfigNotice("Copied", base({ arrows: [arrow(1, "curved")] }), true), "Copied without 1 curved arrow: Octet cannot export it to chemfig yet.");
-  assert.equal(chemfigNotice("Saved a.tex", base({ arrows: [arrow(1, "curved"), arrow(2, "fishhook")], shapes: [{ id: 3, kind: "box", from: [0, 0], to: [1, 1] }] }), true),
-    "Saved a.tex without 2 curved arrows and 1 shape: Octet cannot export them to chemfig yet.");
+  // Curved arrows, lines and lone reaction arrows are in the code (\chemmove); other arrows are not yet.
+  assert.equal(chemfigNotice("Copied", base({ arrows: [arrow(1, "curved"), arrow(2, "fishhook"), arrow(3, "line")] }), true), undefined);
+  assert.equal(chemfigNotice("Copied", base({ arrows: [arrow(1, "orbital")] }), true), "Copied without 1 orbital: Octet cannot export it to chemfig yet.");
+  assert.equal(chemfigNotice("Saved a.tex", base({ arrows: [arrow(1, "equilibrium"), arrow(2, "dipole")], shapes: [{ id: 3, kind: "box", from: [0, 0], to: [1, 1] }] }), true),
+    "Saved a.tex without 2 arrows and 1 shape: Octet cannot export them to chemfig yet.");
   assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "heat")] }), true), "Copied without text: Octet cannot export it to chemfig yet.");
   assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "NaCl"), caption(5, "Name", { under: [0, 1] })] }), true), undefined);
   assert.equal(chemfigNotice("Copied", base({ captions: [caption(4, "NaCl")] }), false), "Copied without text: Octet cannot export it to chemfig yet.", "with Interpret Chemically off, NaCl is text");
@@ -367,7 +369,7 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(chemfigNotice("Copied", m, true, schemes), undefined);
   const retro = { ...m, arrows: [{ ...m.arrows![0], kind: "retro" as const }, m.arrows![1]], captions: [...m.captions!, { id: 6, text: "note", x: 0, y: 5 }] };
   assert.equal(chemfigNotice("Copied", retro, true, schemes), "Copied without text: Octet cannot export it to chemfig yet. Octet exports 1 retrosynthetic arrow to chemfig differently.");
-  assert.equal(chemfigNotice("Copied", m, true), "Copied without 2 arrows and text: Octet cannot export them to chemfig yet.", "without schemes, the arrows are left out");
+  assert.equal(chemfigNotice("Copied", m, true), "Copied without 1 arrow and text: Octet cannot export them to chemfig yet.", "without schemes, the reaction arrow is drawn (\chemmove) and the equilibrium left out");
   // Conditions on an arrow are formulas, as the page draws them.
   const onArrow = { ...m, captions: [...m.captions!, { id: 7, text: "H2SO4, heat", x: 7, y: 2, on: { arrow: 10, side: "above" as const } }] };
   assert.match(toChemfig(onArrow, {}, { compact: true, schemes: [{ ...schemes[0], above: new Map([[10, [{ caption: 7 }]]]) }] }), /\\arrow\{->\[\{H\\textsubscript\{2\}SO\\textsubscript\{4\}, heat\}\]/);
@@ -436,6 +438,25 @@ assert.equal(toChemfig(mol([], [])), "");
   assert.equal(st(butene, { atoms: [], bonds: [undefined, "E", undefined], parens: true }), "\\chemfig{-[:30](-[:15,0.71,,,draw=none]{\\color[RGB]{255,0,0}\\scriptstyle (\\mathit{E})})=_[:-30,,,,color={rgb,255:red,255;green,0;blue,0}]-[:30]}");
   // Labels are written, so not reported as left out.
   assert.equal(chemfigNotice("Copied", centre({ cip: true }), true), undefined);
+}
+
+// Arrows not in a scheme, with chemfig's \chemmove: each end (and a curve's middle) a node placed from the atom nearest
+// it by a bond chemfig does not draw, and the arrow drawn between them after the code. A curved arrow is the page's
+// circular arc in two halves (bend left or right as the page bends it, looseness for a circle); heads chemfig's CF, a
+// fishhook's its harpoon, a line's none (\chemmove's own tip is CF). Two LaTeX runs, as the code says.
+{
+  const acetone = [A("C", 0, 0), A("O", 0, 1), A("C", -c30, -0.5), A("C", c30, -0.5)], bonds = [B(0, 1, 2), B(0, 2), B(0, 3)];
+  const arrows: NonNullable<Mol["arrows"]> = [
+    { id: 1, kind: "curved", from: [0.08, 0.5], to: [0.35, 1.1], bend: -0.4 },
+    { id: 2, kind: "fishhook", from: [-1.2, 0.6], to: [-0.25, 1.1], bend: 0.25, colour: "#ff0000" },
+    { id: 3, kind: "line", from: [1, 0.5], to: [2, 0.5], style: "dashed" },
+  ];
+  const code = cf(mol(acetone, bonds));
+  assert.equal(cf({ ...mol(acetone, bonds), arrows }), "% Arrows (\\chemmove) need two LaTeX runs to be in place.\n\\chemfig{(-[:106.89,1.15,,,draw=none]@{oct1kxaa2s})-[:30](=[:90]O(-[:15.95,0.36,,,draw=none]@{oct1kxaa1e})(-[:-34.09,0.55,,,draw=none]@{oct1kxaa1m})(-[:158.2,0.27,,,draw=none]@{oct1kxaa2e})(-[:174.12,0.85,,,draw=none]@{oct1kxaa2m}))(-[:80.91,0.51,,,draw=none]@{oct1kxaa1s})-[:-30](-[:82.37,1.01,,,draw=none]@{oct1kxaa3s})(-[:41.41,1.51,,,draw=none]@{oct1kxaa3e})}"
+    + "\\chemmove{\\draw[-{CF}](oct1kxaa1s)to[bend right=38.66,looseness=0.96](oct1kxaa1m)to[bend right=38.66,looseness=0.96](oct1kxaa1e);"
+    + "\\draw[-{CF[harpoon]},color={rgb,255:red,255;green,0;blue,0}](oct1kxaa2s)to[bend left=26.57,looseness=0.9](oct1kxaa2m)to[bend left=26.57,looseness=0.9](oct1kxaa2e);\\draw[-,dashed](oct1kxaa3s)--(oct1kxaa3e);}");
+  assert.notEqual(code, "");
+  assert.equal(chemfigNotice("Copied", { ...mol(acetone, bonds), arrows }, true), undefined);
 }
 
 // Both layouts hold the same code: the readable one only adds line breaks and tabs, which chemfig ignores.
