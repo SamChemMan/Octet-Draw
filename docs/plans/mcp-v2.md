@@ -1469,6 +1469,11 @@ AI app sends many texts Octet cannot read, so a long MCP session can reach it to
 on the 1.1.2 side (`item/indigo-crash`) and comes here with the merge. Until then the runner draws each corpus job
 once.
 
+Merged on 11 November 2026 (branch `mcp/112`): the benchmark runs every case in one process, the lines cases too. It
+gives the event loop a turn before each call, as an AI app's calls come one at a time, so Octet's fresh Indigo (loaded
+after 500 failed calls) takes over: with no turn it never loaded, and the 1,038th failure (zu2025-table1) ran out of
+memory. Three runs in a row, 146 cases each, all clean. Each corpus job is still drawn once, for the run's time.
+
 ### 17.3 Taking 1.1.2 into this branch (from the 1.1.2 session)
 
 `release-1.1.2` has a commit that takes the MCP out (`38674b3`). Record it as merged with none of its changes
