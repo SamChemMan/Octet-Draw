@@ -67,7 +67,7 @@ const MOST = 20_000;
 // tool, a read or a file, a drawings action.
 const opOf = (name: string, a: any): string | undefined => {
   const first = a?.operations?.[0];
-  return name === "set_brief" ? "brief" : name === "draw" ? a?.kind : name === "change" ? (a?.operations?.length > 1 ? "batch" : first?.op === "draw" ? first.kind : first?.op) : name === "advanced" ? a?.tool : name === "read" ? (a && typeof a === "object" && "format" in a ? "file" : "read") : (a?.action ?? "list");
+  return name === "set_brief" ? "brief" : name === "draw_route" ? "route" : name === "draw" ? a?.kind : name === "change" ? (a?.operations?.length > 1 ? "batch" : first?.op === "draw" ? first.kind : first?.op) : name === "advanced" ? a?.tool : name === "read" ? (a && typeof a === "object" && "format" in a ? "file" : "read") : (a?.action ?? "list");
 };
 // Every call in these checks: its structuredContent fits the tool's outputSchema (the specification's MUST) and its
 // operation's own, which says more; and a default reply is at most MOST characters.
@@ -87,12 +87,13 @@ const read = async () => JSON.parse(text(await call("read", { detail: "full" }))
 let r = await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "x", version: "1" } });
 assert.equal(r.result.protocolVersion, "2025-06-18");
 assert.equal(r.result.serverInfo.name, "octet-draw");
-assert.match(r.result.instructions, /draw with kind reaction/);
+assert.match(r.result.instructions, /draw_route for a reaction, scheme or route/);
 assert.equal((await send("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion, "2025-11-25");
 assert.deepEqual((await send("ping")).result, {});
-// Six tools are listed (plan 5.1; set_brief, plan 3.1), each with a closed object schema and hints.
+// Seven tools are listed (plan 5.1; set_brief, plan 3.1; draw_route, plan 5.4), each with a closed object schema and
+// hints.
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
-assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
+assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief", "draw_route"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
@@ -102,12 +103,12 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
 // Each tool's schema stands alone (some AI apps do not look outside it): every reference in it has its definition in
 // its own $defs, and it lists no other piece. draw lists the compound once, however many places take one, and a place
-// beside (an id or ids) once for its four sides.
+// beside (an id or ids) once for its four sides. draw_route's compounds are as draw's, which its description says.
 const refsIn = (schema: object) => [...JSON.stringify(schema).matchAll(/"\$ref":"([^"]*)"/g)].map((x) => x[1]);
 const alone = (schema: { $defs?: Record<string, unknown> }, at: string) => assert.deepEqual(Object.keys(schema.$defs ?? {}).map((k) => `#/$defs/${k}`).sort(), [...new Set(refsIn(schema))].sort(), at);
 for (const t of tools as unknown as { name: string; inputSchema: { $defs?: Record<string, { properties: Record<string, unknown> }> } }[]) {
   alone(t.inputSchema, t.name);
-  assert.equal(refsIn(t.inputSchema).length, { draw: 8 }[t.name] ?? 0, t.name);
+  assert.equal(refsIn(t.inputSchema).length, { draw: 6 }[t.name] ?? 0, t.name);
   if (t.name === "draw") assert.deepEqual(Object.keys(t.inputSchema.$defs!.compound.properties), ["text", "labels", "from", "changes", "number", "caption"]);
 }
 // A compound's changes are typed where draw lists them (plan 4.2.1, left for this step).
@@ -135,7 +136,8 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
   // The compound: its changes are typed in the list only (compound.ts checks each one itself).
   within(listed("draw").$defs.compound, { ...pieces.compound, properties: { ...pieces.compound.properties, changes: { type: "array", items: { type: "object", additionalProperties: true } } } }, "compound");
   // Each tool's arguments, but for the one that says which operation (no operation has it).
-  for (const [name, route, of] of [["draw", "kind", ["structures", "reaction", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]]] as [string, string, string[]][])
+  // (draw lists no reaction: that is draw_route's, though draw still takes one.)
+  for (const [name, route, of] of [["draw", "kind", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]], ["draw_route", "", ["route"]]] as [string, string, string[]][])
     for (const [k, p] of Object.entries(listed(name).properties) as [string, any][]) {
       if (k === route) { assert.deepEqual(p.enum, of, name); continue; }
       const takers = ops(of).filter((x) => x.properties[k]);
@@ -187,6 +189,7 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   const one = (text: string) => ({ op: "draw", kind: "structures", structures: [{ text }] });
   for (const [name, args] of [
     ["draw", { kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] }],
+    ["draw_route", { schemes: [{ start: [{ text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] }] }],
     ["draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene" }] }],
     ["draw", { kind: "figure", panels: [{ rows: [[{ structure: "benzene" }]] }] }],
     ["draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] }],
@@ -343,7 +346,7 @@ assert.equal(steps.length, 0);
   resetIds();
   for (const [name, args] of [
     ["drawings", { action: "list" }],
-    ["draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", yield: "90%", products: [{ text: "ethyl acetate", number: "1" }] }, { arrow: "equilibrium", above: ["H2O"], products: [{ from: "previous", changes: [{ swap: { OEt: "OH" } }], number: "2", caption: "again" }] }] }],
+    ["draw_route", { schemes: [{ start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", yield: "90%", products: [{ text: "ethyl acetate", number: "1" }] }, { arrow: "equilibrium", above: ["H2O"], products: [{ from: "previous", changes: [{ swap: { OEt: "OH" } }], number: "2", caption: "again" }] }] }] }],
     ["draw", { kind: "structures", columns: 2, structures: [{ text: "benzene", number: "3" }, { text: "*c1ccccc1", labels: ["Ar"], number: "4" }, { text: "phenol", number: "5", up: "O" }], below: "1", gap: 2, align: "left" }],
     ["draw", { kind: "cycle", intermediates: [{ text: "*[Pd]*", labels: ["L", "L"] }, { text: "*[Pd](*)(c1ccccc1)Br", labels: ["L", "L"] }], centre: "Pd", steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, out: "PhH" }], anticlockwise: true }],
     ["draw", { kind: "figure", panels: [{ title: "A", frame: "line", rows: [[{ structure: "toluene", number: "6", caption: "arene" }, { text: "and" }]] }], width: 20, detail: "full" }],
@@ -415,6 +418,80 @@ assert.ok(out.isError);
 assert.match(text(out), /cannot read "unobtainium"/);
 assert.equal(m.atoms.length, 0);
 assert.deepEqual(said, []);
+
+// draw_route (plan 5.4). A route of one scheme with no title is a reaction, and says what draw's reaction says.
+fresh();
+out = await call("draw_route", { schemes: [{ start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] }] });
+assert.equal(text(out).split("\n")[0], "Drew the reaction. Octet laid it out with Clean Up Reaction. One undo step.");
+assert.deepEqual([steps.length, said, fragments(m).length], [1, ["Test drew a route."], 4]);
+// Numbers run across schemes (test plan C9). The compound that ends scheme 1 starts scheme 2 as from it alone: it is
+// drawn in both with its one number, and nothing warns. A product with changes and no from is from the compound
+// before it. Each title is free text over its scheme (L6): no arrow's, no structure's.
+{
+  fresh();
+  const titles = ["Scheme 1. Phenol 2", "Scheme 2. The acetate 3"];
+  out = await call("draw_route", { schemes: [
+    { title: titles[0], start: [{ text: "benzene", number: "1" }], steps: [{ reagents: ["O2"], products: [{ text: "phenol", number: "2" }] }] },
+    { title: titles[1], start: [{ from: "2" }], steps: [{ reagents: ["Ac2O"], products: [{ changes: [{ swap: { OH: "OAc" } }], number: "3" }] }] },
+  ] });
+  assert.ok(!out.isError, text(out));
+  assert.match(text(out), /^Drew 2 schemes of 1 and 1 steps with 3 numbered compounds\. Octet laid out each with Clean Up Reaction\. One undo step\./);
+  assert.deepEqual([steps.length, said], [1, ["Test drew a route."]]);
+  d = await read();
+  assert.deepEqual(d.structures.map((s: { number: string }) => s.number), ["1", "2", "2", "3"]);
+  assert.deepEqual([d.structures[1].inchiKey, d.structures[3].formula], [d.structures[2].inchiKey, "C8H8O2"]);
+  // (The stand-in measures text from its middle, so it finds left-aligned titles past the page: headless.check has
+  // the window's boxes, and no warning there.)
+  assert.deepEqual([d.warnings.filter((w: { message: string }) => !/^The text/.test(w.message)), d.reactions.length, d.text.map((t: { text: string }) => t.text)], [[], 2, titles]);
+  const free = m.captions!.filter((c) => titles.includes(c.text));
+  assert.ok(free.length === 2 && free.every((c) => !c.on && !c.under), "the titles are free text");
+  // "Scheme 1." is bold, as a paper sets it, and the rest is not.
+  assert.deepEqual(free[0].runs, [{ text: "Scheme 1.", bold: true }, { text: " Phenol 2" }]);
+  // Each title is over all of its own scheme, and under the scheme before.
+  const ys = (ids: string[]) => ids.flatMap((id) => d.structures.find((s: { id: string }) => s.id === id).box.filter((_: number, k: number) => k % 2));
+  const [s1, s2] = [d.reactions[0], d.reactions[1]].map((x: { steps: { before: string[] }[]; products: string[] }) => [...x.steps[0].before, ...x.products]);
+  assert.ok(free[0].y > Math.max(...ys(s1)) && free[1].y > Math.max(...ys(s2)) && free[1].y < Math.min(...ys(s1)), JSON.stringify([free.map((c) => c.y), ys(s1), ys(s2)]));
+  // A scheme that starts from previous starts from the last product of the scheme before, by its id when it has no
+  // number; a later scheme from anything else is a branch, which the reply says Octet draws as a scheme of its own.
+  fresh();
+  out = await call("draw_route", { schemes: [
+    { start: [{ text: "benzene" }], steps: [{ products: [{ text: "phenol" }] }] },
+    { start: [{ from: "previous" }], steps: [{ products: [{ changes: [{ swap: { OH: "OAc" } }] }] }] },
+  ] });
+  assert.ok(!out.isError && !/branch/.test(text(out)), text(out));
+  assert.deepEqual((await read()).structures.map((s: { formula: string }) => s.formula), ["C6H6", "C6H6O", "C6H6O", "C8H8O2"]);
+  fresh();
+  out = await call("draw_route", { schemes: [
+    { start: [{ text: "benzene", number: "1" }], steps: [{ products: [{ text: "phenol", number: "2" }] }] },
+    { start: [{ from: "1" }], steps: [{ products: [{ text: "toluene", number: "3" }] }] },
+  ] });
+  assert.match(text(out), / Octet drew each branch as a scheme of its own, under the one before, with a compound they share drawn again under its number: it does not join branches with arrows\./);
+  assert.deepEqual((await read()).structures.map((s: { number: string }) => s.number), ["1", "2", "1", "3"]);
+  // A scheme Octet cannot draw leaves nothing of the route: the titles and schemes before it go too.
+  fresh();
+  out = await call("draw_route", { schemes: [{ title: "Scheme 1", start: [{ text: "benzene" }], steps: [{ products: [{ text: "phenol" }] }] }, { start: [{ text: "ethanol" }], steps: [{ products: [{ text: "unobtainium" }] }] }] });
+  assert.ok(out.isError && /Scheme 2: Octet drew nothing\. Octet cannot read "unobtainium"/.test(text(out)), text(out));
+  assert.equal(m, EMPTY);
+}
+// legend: letters puts each step's letters on its arrow, a, b, c in turn after its own label, and its conditions in a
+// note under the scheme, as a paper does. A structure at an arrow stays there, and a step with no conditions has no
+// letter.
+{
+  fresh();
+  out = await call("draw_route", { legend: "letters", schemes: [{ start: [{ text: "benzene" }], steps: [
+    { reagents: ["Br2", "FeBr3"], solvents: ["CH2Cl2"], yield: "90%", products: [{ text: "Brc1ccccc1" }] },
+    { label: "b, c", above: ["structure: water", "then H3O+"], reagents: ["Mg"], products: [{ text: "phenol" }] },
+    { products: [{ text: "toluene" }] }, { below: ["hν"], products: [{ text: "Cc1ccccc1Cl" }] },
+  ] }] });
+  assert.ok(!out.isError, text(out));
+  const on = (k: number) => m.captions!.filter((c) => c.on?.arrow === m.arrows![k].id).map((c) => c.text);
+  assert.deepEqual([0, 1, 2, 3].map(on), [["a"], ["b, c"], [], ["d"]]);
+  const note = m.captions!.find((c) => c.text.startsWith("Reagents"))!;
+  assert.equal(note.text, "Reagents and conditions: (a) Br2, FeBr3, CH2Cl2, 90%; (b, c) Mg, then H3O+; (d) hν.");
+  assert.ok(!note.on && !note.under && note.y < Math.min(...m.atoms.map((a) => a.location[1])), "the note is free text under the scheme");
+  d = await read();
+  assert.equal(d.structures.length, 6, "water is drawn at its arrow");
+}
 
 // Control characters are taken out of text.
 fresh();
@@ -808,7 +885,7 @@ const prompts = (await send("prompts/list")).result.prompts as { name: string; a
 assert.deepEqual(prompts.map((p) => p.name), ["draw_scheme", "redraw_picture", "check_drawing", "fill_experiment", "journal_figure"]);
 r = await send("prompts/get", { name: "draw_scheme", arguments: { text: "Benzaldehyde (1) was reduced with NaBH4." } });
 assert.equal(r.result.messages[0].role, "user");
-assert.match(r.result.messages[0].content.text, /draw call with kind reaction[\s\S]*Benzaldehyde \(1\)/);
+assert.match(r.result.messages[0].content.text, /one draw_route call[\s\S]*Benzaldehyde \(1\)/);
 assert.equal((await send("prompts/get", { name: "nope" })).error.code, -32602);
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: {} })).error.code, -32602, "a missing argument");
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: { text: "x".repeat(20_001) } })).error.code, -32602, "too long");
@@ -1119,9 +1196,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\) or transformations \(a compound's changes with do\)\.$/);
     assert.match((tools[0].inputSchema as any).$defs.compound.properties.changes.description, /\{do: 'reduce', at: '7', config: 'R'\}, a named transformation \(advanced help of transformations lists them\)/);
   }
-  // A reaction's help says what its lines over and under an arrow take and how they read back; draw says it in a word.
+  // A reaction's help says what its lines over and under an arrow take and how they read back; draw_route says it in a
+  // word.
   assert.match(OP_TABLE.find((o) => o.name === "reaction")!.description, /or a compound drawn at the arrow .*a list over 30 characters goes on more lines between its items, and a free line after a comma or semicolon\. read gives the compounds at an arrow after its text lines\./);
-  assert.match(tools[0].inputSchema.properties.steps.description, /above and below add one free line or compound each/);
+  assert.match((tools.find((t) => t.name === "draw_route")!.inputSchema.properties.schemes as any).items.properties.steps.description, /above and below add one free line or compound each/);
   // The pieces a tool lists once are whole in help: the compound with its hints and molecule (once in structures and
   // a cycle; four times in a reaction: its starting materials, each step's products, and a line over or under an
   // arrow, which is text or a compound drawn there), text that can be runs (four places in a figure), an arrow's end (two).
@@ -1700,9 +1778,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(o), /^Did 2 steps as one undo step:\n1\. Drew 1 structure in 1 row of 1\.\n2\. /);
   // tools/list gives detail on every tool that takes it, and picture with it (plan sections 10 and 16: detail was
   // left unlisted on the write tools until they were merged). Every operation whose result is a change takes it.
-  for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced"], k);
+  for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced", "draw_route"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
-  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 24);
+  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 25);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
   assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
   // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a

@@ -208,6 +208,20 @@ for (const id of [first, second]) {
     if (level(rings[k + 2]) !== level(rings[k + 1])) assert.equal(level(shaft(heads[k])), level(rings[k + 2]), "a new line starts with its arrow");
   }
 }
+// No product alone on the last line when a line before can be the short one (plan 5.4, test plan L4): A → B, then five
+// steps that go two to a line, the last product the widest, are → C, → D → E, → F → G, not → C → D, → E → F, → G (whose
+// widest line is narrower, as G is not with F).
+{
+  let t: Mol = EMPTY;
+  const ids: number[] = [];
+  [6, 6, 6, 6, 6, 6, 8].forEach((n, k) => {
+    t = addRing(t, n, false, { point: [6 * k, 0] });
+    if (k < 6) { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [6 * k + 2.2, 0], to: [6 * k + 4.2, 0] }); ids.push(id); }
+  });
+  const done = clean(t, find(t, ids[0]), 12), levels = fragments(done).map((g) => Math.round(middle(ink(done)(g))[1] * 100) / 100);
+  const lines = [...new Set(levels)].map((y) => levels.filter((v) => v === y).length);
+  assert.deepEqual(lines, [2, 1, 2, 2], `structures on each line: ${lines}`);
+}
 // A line breaks before a plus sign only when that makes the widest line narrower. In A + B → C → D + E → F the first
 // line is too wide whatever is done, so the rest breaks before its arrows (→ D + E, then → F), not before a plus sign.
 {

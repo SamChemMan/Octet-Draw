@@ -37,7 +37,12 @@ const argv = process.argv.slice(2), write = argv.includes("--write"), named = ar
 // Every case by name: cases/NAME.mjs, and each job of corpus/PAPER.json (named PAPER-...).
 const all = new Map<string, () => Promise<Case>>(readdirSync(new URL("cases/", here)).filter((f) => f.endsWith(".mjs")).map((f) => [f.slice(0, -4), async () => (await import(new URL(`cases/${f}`, here).href)).default]));
 for (const f of existsSync(new URL("corpus/", here)) ? readdirSync(new URL("corpus/", here)).filter((x) => x.endsWith(".json")) : [])
-  for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) all.set(j.id, async () => ({ about: j.prompt, for: j.for, brief: j.brief, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
+  for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) {
+    all.set(j.id, async () => ({ about: j.prompt, for: j.for, brief: j.brief, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
+    // A job of more than one step is a route too (plan 5.4): one draw_route call, its figure as the scheme's title.
+    const { kind, start, steps } = j.arguments;
+    if (kind === "reaction" && steps.length > 1) all.set(`route-${j.id}`, async () => ({ about: `${j.prompt} (as a route)`, for: j.for, brief: j.brief, calls: [{ name: "draw_route", arguments: { schemes: [{ title: j.figure, start, steps }] } }], expect: j.expect }));
+  }
 const keptTimes = Object.fromEntries(readdirSync(new URL("cases/", here)).map((f) => [f.slice(0, -4), true]));
 const names = [...all.keys()].filter((n) => !named.length || named.some((x) => n === x || n.startsWith(`${x}-`))).sort();
 await load();

@@ -221,18 +221,19 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   const nums = (e: Read) => e.structures.map((s) => s.number ?? "").join(), key = (s: string) => toInchiKey(parseStructure(s));
   const sOf = (r: any[], k = 0, n = 0) => r[k].made.filter((x: string) => x[0] === "s")[n];
   const JOBS: Job[] = [
-    ["one reaction from names", [["draw", { kind: "reaction", start: [{ text: "benzaldehyde" }, { text: "acetophenone" }], steps: [{ reagents: ["NaOH"], solvents: ["EtOH"], temperature: "rt", yield: "88%", products: [{ text: "chalcone", number: "1" }] }] }]],
+    // A reaction or scheme is draw_route's (plan 5.4): draw takes one still, but does not list it.
+    ["one reaction from names", [["draw_route", { schemes: [{ start: [{ text: "benzaldehyde" }, { text: "acetophenone" }], steps: [{ reagents: ["NaOH"], solvents: ["EtOH"], temperature: "rt", yield: "88%", products: [{ text: "chalcone", number: "1" }] }] }] }]],
       (e) => e.structures.map((s) => s.formula).join() === "C7H6O,C8H8O,C15H12O" && e.reactions.length === 1 && e.reactions[0].steps[0].above.join() === "NaOH" && e.reactions[0].steps[0].below.join() === "EtOH, rt,88%"],
-    ["a 5-step scheme", [["draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [
+    ["a 5-step scheme", [["draw_route", { schemes: [{ start: [{ text: "benzaldehyde", number: "1" }], steps: [
       { reagents: ["MeNO2", "NH4OAc"], solvents: ["AcOH"], temperature: "reflux", products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] },
       { reagents: ["LiAlH4"], solvents: ["THF"], products: [{ text: "2-phenylethylamine", number: "3" }] },
       { reagents: ["Boc2O", "Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl N-(2-phenylethyl)carbamate", number: "4" }] },
       { reagents: ["NaH", "MeI"], solvents: ["DMF"], products: [{ text: "CN(CCc1ccccc1)C(=O)OC(C)(C)C", number: "5" }] },
-      { reagents: ["TFA"], solvents: ["CH2Cl2"], products: [{ text: "N-methyl-2-phenylethylamine", number: "6" }] }] }]],
+      { reagents: ["TFA"], solvents: ["CH2Cl2"], products: [{ text: "N-methyl-2-phenylethylamine", number: "6" }] }] }] }]],
       (e) => nums(e) === "1,2,3,4,5,6" && e.reactions.length === 1 && e.reactions[0].steps.length === 5],
     ["a grid of 12 numbered structures", [["draw", { kind: "structures", columns: 4, structures: ["benzene", "toluene", "phenol", "aniline", "anisole", "benzoic acid", "benzaldehyde", "acetophenone", "nitrobenzene", "chlorobenzene", "pyridine", "naphthalene"].map((text, k) => ({ text, number: `${k + 1}` })) }]],
       (e) => nums(e) === "1,2,3,4,5,6,7,8,9,10,11,12"],
-    // A metal and its ligands as draw's description says ('*[Pd]*' and labels): Pd(PPh3)2 is not a name Octet reads.
+    // A metal and its ligands as the instructions say ('*[Pd]*' and labels): Pd(PPh3)2 is not a name Octet reads.
     ["a catalytic cycle", [["draw", { kind: "cycle", centre: "Suzuki coupling", intermediates: [{ text: "*[Pd]*", labels: ["PPh3", "PPh3"] }, { text: "Br[Pd](*)(*)c1ccccc1", labels: ["PPh3", "PPh3"] }, { text: "c1ccc(cc1)[Pd](*)(*)c1ccc(C)cc1", labels: ["PPh3", "PPh3"] }], steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, name: "TM", in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, name: "RE", out: "Ph-Ar" }] }]],
       (e) => e.cycles?.length === 1 && e.structures.length === 3],
     ["fix one atom", [["draw", { kind: "structures", structures: [{ text: "Cc1ccccc1", number: "1" }] }], ["change", (r) => ({ operations: [{ op: "edit", ids: [`${sOf(r)}.3`], label: "N" }] })]],
@@ -246,7 +247,7 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
       () => d.host.doc().atoms.filter((a) => /ffe066/i.test(JSON.stringify(a))).length === 3],
     // As change's arrow says: the product right_of the last one with room for the arrow, the arrow, its text, then
     // clean_reaction.
-    ["add a step to an existing scheme", [["draw", { kind: "reaction", start: [{ text: "benzoic acid", number: "1" }], steps: [{ reagents: ["SOCl2"], products: [{ text: "benzoyl chloride", number: "2" }] }] }],
+    ["add a step to an existing scheme", [["draw_route", { schemes: [{ start: [{ text: "benzoic acid", number: "1" }], steps: [{ reagents: ["SOCl2"], products: [{ text: "benzoyl chloride", number: "2" }] }] }] }],
       ["change", (r) => ({ operations: [{ op: "draw", kind: "structures", structures: [{ text: "N,N-diethylbenzamide", number: "3" }], right_of: sOf(r, 0, 1), gap: 5.4 }, { op: "arrow", kind: "reaction", from: sOf(r, 0, 1), to: "$1.s[0]" }, { op: "text", text: "Et2NH, Et3N", arrow: "$2.a[0]", side: "above" }] })],
       ["advanced", { tool: "run_command", args: { command: "clean_reaction" } }]],
       (e) => e.reactions.length === 1 && e.reactions[0].steps.length === 2 && e.reactions[0].steps[1].above.includes("Et2NH, Et3N")],
@@ -261,7 +262,7 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
       { op: "arrow", kind: "reaction", from: "$1.s[1]", to: "$3.s[0]" }, { op: "arrow", kind: "reaction", from: "$2.s[1]", to: "$3.s[0]" },
       { op: "text", text: "Pd(PPh3)4, K2CO3", arrow: "$4.a[0]", side: "above" }] }]],
       (e) => nums(e) === "1,2,3,4,5" && e.arrows.length === 4 && e.structures[2].box[3] < Math.min(e.structures[0].box[1], e.structures[1].box[1])],
-    ["a reagent drawn as a structure over the arrow", [["draw", { kind: "reaction", start: [{ text: "benzylamine", number: "1" }], steps: [{ above: ["structure: Boc2O"], reagents: ["Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl benzylcarbamate", number: "2" }] }] }]],
+    ["a reagent drawn as a structure over the arrow", [["draw_route", { schemes: [{ start: [{ text: "benzylamine", number: "1" }], steps: [{ above: ["structure: Boc2O"], reagents: ["Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl benzylcarbamate", number: "2" }] }] }] }]],
       (e) => { const [a] = e.arrows, s = e.structures[1].box; return e.structures.length === 3 && s[0] >= a.from[0] && s[2] <= a.to[0] && s[1] > a.from[1]; }],
     // The footnote below all of the scheme ('$1.made').
     ["conditions as letters with a footnote", [["change", { operations: [
@@ -388,6 +389,85 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   d = drawing("paper", "A side text too long");
   const long: Wrote & { content: { text: string }[] } = await call("draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene" }, { text: "phenol" }], steps: [{ step: 0, in: Array.from({ length: 12 }, (_, k) => `reagent ${k + 1}`).join(" and ") }] });
   assert.match(long.content[0].text, /\. The cycle is [\d.]+ bond lengths wide \(the page has 35\.4\): give shorter side text, or a larger page or landscape \(set_brief\)\./, long.content[0].text);
+}
+
+// A scheme whose products are turned to lie as their starting materials (alkyl chains that come out upright) still
+// reads as one reaction, so Clean Up Reaction wraps it to the page: the turn left gaps wider than a reaction's between
+// them, and the row read as two (1 -> 2 -> 3 -> 4 -> 5 ->, then -> 7) and ran past the page.
+{
+  d = drawing("paper", "Turned products");
+  const chains: Wrote = await call("draw_route", { schemes: [{ start: [{ text: "benzene", number: "1" }], steps: ["Cc1ccccc1", "CCc1ccccc1", "CCCc1ccccc1", "CCCCc1ccccc1", "CCCCCc1ccccc1", "CCCCCCc1ccccc1"].map((text, k) => ({ reagents: ["MeI"], products: [{ text, number: String(k + 2) }] })) }] });
+  assert.equal(chains.structuredContent.check, "clean", JSON.stringify(chains.structuredContent.check));
+  assert.deepEqual((await call("read", {})).structuredContent.reactions.map((r: { route: string }) => r.route), ["1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7"]);
+}
+// draw_route (plan 5.4) as the window lays it out.
+{
+  // Each title is free text over its scheme, at least as far from it as new work is from what is above (3 bond
+  // lengths), so no arrow reads it as conditions (test plan L6), and the user's Clean Up Reaction after leaves it where
+  // it is, free. The compound that ends scheme 1 starts scheme 2 with its one number and no warning (C9). All of it is
+  // on the page, and the check is clean (L2).
+  d = drawing("paper", "A route");
+  const titles = ["Scheme 1. Benzyl bromide 3", "Scheme 2. The amine 5"];
+  const two: Wrote = await call("draw_route", { schemes: [
+    { title: titles[0], start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], solvents: ["MeOH"], products: [{ text: "benzyl alcohol", number: "2" }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide", number: "3" }] }] },
+    { title: titles[1], start: [{ from: "3" }], steps: [{ reagents: ["NaCN"], solvents: ["DMF"], products: [{ changes: [{ swap: { Br: "CN" } }], number: "4" }] }, { reagents: ["LiAlH4"], products: [{ changes: [{ swap: { CN: "CH2NH2" } }], number: "5" }] }] },
+  ] });
+  assert.equal(two.structuredContent.check, "clean", JSON.stringify(two.structuredContent.check));
+  const full = (await call("read", { detail: "full" })).structuredContent;
+  assert.deepEqual([full.text.map((t: { text: string }) => t.text), full.warnings, full.structures.map((s: { number: string }) => s.number)], [titles, [], ["1", "2", "3", "3", "4", "5"]]);
+  assert.deepEqual(full.reactions.map((x: { steps: { above: string[]; below: string[] }[] }) => x.steps.map((s) => [s.above, s.below])), [[[["NaBH4"], ["MeOH"]], [["PBr3"], []]], [[["NaCN"], ["DMF"]], [["LiAlH4"], []]]]);
+  const box = (t: string) => full.captions.find((c: { text: string }) => c.text === t).box as number[], schemes: { box: number[] }[][] = [full.structures.slice(0, 3), full.structures.slice(3)];
+  schemes.forEach((ss, k) => {
+    const b = box(titles[k]), top = Math.max(...ss.map((s) => s.box[3])), line = full.arrows[2 * k].from[1];
+    assert.ok(b[1] - top > 2.9 && b[1] - line > 3, `title ${k + 1} at ${b}: its scheme's top ${top}, its arrows ${line}`);
+  });
+  assert.ok(box(titles[1])[3] < Math.min(...schemes[0].map((s) => s.box[1])), "scheme 2's title is under scheme 1");
+  // L5: compound 3 lies the same way in both schemes, and 4 and 5, its changes, lie as it does: their rings point the
+  // same way (within 15 degrees) and are not turned over.
+  const m = d.host.doc(), at = (number: string, k = 0) => m.captions!.filter((c) => c.bold && c.text === number)[k].under!.map((i) => m.atoms[i].location);
+  const [a, b] = [at("3"), at("3", 1)];
+  assert.ok(a.every((p, k) => Math.hypot(p[0] - a[0][0] - (b[k][0] - b[0][0]), p[1] - a[0][1] - (b[k][1] - b[0][1])) < 1e-6), "compound 3 is drawn the same in both schemes");
+  const way = (ps: number[][]) => [Math.atan2(ps[4][1] - ps[1][1], ps[4][0] - ps[1][0]), Math.sign((ps[2][0] - ps[1][0]) * (ps[6][1] - ps[1][1]) - (ps[2][1] - ps[1][1]) * (ps[6][0] - ps[1][0]))];
+  for (const n of ["4", "5"]) { const [t0, s0] = way(b), [t1, s1] = way(at(n)); assert.ok(Math.abs(Math.atan2(Math.sin(t1 - t0), Math.cos(t1 - t0))) < (15 * Math.PI) / 180 && s1 === s0, `compound ${n} lies as 3 does`); }
+  // The user's Clean Up Reaction leaves each title where it was, free.
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_reaction" } })).isError);
+  const again = (await call("read", { detail: "full" })).structuredContent;
+  assert.deepEqual([again.text.map((t: { text: string }) => t.text), titles.map((t) => again.captions.find((c: { text: string }) => c.text === t).box)], [titles, titles.map(box)]);
+}
+{
+  // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
+  d = drawing("paper", "Rows");
+  const rows: Wrote = await call("draw_route", { schemes: [{ ...route(7), start: [{ text: biphenyl(GROUPS[6]), number: "7" }] }] }), levels: number[] = [];
+  for (const id of rows.structuredContent.made.filter((x) => x[0] === "s")) { const b = rows.structuredContent.boxes[id], y = (b[1] + b[3]) / 2; levels.push(levels.find((v) => Math.abs(v - y) < 2) ?? y); }
+  const per = [...new Set(levels)].map((y) => levels.filter((v) => v === y).length);
+  assert.ok(per.length > 2 && per[per.length - 1] > 1 && Math.max(...per) - Math.min(...per) <= 1, `structures on each row: ${per}`);
+  assert.equal(rows.structuredContent.check, "clean");
+  // L2 and plan 3.2: a route taller than the page. The reply names the first scheme past its bottom and what to do, and
+  // the check names what is off the page; nothing overlaps. On Quick start the same route just draws: no page, no
+  // advice, and the check is clean.
+  const four = { schemes: [0, 1, 2, 3].map((k) => { const r = route(1 + 6 * k); return { title: `Scheme ${k + 1}. Biphenyls`, start: k ? [{ from: String(1 + 6 * k) }] : r.start, steps: r.steps }; }) };
+  d = drawing("paper", "A long route");
+  const tall: Wrote & { content: { text: string }[] } = await call("draw_route", four), c = tall.structuredContent.check;
+  assert.match(tall.content[0].text, /^Drew 4 schemes of 6, 6, 6 and 6 steps with 25 numbered compounds\. Octet laid out each with Clean Up Reaction\. Scheme \d runs past the bottom of the page: draw the schemes from \d on in a new drawing \(drawings new\), or give a larger page \(set_brief\)\. One undo step\./);
+  assert.ok(c !== "clean" && c.off_page?.length && !c.overlaps, JSON.stringify(c));
+  d = drawing("quick", "A long route on Quick start");
+  assert.ok(!(await call("set_brief", { destination: { kind: "quick" } })).isError);
+  const quick: Wrote & { content: { text: string }[] } = await call("draw_route", four);
+  assert.match(quick.content[0].text, /^Drew 4 schemes of 6, 6, 6 and 6 steps with 25 numbered compounds\. Octet laid out each with Clean Up Reaction\. One undo step\./);
+  assert.equal(quick.structuredContent.check, "clean");
+  assert.ok(!(await call("set_brief", { destination: { kind: "paper" } })).isError);
+}
+{
+  // legend: letters, as a paper sets it (test plan S8): a, b, c on the arrows, and the conditions in a note under the
+  // scheme that no arrow reads as its own.
+  d = drawing("paper", "Letters");
+  const lettered: Wrote = await call("draw_route", { legend: "letters", schemes: [{ title: "Scheme 1. 2-Phenylethylamine 3", ...SCHEME }] });
+  assert.equal(lettered.structuredContent.check, "clean", JSON.stringify(lettered.structuredContent.check));
+  const read = (await call("read", { detail: "full" })).structuredContent;
+  assert.deepEqual(read.reactions.map((x: { steps: { above: string[]; below: string[] }[] }) => x.steps.map((s) => [s.above, s.below])), [[[["a"], []], [["b"], []], [["c"], []]]]);
+  const note = read.captions.find((x: { text: string }) => x.text.startsWith("Reagents"));
+  assert.equal(note.text, "Reagents and conditions: (a) MeNO2, NH4OAc, AcOH, reflux, 4 h, 78%; (b) LiAlH4, THF, 0 °C to reflux, 85%; (c) Ac2O, Et3N, CH2Cl2, rt, 92%.");
+  assert.ok(note.box[3] < Math.min(...read.structures.map((s: { box: number[] }) => s.box[1])) && read.text.some((x: { text: string }) => x.text === note.text), "the note is free text under the scheme");
 }
 
 // The runner: two inputs, a list of tool calls and a reaction argument, drawn by two workers.

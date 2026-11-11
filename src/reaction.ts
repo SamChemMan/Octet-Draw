@@ -556,23 +556,26 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
 
   // Lines: one, unless the row is wider than the page. A line breaks before an arrow (or, failing that, a plus sign)
   // after the first arrow, so the first line holds the starting materials and their arrow (a line of starting
-  // materials alone would read as no reaction); the fewest lines, then the most even.
+  // materials alone would read as no reaction); the fewest lines, then no product alone on the last line where a
+  // line before can be the short one, then the most even.
   const widthOf = (from: number, to: number) => parts.slice(from, to).reduce((w, p) => w + p.length, 0) + gap * Math.max(0, to - from - 1);
   let breaks: number[] = [], over = Infinity, widest = Infinity;
   if (flat && o.width && widthOf(0, parts.length) > o.width) {
     const firstArrow = parts.findIndex((p) => p.step.kind === "arrow"), at = (kind: string) => parts.flatMap((p, k) => (k > firstArrow && p.step.kind === kind ? [k] : []));
     for (const candidates of [at("arrow"), [...new Set([...at("arrow"), ...at("plus")])].sort((p, q) => p - q)]) {
-      // best[k]: the fewest lines, then the narrowest widest line, for parts 0..k-1 broken at candidates. over: how
-      // many of its lines are wider than the page (each a piece with no break inside it, so the same whatever the cuts).
-      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; over: number; widest: number; cuts: number[] }>([[0, { lines: 0, over: 0, widest: 0, cuts: [] }]]);
+      // best[k]: the fewest lines, then a last line of more than one structure, then the narrowest widest line, for
+      // parts 0..k-1 broken at candidates. over: how many of its lines are wider than the page (each a piece with no
+      // break inside it, so the same whatever the cuts).
+      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; over: number; alone: boolean; widest: number; cuts: number[] }>([[0, { lines: 0, over: 0, alone: false, widest: 0, cuts: [] }]]);
       for (const [k, end] of ends.entries()) for (const [from, b] of [...best]) {
         // (A first line of one structure alone gains no room: the reaction stays on one line.)
         if (from >= end || (!from && end < 2)) continue;
         // (A piece with no break inside it stays whole, however wide: the rest still wraps.)
         const w = widthOf(from, end);
         if (w > o.width && k && ends[k - 1] > from) continue;
-        const next = { lines: b.lines + 1, over: b.over + Number(w > o.width + 1e-9), widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] }, was = best.get(end);
-        if (!was || next.lines < was.lines || (next.lines === was.lines && next.widest < was.widest - 1e-9)) best.set(end, next);
+        const alone = parts.slice(from, end).filter((p) => p.step.kind === "structure").length < 2, was = best.get(end);
+        const next = { lines: b.lines + 1, over: b.over + Number(w > o.width + 1e-9), alone, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] };
+        if (!was || next.lines < was.lines || (next.lines === was.lines && (was.alone && !alone || (was.alone === alone && next.widest < was.widest - 1e-9)))) best.set(end, next);
       }
       // (Breaks before plus signs are used only when they leave fewer lines wider than the page, or as many and the
       // widest line narrower.)
