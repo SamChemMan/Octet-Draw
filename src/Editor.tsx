@@ -2607,12 +2607,14 @@ export default function Editor() {
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i), true),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
-    // Analyse Stoichiometry: a grid under the picked reaction, or off again.
+    // Analyse Stoichiometry: a grid under the picked reaction, or off again. A scheme of several arrows gets a table for
+    // each step (Grid.step).
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       if (arrow === undefined) return setNotice("Select a reaction first.", "info");
-      const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
-      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {}, roles: {} }] }, true);
+      const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow)), all = reactionOf(arrow)?.arrows ?? [arrow];
+      const made: Grid[] = all.length > 1 ? all.map((a) => ({ arrow: a, typed: {}, roles: {}, step: true })) : [{ arrow, typed: {}, roles: {} }];
+      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), ...made] }, true);
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
@@ -5981,7 +5983,7 @@ export default function Editor() {
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
   function tableSpan(v: GridView): number[] {
-    return [v.start, Math.min(...v.cells.map((c) => c.y - v.rh), ...(v.rules ?? []).map((r) => r[2]), ...(v.block?.lines.map((l) => l.y - v.rh) ?? [])), Math.max(...v.cells.map((c) => c.x + c.w / 2), v.block?.right ?? -Infinity), v.top];
+    return [v.start, v.bottom, Math.max(...v.cells.map((c) => c.x + c.w / 2), v.block?.right ?? -Infinity), v.top];
   }
   // A table's conditions as Copy table and Conditions… give them: on an experiment page's first table, Temperature and
   // Time are the page's.
@@ -6019,6 +6021,12 @@ export default function Editor() {
   // A grid cell clicked with Select: picked, for the grid's actions (Set as limiting, Hide row and column, colour).
   const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string }>();
   useEffect(() => { if (selection.size || picked.size) setGridPick(undefined); }, [selection, picked]);
+  // A scheme of several arrows: whether its tables are one for each step (join: One table for the scheme) or not
+  // (split: One table for each step).
+  const gridSteps = (arrow: number): { steps?: "split" | "join" } => {
+    const all = reactionOf(arrow)?.arrows ?? [arrow];
+    return all.length < 2 ? {} : { steps: all.every((a) => doc.grids?.some((g) => g.arrow === a && g.step)) ? "join" : "split" };
+  };
   // A grid changed: its typed values and limiting reactant saved under each column's key as the grid now reads them
   // (keyColumns), so values matched by order are kept by key from now on.
   const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => {
@@ -6159,7 +6167,7 @@ export default function Editor() {
     }
     // A stoichiometry grid's cell picked.
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role,
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
@@ -7348,6 +7356,23 @@ export default function Editor() {
       const role = ROLES.find((r) => what === `role.${r}`);
       if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
+      // One table for each step: every arrow of the scheme gets its own; the scheme's table gives its reactants' values
+      // to the first step and its products' to the last. One table for the scheme: the first step's table covers the
+      // whole scheme again, with the first step's reactants' values and the last step's products'.
+      if (what === "steps") {
+        const all = reactionOf(arrow)?.arrows ?? [arrow], own = doc.grids?.filter((g) => all.includes(g.arrow)) ?? [], rest = doc.grids?.filter((g) => !all.includes(g.arrow)) ?? [];
+        const side = (g: Grid | undefined, s: string) => Object.fromEntries(Object.entries(g?.typed ?? {}).filter(([k]) => k[0] === s));
+        const stepOf = (a: number) => own.find((g) => g.arrow === a && g.step);
+        if (all.every(stepOf)) {
+          const { step: _, ...first } = stepOf(all[0])!;
+          return set({ ...doc, grids: [...rest, { ...first, typed: { ...side(first, "r"), ...side(stepOf(all[all.length - 1]), "p") } }] }, true);
+        }
+        const whole = own.find((g) => !g.step);
+        return set({ ...doc, grids: [...rest, ...all.map((a, k): Grid => {
+          const base: Grid = stepOf(a) ?? (k === 0 && whole ? { ...whole, arrow: a, typed: side(whole, "r") } : { arrow: a, typed: {}, roles: {} });
+          return { ...base, typed: { ...base.typed, ...(k === all.length - 1 && !stepOf(a) ? side(whole, "p") : {}) }, step: true };
+        })] }, true);
+      }
       // Copy table: the table as shown, as tab-separated text.
       if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow), c = v && conditionsOf(v); return v && copyPlain(gridTsv(v, CONDITIONS.filter(([k]) => c![k]).map(([k, name]) => [name, c![k]!]))); }
       // Conditions…: Temperature, Time, Atmosphere and Other, in a dialog.

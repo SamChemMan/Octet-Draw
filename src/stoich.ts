@@ -19,7 +19,8 @@ export type Typed = Partial<Record<Field, number>>;
 // given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
 // scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is). density: a
 // known liquid's listed density (liquids.ts), used when none is typed. role: a reactant's role; unset is a reactant.
-export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number; role?: GridRole };
+// carried: a reactant's moles from the step before (its Measured mass there), used when none of its amounts is typed.
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number; role?: GridRole; carried?: number };
 // conc: a solvent's, the concentration of the limiting reactant in all the solvents (mol/L).
 export type Solved = {
   mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number; conc?: number;
@@ -53,7 +54,7 @@ export function solve(components: Component[], limiting?: string, conc?: number)
     if (t.mass !== undefined && c.mw > 0) return (t.mass * purity) / c.mw;
     if (t.volume !== undefined && density !== undefined && c.mw > 0) return (t.volume * density * purity) / c.mw;
     if (t.volume !== undefined && t.molarity !== undefined) return (t.volume / 1000) * t.molarity;
-    return undefined;
+    return c.carried;
   };
   let limMoles = lim ? own(lim) : undefined;
   // With the limiting reactant's amount unknown, another reactant with an amount and equivalents fixes it.
