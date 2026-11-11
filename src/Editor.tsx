@@ -6165,7 +6165,8 @@ export default function Editor() {
   // its structure (liveValues), so no pointer move works them out. Never during a drag, a glide or typing. They go into
   // the change's own undo step (amend), so Undo never stops at them, and Space still picks what the change added.
   // A caption with a CAS row waits for the dictionary, so its number stays while the names engine loads. Its number is
-  // the dictionary's, else the PubChem answer this session has for the structure.
+  // the dictionary's, else the PubChem answer this session has for the structure. Its GHS hazards are the ones Find
+  // hazards found for the structure in this window.
   useEffect(() => {
     if (!loaded || gliding || drag || writing || !doc.captions?.some((c) => c.property?.attrs.rows)) return;
     const cas = doc.captions.some((c) => c.property?.attrs.rows?.split(" ").includes("cas"));
@@ -6174,7 +6175,8 @@ export default function Editor() {
       const next = liveValues(doc, (atoms, places) => {
         const part = subset(doc, new Set(atoms)), found = structures(part)?.filter((s): s is Structure => !!s);
         if (!found?.length) return undefined;
-        const values = propertyValues(found, calc, places), key = cas && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
+        const key = (cas || ghsFound.current.size > 0) && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
+        const values = propertyValues(found, calc, places, key ? [ghsFound.current.get(key)] : []);
         return key ? withCas(values, [dictionaryCas(key) ?? pubchemCas.get(key) ?? undefined]) : values;
       });
       if (next === doc) return;

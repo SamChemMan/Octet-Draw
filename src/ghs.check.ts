@@ -73,6 +73,8 @@ assert.match(editor, /onHazards=\{findHazards\}/);
 assert.match(panel, /\{online && <button className="prop-add" onClick=\{onHazards\}/);
 assert.match(editor, /online=\{settings\.onlineSearch\}\s+onHazards/);
 assert.match(editor, /settings\.onlineSearch && ghsKeys\?\.structures\[k\] === s/);
+// A live caption (Add to drawing) keeps the hazards found for its structure when its values are worked out again.
+assert.match(editor, /propertyValues\(found, calc, places, key \? \[ghsFound\.current\.get\(key\)\] : \[\]\)/);
 // The panel draws each structure's pictograms and statements from its own value, so a semicolon in a statement does
 // not split it as if it were the next structure's.
 assert.match(panel, /row\.key === "ghs" \? row\.values\.map[\s\S]*row\.key === "hazards" \? row\.values\.map/);
