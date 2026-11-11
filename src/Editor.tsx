@@ -5966,11 +5966,14 @@ export default function Editor() {
   // bold, worked-out ones plain, as ChemDraw's grid does. Hidden rows and columns are left out.
   // One grid for each reaction (an experiment page gives each new arrow one). On an experiment page every row shows.
   // While a part is being exported (a selection), its own grids, read from the part as it is drawn then.
+  // A reagent's name is read by one reader while Octet's names and the user's own stay the same, so it is read once
+  // (stoich.ts reagentFormula).
+  const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
     structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
-    reagent: (item) => reagentFormula(item, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
+    reagent: (item) => reagentFormula(item, readName, labelSmiles, smilesWeight),
     captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
     captionSize: style.captionSize, perPt: pt / L, experiment: expPage,

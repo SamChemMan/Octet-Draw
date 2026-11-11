@@ -1,7 +1,7 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, solve } from "./stoich.ts";
+import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { gridViews, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
@@ -155,6 +155,9 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(coefficient("0.5 H2"), ["H2", 0.5]);
   assert.deepEqual(coefficient("2"), ["", 2]);
   for (const t of ["1,4-dioxane", "2a", "H2"]) assert.deepEqual(coefficient(t), [t, undefined], t);
+  for (const t of ["1/2 O2", "½ O2", "1 / 2 O2"]) assert.deepEqual(coefficient(t), ["O2", 0.5], t);
+  assert.deepEqual(coefficient("¾"), ["", 0.75]);
+  assert.deepEqual(coefficient("1/0 O2"), ["O2", undefined], "no number");
   // A row: text and structures (atoms 0, 1, 2...), plus signs and one arrow (id 9); each structure is "S" and its atom.
   type Item = string | number | "+" | "→";
   const grid = (row: Item[], typed: object, limiting?: string, above: string[] = [], carried?: { atom: number; box: number[] }) => {
@@ -206,6 +209,9 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   near(side.at('r:"H2"').moles, 0.02, "H2 over the arrow");
   // A number a structure carries on its left (typed close to it) is its coefficient too.
   near(grid([0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1", [], { atom: 0, box: [-0.4, -0.2, -0.1, 0.2] }).at("r:S0").moles, 0.02, "a carried 2");
+  // A fraction is a coefficient too: ½ before a structure, 1/2 H2 in the row.
+  near(grid(["½", 0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1").at("r:S0").moles, 0.005, "½ A");
+  near(grid([0, "+", "1/2 H2", "→", 1], { "r:S0": { moles: 0.01 } }).at('r:"1/2 H2"').moles, 0.005, "1/2 H2");
   // A number with a plus sign after it is not a coefficient; with none written, nothing changes.
   assert.ok(grid(["2", "+", 0, "→", 1], {}).keys.includes('r:"2"'), "2 + A");
   assert.equal(grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 } }).at("r:S1").equiv, 1);
@@ -248,5 +254,33 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.match(editor, /\(gc\.row !== "expected" \|\| gc\.product\)/, "a product's Expected mass can be typed in");
   // One value sets the scale: a mass wanted clears the reactants' amounts and every other product's mass wanted.
   assert.match(editor, /filter\(\(\[fd\]\) => \(k\[0\] === "p" \? fd !== "mass" : !target \|\| !amount\(fd\)\)\)/, "one value sets the scale");
+}
+// Words and notes a reagent's name is read past: sat., dil., glacial, fuming, excess, xs, then, and a note in brackets
+// at the end. A formula's own brackets stay.
+for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl"], ["satd NH4Cl", "NH4Cl"], ["dil. HCl", "HCl"], ["glacial AcOH", "AcOH"], ["fuming HNO3", "HNO3"],
+  ["excess MeI", "MeI"], ["xs MeI", "MeI"], ["then HCl", "HCl"], ["nBuLi (2.5 M in hexanes)", "nBuLi"], ["acetic acid (glacial)", "acetic acid"], ["HCl (aq)", "HCl"],
+  ["Ca(OH)2", "Ca(OH)2"], ["Pd(PPh3)4 (5 mol%)", "Pd(PPh3)4"], ["Cu(OAc)2", "Cu(OAc)2"]]) assert.equal(reagentName(text), want, text);
+// Molybdenum, barium, scandium, cerium, bismuth and the other elements of reagents written as formulas.
+{
+  const none = () => undefined, weight = (t: string) => reagentFormula(t, none, none, none)?.weight;
+  near(weight("MoO3"), 95.95 + 3 * 15.999, "MoO3");
+  near(weight("Ba(OH)2"), 137.33 + 2 * 17.007, "Ba(OH)2");
+  near(weight("Sc(OTf)3"), 44.956 + 3 * (12.011 + 3 * 18.998 + 32.06 + 3 * 15.999), "Sc(OTf)3");
+  near(weight("CeCl3·7H2O"), 140.12 + 3 * 35.45 + 7 * 18.015, "CeCl3·7H2O");
+  near(weight("Bi(NO3)3"), 208.98 + 3 * (14.007 + 3 * 15.999), "Bi(NO3)3");
+}
+// Name to Structure takes a few ms a name, and the table is laid out again on every change: each name is read once
+// by a reader, and never for a word for how the reaction is run. Short names (D2O) and CAS numbers are read. The editor
+// gives one reader while Octet's names and the user's own stay the same.
+{
+  const asked: string[] = [], read = (t: string) => void asked.push(t), none = () => undefined;
+  const words = ["reflux", "rt", "r.t.", "overnight", "MW", "hν", "Δ", "then workup", "sonication"], names = ["Lindlar", "D2O", "7647-01-0"];
+  for (let k = 0; k < 3; k++) for (const t of [...words, ...names]) reagentFormula(t, read, none, none);
+  assert.deepEqual(asked, names);
+  reagentFormula("Lindlar", (t) => void asked.push(`again ${t}`), none, none);
+  assert.equal(asked.at(-1), "again Lindlar", "a new reader reads it again");
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const readName = useMemo\(\(\) => \(t: string\) => \(namesLoaded \? nameToSmiles\(t\) : undefined\), \[namesLoaded, settings\.dictionary\]\);/);
+  assert.match(editor, /reagent: \(item\) => reagentFormula\(item, readName, labelSmiles, smilesWeight\),/);
 }
 console.log("stoich.check: ok");

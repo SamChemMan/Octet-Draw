@@ -94,31 +94,39 @@ export function formatAmount(value: number | undefined, field: Field | "mw" | "y
   return `${sig(value / k)} ${unit}`;
 }
 
-// Standard atomic weights (IUPAC 2021, abridged), for reagents written as formulas (H2O, NaBH4).
+// Standard atomic weights (IUPAC 2021, abridged), for reagents written as formulas (H2O, NaBH4, Sc(OTf)3).
 const WEIGHT: Record<string, number> = {
   H: 1.008, Li: 6.94, B: 10.81, C: 12.011, N: 14.007, O: 15.999, F: 18.998, Na: 22.99, Mg: 24.305, Al: 26.982, Si: 28.085,
   P: 30.974, S: 32.06, Cl: 35.45, K: 39.098, Ca: 40.078, Ti: 47.867, Cr: 51.996, Mn: 54.938, Fe: 55.845, Co: 58.933,
   Ni: 58.693, Cu: 63.546, Zn: 65.38, Se: 78.971, Br: 79.904, Rb: 85.468, Ru: 101.07, Rh: 102.91, Pd: 106.42, Ag: 107.87,
   Sn: 118.71, I: 126.9, Cs: 132.91, Ir: 192.22, Pt: 195.08, Au: 196.97, Hg: 200.59, Pb: 207.2, Os: 190.23, W: 183.84,
+  Be: 9.0122, Sc: 44.956, V: 50.942, Ga: 69.723, Ge: 72.63, As: 74.922, Sr: 87.62, Y: 88.906, Zr: 91.224, Nb: 92.906,
+  Mo: 95.95, Cd: 112.41, In: 114.82, Sb: 121.76, Te: 127.6, Ba: 137.33, La: 138.91, Ce: 140.12, Sm: 150.36, Eu: 151.96,
+  Gd: 157.25, Yb: 173.05, Hf: 178.49, Ta: 180.95, Re: 186.21, Tl: 204.38, Bi: 208.98,
 };
 // A reagent as text over an arrow, as the reagent table reads it: without an amount before it ("1.2 equiv", "10 mol%",
-// "2 M"), a word for its form ("conc.", "aq.", "dry", "anhydrous", "cat."), or an amount or "cat." in brackets after
-// it, so "conc. H2SO4" and "Pd(PPh3)4 (5 mol%)" read as H2SO4 and Pd(PPh3)4.
+// "2 M"), a word for its form or use ("conc.", "aq.", "sat.", "dil.", "dry", "glacial", "fuming", "cat.", "excess",
+// "then"), or an amount, "cat." or a note in brackets after it, so "conc. H2SO4", "Pd(PPh3)4 (5 mol%)" and "nBuLi (2.5 M
+// in hexanes)" read as H2SO4, Pd(PPh3)4 and nBuLi. A formula's own brackets stay (Ca(OH)2).
 export function reagentName(text: string): string {
   let t = text.trim();
   for (let k = 0; k < 4; k++) {
     const was = t;
-    t = t.replace(/^\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|mol\s?%|M|N|mmol|mol|mg|g|mL|ml|µL|uL)\s+(?=\S)/i, "").replace(/^(?:conc\.?|concentrated|aq\.?|aqueous|dry|anhydrous|cat\.?|catalytic|fresh(?:ly distilled)?)\s+(?=\S)/i, "");
-    t = t.replace(/\s*\((?:\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|mol\s?%|M|N|mmol|mol|mg|g|mL|ml)|cat\.?|catalytic|conc\.?|aq\.?|excess|xs\.?)\)\s*$/i, "").trim();
+    t = t.replace(/^\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|mol\s?%|M|N|mmol|mol|mg|g|mL|ml|µL|uL)\s+(?=\S)/i, "").replace(/^(?:conc\.?|concd\.?|concentrated|aq\.?|aqueous|sat\.?|satd\.?|saturated|dil\.?|dilute|dry|anhydrous|abs\.?|absolute|glacial|fuming|neat|cat\.?|catalytic|excess|xs\.?|then|fresh(?:ly distilled)?)\s+(?=\S)/i, "");
+    t = t.replace(/\s*\((?:\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|mol\s?%|M|N|mmol|mol|mg|g|mL|ml)|cat\.?|catalytic|conc\.?|aq\.?|excess|xs\.?)\)\s*$|\s+\([^()]*\)$/i, "").trim();
     if (t === was) break;
   }
   return t;
 }
-// A number in front of a reagent's name ("2 HCl", "0.5 H2") or on its own ("2", before a structure in a scheme): the
-// text after it and the number, as a coefficient (issue 133). The text and undefined when there is none.
+// A number in front of a reagent's name ("2 HCl", "0.5 H2", "1/2 O2", "½ O2") or on its own ("2", before a structure
+// in a scheme): the text after it and the number, as a coefficient (issue 133). The text and undefined when there is
+// none.
+const FRACTIONS: Record<string, number> = { "½": 1 / 2, "⅓": 1 / 3, "⅔": 2 / 3, "¼": 1 / 4, "¾": 3 / 4 };
 export function coefficient(text: string): [string, number | undefined] {
-  const m = /^(\d+(?:\.\d+)?)(?:\s+(?=\S)|\s*$)/.exec(text);
-  return m ? [text.slice(m[0].length), Number(m[1]) || undefined] : [text, undefined];
+  const m = /^(?:(\d{1,3})\s*\/\s*(\d{1,3})|(\d+(?:\.\d+)?)|([½⅓⅔¼¾]))(?:\s+(?=\S)|\s*$)/.exec(text);
+  if (!m) return [text, undefined];
+  const v = m[4] ? FRACTIONS[m[4]] : m[1] ? Number(m[1]) / Number(m[2]) : Number(m[3]);
+  return [text.slice(m[0].length), v > 0 && v < Infinity ? v : undefined];
 }
 // The equivalents a reagent's text gives: "K2CO3 (2 eq.)", "1.5 equiv NaBH4", "Pd(PPh3)4 (5 mol%)". Undefined if none.
 export function reagentEquiv(text: string): number | undefined {
@@ -141,10 +149,12 @@ export function conditionItems(text: string): string[] {
 // The gas a reaction runs under (N2, Ar, air): not a reagent, so it has no column in the table.
 export const inert = (text: string) => /^(?:under\s+)?(?:N2|N₂|Ar|argon|nitrogen|He|helium|air)(?:\s*\(?(?:atm|balloon)\)?)?$/i.test(text.trim());
 // Groups a condensed formula is written with, as formulas, so "Pd(PPh3)4", "NH4OAc" and "Et3N" weigh what they are.
-const GROUPS: [RegExp, string][] = [
-  [/OAc/g, "(C2H3O2)"], [/OTf/g, "(CF3SO3)"], [/OTs/g, "(C7H7SO3)"], [/OMe/g, "(OCH3)"], [/OEt/g, "(OC2H5)"], [/tBu/g, "(C4H9)"], [/iPr/g, "(C3H7)"], [/nBu|Bu/g, "(C4H9)"],
-  [/Ph/g, "(C6H5)"], [/Bn/g, "(C7H7)"], [/Bz/g, "(C7H5O)"], [/Ts/g, "(C7H7SO2)"], [/Tf/g, "(CF3SO2)"], [/Cp/g, "(C5H5)"], [/Ac/g, "(C2H3O)"], [/Me/g, "(CH3)"], [/Et/g, "(C2H5)"], [/Pr/g, "(C3H7)"],
-];
+// One pass, longest first (OAc before Ac): the table is laid out again on every change.
+const GROUPS: Record<string, string> = {
+  OAc: "(C2H3O2)", OTf: "(CF3SO3)", OTs: "(C7H7SO3)", OMe: "(OCH3)", OEt: "(OC2H5)", tBu: "(C4H9)", iPr: "(C3H7)", nBu: "(C4H9)", Bu: "(C4H9)",
+  Ph: "(C6H5)", Bn: "(C7H7)", Bz: "(C7H5O)", Ts: "(C7H7SO2)", Tf: "(CF3SO2)", Cp: "(C5H5)", Ac: "(C2H3O)", Me: "(CH3)", Et: "(C2H5)", Pr: "(C3H7)",
+};
+const GROUP = new RegExp(Object.keys(GROUPS).join("|"), "g");
 // Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
 let abbreviated: Map<string, string> | undefined;
 const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
@@ -161,6 +171,19 @@ function charged(text: string): [string, string] {
   const [, base, gap, n, sign] = m, own = !gap && /^\d+$/.test(n) && !/^[A-Z][a-z]?$/.test(base) ? n.slice(0, n.length > 1 ? -1 : undefined) : "";
   return [base + own, [...n.slice(own.length) + sign].map((ch) => RAISED[ch] ?? ch).join("")];
 }
+// Words for how a reaction is run, never a reagent's name.
+const CONDITION_WORDS = /^(?:reflux|rt|r\.t\.|room temp(?:erature)?|overnight|o\/n|heat|heating|light|dark|stir|stirring|sonication|ultrasound|microwave|MW|hν|hv|Δ|then|workup|work-up|quench|filter|filtration)$/i;
+// What a reader (Name to Structure) made of each name. It takes a few ms a name, and the table is laid out again on
+// every change, so each name is read once. Kept for the last reader given: Editor.tsx gives a new one when Octet's
+// names load or the user's own names change. A word for how the reaction is run is never read. Short text is read
+// (D2O, CD3OD and HF·py are names): once read, it costs nothing.
+let reader: ((name: string) => string | undefined) | undefined, readings = new Map<string, string | undefined>();
+function readName(name: string, read: (name: string) => string | undefined): string | undefined {
+  if (CONDITION_WORDS.test(name)) return undefined;
+  if (read !== reader || readings.size >= 500) [reader, readings] = [read, new Map()];
+  if (!readings.has(name)) readings.set(name, read(name));
+  return readings.get(name);
+}
 // A reagent's formula and molar mass as the reagent table takes it (Editor.tsx gridViews): an acronym (NBS,
 // DMF, THF: capitals, no digits) as Octet's abbreviations or Name to Structure read it; else the formula as written,
 // its groups written out, with any charge (H+, OH−; its mass the formula's); else the abbreviations' or Name to
@@ -168,11 +191,11 @@ function charged(text: string): [string, string] {
 // hydride and water read as their formulas. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI
 // to its formula and weight. Undefined when none reads it.
 export function reagentFormula(text: string, read: (name: string) => string | undefined, label: (text: string) => string | undefined, weigh: (smiles: string) => { formula: string; weight: number } | undefined): { formula: string; weight: number } | undefined {
-  const said = coefficient(reagentName(text))[0], plain = WORDS.get(said.toLowerCase()) ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
+  const said = coefficient(reagentName(text))[0], plain = WORDS.get(said.toLowerCase()) ?? said, named = () => { const s = abbreviation(plain) ?? readName(plain, read); return s ? weigh(s) : undefined; };
   // A mixture (toluene/EtOH/H2O) is not one compound: it has no formula of its own.
   if (/[\w)]\s*\/\s*[\w(]/.test(plain)) return undefined;
   if (/^[A-Z]{2,6}$/.test(plain)) { const n = named(); if (n) return n; }
-  const [body, charge] = charged(plain), written = /^[A-Za-z0-9()[\]·.\s]+$/.test(body) ? GROUPS.reduce((t, [g, f]) => t.replace(g, f), body) : undefined, w = written ? formulaWeight(written) : undefined;
+  const [body, charge] = charged(plain), written = /^[A-Za-z0-9()[\]·.\s]+$/.test(body) ? body.replace(GROUP, (g) => GROUPS[g]) : undefined, w = written ? formulaWeight(written) : undefined;
   if (w !== undefined) return { formula: body.replace(/\s+/g, "") + charge, weight: w };
   const n = named();
   if (n) return n;
