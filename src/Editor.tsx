@@ -6,7 +6,7 @@ import {
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
-  File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
+  File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -121,7 +121,7 @@ import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
 import { Select } from "./Select";
-import { expandGeneric, layoutGrid, MOST } from "./expand";
+import { expandGeneric, layoutGrid, MOST, MOST_SDF } from "./expand";
 import { NoticeBar, type Notice } from "./NoticeBar";
 import { Exit, reduced, timing, tween } from "./motion";
 import { between, moving, squeezed } from "./glide";
@@ -1385,11 +1385,44 @@ export default function Editor() {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
-  // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
-  // in the system's file manager.
-  function saved(path: string) {
+  // A file written where the user chose (an export, or a save to a new place): its name (or `text`), and a button that
+  // shows it in the system's file manager.
+  function saved(path: string, text = `Saved ${fileName(path)}.`) {
     const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
-    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
+    setNotice(text, "done", reveal || undefined);
+  }
+  // Expand Generic Structure: every structure the selected generic structures (or all) stand for, in a new drawing.
+  // When there are more than MOST, the notice's Save as SDF… writes them all to a file. Expand Generic Structure to
+  // SDF… (sdf): up to MOST_SDF of them in an SD file, one record each, and the drawing stays as it is. The records are
+  // written MOST at a time, so the window stays live: the notice counts them, and its Cancel stops the work.
+  async function expandGenerics(sdf: boolean) {
+    const { mols, total } = expandGeneric(doc, selection.size ? [...selection] : doc.atoms.map((_, i) => i), sdf ? MOST_SDF : MOST);
+    if (!mols.length) return setNotice("This structure has nothing to expand. Use an R-group, an element list, an alternative group, a variable attachment or a wavy bond.", "info");
+    const n = (k: number) => k.toLocaleString("en-GB");
+    if (!sdf) return keepWork(() => {
+      const grid = layoutGrid(mols);
+      set(grid);
+      setFile({ saved: EMPTY });
+      if (total > MOST) setNotice(`Octet made the first ${MOST} of ${n(total)} structures.`, "info", { label: "Save as SDF…", run: () => void expandGenerics(true) });
+      const b = bounds(grid);
+      if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
+    });
+    const stop = { now: false }, records: string[] = [];
+    try {
+      for (const m of mols) {
+        if (records.length && records.length % MOST === 0) {
+          setNotice(`Octet expanded ${n(records.length)} of ${n(mols.length)} structures.`, "info", { label: "Cancel", run: () => { stop.now = true; } });
+          await new Promise((r) => setTimeout(r));
+          if (stop.now) return;
+        }
+        records.push(toSdf(m));
+      }
+      if (mols.length > MOST) setNotice();
+      const path = await exportFile({ name, format: "sdf", mdl: records.join("") });
+      if (path) saved(path, total > mols.length ? `Octet saved the first ${n(mols.length)} of ${n(total)} structures.` : undefined);
+    } catch (e) {
+      setNotice(failure("Octet cannot save these structures as SDF.", e));
+    }
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -2406,19 +2439,8 @@ export default function Editor() {
       set(m);
       setPicked(new Set([id]));
     },
-    // Expand Generic Structure: every structure the selected generic structures (or all) stand for, in a new drawing.
-    expand_generic: () => {
-      const { mols, total } = expandGeneric(doc, selection.size ? [...selection] : doc.atoms.map((_, i) => i));
-      if (!mols.length) return setNotice("This structure has nothing to expand. Use an R-group, an element list, an alternative group, a variable attachment or a wavy bond.", "info");
-      keepWork(() => {
-        const grid = layoutGrid(mols);
-        set(grid);
-        setFile({ saved: EMPTY });
-        if (total > MOST) setNotice(`Octet made the first ${MOST} of ${total.toLocaleString("en-GB")} structures.`, "info");
-        const b = bounds(grid);
-        if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
-      });
-    },
+    expand_generic: () => void expandGenerics(false),
+    expand_generic_sdf: () => void expandGenerics(true),
     // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i), true),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
@@ -6882,7 +6904,7 @@ export default function Editor() {
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <Asterisk size={18} />], add_variable: ["Add variable attachment", "", <AsteriskSimple size={18} />],
-    define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], expand_generic_sdf: ["Expand generic structure to SDF…", "", <Database size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
     clean_reaction_augmented: ["Augmented clean up reaction", "", <StarFour size={18} />],

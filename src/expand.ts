@@ -1,20 +1,21 @@
 // Expand Generic Structure (ChemDraw's Structure menu): every structure a generic (Markush) structure stands for.
 // Each site is enumerated, and every combination of sites makes one structure: an R label with an R-group definition
 // takes each of its fragments, an anonymous alternative group each alternative, an element list each element, a
-// variable attachment each of its atoms, and a wavy bond a wedge and a hash. At most MOST structures are made, as
-// ChemDraw's command makes at most 500.
+// variable attachment each of its atoms, and a wavy bond a wedge and a hash. At most MOST structures go on the page, as
+// ChemDraw's command makes at most 500. Expand Generic Structure to SDF… writes at most MOST_SDF to a file: ChemDraw
+// sets no limit there, but 10,000 records take Octet about 4 s to write.
 import { expandLabel, fragments, normalise, setLabel } from "./edit.ts";
 import { altGroup, elementList, rgroupMembers, rNumber } from "./query.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 
-export const MOST = 500;
+export const MOST = 500, MOST_SDF = 10000;
 type P = [number, number];
 // One site's choices, each a change to the structure.
 type Choice = (m: Mol) => Mol;
 
 // The structures that the generic structures among `atoms` stand for (the whole drawing's R-group definitions are
-// used), each laid out at the origin, and how many combinations there are in all.
-export function expandGeneric(drawing: Mol, atoms: number[]): { mols: Mol[]; total: number } {
+// used), each laid out at the origin (at most `most` of them), and how many combinations there are in all.
+export function expandGeneric(drawing: Mol, atoms: number[], most = MOST): { mols: Mol[]; total: number } {
   const frags = fragments(drawing), defs = rgroupMembers(drawing, frags);
   const members = new Set(defs.flatMap((d) => d.members.flat())), chosen = new Set(atoms);
   const scaffold = frags.filter((f) => f.some((i) => chosen.has(i)) && !f.some((i) => members.has(i)));
@@ -44,7 +45,7 @@ export function expandGeneric(drawing: Mol, atoms: number[]): { mols: Mol[]; tot
     total += count;
     // Every combination, the first site changing slowest.
     const pick = all.map(() => 0);
-    for (let n = 0; n < count && out.length < MOST; n++) {
+    for (let n = 0; n < count && out.length < most; n++) {
       let m = base;
       // Late sites remove atoms: they go from the highest atom down, so earlier numbers stay right.
       all.forEach((s, k) => { m = s[pick[k]](m); });
