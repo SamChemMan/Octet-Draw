@@ -1,0 +1,288 @@
+{
+  "source": {
+    "citation": "Zu et al., Direct enantioselective C(sp3)-H coupling of N-alkyl anilines via metallaphotoredox catalysis, Nature Chemistry",
+    "doi": "10.1038/s41557-025-02018-0",
+    "licence": "Exclusive licence to Springer Nature: structures and conditions only, written by us"
+  },
+  "jobs": [
+    {
+      "id": "zu2025-fig2a",
+      "kind": "S1",
+      "figure": "Fig. 2a",
+      "prompt": "Draw the model reaction of Fig. 2a from the attached paper: amine 1 and aryl bromide 2 giving the C-arylated product 3a and the N-arylated by-product 3b, with the standard conditions over and under the arrow. Use Ph, MeO and OMe labels as the paper does and show the stereocentre of 3a.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" }, { "text": "*c1ccc(Br)cc1", "labels": ["MeO"], "number": "2" }],
+        "steps": [
+          {
+            "catalysts": ["10% NiBr2·glyme", "13% (R)-L", "13% PC4"],
+            "reagents": ["3.0 equiv. K3PO4"],
+            "solvents": ["DME"],
+            "temperature": "−10 °C",
+            "time": "36 h",
+            "below": ["390-nm LEDs (40 W)"],
+            "yield": "82%, 95% e.e.",
+            "products": [
+              { "text": "*c1ccc(cc1)[C@H](CCC*)N*", "labels": ["OMe", "Ph", "Ph"], "number": "3a" },
+              { "text": "*c1ccc(cc1)N(*)CCCC*", "labels": ["OMe", "Ph", "Ph"], "number": "3b" }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "1": "c1ccccc1NCCCCc1ccccc1",
+          "2": "COc1ccc(Br)cc1",
+          "3a": "COc1ccc(cc1)[C@H](CCCc1ccccc1)Nc1ccccc1",
+          "3b": "COc1ccc(cc1)N(CCCCc1ccccc1)c1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig2b",
+      "kind": "F1",
+      "figure": "Fig. 2b",
+      "prompt": "Draw the four ketone photocatalysts of Fig. 2b in a row, PC1 to PC4, each with its number and under it the yield and e.e. of 3a it gave.",
+      "tool": "draw_figure",
+      "arguments": {
+        "panels": [
+          {
+            "rows": [
+              [
+                { "structure": "benzophenone", "number": "PC1", "caption": "23% yield, 95% e.e." },
+                { "structure": "2-methylbenzophenone", "number": "PC2", "caption": "34% yield, 95% e.e." },
+                { "structure": "*c1cc(*)cc(*)c1C(=O)c1ccccc1", "labels": ["Me", "Me", "Me"], "number": "PC3", "caption": "76% yield, 94% e.e." },
+                { "structure": "*c1cc(*)cc(*)c1C(=O)c1ccccc1", "labels": ["iPr", "iPr", "iPr"], "number": "PC4", "caption": "82% yield, 95% e.e." }
+              ]
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "PC1": "O=C(c1ccccc1)c1ccccc1",
+          "PC2": "Cc1ccccc1C(=O)c1ccccc1",
+          "PC3": "Cc1cc(C)cc(C)c1C(=O)c1ccccc1",
+          "PC4": "CC(C)c1cc(C(C)C)cc(C(C)C)c1C(=O)c1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig2c",
+      "kind": "F9",
+      "figure": "Fig. 2c",
+      "prompt": "Draw the chiral bis(imidazoline) ligand (R)-L of Fig. 2c, with tBu and nPr as labels and both stereocentres shown.",
+      "tool": "draw_structures",
+      "arguments": {
+        "structures": [
+          {
+            "text": "*C(*)[C@@H]1CN(c2cccc(*)c2)C(=N1)C1=N[C@@H](CN1c1cccc(*)c1)C(*)*",
+            "labels": ["nPr", "nPr", "tBu", "tBu", "nPr", "nPr"],
+            "number": "(R)-L"
+          }
+        ]
+      },
+      "expect": { "smiles": { "(R)-L": "CCCC(CCC)[C@@H]1CN(c2cccc(c2)C(C)(C)C)C(=N1)C1=N[C@@H](CN1c1cccc(c1)C(C)(C)C)C(CCC)CCC" } }
+    },
+    {
+      "id": "zu2025-table1",
+      "kind": "F4",
+      "figure": "Table 1",
+      "prompt": "Draw the first part of the amine scope of Table 1 (acyclic and cyclic anilines, products 4 to 20) as a numbered grid, with NHBoc, Ph and the other groups as labels as the paper has them, and each stereocentre shown.",
+      "tool": "draw_structures",
+      "arguments": {
+        "structures": [
+          { "text": "*c1ccc(cc1)[C@H](C)N*", "labels": ["NHBoc", "Ph"], "number": "4" },
+          { "text": "*c1ccc(cc1)[C@H](CCC)N*", "labels": ["NHBoc", "Ph"], "number": "5" },
+          { "text": "*c1ccc(cc1)[C@H](*)N*", "labels": ["NHBoc", "C11H23", "Ph"], "number": "6" },
+          { "text": "*c1ccc(cc1)[C@H](*)N*", "labels": ["NHBoc", "Cy", "Ph"], "number": "7" },
+          { "text": "*c1ccc(cc1)[C@H](CC(*)*)N*", "labels": ["NHBoc", "Ph", "Ph", "Ph"], "number": "8" },
+          { "text": "*c1ccc(cc1)[C@H](CC*)N*", "labels": ["NHBoc", "CF3", "Ph"], "number": "9" },
+          { "text": "*c1ccc(cc1)[C@H](C*)N*", "labels": ["NHBoc", "CN", "Ph"], "number": "10" },
+          { "text": "*c1ccc(cc1)[C@H](CC(=O)*)N*", "labels": ["NHBoc", "OMe", "Ph"], "number": "11" },
+          { "text": "*c1ccc(cc1)[C@H](CCC)Nc1ccccc1*", "labels": ["NHBoc", "iPr"], "number": "12" },
+          { "text": "*c1ccc(cc1)[C@H](CCC)Nc1cccc(*)c1", "labels": ["NHBoc", "OMe"], "number": "13" },
+          { "text": "*c1ccc(cc1)[C@H](CCC)Nc1ccc(*)cc1", "labels": ["NHBoc", "CO2Et"], "number": "14" },
+          { "text": "*c1ccc(cc1)[C@H](CCC)Nc1ccccc1*", "labels": ["CO2Me", "OMe"], "number": "15" },
+          { "text": "c1ccccc1[C@@H]1CCCN1*", "labels": ["Ph"], "number": "16" },
+          { "text": "*c1ccc(cc1)[C@@H]1CCCN1*", "labels": ["NHBoc", "Ph"], "number": "17" },
+          { "text": "*c1ccc(cc1)[C@@H]1CCCN1*", "labels": ["CO2Me", "Ph"], "number": "18" },
+          { "text": "*c1ccc(cc1)[C@@H]1CCCCN1*", "labels": ["NHBoc", "Ph"], "number": "19" },
+          { "text": "*c1ccc(cc1)[C@@H]1CCCCCN1*", "labels": ["NHBoc", "Ph"], "number": "20" }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "4": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](C)Nc1ccccc1",
+          "5": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCC)Nc1ccccc1",
+          "6": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCCCCCCCCCC)Nc1ccccc1",
+          "7": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](C1CCCCC1)Nc1ccccc1",
+          "8": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CC(c1ccccc1)c1ccccc1)Nc1ccccc1",
+          "9": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCC(F)(F)F)Nc1ccccc1",
+          "10": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CC#N)Nc1ccccc1",
+          "11": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CC(=O)OC)Nc1ccccc1",
+          "12": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCC)Nc1ccccc1C(C)C",
+          "13": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCC)Nc1cccc(OC)c1",
+          "14": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@H](CCC)Nc1ccc(cc1)C(=O)OCC",
+          "15": "COC(=O)c1ccc(cc1)[C@H](CCC)Nc1ccccc1OC",
+          "16": "c1ccccc1[C@@H]1CCCN1c1ccccc1",
+          "17": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@@H]1CCCN1c1ccccc1",
+          "18": "COC(=O)c1ccc(cc1)[C@@H]1CCCN1c1ccccc1",
+          "19": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@@H]1CCCCN1c1ccccc1",
+          "20": "CC(C)(C)OC(=O)Nc1ccc(cc1)[C@@H]1CCCCCN1c1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig3a",
+      "kind": "S9",
+      "figure": "Fig. 3a",
+      "prompt": "Draw the two-step route of Fig. 3a to the glucagon receptor antagonist 81: amine 79 and the aryl bromide, with the arylation and then the ester hydrolysis as steps 1 and 2 over one arrow, and the yield and e.e. under it.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "CC(C)CNc1ccc(cc1)C(=O)NCCC(=O)OC", "number": "79" }, { "text": "2-(4-bromophenyl)-5-phenyl-1,3,4-oxadiazole" }],
+        "steps": [
+          {
+            "above": ["1. NiBr2·glyme, (R)-L, PC4, 390-nm LEDs", "2. LiOH"],
+            "yield": "63% over 2 steps, 85% e.e.",
+            "products": [{ "text": "CC(C)[C@H](Nc1ccc(cc1)C(=O)NCCC(=O)O)c1ccc(cc1)-c1nnc(o1)-c1ccccc1", "number": "81" }]
+          }
+        ]
+      },
+      "expect": { "smiles": { "79": "CC(C)CNc1ccc(cc1)C(=O)NCCC(=O)OC", "81": "CC(C)[C@H](Nc1ccc(cc1)C(=O)NCCC(=O)O)c1ccc(cc1)-c1nnc(o1)-c1ccccc1" } }
+    },
+    {
+      "id": "zu2025-fig3b",
+      "kind": "S20",
+      "figure": "Fig. 3b",
+      "prompt": "Draw the arylation of Fig. 3b: amine 84 and 4-bromo-4'-chlorobiphenyl giving drug molecule 85, with both stereocentres of 85 shown, CO2Et as a label, and the yield and d.r. under the arrow.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "*[C@@H]1CCCN(C1)C(=O)c1ccc(NCC2CCCCC2)cc1", "labels": ["CO2Et"], "number": "84" },
+          { "text": "4-bromo-4'-chlorobiphenyl" }
+        ],
+        "steps": [
+          {
+            "above": ["NiBr2·glyme, (R)-L1, PC4"],
+            "below": ["390-nm LEDs"],
+            "yield": "73%, 98:2 d.r.",
+            "products": [{ "text": "*[C@@H]1CCCN(C1)C(=O)c1ccc(N[C@@H](C2CCCCC2)c2ccc(cc2)-c2ccc(Cl)cc2)cc1", "labels": ["CO2Et"], "number": "85" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "84": "CCOC(=O)[C@@H]1CCCN(C1)C(=O)c1ccc(NCC2CCCCC2)cc1",
+          "85": "CCOC(=O)[C@@H]1CCCN(C1)C(=O)c1ccc(N[C@@H](C2CCCCC2)c2ccc(cc2)-c2ccc(Cl)cc2)cc1"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig3c",
+      "kind": "S1",
+      "figure": "Fig. 3c",
+      "prompt": "Draw the one-step synthesis of drug molecule 88 in Fig. 3c: amine 87 and the aryl bromide by name, the product with its stereocentre shown and CO2Me as a label, and the yield and e.e. under the arrow.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "4'-(tert-butyl)-N-isopentyl-[1,1'-biphenyl]-4-amine", "number": "87" },
+          { "text": "methyl 3-(4-bromobenzamido)propanoate" }
+        ],
+        "steps": [
+          {
+            "above": ["NiBr2·glyme, (R)-L, PC4"],
+            "below": ["390-nm LEDs"],
+            "yield": "69%, 96% e.e.",
+            "products": [{ "text": "CC(C)C[C@H](Nc1ccc(cc1)-c1ccc(cc1)C(C)(C)C)c1ccc(cc1)C(=O)NCC*", "labels": ["CO2Me"], "number": "88" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": { "87": "CC(C)CCNc1ccc(cc1)-c1ccc(cc1)C(C)(C)C", "88": "CC(C)C[C@H](Nc1ccc(cc1)-c1ccc(cc1)C(C)(C)C)c1ccc(cc1)C(=O)NCCC(=O)OC" }
+      }
+    },
+    {
+      "id": "zu2025-fig4a",
+      "kind": "S11",
+      "figure": "Fig. 4a",
+      "prompt": "Draw the radical trapping experiment of Fig. 4a (top): amine 1 and methyl 4-bromobenzoate, with the added olefin drawn as a structure over the arrow, giving the trapped adduct 113 and the arylation product 50.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" }, { "text": "*c1ccc(Br)cc1", "labels": ["CO2Me"] }],
+        "steps": [
+          {
+            "above": ["structure:(3,3,3-trifluoroprop-1-en-2-yl)benzene", "1.0 equiv. olefin added"],
+            "below": ["optimized conditions"],
+            "yield": "113: 52%, racemic; 50: 10%, 86% e.e.",
+            "products": [
+              { "text": "FC(F)=C(CC(CCC*)N*)*", "labels": ["Ph", "Ph", "Ph"], "number": "113" },
+              { "text": "*c1ccc(cc1)[C@H](CCC*)N*", "labels": ["CO2Me", "Ph", "Ph"], "number": "50" }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "1": "c1ccccc1NCCCCc1ccccc1",
+          "50": "COC(=O)c1ccc(cc1)[C@H](CCCc1ccccc1)Nc1ccccc1",
+          "113": "FC(F)=C(CC(CCCc1ccccc1)Nc1ccccc1)c1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig4b",
+      "kind": "S18",
+      "figure": "Fig. 4b",
+      "prompt": "Draw the stoichiometric experiment of Fig. 4b: amine 1 and the nickel(II) aryl bromide complex C (drawn in full, with tBu and nPr as labels) giving product 46, with the conditions over and under the arrow.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" },
+          {
+            "text": "*C(*)[C@@H]1CN(c2cccc(*)c2)C3=[N]1[Ni](Br)(c1ccc(cc1)C(=O)NC)[N]1=C3N(C[C@H]1C(*)*)c1cccc(*)c1",
+            "labels": ["nPr", "nPr", "tBu", "nPr", "nPr", "tBu"],
+            "number": "C"
+          }
+        ],
+        "steps": [
+          {
+            "above": ["1.0 equiv. PC4", "3.0 equiv. K3PO4"],
+            "below": ["DME, −10 °C, 12 h", "390-nm LEDs (40 W)"],
+            "yield": "31%, 90% e.e.",
+            "products": [{ "text": "*c1ccc(cc1)[C@H](CCC*)N*", "labels": ["CONHMe", "Ph", "Ph"], "number": "46" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "1": "c1ccccc1NCCCCc1ccccc1",
+          "46": "CNC(=O)c1ccc(cc1)[C@H](CCCc1ccccc1)Nc1ccccc1",
+          "C": "CCCC(CCC)[C@@H]1CN(c2cccc(c2)C(C)(C)C)C3=[N]1[Ni](Br)(c1ccc(cc1)C(=O)NC)[N]1=C3N(C[C@H]1C(CCC)CCC)c1cccc(c1)C(C)(C)C"
+        }
+      }
+    },
+    {
+      "id": "zu2025-fig4d",
+      "kind": "S13",
+      "figure": "Fig. 4d",
+      "prompt": "Draw the nickel cycle of the proposed mechanism in Fig. 4d: intermediates A to D with L, Ar and Alkyl as labels, the step names inside, and what comes in and goes out at each step.",
+      "tool": "draw_cycle",
+      "arguments": {
+        "intermediates": [
+          { "text": "*[Ni]Br", "labels": ["L"], "number": "A" },
+          { "text": "*[Ni](Br)(Br)*", "labels": ["L", "Ar"], "number": "B" },
+          { "text": "*[Ni](Br)*", "labels": ["L", "Ar"], "number": "C" },
+          { "text": "*[Ni](Br)(*)C(*)N*", "labels": ["L", "Ar", "Alkyl", "Ph"], "number": "D" }
+        ],
+        "steps": [
+          { "step": 0, "in": "ArBr", "name": "Oxidative\naddition" },
+          { "step": 1, "in": "PC•−", "out": "PC + Br−", "name": "SET" },
+          { "step": 2, "in": "PhNHCH(•)Alkyl", "name": "Radical\nmetallation" },
+          { "step": 3, "out": "PhNHCH(Ar)Alkyl", "name": "Reductive\nelimination" }
+        ]
+      },
+      "expect": { "smiles": {  } }
+    }
+  ]
+}
