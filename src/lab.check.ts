@@ -68,6 +68,17 @@ for (const t of lab.items) {
   // Its icon draws some of its lines (never a fill), and a detailed item leaves its fine parts out.
   assert.ok(t.icon.length && t.icon.every((id) => t.arrows.some((a) => a.id === id && !a.fill)), t.name);
   if (["Light bulb", "LED", "Reflux condenser"].includes(t.name)) assert.ok(t.icon.length < t.arrows.filter((a) => !a.fill).length, t.name);
+  // Where two lines end at one point and no third does, they run on there as one line (the two halves of a drawing of
+  // one line), so the join is smooth. Any other two lines that meet end to end are drawn as one, turning at the join.
+  const ends = t.arrows.filter((a) => !a.fill && !a.curve?.closed).flatMap((a) => {
+    const ps = a.curve?.points ?? [{ at: a.from }, { at: a.to }], f = ps[0], l = ps[ps.length - 1], fine = !t.icon.includes(a.id);
+    const out = (p: [number, number], q: [number, number]) => { const n = Math.hypot(p[0] - q[0], p[1] - q[1]); return [(p[0] - q[0]) / n, (p[1] - q[1]) / n]; };
+    return [{ fine, at: f.at, out: out(f.at, f.c2 ?? ps[1].at) }, { fine, at: l.at, out: out(l.at, l.c1 ?? ps[ps.length - 2].at) }];
+  });
+  if (!all.items.slice(0, 16).includes(t)) for (const e of ends) { // not the 16 Lab items 1.1 shipped, which stay as they were
+    const [p, q, more] = ends.filter((x) => near(x.at[0], e.at[0], 1e-6) && near(x.at[1], e.at[1], 1e-6));
+    if (q && !more && p.fine === q.fine) assert.ok(t.arrows.length === 2 && p.out[0] * q.out[0] + p.out[1] * q.out[1] < -0.999, `${t.name}: two lines meet at ${e.at}`);
+  }
 
   // Placed at a point, its middle is there, with new ids in a new group.
   const placed = addTemplate(addRing(EMPTY, 6, false, { point: [-6, 0] }), mol, { point: [10, 5] });
