@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, BracketsCurly,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -67,6 +67,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
+import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { formatAmount, parseAmount, reagentFormula, type Field } from "./stoich";
@@ -1385,11 +1386,23 @@ export default function Editor() {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
-  // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
-  // in the system's file manager.
-  function saved(path: string) {
+  // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code (chemfig.ts) in a
+  // .tex file. chemfig draws structures only, so the notice says when the rest was left out.
+  async function exportChemfig() {
+    const part = selectedPart() ?? doc, tex = toChemfig(part, frame, measure);
+    if (!tex) return setNotice("There is nothing to export.", "info");
+    try {
+      const path = await exportFile({ name, format: "tex", tex });
+      if (path) saved(path, part.captions?.length || part.arrows?.length || part.shapes?.length ? " The file has only the structures." : "");
+    } catch (e) {
+      setNotice(failure("Octet cannot export this drawing.", e));
+    }
+  }
+  // A file written where the user chose (an export, or a save to a new place): its name (and `more`, what else to say),
+  // and a button that shows it in the system's file manager.
+  function saved(path: string, more = "") {
     const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
-    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
+    setNotice(`Saved ${fileName(path)}.${more}`, "done", reveal || undefined);
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -2175,7 +2188,9 @@ export default function Editor() {
   // File > More Formats (Settings > Pro > More formats): the rare formats, one line each. A line is the command's id
   // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
   // The menu, the palette and Settings' shortcuts take each format from here.
-  const moreFormats: [string, string, React.ReactNode, () => void][] = [];
+  const moreFormats: [string, string, React.ReactNode, () => void][] = [
+    ["more_chemfig", "Export LaTeX (chemfig)…", <BracketsCurly size={18} />, () => checkFirst(() => void exportChemfig())],
+  ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
