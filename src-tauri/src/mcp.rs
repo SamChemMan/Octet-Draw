@@ -82,6 +82,7 @@ pub fn closed(app: &AppHandle, label: &str) {
     mcp.shared.heard.lock().unwrap().remove(label);
     mcp.shared.pending.lock().unwrap().retain(|_, p| {
         if p.window == label {
+            p.unask();
             let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The drawing closed before the call finished.")));
         }
         p.window != label
@@ -108,6 +109,15 @@ struct Pending {
 // An elicitation/create the page waits on: its JSON-RPC id, the fields its form asks for, and where the answer goes
 // (None: an answer that is not one). Dropped (the call ended, or was cancelled), it ends the wait at once.
 struct Asking(serde_json::Value, Vec<String>, mpsc::Sender<Option<String>>);
+impl Pending {
+    // Octet stops waiting for the user's answer with none (its time is up, Stop, a cancel, the call ends): it cancels
+    // its elicitation/create on the call's stream, so the AI app closes the form (MCP, Cancellation).
+    fn unask(&mut self) {
+        if let Some(Asking(rid, ..)) = self.asked.take() {
+            let _ = self.tx.send(Msg::Progress(serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": rid, "reason": "Octet stopped waiting for the answer." } }).to_string()));
+        }
+    }
+}
 enum Msg {
     Progress(String), // a notifications/progress message, as JSON
     Ask(String),      // an elicitation/create request, as JSON
@@ -289,6 +299,7 @@ pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String, listener: u3
     if was.is_some_and(|w| w != page) {
         mcp.shared.pending.lock().unwrap().retain(|_, p| {
             if p.window == label {
+                p.unask();
                 let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The Octet window started again. Try again.")));
             }
             p.window != label
@@ -304,7 +315,8 @@ pub fn mcp_reply(mcp: State<'_, Mcp>, id: u64, body: String) -> Result<(), Strin
     // With no window, the reply goes to the program that started Octet, or to a file (--convert): a drawing as large as
     // Save writes, twice (the text, and the same in structuredContent), in base64.
     let most = if crate::windows::HEADLESS.load(Ordering::Relaxed) { 4 * crate::MAX_BYTES as usize } else { MAX_REPLY };
-    if let Some(p) = mcp.shared.pending.lock().unwrap().remove(&id) {
+    if let Some(mut p) = mcp.shared.pending.lock().unwrap().remove(&id) {
+        p.unask();
         let _ = p.tx.send(Msg::Done(if body.len() > most { error_reply(Some(&p.rid), -32603, "The reply is too large.") } else { body }));
     }
     Ok(())
@@ -350,7 +362,7 @@ fn ask(shared: &Shared, id: u64, body: &str, wait: Duration) -> Result<String, S
     }
     let got = rx.recv_timeout(wait);
     if let Some(p) = shared.pending.lock().unwrap().get_mut(&id) {
-        p.asked = None;
+        p.unask();
     }
     got.ok().flatten().ok_or_else(|| NONE.into())
 }
@@ -696,7 +708,7 @@ fn cancel(shared: &Shared, message: &serde_json::Value, sid: Option<&str>) {
         let want = message.pointer("/params/requestId");
         if let Some(p) = shared.pending.lock().unwrap().values_mut().find(|p| p.session.as_deref() == sid && Some(&p.rid) == want) {
             p.cancelled = true;
-            p.asked = None; // a question the page waits on ends now
+            p.unask(); // a question the page waits on ends now
         }
     }
 }
@@ -1532,26 +1544,47 @@ mod tests {
 
     #[test]
     fn a_question_ends_when_its_time_is_up_or_its_call_is_cancelled() {
+        // Each time, Octet cancels its question on the call's stream, so the AI app closes the form.
+        let closed = |rx: &mpsc::Receiver<Msg>, rid: &serde_json::Value| match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Msg::Progress(n)) => {
+                let n: serde_json::Value = serde_json::from_str(&n).unwrap();
+                assert_eq!((n["method"].as_str(), &n["params"]["requestId"]), (Some("notifications/cancelled"), rid));
+            }
+            _ => panic!("the question was not cancelled"),
+        };
         let shared = Arc::new(Shared::default());
-        let _rx = waiting(&shared, true);
+        let rx = waiting(&shared, true);
         let t = Instant::now();
         assert!(ask(&shared, 5, FORM, Duration::from_millis(50)).is_err() && t.elapsed() < Duration::from_secs(5));
         assert!(shared.pending.lock().unwrap()[&5].asked.is_none(), "it can ask again");
+        let (rid, _) = question(&rx);
+        closed(&rx, &rid);
         // notifications/cancelled ends the wait at once, long before its time is up.
         let rx = waiting(&shared, true);
         let s2 = shared.clone();
         let asking = std::thread::spawn(move || { let t = Instant::now(); (ask(&s2, 5, FORM, Duration::from_secs(60)), t.elapsed()) });
-        question(&rx);
+        let (rid, _) = question(&rx);
         cancel(&shared, &serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 9 } }), Some("s"));
         let (got, took) = asking.join().unwrap();
         assert!(got.is_err() && took < Duration::from_secs(5), "{took:?}");
+        closed(&rx, &rid);
         // So does the end of the call (the page answered, Stop): its Pending goes.
         let rx = waiting(&shared, true);
         let s2 = shared.clone();
         let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(60)));
-        question(&rx);
-        shared.pending.lock().unwrap().remove(&5);
+        let (rid, _) = question(&rx);
+        shared.pending.lock().unwrap().remove(&5).unwrap().unask();
         assert!(asking.join().unwrap().is_err());
+        closed(&rx, &rid);
+        // An answer that came cancels nothing.
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(60)));
+        let (rid, _) = question(&rx);
+        answered(&shared, &reply_to(&rid, serde_json::json!({ "action": "decline" })), Some("s"));
+        assert!(asking.join().unwrap().is_ok());
+        shared.pending.lock().unwrap().remove(&5).unwrap().unask();
+        assert!(rx.try_recv().is_err());
     }
 
     // The relay (Claude Desktop) carries the question out on standard output and the AI app's answer back to Octet.

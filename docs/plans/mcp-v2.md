@@ -205,23 +205,32 @@ preset on its own.
 - `docs/decisions/0021-mcp.md` and `docs/plans/mcp.md` section 8 change to say so.
 - **As built (step 7, 11 November 2026, branch `mcp/elicit`).** Read against MCP 2025-11-25 (Elicitation), the newest
   version in `VERSIONS`. An AI app takes elicitation when its initialize gives `capabilities.elicitation` as `{}` or
-  with `form` (url mode alone does not count): `elicits` in `mcp.rs`, kept on its `Session`, and `elicits` in
-  `src/mcp.ts` for the instructions.
+  with `form` (url mode alone does not count): `elicits` in `mcp.rs`, kept on its `Session` and sent with each
+  request, initialize too, as `From.elicit`. The page reads only that, for the instructions as for the form.
   - **Where a call would get the refusal** (a scheme with no brief, `needsBrief`), and for `set_brief` with no
     destination, Octet asks with `elicitation/create` (`ASK_BRIEF`): "Where is this drawing going, and in what
-    style?", with destination (one choice, titled: Quick look, no page; Paper; Thesis; Slides; Poster; Notebook, the
-    only field required), journal_or_size ("JACS, 2 columns", "A4", "85 x 60 mm"), emphasis and layout, all text. A
-    tool call's own arguments are checked first, so a wrong call asks nothing.
-  - **accept:** the answers are made into one line ("paper, JACS, 2 columns emphasis: ...") and read by `briefOf`, as
-    draw's brief is, then the call goes on as if it had that brief: set first in the same undo step, said in the first
+    style?", with destination (one choice, named Quick look, no page; Paper; Thesis; Slides; Poster; Notebook, the
+    only field required), journal_or_size ("JACS, 2 columns", "A4", "85 x 60 mm"), emphasis and layout, all text. The
+    choice is `enum` with `enumNames`: 2025-06-18 takes no other choice with names, and 2025-11-25 still takes it
+    (as legacy). The page does not know which version the AI app agreed, so it sends the form both take. A tool
+    call's own arguments are checked first, so a wrong call asks nothing; `set_brief`'s are checked with a stand-in
+    destination.
+  - **accept:** the destination and journal_or_size are made into one line ("paper, JACS, 2 columns") and read by
+    `briefOf`, as draw's brief is; emphasis and layout are kept as the user typed them, so text in one field never
+    reads as another field. The call then goes on as if it had that brief: set first in the same undo step, said in the first
     line of the reply, kept for the session when the call does its work. The reply is the one the call gives with that
     brief (a check proves it). `set_brief` takes the answers as its arguments; what it was given wins.
   - **decline:** the user has no preference, so the brief is quick.
-  - **cancel, no answer in 5 minutes, or an answer that is not one** (no destination Octet can read, an action not of
-    the three): the call ends with "Octet changed nothing. The user closed Octet's questions without answering. Ask
+  - **cancel, no answer in 5 minutes, or an answer that is not one** (a destination not one of the six, an action not
+    of the three): the call ends with "Octet changed nothing. The user closed Octet's questions without answering. Ask
     them in the chat, then call again with brief:" and the three questions. Nothing is kept: the old path still works.
+    A journal Octet has no preset for gets draw's own refusal for it, which says to ask the user.
   - **Stop and cancel:** Stop in Octet's window, or notifications/cancelled, ends the wait at once, and the call is
-    cancelled as any call is. While it waits, Octet's notice says "Waiting for your answer in" the AI app's name.
+    cancelled as any call is. While it waits, Octet's notice shows, with Stop, and says "Waiting for your answer in"
+    the AI app's name.
+  - **The wait is outside the page's queue:** a call from such an AI app takes its turn in the queue only once it has
+    the brief, so while the user fills in the form every other request to the window (other sessions, reads) goes on.
+    A call from an AI app without elicitation is queued as before.
   - **The instructions** for such an AI app have one line changed: the bullet with the three questions becomes "For a
     scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis
     itself when it needs to. Give brief only for answers the user has already given in the chat." (`instructionsFor`,
@@ -870,7 +879,8 @@ Test it with a small client in `scripts/` that answers elicitation, as `mcp-eval
   and only the form's own fields that are text or a number. Anything else is no answer.
 - **The wait ends at once** when the call ends (its `Pending` goes: the page answered, Stop, the window closed),
   when notifications/cancelled names it, or when the answer is not one; else after `ASK`. The page reads each as no
-  answer.
+  answer. Each time it ends with no answer (all but the last), Octet sends notifications/cancelled for its own
+  `octet-ask-N` on the call's stream before the reply (`Pending::unask`), so the AI app closes its form.
 - **`--headless --mcp`:** the question goes out as a line, and the answer comes in as a line (`stdio`).
 - **The relay (`--mcp`, Claude Desktop):** the question comes on the call's stream and goes out as a line; the answer
   line goes to Octet as a POST, as a notification does. An AI app that takes elicitation has its calls wait `ASK` more
