@@ -5830,6 +5830,24 @@ button.variant.add {
 .home-carry .home-thumb {
   box-shadow: var(--shadow-float);
 }
+/* The selection box dragged from Home's background (Home.tsx): the Select tool's box (.box), over the page (a
+   folder's front too), in Octet's blue always, as Home's selected drawings are. */
+.home-box {
+  position: fixed;
+  z-index: 5;
+  overflow: visible;
+  pointer-events: none;
+  --select: var(--brand-bright);
+  --select-tint: var(--selection);
+}
+/* Remove N, beside the drawings while some are selected: it fades in, and out a little faster. */
+.home-remove-picked {
+  animation: fade-in var(--motion) var(--ease-out);
+}
+.home-remove-picked.leaving {
+  pointer-events: none;
+  animation: fade-out var(--motion-fast) var(--ease-out) forwards;
+}
 /* How many drawings a drag carries, when it is more than one. */
 .home-carry-count {
   position: absolute;
@@ -6052,6 +6070,7 @@ button.variant.add {
 @media (prefers-reduced-motion: reduce) {
   .home-view:not(.home-arrive),
   .home-carry,
+  .home-remove-picked,
   .home-section.unfolding > .home-body {
     animation: none;
   }
