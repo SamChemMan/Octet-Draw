@@ -6,7 +6,7 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
+import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
 import { change, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
@@ -77,6 +77,8 @@ export type Host = {
   export: (format: string) => boolean; // Octet's Export dialog, on this format
   dialog: (command: string) => boolean; // the command opens a dialog or a box to type in (run_command says so, or refuses it with no window)
   windowless: () => boolean; // Octet with no window (--headless, --convert): no one is there to finish a dialog
+  asking: () => boolean; // a dialog or a box to type in is open
+  dismiss: () => void; // closes it, as Escape does
   window: () => { id: string; name: string }; // the drawing (its window) this call acts on
   windows: () => Promise<{ id: string; name: string; edited: boolean }[]>; // Octet's drawings, Home's first
   target: (session: string | undefined, drawing: string) => Promise<boolean>; // the session's calls go to that drawing
@@ -1760,7 +1762,9 @@ async function getFile(host: Host, a: { format: FileFormat; ids?: string[] } & F
     part = extractSelection(m, atoms, items);
   }
   const { format: _, ids: __, ...o } = a, text = await host.fileText(a.format, part, o);
-  if (!text) return { text: `Octet cannot write ${a.ids?.length ? "these" : "this drawing"} as ${a.format}${a.format === "rxn" ? " (an RXN file holds one reaction step)" : ""}.`, error: true };
+  // (A picture of nothing: Export's own words.)
+  if (!text && FILE_FORMATS.indexOf(a.format) >= FILE_FORMATS.indexOf("pdf") && !extent(part ?? m)) return { text: "There is nothing to export.", error: true };
+  if (!text) return { text: `Octet cannot write ${a.ids?.length ? "these" : "this drawing"} as ${a.format.toUpperCase()}${a.format === "rxn" ? " (an RXN file holds one reaction step)" : ""}.`, error: true };
   return { text, data: { format: a.format, text, ...(a.ids?.length ? { ids: a.ids } : {}) } };
 }
 
@@ -2102,6 +2106,13 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   }
   const ran = (MENU_COMMANDS as readonly string[]).includes(id) ? host.command(id) || host.act(id) : host.act(id);
   await host.settle();
+  // With no window, one that opened a dialog or a box to type in all the same (an Actions panel action, which no name
+  // above gives away) has it closed again, and is refused: the window would wait for no one.
+  if (host.windowless() && host.asking()) {
+    host.dismiss();
+    await host.settle();
+    return { text: `${NO_DIALOG} Octet did not run ${id}.`, error: true };
+  }
   return ran ? { text: `Ran ${id}.${dialog ? " Octet shows its dialog, or a box to type in: the user finishes it." : ""}` } : { text: `Octet cannot run ${id} now.`, error: true };
 }
 

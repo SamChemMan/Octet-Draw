@@ -1362,7 +1362,7 @@ program, so nothing is written twice and every format and layout is the app's ow
 - `Octet Draw --headless --mcp` speaks MCP on standard input and output, with the v2 tools (section 5). A script in
   any language starts it and sends tool calls, exactly as an AI app does. With Octet open, `Octet Draw --mcp` (the
   relay that exists) does the same in the user's open drawing.
-- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, from: text }`
+- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, text }`
   (CDXML, CDX, MOL, SDF, RXN, SMILES, InChI, CML and `.oct`). It asks `read { file: format }` for the drawing's text
   or bytes and writes the file itself. So Octet needs no tool that takes a path, and decision 0021's "no files" rule
   stays whole for AI apps and scripts alike.
@@ -1469,6 +1469,20 @@ Tests are in `mcp-v2-tests.md`, section 15.
      holds open.
 - `.oct` now keeps a stereocentre's ChemDraw configuration (`kept`, file.ts): without it, 15 of the 68 corpus files
   lost Geometry and BondOrdering through `.oct` and back.
+- Second review (11 November): the argument is `text`, as built (18.2 said `from`; `text` is what `add_file` takes).
+  `drawings new` with `text` reads the file in the page first, as File > Open reads it (`host.opens`, the same
+  reading as `load`): one that does not open opens no window and the reply says why, and the reply says what Octet
+  left out. With no window, run_command also closes any dialog or box to type in that a command opened all the same
+  (an Actions panel action such as Add to dictionary… or a caption's box, which no name gives away), with Escape,
+  and refuses it; and a hidden window answers only once the menu's commands are known (keys.ts `MENU_READ`), so
+  Document Settings… is refused by its name. A reader that goes away ends `--headless --mcp` at its next line, with
+  exit code 1. A second initialize on standard input makes no new session, and the one session never ends from
+  idleness. With no window there is no recovery folder (no lock file). `--mcp` anywhere is the relay; any other
+  `--` option is refused with a usage line and exit code 2. `--convert` opens a PDF, EMF or PNG for the drawing in
+  it, as File > Open does (`open::drawing`; folder walks take PDF and EMF, not every picture), reads a picture's bytes
+  with the same 64 MB bound, says "Octet does not have permission to read it." for such a file, takes `--style` as a
+  journal's name through `set_brief` (ACS, Angewandte), says "There is no such file or folder." for a style file
+  that is not there, and a picture of an empty drawing says Export's "There is nothing to export.".
 
 ## 19. Speed for the AI model (Sam, 11 November 2026)
 

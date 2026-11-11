@@ -575,7 +575,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
         finished(shared, session.as_deref());
         return respond(&mut stream, "200 OK", &error_reply(Some(id), -32603, "Octet has no window open."), None);
     };
-    let reply = match send(app, shared, &window, id, method, &body, &client, session.as_deref(), lost, brief, unset) {
+    let reply = match send(app, shared, &window, id, method, &body, &client, session.as_deref(), lost, brief, unset, READY) {
         // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
         Ok(sent) if message.pointer("/params/_meta/progressToken").is_some() => {
             let new = new_session.map(|s| format!("Mcp-Session-Id: {s}\r\n")).unwrap_or_default();
@@ -691,10 +691,10 @@ fn finished(shared: &Shared, session: Option<&str>) {
 const WAITED: &str = "Octet did not answer in time.";
 
 // Sends a request to a window's page. A window that has just opened (File > New, drawings new) listens once its page
-// has started: up to READY; then the AI app is told to call again. Err: the reply when the window cannot be sent to.
-fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, method: &str, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>, brief: Option<String>, unset: bool) -> Result<(u64, mpsc::Receiver<Msg>), String> {
+// has started: up to `ready`; then the AI app is told to call again. Err: the reply when the window cannot be sent to.
+fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, method: &str, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>, brief: Option<String>, unset: bool, ready: Duration) -> Result<(u64, mpsc::Receiver<Msg>), String> {
     let (start, listens) = (Instant::now(), || shared.ready.lock().unwrap().contains_key(window));
-    while !listens() && start.elapsed() < READY {
+    while !listens() && start.elapsed() < ready {
         std::thread::sleep(Duration::from_millis(50));
     }
     if !listens() {
@@ -761,11 +761,13 @@ fn notifications(mut stream: TcpStream, shared: &Shared, sid: Option<String>) {
 }
 
 // A tool call in a window, as an AI app makes it, for --convert (convert.rs): its structured result, or why it failed.
+// The window is one --convert has just opened, for this file alone: its page may take long to start on a busy computer,
+// and nothing else waits for it, so the call waits for it as long as for an answer (WAIT), not READY.
 pub fn call(app: &AppHandle, window: &str, tool: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
     let shared = &app.state::<Mcp>().shared;
     let id = serde_json::json!(1);
     let body = serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": tool, "arguments": args } }).to_string();
-    let reply = send(app, shared, window, &id, "tools/call", body.as_bytes(), "Octet Draw", None, None, None, false).map_or_else(|r| r, |sent| answer(shared, sent, &id, |_| true));
+    let reply = send(app, shared, window, &id, "tools/call", body.as_bytes(), "Octet Draw", None, None, None, false, WAIT).map_or_else(|r| r, |sent| answer(shared, sent, &id, |_| true));
     let reply: serde_json::Value = serde_json::from_str(&reply).map_err(|e| e.to_string())?;
     let said = || reply.pointer("/result/content/0/text").or(reply.pointer("/error/message")).and_then(|t| t.as_str()).unwrap_or(WAITED).to_string();
     match reply.get("result") {
@@ -815,7 +817,7 @@ pub fn stdio(app: &AppHandle) {
             std::thread::spawn(move || rx.iter().for_each(|note| say(&out, &note)));
             sid = session.clone();
         }
-        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset));
+        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, READY));
         let (shared, out, id) = (shared.clone(), out.clone(), id.clone());
         waiting.push(std::thread::spawn(move || {
             let reply = match sent {

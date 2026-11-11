@@ -393,6 +393,9 @@ pub const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("csv", "CSV", &["csv"]),
 ];
 
+// The formats made from the drawing's picture (its SVG). Each but SVG is binary: read gives it in base64.
+pub const PICTURES: [&str; 8] = ["pdf", "svg", "png", "emf", "eps", "tif", "jpg", "gif"];
+
 #[derive(serde::Deserialize, Default)]
 pub struct Export {
     #[serde(default)]
@@ -425,7 +428,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
-        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" => e.svg.is_some(),
+        f if PICTURES.contains(&f) => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),

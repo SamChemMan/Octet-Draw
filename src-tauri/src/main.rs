@@ -310,7 +310,7 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 const OPEN: (&str, &[&str]) = ("Drawings", &open::DRAWINGS);
 // File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
 // and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
-const OPEN_ALL: (&str, &[&str]) = ("Drawings, spectra and templates", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc", "ctp", "cts"]);
+const OPEN_MORE: [&str; 6] = ["jdx", "dx", "jcamp", "spc", "ctp", "cts"];
 // A ChemDraw template file: read, but never a drawing Octet saves over or lists on Home.
 pub fn is_template_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ctp") || e.eq_ignore_ascii_case("cts"))
@@ -323,16 +323,22 @@ const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 // It reads 64 MB at most, whatever the file's size said before (a file that grows, or one such as /dev/zero).
 pub fn read_text_or_cdx(path: &Path) -> std::io::Result<String> {
     use base64::Engine;
+    let bytes = read_bytes(path)?;
+    if bytes.starts_with(b"VjCD0100") {
+        return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+// A file's bytes, 64 MB at most, whatever its size said before.
+pub fn read_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut bytes = Vec::new();
     fs::File::open(path)?.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err(std::io::Error::other("This file is larger than 64 MB."));
     }
-    if bytes.starts_with(b"VjCD0100") {
-        return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
-    }
-    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    Ok(bytes)
 }
 
 // Write to a temporary file next to the target, flush it to disk, then rename it over the target.
@@ -357,7 +363,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
 #[tauri::command]
 async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter(OPEN_ALL.0, OPEN_ALL.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Drawings, spectra and templates", &[&open::DRAWINGS[..], &OPEN_MORE].concat()).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -1048,7 +1054,8 @@ fn data_dir() -> Option<std::path::PathBuf> {
 }
 
 // How Octet was started. --headless and --convert count wherever they are, so `--mcp --headless` is never the relay
-// into the user's own Octet, and headless takes no other argument.
+// into the user's own Octet, and headless takes no other argument. --mcp anywhere is the relay. Any other option
+// (--x) is refused: only file paths (from Explorer and file managers) open in the app.
 #[derive(Debug, PartialEq)]
 enum Start {
     App,
@@ -1067,11 +1074,15 @@ fn start(args: &[String]) -> Result<Start, String> {
             None => Ok(Start::Headless),
         };
     }
-    Ok(if args.first().map(String::as_str) == Some("--mcp") { Start::Relay } else { Start::App })
+    if let Some(x) = args.iter().find(|x| x.starts_with("--") && !matches!(x.as_str(), "--mcp" | "--register-ole" | "--unregister-ole")) {
+        return Err(format!("Octet does not know {x}. Use: Octet Draw [FILE...], Octet Draw --mcp, Octet Draw --headless --mcp, or Octet Draw --convert INPUT... --to FORMAT"));
+    }
+    Ok(if has("--mcp") { Start::Relay } else { Start::App })
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // (A path that is not Unicode, on Linux, is not a reason to stop.)
+    let args: Vec<String> = std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
     // Octet with no window (plan 18): --headless (with --mcp) answers MCP on standard input and output, and --convert
     // converts files. Neither shows a window, a Dock icon or a menu, starts the AI apps' server or keeps recovery copies.
     let mode = start(&args);
@@ -1315,6 +1326,11 @@ mod tests {
         assert_eq!(start(""), Ok(Start::App));
         assert_eq!(start("a.cdxml"), Ok(Start::App));
         assert_eq!(start("--mcp"), Ok(Start::Relay));
+        assert_eq!(start("a.cdxml --mcp"), Ok(Start::Relay));
+        assert_eq!(start("--register-ole"), Ok(Start::App));
+        for line in ["--colour", "a.cdxml --help", "--mcp --verbose"] {
+            assert!(start(line).is_err_and(|e| e.contains("Use: Octet Draw")), "{line}");
+        }
         for line in ["--headless", "--headless --mcp", "--mcp --headless"] {
             assert_eq!(start(line), Ok(Start::Headless), "{line}");
         }

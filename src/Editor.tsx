@@ -33,7 +33,7 @@ import { store, type Store } from "./store";
 import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, DIALOGS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, DIALOGS, MENU_READ, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -2751,7 +2751,8 @@ export default function Editor() {
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
       }).then((body) => { if (!lost || !HEADLESS || asked.params?.name !== "read") return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
     });
-    void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
+    // With no window, once the menu's commands are known too (keys.ts DIALOGS: the commands that open a dialog).
+    void off.then(() => (HEADLESS ? Promise.all([started.current, MENU_READ]) : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
     return () => { off.then((f) => f()); };
   }, []);
   // Files to open or dropped: those named before the page started, then each time the app says more came. The page
@@ -6636,6 +6637,9 @@ export default function Editor() {
       try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
     },
     windowless: () => HEADLESS,
+    asking: () => modal() || typing(),
+    // Escape to the box being typed in (it goes on to a dialog round it), or to the window for a dialog.
+    dismiss: () => { const el = document.activeElement; (typing() && el ? el : window).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (el instanceof HTMLElement) el.blur(); },
     export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
   };
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.

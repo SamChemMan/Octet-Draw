@@ -17,7 +17,7 @@ const MOST: usize = 20; // files kept waiting at one time
 pub const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
 const PICTURES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp"];
 // Vector pictures Octet opens only for the drawing in them (export::cdxml_from_picture).
-const VECTORS: [&str; 2] = ["pdf", "emf"];
+pub const VECTORS: [&str; 2] = ["pdf", "emf"];
 
 // The files waiting for a page, each with the window it was dropped on and the point there (CSS pixels), if it was.
 #[derive(Default)]
@@ -147,7 +147,23 @@ pub fn read(path: &Path, name: &str) -> Result<String, String> {
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
         // (A named pipe or a device would never end: Octet reads files only.)
         Ok(m) if !m.is_file() => Err("This is not a file.".into()),
-        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.")),
+        Ok(_) => crate::read_text_or_cdx(path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::PermissionDenied => "Octet does not have permission to read it.".into(),
+            _ => format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures."),
+        }),
+    }
+}
+
+// A file as File > Open reads it for a drawing (--convert): a picture only for the drawing in it.
+pub fn drawing(path: &Path, name: &str) -> Result<String, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    if !PICTURES.contains(&ext.as_str()) && !VECTORS.contains(&ext.as_str()) {
+        return read(path, name);
+    }
+    match opened_picture(path, name, &ext, false) {
+        (Some(cdxml), ..) => Ok(cdxml),
+        (.., Some(why)) => Err(why),
+        _ => Err(format!("Octet cannot open {name}. It has no Octet or ChemDraw drawing in it.")),
     }
 }
 
@@ -172,7 +188,8 @@ fn picture(path: &Path, name: &str) -> Result<Vec<u8>, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err(format!("Octet cannot insert {name}. It is larger than 64 MB.")),
-        Ok(_) => fs::read(path).map_err(|_| format!("Octet cannot read {name}.")),
+        Ok(m) if !m.is_file() => Err("This is not a file.".into()),
+        Ok(_) => crate::read_bytes(path).map_err(|_| format!("Octet cannot read {name}.")),
     }
 }
 
@@ -221,6 +238,25 @@ mod tests {
         fs::write(dir.join("h.pdf"), crate::export::make_pdf(svg, None).unwrap()).unwrap();
         assert!(opened_picture(&dir.join("h.pdf"), "h.pdf", "pdf", false).2.unwrap().contains("no Octet or ChemDraw drawing"));
         assert!(opened_picture(&png, "b.png", "png", false).1.is_some());
+        // --convert (drawing): a picture only for the drawing in it, as File > Open opens it; a picture with none, a
+        // folder or a named pipe is refused with why.
+        assert!(drawing(&dir.join("e.pdf"), "e.pdf").is_ok_and(|t| t.ends_with(x)) && drawing(&dir.join("g.emf"), "g.emf").is_ok_and(|t| t.ends_with(x)));
+        let mol = dir.join("a.mol");
+        assert_eq!(drawing(&mol, "a.mol").as_deref(), Ok("CCO\n"));
+        for (p, n) in [(dir.join("h.pdf"), "h.pdf"), (png.clone(), "b.png")] {
+            assert_eq!(drawing(&p, n), Err(format!("Octet cannot open {n}. It has no Octet or ChemDraw drawing in it.")));
+        }
+        fs::create_dir_all(dir.join("i.pdf")).unwrap();
+        assert_eq!(drawing(&dir.join("i.pdf"), "i.pdf"), Err("This is not a file.".into()));
+        #[cfg(unix)]
+        {
+            assert!(std::process::Command::new("mkfifo").arg(dir.join("j.png")).status().unwrap().success());
+            assert_eq!(drawing(&dir.join("j.png"), "j.png"), Err("This is not a file.".into()));
+            // A file Octet may not read is named so.
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&mol, fs::Permissions::from_mode(0o200)).unwrap();
+            assert_eq!(read(&mol, "a.mol"), Err("Octet does not have permission to read it.".into()));
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 }

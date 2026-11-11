@@ -173,11 +173,12 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.ok(editor.includes("ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true);"));
   assert.ok(editor.includes('dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path'));
   assert.match(editor, /if \(!TAURI \|\| HEADLESS\) return;\n    if \(!mainDirty\) \{ if \(keeper\.kept\)/);
-  assert.ok(editor.includes('void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready"'));
+  // (Once the menu's commands are known too: Document Settings… is refused by its name.)
+  assert.ok(editor.includes('void off.then(() => (HEADLESS ? Promise.all([started.current, MENU_READ]) : undefined)).then(() => invoke<boolean>("mcp_ready"'));
   // What it left out of the file comes with each result (--convert says it on the file's line); a structure file's
   // text waits for Indigo before it opens.
   assert.match(editor, /started\.current\.then\(\(\{ failed, lost \} = \{\}\) => \(failed && HEADLESS \?/);
-  assert.ok(editor.includes("r.result.structuredContent.lost = lost;"));
+  assert.ok(editor.includes("r.result.structuredContent.lost = lost;") && editor.includes('asked.params?.name !== "read"'), "read's result alone");
   assert.ok(editor.includes('else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }'));
 }
 // A hidden page reads the user's settings and never writes them. (settings.ts does not load in Node.)

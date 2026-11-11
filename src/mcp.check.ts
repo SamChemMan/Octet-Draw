@@ -27,6 +27,8 @@ await ready;
 // The editor's stand-in: a drawing, its undo steps, its selection and what it told the user.
 const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO", "ethyl acetate": "CCOC(C)=O", water: "O", benzene: "c1ccccc1", toluene: "Cc1ccccc1", phenol: "Oc1ccccc1" };
 let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined, windowless = false, readied: (boolean | undefined)[] = [];
+// A box to type in or a dialog the last command left open (asking), and how often Escape closed one (dismiss).
+let asking = false, dismissed = 0;
 // What the window was told to show of an AI app at work (Host.working): the text, whether Stop is offered, how far.
 let far: [string | undefined, boolean, string | undefined][] = [];
 const ink = (atoms: number[]): Box | undefined => {
@@ -52,6 +54,8 @@ const host: Host = {
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { far.push([text, !!stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
+  asking: () => asking, dismiss: () => { asking = false; dismissed++; },
+  opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
 };
 let n = 0;
@@ -823,7 +827,15 @@ out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm:
 assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
 assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
 assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
-assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as tif\.$/);
+assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as TIF\.$/);
+// A picture of an empty drawing: Export's own words.
+{
+  const was = m;
+  m = EMPTY;
+  assert.equal(text(await call("read", { format: "tiff" })), "There is nothing to export.");
+  assert.equal(text(await call("read", { format: "rxn" })), "Octet cannot write this drawing as RXN (an RXN file holds one reaction step).");
+  m = was;
+}
 {
   // tools/list lists the formats read had before, for room (14,000 characters); advanced help of file names every one
   // of Export's, and its options.
@@ -847,6 +859,22 @@ assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clea
 out = await call("advanced", { tool: "export", args: { format: "pdf" } });
 assert.ok(out.isError && text(out) === "Octet with no window has no dialogs. read with a format gives the drawing as a file.", text(out));
 assert.deepEqual(commands, ["print", "print", "clean_up", "clean_up"]);
+// An action whose name says nothing of it (Add to dictionary…, a caption's box to type in) that opens a dialog or a
+// box all the same: with no window, it is closed again (Escape) and refused, and the drawing still answers. With a
+// window, the user finishes it.
+{
+  const act = host.act;
+  host.act = (id) => { commands.push(id); asking = id !== "clean_up"; return true; };
+  for (const command of ["dictionary.add", "caption.add"]) {
+    out = await call("advanced", { tool: "run_command", args: { command } });
+    assert.ok(out.isError && text(out) === `Octet with no window has no dialogs. read with a format gives the drawing as a file. Octet did not run ${command}.` && !asking, text(out));
+  }
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_up" } })).isError);
+  windowless = false;
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "dictionary.add" } })).isError && asking);
+  assert.equal(dismissed, 2);
+  [host.act, asking, dismissed] = [act, false, 0];
+}
 windowless = false;
 // drawings new with a file's text (plan 18.2): the file opens in a window of its own, as File > Open opens it. It is
 // in advanced help of new, not in tools/list (for room). With no windows (the web component) it cannot open.
@@ -857,7 +885,14 @@ windowless = false;
   host.windows = async () => [{ id: "draw-2", name: "esters", edited: false }];
   out = await call("drawings", { action: "new", text: "CCO" });
   assert.ok(!out.isError && text(out).startsWith("Octet opened a new drawing of the file: draw-2."), text(out));
-  assert.deepEqual(asked, ["quick", "CCO"]);
+  assert.deepEqual(asked, ["quick", "s-1", "CCO"]);
+  // A file that does not open opens no window: the reply says why, and this session's calls stay where they were.
+  // What File > Open would leave out of it, the reply says.
+  asked = [];
+  out = await call("drawings", { action: "new", text: "<bad/>" });
+  assert.ok(out.isError && text(out) === "Octet cannot open this file. This ChemDraw file is damaged." && !asked.length, text(out));
+  out = await call("drawings", { action: "new", text: "<lost/>" });
+  assert.ok(!out.isError && text(out) === "Octet opened a new drawing of the file: draw-2. Octet left out 2 bogus. This session's calls go to it now.", text(out));
   [host.newWindow, host.windows] = [newWindow, windows];
   commands = [];
   out = await call("drawings", { action: "new", text: "CCO" });

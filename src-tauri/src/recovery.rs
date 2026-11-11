@@ -171,8 +171,9 @@ impl Session {
     }
 }
 
+// With no window (--headless, --convert), no folder: nothing in the user's recovery folder is touched.
 pub fn start(app: &AppHandle) -> Session {
-    Session::start_in(app.path().app_data_dir().ok().map(|d| d.join("recovery")))
+    Session::start_in(app.path().app_data_dir().ok().filter(|_| !crate::windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed)).map(|d| d.join("recovery")))
 }
 
 // The page's drawing, kept (64 MB at most; the name cut to 200 characters).

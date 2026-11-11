@@ -12,11 +12,9 @@ use base64::Engine;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use crate::export::{file_of, Export, FORMATS};
+use crate::export::{file_of, Export, FORMATS, PICTURES};
 
 const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--recursive] [--overwrite]";
-// The formats read gives in base64 (the rest it gives as the file's text).
-const BINARY: [&str; 8] = ["pdf", "png", "emf", "eps", "tif", "jpg", "gif", "cdx"];
 
 #[derive(Debug, PartialEq, Default)]
 pub struct Job {
@@ -101,9 +99,10 @@ fn folder(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>, wrong: &mut Vec
         }
     }
 }
-// What a folder gives: the drawings Open opens and the files Import a Structure reads (not every .txt file).
+// What a folder gives: the drawings Open opens (a PDF or EMF for the drawing in it) and the files Import a Structure
+// reads (not every .txt file).
 fn reads(ext: &str) -> bool {
-    crate::open::DRAWINGS.contains(&ext) || (crate::STRUCTURES.contains(&ext) && ext != "txt")
+    crate::open::DRAWINGS.contains(&ext) || crate::open::VECTORS.contains(&ext) || (crate::STRUCTURES.contains(&ext) && ext != "txt")
 }
 fn reads_drawing(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| crate::open::DRAWINGS.contains(&e.to_ascii_lowercase().as_str()))
@@ -138,10 +137,15 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
     for (p, why) in &wrong {
         say!(stderr, "{}: {why}", p.display());
     }
-    // A style from a drawing: read once, with Open's limits.
-    let style_file = job.style.as_deref().map(Path::new).filter(|p| p.is_file());
-    // (Only a drawing: another file is read as structures, which have no style.)
-    let style_text = match style_file.map(|p| if reads_drawing(p) { crate::open::read(p, &p.display().to_string()) } else { Err("This file is not a drawing. --style takes a preset, or an Octet or ChemDraw drawing.".into()) }) {
+    // A style from a drawing: read once, with Open's limits. --style names a file when it is one, or looks like one (a
+    // folder in it, or a drawing's extension); else it is a journal's preset. (Only a drawing: another file is read as
+    // structures, which have no style.)
+    let file = |s: &str| Path::new(s).exists() || s.contains(['/', '\\']) || Path::new(s).extension().and_then(|e| e.to_str()).is_some_and(|e| reads(&e.to_ascii_lowercase()));
+    let style_text = match job.style.as_deref().filter(|s| file(s)).map(Path::new).map(|p| match fs::metadata(p) {
+        Err(e) => Err(reason(&e)),
+        Ok(_) if !reads_drawing(p) => Err("This file is not a drawing. --style takes a preset, or an Octet or ChemDraw drawing.".into()),
+        Ok(_) => crate::open::read(p, &p.display().to_string()),
+    }) {
         Some(Err(why)) => {
             say!(stderr, "{}: {why}", job.style.as_deref().unwrap_or_default());
             return 1;
@@ -201,12 +205,17 @@ fn hidden<T>(app: &AppHandle, start: serde_json::Value, work: impl FnOnce(&str) 
     made
 }
 
-// A drawing in its new style: a drawing's style (`style`) it took as it opened; a preset is set here.
+// A drawing in its new style: a drawing's style (`style`) it took as it opened; a journal's preset is set here, as
+// set_brief sets it for a paper (a journal named as the user names it: ACS, Angewandte). What the page says is for an
+// AI app: the line keeps only what is wrong.
 fn restyle(app: &AppHandle, window: &str, job: &Job, style: Option<&str>) -> Result<(), String> {
-    if let Some(preset) = job.style.as_deref().filter(|_| style.is_none()) {
-        crate::mcp::call(app, window, "advanced", json!({ "tool": "set_style", "args": { "preset": preset } }))?;
+    if let Some(journal) = job.style.as_deref().filter(|_| style.is_none()) {
+        crate::mcp::call(app, window, "set_brief", json!({ "destination": { "kind": "paper", "journal": journal } })).map_err(|why| plain(&why))?;
     }
     Ok(())
+}
+fn plain(why: &str) -> String {
+    why.trim_start_matches("Octet changed nothing. ").split(" Ask the user").next().unwrap_or_default().to_string()
 }
 
 // What the page could not keep of the file it opened, from a reply (the page adds it with no window).
@@ -217,9 +226,7 @@ fn lost(reply: &serde_json::Value) -> Option<String> {
 // One file's new file, and what Octet left out of it: opened in a hidden window as File > Open opens it, restyled, then
 // made as read makes it.
 fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&str>) -> Result<(Vec<u8>, Option<String>), String> {
-    // (A file Octet may not read is named so, not as a file it cannot open.)
-    fs::File::open(path).map_err(|e| reason(&e))?;
-    let text = crate::open::read(path, name)?;
+    let text = crate::open::drawing(path, name)?;
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     hidden(app, json!({ "text": text, "name": stem, "style": style }), |window| {
         restyle(app, window, job, style)?;
@@ -234,17 +241,17 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
         }
         let read = crate::mcp::call(app, window, "read", args)?;
         let text = read["text"].as_str().unwrap_or_default().to_string();
-        if BINARY.contains(&job.to.as_str()) {
-            return base64::engine::general_purpose::STANDARD.decode(text).map(|b| (b, lost(&read))).map_err(|e| e.to_string());
+        // A picture is the file Export makes (in base64, but SVG); the rest as Export writes them (a newline after
+        // SMILES and InChI, CDX from base64).
+        if PICTURES.contains(&job.to.as_str()) {
+            let bytes = if job.to == "svg" { Ok(text.into_bytes()) } else { base64::engine::general_purpose::STANDARD.decode(text).map_err(|e| e.to_string()) };
+            return bytes.map(|b| (b, lost(&read)));
         }
-        if job.to == "svg" {
-            return Ok((text.into_bytes(), lost(&read)));
-        }
-        // The text formats as Export writes them (a newline after SMILES and InChI).
         let mut e = Export::default();
         *match job.to.as_str() {
             "oct" => &mut e.oct,
             "cdxml" => &mut e.cdxml,
+            "cdx" => &mut e.cdx,
             "smi" => &mut e.smiles,
             "inchi" => &mut e.inchi,
             _ => &mut e.mdl,
@@ -312,7 +319,7 @@ mod tests {
     fn folders_give_the_files_octet_reads() {
         let dir = std::env::temp_dir().join(format!("octet-convert-walk-{}", std::process::id()));
         fs::create_dir_all(dir.join("inner")).unwrap();
-        for f in ["b.cdxml", "a.oct", "notes.txt", "c.MOL", "e.rdf", "f.cml", "g.ket", "inner/d.cdx"] {
+        for f in ["b.cdxml", "a.oct", "notes.txt", "c.MOL", "e.rdf", "f.cml", "g.ket", "h.pdf", "i.png", "inner/d.cdx"] {
             fs::write(dir.join(f), "x").unwrap();
         }
         // A named pipe, in the folder and named: never read (it would never end).
@@ -324,13 +331,20 @@ mod tests {
         }
         let job = |recursive| Job { inputs: inputs.clone(), recursive, ..Default::default() };
         let (found, wrong) = files(&job(false));
-        assert_eq!(found, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket"].map(|f| dir.join(f)));
+        assert_eq!(found, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "h.pdf"].map(|f| dir.join(f)));
         assert_eq!(wrong[0], (dir.join("gone.cdxml"), "There is no such file or folder.".to_string()));
         if cfg!(unix) {
             assert_eq!(wrong[1], (dir.join("pipe.cdxml"), "This is not a file.".to_string()));
         }
         assert!(reads_drawing(Path::new("a.CDXML")) && reads_drawing(Path::new("b.oct")) && !reads_drawing(Path::new("notes.txt")) && !reads_drawing(Path::new("c.mol")));
-        assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "inner/d.cdx"].map(|f| dir.join(f)));
+        assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "h.pdf", "inner/d.cdx"].map(|f| dir.join(f)));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // What the page says about a journal's preset is for an AI app: a line of --convert keeps only what is wrong.
+    #[test]
+    fn a_style_octet_does_not_have_is_said_plainly() {
+        assert_eq!(plain("Octet has no preset for Foo. The nearest it has is ACS Document 1996. Ask the user whether to use it (journal: 'ACS Document 1996'), or give size_mm for the page."), "Octet has no preset for Foo. The nearest it has is ACS Document 1996.");
+        assert_eq!(plain("Octet changed nothing. journal is empty."), "journal is empty.");
     }
 }
