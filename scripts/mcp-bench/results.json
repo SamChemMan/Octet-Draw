@@ -830,6 +830,67 @@
    "of": 17,
    "warnings": 2,
    "summary": 999
+  },
+  "size-200-structures": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 6812,
+   "read": 7786,
+   "ms": 235,
+   "slowest": 235,
+   "right": 4,
+   "of": 4,
+   "warnings": 40,
+   "summary": 9639
+  },
+  "size-cdxml": {
+   "calls": 3,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 293996,
+   "read": 258611,
+   "ms": 320,
+   "slowest": 209,
+   "warnings": 40,
+   "summary": 19111
+  },
+  "size-change-40": {
+   "calls": 2,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 2499,
+   "read": 1786,
+   "ms": 32,
+   "slowest": 19,
+   "warnings": 0,
+   "summary": 1045
+  },
+  "size-peptide": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 1805,
+   "read": 239,
+   "ms": 193,
+   "slowest": 193,
+   "right": 1,
+   "of": 1,
+   "warnings": 2,
+   "summary": 219
+  },
+  "size-scheme-50": {
+   "calls": 3,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 5242,
+   "read": 4457,
+   "ms": 372,
+   "slowest": 153,
+   "right": 3,
+   "of": 3,
+   "warnings": 40,
+   "summary": 4307
   }
  }
 }
