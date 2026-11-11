@@ -1757,3 +1757,22 @@ What Haiku's transcripts showed still cost it thinking, calls and passes.
   NCCOCC, a chain, and `C1CC1` as propyl). Two N–H (`piperazine`) and a word Octet cannot join (`cyclopropy`) are
   refused with their line. A short label Octet does not know (L, Nu, Ar') and a compound name with no N–H (dppf, a
   ligand) stay labels. Only a scope by lines does this: a label in JSON and `{Allyl}` in a SMILES stay labels.
+
+### 19.7 As built (round 3c, 11 November 2026, branch `mcp/ai3`)
+
+Round 3b lost the second starting material of the lab's two three-step jobs: Opus and Haiku failed them in 10 of 12
+tries ("compound 11a is drawn", "an arrow from 11a to 12a"), where round 3 passed 6 of 6.
+
+- **A start line with a +.** Compounds joined by ` + ` on a line with no arrow, when the next line starts with an
+  arrow, are that scheme's starting materials, each with its own number, as `A + B -> C` has them. Haiku's
+  `piribedil + but-3-en-1-yl tosylate (11a)` had read as one compound 11a (C27H32N4O5S). A lone compound, a grid row,
+  a scope, a + line with no arrow after it, and a salt (one SMILES with a dot, or one name) read as before.
+- **A compound among the conditions.** One with a compound number (`(12a), Cc1ccc(cc1)S(=O)(=O)OCCC=C (11a)`, or the
+  name) is the scheme's: at the first step a starting material beside the first with a +, at a later step a structure
+  over the arrow, as an added reactant is; it is listed in the reply's compounds. A number is told from an amount as a
+  compound's own is ((1.5 equiv), (5 mol%) and (4M) stay conditions). A SMILES with no number and a double or triple
+  bond or an aromatic ring closed is drawn over its arrow, never as its text; a formula or an abbreviation that looks
+  like a SMILES (NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2) stays text.
+- **NOTATION's route** starts `4-bromoanisole (2) + PhB(OH)2` and then `-> 4-methoxybiphenyl (3), Pd(PPh3)4 ...`:
+  the second reactant is a starting material, not a condition (models had copied it into the conditions). 765
+  characters; tools/list 12,429. The 36 replayed answers still score 35.

@@ -45,7 +45,7 @@ assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
 // It teaches by example (models copy examples): each of its drawings reads and draws with no refusal. The route draws
-// 3 from a lone 2, and 4 from 3 by its number in a second scheme with its lettered parts kept as written; the scope its
+// 3 from 2 and PhB(OH)2 on a line of their own, and 4 from 3 by its number in a second scheme with its lettered parts kept as written; the scope its
 // two compounds, 5b with morpholine joined at its N; the grid its two; the cycle, one step a line, its three
 // intermediates as text (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and
 // L = PPh3 in the middle.
@@ -366,6 +366,26 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   for (const [l, bad] of [["qqzx + CC -> CCO", "qqzx"], ["CC + C1CCCC -> CCO", "C1CCCC"]]) assert.match((await call("draw", { lines: l })).content[0].text, new RegExp(`^Octet drew nothing\\. Octet cannot read "${bad}" \\(line 1\\) as a structure\\.$`), l);
   // Only lines' '+' partners: the JSON forms and an @name (a structure asked for) are refused as before.
   for (const args of [{ kind: "reaction", start: [{ text: "CC" }, { text: "9-BBN–H" }], steps: [{ products: [{ text: "CCO" }] }] }, { kind: "reaction", start: [{ text: "CC" }], steps: [{ above: ["structure: 9-BBN–H"], products: [{ text: "CCO" }] }] }, { lines: "CC -> CCO, @9-BBN–H" }]) assert.match((await call("draw", args)).content[0].text, /^Octet drew nothing\. Octet cannot read "9-BBN–H"/, JSON.stringify(args));
+}
+// Round 3c: a second starting material is drawn as the models wrote it after round 3b's example (10 of 12 tries lost
+// 11a). Haiku's start line with a + and no arrow is two starting materials, each with its own number, as A + B -> C
+// has them (it had read as one salt 11a); a lone compound, a grid row, a scope and a salt (one SMILES with a dot, or
+// one name) are as before.
+{
+  const start = (l: string) => (({ args: a }) => a.start ?? a.schemes[0].start)(fromLines({ lines: l }) as { args: { start: Compound[]; schemes: { start: Compound[] }[] } });
+  type Compound = { text?: string; number?: string };
+  assert.deepEqual(start("piribedil + but-3-en-1-yl tosylate (11a)\n-> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a)"), [{ text: "piribedil" }, { text: "but-3-en-1-yl tosylate", number: "11a" }]);
+  assert.deepEqual(start("# T\nA (1) + B\n-> C (2)\n-> D"), [{ text: "A", number: "1" }, { text: "B" }]);
+  assert.deepEqual(start("4-bromoanisole (2)\n-> 4-methoxybiphenyl (3)"), [{ text: "4-bromoanisole", number: "2" }]);
+  for (const l of ["CC[N+](C)(C)C.[Cl-] (5)\n-> CC (6)", "piribedil tosylate (5)\n-> CC (6)"]) assert.equal(start(l).length, 1, l);
+  assert.deepEqual(fromLines({ lines: "A + B (1)\nC (2)" }), { op: "structures", args: { structures: [{ text: "A + B", number: "1" }, { text: "C", number: "2" }] } });
+  assert.deepEqual(fromLines({ lines: "anisole (6a) 51% | toluene (6b) 54%" }), { op: "structures", args: { structures: [{ text: "anisole", number: "6a", caption: "51%" }, { text: "toluene", number: "6b", caption: "54%" }], columns: 2 } });
+  // Opus's 11a among the first step's conditions, by SMILES or name, with its number: a starting material of that step.
+  // At a later step it goes over the arrow, as an added reactant does; and a SMILES with no number is drawn there, never
+  // its text. Amounts ((1.5 equiv), (5 mol%)), a concentration and a reagent's name stay conditions.
+  for (const x of ["Cc1ccc(cc1)S(=O)(=O)OCCC=C", "but-3-en-1-yl tosylate"]) assert.deepEqual(start(`piribedil\n-> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a), ${x} (11a)`), [{ text: "piribedil" }, { text: x, number: "11a" }]);
+  const r = fromLines({ lines: "CCO -> CC=O (2), PCC\n-> CC=CC(=O)O (3), C=CC(=O)O (9), PhB(OH)2 (1.5 equiv), Pd(PPh3)4 (5 mol%), HCl (4M), C=CCBr, NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2, c1ccccc1Br" }) as { args: { start: Compound[]; steps: { above?: unknown[]; reagents?: string[]; catalysts?: string[] }[] } };
+  assert.deepEqual([r.args.start, r.args.steps[1].above, r.args.steps[1].reagents, r.args.steps[1].catalysts], [[{ text: "CCO" }], [{ text: "C=CC(=O)O", number: "9" }, { text: "C=CCBr" }, { text: "c1ccccc1Br" }], ["PhB(OH)2 (1.5 equiv)", "HCl (4M)", "NBS", "SOCl2", "Boc2O", "Cs2CO3", "[Zn](SO2CF3)2"], ["Pd(PPh3)4 (5 mol%)"]]);
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });
