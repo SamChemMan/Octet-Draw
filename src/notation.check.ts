@@ -44,6 +44,10 @@ assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
 // Round 4: the scope's example names an amine whole, and says where it joins: a model given "the products R2N–X from
 // these amines" had written every product out as SMILES.
 assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at its NH\)/);
+// Round 5: a step the user says in words is a change; the line shows both and a class (paper-five-step's models wrote
+// five SMILES by hand), and each of its changes reads.
+assert.match(NOTATION, /3\[\.\.\] changes 3: both OH>OBn, 2° OTBS>OH, /);
+{ const line = /3\[\.\.\] changes 3: (.*?)\. R=/.exec(NOTATION)![1]; assert.ok(typeof fromLines({ lines: `3[${line.replace(/ \(map \[C:7\]\)/, "").replaceAll(",", ";")}] (4)` }) !== "string", line); }
 // Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
@@ -219,6 +223,9 @@ const HARD: [string, object | RegExp][] = [
   ["7[2:OH; join 2-1 8 (2S); 1:H; 1=14] (9)", { op: "structures", args: { structures: [{ from: "7", changes: [{ at: "2", set: "OH" }, { do: "join", at: "2-1", with: "8", config: { 2: "S" } }, { at: "1", remove: true }, { bond: "1-14", to: "double" }], number: "9" }] } }],
   ["14[hydroborate 5 S, deprotect acetonide, 7:OBn>OTES]", { op: "structures", args: { structures: [{ from: "14", changes: [{ do: "hydroborate", at: "5", config: "S" }, { do: "deprotect", with: "acetonide" }, { swap: { OBn: "OTES" }, at: "7" }] }] } }],
   ["3[2nd OBn>OTES; 7+OH; 5#6; oxidize 7; open epoxide 14; close 9-10 double (1S,2R)] (4)", { op: "structures", args: { structures: [{ from: "3", changes: [{ swap: { OBn: "OTES" }, occurrence: 2 }, { at: "7", add: "OH" }, { bond: "5-6", to: "triple" }, { do: "oxidise", at: "7" }, { do: "open_epoxide", at: "14" }, { do: "close", at: "9-10", to: "double", config: { 1: "S", 2: "R" } }], number: "4" }] } }],
+  // Which of a group, as the user says it: a class (2°, sec, tert., s-), both or all, and a kind of place for a named one.
+  ["2[both OH>OTBS; CO2Et>CH2OH] (3)", { op: "structures", args: { structures: [{ from: "2", changes: [{ swap: { "both OH": "OTBS" } }, { swap: { CO2Et: "CH2OH" } }], number: "3" }] } }],
+  ["3[2° OTBS>OH; sec OTBS>OBn; tert. OTBS>OH; s-OTBS>OH; all OH>OAc; reduce lactone] (4)", { op: "structures", args: { structures: [{ from: "3", changes: [{ swap: { "2° OTBS": "OH" } }, { swap: { "sec OTBS": "OBn" } }, { swap: { "tert. OTBS": "OH" } }, { swap: { "s-OTBS": "OH" } }, { swap: { "all OH": "OAc" } }, { do: "reduce", at: "lactone" }], number: "4" }] } }],
   ["A (1) -> [OMe>OH] (2), BBr3", R([{ text: "A", number: "1" }], [{ reagents: ["BBr3"], products: [{ from: "1", changes: [{ swap: { OMe: "OH" } }], number: "2" }] }])],
   // {R} is a label; a * with none is refused.
   ["{R}c1ccccc1 + {Ar}B(O)O -> {R}c1ccc({Ar})cc1", R([{ text: "*c1ccccc1", labels: ["R"] }, { text: "*B(O)O", labels: ["Ar"] }], [{ products: [{ text: "*c1ccc(*)cc1", labels: ["R", "Ar"] }] }])],

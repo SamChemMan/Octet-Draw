@@ -1979,3 +1979,32 @@ SMILES, because the model worked out every SMILES itself.
 - **Names for whole compounds:** no words added. paper-three-step gives names and Opus kept them; paper-five-step
   describes each compound as a change to the one before, which instruction 3 already covers. Whether the scope change
   moves the models is for the main session's runs.
+
+### 19.9 As built (round 5, 11 November 2026, branch `mcp/ai4`)
+
+paper-five-step tells each later compound in words ("both OH groups become TBS ethers", "the secondary TBS ether comes
+off", "reduces the lactone"). In all six runs both models wrote five whole SMILES by hand (Opus 4,008 output tokens,
+Haiku 13,929 and wrong stereo in some runs). Tried against the code before this round: steps 3, 4 and 5 could be
+written only with `occurrence` (1st OTBS was the tertiary one, by atom order, which a model cannot see) or map
+numbers, and the acetonide 6 only with two map numbers.
+
+- **Which of a group, as the user says it.** A swap's group (and a label as `at` of set or remove) can start with
+  `both` or `all` (every one; `both` is for two, and the reply says `Changed 2 OH to OTBS.`) and a class for the carbon
+  that carries it: `1°`, `2°`, `3°`, also `prim`, `sec`, `tert` and `p-`, `s-`, `t-`. A name that is a label whole
+  (`t-Bu`) is that label. One place in `compound.ts` (`each`) reads it for every caller: lines and JSON alike.
+- **Refused, never guessed:** a group there more than once with nothing to pick by is refused with its classes in words
+  (`OTBS is on a secondary and a tertiary carbon: write 2° OTBS or 3° OTBS for one, or both OTBS.`); a class that is not
+  there says the classes that are; places of one class keep the occurrence advice and add `both`.
+- **A kind of place for a named transformation:** `at` as a word names the places of that kind (`reduce lactone`,
+  `reduce ester`, `hydrolyse ester`, `deprotect acetonide`). A lactone is now called one in a refusal (it was "the ester").
+- **The route in words:** `2[both OH>OTBS; CO2Et>CH2OH]`, `3[2° OTBS>OH; CH2OH>CH2OTBDPS; OH>OBn]`,
+  `4[reduce lactone; OTBS>OH]` and `6[CH2OH>CHO]` from 2's SMILES with no numbers give the job's six InChIKeys
+  (compound.check). The bench's taxol route with steps 3, 4, 5, 16 and 17 so written gives every compound too.
+- **Not built:** the acetonide 6 from two named OH. 5 has a 1,2-diol and a 1,3-diol on the tertiary carbon, so
+  `protect acetonide 3° OH` has two readings, and naming "the CH2OH on the same carbon" needs more than this reader.
+  6 is a SMILES, or `protect acetonide 4-20` with map numbers.
+- **The corpus:** none of the 88 reactant-to-product steps in `lines.json` is one such change (searched by trying
+  each class, both and all swap among 30 labels, and reduce or hydrolyse by kind).
+- **Words:** instruction 3 says "with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps
+  stereocentres." (instructions 2,045 from 2,046). NOTATION's change line shows `both OH>OBn, 2° OTBS>OH` (786 from
+  788; tools/list 12,564 from 12,566). The 36 replayed answers still score 35.

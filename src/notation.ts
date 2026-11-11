@@ -31,7 +31,7 @@ Pd(0)L2 (1)
 -> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at its NH). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: both OH>OBn, 2° OTBS>OH, 7:H (map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at its NH). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -179,7 +179,7 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   return { text, ...(labels.length ? { labels } : {}), ...(changes ? { changes } : {}), ...own };
 }
 
-// A compound's changes, as compound.ts takes them: OBn>OTES, 2nd OBn>OTES, 7:OBn>OTES, 7:OTBS, 7:=O, 7:H, 7+OH, 5=6,
+// A compound's changes, as compound.ts takes them: OBn>OTES, 2nd OBn>OTES, 2° OTBS>OH, both OH>OTBS, 7:OBn>OTES, 7:OTBS, 7:=O, 7:H, 7+OH, 5=6,
 // and named ones (reduce 9, protect 4-20 acetonide, join 2-1 8 (2S)). Each may end with a configuration: S, 9S, (1S,2R).
 const CONFIG = /^\(?((?:(?:\d+(?:-\d+)?)?[RSEZ],?)+)\)?$/;
 function configOf(t: string): unknown {
@@ -200,7 +200,7 @@ function changesOf(block: string): Change[] | string {
     const t = words.join(" ").replace(/\s*(?:->|→)\s*/, ">"), c = (x: Change): Change => (config === undefined ? x : { ...x, config });
     let m: RegExpExecArray | null;
     if ((m = SWAP_AT.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, at: m[1] }));
-    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?([^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
+    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?((?:(?:both|all|[123]°|prim|sec|tert)\.?\s+)*[^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
     else if ((m = REMOVE.exec(t))) out.push(c({ at: m[1], remove: true }));
     else if ((m = SET.exec(t))) out.push(c({ at: m[1], set: m[2] }));
     else if ((m = ADD.exec(t))) out.push(c({ at: m[1], add: m[2] }));
