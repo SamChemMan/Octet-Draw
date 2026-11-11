@@ -112,7 +112,8 @@ for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-
 }
 {
   // The tab's room is the X (--size-action, 18 px), the 4 px clear of the name (--space-1) and the X's own 2 px from the edge.
-  const calc = /\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: calc\(var\(--size-action\) \+ var\(--space-1\) \+ (\d+)px\);/.exec(css);
+  // The same room is on the name's left, so the name stays in the middle of its tab.
+  const calc = /\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding: 0 calc\(var\(--size-action\) \+ var\(--space-1\) \+ (\d+)px\);/.exec(css);
   const room = 18 + 4 + Number(calc?.[1]);
   const right = Number(/\.spectrum-tab \.close-x \{\n  position: absolute;\n  top: 0;\n  bottom: 0;\n  right: (\d+)px;\n  margin: auto 0;\n\}/.exec(css)?.[1]);
   assert.equal(room - right - 18, 4, "the tab's X is 4 px clear of the name");
@@ -134,7 +135,7 @@ assert.match(spectrum, /<\/span>\n    \{children\}\n    <\/span>/);
 assert.match(spectrum, /<Pick label="Add spectrum" value="" className="tab-add"/);
 // The tab shown and a button that is on keep their tint under the pointer, as a segmented control's choice does.
 assert.match(read("editor.css"), /\.segmented button:hover:not\(\[aria-checked="true"\], \[aria-selected="true"\]\)/);
-assert.match(read("editor.css"), /\.spectrum-button:hover:not\(:disabled, \[aria-pressed="true"\]\)/);
+assert.match(read("editor.css"), /\.spectrum-button:hover:not\(:disabled, \[aria-pressed\]\)/);
 // Mass spec's HRMS line and ion table show each formula with its subscripts, from the Actions panel's formula helper;
 // what is copied or added to the drawing stays plain text (a caption makes its own subscripts).
 {
@@ -151,7 +152,10 @@ assert.match(read("editor.css"), /\.spectrum-button:hover:not\(:disabled, \[aria
   assert.equal(helper("CuSO4·5H2O"), "CuSO₄·5H₂O");
 }
 // The header's formula has its subscripts, as the Actions panel's has; an abbreviation keeps its digits (2-MeTHF).
-assert.match(editor, /return a \? a\.abbreviation \?\? subscripts\(a\.formula\) : "";/);
+assert.match(editor, /text: a \? a\.abbreviation \?\? subscripts\(a\.formula\) : "", formula: !!a && !a\.abbreviation \}/);
+// The header shows a formula in the formula's font (IBM Plex Mono, weight 500), as the Actions panel shows it.
+assert.match(spectrum, /p\.formulaTitle \? <span className="formula">\{p\.title\}<\/span> : p\.title/);
+assert.match(css, /\n\.facts \.formula,\n\.prop-value\.formula,\n\.spectrum h2 \.formula \{\n  font: 500 13px\/18px var\(--font-mono\);/);
 assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
 assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
 assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");

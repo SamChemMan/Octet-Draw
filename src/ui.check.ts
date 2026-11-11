@@ -4,6 +4,7 @@
 // the type scale and icon sizes, contrast.check.ts the colours' contrast.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { SIZE_OF } from "./lookwatch.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const css = read("./editor.css"), tokensCss = read("../brand/tokens.css");
@@ -46,17 +47,26 @@ for (const r of rules) {
   if (h && [20, 22, 26].includes(Number(h[1]))) assert.fail(`${r.selector}: ${h[1]}px is not a control size (18, 24, 28, 30, 32, 36)`);
 }
 // The controls themselves hold the token for their kind.
-const sizeOf: Record<string, string[]> = {
-  "size-action": [".close-x, .segmented button.close-x", ".variant-action", ".name-forget", ".problem-hide", ".home-remove", ".key-remove"],
-  "size-control-sm": [".actions-close", ".floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button", ".notes-tab"],
-  "size-control": [".text-button", ".dialog-button", ".spectrum-button", ".prop-add", ".home-open", ".page-button", ".select-field", ".unit-field", ".segmented", ".list-find", ".settings-search, .library-search"],
-  "size-row": [".action", ".chip", ".module", ".library-category", ".strip.list .variant"],
-  "size-tool": [".tool", ".tray-button", ".export-button", ".feedback-link", ".actions-reopen"],
-  "size-cell": [".variant", ".command"],
-};
+const sizeOf = SIZE_OF; // the same list measures the page as it is drawn (lookwatch.ts)
 for (const [token, selectors] of Object.entries(sizeOf)) {
   for (const s of selectors) assert.ok(rules.some((r) => r.selector === s && r.props.get("height") === `var(--${token})`), `${s} is var(--${token}) high`);
 }
+
+// The segments of one segmented control have one width, the widest's: equal columns. Tabs are segments, and the + at
+// their end is as wide as a tab. Only the purposes (they wrap) and the units set a width, the same for each segment.
+assert.match(css, /\n\.segmented \{\n  display: inline-grid;\n  grid-auto-flow: column;\n  grid-auto-columns: 1fr;\n/);
+assert.match(css, /\n\.spectrum-tabs \[role="tablist"\] \{\n  display: grid;\n  grid-auto-flow: column;\n  grid-auto-columns: 1fr;\n\}/);
+assert.match(read("./Spectrum.tsx"), /<span className="segmented spectrum-tabs" style=\{children \? \{ gridTemplateColumns: `\$\{keys\.length\}fr 1fr` \} : undefined\}>/);
+for (const r of rules) {
+  if (!has(r, ".segmented") || inKeyframes(r)) continue;
+  const segment = /button|\[role=/.test(r.selector);
+  if (!segment && r.props.has("display")) assert.ok(/^(inline-grid|grid)$/.test(r.props.get("display")!) || r.selector === ".segmented.purposes", `${r.selector}: a segmented control has equal columns (display: grid), not ${r.props.get("display")}`);
+  if (segment && !has(r, ".close-x")) for (const name of ["width", "max-width", "flex", "flex-grow", "flex-basis", "grid-column"]) {
+    assert.ok(!r.props.has(name) || [".segmented.units button", ".segmented.purposes button"].includes(r.selector), `${r.selector}: ${name} gives one segment its own width`);
+  }
+}
+// In development the app measures its own controls as they are drawn and says so in the console (lookwatch.ts).
+assert.match(read("./main.tsx"), /if \(import\.meta\.env\.DEV\) void import\("\.\/lookwatch"\)\.then\(\(m\) => m\.watchLook\(\)\);/);
 
 // 2. Corners, spacing and layers come from the tokens. 0, 1 px and 2 px are lines, not spacing.
 for (const r of rules) {
@@ -72,7 +82,7 @@ for (const r of rules) {
   }
   const z = r.props.get("z-index");
   // Inside one component a part goes behind or in front of its siblings with a small number.
-  const LOCAL = [".indicator", ".home-section.lifted::after", ".menu-head", ".notes-nav", ".home-section.lifted", ".remove-shade", ".folder-front"];
+  const LOCAL = [".spectrum-button[aria-pressed]::before", ".indicator", ".home-section.lifted::after", ".menu-head", ".notes-nav", ".home-section.lifted", ".remove-shade", ".folder-front"];
   if (z) assert.ok(/^var\(--z-[\w-]+\)$/.test(z) || r.parts.some((p) => LOCAL.includes(p)), `${r.selector}: z-index ${z}; use a --z token`);
 }
 
@@ -132,10 +142,16 @@ for (const r of rules) {
 // a swatch and a paper show their own colour, so their edge says which is chosen.
 const OWN_SELECTED = [".switch", ".prop-check", ".swatch", ".paper-choice", ".page-thumb", ".tool", ".home-", ".canvas"];
 for (const r of rules) {
-  if (!/aria-(pressed|checked|selected|current)(="true")?\]/.test(r.selector) || /:not\(\[aria-/.test(r.selector) || has(r, ...OWN_SELECTED)) continue;
+  if (!/aria-(pressed|checked|selected|current)(="true")?\]/.test(r.selector) || /:not\(\[aria-/.test(r.selector) || has(r, ...OWN_SELECTED) || r.selector === ".spectrum-button[aria-pressed]") continue; // a toggle on or off: the well
   const bg = r.props.get("background") ?? r.props.get("background-color");
   if (bg && !/:hover|:active/.test(r.selector)) assert.ok(/^(var\(--brand-mist\)|transparent|none)$/.test(bg), `${r.selector}: a selected control has the mist fill, not ${bg}`);
 }
+// Beside a segmented control, a toggle is a segmented control of one: a well whose one segment has the mist fill when
+// it is on, 2 px in from the edge with the segment's corners. Chips, tools, rows and menu options fill their whole shape.
+assert.match(css, /\n\.spectrum-button\[aria-pressed\] \{\n  position: relative;\n  isolation: isolate;\n  padding: 0 calc\(var\(--space-2\) \+ 2px\);\n  background: var\(--canvas\);\n  color: var\(--ink-muted\);\n\}/);
+assert.match(css, /\n\.spectrum-button\[aria-pressed\]::before \{\n  content: "";\n  position: absolute;\n  inset: 2px;\n  z-index: -1;\n  border-radius: var\(--radius-xs\);/);
+assert.match(css, /\n\.spectrum-button\[aria-pressed="true"\]::before \{\n  background: var\(--brand-mist\);\n\}/);
+assert.match(css, /\n\.segmented \{[^}]*\n  padding: 2px;[^}]*\}\n\.segmented button \{[^}]*\n  border-radius: var\(--radius-xs\);/);
 // Hover: a look that changes under the pointer is inside the hover gate, so a touch screen does not hold it. A rule
 // that shows a hidden control for a row, or that shares its look with focus or a drag, stays outside.
 for (const r of rules) {

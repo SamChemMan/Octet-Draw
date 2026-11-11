@@ -1869,7 +1869,8 @@ div.facts {
 }
 /* Every formula in the panels uses the formula token (text-formula): IBM Plex Mono, 13 px, weight 500. */
 .facts .formula,
-.prop-value.formula {
+.prop-value.formula,
+.spectrum h2 .formula {
   font: 500 13px/18px var(--font-mono);
   color: var(--ink);
 }
@@ -2214,8 +2215,11 @@ div.facts {
   }
 }
 /* Orientation: two small pages. */
+/* The segments of one control have one width, the widest's: equal columns (BRAND.md, Controls). */
 .segmented {
-  display: inline-flex;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   height: var(--size-control);
   padding: 2px;
   box-sizing: border-box;
@@ -2531,14 +2535,23 @@ div.facts {
   color: var(--ink-faint);
 }
 /* Settings > Document > For: one button for each purpose, on more lines when there are many. */
+/* The purposes go onto more lines when the user has added their own, so each has one set width; a long name is cut
+   short with an ellipsis. */
 .segmented.purposes {
+  display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   height: auto;
-  min-height: 28px;
+  min-height: var(--size-control);
 }
 .segmented.purposes button {
+  display: block;
+  flex: none;
+  width: calc(var(--space-16) + var(--space-6));
   height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .segmented.units button {
   width: 28px;
@@ -2589,6 +2602,7 @@ div.facts {
   align-items: center;
   gap: var(--space-2);
   height: var(--size-control);
+  box-sizing: border-box;
   margin-bottom: var(--space-2);
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
@@ -3137,11 +3151,10 @@ div.facts {
 }
 /* Structures or Clip art, under the search field: two halves the side's width. */
 .segmented.library-kind {
-  display: flex;
+  display: grid;
   margin-bottom: var(--space-1);
 }
 .segmented.library-kind button {
-  flex: 1;
   padding: 0 var(--space-1);
   font: 13px/18px var(--font-sans);
 }
@@ -4610,24 +4623,29 @@ div.facts {
   padding-right: calc(3 * var(--size-control-sm) + var(--space-3));
 }
 /* A session's spectra as tabs (Spectrum.tsx Tabs), each with its close button on hover or focus, and + to add one. */
+/* The tabs are one width, and the + at their end is as wide as a tab: the tab list has equal columns, and the control
+   gives it one share for each tab and the + one share (Spectrum.tsx Tabs). */
 .spectrum-tab {
   position: relative;
-  display: inline-flex;
+  display: grid;
 }
 .spectrum-tabs [role="tablist"] {
-  display: inline-flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
 }
 .spectrum-tabs button[role="tab"] {
   height: 100%;
 }
 .spectrum-tab.closable button[role="tab"] {
-  padding-right: calc(var(--size-action) + var(--space-1) + 2px);
+  padding: 0 calc(var(--size-action) + var(--space-1) + 2px);
 }
 .spectrum-tabs button[aria-selected="true"] {
   background: var(--brand-mist);
   color: var(--link);
 }
-/* A tab's X (CloseX) sits in the tab's own room at its right end, 4 px clear of the name. */
+/* A tab's X (CloseX) sits in the tab's own room at its right end, 4 px clear of the name. The tab has the same room
+   on the name's left, so the name is in the middle of its tab with or without the X. */
 .spectrum-tab .close-x {
   position: absolute;
   top: 0;
@@ -4704,10 +4722,29 @@ div.facts {
 .spectrum-signal[style] text {
   fill: inherit;
 }
+/* A toggle (Solvent peaks, Details, Decouple ¹H, Peak list) is a segmented control of one, as it sits beside them: a
+   well, with its one segment (::before, 2 px in from the edge, the segment's corners) tinted when it is on. Its name
+   is as far inside the segment as a segmented control's. */
+.spectrum-button[aria-pressed] {
+  position: relative;
+  isolation: isolate;
+  padding: 0 calc(var(--space-2) + 2px);
+  background: var(--canvas);
+  color: var(--ink-muted);
+}
+.spectrum-button[aria-pressed]::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: -1;
+  border-radius: var(--radius-xs);
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
 .spectrum-button[aria-pressed="true"] {
-  background: var(--brand-mist);
-  border-color: transparent;
   color: var(--link);
+}
+.spectrum-button[aria-pressed="true"]::before {
+  background: var(--brand-mist);
 }
 .spectrum-gap {
   flex: 1;
@@ -4726,7 +4763,13 @@ div.facts {
   white-space: nowrap;
 }
 @media (hover: hover) and (pointer: fine) {
-  .spectrum-button:hover:not(:disabled, [aria-pressed="true"]) {
+  .spectrum-button:hover:not(:disabled, [aria-pressed]) {
+    background: var(--surface-sunken);
+  }
+  .spectrum-button[aria-pressed="false"]:hover:not(:disabled) {
+    color: var(--ink);
+  }
+  .spectrum-button[aria-pressed="false"]:hover:not(:disabled)::before {
     background: var(--surface-sunken);
   }
 }

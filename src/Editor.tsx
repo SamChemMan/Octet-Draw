@@ -6359,12 +6359,14 @@ export default function Editor() {
     height: Math.min(stripMax, settings.stripHeight ?? stripDefault), min: 160, max: stripMax,
     onHeight: (h) => setSettings((x) => ({ ...x, stripHeight: h })), onReset: () => setSettings(({ stripHeight: _, ...x }) => x),
   };
-  // A session's structure by name (its abbreviation, as TREN), else its formula (B1.9).
-  const titleOf = (x: Session | undefined) => {
+  // A session's structure by name (its abbreviation, as TREN), else its formula (B1.9). A formula is flagged, so the
+  // panel's header shows it in the formula's font, as the Actions panel does.
+  const sessionName = (x: Session | undefined) => {
     const g = x && sessionMols.get(x.id);
     const a = g && loaded ? analyse(subset(doc, new Set(g)), 1, namesLoaded ? abbreviationOf : undefined)?.[0] : undefined;
-    return a ? a.abbreviation ?? subscripts(a.formula) : ""; // a formula with its subscripts; an abbreviation as it is (2-MeTHF)
+    return { text: a ? a.abbreviation ?? subscripts(a.formula) : "", formula: !!a && !a.abbreviation }; // a formula with its subscripts; an abbreviation as it is (2-MeTHF)
   };
+  const titleOf = (x: Session | undefined) => sessionName(x).text;
   // A session comes into the strip (Predict, a new tab, its pill): the session there goes to its pill, so does Mass
   // spec, and an open Actions panel becomes its pill. From a pill the strip opens out of it; with another session in
   // the strip already, the strip stays and its content changes.
@@ -9740,9 +9742,10 @@ export default function Editor() {
           showed (minimised, they do not draw), so each comes back as it was. */}
       {sessions.map((x) => <Live key={x.id} store={hovers}>{(hover) => {
         if (x.id !== shownId) { const kept = sessionProps.current.get(x.id); return kept ? <SpectrumPanel {...kept} hidden /> : null; }
+        const named = sessionName(x);
         const el = (
         <SpectrumPanel
-          hidden={panelHidden("nmr") || lost(x)} sizing={sizing} title={titleOf(x)} noStructure={x.at.length > 0 && !nmrTarget}
+          hidden={panelHidden("nmr") || lost(x)} sizing={sizing} title={named.text} formulaTitle={named.formula} noStructure={x.at.length > 0 && !nmrTarget}
           onPointTitle={(on) => setPillLit(on ? sessionMols.get(x.id) : undefined)}
           addable={[...new Set([...PREDICTED, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
           onAddKey={(k) => openSpectrum(k, sessionMols.get(x.id))} onCloseTab={closeTab}
