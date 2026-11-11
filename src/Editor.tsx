@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, BracketsCurly, Barcode, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
+  TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
   BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -2543,27 +2543,23 @@ export default function Editor() {
     },
     // Clean Up Reaction (⇧⌘X): every reaction the selection touches (a structure, a plus sign, an arrow or its text),
     // or every reaction in the drawing when nothing is selected, as Clean Up Structure works on the whole drawing.
+    // Sam (11 November 2026): one command does both of ChemDraw's. The reaction is laid out, then each product is
+    // turned to lie as the starting material it came from (ChemDraw's Augmented Clean Up Reaction), as a step of its
+    // own, so one Undo takes back the turn and keeps the layout (ChemDraw's Clean Up Reaction, products as drawn).
     clean_reaction: () => {
       const items = new Set(picked), atoms = selection, any = !items.size && !atoms.size;
-      const laid = cleanReactions(doc, (r) => r.arrows.some((id) => items.has(id)) || (withStructure(r) && (any || r.atoms.some((i) => atoms.has(i)) || r.captions.some((id) => items.has(id)))));
+      const pick = (r: Reaction) => r.arrows.some((id) => items.has(id)) || (withStructure(r) && (any || r.atoms.some((i) => atoms.has(i)) || r.captions.some((id) => items.has(id))));
+      const laid = cleanReactions(doc, pick);
       if (!laid.count) return setNotice(laid.kept ? "Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing." : "Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.", "info");
-      if (sameLayout(doc, laid.mol)) return; // nothing to undo when it was clean already
-      sayAfter(laid.count === 1 ? "Cleaned up the reaction." : `Cleaned up ${laid.count} reactions.`);
+      const say = () => sayAfter(laid.count === 1 ? "Cleaned up the reaction." : `Cleaned up ${laid.count} reactions.`);
+      if (sameLayout(doc, laid.mol)) {
+        const to = turnProducts(pick);
+        if (to) { say(); glideTo(to); }
+        return; // nothing to undo when it was clean already
+      }
+      say();
+      turnNext.current = pick;
       glideTo(laid.mol);
-    },
-    // Augmented Clean Up Reaction (ChemDraw's): each product turned to lie as the reactant it came from, by the atom
-    // map (mapped for this and the map taken off again when the reaction had none), then Clean Up Reaction.
-    clean_reaction_augmented: () => {
-      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      const r = arrow !== undefined ? reactionOf(arrow) : undefined;
-      if (!r || arrow === undefined) return setNotice("Select a reaction arrow first.", "info");
-      const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
-      const had = r.atoms.some((i) => doc.atoms[i].map);
-      let m = alignByMap(had ? doc : mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms)) ?? doc, steps);
-      if (!had) m = { ...clearScheme(m, new Set(r.atoms)), bonds: m.bonds.map((b, k) => ({ ...b, rxn: doc.bonds[k].rxn })) };
-      // The reaction read again from where its parts now stand, then laid out as Clean Up Reaction lays it out.
-      set(cleanReactions(m, (x) => x.arrows.includes(arrow)).mol, true);
     },
     // Show Reaction Interpretation (View menu): pointing at a reaction shows what each part of it is.
     interpretation: () => setSettings((s) => ({ ...s, interpretation: !s.interpretation })),
@@ -3807,6 +3803,40 @@ export default function Editor() {
     const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
     return cleanUpReactions(m, arrows, inkOf, reactionLayout(placedBox), pick);
   }
+  // Each product of the reactions `pick` takes, turned to lie as the starting material it came from, by the atom map
+  // (ChemDraw's Augmented Clean Up Reaction, interpret.ts alignByMap), then the reactions read again from where their
+  // parts now stand and laid out again. A reaction with no map is mapped for this and the map taken off again.
+  // Undefined when nothing changes.
+  const turnProducts = (pick: (r: Reaction) => boolean): Mol | undefined => {
+    const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : [])), seen = new Set<number>();
+    let m = doc;
+    for (const a of arrows) {
+      if (!straightArrow(a) || seen.has(a.id)) continue;
+      const r = reactionOf(a.id);
+      r?.arrows.forEach((id) => seen.add(id));
+      if (!r || !withStructure(r) || !pick(r)) continue;
+      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const had = r.atoms.some((i) => doc.atoms[i].map), was = m, mapped = had ? m : mapScheme(m, steps, mapReaction, (g) => pickAtoms(was, g));
+      if (!mapped) continue;
+      const out = alignByMap(mapped, steps);
+      m = had ? out : { ...clearScheme(out, new Set(r.atoms)), bonds: out.bonds.map((b, k) => ({ ...b, rxn: was.bonds[k].rxn })) };
+    }
+    const laid = m !== doc && !sameLayout(m, doc) ? cleanReactions(m, pick) : undefined;
+    return laid?.count && !sameLayout(laid.mol, doc) ? laid.mol : undefined;
+  };
+  // Clean Up Reaction's turn, once the layout's glide is over: Indigo's atom map takes about 8 ms a reaction, so the
+  // canvas answers the key as quickly as before, and the turn glides as a step of its own (decision 0024). It waits
+  // while a glide runs, as the other work after an edit does. A change before then (an Undo) drops it.
+  const turnNext = useRef<(r: Reaction) => boolean>(undefined);
+  useEffect(() => {
+    const pick = turnNext.current;
+    if (!pick) return;
+    turnNext.current = undefined;
+    let t = 0;
+    const go = () => { if (glidingNow.current) { t = window.setTimeout(go, 30); return; } const to = turnProducts(pick); if (to) glideTo(to); };
+    t = window.setTimeout(go, 30);
+    return () => clearTimeout(t);
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {
     const first = arrows.find((a) => picked.has(a.id) && !curved(a) && !isLine(a));
@@ -7190,7 +7220,6 @@ export default function Editor() {
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], expand_generic_sdf: ["Expand generic structure to SDF…", "", <Database size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
-    clean_reaction_augmented: ["Augmented clean up reaction", "", <StarFour size={18} />],
     map_reaction: ["Map atoms", "", <FlowArrow size={18} />], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
