@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -175,7 +175,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const m = doc, d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
-      structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0], reagent,
+      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), reagent,
       bottom: (id) => d.captionBox(id)?.[1],
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
@@ -258,7 +258,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return onCaptions(problems(chem.mol, stereo, true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
     },
     smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
-    formula: (m) => { try { return analyse(m)?.[0]?.formula; } catch { return undefined; } },
+    formula: (m) => { try { return analyseCompound(m)?.formula; } catch { return undefined; } },
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     picture: async () => undefined,
     centre: () => [0, 0], // a new drawing opens with the page's middle in the window's middle

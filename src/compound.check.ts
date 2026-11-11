@@ -356,12 +356,12 @@ for (const row of TABLE) {
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "1").inchiKey, keyOf("O=Cc1ccccc1"));
   assert.match(said(await call("change", { operations: [{ op: "replace", structure: id("3"), changes: [{ swap: { OBn: "OH" } }] }] })), /Octet changed nothing\. Compound 1: changes\[0\]: there is no OBn/);
   assert.match(said(await call("change", { operations: [{ op: "edit", ids: [`t${d.host.doc().captions!.find((c) => c.bold)!.id}`], changes: [{ swap: { OH: "OMe" } }] }] })), /takes no changes/);
-  // A salt by its number, from an earlier call: both ions (its number is under each).
+  // A salt by its number, from an earlier call: both ions (its number is under each). The new salt is one compound.
   d = drawing();
   assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "OCC(=O)[O-].[Na+]", number: "1" }] })).isError);
   r = await call("draw", { kind: "structures", structures: [{ from: "1", changes: [{ swap: { OH: "OBn" } }], number: "2" }] });
   assert.ok(!r.isError, said(r));
-  assert.deepEqual((await reading()).structures.filter((s: { number: string }) => s.number === "2").map((s: { inchiKey: string }) => s.inchiKey).sort(), ["[Na+]", "[O-]C(=O)COCc1ccccc1"].map(keyOf).sort());
+  assert.deepEqual((await reading()).structures.filter((s: { number: string }) => s.number === "2").map((s: { inchiKey: string }) => s.inchiKey), [keyOf("[Na+].[O-]C(=O)COCc1ccccc1")]);
   // cycle and figure.
   d = drawing();
   r = await call("draw", { kind: "cycle", intermediates: [{ text: "Cl[Pd](Cl)(*)*", labels: ["L", "L"], number: "1" }, { from: "1", changes: [{ swap: { Cl: "Ph" }, occurrence: 1 }], number: "2" }, { from: "previous", changes: [{ swap: { Cl: "OAc" } }], number: "3" }] });

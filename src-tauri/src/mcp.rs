@@ -905,9 +905,9 @@ mod tests {
 
     #[test]
     fn the_bundle_has_its_manifest() {
-        let zip = bundle(vec![BundleTool { name: "read_drawing".into(), description: "Reads".into() }]).unwrap();
+        let zip = bundle(vec![BundleTool { name: "advanced".into(), description: "Other tools".into() }]).unwrap();
         let text = String::from_utf8_lossy(&zip);
-        assert!(text.contains(r#""entry_point": "server/index.cjs""#) && text.contains("read_drawing") && text.contains("server/index.cjs") && text.contains("icon.png"));
+        assert!(text.contains(r#""entry_point": "server/index.cjs""#) && text.contains("advanced") && text.contains("server/index.cjs") && text.contains("icon.png"));
         assert!(bundle((0..65).map(|k| BundleTool { name: format!("t{k}"), description: String::new() }).collect()).is_err());
         if let Some(out) = std::env::var_os("OCTET_BUNDLE_OUT") {
             std::fs::write(out, zip).unwrap();
@@ -941,7 +941,7 @@ mod tests {
         run(&relay, r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
         run(&relay, r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
         run(&relay, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
-        run(&relay, r#"{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"read_drawing"}}"#);
+        run(&relay, r#"{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"read"}}"#);
         let all = out.all();
         assert_eq!(all.len(), 3, "nothing for the notification");
         assert_eq!(all[0]["result"]["protocolVersion"], "2025-06-18");
@@ -968,7 +968,7 @@ mod tests {
         });
         let out = Lines::default();
         let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
-        run(&relay, r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"draw_structures","_meta":{"progressToken":1}}}"#);
+        run(&relay, r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"draw","_meta":{"progressToken":1}}}"#);
         let head = server.join().unwrap();
         assert!(head.contains("Authorization: Bearer k3y") && head.contains("text/event-stream"), "{head}");
         let all = out.all();

@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, chiralFlagOnly, cleanUp, expandWithOrigins, fragmentMasses, importStructure, mapReaction, ready, stereoLabels, structures, toMolfile, toSmiles } = await import("./chem.ts");
+const { analyse, analyseCompound, chiralFlagOnly, cleanUp, expandWithOrigins, fragmentMasses, importStructure, mapReaction, ready, stereoLabels, structures, toMolfile, toSmiles } = await import("./chem.ts");
 const { hydrogens, render } = await import("./render.ts");
 const { addSymbol } = await import("./edit.ts");
 const { problems } = await import("./check.ts");
@@ -55,6 +55,16 @@ assert.equal(formula(alone("H2O2")), "H2O2");
 assert.equal(formula(onEthyl("HO2C")), "C3H6O2");
 assert.equal(formula(onEthyl("HOOC")), "C3H6O2");
 assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
+// A compound of several structures (the ions of a salt) has one formula and one mass, its structures' added together;
+// one structure's are as analyse gives them.
+{
+  const salt: Mol = { atoms: [{ label: "N", charge: 1, location: [0, 0, 0] }, ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => ({ label: "C", location: [x, y, 0] as [number, number, number] })), { label: "Cl", charge: -1, location: [3, 0, 0] }], bonds: [1, 2, 3, 4].map((k) => ({ type: 1, atoms: [0, k] as [number, number] })) };
+  const parts = analyse(salt)!, whole = analyseCompound(salt)!;
+  assert.deepEqual(parts.map((p) => p.formula), ["C4H12N", "Cl"]);
+  assert.equal(whole.formula, "C4H12ClN");
+  assert.ok(Math.abs(whole.weight - (parts[0].weight + parts[1].weight)) < 1e-9 && Math.abs(whole.weight - 109.6) < 0.05, `tetramethylammonium chloride weighs ${whole.weight}`);
+  assert.deepEqual(analyseCompound(onEthyl("CO2H")), analyse(onEthyl("CO2H"))![0]);
+}
 // A label Indigo cannot read stays one unknown atom.
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
 // A ligand bonded to a metal has the hydrogens the drawing shows: PPh3 on Pd is P, not PH.
@@ -218,6 +228,17 @@ console.log("chem.check: attachment points ok");
   assert.equal(kept.products[0][3], 7);
   assert.deepEqual(kept.reactants[0].slice(0, 3), kept.products[0].slice(0, 3));
   assert.ok(kept.reactants[0].slice(0, 3).every((n) => n !== undefined && n !== 7));
+  // A compound of several structures (a salt's ions, drawn as one) maps as one: each of its atoms has its number.
+  const ions: Mol = { atoms: [...chain([]).atoms, { label: "Na", charge: 1, location: [5, 0, 0] }], bonds: chain([]).bonds };
+  const salt = mapReaction([ions], [ions])!;
+  assert.deepEqual([salt.reactants[0].length, salt.products[0].length], [5, 5]);
+  assert.deepEqual(salt.reactants[0].slice(0, 4), salt.products[0].slice(0, 4));
+  // A salt drawn by hand can have the atoms of its ions in any order (the sodium drawn between the acetate's atoms).
+  const at = (label: string, x: number, charge?: number): Mol["atoms"][number] => ({ label, location: [x, 0, 0], ...(charge ? { charge } : {}) });
+  const mixed: Mol = { atoms: [at("C", 0), at("Na", 5, 1), at("C", 1), at("O", 2, -1), at("O", 1.5)], bonds: [{ type: 1, atoms: [0, 2] }, { type: 1, atoms: [2, 3] }, { type: 2, atoms: [2, 4] }] };
+  const inOrder: Mol = { atoms: [0, 2, 3, 4, 1].map((i) => mixed.atoms[i]), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 2, atoms: [1, 3] }] };
+  const both = mapReaction([mixed], [inOrder])!;
+  assert.deepEqual([0, 2, 3, 4, 1].map((i) => both.reactants[0][i]), both.products[0], "a salt with its atoms in any order");
   // An MDL file's chiral flag alone (no V3000 stereo collections) is what Stereo flags from the chiral flag hides.
   assert.ok(chiralFlagOnly("\n  Octet\n\n  1  0  0  0  1  0  0  0  0  0999 V2000\n"));
   assert.ok(!chiralFlagOnly("M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STERAC1 ATOMS=(1 2)\nM  V30 END COLLECTION\n V3000"));
