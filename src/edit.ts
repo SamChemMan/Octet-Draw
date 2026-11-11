@@ -1412,6 +1412,16 @@ export function fragments(m: Mol, attached = true): number[][] {
   return out;
 }
 
+// Whether the atoms ids are one whole molecule: a structure with one or more bonds (ethane drawn as one bond), or one
+// labelled atom (H2O, Na). An attachment point, a polymer bead or a label read as text only is no molecule.
+export function wholeMolecule(m: Mol, ids: number[]): boolean {
+  // A bond out of the atoms (an atom or bond picked in a larger structure) answers at once, with no fragments made.
+  const inside = new Set(ids);
+  if (m.bonds.some((b) => inside.has(b.atoms[0]) !== inside.has(b.atoms[1]))) return false;
+  const g = fragments(m).find((x) => x.includes(ids[0])), a = m.atoms[ids[0]];
+  return g?.length === ids.length && ids.every((i) => g.includes(i)) && (g.length > 1 || (!a.centre && !a.attach && !a.bead && a.chemical !== false));
+}
+
 // After a move: each moved atom that sits exactly on another atom joins it, so no atom hides under another.
 // The other atom keeps its label unless it is a plain carbon (then it takes the moved atom's label). Returns the
 // drawing and whether anything joined.
