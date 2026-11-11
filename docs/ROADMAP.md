@@ -24,6 +24,17 @@ default (decision 0010).
 | Launch: the website on Cloudflare Pages | Next; needs Sam's Cloudflare sign-in |
 | Signing and notarisation | Parked: needs Sam's keys |
 
+## Before 1.1.2 ships (Friday 13 November 2026)
+
+- Flatpak build in CI (x86_64, GNOME runtime's WebKitGTK) for NVIDIA Linux users with lag. Issue #37: post the
+  Flatpak link there and ask BAWE-beep to test it. The 1.1.1 reply promised this.
+
+## To do
+
+- Idea, not scheduled (7 November 2026): compound numbers in Word that renumber themselves, as Reactio Draw does
+  (marks in the text and in pasted drawings become 1, 2a and so on; chapters numbered on their own). Reactio Draw is
+  AGPL-3.0: use none of its code. Design Octet's own, through the Word OLE object and an Office add-in.
+
 ## Version 1.1.0: next steps
 
 Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are the next steps after 1.0.0. Build them in this order.

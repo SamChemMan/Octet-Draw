@@ -5,7 +5,8 @@
 // rows only); Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
 // groups of predicted values have a Predicted heading, and every copy of their values says (predicted).
 import { useLayoutEffect, useMemo, useState } from "react";
-import { Check, CopySimple, X } from "@phosphor-icons/react";
+import { Check, CopySimple } from "@phosphor-icons/react";
+import { PanelControls } from "./PanelControls";
 import { useMovable } from "./movable";
 import { Select } from "./Select";
 import { propertyReport, rowLabel, type PropertyValues } from "./proprows";
@@ -16,7 +17,7 @@ const SUB = "₀₁₂₃₄₅₆₇₈₉";
 const DECIMALS: [string, string][] = [["", "Standard"], ...Array.from({ length: 9 }, (_, n): [string, string] => [String(n), String(n)])];
 
 type Props = {
-  values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: boolean;
+  values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: string; // the panel it sits on, when one is open
   decimals?: number; onDecimals: (places?: number) => void;
 };
 
@@ -30,7 +31,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
   // controls.
   const [below, setBelow] = useState(0);
   useLayoutEffect(() => {
-    const el = stacked ? document.querySelector<HTMLElement>(".spectrum") : null;
+    const el = stacked ? document.querySelector<HTMLElement>(".spectrum:not(.minimised)") : null;
     if (!el) return setBelow(0);
     const fit = () => setBelow(el.offsetHeight);
     fit();
@@ -42,7 +43,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" inert={leaving} style={{ ...move.style, ...(stacked ? { "--below": `${below}px` } : {}) } as React.CSSProperties}>
       <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
-        <button className="actions-close" onClick={onClose} aria-label="Close properties" data-tip="Close properties"><X size={12} /></button>
+        <PanelControls close={onClose} />
       </header>
       <div className="prop-list">
         {groups.map((g, k) => (

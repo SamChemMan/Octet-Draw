@@ -1,0 +1,150 @@
+// Run: node src/panels.check.ts. The spectrum and Mass spec panels minimise to a pill beside their structure (plan
+// B1, Sam 4 and 7 November 2026), take turns with the Actions panel, and close as one undo step; every panel has the
+// same controls (PanelControls); Mass spec analysis sits with the NMR predictions and Properties.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+const editor = read("./Editor.tsx"), css = read("./editor.css"), actions = read("./Actions.tsx"), menu = read("../src-tauri/src/main.rs");
+const controls = read("./PanelControls.tsx");
+
+// B1.4 and B1.23: one set of controls on every panel, in Octet's style on every platform (no platform branches).
+for (const file of ["Spectrum.tsx", "MassSpec.tsx", "Properties.tsx", "Actions.tsx"]) assert.match(read(`./${file}`), /<PanelControls /, `${file} uses PanelControls`);
+assert.match(read("./Spectrum.tsx"), /<PanelControls minimise=\{p\.onMinimise\} full=\{[^}]+\}\} close=\{p\.onClose\} \/>/);
+assert.match(read("./MassSpec.tsx"), /<PanelControls minimise=\{p\.onMinimise\} full=\{[^}]+\}\} close=\{p\.onClose\} \/>/);
+assert.match(read("./Properties.tsx"), /<PanelControls close=\{onClose\} \/>/);
+assert.match(actions, /<PanelControls minimise=\{\(\) => onOpen\(false\)\} \/>/, "the Actions panel's control is Minimise: it becomes its pill");
+assert.doesNotMatch(controls, /isMac|IS_MAC|navigator|userAgent/, "the same controls on Mac, Windows and Linux");
+for (const name of ['"Minimise"', '"Full screen"', '"Leave full screen"', '"Close"']) assert.ok(controls.includes(name), name);
+
+// B1.5: minimised, a panel stays (hidden), so it comes back as it was, and it does not draw again while hidden.
+for (const file of ["Spectrum.tsx", "MassSpec.tsx"]) {
+  const src = read(`./${file}`);
+  assert.match(src, /memo\(Panel, \(a, b\) => !!a\.hidden && !!b\.hidden\)/, `${file}: no redraw while minimised`);
+  assert.match(src, /p\.hidden && "minimised"/);
+  assert.match(src, /inert=\{leaving \|\| p\.hidden\}/, `${file}: a hidden panel takes no keys`);
+  assert.match(src, /e\.key === "Escape"[^\n]+p\.onMinimise\(true\)/, `${file}: Escape in the panel minimises it`);
+}
+assert.match(css, /\.spectrum\.minimised \{\n  display: none;/);
+
+// B1.2: the strip runs from the toolbar to the window's right edge, above the Actions pill; full screen to the bottom.
+assert.match(css, /\.spectrum \{\n  position: absolute;\n  left: var\(--strip-left, calc\(var\(--space-4\) \* 2 \+ 48px\)\);\n  right: var\(--space-4\);\n  bottom: calc\(var\(--space-4\) \* 2 \+ 32px\);/);
+assert.match(css, /\.spectrum\.expanded \{\n  top: var\(--space-4\);\n  bottom: var\(--space-4\);/);
+
+// B1.7: the pill sits in a layer the view moves (no React render on pan or zoom), is not scaled by the zoom, and
+// is not part of the drawing.
+assert.match(controls, /useLayoutEffect\(\(\) => views\.subscribe\(\(\) => place\.current\(\)\), \[views\]\);/, "a pan or zoom places the pills with no React render");
+assert.match(controls, /pill\.style\.left = `\$\{Math\.max\(72, Math\.min\(room\.width - pill\.offsetWidth - 16, x\)\)\}px`;/, "a pill stays in view");
+assert.match(controls, /pill\.style\.top = `\$\{Math\.max\(16, Math\.min\(room\.height - dock - 40, y\)\)\}px`;/);
+assert.match(css, /\.pill:hover \.pill-close,\n\.pill:focus-within \.pill-close \{\n  display: grid;/);
+assert.match(css, /@media \(hover: none\), \(pointer: coarse\) \{\n  \.pill-close \{\n    display: grid;/, "the X always shows for touch and pen");
+for (const file of ["export.ts", "file.ts", "cdxml.ts"]) assert.doesNotMatch(read(`./${file}`), /pill/i, `${file} knows nothing of pills`);
+assert.match(controls, /e\.key === "Delete" \|\| e\.key === "Backspace"/, "Delete on a focused pill closes it");
+
+// B1.1 and B1.6: the panel and Actions take turns, and settings.actions is not changed by a panel opening.
+assert.match(editor, /open=\{settings\.actions && !actionsYield\}/);
+assert.match(editor, /onOpen=\{openActions\}/);
+assert.match(editor, /const actionsYield = settings\.actions && \(showing\("nmr"\) \|\| showing\("ms"\)\);/, "Actions is a pill while a panel shows in the strip");
+assert.match(editor, /if \(open\) \{ minimisePanel\("nmr"\); minimisePanel\("ms"\); \}/, "opening Actions minimises the strip");
+
+// B1.10 and B1.11: Close is one undo step that does not change the drawing; Redo closes again.
+assert.match(editor, /closedPanel\.current = \{ kind, was, mol: doc, at: h\.at \};/);
+assert.match(editor, /if \(c && c\.mol === h\.stack\[h\.at\] && c\.at === h\.at && !!c\.undone === redo\)/);
+assert.doesNotMatch(editor.slice(editor.indexOf("function closePanel"), editor.indexOf("function letGoOfPanel")), /\bset\(|dispatch\(/, "closing a panel is not an edit");
+
+// B1.12: only the shown panel predicts; minimised, no shifts show beside the atoms.
+assert.match(editor, /if \(nmrView === "open"\) nmrDocKept\.current = \{ doc, target: cur \? sessionMols\.get\(cur\.id\)/);
+assert.match(editor, /\}, \[nucleusOpen, loaded, nmrDoc, nmrTarget, nmrTables, nmrSolvent, settings\.nmrDecouple\]\);/);
+assert.match(editor, /if \(nmrView !== "open"\) \{ \/\* minimised: no shifts beside the atoms \*\/ \}/);
+
+// B1.14 and B1.16: View > Show or Hide Spectrum, focus to the pill after a keyboard minimise, and the live region.
+assert.match(menu, /item\("toggle_spectrum", "Show or Hide Spectrum", ""\)/);
+assert.match(editor, /pillEl\(kind\)\?\.querySelector<HTMLElement>\("\.pill-open"\)\?\.focus\(\)/);
+for (const said of ["minimised", "closed", "open"]) assert.ok(editor.includes(`say(\`\${panelName(kind)} ${said}\`)`), `says "${said}"`);
+assert.match(read("./Spectrum.tsx"), /role="region" aria-label=\{p\.label\}/);
+
+// B1.17: motion from the tokens, opacity only with reduced motion, none from the keyboard.
+assert.match(controls, /if \(!panel \|\| keyboard\) return done\?\.\(\);/);
+assert.match(controls, /reduced\(\) \? \[\{ opacity: 1 \}, \{ opacity: 0 \}\]/);
+assert.match(controls, /timing\(way === "in" \? "--motion" : "--motion-slow"\)/);
+
+// Mass spec analysis next to the NMR predictions and Properties (Sam, 7 November 2026), in the Actions panel's
+// Analysis set, the Structure menu under the NMR items, the command palette and the MCP. The tool stays.
+assert.match(actions, /predict_31p: "analysis", mass_spec: "analysis"/);
+assert.match(actions, /"Predict ³¹P-NMR shifts", "predict_31p"\)\)\] : \[\]\), small\(it\(<MassSpecGlyph \/>, "Mass spec analysis", "mass_spec"\)\)/, "Mass spec comes after the NMR predictions");
+{
+  const gap = menu.slice(menu.indexOf('item("predict_13c"'), menu.indexOf('&item("mass_spec", "Show Mass Spec Analysis", "")'));
+  assert.ok(gap.length > 0 && gap.split("\n").slice(1).every((line) => /^\s*(\/\/.*|&item\("predict_\w+", "Predict [^"]+", ""\)\?,)?$/.test(line)), "Mass spec comes right after the NMR predictions");
+}
+assert.match(editor, /mass_spec: \(\) => massSpecOf\(\),/);
+assert.match(editor, /mass_spec: \["Mass spec analysis", "", <MassSpecGlyph \/>\]/);
+assert.match(read("./tools.tsx"), /const SPECIAL: Tool\[\] = \[[^\]]*"massspec"/, "the Mass spec analysis tool stays in the toolbar");
+for (const command of ["mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close"]) {
+  assert.match(editor, new RegExp(`\\n    ${command}: `), `Editor runs ${command}`);
+}
+
+// B1.3: the strip's height by its top edge, kept in settings, with the canvas keeping 96 px.
+assert.match(controls, /role="separator" aria-orientation="horizontal"/);
+assert.match(controls, /ArrowUp: height \+ step, ArrowDown: height - step, Home: min, End: max/);
+assert.match(controls, /if \(h0 \+ y0 - u\.clientY < min - 48\) onMinimise\(false\);/, "a drag well under the least height minimises");
+assert.match(controls, /onDoubleClick=\{onReset\}/);
+assert.match(read("./settings.ts"), /stripHeight\?: number;/);
+assert.match(editor, /stripDefault = Math\.round\(Math\.min\(400, Math\.max\(200, 0\.35 \* innerHeight\)\)\)/);
+assert.match(css, /\.spectrum\.sized \{\n  max-height: calc\(100% - 96px - var\(--space-4\) \* 3 - 32px\);/);
+for (const file of ["Spectrum.tsx", "MassSpec.tsx"]) assert.match(read(`./${file}`), /\{!expanded && <ResizeEdge sizing=\{p\.sizing\} onMinimise=\{p\.onMinimise\} \/>\}/, `${file}: the top edge`);
+
+// B1.8: a session's spectra as tabs, each closable, and + to add a kind that applies.
+const spectrum = read("./Spectrum.tsx");
+assert.match(spectrum, /role="tablist" aria-label="Spectra"/);
+assert.match(spectrum, /if \(e\.key === "Delete" \|\| e\.key === "Backspace"\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); onClose\(k\); \}/);
+assert.match(spectrum, /<Pick label="Add spectrum"/);
+assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.nucleiHere, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
+assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
+assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");
+
+// B1.9 and B1.12: one session for each structure, marked on its atoms, found again after an undo by its atoms'
+// places, and joined when its structure joins another's. Marks are never saved, copied or duplicated.
+assert.match(read("./render.ts"), /session\?: number;/);
+assert.match(read("./edit.ts"), /add\.atoms\.map\(\(\{ session: _, \.\.\.a \}\)/, "a pasted or duplicated structure is in no session");
+assert.doesNotMatch(read("./file.ts"), /session/, "the file never saves a session");
+assert.match(editor, /if \(file\.saved === doc\) setFile\(\(f\) => \(\{ \.\.\.f, saved: marked \}\)\);\n    dispatch\(\{ type: "amend", mol: marked \}\);/, "marks are no undo step and no unsaved change");
+assert.match(editor, /if \(best < 0 && s\.at\.length\)/, "no marks: the structure by its atoms' places");
+assert.match(editor, /if \(first\) merged\.set\(x\.id, first\.id\); else owner\.set\(g, x\);/, "joined structures join their sessions");
+assert.match(editor, /if \(x\.id !== shownId\) \{ const kept = sessionProps\.current\.get\(x\.id\); return kept \? <SpectrumPanel \{\.\.\.kept\} hidden \/> : null; \}/, "each session's panel keeps what it showed");
+assert.match(spectrum, /\{p\.noStructure && <span className="spectrum-none" role="status">No structure<\/span>\}/);
+
+// B1.14: the strip's controls come last in its tab order.
+for (const file of ["Spectrum.tsx", "MassSpec.tsx"]) {
+  const src = read(`./${file}`);
+  assert.ok(src.lastIndexOf("<PanelControls") > src.lastIndexOf("<footer"), `${file}: the controls come last`);
+}
+
+// B1.15: the peaks by keyboard, named as a chemist reads them.
+assert.match(spectrum, /role="listbox" aria-label="Peaks"/);
+assert.match(spectrum, /ppm, \$\{word\}\$\{c\.length \? `, J \$\{c\.map\(\(x\) => x\.j\.toFixed\(1\)\)\.join\(", "\)\} Hz` : ""\}, \$\{s0\.nuclei\} \$\{element\}/);
+assert.match(spectrum, /if \(e\.key === "Enter"\) \{ e\.preventDefault\(\); q\.choose\(\); return; \}/);
+
+// B1.19 and B1.20: the notice, the tutorial card and Fit to Window keep clear of the strip; Add to drawing says so.
+assert.match(css, /\.notice \{\n  position: absolute;\n  bottom: calc\(var\(--space-6\) \+ var\(--dock, 0px\)\);/);
+assert.match(css, /\.coach\.low \{\n  top: auto;\n  bottom: calc\(var\(--space-4\) \+ var\(--dock, 0px\)\);/);
+assert.match(editor, /free = \[innerWidth - 160, innerHeight - 120 - below\]/);
+assert.match(editor, /say\("Spectrum added"\);/);
+
+// ¹⁹F and ³¹P in the UI (plan B3, 8 November 2026): drawn by kind (trace or sticks) with no test of one nucleus,
+// offered only for a structure with F or P, with Decouple ¹H, in the Actions panel, the palette and the MCP.
+assert.match(spectrum, /const nucleus: Nucleus \| undefined = isNucleus\(p\.spectrumKey\) \? p\.spectrumKey : undefined;/);
+assert.match(spectrum, /const traced = !!nucleus && NUCLEI\[nucleus\]\.trace;/);
+assert.doesNotMatch(spectrum, /nucleus === "1H"/, "no ¹H-only branches in the panel");
+assert.match(spectrum, /split\.map\(\(ls, k\) => shown\(signals\[k\]\) && ls\.map\(\(l, i\) => <line/, "one stick for each line of a split signal");
+assert.match(spectrum, />Decouple ¹H<\/button>/);
+assert.match(spectrum, /\{v\.toFixed\(places\)\.replace\("-", "−"\)\}/, "a minus sign on the axis");
+assert.match(editor, /const PREDICTED: string\[\] = NUCLEUS_LIST;/);
+assert.match(editor, /if \(word && graph && !hasNucleus\(graph, key as Nucleus\)\) return setNotice\(`This structure has no \$\{word\}\.`, "info"\);/);
+assert.match(editor, /predict\(g, nucleusOpen, nmrSolvent, settings\.nmrDecouple\?\.\[nucleusOpen\]\)/);
+assert.match(editor, /const mhz = first\.mhz \/ NUCLEI\[key\]\.ratio/);
+for (const id of ["predict_19f", "predict_31p"]) {
+  assert.match(editor, new RegExp(`\\n    ${id}: \\(\\) => openSpectrum\\("${id === "predict_19f" ? "19F" : "31P"}"\\),`));
+  assert.ok(actions.includes(`"${id}"`) && menu.includes(`item("${id}"`), id);
+}
+assert.match(actions, /context\.nuclei\?\.includes\("19F"\)/);
+console.log("panels.check: ok");

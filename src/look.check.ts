@@ -39,7 +39,7 @@ for (const [file, text] of tsx) {
 }
 // Every close button in a panel header says Close.
 for (const [file, text] of tsx) {
-  for (const m of text.matchAll(/className="actions-close"[^>]*aria-label="([^"]+)"/g)) assert.ok(/^(Close|Full screen)/.test(m[1]), `${file}: close button "${m[1]}"`);
+  for (const m of text.matchAll(/className="actions-close"[^>]*aria-label="([^"]+)"/g)) assert.ok(/^(Close|Full screen|Leave full screen|Minimise)/.test(m[1]), `${file}: close button "${m[1]}"`);
 }
 // One icon for one action (BRAND.md Iconography): across the Actions panel, the menu commands and the palette's own
 // rows, an icon stands for one command. Three pairs share an icon but never show together: Copy (a mixed selection) and

@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
-  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
+  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
@@ -41,14 +41,14 @@ import { propertyValues, PROPERTY_ROWS, rowLabel, type Calculated, type Property
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
-import { acsText, multiplicity, quality } from "./nmr";
+import { acsText, countText, hasNucleus, isNucleus, multiplicity, NUCLEI, NUCLEUS_LIST, quality, shiftText } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { placeFigure, withNotice } from "./spectrumplot";
 import { numbered, placeBeside } from "./beside";
 import { centreIn, dropClear, panInto, roomOf, type Span } from "./reveal";
 import { followLeaders, labelLines, lonePlot, placePlot, plotFigure, plotsIn, plotTop, reframe, rescale, signalKeys, traceOf, type Plot, type PlotEnv } from "./pageplot";
 import type { Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nextGroupId, regroup, type Measured } from "./measured";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
@@ -84,7 +84,7 @@ import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branc
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
@@ -106,6 +106,7 @@ import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
 import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
+import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -511,6 +512,12 @@ export function keepNow() {
 }
 let crashOffered = false; // the log of a crash is offered once, at start
 
+// The two panels that minimise to a pill (plan B1), and the state of each.
+type PanelKind = "nmr" | "ms";
+type PanelView = "open" | "min" | "closed";
+// The nuclei Octet predicts (nmr.ts predict): each one is a Predict command and a tab a session can add.
+const PREDICTED: string[] = NUCLEUS_LIST;
+type Session = { id: number; keys: string[]; key: string; view: PanelView; full: boolean; at: [number, number][] };
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
   // Each time the window comes to the front: the menu bar takes this window's ticks, colours and fonts again.
@@ -1059,6 +1066,23 @@ export default function Editor() {
     else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const undo = (redo = false) => {
+    // The last close of a panel, while the drawing is as it was then: Undo brings the panel back, Redo closes it again.
+    const c = closedPanel.current;
+    if (c && c.mol === h.stack[h.at] && c.at === h.at && !!c.undone === redo) {
+      if (c.kind === "nmr" && c.before && c.after) {
+        // Sessions as they were before the close, or after it again.
+        setSessions(redo ? c.after : c.before);
+        setShownId(c.shown);
+        c.undone = !redo;
+        say(`${redo ? "Redo" : "Undo"}. ${redo ? "Spectrum closed" : `${panelName(c.kind)} ${c.was === "open" ? "open" : "minimised"}`}`);
+        return;
+      }
+      if (redo) { closePanel(c.kind); closedPanel.current = { ...c, undone: false }; return; }
+      c.undone = true;
+      if (c.was === "open") showPanel(c.kind); else setViewOf(c.kind)(c.was);
+      say(`Undo. ${panelName(c.kind)} ${c.was === "open" ? "open" : "minimised"}`);
+      return;
+    }
     const step = redo ? h.stack[h.at + 1] : h.at > 0 ? h.stack[h.at] : undefined, r = step && zoomedBy.current.get(step);
     if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
     sayAfter(redo ? "Redo" : "Undo");
@@ -1796,7 +1820,8 @@ export default function Editor() {
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       // A drawing with a measured spectrum opens with it in the Spectrum panel.
-      if (mol.spectra?.length) { setSpectrum(spectrumKeyOf(mol.spectra[0])); setSpectrumShow("measured"); setChosenGroup(undefined); }
+      setSessions([]); setShownId(undefined);
+      if (mol.spectra?.length) { openSpectrum(spectrumKeyOf(mol.spectra[0]), [...fragments(mol)].sort((p, q) => q.length - p.length)[0] ?? [], mol); setSpectrumShow("measured"); setChosenGroup(undefined); }
       // Once for each open: a file Octet wrote that ChemDraw saved since has lost Octet's own extras (issue 19).
       // With things left out too it stays an error, as sayLost's notice is.
       const left = Object.keys(lost).length > 0;
@@ -2354,7 +2379,7 @@ export default function Editor() {
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
     zoom_out: () => zoomTo(views.get().zoom / 1.25),
     zoom_actual: () => zoomTo(1 / frame.k),
-    actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    actions: () => openActions(!(settings.actions && !actionsYield)),
     export: () => checkFirst(openExport),
     export_quick: () => checkFirst(() => void quickExport()),
     print: () => void printDrawing(),
@@ -2407,6 +2432,18 @@ export default function Editor() {
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
+    predict_19f: () => openSpectrum("19F"),
+    predict_31p: () => openSpectrum("31P"),
+    mass_spec: () => massSpecOf(),
+    // View > Show or Hide Spectrum: the panel shown goes to its pill, or the last one minimised comes back.
+    toggle_spectrum: () => {
+      const open = (["nmr", "ms"] as const).find(showing);
+      if (open) return minimisePanel(open, true);
+      const min = (["nmr", "ms"] as const).find((k) => viewOf(k) === "min" && (k === "nmr" ? spectrum : massSpec));
+      if (min) showPanel(min, true); else setNotice("Open a spectrum first.", "info");
+    },
+    spectrum_full_screen: () => { if (showing("nmr")) setNmrFull(!nmrFull); else if (massSpec && msView === "open") setMsFull((f) => !f); },
+    spectrum_close: () => { if (spectrum && nmrView !== "closed") closePanel("nmr"); else if (massSpec && msView !== "closed") closePanel("ms"); },
     // Expand Label (Structure menu): each selected label (OMe, CO2Et, Boc) drawn out as its atoms.
     expand_label: () => {
       let m = doc;
@@ -2600,9 +2637,10 @@ export default function Editor() {
       // Everything drawn (text, arrows and shapes too), or the atoms when the canvas is not there.
       const ink = svg.current ? canvasInk(svg.current) : undefined, b = ink ? [ink[0] / L, -ink[3] / L, ink[2] / L, -ink[1] / L] : bounds(doc);
       if (!b) return moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(style) });
-      const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
+      // Above the strip when one is docked (B1.19).
+      const below = dock.current, free = [innerWidth - 160, innerHeight - 120 - below], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
       const zoom = clampZoom(Math.min(free[0] / size[0], free[1] / size[1]));
-      moveView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
+      moveView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: (innerHeight - below) / 2 + ((b[1] + b[3]) / 2) * L * zoom });
     },
     // View > Centre in Window (⌥⌘/): the selection, or else the whole drawing (else the page), in the middle of the room
     // the panels leave, at the same zoom. From a key the view moves at once; from the pointer (the menu, Actions) it glides.
@@ -3256,6 +3294,48 @@ export default function Editor() {
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel's structure (see openMassSpec), and the atoms lit from it.
   const [massSpec, setMassSpec] = useState<number[]>(), [msPoint, setMsPoint] = useState<number[]>();
+  // The Spectrum and Mass spec panels (plan B1): each open, minimised to a pill beside its structure, or closed (kept
+  // hidden while Undo can bring it back), and each full screen or not. One shows at a time, and the Actions panel
+  // takes turns with it: a panel that opens over Actions makes it a pill (actionsYield) and gives it back when it goes.
+  // folding: the panel moving to or from its pill. closedPanel: the last close, which Undo takes back while the
+  // drawing has not changed since.
+  // NMR sessions (B1.8 to B1.12): one for each structure with spectra open, its spectra as tabs (keys: a nucleus such
+  // as "1H", or a measured spectrum's kind), the tab shown, and whether it is open, minimised or closed. One shows in
+  // the strip (shownId). A session's structure is the one whose atoms carry its id (Atom.session); at: the atoms'
+  // places when it opened, to find the structure again after an undo to a drawing without the marks.
+  const [sessions, setSessions] = useState<Session[]>([]), [shownId, setShownId] = useState<number>();
+  const sessionSeq = useRef(0), sessionProps = useRef(new Map<number, React.ComponentProps<typeof SpectrumPanel>>());
+  const cur = sessions.find((s) => s.id === shownId);
+  const spectrum = cur?.key, nmrView: PanelView = cur?.view ?? "open", nmrFull = !!cur?.full;
+  const editSession = (id: number | undefined, f: (s: Session) => Session) => setSessions((ss) => ss.map((s) => (s.id === id ? f(s) : s)));
+  const setNmrView = (view: PanelView) => editSession(shownId, (s) => ({ ...s, view }));
+  const setNmrFull = (full: boolean) => editSession(shownId, (s) => ({ ...s, full }));
+  const [msView, setMsView] = useState<PanelView>("open");
+  const [msFull, setMsFull] = useState(false);
+  const [folding, setFolding] = useState<{ kind: PanelKind; way: "in" | "out" | "close" | "swap"; pill?: DOMRect; keyboard: boolean; focus?: boolean }>();
+  // The last close (a panel, a session or one tab): Undo takes it back while the drawing has not changed since. An NMR
+  // close keeps the sessions as they were before and after it.
+  const closedPanel = useRef<{ kind: PanelKind; was: PanelView; mol: Mol; at: number; undone?: boolean; before?: Session[]; after?: Session[]; shown?: number }>(undefined);
+  // Each session's structure: the fragment with most of its marked atoms, else (an undo to a drawing without the marks)
+  // the one at the places its atoms had, else none (the structure is gone). A session with no places is the drawing's
+  // own (a spectrum opened with no structure).
+  const sessionMols = useMemo(() => {
+    const out = new Map<number, number[] | undefined>();
+    if (!sessions.length) return out;
+    const groups = fragments(doc);
+    for (const s of sessions) {
+      let best = -1, n = 0;
+      groups.forEach((g, k) => { const c = g.reduce((t, i) => t + (doc.atoms[i].session === s.id ? 1 : 0), 0); if (c > n) { n = c; best = k; } });
+      if (best < 0 && s.at.length) groups.forEach((g, k) => {
+        const c = s.at.filter(([x, y]) => g.some((i) => Math.abs(doc.atoms[i].location[0] - x) < 1e-3 && Math.abs(doc.atoms[i].location[1] - y) < 1e-3)).length;
+        if (c > n && 2 * c >= s.at.length) { n = c; best = k; }
+      });
+      out.set(s.id, best >= 0 ? groups[best] : undefined);
+    }
+    return out;
+  }, [doc, sessions]);
+  const lost = (s: Session) => s.at.length > 0 && !sessionMols.get(s.id);
+  const [pillLit, setPillLit] = useState<number[]>();
   // Tab on an atom or bond with Mass spec analysis: the atom or bond, its atoms, and how many times Tab was pressed on it.
   const [msTab, setMsTab] = useState<{ atom?: number; bond?: number; atoms: number[]; n: number }>();
   // A cut with the Mass fragmentation tool (ChemDraw's): one caption for each side, its pieces' formula (counts as
@@ -3635,7 +3715,7 @@ export default function Editor() {
   // the bottom). Bigger than that room, it is centred. Objects named in place of true come into view without being
   // selected (Add to drawing > Key, Shifts beside atoms, and the Properties panel's).
   const revealNext = useRef<boolean | Set<number>>(false);
-  const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .spectrum, .massspec, .properties")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
+  const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
   // What the scroll bars span: the drawing (drawnBox, with every object) and its pages, drawing px at 100%, y down.
   const scrollBox = useMemo((): Span => {
     const items = new Set([...placed.map((c) => c.id), ...arrows.map((a) => a.id), ...cycleArrows.map((a) => a.cycle), ...(shown.shapes ?? []).map((sh) => sh.id)]);
@@ -5865,6 +5945,8 @@ export default function Editor() {
       ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
+      // ¹⁹F and ³¹P show for a structure with F or P, as an atom or in a label (CF3, PPh3, PF6).
+      nuclei: (() => { const t = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().map((i) => doc.atoms[i].text ?? doc.atoms[i].label).join(" "); return [...(/F(?![a-z])/.test(t) ? ["19F"] : []), ...(/P(?![a-z])/.test(t) ? ["31P"] : [])]; })(),
       // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection),
       properties: settings.properties }; // so the Properties action names what it does next, as the palette does
@@ -5939,8 +6021,110 @@ export default function Editor() {
   function openMassSpec(atom: number) {
     const group = fragments(doc).find((g) => g.includes(atom));
     if (!group) return;
-    setSpectrum(undefined);
     setMassSpec(group);
+    showPanel("ms");
+  }
+  // Mass spec analysis from the Actions panel, the Structure menu or the command palette: the panel on the first
+  // selected structure, else the drawing's largest.
+  function massSpecOf() {
+    const groups = fragments(doc), pick = (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
+    if (!pick?.length) return setNotice("Draw a structure first.", "info");
+    openMassSpec(pick[0]);
+  }
+  const panelEl = (kind: PanelKind) => document.querySelector<HTMLElement>(kind === "nmr" ? ".spectrum:not(.massspec):not(.minimised)" : ".spectrum.massspec");
+  const pillKey = (kind: PanelKind, id = shownId) => (kind === "nmr" ? `nmr${id}` : "ms");
+  const pillEl = (kind: PanelKind, id = shownId) => document.querySelector<HTMLElement>(`.pill[data-pill="${pillKey(kind, id)}"]`);
+  const viewOf = (kind: PanelKind) => (kind === "nmr" ? nmrView : msView), setViewOf = (kind: PanelKind) => (kind === "nmr" ? setNmrView : setMsView);
+  // A panel that is there and open (each panel's view stays "open" while it has nothing to show).
+  const showing = (kind: PanelKind) => viewOf(kind) === "open" && (kind === "nmr" ? !!cur && !lost(cur) : !!massSpec);
+  // The Actions panel and a panel in the strip take turns (B1.6): while one shows in the strip, an open Actions panel
+  // is its pill, and it comes back when the strip's panel goes. settings.actions stays as the user set it.
+  const actionsYield = settings.actions && (showing("nmr") || showing("ms"));
+  const keyName = (key: string) => (key === "other" ? "Spectrum" : spectrumName(key));
+  const panelName = (kind: PanelKind) => (kind === "ms" ? "Mass spec" : !spectrum || spectrum === "other" ? "Spectrum" : `${spectrumName(spectrum)} spectrum`);
+  // The strip's height (B1.3): the user's, else 35% of the window between 200 and 400 px; the canvas keeps 96 px over it.
+  const stripMax = Math.max(160, innerHeight - 96 - 3 * 16 - 32), stripDefault = Math.round(Math.min(400, Math.max(200, 0.35 * innerHeight)));
+  const sizing: Sizing = {
+    height: Math.min(stripMax, settings.stripHeight ?? stripDefault), min: 160, max: stripMax,
+    onHeight: (h) => setSettings((x) => ({ ...x, stripHeight: h })), onReset: () => setSettings(({ stripHeight: _, ...x }) => x),
+  };
+  // A session's structure by name (its abbreviation, as TREN), else its formula (B1.9).
+  const titleOf = (x: Session | undefined) => {
+    const g = x && sessionMols.get(x.id);
+    const a = g && loaded ? analyse(subset(doc, new Set(g)), 1, namesLoaded ? abbreviationOf : undefined)?.[0] : undefined;
+    return a ? a.abbreviation ?? a.formula : "";
+  };
+  // A session comes into the strip (Predict, a new tab, its pill): the session there goes to its pill, so does Mass
+  // spec, and an open Actions panel becomes its pill. From a pill the strip opens out of it; with another session in
+  // the strip already, the strip stays and its content changes.
+  function showSession(id: number, keyboard = false, fresh = false, key?: string) {
+    const x = sessions.find((y) => y.id === id), pill = !fresh && x?.view !== "open" ? pillEl("nmr", id)?.getBoundingClientRect() : undefined;
+    const swap = !fresh && showing("nmr") && shownId !== id;
+    setSessions((ss) => ss.map((y) => (y.id === id ? { ...y, view: "open" } : y.view === "open" ? { ...y, view: "min" } : y)));
+    setShownId(id);
+    if (showing("ms")) setMsView("min");
+    letGoOfPanel("nmr");
+    if (swap) setFolding({ kind: "nmr", way: "swap", keyboard });
+    else if (pill) setFolding({ kind: "nmr", way: "out", pill, keyboard });
+    if (!fresh) say(`${x ? `${keyName(key ?? x.key)} spectrum` : "Spectrum"} open`);
+  }
+  // A panel opens or comes back from its pill: the other one goes to its pill, and an open Actions panel becomes its pill.
+  function showPanel(kind: PanelKind, keyboard = false) {
+    if (kind === "nmr") { if (cur) showSession(cur.id, keyboard); return; }
+    const pill = msView === "min" ? pillEl("ms")?.getBoundingClientRect() : undefined;
+    if (showing("nmr")) setNmrView("min");
+    setMsView("open");
+    if (pill) { setFolding({ kind, way: "out", pill, keyboard }); say(`${panelName(kind)} open`); }
+  }
+  // Minimise (its control, Escape in it, opening Actions): the panel goes to its pill beside its structure.
+  function minimisePanel(kind: PanelKind, keyboard = false) {
+    if (!showing(kind)) return;
+    const focus = !!panelEl(kind)?.contains(document.activeElement);
+    setViewOf(kind)("min");
+    setFolding({ kind, way: "in", keyboard, focus });
+    letGoOfPanel(kind);
+    say(`${panelName(kind)} minimised`);
+  }
+  // Close (its control, a pill's X): one undo step that does not change the drawing. An NMR close closes every tab of
+  // the session given (the one shown by default); closeTab closes one.
+  function closePanel(kind: PanelKind, id = shownId) {
+    if (kind === "nmr") {
+      const x = sessions.find((y) => y.id === id);
+      if (!x || x.view === "closed") return;
+      const after = sessions.map((y) => (y.id === id ? { ...y, view: "closed" as const } : y));
+      closedPanel.current = { kind, was: x.view, mol: doc, at: h.at, before: sessions, after, shown: shownId };
+      setSessions(after);
+      if (id === shownId && x.view === "open") setFolding({ kind, way: "close", keyboard: false });
+      if (id === shownId) letGoOfPanel(kind);
+      say(`${x.keys.length > 1 ? "Spectra" : `${keyName(x.key)} spectrum`} closed`);
+      return;
+    }
+    const was = msView;
+    if (was === "closed") return;
+    closedPanel.current = { kind, was, mol: doc, at: h.at };
+    setMsView("closed");
+    if (was === "open") setFolding({ kind, way: "close", keyboard: false });
+    letGoOfPanel(kind);
+    say(`${panelName(kind)} closed`);
+  }
+  function closeTab(key: string) {
+    if (!cur) return;
+    if (cur.keys.length < 2) return closePanel("nmr");
+    const keys = cur.keys.filter((k) => k !== key), at = cur.keys.indexOf(key);
+    const after = sessions.map((y) => (y.id === cur.id ? { ...y, keys, key: y.key === key ? keys[Math.min(at, keys.length - 1)] : y.key } : y));
+    closedPanel.current = { kind: "nmr", was: cur.view, mol: doc, at: h.at, before: sessions, after, shown: shownId };
+    setSessions(after);
+    letGoOfPanel("nmr");
+    say(`${keyName(key)} spectrum closed`);
+  }
+  function letGoOfPanel(kind: PanelKind) {
+    setPillLit(undefined);
+    if (kind === "nmr") { setNmrPoint(undefined); setGroupPoint(undefined); setChosenGroup(undefined); } else setMsPoint(undefined);
+  }
+  // Actions opened (its pill, View > Show Actions): a panel that shows goes to its pill.
+  function openActions(open: boolean) {
+    if (open) { minimisePanel("nmr"); minimisePanel("ms"); }
+    setSettings((s) => ({ ...s, actions: open }));
   }
   // The line a Mass spec analysis drag makes, and its id: a new line through the drag's corners to the pointer, or the
   // line the drag started from, made longer.
@@ -6015,17 +6199,24 @@ export default function Editor() {
   }
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
-  // The key: a nucleus ("1H", "13C") or a measured spectrum's kind ("ir"); only ¹H and ¹³C are predicted.
-  const [spectrum, setSpectrum] = useState<string>();
-  const nucleusOpen: Nucleus | undefined = spectrum === "1H" || spectrum === "13C" ? spectrum : undefined;
-  // The structure the spectrum is of, kept from when it opened (the first selected, or the drawing's largest), so the
-  // selection can go and the structure's highlights show. Edits that renumber atoms fall back to the largest.
-  const [nmrTarget, setNmrTarget] = useState<number[]>();
-  function openSpectrum(nucleus: string) {
-    const groups = fragments(doc), pick = (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
-    setNmrTarget(pick);
-    setMassSpec(undefined);
-    setSpectrum(nucleus);
+  const nucleusOpen: Nucleus | undefined = spectrum && PREDICTED.includes(spectrum) ? (spectrum as Nucleus) : undefined;
+  // Predict (a nucleus) or a measured spectrum on a structure (the first selected, else the drawing's largest): its
+  // session gets the tab, or a new session opens with it (B1.8: a kind already open shows that tab).
+  function openSpectrum(key: string, atoms?: number[], from = doc) {
+    const groups = fragments(from), pick = atoms ?? (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
+    // ¹⁹F and ³¹P only for a structure with that element (B3.10).
+    const word = isNucleus(key) ? ({ F: "fluorine", P: "phosphorus" } as Record<string, string>)[NUCLEI[key].el] : undefined;
+    const graph = word && pick ? graphOf(expandWithOrigins(subset(from, new Set(pick)), true).mol) : undefined;
+    if (word && graph && !hasNucleus(graph, key as Nucleus)) return setNotice(`This structure has no ${word}.`, "info");
+    const had = pick && from === doc && sessions.find((x) => x.view !== "closed" && sessionMols.get(x.id)?.some((i) => pick.includes(i)));
+    if (had) {
+      editSession(had.id, (x) => ({ ...x, keys: x.keys.includes(key) ? x.keys : [...x.keys, key], key }));
+      showSession(had.id, false, false, key);
+    } else {
+      const id = ++sessionSeq.current, at = (pick ?? []).map((i): [number, number] => [from.atoms[i].location[0], from.atoms[i].location[1]]);
+      setSessions((ss) => [...ss, { id, keys: [key], key, view: "open", full: false, at }]);
+      showSession(id, false, true);
+    }
     setSelection(new Set());
     setPicked(new Set());
   }
@@ -6097,25 +6288,60 @@ export default function Editor() {
     const next = { ...linksKept(base, spectra), spectra };
     if (home) load(undefined, next); else set(next, true);
     const first = added[0], key = spectrumKeyOf(first);
-    if (first.kind === "nmr" && first.mhz && (key === "1H" || key === "13C")) {
-      const mhz = key === "1H" ? first.mhz : first.mhz / 0.25145, near = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800].reduce((b, f) => (Math.abs(f - mhz) < Math.abs(b - mhz) ? f : b));
+    if (first.kind === "nmr" && first.mhz && isNucleus(key)) {
+      const mhz = first.mhz / NUCLEI[key].ratio, near = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800].reduce((b, f) => (Math.abs(f - mhz) < Math.abs(b - mhz) ? f : b));
       setSettings((s) => ({ ...s, nmrMhz: near }));
     }
-    const groups = fragments(next);
-    setNmrTarget([...groups].sort((p, q) => q.length - p.length)[0]);
-    setSpectrum(key);
+    // On Home the new drawing opens with it (load); here the atoms are as they were, so the session is found again.
+    if (!home) openSpectrum(key, [...fragments(next)].sort((p, q) => q.length - p.length)[0] ?? []);
     setSpectrumShow("measured");
     setChosenGroup(undefined);
     setSelection(new Set());
     setPicked(new Set());
   }  useEffect(() => { if (spectrum && !nmrTables) void nmrReady().then(() => setNmrTables(true)); }, [spectrum, nmrTables]);
+  // Only the panel that shows predicts (B1.12): minimised, it keeps the drawing it last predicted from, so it comes
+  // back as it was, and predicts again on restore if the drawing changed.
+  // The structure is the shown session's (none when it is gone: the panel says No structure until the next Predict).
+  const nmrDocKept = useRef<{ doc: Mol; target?: number[] }>({ doc });
+  if (nmrView === "open") nmrDocKept.current = { doc, target: cur ? sessionMols.get(cur.id) ?? (cur.at.length ? undefined : [...fragments(doc)].sort((a, b) => b.length - a.length)[0]) : undefined };
+  const { doc: nmrDoc, target: nmrTarget } = nmrDocKept.current;
   const nmr = useMemo(() => {
-    if (!nucleusOpen || !loaded || !doc.atoms.length) return undefined;
-    const groups = fragments(doc), kept = nmrTarget && groups.find((g) => g.length === nmrTarget.length && g.every((i) => nmrTarget.includes(i)));
-    const pick = kept ?? [...groups].sort((a, b) => b.length - a.length)[0];
-    const ids = [...pick].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(doc, new Set(ids)), true), g = graphOf(mol);
-    return { prediction: g && nmrTables ? predict(g, nucleusOpen, nmrSolvent) : undefined, toDoc: from.map((i) => ids[i]) };
-  }, [nucleusOpen, loaded, doc, nmrTarget, nmrTables, nmrSolvent]);
+    if (!nucleusOpen || !loaded || !nmrTarget?.length) return undefined;
+    const ids = [...nmrTarget].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(nmrDoc, new Set(ids)), true), g = graphOf(mol);
+    return { prediction: g && nmrTables ? predict(g, nucleusOpen, nmrSolvent, settings.nmrDecouple?.[nucleusOpen]) : undefined, toDoc: from.map((i) => ids[i]) };
+  }, [nucleusOpen, loaded, nmrDoc, nmrTarget, nmrTables, nmrSolvent, settings.nmrDecouple]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The nuclei the shown structure has: the + menu offers ¹⁹F and ³¹P only for a structure with F or P (B3.10).
+  const nucleiHere = useMemo(() => {
+    const g = nmrTarget?.length && loaded ? graphOf(expandWithOrigins(subset(nmrDoc, new Set(nmrTarget)), true).mol) : undefined;
+    return NUCLEUS_LIST.filter((n) => !g || hasNucleus(g, n));
+  }, [nmrDoc, nmrTarget, loaded]);
+  // The session marks on the atoms (B1.12), kept up to date with no undo step of their own: each session's structure
+  // carries its id, and no other atom does. A drawing saved as it is stays saved. Sessions whose structures were
+  // joined become one, with all their tabs.
+  useEffect(() => {
+    if (!sessions.length && !doc.atoms.some((a) => a.session !== undefined)) return;
+    const owner = new Map<number[], Session>(), merged = new Map<number, number>();
+    for (const x of sessions) {
+      const g = x.view === "closed" ? undefined : sessionMols.get(x.id);
+      if (!g) continue;
+      const first = owner.get(g);
+      if (first) merged.set(x.id, first.id); else owner.set(g, x);
+    }
+    if (merged.size) {
+      setSessions((ss) => ss.filter((x) => !merged.has(x.id)).map((x) => {
+        const from = ss.filter((y) => merged.get(y.id) === x.id);
+        return from.length ? { ...x, keys: [...new Set([...x.keys, ...from.flatMap((y) => y.keys)])] } : x;
+      }));
+      if (shownId !== undefined && merged.has(shownId)) setShownId(merged.get(shownId));
+      return;
+    }
+    const want = new Map<number, number>();
+    for (const [g, x] of owner) for (const i of g) want.set(i, x.id);
+    if (doc.atoms.every((a, i) => a.session === want.get(i))) return;
+    const marked = { ...doc, atoms: doc.atoms.map((a, i) => { const id = want.get(i); if (a.session === id) return a; if (id === undefined) { const { session: _, ...rest } = a; return rest; } return { ...a, session: id }; }) };
+    if (file.saved === doc) setFile((f) => ({ ...f, saved: marked }));
+    dispatch({ type: "amend", mol: marked });
+  }, [doc, sessionMols]); // eslint-disable-line react-hooks/exhaustive-deps
   // The prediction's atoms lit by pointing at an atom on the canvas, and the drawn atoms lit from the spectrum.
   const nmrLit = (atom?: number) => new Set(nmr && atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === atom ? [k] : [])) : []);
   // With the atoms of the measured multiplet pointed at or being linked, and the atom under a drag from one.
@@ -6128,13 +6354,85 @@ export default function Editor() {
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
   useEffect(() => {
-    if (!spectrum || (!nmr && !measured)) return;
-    const panel = document.querySelector(".spectrum")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
+    if (!spectrum || nmrView !== "open" || (!nmr && !measured)) return;
+    const panel = document.querySelector(".spectrum:not(.massspec)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
     const low = Math.min(...[...new Set(nmr ? nmr.toDoc : doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
     if (over > 0) moveView({ ...view, y: view.y - over });
-  }, [spectrum, !!nmr?.prediction, settings.nmrDetails, spectrumShow, !!measured]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [spectrum, nmrView, !!nmr?.prediction, settings.nmrDetails, spectrumShow, !!measured]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A closed panel goes for good once the drawing changes (Undo can no longer bring it back).
+  useEffect(() => {
+    const c = closedPanel.current, kept = (k: PanelKind) => !!c && c.kind === k && c.mol === doc;
+    if (sessions.some((x) => x.view === "closed") && !kept("nmr")) setSessions((ss) => ss.filter((x) => x.view !== "closed"));
+    if (msView === "closed" && !kept("ms")) { setMassSpec(undefined); setMsView("open"); setMsFull(false); }
+  }, [doc, sessions, msView]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The motion to or from a pill (PanelControls fold), once the panel and the pill are both drawn.
+  useLayoutEffect(() => {
+    if (!folding) return;
+    const { kind, way, keyboard } = folding, el = panelEl(kind);
+    const done = () => {
+      setFolding(undefined);
+      if (way === "in" && folding.focus) pillEl(kind)?.querySelector<HTMLElement>(".pill-open")?.focus();
+      if (way === "out" && keyboard) el?.querySelector<HTMLElement>('[aria-checked="true"], button')?.focus();
+    };
+    if (way === "close") {
+      if (!el || keyboard || reduced()) return done();
+      const time = timing("--motion-fast"), motion = el.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.98 }], { ...time, fill: "forwards" });
+      let ended = false;
+      const end = () => { if (ended) return; ended = true; done(); setTimeout(() => motion.cancel(), 50); };
+      motion.onfinish = end;
+      setTimeout(end, time.duration + 50);
+      return;
+    }
+    // Another session into the strip: the strip stays, and its content fades in.
+    if (way === "swap") {
+      if (!el || keyboard) return done();
+      const time = timing("--motion-fast"), motion = el.animate([{ opacity: 0.4 }, { opacity: 1 }], time);
+      motion.onfinish = done;
+      setTimeout(done, time.duration + 50);
+      return;
+    }
+    fold(el, way === "in" ? pillEl(kind)?.getBoundingClientRect() : folding.pill, way, keyboard, done);
+  }, [folding]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The room the strip takes at the bottom (B1.19), as --dock on the editor: the notice and the tutorial card sit
+  // above it, and Fit to Window fits the drawing above it.
+  const dock = useRef(0);
+  useLayoutEffect(() => {
+    const root = document.querySelector<HTMLElement>(".editor"), el = document.querySelector<HTMLElement>(".spectrum.sized:not(.minimised)");
+    // The strip starts 16 px right of the toolbar, as wide as it is (one column or two, B1.2).
+    const tools = document.querySelector<HTMLElement>(".palette");
+    const fit = () => {
+      dock.current = el && el.offsetHeight ? el.offsetHeight + 64 : 0;
+      root?.style.setProperty("--dock", `${dock.current}px`);
+      if (tools && root) root.style.setProperty("--strip-left", `${tools.getBoundingClientRect().right - root.getBoundingClientRect().left + 16}px`);
+    };
+    fit();
+    if (!el) return;
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    if (tools) watch.observe(tools);
+    return () => watch.disconnect();
+  }, [shownId, nmrView, msView, nmrFull, msFull, folding, sessions.length, !!massSpec]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A panel is hidden when it is not open, once its motion to the pill or out of the drawing is done.
+  const panelHidden = (kind: PanelKind) => viewOf(kind) !== "open" && !(folding?.kind === kind && folding.way !== "out");
+  // The pills of the minimised panels, beside their structures (B1.7).
+  const pillBox = (atoms: number[] | undefined): Pill["box"] | undefined => {
+    const ps = (atoms ?? []).filter((i) => i < shown.atoms.length).map((i) => pos(shown, i));
+    if (!ps.length) return undefined;
+    const xs = ps.map((q) => q[0]), ys = ps.map((q) => q[1]), pad = 0.5;
+    return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad];
+  };
+  // One pill for each minimised session (its shown tab's name, and how many spectra it has), and Mass spec's.
+  const pills: Pill[] = [];
+  for (const x of sessions) {
+    if (x.view !== "min" || lost(x)) continue;
+    const atoms = sessionMols.get(x.id), short = keyName(x.key).replace(/ NMR$/, ""), title = titleOf(x);
+    const name = `${x.keys.length > 1 ? `${x.keys.length} spectra` : `${keyName(x.key)} spectrum`}${title ? ` of ${title}` : ""}`;
+    pills.push({ key: pillKey("nmr", x.id), short, count: x.keys.length > 1 ? x.keys.length : undefined, name, box: pillBox(atoms),
+      onRestore: (keyboard) => showSession(x.id, keyboard), onClose: () => closePanel("nmr", x.id), onPoint: (on) => setPillLit(on ? atoms : undefined) });
+  }
+  if (msView === "min" && msAtoms) pills.push({ key: "ms", short: "MS", name: "Mass spec", box: pillBox(msAtoms), onRestore: (keyboard) => showPanel("ms", keyboard), onClose: () => closePanel("ms"), onPoint: (on) => setPillLit(on ? msAtoms : undefined) });
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
     if (!settings.properties) return;
@@ -6145,7 +6443,8 @@ export default function Editor() {
     if (over > 0) moveView({ ...view, y: view.y - over });
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   // The measured shifts of linked atoms when the measured spectrum shows; otherwise the predicted ones.
-  if (measuredShown && spectrumAnalysis) { for (const g of spectrumAnalysis.groups) for (const d of linkedAtoms.get(g.id) ?? []) nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), g.shift]); }
+  if (nmrView !== "open") { /* minimised: no shifts beside the atoms */ }
+  else if (measuredShown && spectrumAnalysis) { for (const g of spectrumAnalysis.groups) for (const d of linkedAtoms.get(g.id) ?? []) nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), g.shift]); }
   else for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, nucleusOpen!)); }
   // Where each atom's shifts go (px, the anchor on the baseline): one place for the panel's numbers and for Add to
   // drawing > Shifts beside atoms (beside.ts), clear of the bonds, the atom labels, the atom numbers and (R) and (S),
@@ -6154,7 +6453,7 @@ export default function Editor() {
   const shiftKey = [...nmrShifts].map(([i, v]) => `${i}:${v.join(",")}`).join(";");
   const shiftSpots = useMemo(() => {
     const texts = new Map<number, string>();
-    for (const [i, shifts] of nmrShifts) if (i < shown.atoms.length) texts.set(i, [...shifts].sort((a, b) => b - a).map((v) => v.toFixed(spectrum === "1H" ? 2 : spectrum === "ir" || spectrum === "uv" || spectrum === "ms" ? 0 : 1)).join(", "));
+    for (const [i, shifts] of nmrShifts) if (i < shown.atoms.length) texts.set(i, [...shifts].sort((a, b) => b - a).map((v) => (isNucleus(spectrum) ? shiftText(v, spectrum) : v.toFixed(spectrum === "ir" || spectrum === "uv" || spectrum === "ms" ? 0 : 1))).join(", "));
     if (!texts.size) return [];
     const family = fontStack(style.captionFont), at = shown.atoms.map((_, i): P => { const [x, y] = pos(shown, i); return [x * L, -y * L]; }), Ls = shown.atoms.map((a) => L * scaleOf(a));
     const sizeOf = (i: number) => Math.round(style.captionSize * 0.8 * scaleOf(shown.atoms[i]) * 100) / 100;
@@ -6334,7 +6633,11 @@ export default function Editor() {
     const runs: TextRun[] = [{ text: head }];
     for (const { s, c } of [...rows].sort((a, b) => b.s.shift - a.s.shift)) {
       runs.push({ text: "\n" }, { text: "● ", colour: c });
-      runs.push({ text: p.nucleus === "1H" ? `${s.shift.toFixed(2)} (${multiplicity(s)}${s.couplings.length && !s.broad && multiplicity(s) !== "m" ? `, J = ${s.couplings.map((x) => x.j.toFixed(1)).join(", ")} Hz` : ""}, ${s.nuclei}H)` : `${s.shift.toFixed(1)}${s.nuclei > 1 ? ` (${s.nuclei}C)` : ""}` });
+      // A trace nucleus (¹H, ¹⁹F) with its multiplicity, J and count; sticks (¹³C, ³¹P) with their splitting when split
+      // (C–F, P–F) and their count when more than one.
+      const split = s.couplings.length && !s.broad && multiplicity(s) !== "m", j = split ? `, J = ${s.couplings.map((x) => x.j.toFixed(1)).join(", ")} Hz` : "";
+      runs.push({ text: NUCLEI[p.nucleus].trace ? `${shiftText(s.shift, p.nucleus)} (${multiplicity(s)}${j}, ${countText(s, p.nucleus)})`
+        : `${shiftText(s.shift, p.nucleus)}${split ? ` (${multiplicity(s)}${j}${s.nuclei > 1 ? `, ${countText(s, p.nucleus)}` : ""})` : s.nuclei > 1 ? ` (${countText(s, p.nucleus)})` : ""}` });
     }
     const atoms = [...new Set(nmr!.toDoc)];
     const [k, id] = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) });
@@ -6406,9 +6709,11 @@ export default function Editor() {
     const drop = figureDrop(m, items);
     if (drop) [m, items] = placePlot(doc, { ...plot, origin: [cx - W / 2, low - 1.4 * em - top - drop] }, env, fig);
     set(m);
+    // It comes into view in the room the panels leave (above the strip), picked (B1.20).
     revealNext.current = true;
     setSelection(new Set());
     setPicked(new Set(items));
+    say("Spectrum added");
   }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
   function addProperties() {
@@ -6584,7 +6889,7 @@ export default function Editor() {
     map_reaction: ["Map atoms", "", <FlowArrow size={18} />], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
+    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
@@ -6606,7 +6911,7 @@ export default function Editor() {
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     fixed_lengths: [settings.fixedLengths ? "Turn fixed lengths off" : "Turn fixed lengths on", `${MOD}L`, <PencilRuler size={18} />],
     fixed_angles: [settings.fixedAngles ? "Turn fixed angles off" : "Turn fixed angles on", `${MOD}E`, <CompassTool size={18} />],
-    actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
+    actions: [settings.actions && !actionsYield ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
     align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />], align_above: ["Stacked above", "", <CaretLineUp size={18} />], align_auto: ["Automatic label alignment", `⇧${MOD}M`, <Sparkle size={18} />],
@@ -7517,7 +7822,7 @@ export default function Editor() {
       }
       // Tab with an atom or bond of the analysed structure under the pointer goes to the next fragment it is in, and
       // Shift+Tab back (ChemDraw's).
-      if (e.key === "Tab" && tool === "massspec" && msAtoms && !e.altKey) {
+      if (e.key === "Tab" && tool === "massspec" && msAtoms && msView === "open" && !e.altKey) {
         const h = hovers.get(), atoms = h.atom !== undefined ? [h.atom] : h.bond !== undefined ? doc.bonds[h.bond]?.atoms : undefined;
         if (atoms?.every((i) => msAtoms.includes(i))) {
           e.preventDefault();
@@ -8284,6 +8589,7 @@ export default function Editor() {
       <g key={copied?.page === false ? `copied${copied.n}` : undefined} className={copied?.page === false ? "selection-marks copied" : "selection-marks"}>{selected}</g>
       {gridPickMark()}
       {groupFrames}
+      {pillLit && <g className="nmr-marks">{pillLit.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `pill${i}`, ""))}</g>}
       {msPoint && msAtoms && <g className="nmr-marks">{msPoint.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ms${i}`, ""))}</g>}
       {nmrBondMarks.size > 0 && <g className="nmr-marks">{[...nmrBondMarks].filter((k) => k < shown.bonds.length).map((k) => bondMark(k, `nmrb${k}`, ""))}</g>}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
@@ -8654,6 +8960,7 @@ export default function Editor() {
         <CanvasAccess items={access.items} hover={hovers} hotOf={hotItem} views={views} scale={L} paper={paper} ring={own && ringOn(own)} current={accessKey.current}
           inside={accessIn} want={accessWant} rescue={accessRescue} onFocusItem={accessFocused} layer={accessEl} />
       )}
+      {!home && <Pills pills={pills} views={views} scale={L} />}
       <div className="visually-hidden" role="status">{said}</div>
       {guides.rulers && !home &&<Live store={views}>{(view) => <Live store={pointers}>{(at) => (
         <Rulers view={view} scale={L} mm={mm} origin={corner} unit={settings.rulerUnit} pointer={at} extent={rulerExtent}
@@ -9082,11 +9389,20 @@ export default function Editor() {
       />
 
       {holdPanels("panels", () => (<>
-      <Exit>{spectrum && <Live store={hovers}>{(hover) => (
+      {/* One panel for each session: the one in the strip draws as the pointer moves; the others keep what they last
+          showed (minimised, they do not draw), so each comes back as it was. */}
+      {sessions.map((x) => <Live key={x.id} store={hovers}>{(hover) => {
+        if (x.id !== shownId) { const kept = sessionProps.current.get(x.id); return kept ? <SpectrumPanel {...kept} hidden /> : null; }
+        const el = (
         <SpectrumPanel
-          spectrumKey={spectrum}
-          keys={[...new Set(["1H", "13C", ...(doc.spectra ?? []).map(spectrumKeyOf)])]}
-          onKey={(k) => { setSpectrum(k); setChosenGroup(undefined); setGroupPoint(undefined); }}
+          hidden={panelHidden("nmr") || lost(x)} sizing={sizing} title={titleOf(x)} noStructure={x.at.length > 0 && !nmrTarget}
+          onPointTitle={(on) => setPillLit(on ? sessionMols.get(x.id) : undefined)}
+          addable={[...new Set([...nucleiHere, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
+          onAddKey={(k) => openSpectrum(k, sessionMols.get(x.id))} onCloseTab={closeTab}
+          onDecouple={(on) => nucleusOpen && setSettings((y) => ({ ...y, nmrDecouple: { ...y.nmrDecouple, [nucleusOpen]: on } }))} expanded={nmrFull} onExpanded={setNmrFull} onMinimise={(keyboard) => minimisePanel("nmr", keyboard)} label={panelName("nmr")}
+          spectrumKey={x.key}
+          keys={x.keys}
+          onKey={(k) => { editSession(x.id, (y) => ({ ...y, key: k })); setChosenGroup(undefined); setGroupPoint(undefined); }}
           prediction={nmr?.prediction}
           mhz={settings.nmrMhz}
           solvent={nmrSolvent}
@@ -9095,7 +9411,7 @@ export default function Editor() {
           onSolvent={(solvent) => { setSettings((s) => ({ ...s, nmrSolvent: solvent })); if (measured?.kind === "nmr") setMeasured(regroup({ ...measured, solvent }, measured.threshold, nextGroupId(doc.spectra))); }}
           onPoint={setNmrPoint}
           onCopy={(text) => runAction(`copy_text:${text}`)}
-          onClose={() => { setSpectrum(undefined); setNmrPoint(undefined); setGroupPoint(undefined); setChosenGroup(undefined); }}
+          onClose={() => closePanel("nmr")}
           measured={measured}
           analysis={spectrumAnalysis}
           show={spectrumShow}
@@ -9128,7 +9444,7 @@ export default function Editor() {
             });
             set({ ...doc, atoms: doc.atoms.map((a, i) => (colour.has(i) ? { ...a, halo: colour.get(i) } : a)), bonds: doc.bonds.map((b, k) => (bondColour.has(k) ? { ...b, halo: bondColour.get(k) } : b)) }, true);
           }}
-          onRemove={() => { setMeasured(undefined); setChosenGroup(undefined); setGroupPoint(undefined); if (!nucleusOpen) setSpectrum(undefined); }}
+          onRemove={() => { setMeasured(undefined); setChosenGroup(undefined); setGroupPoint(undefined); if (!nucleusOpen && spectrum) closeTab(spectrum); }}
           inset={(() => {
             // The structure's box on the canvas (px, unzoomed), with room for its shift labels.
             const ps = [...new Set(nmr?.toDoc ?? [])].filter((i) => i < shown.atoms.length).map((i) => pos(shown, i));
@@ -9147,12 +9463,16 @@ export default function Editor() {
           labels={settings.nmrLabels}
           onLabels={(t) => setSettings((s) => ({ ...s, nmrLabels: t }))}
         />
-      )}</Live>}</Exit>
+        );
+        sessionProps.current.set(x.id, el.props);
+        return el;
+      }}</Live>)}
       <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
-        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
+        <MassSpecPanel hidden={panelHidden("ms")} sizing={sizing} expanded={msFull} onExpanded={setMsFull} onMinimise={(keyboard) => minimisePanel("ms", keyboard)}
+          mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
           tab={msTab && tool === "massspec" && msTab.atom === hover.atom && msTab.bond === hover.bond ? msTab : undefined}
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
-          onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
+          onClose={() => closePanel("ms")} />
       )}</Live>}</Exit>
       <Exit>{settings.properties && properties && (
         <Properties
@@ -9162,7 +9482,7 @@ export default function Editor() {
           onCopy={(text) => runAction(`copy_text:${text}`)}
           onAdd={addProperties}
           onClose={() => setSettings((s) => ({ ...s, properties: false }))}
-          stacked={!!spectrum}
+          stacked={spectrum && !panelHidden("nmr") ? "nmr" : msAtoms && !panelHidden("ms") ? "ms" : undefined}
           decimals={settings.decimals}
           onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
         />
@@ -9171,7 +9491,7 @@ export default function Editor() {
         const context = panelContext ?? contextOf();
         return (
           <Actions
-            open={settings.actions}
+            open={settings.actions && !actionsYield}
             context={context}
             analysis={analysis}
             problems={found}
@@ -9181,7 +9501,7 @@ export default function Editor() {
             online={settings.onlineSearch}
             messy={untidy}
             hint={hint}
-            onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}
+            onOpen={openActions}
             layout={settings.actionLayout}
             onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
             colour={selectionColour(context)}

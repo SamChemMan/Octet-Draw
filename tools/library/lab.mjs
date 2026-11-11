@@ -2,7 +2,7 @@
 // one integral group, as ChemDraw's clip art is: a click picks all of it, and Ungroup (or Pick as one off) frees its
 // parts. Outlines take the document's line width; liquids are closed curves filled in one blue tint, drawn
 // behind them. Every shape here is drawn from simple geometry in this file, not taken from another program.
-const LIQUID = "#A0B7EC", LIQUID_LIGHT = "#C9D6F4"; // OKLCH 0.78 and 0.87 lightness at the logo's hue
+export const LIQUID = "#A0B7EC", LIQUID_LIGHT = "#C9D6F4"; // OKLCH 0.78 and 0.87 lightness at the logo's hue
 const LIP = 0.09; // the outward turn at the top of every open vessel
 const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
 const at = (x, y) => [x, y];
@@ -72,7 +72,7 @@ function cut(P, t0, t1) {
 
 // An item's objects: outlines (open or closed) at the document's width, fills behind them, and straight lines. Its
 // icon (20 px, in the tool icons' strokes) shows the outlines that are not details: fine parts would run together.
-function item(name, also, parts) {
+export function item(name, also, parts) {
   let id = 1;
   const arrows = [], icon = [];
   for (const [kind, ps, more = {}, fine] of parts) {

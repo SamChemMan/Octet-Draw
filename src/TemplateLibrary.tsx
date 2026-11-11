@@ -17,7 +17,7 @@ import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
-import { LIBRARY, type LibraryItem } from "./library";
+import { LIBRARY, loadMore, type LibraryItem } from "./library";
 import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
@@ -242,7 +242,10 @@ export function LibraryPanel(p: TemplateActions & {
   onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
 }) {
   const own = useMemo(() => [MY_SET, ...(p.sets ?? [])].map((name) => ({ name, items: (p.mine ?? []).filter((t) => t.category === name), own: true })), [p.mine, p.sets]);
-  const categories = useMemo(() => [...own.filter((c) => c.items.length || p.onSets), ...LIBRARY.map((c) => ({ ...c, own: false }))], [own, p.onSets]);
+  // The later sets (library.ts loadMore), at once if they are not in yet: the panel draws again when they are.
+  const [sets, setSets] = useState(LIBRARY.length);
+  useEffect(() => { void loadMore().then(() => setSets(LIBRARY.length)); }, []);
+  const categories = useMemo(() => [...own.filter((c) => c.items.length || p.onSets), ...LIBRARY.map((c) => ({ ...c, own: false }))], [own, p.onSets, sets]);
   const fresh = p.reveal && p.reveal.n !== revealed ? p.reveal : undefined;
   // It opens on the set a template was just added to, or on the category of the template in hand.
   const [category, setCategory] = useState(() => fresh?.set ?? categories.find((c) => c.items.some((t) => t.kind === p.current))?.name ?? categories[0].name);

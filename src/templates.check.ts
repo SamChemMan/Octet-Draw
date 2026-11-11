@@ -279,7 +279,11 @@ const { writeTemplateFile, PANE_EXTENT, MOST_TEMPLATE } = await import("./ctp.ts
 const { cdxToXml, isCdx } = await import("./cdx.ts");
 const { normalise } = await import("./edit.ts");
 const { serialize: write } = await import("./file.ts");
-const { LIBRARY: SETS } = await import("./library.ts");
+const { LIBRARY: SETS, loadMore } = await import("./library.ts");
+// The whole library: the sets read at start and the ones loaded later.
+const atStart = SETS.length;
+await loadMore();
+assert.ok(SETS.length > atStart, "the later sets load");
 const inSet = (name: string, m: Mol) => ({ name, mol: back(addTo(empty, newTemplate(name, m)))[0].mol }); // as a set keeps it
 const mine = [inSet("Salt", whole), ...fromText.templates.map((t) => inSet(t.name, t.mol)), inSet("Odd\u0007 \n name", chain)];
 const saved = writeTemplateFile(mine, "Salts", 4, "large");
@@ -347,7 +351,9 @@ const items = LIBRARY.flatMap((c) => c.items);
 assert.equal(new Set(items.map((t) => t.kind)).size, items.length, "every template has a name of its own");
 assert.equal(new Set(items.map((t) => t.name.toLowerCase())).size, items.length, "and not the same name in other capitals");
 // The sets the roadmap (CD-32) asks for, and those Octet had.
-for (const set of ["Stereocentres", "Conformers", "Cycloalkanes", "Aromatics", "Bicyclics", "Hexoses", "Functional groups", "Cp and arene rings", "Metallocenes", "Paddlewheels", "Lab", "Ligands", "Amino acids", "Sugars", "Nucleobases", "Heterocycles"])
+for (const set of ["Stereocentres", "Conformers", "Cycloalkanes", "Aromatics", "Bicyclics", "Hexoses", "Functional groups", "Cp and arene rings", "Metallocenes", "Paddlewheels", "Lab", "Ligands", "Amino acids", "Sugars", "Nucleobases", "Heterocycles",
+  "Side chains", "Peptides", "DNA and RNA", "Supramolecules", "Polyhedra", "Carbon", "Lab equipment", "Biomolecules", "Cells", "BioArt", "Anatomy", "Organisms",
+  "Bugs", "Symbols"])
   assert.ok(LIBRARY.find((c) => c.name === set)?.items.length, `the ${set} set`);
 // Abbreviations are named as common.ts keys them, so the library's search shows the library's own drawing.
 const { COMMON, commonKey } = await import("./common.ts");
@@ -484,20 +490,32 @@ const STEREO: Record<string, string> = {
   "Cyclooctene": "(Z)-cyclooctene", "Cyclooctatetraene": "cycloocta-1,3,5,7-tetraene", "cis-Decalin": "cis-decahydronaphthalene",
   "trans-Decalin": "trans-decahydronaphthalene", "cod": "(1Z,5Z)-cycloocta-1,5-diene", "dba": "(1E,4E)-1,5-diphenylpenta-1,4-dien-3-one",
   "salen": "salen", "Porphyrin": "21H,23H-porphine", "H2TPP": "H2TPP", "Phthalocyanine": "29H,31H-phthalocyanine",
+  // Nucleosides and nucleotides (DNA and RNA), and peptide backbones, whose R groups rank as alanine's methyls.
+  "2'-Deoxyadenosine": "2'-deoxyadenosine", "2'-Deoxyguanosine": "2'-deoxyguanosine", "2'-Deoxycytidine": "2'-deoxycytidine", "Thymidine": "thymidine",
+  "Adenosine": "adenosine", "Guanosine": "guanosine", "Cytidine": "cytidine", "Uridine": "uridine",
+  "dAMP": "2'-deoxyadenosine 5'-monophosphate", "dGMP": "2'-deoxyguanosine 5'-monophosphate", "dCMP": "2'-deoxycytidine 5'-monophosphate",
+  "dTMP": "thymidine 5'-monophosphate", "AMP": "adenosine 5'-monophosphate", "GMP": "guanosine 5'-monophosphate", "CMP": "cytidine 5'-monophosphate",
+  "UMP": "uridine 5'-monophosphate", "ADP": "adenosine 5'-diphosphate", "ATP": "adenosine 5'-triphosphate", "cAMP": "smiles:Nc1ncnc2n(cnc12)[C@@H]1O[C@@H]2COP(=O)(O)O[C@H]2[C@H]1O", // OPSIN reads no name of it
+  "Dipeptide": "L-alanyl-L-alanine", "Tripeptide": "L-alanyl-L-alanyl-L-alanine", "Tetrapeptide": "L-alanyl-L-alanyl-L-alanyl-L-alanine",
+  "Pentapeptide": "L-alanyl-L-alanyl-L-alanyl-L-alanyl-L-alanine",
   // An R group ranks above any element, as a methyl ranks above H: the E of R-CH=N-Me is MeCH=NMe's.
   "Imine": "(E)-N-methylethanimine", "Oxime": "(E)-N-hydroxyethanimine", "Hydrazone": "(E)-ethylidenehydrazine",
 };
 const reference = (t: (typeof items)[number]) => t.category === "Amino acids" ? (t.name === "Glycine" ? undefined : `L-${t.name.toLowerCase()}`)
   : t.category === "Hexoses" ? t.name.replace(/ \((Haworth|chair)\)$/, "").replace(/^α-D-(.)/, (_, c) => `alpha-D-${c.toLowerCase()}`).replace(/^β-D-(.)/, (_, c) => `beta-D-${c.toLowerCase()}`)
   : STEREO[t.name];
+// The Polyhedra cages are drawn with their hidden edges dashed, which Octet reads as bonds behind the page (as it
+// reads ChemDraw's dashed bond), so their corners get r and s labels; no single stereoisomer is meant, so they have
+// no reference compound.
+const CAGES = new Set(["Tetrahedrane", "Prismane", "Pentaprismane", "Dodecahedrane"]);
 let stereo = 0;
-for (const t of molecular) {
+for (const t of molecular.filter((x) => !CAGES.has(x.name))) {
   const own = labels(t.mol), ref = reference(t);
   if (!own) { assert.equal(ref, undefined, `${t.name} has no stereo labels`); continue; }
   assert.ok(ref, `${t.name} (${own}) has a reference compound`);
-  const smiles = nameToSmiles(ref!) ?? assert.fail(`${ref} is read`), drawn = chem.parseStructure(smiles);
+  const smiles = (ref!.startsWith("smiles:") ? ref!.slice(7) : nameToSmiles(ref!)) ?? assert.fail(`${ref} is read`), drawn = chem.parseStructure(smiles);
   assert.equal(own, labels(drawn), `${t.name}: its CIP labels are ${ref}'s`);
-  if (!t.mol.atoms.some((a) => a.text === "R")) assert.equal(withoutRingEZ(inchiOf(t.mol)), withoutRingEZ(inchiOf(smiles)), `${t.name} is ${ref}`);
+  if (!t.mol.atoms.some((a) => /^R\d*$/.test(a.text ?? ""))) assert.equal(withoutRingEZ(inchiOf(t.mol)), withoutRingEZ(inchiOf(smiles)), `${t.name} is ${ref}`);
   stereo++;
 }
 // The hexoses as every textbook draws them: β-D-glucopyranose's chair has every group equatorial, the D sugars'
@@ -523,9 +541,12 @@ console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are 
 
 // Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
 // templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; r and s centres;
-// a cage). Lab items have no structure.
+// a cage; a base pair, two molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake; a calixarene or
+// pillararene or cyclophane, whose von Baeyer names the namer does not make). The drawn sets
+// have no structure.
 const UNNAMED = new Set(["cis-Decalin", "trans-Decalin", "Cubane", "IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
-  "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", ...LIBRARY.filter((c) => c.name === "Functional groups" || c.name === "Cp and arene rings").flatMap((c) => c.items.map((t) => t.name))]);
+  "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair", "Calix[4]arene", "p-tert-Butylcalix[4]arene", "Pillar[5]arene", "[2.2]Paracyclophane",
+  ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))]);
 let named = 0;
 for (const t of molecular) {
   const name = nameFor(t.mol);
@@ -548,10 +569,10 @@ console.log(`templates: ${named} templates named by Structure to Name, each name
 // Clean Up: a structure drawn in perspective (with depth: chairs, Newman, sawhorse and Haworth projections, Fischer
 // projections, paddlewheels, cubane) or with a π ligand (metallocenes) is left exactly where it is. Any other comes out
 // with the same structure and stereo, and tidy (not marked for Clean Up), but for these: bridged rings and crowded
-// biaryl phosphines, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
+// biaryl phosphines, [2.2.2]cryptand and pillar[5]arene, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
 // read as stereocentres and Structure to Name gives it no name, so they stay flat.)
 const CROWDED = new Set(["Bicyclo[1.1.1]pentane", "Bicyclo[2.1.1]hexane", "Bicyclo[3.1.1]heptane", "Norbornane", "Norbornene", "Norbornadiene", "Bicyclo[2.2.2]octane",
-  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos"]);
+  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos", "[2.2.2]Cryptand", "Pillar[5]arene"]);
 let kept = 0, cleaned = 0;
 for (const t of molecular) {
   const after = chem.cleanUp(t.mol);
@@ -561,7 +582,7 @@ for (const t of molecular) {
     continue;
   }
   assert.equal(labels(after), labels(t.mol), `${t.name} keeps its stereo labels`);
-  if (!t.mol.atoms.some((a) => a.text === "R" || a.text === "X")) assert.equal(inchiOf(after), inchiOf(t.mol), `${t.name} keeps its structure`);
+  if (!t.mol.atoms.some((a) => /^(R\d*|X|M|L)$/.test(a.text ?? ""))) assert.equal(inchiOf(after), inchiOf(t.mol), `${t.name} keeps its structure`);
   assert.equal(messy(after), CROWDED.has(t.name), `${t.name} is ${CROWDED.has(t.name) ? "crowded (listed)" : "tidy"} after Clean Up`);
   cleaned++;
 }

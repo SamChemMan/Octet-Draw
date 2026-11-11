@@ -718,6 +718,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
+        // The spectrum or Mass spec panel shown goes to its pill beside its structure, or the last one comes back.
+        &item("toggle_spectrum", "Show or Hide Spectrum", "")?,
         &templates,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
@@ -761,6 +763,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
         &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,
+        // ¹⁹F and ³¹P: always listed here; for a structure with no F or P, Octet says so (plan B3.10).
+        &item("predict_19f", "Predict ¹⁹F-NMR Shifts", "")?,
+        &item("predict_31p", "Predict ³¹P-NMR Shifts", "")?,
+        // With the two NMR items, as the Actions panel has them; the Mass spec analysis tool stays in the toolbar.
+        &item("mass_spec", "Show Mass Spec Analysis", "")?,
         &sep()?,
         // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,

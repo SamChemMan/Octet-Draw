@@ -53,6 +53,7 @@ export type Atom = {
   number?: string; // Show Atom Number: the number drawn beside the atom
   hiddenNumber?: string; // a number the atom keeps but does not show (ChemDraw's AtomNumber with Show Atom Number off)
   peaks?: number[]; // the measured multiplets (Group ids in the drawing's spectra) the user linked this atom to
+  session?: number; // the spectrum session (Editor.tsx, plan B1.12) this atom's structure is open in: never saved, copied or duplicated
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.

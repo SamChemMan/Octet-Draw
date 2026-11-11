@@ -66,6 +66,8 @@ export type Settings = {
   decimals?: number; // Properties > Decimals: places for the exact mass, molecular weight and m/z (0 to 8); unset is 4, 2 and 2
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
   nmrLabels: LabelTurn; // the Spectrum panel's Labels: peak labels across, turned (read bottom to top) or Auto (turned when crowded)
+  nmrDecouple?: Partial<Record<"1H" | "13C" | "19F" | "31P", boolean>>; // Decouple ¹H set for a nucleus (¹⁹F, ³¹P); unset: the nucleus's default (nmr.ts NUCLEI)
+  stripHeight?: number; // the height (px) the user gave the spectrum strip by its top edge (plan B1.3); unset: 35% of the window
   massSpec: MsPrefs; // the Mass spec panel's mode, ion, charge state, source, calculated peak and match tolerance
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
   onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008); off hides them everywhere
@@ -130,6 +132,8 @@ export function loadSettings(): Settings {
       nmrSolventPeaks: saved.nmrSolventPeaks !== false,
       nmrDetails: saved.nmrDetails === true,
       nmrLabels: saved.nmrLabels === "horizontal" || saved.nmrLabels === "vertical" ? saved.nmrLabels : "auto",
+      ...(saved.nmrDecouple && typeof saved.nmrDecouple === "object" ? { nmrDecouple: Object.fromEntries(["1H", "13C", "19F", "31P"].filter((n) => typeof (saved.nmrDecouple as Record<string, unknown>)[n] === "boolean").map((n) => [n, (saved.nmrDecouple as Record<string, boolean>)[n]])) } : {}),
+      ...(typeof saved.stripHeight === "number" && saved.stripHeight >= 100 && saved.stripHeight <= 4000 ? { stripHeight: Math.round(saved.stripHeight) } : {}),
       massSpec: readMsPrefs(saved.massSpec),
       fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true, clickTriple: saved.clickTriple === true,
       autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,

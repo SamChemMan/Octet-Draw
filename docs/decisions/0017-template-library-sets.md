@@ -20,13 +20,26 @@ ChemDraw 26.1 ships 29 template sets (30 files with the blank New Templates shee
 | Hexoses | Hexoses |
 | Metallocenes | Metallocenes |
 | Stereocenters | Stereocentres |
-| Clipware part 1 and part 2 (glassware) | Lab, in part |
-| DNA Templates, RNA Templates | Nucleobases only |
-| Polyhedra | Cubane only |
-| Amino Acid Side Chains, Polypeptides, Supramolecules, Nanotubes, Shapes | none (Octet's Shape tool draws shapes) |
-| Advanced BioDraw, Anatomy, Animals, Bio Instruments, BioArt, Bugs, Microorganisms, Organelles | none |
+| Clipware part 1 and part 2 (glassware) | Lab |
+| DNA Templates, RNA Templates | Nucleobases; DNA and RNA |
+| Polyhedra | Polyhedra (coordination geometries and cages); cubane in Bicyclics |
+| Amino Acid Side Chains, Polypeptides | Side chains; Peptides |
+| Supramolecules | Supramolecules (crown ethers, cryptands, cyclen, cyclam, calixarenes, pillar[5]arene, [2.2]paracyclophane) |
+| Nanotubes | Carbon (C60, two nanotube segments, a graphene flake) |
+| Shapes | Octet's Shape tool, and Symbols in part |
+| Bio Instruments | Lab equipment |
+| Advanced BioDraw | Biomolecules |
+| Organelles, Microorganisms | Cells |
+| Anatomy | Anatomy |
+| Animals | Organisms |
+| Bugs | Bugs |
+| BioArt | BioArt |
 
 Octet's own sets ChemDraw has no set for: Sugars, Nucleobases, Heterocycles, Ligands and Paddlewheels.
+
+For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 45
+items, and DNA and RNA, Side chains, Peptides, Supramolecules, Polyhedra, Carbon, Lab equipment, Biomolecules, Cells,
+BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 510 templates in 30 sets. See "1.2 sets" below.
 
 What each ChemDraw set holds, and how it draws a Newman projection or a Cp ring, needs ChemDraw running
 (`~/octet-research/notes/chemdraw-checks-pending.md` item 22).
@@ -70,6 +83,45 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 - Clean Up leaves a structure with depth as drawn, as it never marks one messy. It also leaves a π ligand's ring as
   drawn: before, the ring (not bonded to its multi-centre point) was redrawn as a flat regular polygon.
 
+## 1.2 sets
+
+- DNA and RNA (22): the eight nucleosides, their 5'-monophosphates, ADP, ATP and cAMP, laid out by Indigo from their
+  names (cAMP from SMILES, as OPSIN reads no name of it), and the A·T, G·C and A·U Watson-Crick pairs. A pair is drawn
+  from the Nucleobases set: each base turned about its middle, the pyrimidine mirrored to face the purine, placed so
+  each pair of hydrogen-bonded atoms is 2.05 bond lengths apart (2.9 Å over a 1.4 Å bond), with no two atoms nearer
+  than 1.5 and the two sugar bonds alike either side of the pair, then turned so the hydrogen bonds run across the
+  page. Each donor's H is drawn, with a hydrogen bond (dashed) to its acceptor, and R where each sugar joins.
+- Side chains (20): each amino acid's side chain with R where it joins the α carbon, as Functional groups are.
+  Glycine's is R-H. Proline's ring is drawn whole, with R on the α carbon and on the N.
+- Peptides (4): backbones of 2 to 5 residues, H2N to CO2H left to right, the α carbons L, with R1 to Rn in order.
+- Supramolecules (15): crown ethers, cryptands, cyclen and cyclam from their names; calix[4]arene,
+  p-tert-butylcalix[4]arene and pillar[5]arene drawn flat as papers draw them (each ring pointing out round a square or
+  a pentagon, as Indigo's layout puts rings over their own OH groups), and [2.2]paracyclophane in perspective, its
+  rings face to face, built from geometry and relaxed to bond length 1 (`tools/library/hosts.mjs`).
+- Polyhedra (16): coordination geometries from linear to pentagonal bipyramidal, M with ligands L, as chemists draw
+  them: plain bonds in the page, wedges towards the viewer and hashes away, each M-L bond 1.7 bond lengths so the bond
+  between two labels shows; and the cages tetrahedrane, prismane, pentaprismane and dodecahedrane in perspective, an
+  edge with no face turned towards the viewer dashed (`tools/library/polyhedra.mjs`). Octet reads a dashed bond as
+  one behind the page, as ChemDraw's, so the cages' corners get r and s labels; `templates.check.ts` lets them off.
+- Carbon (4): C60 and (5,5) armchair and (9,0) zigzag nanotube segments, each atom at its place in 3D (kept as depth),
+  and circumcoronene, a graphene flake. Double bonds: C60's 30 bonds between two hexagons; the others a perfect
+  matching of their atoms.
+- Lab (29 more), Lab equipment (22), Biomolecules (13), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
+  (8) and Symbols (18): drawings in the Lab group's line style, written as SVG path data in
+  `tools/library/glassware.mjs`, `equipment.mjs`, `bio.mjs`, `life.mjs` and `symbols.mjs` and turned into Octet's pen
+  curves and lines by `tools/library/art.mjs`. Symbols has what ChemDraw's Shapes set has and the Shape tool does not
+  draw: a star, polygons, a burst, a tick mark and a cross, a lightning bolt, the sex symbols, a target, warning and
+  high voltage signs, the radiation trefoil and four GHS hazard diamonds. Fills use only the Lab group's two blue tints, on small parts, so a drawing
+  reads on a dark page too. Each is one integral group that takes the document's line width and comes back whole
+  from CDXML and .oct (`src/lab.check.ts`).
+- `node tools/library/build.mjs --keep-shipped` builds the new sets and keeps the sets released in 1.1 as
+  `src/library.json` has them. Built again from scratch, the hexose chairs, the chair conformers and the Cp and arene
+  sets come out a little different from 1.1 (later changes to the chair and to Clean Up); they are not rebuilt.
+- Two files, so Octet starts no slower: `src/library.json` holds the sets and Lab items 1.1 had (byte for byte), and
+  `src/library-more.json` the rest, about three times as large. `library.ts` loads it once the window is idle after
+  starting (or 1.5 s after, where WebKit has no requestIdleCallback), or at once when the library opens; Vite puts it
+  in a chunk of its own.
+
 ## Not done
 
 - Bridged rings (norbornane, adamantane, bicyclo[2.2.2]octane, DABCO) stay flat, as Indigo lays them out. Drawn in 3D
@@ -79,11 +131,17 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 - Not named by Structure to Name: functional groups (R), the M templates, Cp2TiCl2, Cp2ZrCl2, (benzene)Cr(CO)3,
   CpMn(CO)3, bis(benzene)chromium, Mo2(OAc)4, IMes and IPr (carbenes), cis- and trans-decalin, cubane.
 - ChemDraw writes a Newman projection's depth to CDXML as `xyz`; ChemDraw draws it without the circle.
+- Left out because they did not look right: cyclodextrins and cucurbiturils (no clear drawing of a ring of six to
+  eight sugars, or of glycolurils, came out of a flat layout or a simple 3D build), C70 (its belt of ten carbons needs a
+  construction of its own), the nucleosome, and from the drawn sets the heart, the stomach and the brain.
+- ChemDraw's Animals set has many farm and zoo animals; Organisms has the lab model organisms only (mouse, rat, rabbit,
+  zebrafish, frog, nematode, plant). Its Shapes set's weather clouds, recycling and biohazard symbols, skull and
+  crossbones, caduceus and rod of Asclepius are not in Symbols.
 
 ## Checks
 
-`src/templates.check.ts`: every built-in template parses back from Octet's file text, has a name of its own, has
-clear labels (all 276 with atoms, none let off), has the CIP labels and InChI of its reference compound (74 with
-stereo), gets a name from Structure to Name that reads back to its structure (213 named), and survives Clean Up (60
-kept as drawn, 216 kept whole). `src/lab.check.ts` covers the
-Lab group, and `src/perspective.check.ts` the Newman circle.
+`src/templates.check.ts`: every built-in template (both files) parses back from Octet's file text, has a name of its
+own, has clear labels (every template with atoms, none let off), has the CIP labels and InChI of its reference compound
+(the dashed cages let off), gets a name from Structure to Name that reads back to its structure, and survives Clean
+Up. `src/lab.check.ts` covers the 145 drawings of the Lab group and the eight drawn sets, and
+`src/perspective.check.ts` the Newman circle.

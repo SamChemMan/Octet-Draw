@@ -943,7 +943,7 @@ button.variant.add {
    wraps before it reaches either. Its icon takes the colour of its kind. */
 .notice {
   position: absolute;
-  bottom: var(--space-6);
+  bottom: calc(var(--space-6) + var(--dock, 0px));
   left: calc(var(--space-4) * 2 + 48px);
   right: calc(var(--space-4) * 2 + 248px);
   z-index: 3;
@@ -4252,8 +4252,8 @@ button.variant.add {
   animation: panel-in var(--motion-fast) var(--ease-out);
 }
 .properties.stacked {
-  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
-  max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 4));
+  bottom: calc(var(--space-4) * 3 + 32px + var(--below, 0px));
+  max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 5 - 32px));
 }
 /* A full-screen Spectrum leaves no room above it, so Properties waits until it is docked again. */
 .spectrum.expanded ~ .properties {
@@ -4392,12 +4392,14 @@ button.variant.add {
   }
 }
 
-/* The Spectrum panel: docked along the bottom of the canvas, between the toolbar and the Actions panel. */
+/* The Spectrum and Mass spec panels: docked along the bottom of the canvas, from the toolbar to the window's right
+   edge, just above the Actions pill (plan B1.2). Actions and the panel take turns: one shows, the other is its pill.
+   Minimised, a panel is hidden and its pill shows beside its structure. */
 .spectrum {
   position: absolute;
-  left: calc(var(--space-4) * 2 + 48px);
-  right: calc(var(--space-4) * 2 + 248px);
-  bottom: var(--space-4);
+  left: var(--strip-left, calc(var(--space-4) * 2 + 48px));
+  right: var(--space-4);
+  bottom: calc(var(--space-4) * 2 + 32px);
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -4416,9 +4418,90 @@ button.variant.add {
   margin-right: calc(-1 * var(--space-1));
   padding: var(--space-1);
 }
-.spectrum-head-buttons {
+.spectrum.minimised {
+  display: none;
+}
+/* Docked at the user's height (B1.3): the plot takes the room the header, controls and footer leave, and the canvas
+   keeps at least 96 px over the strip. The top edge sets the height. */
+.spectrum.sized {
+  max-height: calc(100% - 96px - var(--space-4) * 3 - 32px);
+}
+.spectrum.sized .spectrum-body {
+  flex: 1;
+}
+.resize-edge {
+  position: absolute;
+  top: -4px;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 8px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.resize-edge:focus-visible {
+  outline: none;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-focus);
+}
+/* Minimise, Full screen and Close (PanelControls.tsx), at the top right of every panel's header. The strip's come
+   last in its tab order, so they sit over its header's corner. */
+.panel-controls {
   display: flex;
   gap: 2px;
+}
+.spectrum > .panel-controls {
+  position: absolute;
+  top: calc(var(--space-1) + 2px);
+  right: var(--space-1);
+}
+.spectrum header {
+  min-height: 26px;
+  padding-right: 84px;
+}
+/* A session's spectra as tabs (Spectrum.tsx Tabs), each with its close button on hover or focus, and + to add one. */
+.spectrum-tab {
+  position: relative;
+  display: inline-flex;
+}
+.spectrum-tabs button[role="tab"] {
+  height: 100%;
+}
+.spectrum-tabs button[aria-selected="true"] {
+  background: var(--brand-mist);
+  color: var(--link);
+}
+.spectrum-tab .tab-close {
+  min-width: 0;
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  display: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  transform: translateY(-50%);
+}
+.spectrum-tab:hover .tab-close,
+.spectrum-tab:focus-within .tab-close {
+  display: grid;
+}
+@media (hover: none), (pointer: coarse) {
+  .spectrum-tab .tab-close {
+    display: grid;
+  }
+}
+.spectrum-tab .tab-close:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.spectrum-none {
+  color: var(--ink-muted);
+  font-size: 13px;
 }
 .spectrum-controls {
   display: flex;
@@ -4433,7 +4516,7 @@ button.variant.add {
 /* Full screen: the panel fills the canvas beside the toolbar, the spectrum grows, and the structure sits beside it. */
 .spectrum.expanded {
   top: var(--space-4);
-  right: var(--space-4);
+  bottom: var(--space-4);
   z-index: 3;
 }
 .spectrum-body {
@@ -4443,6 +4526,11 @@ button.variant.add {
 }
 .spectrum.expanded .spectrum-body {
   flex: 1;
+}
+/* A peak has the keyboard's focus (the peaks' list, B1.15): the plot shows the ring, and the peak is lit. */
+.spectrum-plot.peak-focus {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-focus);
 }
 .spectrum-body .spectrum-plot {
   flex: 1;
@@ -6061,7 +6149,7 @@ button.variant.add {
    panel in a narrow window. */
 .coach.low {
   top: auto;
-  bottom: var(--space-4);
+  bottom: calc(var(--space-4) + var(--dock, 0px));
   left: calc(50% + (48px - 248px) / 2);
   animation-name: coach-low;
 }
@@ -6578,3 +6666,94 @@ button.variant.add {
    the glide; without a copy of the rest of the canvas, only the structures wait. */
 #world.gliding > :not(.glide-layer),
 #world.gliding-structures [data-glide="structure"] { visibility: hidden; }
+
+/* A minimised panel's pill (PanelControls.tsx Pills): beside its structure, placed from the view with no redraw, so
+   it follows pan and zoom and is never scaled by the zoom; a structure off screen keeps its pill at the canvas edge. It is not part of the drawing: it never prints,
+   exports or copies. Its X shows on hover and focus, and always for touch and pen. */
+.pills {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.pill {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  outline: 1px solid transparent;
+  pointer-events: auto;
+  animation: fade-in var(--motion-fast) var(--ease-out);
+}
+.pill.docked {
+  left: calc(var(--space-4) * 2 + 48px);
+  top: auto;
+  bottom: calc(var(--space-4) + var(--row) * 28px);
+}
+.pill-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  font: 13px/1 var(--font-sans);
+}
+.pill-open svg {
+  color: var(--brand);
+}
+/* More than one spectrum: how many, on a neutral badge (.badge is the error style). */
+.pill-count {
+  min-width: 16px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--brand-mist);
+  color: var(--link);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.pill-close {
+  display: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+}
+.pill:hover .pill-close,
+.pill:focus-within .pill-close {
+  display: grid;
+}
+@media (hover: none), (pointer: coarse) {
+  .pill-close {
+    display: grid;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .pill-open:hover,
+  .pill-close:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.pill-open:focus-visible,
+.pill-close:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.pill-open:active {
+  transform: scale(0.98);
+}

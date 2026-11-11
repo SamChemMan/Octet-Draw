@@ -6,6 +6,27 @@ export type Release = { version: string; date: string; intro: string; summary?: 
 
 export const RELEASES: Release[] = [
   {
+    version: "1.1.2",
+    date: "November 2026",
+    intro: "This update adds features you asked for.",
+    summary: ["The template library has 14 new sets and 211 new templates, such as lab equipment, cells, organisms and DNA."],
+    sections: [
+      {
+        title: "Spectra",
+        items: ["Minimise a spectrum, and it becomes a small pill beside its structure. Click the pill to show the spectrum again, as you left it.", "The spectrum and the Actions panel take turns. When one opens, the other becomes its pill.", "Every panel has the same controls at the top right: Minimise, Full screen and Close.", "Undo shows a spectrum again after you close it.", "Mass spec analysis is in the Actions panel and the Structure menu, next to the NMR predictions.", "View > Show or Hide Spectrum minimises the spectrum or shows it again.", "Each structure has its own spectra, as tabs. Click + to add a spectrum. Close a tab to remove it.", "Drag the top edge of the spectrum to make it taller or shorter.", "Use the arrow keys to move between the peaks. A screen reader reads each peak."],
+      },
+      {
+        title: "NMR",
+        items: ["Octet predicts ¹⁹F and ³¹P NMR spectra.", "¹H and ¹³C spectra show the splitting from fluorine and phosphorus.", "A ¹⁹F spectrum has its ¹H couplings by default. A ³¹P spectrum has none by default. Decouple ¹H changes this.", "Octet opens measured ¹⁹F and ³¹P spectra. When a file does not name its nucleus, Octet finds it from the frequency."],
+      },
+      {
+        title: "Templates",
+        items: ["The Lab set has 29 more items, such as a three-neck flask, a Dean-Stark trap, a Büchner funnel and a balloon.", "The new Lab equipment set has 22 items, such as a microscope, a micropipette, a well plate and a gel.", "The new Cells set has cells, organelles, bacteria and viruses.", "The new Biomolecules and BioArt sets have membranes, receptors, an antibody, a DNA double helix, tRNA, a plasmid and more.", "The new Anatomy, Organisms and Bugs sets have organs, lab model organisms such as the mouse and the zebrafish, and insects.", "The new Symbols set has stars, polygons, a tick mark, warning signs, the radiation symbol and GHS hazard diamonds.", "The new DNA and RNA set has the nucleosides, the nucleotides, ATP and the A·T, G·C and A·U base pairs.", "The new Side chains and Peptides sets have the 20 amino acid side chains and peptide backbones of 2 to 5 residues.", "The new Polyhedra set has the coordination geometries, from linear to pentagonal bipyramidal, and cages with their hidden edges dashed.", "The new Supramolecules and Carbon sets have crown ethers, cryptands, calixarenes, C60, nanotubes and a graphene flake.", "The new sets load after Octet starts, so it starts as fast as before."],
+      },
+    ],
+    thanks: "To report a problem, choose Help > Report a Problem.",
+  },
+  {
     version: "1.1.1",
     date: "November 2026",
     intro: "This update fixes problems you reported and adds features you asked for.",
