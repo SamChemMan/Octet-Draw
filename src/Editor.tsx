@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -5603,8 +5603,6 @@ export default function Editor() {
       if (alone && branchPick && picked.has(branchPick.cycle)) return cycleAction("side.remove");
       if (alone && stepPick && picked.has(stepPick.cycle)) return set(hideArc(stepPick.cycle, stepPick.step), true);
       if (selection.size || picked.size) return set(deleteChosen(doc, selection, picked, undefined, drawnAt, drawnAlign));
-      // A picked stoichiometry grid cell: the grid goes, as the panel's Delete removes it.
-      if (gridPick) { runAction("grid.remove"); return; }
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
       const integral = atom !== undefined && groupsOf(doc, new Set([atom]), new Set()).some((g) => g.integral);
@@ -6010,6 +6008,37 @@ export default function Editor() {
     return undefined;
   };
   const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; value: string }>();
+  type GridCell = Omit<NonNullable<typeof gridEdit>, "value">;
+  // A cell takes typing unless it is worked out (Formula, MW, Expected moles, Yield, a reactant's Expected mass), a
+  // name, or Limiting? (which a click or Return sets).
+  const gridTypes = (gc: { row: string; product: boolean }) => !["name", "formula", "mw", "expectedMoles", "yield", "limiting"].includes(gc.row) && (gc.row !== "expected" || gc.product);
+  // Type in a cell: what was typed there, or the key that started it (a key over a picked cell types over it, as in a
+  // spreadsheet). The cell stays picked, so the keys carry on from it.
+  const editGridCell = (gc: GridCell, start?: string) => {
+    const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
+    setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
+    setGridEdit({ ...gc, value: start ?? (c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "") });
+  };
+  // The keys on a picked cell, as Numbers, Excel and Google Sheets have them: the arrows and Tab move, Return types in
+  // it (or moves down past a worked-out one), a character types over it, and Delete clears what was typed there. Delete
+  // never takes the grid (the panel's Delete and Remove stoichiometry do), so arrowing about and clearing is safe.
+  const gridKeyDown = (e: KeyboardEvent) => {
+    const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
+    if (!v || !c) return false;
+    const gc: GridCell = { arrow: v.arrow, key: c.key, row: c.row, x: c.x, y: c.y, w: c.w, product: c.product };
+    const move = (dir: Parameters<typeof gridStep>[2]) => { const n = gridStep(v.cells, c, dir)!; setGridPick({ arrow: v.arrow, key: n.key, row: n.row }); };
+    const arrowKey = ({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" } as const)[e.key as "ArrowLeft"];
+    const typed = () => { const col = v.cols.find((x) => x.key === c.key), row = GRID_ROWS.find((r) => r.id === c.row); return !!(col && row && gridText(v, col, row).typed); };
+    if (arrowKey) move(arrowKey);
+    else if (e.key === "Tab") move(e.shiftKey ? "back" : "next");
+    else if (e.key === "Enter" && c.row === "limiting" && !c.product) changeGrid(v.arrow, () => ({ limiting: c.key }));
+    else if (e.key === "Enter") { if (gridTypes(gc)) editGridCell(gc); else move(e.shiftKey ? "up" : "down"); }
+    else if (e.key === "Backspace" || e.key === "Delete") { if (gridTypes(gc) && typed()) commitGridCell("", gc); }
+    else if (e.key.length === 1 && e.key.trim() && gridTypes(gc)) editGridCell(gc, e.key);
+    else return false;
+    e.preventDefault();
+    return true;
+  };
   // A grid cell clicked with Select: picked, for the grid's actions (Set as limiting, Hide row and column, colour).
   const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string }>();
   useEffect(() => { if (selection.size || picked.size) setGridPick(undefined); }, [selection, picked]);
@@ -6027,8 +6056,8 @@ export default function Editor() {
   // limiting reactant. A product's Expected mass is the mass wanted, kept as its mass (issue 136). One value sets the
   // scale: the mass wanted clears the reactants' amounts and another product's mass wanted, and a reactant's amount
   // clears it.
-  function commitGridCell(typed: string) {
-    const w = gridEdit, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
+  function commitGridCell(typed: string, cell: GridCell | undefined = gridEdit) {
+    const w = cell, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
     const row = GRID_ROWS.find((r) => r.id === w.row)!;
@@ -8161,6 +8190,8 @@ export default function Editor() {
       if (templatePick && e.key === "Escape") { e.preventDefault(); return stopPick(); }
       if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
+      // A picked reagent table cell takes the arrows, Tab, Return, Delete and typing (gridKeyDown).
+      if (gridPick && !mod && !e.altKey && gridKeyDown(e)) return;
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
       if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
@@ -8551,8 +8582,21 @@ export default function Editor() {
   // The grid cell picked, marked as a selection is.
   const gridPickMark = () => {
     const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
-    return v && c ? <rect className="grid-pick" aria-hidden x={(c.x - c.w / 2) * L} y={-c.y * L} width={c.w * L} height={v.rh * L} /> : null;
+    // A unit square moved and sized by its transform, so it glides from cell to cell (editor.css).
+    return v && c ? <rect className="grid-pick" aria-hidden width={1} height={1} style={{ transform: `translate(${(c.x - c.w / 2) * L}px, ${-c.y * L}px) scale(${c.w * L}, ${v.rh * L})` }} /> : null;
   };
+  // A typed amount works the others out again: each value that changed settles in, so the eye sees what it moved.
+  const gridTexts = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    // A value new or changed in a grid already shown (a grid just made comes in whole, with no motion).
+    const now = new Map<string, string>(), quiet = noMotion(), shown = new Set([...gridTexts.current.keys()].map((id) => id.split(" ")[0]));
+    for (const el of document.querySelectorAll<SVGTextElement>(".stoich text[data-cell]")) {
+      const id = el.dataset.cell!, text = el.textContent ?? "";
+      now.set(id, text);
+      if (!quiet && shown.has(id.split(" ")[0]) && gridTexts.current.get(id) !== text) el.animate([{ opacity: 0, transform: "translateY(2px)" }, { opacity: 1, transform: "none" }], timing("--motion"));
+    }
+    gridTexts.current = now;
+  }, [gridViews]);
   // Show Reaction Interpretation: the reaction under the pointer, each part boxed and named by what it is.
   const ROLE_NAMES: Record<Role, string> = { reactant: "Reactant", product: "Product", above: "Above arrow", below: "Below arrow" };
   const interpretationAt = (hover: Hover) => {
@@ -8888,7 +8932,7 @@ export default function Editor() {
             {v.cells.map((cell) => {
               const c = v.cols.find((x) => x.key === cell.key), row = GRID_ROWS.find((x) => x.id === cell.row), t = c && row ? gridText(v, c, row) : undefined;
               return t?.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row) ? (
-                <text key={`${cell.row}${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
+                <text key={`${cell.row}${cell.key}`} data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
               ) : null;
             })}
           </g>
@@ -8901,7 +8945,7 @@ export default function Editor() {
             {v.rows.flatMap((row, k) => v.cols.map((c) => {
               const t = gridText(v, c, row);
               return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
-                <text key={`${row.id}${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                <text key={`${row.id}${c.key}`} data-cell={`${v.arrow} ${row.id} ${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
               ) : null;
             }))}
           </g>
@@ -9052,10 +9096,7 @@ export default function Editor() {
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (gc && gc.row === "limiting") { if (!gc.product) changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
-          if (gc && !["name", "formula", "mw", "expectedMoles", "yield"].includes(gc.row) && (gc.row !== "expected" || gc.product)) {
-            const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
-            return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
-          }
+          if (gc && gridTypes(gc)) return editGridCell(gc);
           // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
           const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (plate) {
@@ -9379,7 +9420,20 @@ export default function Editor() {
           <input
             className="cell-box" aria-label="Amount" autoFocus spellCheck={false} defaultValue={gridEdit.value}
             style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h, font: `${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}` }}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitGridCell(e.currentTarget.value); } if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); } }}
+            // Caret at the end, as a spreadsheet opens a cell (and after the key that started it).
+            onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+            // Return and Tab keep it and move on (Shift back), as do the up and down arrows (as in a Table); left and right
+            // stay in the text. Escape leaves it as it was, the cell still picked.
+            onKeyDown={(e) => {
+              const dir = e.key === "Enter" ? (e.shiftKey ? "up" : "down") : e.key === "Tab" ? (e.shiftKey ? "back" : "next") : e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : undefined;
+              if (dir) {
+                e.preventDefault();
+                const n = gridStep(v.cells, gridEdit, dir)!;
+                commitGridCell(e.currentTarget.value);
+                setGridPick({ arrow: v.arrow, key: n.key, row: n.row });
+              }
+              if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); }
+            }}
             onBlur={(e) => { if (!inMap(e.relatedTarget)) commitGridCell(e.currentTarget.value); }}
           />
         );

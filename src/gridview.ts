@@ -23,6 +23,24 @@ export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boo
   { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
 ];
 
+// The cell next to a cell, as a spreadsheet's arrow keys and Tab move (y is up). Found by where the cells are drawn, so
+// it is the same as rows or as columns and with rows hidden: left and right along the cell's line, up and down to the
+// nearest cell in the next line. Tab goes on to the next line's first cell, Shift+Tab back. At the edge it stays.
+type At = { key: string; row: string; x: number; y: number };
+export function gridStep<C extends At>(cells: C[], from: { key: string; row: string }, dir: "left" | "right" | "up" | "down" | "next" | "back"): C | undefined {
+  const c = cells.find((x) => x.key === from.key && x.row === from.row);
+  if (!c) return undefined;
+  const line = (a: At, b: At) => Math.abs(a.y - b.y) < 1e-6;
+  if (dir === "next" || dir === "back") {
+    const order = [...cells].sort((a, b) => (line(a, b) ? a.x - b.x : b.y - a.y)), k = order.indexOf(c) + (dir === "next" ? 1 : -1);
+    return order[k] ?? c;
+  }
+  const ahead = cells.filter((x) => (dir === "left" ? line(x, c) && x.x < c.x : dir === "right" ? line(x, c) && x.x > c.x : dir === "up" ? x.y > c.y + 1e-6 : x.y < c.y - 1e-6));
+  // Nearest line first, then nearest along it.
+  const cost = (x: At) => (dir === "up" || dir === "down" ? Math.abs(x.y - c.y) * 1e6 + Math.abs(x.x - c.x) : Math.abs(x.x - c.x));
+  return ahead.sort((a, b) => cost(a) - cost(b))[0] ?? c;
+}
+
 // What laying a grid out needs from the drawing as drawn. reaction: an arrow's reaction; steps: its parts by role
 // (interpret.ts); structure: a structure's formula and molar mass; reagent: a reagent's (stoich.ts reagentFormula);
 // captionBox: a caption's box (drawing units, y up); nameWidth: a text's width at a size in pt (drawing units);
