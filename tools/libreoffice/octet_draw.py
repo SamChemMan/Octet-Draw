@@ -126,8 +126,9 @@ def selected_picture(controller):
 # ---- Octet ----
 
 # The program Octet says it is (an AppImage can be anywhere): the path in $XDG_CONFIG_HOME/<Octet's id>/octet-path,
-# which Octet writes when it starts. The file is the user's own, and is no link. The program is a real path (no link
-# in it) to a file that runs, that the user or root owns, and that other users cannot change. None if not.
+# which Octet writes when it starts. The file is the user's own, only the user can change it, and it is no link. The
+# program is a real path (no link in it) to a file that runs, that the user or root owns, and that other users cannot
+# change. None if not.
 def noted_octet():
     config = os.environ.get("XDG_CONFIG_HOME", "")
     if not os.path.isabs(config):
@@ -137,7 +138,7 @@ def noted_octet():
         with os.fdopen(fd, "rb") as f:
             st = os.fstat(f.fileno())
             data = f.read(4097)
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or len(data) > 4096:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022 or len(data) > 4096:
             return None
         path = os.fsdecode(data)
         program = os.lstat(path)

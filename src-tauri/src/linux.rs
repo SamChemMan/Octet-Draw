@@ -18,12 +18,14 @@ use tauri::{AppHandle, Manager};
 const OWN: [&str; 5] = ["APPIMAGE", "ARGV0", "OWD", "GTK_THEME", "PYTHONDONTWRITEBYTECODE"];
 
 // The AppImage's file and its mount ($APPIMAGE and $APPDIR, which its runtime sets), when Octet runs from one: its
-// program is in the mount. A program started from another AppImage has that one's variables.
-fn appimage() -> Option<(PathBuf, PathBuf)> {
+// program is in the mount. A program started from another AppImage has that one's variables. The mount by both its
+// names: $APPDIR, and its real path, which Octet's program and AppRun's variables use when $TMPDIR is a link.
+fn appimage() -> Option<(PathBuf, [PathBuf; 2])> {
     let file = PathBuf::from(std::env::var_os("APPIMAGE")?);
     let mount = PathBuf::from(std::env::var_os("APPDIR")?);
+    let real = mount.canonicalize().ok()?;
     let exe = std::env::current_exe().ok()?;
-    (file.is_absolute() && mount.parent().is_some() && exe.starts_with(&mount)).then_some((file, mount))
+    (file.is_absolute() && mount.is_absolute() && real.parent().is_some() && exe.starts_with(&real)).then_some((file, [mount, real]))
 }
 
 // Octet's path for the extension, written in one step (a temporary file renamed over it), mode 0600, on a thread of
@@ -63,7 +65,7 @@ pub fn spawn(c: &mut Command) -> std::io::Result<()> {
         }
         // The launcher starts Octet in its mount, which goes when Octet ends: the program starts where Octet was
         // started.
-        let owd = std::env::var_os("OWD").map(PathBuf::from).filter(|d| d.is_absolute() && !d.starts_with(&mount) && d.is_dir());
+        let owd = std::env::var_os("OWD").map(PathBuf::from).filter(|d| d.is_absolute() && !mount.iter().any(|m| d.starts_with(m)) && d.is_dir());
         c.current_dir(owd.unwrap_or_else(|| "/".into()));
     }
     let mut child = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn()?;
@@ -73,8 +75,8 @@ pub fn spawn(c: &mut Command) -> std::io::Result<()> {
 
 // The changes that give the session's environment back, from Octet's in an AppImage mounted at `mount` (None removes
 // the variable): each list of folders loses the ones in the mount, a variable left with none goes, and so do OWN.
-fn session_env(vars: impl IntoIterator<Item = (OsString, OsString)>, mount: &Path) -> Vec<(OsString, Option<OsString>)> {
-    let inside = |p: &&[u8]| Path::new(OsStr::from_bytes(p)).starts_with(mount);
+fn session_env(vars: impl IntoIterator<Item = (OsString, OsString)>, mount: &[PathBuf]) -> Vec<(OsString, Option<OsString>)> {
+    let inside = |p: &&[u8]| mount.iter().any(|m| Path::new(OsStr::from_bytes(p)).starts_with(m));
     vars.into_iter()
         .filter_map(|(key, value)| {
             if OWN.iter().any(|k| key == *k) {
@@ -94,18 +96,19 @@ fn session_env(vars: impl IntoIterator<Item = (OsString, OsString)>, mount: &Pat
 mod tests {
     use super::*;
 
-    // An AppImage's variables (its runtime's, AppImageKit's AppRun and Tauri's GTK hook) against the session's.
+    // An AppImage's variables (its runtime's, AppImageKit's AppRun and Tauri's GTK hook) against the session's. AppRun
+    // names the mount by its real path (r), the runtime and the hook by $APPDIR (m).
     #[test]
     fn programs_get_the_sessions_environment() {
-        let m = "/tmp/.mount_OctetD1x2";
+        let (m, r) = ("/tmp/.mount_OctetD1x2", "/data/tmp/.mount_OctetD1x2");
         let vars = [
             ("APPDIR", m.to_string()),
             ("APPIMAGE", "/home/u/Octet Draw.AppImage".into()),
             ("ARGV0", "./Octet Draw.AppImage".into()),
             ("OWD", "/home/u".into()),
-            ("PATH", format!("{m}/usr/bin/:{m}/usr/sbin/:{m}/bin/:/usr/local/bin:/usr/bin")),
-            ("LD_LIBRARY_PATH", format!("{m}/usr/lib/:{m}/lib/x86_64-linux-gnu/:")),
-            ("PYTHONHOME", format!("{m}/usr/")),
+            ("PATH", format!("{r}/usr/bin/:{r}/usr/sbin/:{r}/bin/:/usr/local/bin:/usr/bin")),
+            ("LD_LIBRARY_PATH", format!("{r}/usr/lib/:{r}/lib/x86_64-linux-gnu/:")),
+            ("PYTHONHOME", format!("{r}/usr/")),
             ("PYTHONDONTWRITEBYTECODE", "1".into()),
             ("XDG_DATA_DIRS", format!("{m}/usr/share:/usr/share:{m}/usr/share/:/usr/local/share")),
             ("GTK_PATH", format!("{m}//usr/lib/gtk-3.0")),
@@ -114,7 +117,7 @@ mod tests {
             ("DISPLAY", ":0".into()),
             ("NOT_THE_MOUNT", "/tmp/.mount_OctetD1x2x/usr/lib".into()),
         ];
-        let got = session_env(vars.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))), Path::new(m));
+        let got = session_env(vars.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))), &[m.into(), r.into()]);
         let want: Vec<(OsString, Option<OsString>)> = [
             ("APPDIR", None),
             ("APPIMAGE", None),

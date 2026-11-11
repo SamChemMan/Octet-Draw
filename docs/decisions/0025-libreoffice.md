@@ -56,21 +56,24 @@ LibreOffice's Extension Manager asks the user to confirm.
   io.github.samchemman.octet-draw` with the same arguments, as a list, never through a shell. `--app` comes from the
   document's service: `TextDocument` is Writer, `PresentationDocument` is Impress, `DrawingDocument` is Draw. Octet
   cleans the name as it cleans a document's name, and the object window's button says Update in Writer, Update in
-  Impress or Update in Draw. With no `--app` (an older extension), the button says Update <document>. It runs it through the user's service manager
-  (`systemd-run --user`): Ubuntu confines LibreOffice with AppArmor, and a Flatpak started as LibreOffice's child
-  cannot start ("bwrap: setting up uid map: Permission denied"). Octet then runs unconfined, as from the app menu.
-  `$` is passed as `$$`, as systemd expands variables. With no user service manager, Octet starts as a child.
-- Octet first tries the program named in `$XDG_CONFIG_HOME/io.github.samchemman.octet-draw/octet-path`, then
+  Impress or Update in Draw. With no `--app` (an older extension), the button says Update <document>. It runs it
+  through the user's service manager (`systemd-run --user`): Ubuntu confines LibreOffice with AppArmor, and a
+  Flatpak started as LibreOffice's child cannot start ("bwrap: setting up uid map: Permission denied"). Octet then
+  runs unconfined, as from the app menu. `$` is passed as `$$`, as systemd expands variables. With no user service
+  manager, Octet starts as a child.
+- The extension first tries the program named in `$XDG_CONFIG_HOME/io.github.samchemman.octet-draw/octet-path`, then
   `/usr/bin/octet`, the Flatpak and `octet` on the PATH. Octet writes that file when it starts and at Add to
   LibreOffice: `$APPIMAGE` when it runs from an AppImage (the release's main Linux download, which can be anywhere),
   else its own program. The file holds only the path, mode 0600, written in one step. The extension reads it as
-  hostile: the user's own file and no link, and the path a real path with no link in it, to a file that runs, that
-  the user or root owns, and that others cannot change. An AppImage that was moved since falls through to the next.
+  hostile: the user's own file, which only the user can change, and no link; and the path a real path with no link
+  in it, to a file that runs, that the user or root owns, and that others cannot change. An AppImage that was moved
+  since falls through to the next.
 - From an AppImage, the programs Octet starts (`unopkg`, `xdg-open` and the other openers) get the session's
   environment. AppImageKit's AppRun and Tauri's GTK hook set `LD_LIBRARY_PATH`, `PATH`, `PYTHONHOME`, `GTK_PATH`,
   `GIO_MODULE_DIR`, `XDG_DATA_DIRS` and others into the AppImage's mount: each list loses its entries in the mount, a
   variable left empty goes, and so do `APPIMAGE`, `APPDIR`, `ARGV0`, `OWD`, `GTK_THEME` and `PYTHONDONTWRITEBYTECODE`.
-  The program starts in `$OWD`, never in the mount. With the AppImage's `PYTHONHOME`, `unopkg add` fails ("unopkg
+  The mount counts by `$APPDIR` and by its real path, as AppRun names it by its real path. The program starts in
+  `$OWD`, never in the mount. With the AppImage's `PYTHONHOME`, `unopkg add` fails ("unopkg
   failed"): LibreOffice's Python cannot start.
 - Octet's single-instance hand-off (D-Bus, under the app's own name, which a Flatpak may own) gives the request to a
   running Octet.
@@ -92,7 +95,10 @@ LibreOffice's Extension Manager asks the user to confirm.
   LibreOffice installed the extension with a clean environment; Help > Report a Problem gave `xdg-open` a clean one.
 - From an AppImage, `unopkg` reads the .oxt in the mount. If Octet quits before the user confirms the install, the
   file is gone.
-
+- From an AppImage, AppRun starts Octet in its mount, so a relative path typed after the AppImage in a terminal is
+  read in the mount and opens nothing. The extension and file managers give full paths.
+- A Flatpak Octet cannot write the system's `octet-path` (its config folder is its own). A user who ran an AppImage
+  and then installed the Flatpak gets the AppImage on a double-click while that file is still there.
 - Pictures from Windows Word (EMF with CDXML) and PNGs pasted before this change open nothing: LibreOffice keeps no
   original bytes of a PNG.
 - Not tried: x86_64, Wayland (Octet's window can open behind LibreOffice), Fedora, LibreOffice from libreoffice.org,

@@ -610,7 +610,7 @@ export function SettingsWindow(p: Props) {
       d("general", "Selection", "Colour", "selection selected highlight colour color tint marquee lasso handles frame blue custom default", (
         <SelectionColour value={p.selectColour} onChange={p.onSelectColour} />
       )),
-      // Word for Mac has no OLE for other programs, so Octet watches for the double-click itself (word.rs). Off for a
+      // Word for Mac has no OLE for other programs, so Octet watches for the double-click itself (word.rs). On for a
       // new user.
       ...(MAC ? [d("general", "Microsoft Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
         <Switch on={p.wordClick} label="Double-click opens a structure in Octet" onChange={p.onWordClick} />

@@ -105,9 +105,9 @@ sys.path.insert(0, sys.argv[1])
 import octet_draw
 print(" ".join(str(octet_draw.has_drawing(bytes.fromhex(h))) for h in sys.argv[2:]))
 # The path Octet notes: a program the user owns and runs, named by its real path. Not a link, a file others can
-# change, a file that does not run, or a path file that is a link.
+# change, a file that does not run, a path file that is a link or a path file others can change.
 import os, shutil, tempfile
-def note(target, mode=0o755, linked=False):
+def note(target, mode=0o755, linked=False, path_mode=0o600):
     home = os.environ["XDG_CONFIG_HOME"] = os.path.realpath(tempfile.mkdtemp())
     app, folder = os.path.join(home, "app"), os.path.join(home, octet_draw.APP_ID)
     os.mkdir(folder)
@@ -116,6 +116,7 @@ def note(target, mode=0o755, linked=False):
     os.symlink(app, os.path.join(home, "link"))
     with open(os.path.join(home, "path"), "w") as f:
         f.write(os.path.join(home, target))
+    os.chmod(os.path.join(home, "path"), path_mode)
     if linked:
         os.symlink(os.path.join(home, "path"), os.path.join(folder, "octet-path"))
     else:
@@ -123,7 +124,7 @@ def note(target, mode=0o755, linked=False):
     found = octet_draw.noted_octet()
     shutil.rmtree(home)
     return found == app
-print(" ".join(str(x) for x in [note("app"), note("link"), note("app", 0o757), note("app", 0o644), note("app", linked=True), note("missing")]))`;
+print(" ".join(str(x) for x in [note("app"), note("link"), note("app", 0o757), note("app", 0o644), note("app", linked=True), note("app", path_mode=0o620), note("missing")]))`;
 const python = spawnSync("python3", ["-I", "-B", "-c", stubs, path(dir), ...cases.map(([b]) => b.toString("hex"))], { encoding: "utf8" });
 if (python.error) {
   console.log("libreoffice: python3 is not here; the Python is not run");
@@ -131,7 +132,7 @@ if (python.error) {
   assert.equal(python.status, 0, python.stderr);
   const [drawings, noted] = python.stdout.trim().split("\n");
   assert.equal(drawings, cases.map(([, d]) => (d ? "True" : "False")).join(" "));
-  assert.equal(noted, "True False False False False False", "the noted path: a real program, and nothing else");
+  assert.equal(noted, "True False False False False False False", "the noted path: a real program, and nothing else");
 }
 
 // The .oxt that build.rs made, when there is one: a stored zip of those files, with Octet's version.
