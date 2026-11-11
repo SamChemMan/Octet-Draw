@@ -1598,7 +1598,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     if (r.length < 3 || !r.every((x) => r.filter((y) => bondAt.get(key(x, y))?.type === 4).length === 2)) return;
     const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
     const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
-    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw); }
+    const hw = ownZ(r.map((y) => bondAt.get(key(r[0], y))).find((b) => b?.type === 4)!, atomZ[r[0]]).hw; // the ring's own line width, as an aromatic circle's
+    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), hw); }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); owners.push(-100000 - i); for (const q of poly) grow(r[0], q); }
   });
   // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with

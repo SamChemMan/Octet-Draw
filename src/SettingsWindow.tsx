@@ -488,8 +488,8 @@ export function SettingsWindow(p: Props) {
     const own = p.selection?.settings ?? {}, put = (o: ObjectSettings) => p.selection?.onChange(o), words = "selection selected object objects own settings";
     const ownPt = (k: "bond" | "line" | "bold" | "labelSize" | "captionSize", label: string, keywords: string, [min, max]: [number, number]) => (own[k] === undefined ? []
       : [d("pro", "Selection", label, `${words} ${keywords}`, <NumberField label={label} unit="pt" lazy min={min} max={max} value={Math.round(own[k]! * 100) / 100} onChange={(n) => put({ [k]: n })} />)]);
-    const ownFont = (k: "labelFont" | "captionFont", label: string, keywords: string) => (own[k] === undefined ? []
-      : [d("pro", "Selection", label, `${words} ${keywords}`, <FontPick label={label} font={own[k]!} fonts={FONTS} onPick={(v) => put({ [k]: v })} className="select-field" />)]);
+    const ownFont = (k: "labelFont" | "captionFont", label: string, name: string, keywords: string) => (own[k] === undefined ? []
+      : [d("pro", "Selection", label, `${words} ${keywords}`, <FontPick label={name} font={own[k]!} fonts={FONTS} onPick={(v) => put({ [k]: v })} className="select-field" />)]);
     return [
       // What the drawing is for (IDEA-SIZE-8): a purpose sets the style, its scale and the page in one step.
       { ...d("document", "For", "For", "template for paper thesis slides poster experiment notebook talk presentation new size page", (
@@ -623,8 +623,8 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Object Settings: the selection's own bond length, widths and text. Each row shows the first selected
       // thing's value and sets it on every selected thing it fits. A row shows when something selected has it.
       ...ownPt("bond", "Bond length", "bond length fixed size scale", LIMITS.bond), ...ownPt("line", "Line width", "line width bonds arrows weight lighter", LIMITS.line),
-      ...ownPt("bold", "Bold width", "bold width wedge", LIMITS.bold), ...ownFont("labelFont", "Atom labels", "atom label font typeface"),
-      ...ownPt("labelSize", "Label size", "atom label font size", LIMITS.labelSize), ...ownFont("captionFont", "Captions", "caption text font typeface"),
+      ...ownPt("bold", "Bold width", "bold width wedge", LIMITS.bold), ...ownFont("labelFont", "Atom labels", "Atom label font", "atom label font typeface"),
+      ...ownPt("labelSize", "Label size", "atom label font size", LIMITS.labelSize), ...ownFont("captionFont", "Captions", "Caption font", "caption text font typeface"),
       ...ownPt("captionSize", "Caption size", "caption text font size", LIMITS.captionSize),
       // On shows File > More Formats, with the rare formats to import and export.
       d("pro", "File menu", "More formats", "more formats rare file import export open save menu submenu extra", <Switch on={p.moreFormats} label="More formats" onChange={p.onMoreFormats} />),
@@ -670,11 +670,12 @@ export function SettingsWindow(p: Props) {
       aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : s === "Names" && !query ? (
         <span className="section-buttons"><button className="text-button" onClick={p.onImportNames}>Import…</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
       ) : s === "Selection" && !query && p.selection ? (
-        // Reset to document: the selection takes the document's settings (ChemDraw's Apply Object Settings from > Current Document).
+        // Reset to document: the selection takes the document's settings, with none of its own (ChemDraw's Apply Object
+        // Settings from > Current Document).
         <span className="section-buttons">
           <button className="text-button" onClick={p.selection.onCopy}>Copy settings</button>
           <button className="text-button" onClick={p.selection.onPaste} disabled={!p.selection.onPaste}>Paste settings</button>
-          <button className="text-button" onClick={() => p.selection!.onChange({ bond: style.bond, line: style.line, bold: style.bold, labelFont: style.labelFont, labelSize: style.labelSize, captionFont: style.captionFont, captionSize: style.captionSize })}>Reset to document</button>
+          <button className="text-button" onClick={() => p.selection!.onChange({ bond: style.bond, line: null, bold: null, labelFont: null, labelSize: null, captionFont: null, captionSize: null })}>Reset to document</button>
         </span>
       ) : undefined} />)}</>;
   };

@@ -35,12 +35,21 @@ const mol: Mol = {
   assert.deepEqual([set.atoms[2].font, set.atoms[2].size, set.atoms[0].font], ["Helvetica", 12, undefined]);
   assert.deepEqual([set.captions![0].font, set.captions![0].size, set.arrows![0].width], ["Calibri", 12, 0.3]);
   assert.deepEqual(objectSettings(set, s, new Set([2, 3]), new Set([1])), { bond: 9.6, line: 0.3, bold: 1.3333, labelFont: "Helvetica", labelSize: 8, captionFont: "Calibri", captionSize: 12 }, "read back as set");
-  // Reset to document: no settings of their own are left.
-  const back = withObjectSettings(set, s, new Set([2, 3]), new Set([1, 2]), { line: 0.4, bold: 4 / 3, labelFont: "Arial", labelSize: 10 * (2 / 3), captionFont: "Arial", captionSize: 10 });
-  assert.deepEqual([back.bonds[1].line, back.atoms[2].font, back.atoms[2].size, back.captions![0].font, back.captions![0].size], [undefined, undefined, undefined, undefined, undefined]);
-  // A filled pen curve's outline is a hairline of its own; its default leaves it with none.
+  // Reset to document (null): no settings of their own are left.
+  const reset = { line: null, bold: null, labelFont: null, labelSize: null, captionFont: null, captionSize: null };
+  const back = withObjectSettings(set, s, new Set([2, 3]), new Set([1, 2]), reset);
+  assert.deepEqual([back.bonds[1].line, back.atoms[2].font, back.atoms[2].size, back.captions![0].font, back.captions![0].size, back.arrows![0].width], [undefined, undefined, undefined, undefined, undefined, undefined]);
+  // A filled pen curve's outline is a hairline of its own; its default leaves it with none, and so does Reset.
   const curve: Mol = { atoms: [], bonds: [], arrows: [{ id: 1, kind: "curve", from: [0, 0], to: [1, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true }, fill: "solid", width: 1 }] };
   assert.equal(withObjectSettings(curve, s, new Set(), new Set([1]), { line: 0.05 }).arrows![0].width, undefined);
+  assert.equal(withObjectSettings(curve, s, new Set(), new Set([1]), reset).arrows![0].width, undefined);
+  // Widths kept over a small or large scale stay within what Octet's file takes, so the drawing opens again.
+  const small: Mol = { atoms: [{ label: "C", location: [0, 0, 0], scale: 0.25 }, { label: "C", location: [1, 0, 0], scale: 0.25 }], bonds: [{ type: 1, atoms: [0, 1] }], arrows: [{ id: 1, kind: "reaction", from: [2, 0], to: [4, 0], scale: 0.25 }] };
+  const wide = withObjectSettings(small, s, new Set([0, 1]), new Set([1]), { line: 60, bold: 120, labelSize: 999 });
+  assert.deepEqual([wide.bonds[0].line, wide.bonds[0].bold, wide.arrows![0].width, wide.atoms[0].size], [200, 200, 200, 999]);
+  assert.doesNotThrow(() => parse(serialize(wide)));
+  const large: Mol = { ...small, atoms: small.atoms.map((a) => ({ ...a, scale: 4 })) };
+  assert.equal(withObjectSettings(large, s, new Set([0, 1]), new Set(), { line: 0.01 }).bonds[0].line, 0.005);
   console.log("objectsettings.check: set ok");
 }
 
@@ -55,6 +64,19 @@ const mol: Mol = {
   assert.ok(Math.abs(width({ line: 1.2 }) / plain - 2) < 1e-9, "1.2 pt is twice the document's 0.6 pt");
   assert.ok(Math.abs(width({ line: 1.2 }, 0.5) / plain - 1) < 1e-9, "the scale multiplies it");
   assert.ok(Math.abs(width({ display: "bold", bold: 4 }) / width({ display: "bold" }) - 2) < 1e-9, "a bold bond at its own bold width");
+  // A ring's circle and a π ligand's ellipse in the ring bonds' own line width (each bar is two half widths across).
+  const ring = (line?: number): Mol => {
+    const atoms: Mol["atoms"] = Array.from({ length: 6 }, (_, k) => ({ label: "C", location: [Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3), 0], circle: true }));
+    return { atoms: [...atoms, { label: "C", location: [0, 0, 0], centre: { atoms: [0, 1, 2, 3, 4, 5] } }], bonds: atoms.map((_, k) => ({ type: 1 + (k % 2), atoms: [k, (k + 1) % 6], ...(line ? { line } : {}) })) };
+  };
+  const bars = (m: Mol, owner: (o: number) => boolean) => {
+    const d = render(m, S, ink), k = d.owners!.findIndex(owner), [p, q] = d.polygons[k];
+    return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  };
+  const circle = (m: Mol) => ({ ...m, atoms: m.atoms.slice(0, 6), bonds: m.bonds });
+  assert.ok(Math.abs(bars(circle(ring(1.2)), (o) => o === -1) / bars(circle(ring()), (o) => o === -1) - 2) < 1e-9, "a ring's circle");
+  const ligand = (m: Mol) => ({ ...m, bonds: m.bonds.map((b) => ({ ...b, type: 4 })), atoms: m.atoms.map((a) => ({ ...a, circle: undefined })) });
+  assert.ok(Math.abs(bars(ligand(ring(1.2)), (o) => o === -100006) / bars(ligand(ring()), (o) => o === -100006) - 2) < 1e-9, "a π ligand's ellipse");
   console.log("objectsettings.check: drawn ok");
 }
 
