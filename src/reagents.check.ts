@@ -66,4 +66,36 @@ for (const reagent of ["H2", "O2", "CO", "NH3"]) assert.ok(!inert(reagent), reag
   assert.equal(smilesWeight(labelSmiles("AcOH")!)?.formula, "C2H4O2", "a drawn AcOH label");
   assert.equal(smilesWeight(labelSmiles("MeO2CCH2")!)?.formula, "C3H6O2", "a label that ends in CH2 reads as before");
 }
+// Decision 0024: the reagent table is laid out again on every change, and with words Name to Structure does not know
+// written over the arrow it is as quick as in 1.1.1. 1.1.1 read each item as a formula, else as a label. Before this
+// check, the table asked Name to Structure for every word again on every layout (0.06 to 0.56 ms, 5 to 44 times
+// 1.1.1's). Both are timed here on this computer, in turns, the best of 6 runs of at least 20 ms each: half as long
+// again at most, for noise.
+{
+  const { gridViews } = await import("./gridview.ts");
+  const { formulaWeight: weight } = await import("./stoich.ts");
+  const then = (item: string) => {
+    const plain = item.replace(/^\d+\s+(?=\S)/, ""), w = weight(plain), smiles = w === undefined ? labelSmiles(plain) : undefined;
+    return w !== undefined ? { formula: plain.replace(/\s+/g, ""), weight: w } : smiles ? smilesWeight(smiles) : undefined;
+  };
+  const now = (item: string) => reagentFormula(item, nameToSmiles, labelSmiles, smilesWeight);
+  // A + B → C, with the conditions over and under the arrow.
+  const steps = [{ kind: "structure", atoms: [0], box: [0, -0.5, 1, 0.5] }, { kind: "structure", atoms: [1], box: [2, -0.5, 3, 0.5] }, { kind: "arrow", id: 9, box: [4, -0.5, 6, 0.5] }, { kind: "structure", atoms: [2], box: [7, -0.5, 8, 0.5] }];
+  const above = ["NaBH4, MeOH, 0 °C to rt, 2 h", "reflux, overnight, then workup", "sonication, 30 min, Lindlar, hexanes"], conditions = above.map((_, k) => ({ kind: "text", id: 20 + k, box: [4, 1 + k, 6, 2 + k] }));
+  const m = { atoms: [], bonds: [], captions: above.map((text, k) => ({ id: 20 + k, text, x: 0, y: 0 })), arrows: [{ id: 9, kind: "reaction", from: [0, 0], to: [1, 0] }], grids: [{ arrow: 9, typed: { "r:S0": { mass: 1 } } }] } as never;
+  const layout = (reagent: (item: string) => { formula: string; weight: number } | undefined) => gridViews(m, {
+    reaction: () => ({ steps, arrows: [9] }) as never, steps: () => [{ arrow: 9, reactants: [steps[0], steps[1]], products: [steps[3]], above: conditions, below: [] }] as never,
+    structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent, captionBox: () => undefined, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
+  });
+  assert.deepEqual(layout(now)[0].all.map((c) => c.key), ["r:S0", "r:S1", 'r:"NaBH4"', 'r:"MeOH"', "p:S2"], "only reagents have columns");
+  const best = [Infinity, Infinity];
+  for (let k = 0; k < 6; k++) for (const [j, reagent] of [then, now].entries()) {
+    let n = 0;
+    const t0 = performance.now();
+    do { layout(reagent); n++; } while (performance.now() - t0 < 20);
+    best[j] = Math.min(best[j], (performance.now() - t0) / n);
+  }
+  const [was, is] = best;
+  assert.ok(is < 1.5 * was, `a layout takes ${is.toFixed(4)} ms, 1.1.1's way ${was.toFixed(4)} ms`);
+}
 console.log(`reagents.check: ${REAGENTS.length} reagents read right`);
