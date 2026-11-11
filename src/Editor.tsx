@@ -6931,7 +6931,7 @@ export default function Editor() {
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
-      search_scifinder: ["Search SciFinder", "", <SearchGlyph letter="S" />], search_scholar: ["Search Google Scholar", "", <SearchGlyph letter="GS" />], search_patents: ["Search Google Patents", "", <SearchGlyph letter="GP" />],
+      search_scifinder: ["Search SciFinder", "", <SearchGlyph letter="S" />], search_scholar: ["Search Google Scholar", "", <SearchGlyph letter="G" />], search_patents: ["Search Google Patents", "", <SearchGlyph letter="G" />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.

@@ -113,7 +113,7 @@ type Props = {
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
   scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
-  online?: boolean; // Settings > Online search: Search Reaxys and Search PubChem are offered
+  online?: boolean; // Settings > Online search: the online searches are offered
   folded: string[]; // the titled sections folded to their title, by set
   onFold: (id: string, folded: boolean) => void;
 };
@@ -290,7 +290,7 @@ const KIND_OF: Record<string, string> = {
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
 
-// The online searches: Phosphor's magnifier and the site's letters. No logos.
+// The online searches: Phosphor's magnifier and the site's first letter (G for both Google searches). No logos.
 export function SearchGlyph({ letter }: { letter: string }) {
   return <span className="glyph-text search-glyph" aria-hidden><MagnifyingGlass size={16} />{letter}</span>;
 }

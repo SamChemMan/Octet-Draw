@@ -3776,7 +3776,7 @@ button.variant.add {
   width: 18px;
 }
 
-/* Search Reaxys and Search PubChem: the magnifier, then the site's letter (a letter in the lens reads as ®). */
+/* The online searches: the magnifier, then the site's letter (a letter in the lens reads as ®). */
 .search-glyph {
   display: inline-flex;
   align-items: center;
