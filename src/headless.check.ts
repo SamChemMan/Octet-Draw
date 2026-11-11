@@ -15,7 +15,8 @@ const { realFonts } = await import("../scripts/headless/browser.ts");
 const { handle } = await import("./mcp.ts");
 const { fromCdxml } = await import("./cdxml.ts");
 const { findReaction } = await import("./reaction.ts");
-const { toSmiles } = await import("./chem.ts");
+const { parseStructure, toInchiKey, toSmiles } = await import("./chem.ts");
+const { strict } = await import("../scripts/headless/listed.ts");
 const { extractSelection, fragments } = await import("./edit.ts");
 const { pageSize } = await import("./docstyle.ts");
 await load();
@@ -201,6 +202,101 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(!cleaned.isError && fits(cleaned), JSON.stringify(cleaned.structuredContent.check));
   assert.equal(pluses(), 1, "one plus sign after the clean-up");
   assert.deepEqual(d.host.reaction(arrow)?.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"]);
+}
+
+// Twenty-five typical jobs, each written from tools/list and the instructions alone, as an AI app meets them (plan
+// 5.5): every call fits the listed schema as a strict AI app checks it, Octet takes it, and the drawing is what the
+// job asked for. So the list cannot say what the tools do not take. r is each earlier result; cannot is what only the
+// window can do (a dialog, aligning), which Octet with no window answers that it cannot.
+{
+  const tools = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 0, method: "tools/list" }), () => d.host, "1")).result.tools;
+  const MOL = "\n  Octet\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.2990    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    2.5981    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\nM  END\n";
+  type Read = { structures: { id: string; number?: string; smiles: string; inchiKey: string; formula: string; box: number[] }[]; reactions: { steps: { above: string[] }[] }[]; arrows: { kind: string }[]; shapes?: { kind: string }[]; cycles?: unknown[]; captions: { text: string; box: number[] }[]; style: string };
+  type Job = [string, [string, unknown | ((r: any[]) => unknown)][], (e: Read, r: any[]) => boolean, RegExp?];
+  const nums = (e: Read) => e.structures.map((s) => s.number ?? "").join(), key = (s: string) => toInchiKey(parseStructure(s));
+  const sOf = (r: any[], k = 0, n = 0) => r[k].made.filter((x: string) => x[0] === "s")[n];
+  const JOBS: Job[] = [
+    ["one reaction from names", [["draw", { kind: "reaction", start: [{ text: "benzaldehyde" }, { text: "acetophenone" }], steps: [{ reagents: ["NaOH"], solvents: ["EtOH"], temperature: "rt", yield: "88%", products: [{ text: "chalcone", number: "1" }] }] }]],
+      (e) => e.structures.length === 3 && e.reactions.length === 1],
+    ["a 5-step scheme", [["draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [
+      { reagents: ["MeNO2", "NH4OAc"], solvents: ["AcOH"], temperature: "reflux", products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] },
+      { reagents: ["LiAlH4"], solvents: ["THF"], products: [{ text: "2-phenylethylamine", number: "3" }] },
+      { reagents: ["Boc2O", "Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl N-(2-phenylethyl)carbamate", number: "4" }] },
+      { reagents: ["NaH", "MeI"], solvents: ["DMF"], products: [{ text: "CN(CCc1ccccc1)C(=O)OC(C)(C)C", number: "5" }] },
+      { reagents: ["TFA"], solvents: ["CH2Cl2"], products: [{ text: "N-methyl-2-phenylethylamine", number: "6" }] }] }]],
+      (e) => nums(e) === "1,2,3,4,5,6" && e.reactions.length === 1 && e.reactions[0].steps.length === 5],
+    ["a grid of 12 numbered structures", [["draw", { kind: "structures", columns: 4, structures: ["benzene", "toluene", "phenol", "aniline", "anisole", "benzoic acid", "benzaldehyde", "acetophenone", "nitrobenzene", "chlorobenzene", "pyridine", "naphthalene"].map((text, k) => ({ text, number: `${k + 1}` })) }]],
+      (e) => nums(e) === "1,2,3,4,5,6,7,8,9,10,11,12"],
+    // A metal and its ligands as draw's description says ('*[Pd]*' and labels): Pd(PPh3)2 is not a name Octet reads.
+    ["a catalytic cycle", [["draw", { kind: "cycle", centre: "Suzuki coupling", intermediates: [{ text: "*[Pd]*", labels: ["PPh3", "PPh3"] }, { text: "Br[Pd](*)(*)c1ccccc1", labels: ["PPh3", "PPh3"] }, { text: "c1ccc(cc1)[Pd](*)(*)c1ccc(C)cc1", labels: ["PPh3", "PPh3"] }], steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, name: "TM", in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, name: "RE", out: "Ph-Ar" }] }]],
+      (e) => e.cycles?.length === 1 && e.structures.length === 3],
+    ["fix one atom", [["draw", { kind: "structures", structures: [{ text: "Cc1ccccc1", number: "1" }] }], ["change", (r) => ({ operations: [{ op: "edit", ids: [`${sOf(r)}.3`], label: "N" }] })]],
+      (e) => e.structures[0].inchiKey === key("Cc1ccccn1")],
+    ["restyle for a journal and say what did not fit", [["draw", { kind: "reaction", start: [{ text: "benzoic acid" }, { text: "methanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", products: [{ text: "methyl benzoate", number: "1" }] }] }], ["advanced", { tool: "set_style", args: { preset: "RSC" } }]],
+      (e, r) => e.style === "RSC" && "check" in r[1]],
+    ["read and answer a question", [["draw", { kind: "structures", structures: [{ text: "aspirin", number: "1" }] }], ["read", {}]], (_, r) => r[1].structures[0].formula === "C9H8O4"],
+    ["export a PDF", [["draw", { kind: "structures", structures: [{ text: "caffeine" }] }], ["advanced", { tool: "export", args: { format: "pdf" } }]], (e) => e.structures.length === 1, /cannot open the Export dialog/],
+    ["highlight a group", [["draw", { kind: "structures", structures: [{ text: "Cc1ccc(cc1)[N+](=O)[O-]", number: "1" }] }], ["change", (r) => ({ operations: [{ op: "edit", ids: [8, 9, 10].map((k) => `${sOf(r)}.${k}`), highlight: "#ffe066" }] })]],
+      () => d.host.doc().atoms.filter((a) => /ffe066/i.test(JSON.stringify(a))).length === 3],
+    // As change's arrow says: the product right_of the last one with room for the arrow, the arrow, its text, then
+    // clean_reaction.
+    ["add a step to an existing scheme", [["draw", { kind: "reaction", start: [{ text: "benzoic acid", number: "1" }], steps: [{ reagents: ["SOCl2"], products: [{ text: "benzoyl chloride", number: "2" }] }] }],
+      ["change", (r) => ({ operations: [{ op: "draw", kind: "structures", structures: [{ text: "N,N-diethylbenzamide", number: "3" }], right_of: sOf(r, 0, 1), gap: 4 }, { op: "arrow", kind: "reaction", from: sOf(r, 0, 1), to: "$1.s[0]" }, { op: "text", text: "Et2NH, Et3N", arrow: "$2.a[0]", side: "above" }] })],
+      ["advanced", { tool: "run_command", args: { command: "clean_reaction" } }]],
+      (e) => e.reactions.length === 1 && e.reactions[0].steps.length === 2 && e.reactions[0].steps[1].above.includes("Et2NH, Et3N")],
+    ["renumber", [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "2" }, { text: "phenol", number: "3" }] }],
+      ["change", (r) => ({ operations: [0, 1, 2].map((k) => ({ op: "number", structure: sOf(r, 0, k), number: `${k + 2}` })) })]], (e) => nums(e) === "2,3,4"],
+    ["delete one structure", [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "2" }, { text: "phenol", number: "3" }] }], ["change", { operations: [{ op: "delete", ids: ["2"] }] }]], (e) => nums(e) === "1,3"],
+    // The second branch below all of the first ('$1.made'), and their product with room for the arrows.
+    ["a two-branch convergent synthesis", [["change", { operations: [
+      { op: "draw", kind: "reaction", start: [{ text: "4-bromobenzoic acid", number: "1" }], steps: [{ reagents: ["MeOH", "H2SO4"], products: [{ text: "methyl 4-bromobenzoate", number: "2" }] }] },
+      { op: "draw", kind: "reaction", start: [{ text: "4-methoxyphenylboronic acid", number: "3" }], steps: [{ reagents: ["pinacol"], products: [{ text: "COc1ccc(cc1)B1OC(C)(C)C(C)(C)O1", number: "4" }] }], below: "$1.made", align: "left" },
+      { op: "draw", kind: "structures", structures: [{ text: "methyl 4'-methoxybiphenyl-4-carboxylate", number: "5" }], right_of: "$1.s[1]", gap: 4 },
+      { op: "arrow", kind: "reaction", from: "$1.s[1]", to: "$3.s[0]" }, { op: "arrow", kind: "reaction", from: "$2.s[1]", to: "$3.s[0]" },
+      { op: "text", text: "Pd(PPh3)4, K2CO3", arrow: "$4.a[0]", side: "above" }] }]],
+      (e) => nums(e) === "1,2,3,4,5" && e.arrows.length === 4 && e.structures[2].box[3] < Math.min(e.structures[0].box[1], e.structures[1].box[1])],
+    ["a reagent drawn as a structure over the arrow", [["draw", { kind: "reaction", start: [{ text: "benzylamine", number: "1" }], steps: [{ above: ["structure: Boc2O"], reagents: ["Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl benzylcarbamate", number: "2" }] }] }]],
+      (e) => e.structures.length === 3],
+    // The footnote below all of the scheme ('$1.made').
+    ["conditions as letters with a footnote", [["change", { operations: [
+      { op: "draw", kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ above: ["a"], products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] }, { above: ["b"], products: [{ text: "2-phenylethylamine", number: "3" }] }, { above: ["c"], products: [{ text: "N-(2-phenylethyl)acetamide", number: "4" }] }] },
+      { op: "text", text: "Reagents and conditions: (a) MeNO2, NH4OAc, AcOH, reflux; (b) LiAlH4, THF; (c) Ac2O, Et3N, CH2Cl2.", below: "$1.made" }] }]],
+      (e) => e.captions.find((c) => c.text.startsWith("Reagents"))!.box[3] < Math.min(...e.structures.map((s) => s.box[1]))],
+    ["an equilibrium and a retro arrow", [["change", { operations: [
+      { op: "draw", kind: "reaction", start: [{ text: "acetic acid" }], steps: [{ arrow: "equilibrium", products: [{ text: "acetate" }] }] },
+      { op: "draw", kind: "reaction", start: [{ text: "ibuprofen", number: "1" }], steps: [{ arrow: "retro", products: [{ text: "isobutylbenzene", number: "2" }] }], below: "$1.s[0]" }] }]],
+      (e) => e.arrows.map((a) => a.kind).sort().join() === "equilibrium,retro"],
+    ["a mechanism step with two curly arrows", [["draw", { kind: "structures", structures: [{ text: "[OH-]" }, { text: "CBr" }] }],
+      ["change", (r) => ({ operations: [{ op: "arrow", kind: "curved", from: `${sOf(r)}.1`, to: `${sOf(r, 0, 1)}.1` }, { op: "arrow", kind: "curved", from: `${sOf(r, 0, 1)}.1-2`, to: `${sOf(r, 0, 1)}.2` }] })]],
+      (e) => e.arrows.filter((a) => a.kind === "curved").length === 2],
+    ["a compound from an earlier one with a protecting group swapped", [["draw", { kind: "structures", structures: [{ text: "4-(benzyloxy)benzaldehyde", number: "1" }, { from: "1", changes: [{ swap: { OBn: "OTBS" } }], number: "2" }] }]],
+      (e) => e.structures[1].inchiKey === key("CC(C)(C)[Si](C)(C)Oc1ccc(C=O)cc1")],
+    ["a substrate scope grid with yields as captions", [["draw", { kind: "structures", columns: 3, structures: ["toluene", "anisole", "chlorobenzene", "fluorobenzene", "benzonitrile", "methyl benzoate"].map((text, k) => ({ text, number: `3${"abcdef"[k]}`, caption: `${90 - 5 * k}%` })) }]],
+      (e) => e.structures.length === 6 && e.captions.filter((c) => c.text.endsWith("%")).length === 6],
+    ["a MOL file given as text", [["draw", { kind: "structures", structures: [{ text: MOL, number: "1" }] }]], (e) => e.structures[0].inchiKey === key("CCO")],
+    ["a file read back as CDXML", [["draw", { kind: "structures", structures: [{ text: "caffeine", number: "1" }] }], ["read", { format: "cdxml" }]], (_, r) => /<CDXML/.test(r[1].text)],
+    ["three structures aligned and distributed", [["draw", { kind: "structures", columns: 3, structures: [{ text: "benzene" }, { text: "toluene" }, { text: "phenol" }] }], ["change", (r) => ({ operations: [{ op: "arrange", ids: r[0].made, how: "middle" }, { op: "arrange", ids: r[0].made, how: "across" }] })]],
+      (e) => e.structures.length === 3, /cannot line them up now/],
+    ["a box round two structures with a title", [["draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] }], ["change", (r) => ({ operations: [{ op: "shape", kind: "box", around: r[0].made }, { op: "text", text: "Aromatic solvents", above: "$1.b[0]" }] })]],
+      (e) => e.shapes?.length === 1 && e.captions.some((c) => c.text === "Aromatic solvents")],
+    ["a TLC plate", [["change", { operations: [{ op: "shape", kind: "tlc", box: [0, 0, 4, 6] }] }]], (e) => e.shapes?.[0]?.kind === "tlc"],
+    ["undo of the last call", [["draw", { kind: "structures", structures: [{ text: "benzene" }] }], ["draw", { kind: "structures", structures: [{ text: "toluene" }] }], ["advanced", { tool: "run_command", args: { command: "undo" } }]],
+      (e) => e.structures.length === 1 && e.structures[0].inchiKey === key("c1ccccc1")],
+  ];
+  assert.equal(JOBS.length, 25);
+  for (const [job, calls, want, cannot] of JOBS) {
+    d = drawing("paper", job);
+    const r: any[] = [];
+    for (const [name, a] of calls) {
+      const args = typeof a === "function" ? a(r) : a, listed = tools.find((t: { name: string }) => t.name === name).inputSchema;
+      assert.equal(strict(listed, args, listed.$defs, name), undefined, `${job}: ${JSON.stringify(args)}`);
+      const done = await call(name, args);
+      assert.ok(!done.isError || cannot?.test(done.content[0].text), `${job}: ${done.content[0].text}`);
+      r.push(done.structuredContent);
+    }
+    const end = (await call("read", { detail: "full" })).structuredContent;
+    assert.ok(want(end, r), `${job}: ${JSON.stringify(end).slice(0, 2000)}`);
+  }
 }
 
 // The runner: two inputs, a list of tool calls and a reaction argument, drawn by two workers.

@@ -17,6 +17,7 @@ const { EMPTY, fragments } = await import("./edit.ts");
 const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
 const { handle, MAX_TEXT, resetIds, TOOL_NAMES, TOOL_TABLE, OP_TABLE } = await import("./mcp.ts");
+const { strict } = await import("../scripts/headless/listed.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
 type Box = import("./render.ts").Box;
@@ -279,17 +280,7 @@ assert.equal(steps.length, 0);
   o = await call("change", { operations: [{ op: "move", ids: ["1"], dx: 1, detail: "full" }] });
   assert.ok(!o.isError && Array.isArray(o.structuredContent.changed), text(o));
   // Typical calls, written as the tools list them: each fits the listed schema as a strict AI app checks it before it
-  // sends a call (types, enums, what is required, the closed top level), and Octet takes each one.
-  const strict = (schema: any, v: any, defs: any, at: string): string | undefined => {
-    if (schema.$ref) return strict(defs[schema.$ref.slice("#/$defs/".length)], v, defs, at);
-    if (schema.enum && !schema.enum.includes(v)) return `${at}: not in the enum`;
-    if (schema.type === "array") return Array.isArray(v) ? v.map((x, i) => strict(schema.items ?? {}, x, defs, `${at}[${i}]`)).find(Boolean) : `${at}: not an array`;
-    if (schema.type !== "object") return !schema.type || typeof v === (schema.type === "integer" ? "number" : schema.type) ? undefined : `${at}: not a ${schema.type}`;
-    if (!v || typeof v !== "object" || Array.isArray(v)) return `${at}: not an object`;
-    const missing = (schema.required ?? []).find((k: string) => !(k in v));
-    if (missing) return `${at}: no ${missing}`;
-    return Object.entries(v).map(([k, x]) => (schema.properties?.[k] ? strict(schema.properties[k], x, defs, `${at}.${k}`) : schema.additionalProperties === false ? `${at}: ${k} is not listed` : undefined)).find(Boolean);
-  };
+  // sends a call, and Octet takes each one.
   fresh();
   resetIds();
   for (const [name, args] of [
@@ -831,8 +822,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     [[{ op: "batch" }, { op: "delete", ids: ["s1"] }], /operations\[0\]\.op: not one of draw, edit, replace, number, delete, move, arrange, text, arrow, shape, select, set_style, place_template, add_file, fill_experiment/],
     [[{ op: "draw", kind: "structures", structures: [{ text: 5 }] }], /^Octet changed nothing\. operations\[0\]\.structures\[0\]\.text: not text\. advanced help of structures gives its arguments\.$/],
     // "$1.made" where one id is needed, when step 1 made two top-level objects: no one meaning, so refused as before.
-    [[{ op: "draw", kind: "structures", structures: [{ text: "water" }, { text: "benzene" }] }, { op: "text", text: "x", below: "$1.made" }], /Step 2 \(text\): \$1\.made names 2 objects here: give one, as \$1\.made\[0\]/],
-    [[{ op: "draw", kind: "structures", structures: [{ text: "water" }, { text: "benzene" }] }, { op: "text", text: "x", below: "$1.s" }], /Step 2 \(text\): \$1\.s names 2 objects here/],
+    // (A place beside them is beside the box round both: headless.check's jobs.)
+    [[{ op: "draw", kind: "structures", structures: [{ text: "water" }, { text: "benzene" }] }, { op: "number", structure: "$1.made", number: "3" }], /Step 2 \(number\): \$1\.made names 2 objects here: give one, as \$1\.made\[0\]/],
+    [[{ op: "draw", kind: "structures", structures: [{ text: "water" }, { text: "benzene" }] }, { op: "number", structure: "$1.s", number: "3" }], /Step 2 \(number\): \$1\.s names 2 objects here/],
     [Array(41).fill({ op: "delete", ids: ["s1"] }), /more than 40/],
     [[{ op: "draw", kind: "structures", structures: [{ text: "water" }] }, { op: "draw", kind: "structures", structures: [{ text: "not a compound at all" }] }], /Step 2 \(structures\) failed: Octet drew nothing/],
   ];

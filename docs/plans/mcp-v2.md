@@ -387,9 +387,9 @@ Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. Wh
 
 ### 5.5 As built (step 5, 11 November 2026, branch `mcp/tools`)
 
-`tools/list` has five tools: `draw`, `change`, `read`, `drawings` and `advanced`. It is 13,824 characters (about
-3,950 tokens at 3.5 characters each), from 59,857 with 26 tools. `set_brief`, `draw_route` and `job` are not built:
-each is one more entry in `TOOLS` (`src/mcp.ts`). There are 176 characters left under the 14,000 that `mcp.check.ts`
+`tools/list` has five tools: `draw`, `change`, `read`, `drawings` and `advanced`. It is 13,905 characters (about
+3,970 tokens at 3.5 characters each), from 59,857 with 26 tools. `set_brief`, `draw_route` and `job` are not built:
+each is one more entry in `TOOLS` (`src/mcp.ts`). There are 95 characters left under the 14,000 that `mcp.check.ts`
 allows, so those three need the limit looked at again, or room found (`draw_route` can take over what `draw` says of
 a reaction).
 
@@ -433,6 +433,21 @@ a reaction).
   left (section 17). Adding a step to a drawn scheme is two calls (a `change` that draws the product, the arrow and
   its text, then `clean_reaction`), which `change` now says. Every call of the benchmark fits the listed schema as a
   strict AI app checks it (66 of 66).
+- **A second test, by a reader who did not write the merge** (25 jobs, each written from `tools/list` and the
+  instructions alone, run with no window): 21 of 25 were right at the first try, and 24 of 25 after the fixes below.
+  The 25 are now a table in `headless.check.ts`: every call must fit the listed schema as a strict AI app checks it,
+  be taken, and make what the job asks, so the list cannot drift from what the tools take.
+  - A catalytic cycle: `Pd(PPh3)2` as an intermediate's text is not a name Octet reads. `draw` now gives a metal and
+    its ligands as a SMILES with `*` and labels (`'*[Pd]*'`, `['PPh3', 'PPh3']`).
+  - Conditions as letters with a footnote: `below: '$1.made'` under a whole scheme was refused ("names 14 objects
+    here"). A place beside (`right_of`, `left_of`, `below`, `above`) now takes ids, and a reference that names more
+    than one object, as the box round them all. `draw` lists only the one id. A reference that names one top-level
+    object (a structure and its number) reads as before, with its note.
+  - A convergent synthesis: the product placed `right_of` the last one (gap 1.5) left no room for the arrow, which
+    was refused. `change` now says gap 4. The conditions text over that arrow can still overlap (the result's check
+    names it): `clean_reaction` does not lay out a route with two branches (it moves them off the page).
+  - Align and distribute: Octet with no window has no Arrange commands ("a dialog is open"), as it has no Export
+    dialog. The window has them; not a fault of the list.
 - **Not tried:** the acceptance script and the evals (both need the app). They are on the new names and `node --check`
   passes. The Rust tests of the relay still send the names `read_drawing` and `draw_structures`, which the relay does
   not read.
