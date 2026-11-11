@@ -4,11 +4,12 @@
 # own double-click. The context menu gets Edit in Octet Draw, and Insert gets Octet Drawing for a new one.
 #
 # The picture's own bytes go into a new folder (mode 0700) under $XDG_RUNTIME_DIR/app/io.github.samchemman.octet-draw/,
-# which a Flatpak Octet can read and write. The extension runs `octet --object <folder>/drawing.pdf --host <document>`
-# (or the Flatpak's), with those fixed arguments, through the user's service manager and never through a shell. Octet writes each Update over the file in one step, and an
-# empty `closed` file when its window closes. The extension looks at the folder four times a second, as LibreOffice's
-# own external editing does, and writes an empty `gone` file when the document closes first. No port, socket or
-# network. Each file from Octet is read as hostile: a PDF of 64 MB at most, which LibreOffice's PDF reader opens.
+# which a Flatpak Octet can read and write. The extension runs `octet --object <folder>/drawing.pdf --app Writer --host
+# <document>` (or Impress, Draw; or the Flatpak's Octet), with those fixed arguments, through the user's service manager
+# and never through a shell. Octet writes each Update over the file in one step, and an empty `closed` file when its
+# window closes. The extension looks at the folder four times a second, as LibreOffice's own external editing does,
+# and writes an empty `gone` file when the document closes first. No port, socket or network. Each file from Octet is
+# read as hostile: a PDF of 64 MB at most, which LibreOffice's PDF reader opens.
 import os
 import re
 import shutil
@@ -34,7 +35,8 @@ SERVICE = "io.github.samchemman.octet.LibreOffice"
 MAX_BYTES = 64 << 20
 # What Octet's window needs from the session, when the user's service manager starts it.
 PASS = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "LANG")
-DOCUMENTS = ("com.sun.star.text.TextDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
+# The documents the extension works in, and each program's name for Octet's Update button (Update in Writer).
+DOCUMENTS = (("com.sun.star.text.TextDocument", "Writer"), ("com.sun.star.presentation.PresentationDocument", "Impress"), ("com.sun.star.drawing.DrawingDocument", "Draw"))
 
 SESSIONS = []  # the pictures open in Octet
 ATTACHED = []  # the views with the double-click and the context menu item
@@ -123,8 +125,37 @@ def selected_picture(controller):
 
 # ---- Octet ----
 
-# Octet from the .deb or .rpm, else the Flatpak, else an `octet` on the PATH (an AppImage).
+# The program Octet says it is (an AppImage can be anywhere): the path in $XDG_CONFIG_HOME/<Octet's id>/octet-path,
+# which Octet writes when it starts. The file is the user's own, and is no link. The program is a real path (no link
+# in it) to a file that runs, that the user or root owns, and that other users cannot change. None if not.
+def noted_octet():
+    config = os.environ.get("XDG_CONFIG_HOME", "")
+    if not os.path.isabs(config):
+        config = os.path.expanduser("~/.config")
+    try:
+        fd = os.open(os.path.join(config, APP_ID, "octet-path"), os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as f:
+            st = os.fstat(f.fileno())
+            data = f.read(4097)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or len(data) > 4096:
+            return None
+        path = os.fsdecode(data)
+        program = os.lstat(path)
+    except (OSError, ValueError):
+        return None
+    if not os.path.isabs(path) or os.path.realpath(path) != path or not stat.S_ISREG(program.st_mode):
+        return None
+    if program.st_uid not in (0, os.getuid()) or program.st_mode & 0o002 or not os.access(path, os.X_OK):
+        return None
+    return path
+
+
+# Octet as it said it is (an AppImage, or any build), else from the .deb or .rpm, else the Flatpak, else an `octet` on
+# the PATH.
 def octet():
+    noted = noted_octet()
+    if noted:
+        return [noted]
     if os.access("/usr/bin/octet", os.X_OK):
         return ["/usr/bin/octet"]
     flatpak = shutil.which("flatpak")
@@ -214,11 +245,14 @@ class Session:
         if command is None:
             message(self.ctx, self.controller, "Octet Draw is not installed. Install Octet Draw, then try again.")
             return False
+        # The program's name for Octet's Update button (Update in Writer), and the document's.
+        args = command + ["--object", self.path]
         try:
+            args += next((["--app", name] for service_name, name in DOCUMENTS if self.doc.supportsService(service_name)), [])
             title = self.doc.getTitle()
         except Exception:
             title = "Document"
-        args = command + ["--object", self.path, "--host", title]
+        args += ["--host", title]
         # Through the user's service manager, as the desktop starts programs, not as LibreOffice's child: Ubuntu
         # confines LibreOffice with AppArmor, and a Flatpak cannot start under it ("bwrap: setting up uid map:
         # Permission denied"). The window's environment goes with it. systemd reads $ in a command as a variable: $$
@@ -457,7 +491,7 @@ def attach(ctx, controller):
     try:
         if controller is None or any(c == controller for c in ATTACHED):
             return
-        if not any(controller.getModel().supportsService(n) for n in DOCUMENTS):
+        if not any(controller.getModel().supportsService(n) for n, _ in DOCUMENTS):
             return
         controller.addMouseClickHandler(Clicks(ctx, controller))
         controller.registerContextMenuInterceptor(Menu(ctx))

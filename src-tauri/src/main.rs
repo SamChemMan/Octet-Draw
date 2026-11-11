@@ -23,6 +23,9 @@ mod eyedropper;
 #[cfg(feedback)]
 mod feedback;
 mod home;
+// Octet from an AppImage, and the programs Octet starts on Linux (linux.rs).
+#[cfg(target_os = "linux")]
+mod linux;
 // Octet Drawing objects in Office for Windows (decision 0023). The COM server builds on Windows only (ole_windows.rs).
 mod ole;
 // Object windows on every system: Windows' OLE objects and objects in files (decision 0023).
@@ -45,9 +48,23 @@ mod windows;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
 // crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
-// the crate, not src/open.rs.
+// the crate, not src/open.rs. On Linux each opener in turn (xdg-open, then gio and others), with the session's
+// environment when Octet runs from an AppImage (linux::spawn).
+#[cfg(not(target_os = "linux"))]
 pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
     ::open::that_detached(target)
+}
+
+#[cfg(target_os = "linux")]
+pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
+    let mut result = Err(std::io::ErrorKind::NotFound.into());
+    for mut opener in ::open::commands(target) {
+        result = linux::spawn(&mut opener);
+        if result.is_ok() {
+            break;
+        }
+    }
+    result
 }
 
 // The computer user's full name (the Mac's, or the GECOS field of /etc/passwd on Linux), else the login name: a new
@@ -477,13 +494,11 @@ fn reveal_file(picked: State<'_, Picked>, exported: State<'_, export::Exported>,
         c.raw_arg(format!("/select,\"{}\"", path.display()));
         c
     };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(path.parent().unwrap_or(Path::new("/")));
-        c
-    };
-    command.spawn().map(|_| ()).map_err(|e| e.to_string())
+    #[cfg(target_os = "linux")]
+    let shown = linux::spawn(std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(Path::new("/"))));
+    #[cfg(not(target_os = "linux"))]
+    let shown = command.spawn().map(|_| ());
+    shown.map_err(|e| e.to_string())
 }
 
 // About > Licences: the licence notices Octet ships (scripts/licences.mjs), in the system's text app.
@@ -497,20 +512,14 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
 // LibreOffice's Extension Manager, which asks the user to confirm. `unopkg gui` shows the manager on its own when
 // LibreOffice is closed, so no restart is needed, and in LibreOffice when it is open. The .oxt opened as a file
 // starts a closed LibreOffice with the file as its argument, and the restart after the install opens it again: a
-// second install prompt. A Flatpak Octet has no unopkg and opens the file through the system's portal.
+// second install prompt. A Flatpak Octet has no unopkg and opens the file through the system's portal. Octet writes
+// its path again for the extension (linux::note_path).
 #[cfg(target_os = "linux")]
 #[tauri::command]
 async fn add_to_libreoffice(app: AppHandle) -> Result<(), String> {
-    use std::process::{Command, Stdio};
     let path = app.path().resolve("libreoffice/octet-draw.oxt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
-    match Command::new("unopkg").arg("gui").arg(&path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-        // The manager runs until the user closes it. A thread waits for it, so no process is left behind.
-        Ok(mut manager) => {
-            std::thread::spawn(move || manager.wait());
-            Ok(())
-        }
-        Err(_) => open_external(&path).map_err(|e| e.to_string()),
-    }
+    linux::note_path(&app);
+    linux::spawn(std::process::Command::new("unopkg").arg("gui").arg(&path)).or_else(|_| open_external(&path)).map_err(|e| e.to_string())
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
@@ -1163,7 +1172,7 @@ fn main() {
         builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             let args: Vec<std::ffi::OsString> = args.into_iter().map(std::ffi::OsString::from).collect();
             match objects::object_arg(args.clone(), Path::new(&cwd)) {
-                Some((file, host)) => objects::open_file(app, file, host),
+                Some((file, host, program)) => objects::open_file(app, file, host, program),
                 None => open::offer(app, open::from_args(args, Path::new(&cwd)), None),
             }
         }))
@@ -1208,6 +1217,8 @@ fn main() {
             quit::install(handle);
             #[cfg(target_os = "macos")]
             word::install(handle);
+            #[cfg(target_os = "linux")]
+            linux::note_path(handle);
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
             windows::set_menu(handle, None, bar)?;
@@ -1218,8 +1229,8 @@ fn main() {
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             // An object in a file (--object, objects.rs), once its window can have a menu bar.
-            if let Some((file, host)) = object.filter(|_| !embedding) {
-                objects::open_file(handle, file, host);
+            if let Some((file, host, program)) = object.filter(|_| !embedding) {
+                objects::open_file(handle, file, host, program);
             }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every

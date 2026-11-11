@@ -3,13 +3,13 @@
 // sent yet, and whether the document closed. The page's File > Update and Close and Return come here (ole_update,
 // ole_close) and go to the object's document:
 // - Windows: an OLE object in Word (ole_windows.rs, whose objects hold a session each).
-// - A file: `octet --object <file> --host <document>` opens the drawing in a PDF (Octet's or ChemDraw's, with CDXML
-//   in it) or a CDXML file, and Update writes the new picture to that file atomically. LibreOffice's Octet extension
-//   on Linux starts Octet this way (tools/libreoffice), and it opens an object window for tests on every system. The
-//   extension watches the file and puts each new picture in its document. Two empty files beside it say what
-//   happened: Octet writes `closed` when the window closes, and the extension writes `gone` when the document closes
-//   first. The file's folder is the extension's own (mode 0700): $XDG_RUNTIME_DIR/app/<Octet's id>/, which a Flatpak
-//   Octet can read and write with no file access of its own.
+// - A file: `octet --object <file> --app <program> --host <document>` opens the drawing in a PDF (Octet's or
+//   ChemDraw's, with CDXML in it) or a CDXML file, and Update writes the new picture to that file atomically.
+//   LibreOffice's Octet extension on Linux starts Octet this way (tools/libreoffice), and it opens an object window
+//   for tests on every system. The extension watches the file and puts each new picture in its document. Two empty
+//   files beside it say what happened: Octet writes `closed` when the window closes, and the extension writes `gone`
+//   when the document closes first. The file's folder is the extension's own (mode 0700):
+//   $XDG_RUNTIME_DIR/app/<Octet's id>/, which a Flatpak Octet can read and write with no file access of its own.
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -228,7 +228,7 @@ impl Kind {
 impl File {
     // The drawing in `path`, read as hostile: 64 MB at most, a PDF's CDXML through export's limits, and UTF-8. An
     // empty file is a new drawing.
-    fn open(path: PathBuf, host: &str) -> Result<File, &'static str> {
+    fn open(path: PathBuf, host: &str, program: &str) -> Result<File, &'static str> {
         let kind = Kind::of(&path).ok_or(CANNOT_OPEN)?;
         let file = std::fs::File::open(&path).map_err(|_| CANNOT_OPEN)?;
         if file.metadata().map_err(|_| CANNOT_OPEN)?.len() > crate::MAX_BYTES {
@@ -241,7 +241,9 @@ impl File {
             Kind::Pdf => crate::export::cdxml_from_pdf(&bytes).ok_or(CANNOT_OPEN)?,
             Kind::Cdxml => String::from_utf8(bytes).map_err(|_| CANNOT_OPEN)?,
         };
-        Ok(File { session: Session::new(&crate::ole::host_name(host), oct), kind, to: To::Path(path) })
+        let session = Session::new(&crate::ole::host_name(host), oct);
+        *session.app.borrow_mut() = crate::ole::program_name(program);
+        Ok(File { session, kind, to: To::Path(path) })
     }
 }
 
@@ -291,17 +293,27 @@ fn gone(app: &AppHandle, id: u64) {
     let _ = app.emit_to(label(id), "ole-gone", title);
 }
 
-// `octet --object <file> --host <document>`: the file and the document's name ("Document" when none is given).
-pub fn object_arg(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Option<(PathBuf, String)> {
-    let args: Vec<OsString> = args.into_iter().skip(1).collect();
-    let after = |flag: &str| args.iter().position(|a| a == flag).and_then(|k| args.get(k + 1));
-    let host = after("--host").map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
-    Some((cwd.join(after("--object")?), host))
+// `octet --object <file> --app <program> --host <document>`: the file, the document's name ("Document" when none is
+// given) and the program's (Writer, for Update in Writer; empty when none is given). Each flag takes the argument after
+// it, so a document named "--app" is only a name.
+pub fn object_arg(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Option<(PathBuf, String, String)> {
+    let (mut file, mut host, mut program) = (None, None, None);
+    let mut args = args.into_iter().skip(1);
+    while let Some(flag) = args.next() {
+        match flag.to_str() {
+            Some("--object") => file = args.next(),
+            Some("--host") => host = args.next(),
+            Some("--app") => program = args.next(),
+            _ => {}
+        }
+    }
+    let text = |a: Option<OsString>| a.map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
+    Some((cwd.join(file?), text(host), text(program)))
 }
 
 // An object window for the drawing in a file. A file Octet cannot read opens nothing, and the user hears why. A file
 // that is open already brings its window to the front, as a second double-click does in Word.
-pub fn open_file(app: &AppHandle, path: PathBuf, host: String) {
+pub fn open_file(app: &AppHandle, path: PathBuf, host: String, program: String) {
     let open_already = app.state::<Files>().0.lock().unwrap().iter().find(|(_, f)| matches!(&f.to, To::Path(p) if *p == path)).map(|(id, _)| *id);
     if let Some(window) = open_already.and_then(|id| app.get_webview_window(&label(id))) {
         let _ = window.set_focus();
@@ -309,7 +321,7 @@ pub fn open_file(app: &AppHandle, path: PathBuf, host: String) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match File::open(path.clone(), &host) {
+        match File::open(path.clone(), &host, &program) {
             Ok(f) => {
                 let id = f.session.id;
                 open(&app, f).await;
@@ -441,9 +453,13 @@ mod tests {
     fn the_object_argument() {
         let args = |a: &[&str]| a.iter().map(OsString::from).collect::<Vec<_>>();
         let cwd = Path::new("/tmp/x");
-        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf", "--host", "Report.odt"]), cwd), Some((cwd.join("a.pdf"), "Report.odt".into())));
-        assert_eq!(object_arg(args(&["octet", "--host", "R", "--object", "/a/b.cdxml"]), cwd), Some((PathBuf::from("/a/b.cdxml"), "R".into())));
-        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf"]), cwd), Some((cwd.join("a.pdf"), String::new())));
+        let o = |file: &str, host: &str, program: &str| Some((cwd.join(file), host.to_string(), program.to_string()));
+        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf", "--host", "Report.odt"]), cwd), o("a.pdf", "Report.odt", ""));
+        assert_eq!(object_arg(args(&["octet", "--host", "R", "--object", "/a/b.cdxml"]), cwd), o("/a/b.cdxml", "R", ""));
+        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf"]), cwd), o("a.pdf", "", ""));
+        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf", "--app", "Writer", "--host", "Report.odt"]), cwd), o("a.pdf", "Report.odt", "Writer"));
+        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf", "--host", "--app", "--app", "Impress"]), cwd), o("a.pdf", "--app", "Impress"), "a document named --app");
+        assert_eq!(object_arg(args(&["octet", "--object", "a.pdf", "--app"]), cwd), o("a.pdf", "", ""));
         assert_eq!(object_arg(args(&["octet", "--object"]), cwd), None);
         assert_eq!(object_arg(args(&["octet", "a.pdf"]), cwd), None);
         assert_eq!(object_arg(args(&["--object"]), cwd), None, "the program's own path is not an argument");
@@ -479,9 +495,10 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
         let pdf = dir.join("a.pdf");
         std::fs::write(&pdf, crate::export::make_pdf(svg, Some("<CDXML><page/></CDXML>"), None).unwrap()).unwrap();
-        let f = File::open(pdf.clone(), "Report\u{7}.odt").unwrap();
+        let f = File::open(pdf.clone(), "Report\u{7}.odt", " Writer\u{7}").unwrap();
         assert!(f.session.oct.borrow().ends_with("<CDXML><page/></CDXML>"), "the PDF's CDXML");
         assert_eq!(*f.session.host.borrow(), "Report.odt", "no control characters");
+        assert_eq!(*f.session.app.borrow(), "Writer", "Update in Writer");
         let picture = Kind::Pdf.picture(svg, "<CDXML><page><n/></page></CDXML>").unwrap();
         write(&pdf, &picture, "R").unwrap();
         assert_eq!(std::fs::read(&pdf).unwrap(), picture);
@@ -491,21 +508,22 @@ mod tests {
         // A CDXML file, an empty file (a new drawing), and files Octet refuses.
         let cdxml = dir.join("b.CDXML");
         std::fs::write(&cdxml, "<CDXML/>").unwrap();
-        assert_eq!(*File::open(cdxml, "").unwrap().session.host.borrow(), "Document");
+        let f = File::open(cdxml, "", "").unwrap();
+        assert_eq!((f.session.host.borrow().as_str(), f.session.app.borrow().as_str()), ("Document", ""), "no program: Update Document");
         let empty = dir.join("c.pdf");
         std::fs::write(&empty, "").unwrap();
-        assert_eq!(*File::open(empty, "R").unwrap().session.oct.borrow(), "");
+        assert_eq!(*File::open(empty, "R", "").unwrap().session.oct.borrow(), "");
         let plain = dir.join("d.pdf");
         std::fs::write(&plain, crate::export::make_pdf(svg, None, None).unwrap()).unwrap();
-        assert_eq!(File::open(plain, "R").err(), Some(CANNOT_OPEN), "a PDF with no drawing in it");
+        assert_eq!(File::open(plain, "R", "").err(), Some(CANNOT_OPEN), "a PDF with no drawing in it");
         let text = dir.join("e.cdxml");
         std::fs::write(&text, [0xff, 0xfe, 0]).unwrap();
-        assert_eq!(File::open(text, "R").err(), Some(CANNOT_OPEN), "not UTF-8");
+        assert_eq!(File::open(text, "R", "").err(), Some(CANNOT_OPEN), "not UTF-8");
         let big = dir.join("f.cdxml");
         std::fs::File::create(&big).unwrap().set_len(crate::MAX_BYTES + 1).unwrap();
-        assert_eq!(File::open(big, "R").err(), Some(CANNOT_OPEN), "larger than 64 MB");
-        assert_eq!(File::open(dir.join("g.png"), "R").err(), Some(CANNOT_OPEN), "not a PDF or CDXML file");
-        assert_eq!(File::open(dir.join("missing.pdf"), "R").err(), Some(CANNOT_OPEN));
+        assert_eq!(File::open(big, "R", "").err(), Some(CANNOT_OPEN), "larger than 64 MB");
+        assert_eq!(File::open(dir.join("g.png"), "R", "").err(), Some(CANNOT_OPEN), "not a PDF or CDXML file");
+        assert_eq!(File::open(dir.join("missing.pdf"), "R", "").err(), Some(CANNOT_OPEN));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -998,8 +998,7 @@ impl IOleObject_Impl for Drawing_Impl {
     fn SetHostNames(&self, program: &PCWSTR, doc: &PCWSTR) -> Result<()> {
         // SAFETY: the container's NUL-terminated strings, read during the call (null is allowed).
         let read = |s: &PCWSTR| if s.is_null() { String::new() } else { unsafe { s.to_string() }.unwrap_or_default() };
-        let program = read(program);
-        let program = if program.trim().is_empty() { program } else { super::host_name(&program) };
+        let program = super::program_name(&read(program));
         let doc = super::host_name(&read(doc));
         if *self.host.borrow() != doc || *self.app.borrow() != program {
             *self.host.borrow_mut() = doc.clone();

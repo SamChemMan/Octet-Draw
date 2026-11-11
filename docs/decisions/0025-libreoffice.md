@@ -1,8 +1,9 @@
 # 0025: Octet drawings in LibreOffice on Linux
 
 Status: built 11 November 2026 on the branch item/libreoffice, plan steps L1 to L4. Tested in an Ubuntu 24.04 VM
-(arm64) with LibreOffice 24.2, with Octet built there and as a Flatpak on GNOME 50. Not released. Sam has not tried
-it.
+(arm64) with LibreOffice 24.2, with Octet built there and as a Flatpak on GNOME 50. The branch item/office adds Update
+in Writer, Impress and Draw, and Octet from an AppImage (tested with a stand-in, see Not done). Not released. Sam has
+not tried it.
 
 Adds to decisions 0011 (the clipboard) and 0023 (the object window). There is no Word for Linux, so LibreOffice
 Writer, Impress and Draw get what Word gets on Windows: double-click a structure, edit it in Octet's object window,
@@ -51,11 +52,26 @@ LibreOffice's Extension Manager asks the user to confirm.
 
 - The extension writes the picture's PDF (LibreOffice's own copy of it) into a new folder of mode 0700 under
   `$XDG_RUNTIME_DIR/app/io.github.samchemman.octet-draw/`, the folder a Flatpak Octet shares with the system.
-- It runs `octet --object <folder>/drawing.pdf --host <document title>`, or `flatpak run io.github.samchemman.octet-draw`
-  with the same arguments, as a list, never through a shell. It runs it through the user's service manager
+- It runs `octet --object <folder>/drawing.pdf --app Writer --host <document title>`, or `flatpak run
+  io.github.samchemman.octet-draw` with the same arguments, as a list, never through a shell. `--app` comes from the
+  document's service: `TextDocument` is Writer, `PresentationDocument` is Impress, `DrawingDocument` is Draw. Octet
+  cleans the name as it cleans a document's name, and the object window's button says Update in Writer, Update in
+  Impress or Update in Draw. With no `--app` (an older extension), the button says Update <document>. It runs it through the user's service manager
   (`systemd-run --user`): Ubuntu confines LibreOffice with AppArmor, and a Flatpak started as LibreOffice's child
   cannot start ("bwrap: setting up uid map: Permission denied"). Octet then runs unconfined, as from the app menu.
   `$` is passed as `$$`, as systemd expands variables. With no user service manager, Octet starts as a child.
+- Octet first tries the program named in `$XDG_CONFIG_HOME/io.github.samchemman.octet-draw/octet-path`, then
+  `/usr/bin/octet`, the Flatpak and `octet` on the PATH. Octet writes that file when it starts and at Add to
+  LibreOffice: `$APPIMAGE` when it runs from an AppImage (the release's main Linux download, which can be anywhere),
+  else its own program. The file holds only the path, mode 0600, written in one step. The extension reads it as
+  hostile: the user's own file and no link, and the path a real path with no link in it, to a file that runs, that
+  the user or root owns, and that others cannot change. An AppImage that was moved since falls through to the next.
+- From an AppImage, the programs Octet starts (`unopkg`, `xdg-open` and the other openers) get the session's
+  environment. AppImageKit's AppRun and Tauri's GTK hook set `LD_LIBRARY_PATH`, `PATH`, `PYTHONHOME`, `GTK_PATH`,
+  `GIO_MODULE_DIR`, `XDG_DATA_DIRS` and others into the AppImage's mount: each list loses its entries in the mount, a
+  variable left empty goes, and so do `APPIMAGE`, `APPDIR`, `ARGV0`, `OWD`, `GTK_THEME` and `PYTHONDONTWRITEBYTECODE`.
+  The program starts in `$OWD`, never in the mount. With the AppImage's `PYTHONHOME`, `unopkg add` fails ("unopkg
+  failed"): LibreOffice's Python cannot start.
 - Octet's single-instance hand-off (D-Bus, under the app's own name, which a Flatpak may own) gives the request to a
   running Octet.
 - Update writes the new PDF over the file in one step (a temporary file renamed over it). The extension looks at the
@@ -68,6 +84,14 @@ LibreOffice's Extension Manager asks the user to confirm.
   says "Octet Drawing (Report.odt is closed)". Both files are made new, never through a link.
 
 ## Not done
+
+- No real AppImage was built in the VM: it has no Tauri CLI, linuxdeploy or libfuse2. The test on 11 November 2026
+  used a stand-in: Octet's release build copied into `/tmp/.mount_OctetSim/usr/bin`, with the .oxt beside it, and a
+  launcher `~/Apps/Octet-Draw.AppImage` that sets what the AppImage runtime, AppImageKit's AppRun and Tauri's GTK hook
+  set, changes to the mount, and starts Octet. Writer's double-click started it through `octet-path`; Add to
+  LibreOffice installed the extension with a clean environment; Help > Report a Problem gave `xdg-open` a clean one.
+- From an AppImage, `unopkg` reads the .oxt in the mount. If Octet quits before the user confirms the install, the
+  file is gone.
 
 - Pictures from Windows Word (EMF with CDXML) and PNGs pasted before this change open nothing: LibreOffice keeps no
   original bytes of a PNG.
