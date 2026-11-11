@@ -1,5 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, orbitalLine, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 import { arialGlyph } from "./cdxml.ts";
@@ -623,7 +624,8 @@ console.log("render.check: written labels ok");
     assert.ok(close(m2.x, 2 * m1.x) && close(m2.y, 2 * m1.y), `${kind} mark`);
   }
   // An orbital's outline (issue 139): bold at the bold width, dashed 0.2 bond lengths on and off as a shape, any other
-  // line plain; twice as wide and twice as long at scale 2.
+  // line plain; twice as wide and twice as long at scale 2. Every lobe on the canvas (so every export) takes it.
+  assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /line = orbitalLine\(a, lined\(a\.width\)\);\s+return <path [^>]*strokeWidth=\{line\.width\} strokeDasharray=\{line\.dash\} \/>/, "orbital lobes take their line");
   for (const style of [undefined, "dashed", "bold", "doubled", "wavy"] as const) {
     const o = orbitalLine({ style }, S), o2 = orbitalLine({ style, scale: 2 }, S);
     assert.deepEqual(o, { width: style === "bold" ? S.bold : S.line, dash: style === "dashed" ? 0.2 * S.bond : undefined }, `${style ?? "plain"} orbital`);
