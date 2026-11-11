@@ -100,7 +100,7 @@ import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
-import { casProblem, dictionaryCas, nameList } from "./dictionary";
+import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
 import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
 import { readSequence, toFasta, toHelm } from "./helm";
@@ -2270,7 +2270,7 @@ export default function Editor() {
       return true;
     }
     const frag = named;
-    if (!frag) return askPubChem(naming);
+    if (!frag) return askPubChem(naming) || offerPubChem(naming);
     settleFrom.current = doc.atoms.length;
     place(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)), doc, namingAt.current);
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), frag); } else if (suggestion) rememberName(suggestion, frag);
@@ -2322,14 +2322,30 @@ export default function Editor() {
     place(frag, doc, namingAt.current);
     rememberName(text, frag);
     setNaming(undefined);
-    setNotice("Drawn from PubChem.", "info");
+    // A CAS number PubChem gave a structure for goes into the user's dictionary (Settings > Dictionary), so it reads
+    // offline from then on. It has no InChI there, so Convert Structure to Name never gives the number as a name.
+    const cas = casNumber(text), kept = cas && smiles ? withOwnName(settings.dictionary, { name: cas, smiles }) : settings.dictionary;
+    if (kept !== settings.dictionary) setSettings((st) => ({ ...st, dictionary: withOwnName(st.dictionary, { name: cas!, smiles: smiles! }) }));
+    setNotice(kept !== settings.dictionary ? "Drawn from PubChem. Octet added this CAS number to your dictionary, so it draws offline." : "Drawn from PubChem.", "info");
   };
-  function askPubChem(text: string): boolean {
+  // on: Online search is on (the notice that turns it on asks before the setting has reached this function).
+  function askPubChem(text: string, on = settings.onlineSearch): boolean {
     const s = text.trim();
-    if (!TAURI || !settings.onlineSearch || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || PEPTIDE.test(s) || NUCLEIC.test(s) || looksLikeSmiles(s)) return false;
+    if (!TAURI || !on || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || PEPTIDE.test(s) || NUCLEIC.test(s) || looksLikeSmiles(s)) return false;
     setAsking(s);
     invoke<string | null>("pubchem_structure", { text: s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
     return true;
+  }
+  // A CAS number Octet does not have, with Online search off: a notice offers to turn Online search on and ask PubChem.
+  // Nothing goes online until the user clicks it. The field shakes as for any text Octet cannot read.
+  function offerPubChem(text: string): boolean {
+    const s = text.trim();
+    if (!TAURI || settings.onlineSearch || !namesLoaded || !casNumber(s)) return false;
+    setNotice("Octet does not have this CAS number offline. To ask PubChem, turn on Online search.", "info", { label: "Turn on", run: () => {
+      setSettings((st) => ({ ...st, onlineSearch: true }));
+      void invoke("set_online_search", { on: true }).then(() => askPubChem(s, true), () => {});
+    } });
+    return false;
   }
   // The name field shakes for text that is not a name.
   const shake = (el: HTMLElement) => {

@@ -37,6 +37,23 @@ the Insert Structure sheet reads SMILES, InChI, a CAS number or several names at
 8. SMILES and InChI, by their look (Indigo).
 9. Online, after Return only: PubChem.
 
+### CAS numbers (1.1.2)
+
+The dictionary has 115,294 CAS numbers offline (Wikidata and the FDA's UNII list). No open source has every CAS number:
+the registry has more than 200 million substances and is CAS's own. PubChem lists CAS numbers among its synonyms, and
+its bulk files for all compounds are about 2.6 GB to download (synonyms 1.1 GB, SMILES 1.5 GB), so Octet does not ship
+them.
+
+- A CAS number the dictionary does not have goes to PubChem at step 9, as any name does. When PubChem gives its
+  structure, Octet adds the number to the user's own dictionary (Settings > Dictionary), as the number alone with no
+  InChI. It then reads offline, however it is typed ("CAS 64-17-5", "[64-17-5]"), and the user can remove or export it
+  there. Convert Structure to Name never gives the number as a name.
+- With Online search off, a CAS number the dictionary does not have shows a notice: "Octet does not have this CAS
+  number offline. To ask PubChem, turn on Online search." Its button turns Online search on and asks. Nothing goes
+  online before the click.
+- Not done: a larger CAS list as a download for offline use. It needs a source whose terms allow a list of that size
+  (CAS limits lists of its numbers), a place to host it, and a signed download. Sam decides.
+
 A name Octet cannot read gets a suggestion under the field, from OPSIN's names, Octet's tables and the dictionary
 (a trigram index): "acetaminophin" gives acetaminophen, "benzaldehide" benzaldehyde.
 

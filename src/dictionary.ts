@@ -56,7 +56,7 @@ export function casProblem(text: string): string | undefined {
   return `Not a CAS number. The last digit must be ${checkDigit(m[1] + m[2])}.`;
 }
 // The number as the table keeps it (no leading zeros), or undefined.
-function casNumber(text: string): string | undefined {
+export function casNumber(text: string): string | undefined {
   const m = casParts(text);
   return m && checkDigit(m[1] + m[2]) === Number(m[3]) ? `${Number(m[1])}-${m[2]}-${m[3]}` : undefined;
 }

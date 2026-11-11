@@ -299,5 +299,24 @@ assert.equal(wrong.length, 0);
   setOwnNames([]);
   assert.equal(nameToSmiles("catalyst 7"), undefined);
   assert.equal(abbreviationOf(catInchi), undefined);
-  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import) ok");
+  // A CAS number PubChem gave a structure for is kept in the dictionary as the number alone (Editor.tsx, the PubChem
+  // step). It then reads offline however it is typed, and never names a structure (it has no InChI).
+  const number = "999999-99-4"; // a right check digit, and in no list
+  assert.equal(nameToSmiles(number), undefined, "not known before");
+  const kept = withOwnName([], { name: number, smiles: "CC(C)CO" });
+  assert.deepEqual(kept, [{ name: number, smiles: "CC(C)CO" }]);
+  setOwnNames(kept);
+  for (const typed of [number, `CAS ${number}`, `[${number}]`, `cas no. ${number}`, ` ${number} `]) assert.equal(nameToSmiles(typed), "CC(C)CO", `kept and typed as "${typed}"`);
+  assert.equal(nameToSmiles("999999-99-5"), undefined, "a wrong check digit is no CAS number");
+  assert.equal(ownName(number)?.inchi, undefined);
+  setOwnNames([]);
+  assert.equal(nameToSmiles(number), undefined);
+  {
+    const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+    assert.match(editor, /const cas = casNumber\(text\), kept = cas && smiles \? withOwnName\(settings\.dictionary, \{ name: cas, smiles \}\) : settings\.dictionary;/, "only a CAS number is kept, as the number alone");
+    assert.match(editor, /if \(!TAURI \|\| settings\.onlineSearch \|\| !namesLoaded \|\| !casNumber\(s\)\) return false;/, "the offer is for a CAS number with Online search off");
+    assert.match(editor, /invoke\("set_online_search", \{ on: true \}\)\.then\(\(\) => askPubChem\(s, true\)/, "PubChem is asked only after the user turns Online search on");
+    assert.match(editor, /if \(!TAURI \|\| !on \|\| !namesLoaded \|\|/, "nothing is asked with Online search off");
+  }
+  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import, kept CAS numbers) ok");
 }

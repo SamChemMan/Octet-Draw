@@ -3,7 +3,7 @@
 import { COMMON, commonKey } from "./common.ts";
 // Beyond OPSIN and Octet's own tables: the dictionary (common and trade names, CAS numbers, InChIKeys), condensed
 // formulas and lists of names (dictionary.ts).
-import { beforeOpsinSmiles, completeName, dictionarySmiles, dictionaryStarting, loadDictionary, nameList, nearNames } from "./dictionary.ts";
+import { beforeOpsinSmiles, casNumber, completeName, dictionarySmiles, dictionaryStarting, loadDictionary, nameList, nearNames } from "./dictionary.ts";
 // endo, exo, syn and anti on a bicycle, which OPSIN does not read (endoexo.ts).
 import { endoExoSmiles } from "./endoexo.ts";
 // Peptides typed as one-letter codes after "peptide:" (peptide.ts).
@@ -197,7 +197,9 @@ export function nameToAtoms(name: string): string | undefined {
 export function nameToSmiles(name: string): string | undefined {
   const s = name.trim();
   if (!s || s.length > 1000) return undefined;
-  const mine = own.get(commonKey(s));
+  // A CAS number is looked for as the number alone ("CAS 64-17-5" and "[64-17-5]" are 64-17-5): the user's dictionary
+  // keeps each one PubChem gave a structure for, so it reads offline from then on.
+  const mine = own.get(commonKey(casNumber(s) ?? s));
   if (mine) return mine.smiles;
   // "rna: AACGUU" and "dna: ATGC" are built as SMILES, without OPSIN.
   const nucleic = nucleicText(s);
