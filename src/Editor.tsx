@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
-  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
+  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
@@ -1758,9 +1758,10 @@ export default function Editor() {
       setNotice(`${failed} ${e instanceof Error ? e.message : ""}`);
     }
   }
-  // Files dropped on the drawing: their contents go in where they were dropped, selected, as ChemDraw's drop does:
-  // the first centred on the drop point, the others in a column under it. One step to undo. A picture goes in at
-  // 1 pt per pixel, as ChemDraw's does.
+  // Files dropped on the drawing, or the file File > Insert… picked: their contents go in, selected, as ChemDraw's drop
+  // and Insert File do. Dropped, the first is centred on the drop point and the others go in a column under it;
+  // inserted, it lands clear of what is there, as an import does. One step to undo. A picture goes in at 1 pt per
+  // pixel, as ChemDraw's does. A drawing's text keeps its proportion to this drawing's (fitSizes), as in a paste.
   async function dropFiles(files: OpenedFile[]) {
     const mols: Mol[] = [], lost: Record<string, number> = {};
     for (const f of files) {
@@ -1773,17 +1774,17 @@ export default function Editor() {
       try {
         if (!isDrawingText(f.text!)) { mols.push(importStructure(f.text!)); continue; }
         const r = readOct(f.text!);
-        mols.push({ ...r.mol, style: undefined });
+        mols.push({ ...(r.mol.style ? fitSizes(r.mol, r.mol.style, style) : r.mol), style: undefined });
         for (const [what, n] of Object.entries(r.lost)) lost[what] = (lost[what] ?? 0) + n;
       } catch {
         setNotice(`Octet cannot read the structures in ${f.name}.`);
       }
     }
-    const add = stack(mols), b = mols.map(extent).find(Boolean), at = toDoc(...files[0].at!);
+    const add = stack(mols), b = mols.map(extent).find(Boolean), at = files[0].at && toDoc(...files[0].at);
     if (!b) return;
     // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
-    const r = insertMol(now.current, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
-    set(r.mol, true, undefined, "placed");
+    const r = insertMol(now.current, add, at ? [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2] : landing(add));
+    set(r.mol, true, undefined, at ? "placed" : true);
     revealNext.current = true;
     setSelection(r.atoms);
     setPicked(r.items);
@@ -1943,11 +1944,22 @@ export default function Editor() {
       setNotice(failure("Octet cannot read this file.", e));
     }
   }
+  // File > Insert…: a drawing or a picture from a file goes in as one dropped on the drawing does, clear of what is there.
+  async function insertFile() {
+    try {
+      const f = await invoke<OpenedFile | null>("insert_file");
+      if (f?.error) setNotice(f.error);
+      else if (f) await dropFiles([f]);
+    } catch (e) {
+      setNotice(failure("Octet cannot insert this file.", e));
+    }
+  }
   // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
   // Where a pasted or named structure goes: to the right of everything drawn (arrows, shapes and text too). Just
   // after a reaction arrow it lands as the product: on the arrow's level, at the reaction's spacing.
   function landing(frag: Mol, at?: P): P {
-    const f = bounds(frag)!, d = bounds(doc);
+    // With no atoms (a picture alone), its box is everything in it.
+    const f = bounds(frag) ?? extent(frag)!, d = bounds(doc);
     if (at) return [at[0] - (f[0] + f[2]) / 2, at[1] - (f[1] + f[3]) / 2];
     const ends = [
       ...(d ? [{ x: d[2], level: (d[1] + d[3]) / 2, arrow: false }] : []),
@@ -2191,6 +2203,7 @@ export default function Editor() {
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
+    insert_file: () => void insertFile(),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
     save_as: () => (officeRef.current ? void saveCopy() : void save(true)),
@@ -6875,6 +6888,7 @@ export default function Editor() {
   // names what it shows next for the structures it acts on, worked out only while the palette is open.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
+    insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],

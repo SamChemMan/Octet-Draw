@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{recent, Picked, MAX_BYTES};
 
@@ -138,6 +139,27 @@ pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picke
             OpenedFile { name, path: kept.then(|| path.to_string_lossy().into_owned()), text, picture: None, error, at }
         })
         .collect())
+}
+
+// File > Insert… (ChemDraw's Edit > Insert File): a drawing or a picture to put into the drawing that is open, read as
+// one dropped on it is. It is not remembered for Save and does not go on Home's list.
+#[tauri::command]
+pub async fn insert_file(app: AppHandle) -> Result<Option<OpenedFile>, String> {
+    let Some(file) = app.dialog().file().add_filter("Drawings and pictures", &[&DRAWINGS[..], &PICTURES, &VECTORS].concat()).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let (text, picture, error) = if PICTURES.contains(&ext.as_str()) || VECTORS.contains(&ext.as_str()) {
+        opened_picture(&path, &name, &ext, false)
+    } else {
+        match read(&path, &name) {
+            Ok(t) => (Some(t), None, None),
+            Err(e) => (None, None, Some(e)),
+        }
+    };
+    Ok(Some(OpenedFile { name, path: None, text, picture, error, at: None }))
 }
 
 // A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8) or CDX only.
