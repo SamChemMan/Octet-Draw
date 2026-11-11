@@ -66,7 +66,16 @@ assert.equal(hexOf("#abcdef"), "#ABCDEF");
 const actions = read("./Actions.tsx"), settings = read("./SettingsWindow.tsx"), home = read("./Home.tsx"), picker = read("./ColourPicker.tsx");
 for (const label of ["Colour", "Highlight", "Ring fill"]) assert.match(actions, new RegExp(`<ColourPick label="${label}"`), label);
 assert.match(actions, /colourItems\(colourOptions\(/, "the right-click menu's Colour");
-assert.match(settings, /<ColourPick label="Text colour"/);
+// In Settings it is drawn as the fields beside it, with the colour's name where a select shows its value.
+assert.match(settings, /<ColourPick field label="Text colour"/);
+assert.match(picker, /className=\{field \? "select-field" : "chip pick-button"\}/);
+// A swatch shows the colour as it is (no fading), and None is the same size as a colour.
+assert.doesNotMatch(read("./editor.css"), /\.pick-swatch \{[^}]*opacity/);
+assert.doesNotMatch(read("./editor.css"), /\.pick-swatch\.none \{[^}]*border/);
+// In a menu a swatch stands in an icon's room, so its name lines up with Pick from screen and Add colour…; and the
+// name of one of the user's colours keeps clear of its remove button.
+assert.match(read("./editor.css"), /\.variant > \.pick-swatch \{\n  margin: 0 2px;/);
+assert.match(read("./editor.css"), /\.strip\.list \.variant-cell:has\(> \.variant-action\) > \.variant \{\n  padding-right: 28px;/);
 assert.match(home, /colourItems\(colourOptions\(COLOURS/);
 assert.ok(!/className="swatches small"|"\\u0000custom"|Custom colour…/.test(actions + home), "no colour row or Custom colour… of its own");
 assert.match(picker, /aria-label="Pick from screen"[^\n]+pickColour\(\)/, "the picker's eyedropper");

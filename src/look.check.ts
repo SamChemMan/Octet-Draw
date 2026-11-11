@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { elementColours, HIGHLIGHT_COLOURS, RING_FILLS } from "./docstyle.ts";
+import { widthOf } from "./arial.ts";
 
 const src = new URL(".", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, src), "utf8");
@@ -82,6 +83,25 @@ for (const line of css.split("\n")) {
   const m = /font(?:-size)?:\s*(?:\d00\s+)?(\d+)px/.exec(line);
   if (!m || /\.home-wordmark|\.nmr-shift/.test(selector)) continue;
   assert.ok([11, 13, 15, 20, 32, 64].includes(Number(m[1])), `editor.css: ${selector.trim()} uses ${m[1]} px`);
+}
+// Instrument Sans for every button's text (a button takes the system's font otherwise): menus, segmented controls and
+// the Actions panel's rows read in the same font as the text beside them. Menus open on body, so body has it too.
+assert.match(css, /^body \{\n  margin: 0;\n  background: var\(--surface\);\n  font-family: var\(--font-sans\);\n\}/m);
+assert.match(css, /^button \{\n  font-family: inherit;\n\}/m);
+// No text in the Actions panel takes the platform's button size (11 px in WebKit, 13.33 px in Chromium on Windows): its
+// small buttons (the Analyse row's R/S, ¹H, ¹³C, ¹⁹F, ³¹P) are 13 px like its rows and chips, and every text icon in
+// them is 11 px.
+for (const sel of ["tray-button", "chip", "action"]) assert.match(css, new RegExp(`^\\.${sel} \\{[^}]*\\n  font-size: 13px;`, "m"), `.${sel} has its own font size`);
+assert.match(css, /^\.glyph-text \{[^}]*\n  font-size: 11px;/m);
+
+// Menu names fit the cell (brand/CLAUDE.md Menus: shorten the name, never the cell). The Symbols tool's cell has 148 px
+// for a name at 13 px; Arial runs about 7% narrower than Instrument Sans, so 138 px in Arial (arial.ts) is the limit.
+// "Attachment point, diamond" (165 px) became "Diamond attachment", beside "Star attachment".
+{
+  const symbols = /export const SYMBOLS: Record<SymbolKind, string> = \{([^}]+)\}/.exec(read("tools.tsx"))![1];
+  const names = [...symbols.matchAll(/\w+: "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(names.length >= 16 && names.includes("Diamond attachment") && names.includes("Star attachment"));
+  for (const name of names) assert.ok(widthOf(name, 13) <= 138, `Symbols menu: "${name}" is cut off`);
 }
 
 // One list of highlight colours (and ring fills after them), each with its own name and colour.

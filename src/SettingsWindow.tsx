@@ -528,7 +528,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions): captions that read as
       // chemistry (Rh, CH3OH) count in the formula, names and warnings, and bonds join them.
       d("document", "Text", "Interpret chemically", "interpret chemically when possible captions text chemistry formula mass analysis bonds valence", <Switch on={style.interpret} label="Interpret chemically" onChange={(on) => change({ interpret: on })} />),
-      d("document", "Text", "Colour", "text colour caption", <ColourPick label="Text colour" value={style.colour} presets={COLOURS} own={p.palette} onOwn={p.onPalette} onPick={(colour) => change({ colour })} />),
+      d("document", "Text", "Colour", "text colour caption", <ColourPick field label="Text colour" value={style.colour} presets={COLOURS} own={p.palette} onOwn={p.onPalette} onPick={(colour) => change({ colour })} />),
       ...(p.ownTemplates.length && !p.template ? [d("document", "Your templates", "Your templates", "template templates purpose purposes named style styles stationery saved own rename remove",
         <OwnTemplates list={p.ownTemplates} onRename={p.onRenameTemplate} onRemove={p.onRemoveTemplate} />, true)] : []),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),

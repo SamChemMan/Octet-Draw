@@ -87,7 +87,7 @@ export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspec
 export const SYMBOLS: Record<SymbolKind, string> = {
   plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative",
   radical: "Radical", pair: "Lone pair", partialPlus: "Partial positive", partialMinus: "Partial negative",
-  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", attachDiamond: "Attachment point, diamond", attachStar: "Attachment point, star", bead: "Polymer bead",
+  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", attachDiamond: "Diamond attachment", attachStar: "Star attachment", bead: "Polymer bead",
 };
 export type SelectKind = keyof typeof SELECTS;
 

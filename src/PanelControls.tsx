@@ -18,6 +18,12 @@ export function PanelControls({ minimise, full, close }: Controls) {
   );
 }
 
+// The X that closes a pill or a spectrum tab: one button with one look (editor.css .close-x). It is out of the tab
+// order: Delete or Backspace on the pill or the tab does the same.
+export function CloseX({ name, onClose }: { name: string; onClose: () => void }) {
+  return <button type="button" className="close-x" tabIndex={-1} aria-label={`Close ${name}`} data-tip="Close" onClick={() => onClose()}><X size={12} /></button>;
+}
+
 // A pill: a minimised panel, beside its structure. box: the structure's box (drawing units, y up). Its X closes the
 // panel; Delete or Backspace on it does the same.
 export type Pill = { key: string; short: string; count?: number; name: string; box?: [number, number, number, number]; onRestore: (keyboard: boolean) => void; onClose: () => void; onPoint: (on: boolean) => void };
@@ -53,7 +59,7 @@ export function Pills({ pills, views, scale }: { pills: Pill[]; views: Store<{ x
           onKeyDown={(e) => { if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); e.stopPropagation(); p.onClose(); } }}>
           <ChartLine size={16} aria-hidden />{p.short}{p.count && <span className="pill-count" aria-hidden>{p.count}</span>}
         </button>
-        <button className="pill-close" aria-label={`Close ${p.name}`} data-tip="Close" tabIndex={-1} onClick={p.onClose}><X size={12} /></button>
+        <CloseX name={p.name} onClose={p.onClose} />
       </span>
     );
   };

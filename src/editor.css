@@ -4,6 +4,11 @@
 body {
   margin: 0;
   background: var(--surface);
+  font-family: var(--font-sans);
+}
+/* A button's text is in Octet's font, as the text beside it is, not the system's (menus are on body, so it has it too). */
+button {
+  font-family: inherit;
 }
 
 /* No page selection anywhere: WebKit (the Mac and Linux app) needs the prefixed property too. */
@@ -638,6 +643,10 @@ rect.mark {
   color: var(--ink-muted);
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out);
+}
+/* In a list (the user's own colours in a colour menu) the name keeps clear of the button, so it never runs under it. */
+.strip.list .variant-cell:has(> .variant-action) > .variant {
+  padding-right: 28px;
 }
 .variant-cell:hover .variant-action,
 .library-cell:hover .variant-action,
@@ -1502,6 +1511,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
+  font-size: 13px;
   transition: transform var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -2187,6 +2197,7 @@ div.facts {
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-muted);
+  font-size: 13px;
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .segmented button[aria-checked="true"] {
@@ -2194,7 +2205,7 @@ div.facts {
   color: var(--link);
 }
 @media (hover: hover) and (pointer: fine) {
-  .segmented button:hover:not([aria-checked="true"]) {
+  .segmented button:hover:not([aria-checked="true"], [aria-selected="true"]) {
     background: var(--surface-sunken);
     color: var(--ink);
   }
@@ -2499,7 +2510,6 @@ div.facts {
 }
 .segmented.purposes button {
   height: 22px;
-  font: 13px var(--font-sans);
 }
 .segmented.units button {
   width: 28px;
@@ -4528,6 +4538,45 @@ div.facts {
   display: flex;
   gap: 2px;
 }
+/* The X that closes a pill or a spectrum tab (CloseX in PanelControls.tsx): one look, the panel controls' (no fill,
+   muted ink, sunken under the pointer, no motion) at 18 px, so it fits a 24 px pill or tab. It shows on hover and focus
+   of its pill or tab, and always for touch and pen. ".segmented button.close-x" outranks the segmented control's own
+   button rules, so a tab's X looks the same as a pill's. */
+.close-x,
+.segmented button.close-x {
+  display: none;
+  place-items: center;
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  transform: none;
+  transition: none;
+}
+:is(.pill, .spectrum-tab):is(:hover, :focus-within) .close-x {
+  display: grid;
+}
+@media (hover: none), (pointer: coarse) {
+  .close-x,
+  .segmented button.close-x {
+    display: grid;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .close-x:hover,
+  .segmented button.close-x:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.close-x:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
 .spectrum > .panel-controls {
   position: absolute;
   top: calc(var(--space-1) + 2px);
@@ -4542,41 +4591,26 @@ div.facts {
   position: relative;
   display: inline-flex;
 }
+.spectrum-tabs [role="tablist"] {
+  display: inline-flex;
+}
 .spectrum-tabs button[role="tab"] {
   height: 100%;
+}
+.spectrum-tab.closable button[role="tab"] {
+  padding-right: 25px;
 }
 .spectrum-tabs button[aria-selected="true"] {
   background: var(--brand-mist);
   color: var(--link);
 }
-.spectrum-tab .tab-close {
-  min-width: 0;
+/* A tab's X (CloseX) sits in the tab's own room at its right end, 4 px clear of the name. */
+.spectrum-tab .close-x {
   position: absolute;
-  top: 50%;
-  right: 1px;
-  display: none;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  transform: translateY(-50%);
-}
-.spectrum-tab:hover .tab-close,
-.spectrum-tab:focus-within .tab-close {
-  display: grid;
-}
-@media (hover: none), (pointer: coarse) {
-  .spectrum-tab .tab-close {
-    display: grid;
-  }
-}
-.spectrum-tab .tab-close:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
+  top: 0;
+  bottom: 0;
+  right: 3px;
+  margin: auto 0;
 }
 .spectrum-none {
   color: var(--ink-muted);
@@ -4668,7 +4702,7 @@ div.facts {
   font: 13px var(--font-sans);
   white-space: nowrap;
 }
-.spectrum-button:hover:not(:disabled) {
+.spectrum-button:hover:not(:disabled, [aria-pressed="true"]) {
   background: var(--surface-sunken);
 }
 .spectrum-plot {
@@ -4937,7 +4971,8 @@ div.facts {
   color: var(--error);
   fill: var(--error);
 }
-/* A colour in a colour menu (ColourPick), with the swatch edge, so a white or a pale colour shows on the menu. */
+/* A colour in a colour menu (ColourPick), as it is, with the swatch edge, so a white or a pale colour shows on the menu.
+   In a menu it stands in an icon's 18 px, so the names line up. */
 .pick-swatch {
   display: inline-block;
   flex: none;
@@ -4945,12 +4980,12 @@ div.facts {
   height: 14px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px var(--swatch-edge);
-  opacity: 0.7;
+}
+.variant > .pick-swatch {
+  margin: 0 2px;
 }
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
-  border: 1px solid var(--hairline);
-  opacity: 1;
 }
 /* Printing: only the page Print laid out, at true size. */
 .print-root {
@@ -6797,7 +6832,8 @@ div.facts {
 
 /* A minimised panel's pill (PanelControls.tsx Pills): beside its structure, placed from the view with no redraw, so
    it follows pan and zoom and is never scaled by the zoom; a structure off screen keeps its pill at the canvas edge. It is not part of the drawing: it never prints,
-   exports or copies. Its X shows on hover and focus, and always for touch and pen. */
+   exports or copies. Its X shows on hover and focus, and always for touch and pen. It joins the pill's right end: the
+   pill is placed by its left edge, so nothing under the pointer moves, and at rest the pill has no empty room. */
 .pills {
   position: absolute;
   inset: 0;
@@ -6849,36 +6885,16 @@ div.facts {
   line-height: 16px;
   text-align: center;
 }
-.pill-close {
-  display: none;
-  place-items: center;
-  width: 18px;
-  height: 18px;
+.pill .close-x {
   margin-right: 3px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink-muted);
-}
-.pill:hover .pill-close,
-.pill:focus-within .pill-close {
-  display: grid;
-}
-@media (hover: none), (pointer: coarse) {
-  .pill-close {
-    display: grid;
-  }
 }
 @media (hover: hover) and (pointer: fine) {
-  .pill-open:hover,
-  .pill-close:hover {
+  .pill-open:hover {
     background: var(--surface-sunken);
     color: var(--ink);
   }
 }
-.pill-open:focus-visible,
-.pill-close:focus-visible {
+.pill-open:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
