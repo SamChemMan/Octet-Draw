@@ -1760,8 +1760,8 @@ export default function Editor() {
   }
   // Files dropped on the drawing, or the file File > Insert… picked: their contents go in, selected, as ChemDraw's drop
   // and Insert File do. Dropped, the first is centred on the drop point and the others go in a column under it;
-  // inserted, it lands clear of what is there, as an import does. One step to undo. A picture goes in at 1 pt per
-  // pixel, as ChemDraw's does. A drawing's text keeps its proportion to this drawing's (fitSizes), as in a paste.
+  // inserted, all of it lands clear of what is there, as an import does. One step to undo. A picture goes in at 1 pt
+  // per pixel, as ChemDraw's does. A drawing's text keeps its proportion to this drawing's (fitSizes), as in a paste.
   async function dropFiles(files: OpenedFile[]) {
     const mols: Mol[] = [], lost: Record<string, number> = {};
     for (const f of files) {
@@ -1783,7 +1783,7 @@ export default function Editor() {
     const add = stack(mols), b = mols.map(extent).find(Boolean), at = files[0].at && toDoc(...files[0].at);
     if (!b) return;
     // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
-    const r = insertMol(now.current, add, at ? [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2] : landing(add));
+    const r = insertMol(now.current, add, at ? [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2] : landing(add, undefined, b));
     set(r.mol, true, undefined, at ? "placed" : true);
     revealNext.current = true;
     setSelection(r.atoms);
@@ -1957,9 +1957,10 @@ export default function Editor() {
   // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
   // Where a pasted or named structure goes: to the right of everything drawn (arrows, shapes and text too). Just
   // after a reaction arrow it lands as the product: on the arrow's level, at the reaction's spacing.
-  function landing(frag: Mol, at?: P): P {
-    // With no atoms (a picture alone), its box is everything in it.
-    const f = bounds(frag) ?? extent(frag)!, d = bounds(doc);
+  // f: the box it lands by, its atoms' unless given. A file put in with File > Insert… lands by everything in it, so
+  // its text, arrows and pictures stay clear of the drawing too.
+  function landing(frag: Mol, at?: P, f = bounds(frag)!): P {
+    const d = bounds(doc);
     if (at) return [at[0] - (f[0] + f[2]) / 2, at[1] - (f[1] + f[3]) / 2];
     const ends = [
       ...(d ? [{ x: d[2], level: (d[1] + d[3]) / 2, arrow: false }] : []),

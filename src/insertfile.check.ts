@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { bounds, extent, fitSizes, stack } from "./edit.ts";
 import { menuRuns } from "./keys.ts";
+import { readOct } from "./oct.ts";
 import { pictureMol } from "./picture.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -26,19 +27,24 @@ assert.match(command, /match read\(&path, &name\)/);
 assert.match(command, /OpenedFile \{ name, path: None, text, picture, error, at: None \}/);
 assert.ok(!/stamp|recent::note|picked/.test(command), "an inserted file is not the drawing's own file");
 
-// The page puts it in through dropFiles with no point: it lands clear of what is there, as an import does, and joins
-// no cycle it was not aimed at. Dropped, it is centred on the drop point as before. Either way, one undo step and
-// selected, and a drawing's text keeps its proportion to this drawing's, as in a paste.
+// The page puts it in through dropFiles with no point: all of it (text, arrows and pictures too) lands clear of what is
+// there, as an import does, and joins no cycle it was not aimed at. Dropped, it is centred on the drop point as before.
+// Either way, one undo step and selected, and a drawing's text keeps its proportion to this drawing's, as in a paste.
 assert.match(body(editor, "  async function insertFile(", "\n  }\n"), /invoke<OpenedFile \| null>\("insert_file"\);\n\s*if \(f\?\.error\) setNotice\(f\.error\);\n\s*else if \(f\) await dropFiles\(\[f\]\);/);
 const drop = body(editor, "  async function dropFiles(", "\n  }\n");
 assert.match(drop, /at = files\[0\]\.at && toDoc\(\.\.\.files\[0\]\.at\)/);
-assert.match(drop, /insertMol\(now\.current, add, at \? \[at\[0\] - \(b\[0\] \+ b\[2\]\) \/ 2, at\[1\] - \(b\[1\] \+ b\[3\]\) \/ 2\] : landing\(add\)\);\n\s*set\(r\.mol, true, undefined, at \? "placed" : true\);/);
+assert.match(drop, /insertMol\(now\.current, add, at \? \[at\[0\] - \(b\[0\] \+ b\[2\]\) \/ 2, at\[1\] - \(b\[1\] \+ b\[3\]\) \/ 2\] : landing\(add, undefined, b\)\);\n\s*set\(r\.mol, true, undefined, at \? "placed" : true\);/);
 assert.match(drop, /revealNext\.current = true;\n\s*setSelection\(r\.atoms\);\n\s*setPicked\(r\.items\);/);
 assert.match(drop, /mols\.push\(\{ \.\.\.\(r\.mol\.style \? fitSizes\(r\.mol, r\.mol\.style, style\) : r\.mol\), style: undefined \}\);/);
 assert.equal((editor.match(/await dropFiles\(/g) ?? []).length, 2, "drops and File > Insert… share dropFiles");
 
-// A picture alone has no atoms, so where it lands goes by its own box.
-assert.match(body(editor, "  function landing(", "\n  }\n"), /const f = bounds\(frag\) \?\? extent\(frag\)!/);
+// landing goes by the box it is given (b, the file's extent); paste, import and names still go by their atoms. A
+// caption left of a drawing's structure, or a picture alone, is in that box, so it does not land on the drawing.
+const landing = body(editor, "  function landing(", "\n  }\n");
+assert.match(landing, /^  function landing\(frag: Mol, at\?: P, f = bounds\(frag\)!\): P \{\n\s*const d = bounds\(doc\);/);
+const scheme = readOct('<CDXML BondLength="30"><page><fragment><n id="1" p="300 300"/><n id="2" p="326 315"/><b B="1" E="2"/></fragment><t p="200 305"><s size="24">a) caption</s></t></page></CDXML>').mol;
+assert.equal(extent(scheme)![0], scheme.captions![0].x, "the caption is the file's left edge");
+assert.ok(extent(scheme)![0] < bounds(scheme)![0]);
 const picture = stack([pictureMol({ PNG: "89504E47" }, 144, 72, 14.4)]);
 assert.equal(bounds(picture), undefined);
 assert.deepEqual(extent(picture), [-5, -2.5, 5, 2.5], "1 pt per pixel: 144 by 72 px is 10 by 5 bond lengths of 14.4 pt");
