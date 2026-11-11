@@ -25,7 +25,7 @@ import { iupacName } from "../../src/namer.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
 import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
 import { onTop } from "../../src/order.ts";
-import { cleanUpReactions, findReaction, gapFor, type Layout, type Reaction } from "../../src/reaction.ts";
+import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
 import { gridViews } from "../../src/gridview.ts";
@@ -149,10 +149,11 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const s = d.style, size = (s.captionSize * d.pt) / L, w = textWidth("+", s.captionSize * d.pt, false, false, fontStack(s.captionFont)) / L;
     return { gap: gapFor(s.captionSize, s.bond), width: ((pageSize(s)[0] * 72) / 25.4 - 72) / s.bond, captionBox: d.captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: s.captionSize, bondPt: s.bond };
   };
-  // Clean Up Reaction on the reactions pick takes, measured as drawn now.
-  const cleanReactions = (pick: (r: Reaction) => boolean) => {
+  // Clean Up Reaction on the reactions pick takes, measured as drawn now. m: the drawing to lay out (the one drawn
+  // now, or that with a structure cleaned up).
+  const cleanReactions = (pick: (r: Reaction) => boolean, m = doc) => {
     const d = drawn(doc), inkOf = (mol: Mol) => { const e = drawn(mol); return e.ink; };
-    const done = cleanUpReactions(doc, d.arrows, inkOf, reactionLayout(d), pick);
+    const done = cleanUpReactions(m, d.arrows, inkOf, reactionLayout(d), pick);
     if (done.count) set(done.mol);
     return done.count;
   };
@@ -220,7 +221,14 @@ export function drawing(purpose = "paper", title = "Untitled") {
     undo: () => { const was = past.pop(); if (!was) return false; future.push(doc); doc = was; undid = true; return true; },
     redo: () => { const next = future.pop(); if (!next) return false; past.push(doc); doc = next; undid = true; return true; },
     select_all: () => { picked = { atoms: doc.atoms.map((_, i) => i), items: [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id) }; return true; },
-    clean_up: () => { const s = selected(); set(cleanUp(doc, s && new Set(s.atoms))); return true; },
+    // As the editor's clean_up: the structures, then each reaction they are in laid out again, measured after the
+    // clean-up, so they keep their sides.
+    clean_up: () => {
+      const s = selected(), ids = s && new Set(s.atoms), m = cleanUp(doc, ids);
+      const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
+      if (!cleanReactions((r) => withStructure(r) && r.atoms.some((i) => touched.has(i)), m)) set(m);
+      return true;
+    },
     clean_reaction: () => { const s = selected(); cleanReactions((r) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i))); return true; },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),

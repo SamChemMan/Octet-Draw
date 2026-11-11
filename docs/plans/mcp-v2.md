@@ -570,6 +570,9 @@ benchmark runner should time only the MCP part.
 | | | | taxol-v1-job | 33 | 6 | 15,365 | 282,623 | 3,649 | 18 of 19 | 17 |
 | 3a: compounds from earlier ones (11 Nov) | 63,605 (18,200), 26 tools | 2,457 | taxol-chained | 3 | 0 | 3,887 | 15,367 | 2,192 | 19 of 19 | 42 |
 | | | | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,569 | 18 of 19 | 44 |
+| The layout faults of section 17 (11 Nov, `mcp/layout`) | the same | the same | taxol-chained | 3 | 0 | 3,887 | 14,849 | 2,192 | 19 of 19 | 42 |
+| | | | taxol-schemes | 3 | 0 | 4,436 | 14,823 | 2,569 | 18 of 19 | 42 |
+| | | | taxol-v1-job | 33 | 6 | 15,295 | 275,602 | 3,565 | 18 of 19 | 11 |
 
 - `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
   4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
@@ -588,7 +591,20 @@ benchmark runner should time only the MCP part.
 - `tools/list` is larger than section 0 says (44,000 characters): R7 and the work of 6 to 8 November added to it.
 - Right: 18 of 19, as the last product's number is `1 (taxol)`, not `1` (section 6 reads that as number 1 with a
   caption). Compound 20 is a reagent over an arrow, so it is not counted.
-- The 44 warnings are the three schemes drawn over one another and past the page edge (section 17).
+- The layout row is as `results.json` has it. Its times are those kept before: the layout work does not move them.
+  Replayed in one process in turn (the sum of each call's quickest of 4 to 6 runs), before then after: `taxol-chained`
+  2,287 and 2,298 ms, `taxol-schemes` 2,873 and 2,871 ms, `taxol-v1-job` 4,295 and 4,223 ms. `run.ts --write` on the
+  busy Mac gave 2,315, 2,827 and 3,772 ms (the quickest of four runs), and the code before gave 2,140 to 2,336, 2,647
+  to 2,736 and 3,732 to 3,800 ms in the same hour. Where a `--write` time was lower than the kept one (17 corpus
+  jobs), it is kept.
+- Step 0's 44 warnings were the three schemes drawn over one another and past the page edge (section 17). With the
+  layout faults fixed there are 42: 40 are scheme 3 under the page's bottom edge (Octet lists 40 at most) and 2 are
+  the compound numbers 7 and 13, each on two structures. Nothing overlaps, nothing runs past the right edge, and the
+  drawing reads as three reactions of 5, 5 and 7 steps (it read as 5, 1, 4, 1 and 6). Schemes 1 and 2 fill an A4 page
+  at ACS sizes, so what is left is page fit (section 3.2).
+- The 60 corpus jobs with the layout faults fixed: 162 warnings (181 before; no job has more) and 110,236 characters
+  read (112,152 before). 41 jobs read 1 to 33 characters more: work starts at the top of the page, where a coordinate
+  has one more digit.
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -621,9 +637,18 @@ Open since step 3a (11 November 2026):
 ## 17. Known issues to fix along the way (from the taxol run)
 
 - `replace_structure` refuses MOL text that `get_file` wrote (section 6).
-- `add_text` with `below` a structure in a scheme attaches to the next arrow as a condition. It should be free text.
-- `run_command clean_up` on one reactant added a second "+" beside the existing one.
-- `draw_reaction` lays long schemes past the page edge (R4, section 5.4).
+- **Fixed (11 November, `mcp/layout`).** `add_text` with `below` a structure in a scheme attached to the next arrow
+  as a condition. New work now starts 3 bond lengths under the boxes of everything drawn (numbers, conditions, free
+  text, reagent tables and shapes too), and `draw_reaction` lays its row out apart from what is there, so a title stays
+  free text.
+- **Fixed (11 November, `mcp/layout`).** `run_command clean_up` on one reactant added a second "+" beside the existing
+  one. A plus sign that a structure reaches over is read where it stands.
+- **Fixed in part (11 November, `mcp/layout`).** `draw_reaction` lays long schemes past the page edge (R4, section
+  5.4). A scheme now wraps when its first line is too wide for the page, starts at the top margin of an empty page,
+  and goes inside the page's margins (in the middle of the page when a line is wider than the margins). Schemes drawn
+  one after another no longer overlap. Left for the brief and `draw_route` (sections 3.2 and 5.4): page fit. A scheme
+  taller than what is left of the page runs past its bottom edge, and a line that cannot break (one step wider than
+  the page) runs past its right edge.
 - A compound repeated across schemes (7, 13) warns "number on more than one structure" (section 5.4).
 - Calls on one session wait behind a long batch (section 8).
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over

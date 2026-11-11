@@ -12,7 +12,7 @@ g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { analyse, expandLabels, mapReaction, parseStructure, ready, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
-const { DEFAULT_STYLE } = await import("./docstyle.ts");
+const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
 const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
@@ -24,7 +24,7 @@ await ready;
 
 // The editor's stand-in: a drawing, its undo steps, its selection and what it told the user.
 const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO", "ethyl acetate": "CCOC(C)=O", water: "O", benzene: "c1ccccc1", toluene: "Cc1ccccc1", phenol: "Oc1ccccc1" };
-let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [];
+let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined;
 const ink = (atoms: number[]): Box | undefined => {
   const ps = atoms.map((i) => m.atoms[i]?.location).filter(Boolean);
   return ps.length ? [Math.min(...ps.map((p) => p[0])) - 0.3, Math.min(...ps.map((p) => p[1])) - 0.3, Math.max(...ps.map((p) => p[0])) + 0.3, Math.max(...ps.map((p) => p[1])) + 0.3] : undefined;
@@ -35,7 +35,7 @@ const host: Host = {
   doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async () => {},
   structure: (t) => { const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
   tidy: (x) => x, named: (t) => t in NAMES,
-  begin: (step) => { steps.push(step); open++; }, end: () => { open--; },
+  begin: (step) => { steps.push(step); open++; }, end: (made) => { open--; shown = made; },
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: async () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
@@ -505,7 +505,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // F3: placement. Each side, with gap and align, the same on every tool that takes it, and move to a point.
 {
   fresh();
-  await call("draw_structures", { structures: [{ text: "benzene" }] });
+  // (At a point where rounding a box to 0.1, as a result does, does not move its middle: the comparisons below are of
+  // rounded boxes, within 0.05. At the top margin, where it would be drawn with no point, the rounding moves it 0.05.)
+  await call("draw_structures", { structures: [{ text: "benzene" }], at: [-10, 5] });
   const [ref] = (await read()).structures, near = (p: number, q: number) => Math.abs(p - q) < 0.05;
   const placedBox = async (args: Record<string, unknown>) => { const r = (await call("draw_structures", { structures: [{ text: "water" }], ...args })) as unknown as { isError?: true; structuredContent: { made: string[]; boxes: Record<string, number[]> } }; assert.ok(!r.isError, JSON.stringify(r)); return r.structuredContent.boxes[r.structuredContent.made[0]]; };
   let b = await placedBox({ right_of: ref.id, gap: 2 });
@@ -536,6 +538,60 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   mv = await call("move", { ids: [ref.id], to: [0, 0] });
   const moved = (mv as unknown as { structuredContent: { boxes: Record<string, number[]> } }).structuredContent.boxes[ref.id];
   assert.ok(near((moved[0] + moved[2]) / 2, 0) && near((moved[1] + moved[3]) / 2, 0), JSON.stringify(moved));
+}
+
+// Where new work starts. On an empty page: at the page's left and top margins (15 mm), so that a scheme has the whole
+// page under it; where the page's edges do not show (Quick start), level with the middle of the view. Then under
+// everything drawn, from its left edge, measured by boxes: a text's box, not the point it is anchored at.
+{
+  const k = 72 / 25.4 / DEFAULT_STYLE.bond, [w, h] = pageSize(DEFAULT_STYLE), left = (15 - w / 2) * k, top = (h / 2 - 15) * k;
+  const drawn = async (name: string, args: unknown) => { const r = (await call(name, args)) as unknown as { structuredContent: { made: string[]; boxes: Record<string, number[]> } }; return r.structuredContent.boxes[r.structuredContent.made[0]]; };
+  fresh();
+  let b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - left) < 0.5 && b[3] <= top && b[3] > top - 1.5, `at the left and top margins: ${b}`);
+  fresh();
+  m = { ...EMPTY, style: { ...DEFAULT_STYLE, edges: false } };
+  b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - left) < 0.5 && Math.abs((b[1] + b[3]) / 2) < 3, `no page edges: level with the middle of the view: ${b}`);
+  fresh();
+  const title = await drawn("add_text", { text: "A title that is wider than benzene", text_align: "centre", at: [0, 10] });
+  b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - title[0]) < 0.5 && b[3] <= title[1] - 3, `under the title's box, from its left edge: ${b}, ${title}`);
+  // What a call made comes into view when the call ends: the host is given its box. A call that makes nothing gives none.
+  assert.deepEqual(shown?.map((v) => Math.round(v * 10) / 10), b, "the box of what was made");
+  await call("move", { ids: ["s1"], dx: 1 });
+  assert.equal(shown, undefined, "nothing made, nothing to show");
+  // (The window cannot run here: the editor's host is checked by its text. It pans the view to that box, as a paste does.)
+  assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /end: \(made\) => \{[^}]*if \(made\) panTo\(/, "the editor's host brings what a call made into view");
+  // Under a shape too (a box drawn round something). Not on an experiment page: its schemes go in its boxes.
+  for (experiment of [false, true]) {
+    m = EMPTY;
+    await call("draw_structures", { structures: [{ text: "benzene" }], at: [0, 0] });
+    const frame = await drawn("add_shape", { kind: "box", box: [-3, -9, 3, 3] }), ring = (await read()).structures[0].box;
+    b = await drawn("draw_structures", { structures: [{ text: "toluene" }] });
+    assert.ok(experiment ? b[3] > frame[1] && b[3] <= ring[1] - 3 : b[3] <= frame[1] - 3 && Math.abs(b[0] - frame[0]) < 0.5, `${experiment ? "in" : "under"} the box: ${b}, ${frame}`);
+  }
+  // A template and a file's drawing go with their top left there too, measured with their arrows and shapes: the
+  // flask (pen lines, no atoms) at the margins of an empty page, and a file's frame round its structure.
+  fresh();
+  let made = (await call("place_template", { name: "Round-bottom flask" }) as unknown as { structuredContent: { boxes: Record<string, number[]> } }).structuredContent.boxes, all = Object.values(made);
+  assert.ok(Math.abs(Math.min(...all.map((x) => x[0])) - left) < 0.11 && Math.abs(Math.max(...all.map((x) => x[3])) - top) < 0.11, `the flask's top left at the margins: ${JSON.stringify(made)}`);
+  fresh();
+  const file = host.file;
+  host.file = () => ({ ...parseStructure("c1ccccc1"), shapes: [{ id: 1, kind: "box", from: [-4, 5], to: [4, -5] }] }) as Mol;
+  made = (await call("add_file", { text: "<CDXML/>" }) as unknown as { structuredContent: { boxes: Record<string, number[]> } }).structuredContent.boxes;
+  host.file = file;
+  const frame = Object.entries(made).find(([id]) => id[0] === "b")![1];
+  assert.ok(Math.abs(frame[0] - left) < 0.11 && Math.abs(frame[3] - top) < 0.11, `the file's frame at the margins: ${JSON.stringify(made)}`);
+  // set_style moves everything across as a new scheme is placed: inside the margins from either side, and nothing
+  // that is inside them already.
+  for (const [x, edge] of [[-30, 0], [30, 2], [0, undefined]] as const) {
+    fresh();
+    const was = await drawn("draw_structures", { structures: [{ text: "benzene" }], at: [x, 0] });
+    await call("set_style", { page: "A4" });
+    const now = (await read()).structures[0].box;
+    assert.ok(edge === undefined ? now[0] === was[0] : Math.abs(now[edge] - (edge ? -left : left)) < 0.11, `set_style from ${x}: ${now}`);
+  }
 }
 
 // F1: batch. References to what earlier steps made, one undo step, and a failure or a bad step leaves the drawing as
