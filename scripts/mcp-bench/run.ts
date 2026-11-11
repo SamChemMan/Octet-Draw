@@ -12,6 +12,8 @@
 //   for       the drawing it starts in (File > New For): paper by default
 //   calls     [{ name, arguments }]: arguments may be a function of the results so far, for ids made earlier
 //   expect    { smiles: { number: SMILES or InChIKey } }: each compound number's structure in the finished drawing
+// corpus/PAPER.json holds jobs from one paper (corpus/README.md): each is a case of one call. A name on the command
+// line runs that case, or every job of that paper.
 // Right counts those; Warnings is Octet's own count for the finished drawing (chemistry and layout).
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,7 +30,11 @@ const { handle } = await import("../../src/mcp.ts");
 const { parseStructure, toInchiKey } = await import("../../src/chem.ts");
 const here = new URL("./", import.meta.url), version = JSON.parse(readFileSync(new URL("../../package.json", here), "utf8")).version;
 const argv = process.argv.slice(2), write = argv.includes("--write"), named = argv.filter((a) => a !== "--write");
-const names = named.length ? named : readdirSync(new URL("cases/", here)).filter((f) => f.endsWith(".mjs")).map((f) => f.slice(0, -4)).sort();
+// Every case by name: cases/NAME.mjs, and each job of corpus/PAPER.json (named PAPER-...).
+const all = new Map<string, () => Promise<Case>>(readdirSync(new URL("cases/", here)).filter((f) => f.endsWith(".mjs")).map((f) => [f.slice(0, -4), async () => (await import(new URL(`cases/${f}`, here).href)).default]));
+for (const f of existsSync(new URL("corpus/", here)) ? readdirSync(new URL("corpus/", here)).filter((x) => x.endsWith(".json")) : [])
+  for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) all.set(j.id, async () => ({ about: j.prompt, for: j.for, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
+const names = [...all.keys()].filter((n) => !named.length || named.some((x) => n === x || n.startsWith(`${x}-`))).sort();
 await load();
 
 const KEY = /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/;
@@ -59,7 +65,7 @@ const list = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, met
 const init = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }), () => drawing().host, version)).result;
 const now: { tools: number; toolsList: number; instructions: number; cases: Record<string, Measure> } = { tools: list.length, toolsList: JSON.stringify(list).length, instructions: init.instructions.length, cases: {} };
 for (const name of names) {
-  const c: Case = (await import(new URL(`cases/${name}.mjs`, here).href)).default;
+  const c = await all.get(name)!();
   const runs = [await run(c), await run(c), await run(c)], best = runs.reduce((p, q) => (q.ms < p.ms ? q : p));
   now.cases[name] = { ...best, ms: Math.round(best.ms), slowest: Math.round(best.slowest) };
 }
