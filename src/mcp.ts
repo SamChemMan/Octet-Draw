@@ -23,8 +23,11 @@ import type { Problem } from "./check.ts";
 import type { TextRun } from "./richtext.ts";
 
 type P = [number, number];
-export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx"] as const;
+// What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
+export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"] as const;
 export type FileFormat = (typeof FILE_FORMATS)[number];
+// Export's own options for a picture: its resolution, a clear background, and its width in mm.
+export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number };
 // What the editor does for the tools (Editor.tsx makes one each time it draws).
 export type Host = {
   doc: () => Mol;
@@ -49,7 +52,7 @@ export type Host = {
   textBox: (caption: number) => Box | undefined; // a caption's box as drawn, drawing units, y up
   labelBox: (atom: number) => Box | undefined; // an atom's label as drawn (none for a bare carbon), drawing units, y up
   reagent: (text: string) => { formula: string; weight: number } | undefined; // a reagent's formula, as the reagent table reads it
-  fileText: (format: FileFormat, part?: Mol) => string | undefined; // the drawing (or a part of it) as a file's text, as Export writes it
+  fileText: (format: FileFormat, part?: Mol, o?: FileOptions) => string | undefined | Promise<string | undefined>; // the drawing (or a part of it) as the file Export writes: its text, or base64 for a binary one
   inchi: (m: Mol) => { inchi?: string; key?: string }; // a structure's standard InChI and InChIKey
   // Each reagent table as drawn: its reaction's arrow, its columns (key, what, formula, molar mass, typed and worked-out
   // values) and its box.
@@ -86,7 +89,7 @@ type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: numbe
 // names for an enum's values; default: the value a required argument takes when it is left out.
 // unlisted: an argument a listed schema leaves out (picture and detail on an operation: the tool that runs it lists
 // them).
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string; unlisted?: true };
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
 // own: what Octet keeps to itself (tools/list leaves it out): the lenient readings, and unlisted.
 const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
@@ -471,7 +474,7 @@ const OPS: Op[] = [
   },
   {
     name: "file", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
-    inputSchema: obj({ format: pick(FILE_FORMATS, "The drawing as this file's text, in place of the reading", { also: { smi: "smiles" } }), ids: list(str(40), 500) }, ["format"]),
+    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles", tiff: "tif", jpeg: "jpg" } }), ids: list(str(40), 500), dpi: { ...num(36, 2400), unlisted: true }, transparent: { type: "boolean", unlisted: true }, width_mm: { ...num(1, 2000), unlisted: true } }, ["format"]),
     run: getFile,
   },
   {
@@ -626,7 +629,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
-    description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids, for change. picture adds a PNG. format gives the drawing (or the ids) as a file's text instead: CDXML, MOL (V3000; mol2000 is V2000), SDF, RXN, SMILES, InChI, or CDX as base64. Nothing is saved. Results of draw and change already give ids, boxes and a layout check, so you seldom need to read.",
+    description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids, for change. picture adds a PNG. format gives the drawing (or the ids) as that file, a binary one in base64, with Export's dpi, transparent and width_mm. Nothing is saved. Results of draw and change already give ids, boxes and a layout check, so you seldom need to read.",
     inputSchema: READ_IN,
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
@@ -1507,7 +1510,7 @@ async function arrange(host: Host, a: { ids: string[]; how: string }): Promise<R
   return ran ? { text: `Lined up ${a.ids.join(", ")}: ${a.how === "page" ? "centred on the page" : ["across", "down"].includes(a.how) ? `spaced evenly ${a.how}` : `${a.how} edges`}.${UNDO}` } : { text: "Octet cannot line them up now (a dialog is open).", error: true };
 }
 
-async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): Promise<Result> {
+async function getFile(host: Host, a: { format: FileFormat; ids?: string[] } & FileOptions): Promise<Result> {
   const m = host.doc();
   let part: Mol | undefined;
   if (a.ids?.length) {
@@ -1515,7 +1518,7 @@ async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): P
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     part = extractSelection(m, atoms, items);
   }
-  const text = host.fileText(a.format, part);
+  const { format: _, ids: __, ...o } = a, text = await host.fileText(a.format, part, o);
   if (!text) return { text: `Octet cannot write ${a.ids?.length ? "these" : "this drawing"} as ${a.format}${a.format === "rxn" ? " (an RXN file holds one reaction step)" : ""}.`, error: true };
   return { text, data: { format: a.format, text, ...(a.ids?.length ? { ids: a.ids } : {}) } };
 }
@@ -2579,7 +2582,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       await h.ready();
       await h.settle();
       if (part === "png") { const png = await h.picture(); return png ? reply(id, { contents: [{ uri, mimeType: "image/png", blob: png }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot make a picture of this drawing." }); }
-      if (part === "cdxml") { const text = h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
+      if (part === "cdxml") { const text = await h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
     case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false } })) });

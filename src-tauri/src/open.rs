@@ -141,7 +141,7 @@ pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picke
 }
 
 // A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8) or CDX only.
-fn read(path: &Path, name: &str) -> Result<String, String> {
+pub fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),

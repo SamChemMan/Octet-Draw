@@ -2,7 +2,7 @@
 // picture.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin } from "./export.ts";
+import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin, withWidth } from "./export.ts";
 import { EMPTY, extractSelection, sprout } from "./edit.ts";
 
 // Export, Copy and Print take the canvas, less the layers UI names. An aria-hidden element on the canvas is one of
@@ -70,6 +70,14 @@ assert.ok(tooLarge(pixelsAt(400, 2400), pixelsAt(400, 2400)), "a 400 pt square a
   assert.deepEqual(as("png", "page"), { svg, transparent: false }, "white for a drawing with no page colour");
   assert.doesNotMatch(as("pdf", "page", "#FFEEDD").svg, /<rect/, "vector formats keep their own page");
 }
+// read with width_mm and --convert --width: the picture, margin and all, that many mm wide, its height in step and its
+// view box as it was. Export… itself gives no width, so its pictures stay at true size.
+{
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="3 4 20 10"><g/></svg>';
+  assert.equal(withWidth(svg, 25.4), '<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="3 4 20 10"><g/></svg>');
+  assert.equal(pictureAs(svg, { format: "pdf", margin: 5, background: "white", width: 25.4 }).svg, '<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="48pt" viewBox="-2 -1 30 20"><g/></svg>');
+  assert.equal(pictureAs(svg, { format: "pdf", margin: 5, background: "white" }).svg, withMargin(svg, 5));
+}
 // One resolution control in Export… and Settings: any dpi typed, with the usual ones beside it. Export… also takes
 // a size in pixels, refuses a picture too large, and offers the page colour and JPEG quality. Copy's PNG and bitmap
 // (Windows and Linux) take the export dpi, as ChemDraw's Copy As PNG takes its Save As PNG resolution.
@@ -84,7 +92,8 @@ assert.match(dialog, /label="Width" unit="px"/);
 assert.match(dialog, /disabled=\{!ok \|\| big\}/, "Export… is off for a picture too large");
 assert.match(editor, /copyToClipboard\(\{ dpi: settings\.files\.dpi,/, "Copy's picture takes the export dpi");
 assert.match(editor, /page=\{pageColour\(style\)\}/);
-assert.equal((editor.match(/quality: f\.quality/g) ?? []).length, 2, "Export… and Quick export pass the JPEG quality");
+// (Export…, Quick export and read with a format make one request, exportRequest, checked below.)
+assert.equal((editor.match(/quality: f\.quality/g) ?? []).length, 1, "Export…, Quick export and read pass the JPEG quality");
 // A typed size leaves a dpi like 289.1566…: the list beside the field names it as the field shows it. Rust reads the
 // JPEG quality as a whole number, so a saved one that is not takes the default.
 assert.match(dialog, /<Pick label="Resolutions" value=\{String\(shown\)\}/);
@@ -96,8 +105,8 @@ assert.match(rust, /copy_to_clipboard\([^)]*dpi: Option<f32>/);
 // CDXML type on, and Export and Quick export put it in a PDF, PNG and EMF (src-tauri/src/export.rs reads it back).
 assert.deepEqual(CARRY_CDXML, ["pdf", "png", "emf"]);
 assert.match(editor, /cdxml: ask\(on\.cdxml \|\| on\.pdf, "cdxml"\)/, "the clipboard's picture carries the CDXML on every system");
-assert.match(body("exportPart"), /cdxml: make\("cdxml", "cdxml", \.\.\.CARRY_CDXML\)/, "Export puts the CDXML in the pictures that carry it");
-assert.match(body("quickExport"), /cdxml: CARRY_CDXML\.includes\(format\)/, "Quick export puts the CDXML in the pictures that carry it");
+// (Both make their request with exportRequest, as read with a format does: checked below.)
+assert.match(editor.slice(editor.indexOf("const exportRequest = "), editor.indexOf("\n  };\n", editor.indexOf("const exportRequest = "))), /cdxml: make\("cdxml", "cdxml", \.\.\.CARRY_CDXML\)/, "Export and Quick export put the CDXML in the pictures that carry it");
 // Octet's PNG dropped on a tile on Home is the tile's thumbnail, a picture: the app is told it went on a tile.
 assert.match(editor, /"take_opened", \{ insert, project: into && "project" in into \}/, "a picture dropped on any tile is a thumbnail");
 // Issue 20: a picture's frame fits its ink, as ChemDraw's does (within 0.2 pt): rounded outward to hundredths of a
@@ -150,5 +159,24 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   const ink = /function canvasInk\([\s\S]*?\n  \}\n/.exec(editor)?.[0] ?? "";
   assert.match(ink, /el\.closest\("defs, mask, clipPath, pattern, marker, symbol, filter"\)\) continue;/, "canvasInk leaves out defs and masks");
+}
+// Octet with no window (plan 18): read with a picture format makes the file as Export and Quick export make it, from
+// the same request (the same bytes for the same options, with no dialog); the Export dialog is not offered there; a
+// hidden page keeps no recovery copy; and a hidden window answers once what it opens is open, a file that did not
+// open answering with why.
+{
+  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(mol, svg, filePrefs\) \}\);/, "Export");
+  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(part, svg, \{ \.\.\.f, format \}\) \}\);/, "Quick export");
+  assert.match(editor, /invoke<string>\("export_bytes", \{ export: exportRequest\(mol, svg, f\) \}\)/, "read");
+  assert.match(editor, /export: \(format\) => \{ if \(modal\(\) \|\| HEADLESS\) return false;/);
+  assert.match(editor, /if \(!TAURI \|\| HEADLESS\) return;\n    if \(!mainDirty\) \{ if \(keeper\.kept\)/);
+  assert.ok(editor.includes('void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready"'));
+  assert.match(editor, /started\.current\.then\(\(failed\) => \(failed && HEADLESS \?/);
+}
+// A hidden page reads the user's settings and never writes them. (settings.ts does not load in Node.)
+{
+  const settings = readFileSync(new URL("settings.ts", import.meta.url), "utf8");
+  assert.match(settings, /export const HEADLESS = typeof location !== "undefined" && new URLSearchParams\(location\.search\)\.has\("headless"\);/);
+  assert.match(settings, /export function saveSettings\(s: Settings\) \{\n  if \(HEADLESS\) return;/);
 }
 console.log("export.check: ok");

@@ -47,7 +47,7 @@ const host: Host = {
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: async () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
-  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f) => (f === "smiles" ? toSmiles(expandLabels(m)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
+  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { far.push([text, !!stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
@@ -632,6 +632,23 @@ assert.ok((await call("change", { operations: [{ op: "arrange", ids: ["1"], how:
 out = await call("read", { format: "smiles" });
 assert.equal((out as unknown as { structuredContent: { text: string } }).structuredContent.text, text(out));
 assert.equal(text(out), "C1C=CC=CC=1.O", "benzene and water, as Octet writes SMILES");
+// Every format Export writes (plan 18.2): a picture is made as Export makes it, with Export's options, which tools/list
+// leaves to read's description. A limit Octet checks is still checked.
+out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm: 89 });
+assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
+assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
+assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
+assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as tif\.$/);
+{
+  const listed = tools.find((t) => t.name === "read")!.inputSchema.properties;
+  assert.ok(!("dpi" in listed) && ["oct", "sdf2000", "rdf", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"].every((f) => listed.format.enum.includes(f)), JSON.stringify(listed.format));
+}
+// K11: an AI app (or a script) still reads and writes no file: no tool and no operation takes a path.
+{
+  const keys = (x: unknown): string[] => (!x || typeof x !== "object" ? [] : Object.entries(x).flatMap(([k, v]) => [...(k === "properties" && v && typeof v === "object" ? Object.keys(v) : []), ...keys(v)]));
+  const named = [...TOOL_TABLE, ...OP_TABLE].flatMap((t) => keys(t.inputSchema).filter((k) => /path|folder|directory|^dir$|^files?$|^file_?name$/i.test(k)).map((k) => `${t.name}.${k}`));
+  assert.deepEqual(named, []);
+}
 // read: each structure's source, and InChI where the host gives it.
 d = await read();
 assert.deepEqual(d.structures.map((s: { source?: { given: string; named: boolean } }) => s.source), [{ given: "benzene", named: true }, { given: "water", named: true }]);

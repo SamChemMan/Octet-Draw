@@ -1215,3 +1215,33 @@ After step 5 (the tool merge), so scripts are written against the final tool nam
 
 Tests are in `mcp-v2-tests.md`, section 15.
 
+### 18.5 As built (steps 9 and 10, 11 November 2026, branch `mcp/headless`)
+
+- `Octet Draw --headless --mcp` (`--headless` alone is the same): main.rs starts the app with no window in the config,
+  no single-instance hand-over, no files from the arguments, no `OCTET_MCP` server, and on the Mac the Accessory
+  policy (no Dock icon, no menu bar). A thread opens one hidden drawing window (`windows::open`, Quick start) and runs
+  `mcp::stdio`. That reads JSON-RPC lines and takes the server's own route (`route`: sessions, subscriptions, the
+  window) and call (`send`, `answer`) with standard input and output in place of HTTP, and no rate limit. When input
+  ends, the calls under way finish and Octet ends. Nothing listens and nothing reads or writes `mcp.json`.
+- A hidden page is told so (`index.html?window&headless`): it keeps no recovery copy, saves no settings, offers no
+  Export dialog (`advanced export` says it cannot), and a window opened with a file answers once the file is open, or
+  answers each call with why it did not open. `window_show` and Home do nothing with no window.
+- WebKit holds back a hidden page's timers, and the names engine waits on them: the first Name to Structure took 47 s.
+  `windows::open` turns WebKit's `hiddenPageDOMTimerThrottlingEnabled` off for a hidden page (0.4 s). WebView2 and
+  WebKitGTK were not tried (no Windows or Linux here).
+- `read` with a format takes every format Export writes. The pictures come from `exportRequest` (Editor.tsx), the
+  request Export and Quick export send, through `export_bytes` (export.rs), which runs Export's own `file_of` and
+  writes nothing. Options: `dpi`, `transparent`, `width_mm` (the whole picture, margin included, that wide). They
+  are left out of tools/list (unlisted) and named in read's description; tools/list went from 13,995 to 13,988
+  characters.
+- `--convert` (convert.rs): each file is read with File > Open's limits (`open::read`), opened in a hidden window as a
+  window opened with a file's text, restyled (`--style`: a preset through `set_style`, or a drawing's file as File >
+  Apply Settings From File), then made with `read` and written as Export writes it. `--to sdf --each` reads each
+  structure as a MOL and adds its number as `> <Number>`. A file that is there gets ` 2`, ` 3` and on in its name.
+- Windows: `--convert` attaches to the console it was started from when it has no output of its own. A window program
+  typed at cmd.exe's prompt or in PowerShell is not waited for (a batch file waits), so there the exit code needs
+  `start /wait` or `Start-Process -Wait`. Not run: there is no Windows here. The console code compiles for Windows on
+  its own; the whole program does not build for Windows on this Mac (ring needs a Windows C toolchain).
+- `.oct` now keeps a stereocentre's ChemDraw configuration (`kept`, file.ts): without it, 15 of the 68 corpus files
+  lost Geometry and BondOrdering through `.oct` and back.
+

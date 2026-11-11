@@ -213,7 +213,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "sdf") return toSdf(chem);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
-      return steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
+      // (No pictures and no .oct here: a picture needs the app's renderer.)
+      return format === "rxn" && steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);

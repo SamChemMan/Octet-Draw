@@ -16,6 +16,7 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 mod access_keys;
 mod clipboard;
+mod convert;
 mod crashlog;
 mod export;
 // Feedback, for testers: not in the public release (build.rs, REL-8).
@@ -1031,9 +1032,37 @@ fn data_dir() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--mcp") {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let first = args.first().map(String::as_str);
+    if first == Some("--mcp") {
         return mcp::relay(data_dir());
     }
+    // Octet with no window (plan 18): --headless (with --mcp) answers MCP on standard input and output, and --convert
+    // converts files. Neither shows a window, a Dock icon or a menu, starts the AI apps' server or keeps recovery copies.
+    let job = (first == Some("--convert")).then(|| {
+        // The release build on Windows is a window program: its lines go to the console it was started from, when it
+        // has no output of its own (a pipe it was given stays as it is).
+        #[cfg(windows)]
+        {
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GetStdHandle(which: u32) -> isize;
+                fn AttachConsole(process: u32) -> i32;
+            }
+            // STD_OUTPUT_HANDLE, ATTACH_PARENT_PROCESS
+            unsafe {
+                if GetStdHandle(-11i32 as u32) == 0 {
+                    AttachConsole(u32::MAX);
+                }
+            }
+        }
+        convert::parse(&args[1..]).unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(2)
+        })
+    });
+    let headless = job.is_some() || first == Some("--headless");
+    windows::HEADLESS.store(headless, std::sync::atomic::Ordering::Relaxed);
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
     #[cfg(windows)]
@@ -1057,12 +1086,15 @@ fn main() {
             w.visible = false;
         }
     }
+    if headless {
+        context.config_mut().app.windows.clear();
+    }
     let builder = tauri::Builder::default();
     // Windows and Linux start a second Octet for each file opened from Explorer or a file manager. It gives its files
     // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.) An Octet that
     // Windows started for Word never hands over and ends: Word waits for that process.
     #[cfg(any(windows, target_os = "linux"))]
-    let builder = if embedding {
+    let builder = if embedding || headless {
         builder
     } else {
         builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -1089,7 +1121,7 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1098,7 +1130,7 @@ fn main() {
             ole::win::start(handle, embedding);
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
             let cwd = std::env::current_dir().unwrap_or_default();
-            if !embedding {
+            if !embedding && !headless {
                 open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
             }
             crashlog::install(handle);
@@ -1108,7 +1140,7 @@ fn main() {
             app.manage(recovery::start(handle));
             // A dev build started with OCTET_MCP=1 lets AI apps in at once, for testing the tools (decision 0021).
             #[cfg(debug_assertions)]
-            if std::env::var_os("OCTET_MCP").is_some() {
+            if std::env::var_os("OCTET_MCP").is_some() && !headless {
                 let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
             }
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
@@ -1119,6 +1151,28 @@ fn main() {
             }
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
+            // With no window: no Dock icon (on the Mac), and the work on a thread of its own, which ends Octet.
+            if headless {
+                let app = handle.clone();
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                std::thread::spawn(move || {
+                    let code = match job {
+                        Some(job) => convert::run(&app, &job),
+                        None => match windows::open(&app, serde_json::json!({ "new": "quick" })) {
+                            Ok(_) => {
+                                mcp::stdio(&app);
+                                0
+                            }
+                            Err(e) => {
+                                eprintln!("{e}");
+                                1
+                            }
+                        },
+                    };
+                    std::process::exit(code)
+                });
+            }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
             // window with unsaved changes (quit.rs).
@@ -1178,7 +1232,8 @@ fn main() {
                 quit::closed(_app, &label);
                 mcp::closed(_app, &label);
             }
-            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
+            // With no window, Octet ends when its work is done (std::process::exit), not when --convert closes a file's window.
+            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() || windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed) => api.prevent_exit(),
             // Each open object tells Word it closed, and the class object goes (decision 0023).
             #[cfg(windows)]
             tauri::RunEvent::Exit => ole::win::shutdown(),

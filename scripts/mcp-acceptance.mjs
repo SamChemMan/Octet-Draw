@@ -2,6 +2,10 @@
 // an AI app runs it, with its checks. Run a dev build with OCTET_MCP=1 (the octet-mcp preview), then:
 //   node scripts/mcp-acceptance.mjs            every case
 //   node scripts/mcp-acceptance.mjs 2 3        those cases
+//   node scripts/mcp-acceptance.mjs --headless PROGRAM [cases]
+//                                              through PROGRAM --headless --mcp, with no Octet open (plan 18, K1):
+//                                              every case but those that need Octet's window or server (7, the
+//                                              Export dialog; 9, two sessions and the window in front; 18, the relay)
 // Each check prints PASS or FAIL with what it found. A failing check is work still to do; the script ends with 1 when
 // any check fails. Case 7 (Export) runs last: its dialog stays open, and Octet runs no menu command over a dialog.
 import { spawn } from "node:child_process";
@@ -10,21 +14,26 @@ import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const headless = process.argv[2] === "--headless" ? process.argv[3] : undefined;
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
 // Octet may still be starting (a CI machine): up to a minute for its file and its server. A dev build keeps
 // mcp-dev.json (mcp.json is the installed Octet's, which may run at the same time).
 const read = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
 let info;
-for (const end = Date.now() + 60_000; Date.now() < end; await new Promise((r) => setTimeout(r, 1000))) {
+for (const end = Date.now() + 60_000; !headless && Date.now() < end; await new Promise((r) => setTimeout(r, 1000))) {
   info = read();
   if (info && (await fetch(`http://127.0.0.1:${info.port}/mcp`, { method: "POST" }).then(() => true, () => false))) break;
 }
-if (!info) throw new Error("Octet's mcp-dev.json is not there: start a dev build with OCTET_MCP=1.");
-const { port, token } = info;
+if (!info && !headless) throw new Error("Octet's mcp-dev.json is not there: start a dev build with OCTET_MCP=1.");
+const { port, token } = info ?? {};
 const URL_ = `http://127.0.0.1:${port}/mcp`;
+// How a call's progress comes: on an event stream from the server, or as lines on standard output.
+const STREAM = headless ? "standard output" : "text/event-stream";
 
-// A client: one MCP session (initialize, then each call with its session id).
+// A client: one MCP session (initialize, then each call with its session id). With --headless, the session of a
+// program of its own on standard input and output, with the same calls.
 async function client(name) {
+  if (headless) return lines(name);
   let session, n = 0;
   const post = async (body) => {
     const r = await fetch(URL_, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", ...(session ? { "mcp-session-id": session } : {}) }, body: JSON.stringify(body) });
@@ -69,27 +78,52 @@ async function client(name) {
   const listen = async (onEvent) => { const c = new AbortController(), r = await fetch(URL_, { headers: { ...headers(), accept: "text/event-stream" }, signal: c.signal }); void events(r, onEvent).catch(() => {}); return () => c.abort(); };
   return { call, read, post, streamed, listen, get session() { return session; } };
 }
+async function lines(name) {
+  const p = stdio(headless, ["--headless", "--mcp"]);
+  await p.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name, version: "1" } });
+  p.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  const call = async (tool, args = {}) => {
+    const t0 = Date.now(), r = await p.ask("tools/call", { name: tool, arguments: args });
+    const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
+    return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
+  };
+  const read = async () => (await call("read", { detail: "full" })).structuredContent;
+  const post = (body) => (body.id === undefined ? p.send(body) : p.request(body));
+  const streamed = async (tool, args, onProgress) => {
+    let id;
+    const stop = p.listen((m) => { if (m.method === "notifications/progress" && m.params.progressToken === `t${id}`) return onProgress?.(m.params, id); });
+    const reply = await p.ask("tools/call", { name: tool, arguments: args }, (k) => { id = k; }, (k) => ({ progressToken: `t${k}` }));
+    stop();
+    return { type: STREAM, reply };
+  };
+  const listen = async (onEvent) => p.listen(onEvent);
+  return { call, read, post, streamed, listen };
+}
 
 // An AI app that starts a program and talks to it on standard input and output (the relay, or the bundle's server).
 function stdio(command, args, env = {}) {
   const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"], env: { ...process.env, ...env } });
   let n = 0, rest = "";
-  const waiting = new Map(), notes = [], bad = [];
+  const waiting = new Map(), notes = [], bad = [], heard = new Set();
   child.stdout.on("data", (chunk) => {
     const lines = (rest + chunk).split("\n");
     rest = lines.pop();
     for (const line of lines.filter((l) => l.trim())) {
       let m;
       try { m = JSON.parse(line); } catch { bad.push(line.slice(0, 80)); continue; }
-      if (m.method) notes.push(m);
+      if (m.method) { notes.push(m); heard.forEach((each) => each(m)); }
       else if (waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); }
     }
   });
   // A program that ends answers nothing more: each call waiting gets an error.
   child.on("exit", (code) => { for (const done of waiting.values()) done({ error: { message: `the program ended (${code})` } }); waiting.clear(); });
   const send = (m) => child.stdin.write(JSON.stringify(m) + "\n");
-  const ask = (method, params, onSent) => new Promise((done) => { const id = ++n; waiting.set(id, done); send({ jsonrpc: "2.0", id, method, params }); onSent?.(id); });
-  return { ask, send, notes, bad, stop: () => child.kill() };
+  // meta: the call's _meta, made from its id (a progress token named for the call).
+  const ask = (method, params, onSent, meta) => new Promise((done) => { const id = ++n; waiting.set(id, done); send({ jsonrpc: "2.0", id, method, params: meta ? { ...params, _meta: meta(id) } : params }); onSent?.(id); });
+  const request = (m) => new Promise((done) => { waiting.set(m.id, done); send(m); });
+  // Each message Octet sends of itself (a call's progress, a drawing's update), as it comes, until stopped.
+  const listen = (each) => { heard.add(each); return () => heard.delete(each); };
+  return { ask, send, request, listen, notes, bad, stop: () => child.kill() };
 }
 const until = async (ok, ms) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 100)); return ok(); };
 
@@ -232,7 +266,7 @@ const CASES = {
     await a.call("drawings", { action: "new", for: "paper" });
     const big = { structures: Array.from({ length: 60 }, (_, k) => ({ text: names[k % names.length] })) }, notes = [];
     let s = await a.streamed("draw", { kind: "structures", ...big }, (p) => { notes.push(p); });
-    check(s.type === "text/event-stream" && s.reply?.result && !s.reply.result.isError, "answered on an event stream", JSON.stringify(s.reply).slice(0, 200));
+    check(s.type === STREAM && s.reply?.result && !s.reply.result.isError, `answered on ${headless ? "standard output" : "an event stream"}`, JSON.stringify(s.reply).slice(0, 200));
     check(notes.length >= 5 && notes.every((p, k) => p.total === 60 && (!k || p.progress > notes[k - 1].progress)), "progress for each ten structures", JSON.stringify(notes.slice(0, 3)));
     // notifications/cancelled after the first progress: the call stops and the drawing is as it was.
     const before = (await a.read()).structures.length;
@@ -479,8 +513,8 @@ const CASES = {
   },
 };
 
-const want = process.argv.slice(2);
-const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "7"].filter((k) => !want.length || want.includes(k));
+const want = process.argv.slice(headless ? 4 : 2);
+const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "7"].filter((k) => (!want.length || want.includes(k)) && !(headless && ["7", "9", "18"].includes(k)));
 const a = await client("acceptance");
 // Cases 2 to 4 run in case 1's drawing, and 6 in case 5's; run alone, each starts its own.
 for (const k of order) {
