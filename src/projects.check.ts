@@ -267,6 +267,12 @@ assert.ok(!/HOLD_MS\s*=/.test(home), "not a copy of it");
 assert.match(home, /setTimeout\(begin, HOLD_MS\)/);
 assert.match(home, /ev\.clientY - e\.clientY\) >= 4\) begin\(\)/, "4 px, as on the canvas");
 assert.match(home, /<rect className="box" /, "the Select tool's box");
+// Escape takes the box away but waits for the release, so its click does not clear the selection Escape put back. A
+// press the browser takes for a scroll (touch) ends the box, so its hold cannot start one later.
+const sweep = home.slice(home.indexOf("const sweep = "), home.indexOf("// ——— The sections as modules"));
+const boxEscape = sweep.slice(sweep.indexOf("const escape = "), sweep.indexOf("\n    addEventListener(", sweep.indexOf("const escape = ")));
+assert.ok(boxEscape.includes("setChosen(before)") && !boxEscape.includes("end("), "Escape puts the selection back and leaves the release to end the box");
+assert.match(sweep, /addEventListener\("pointercancel", away\)/, "a press taken for a scroll ends the box");
 // Remove N does what Delete does, and is a real button with the drawings in its name.
 assert.match(home, /aria-label=\{`Remove \$\{drawings\(pickedCount\)\}`\} onClick=\{\(\) => removePicked\(\)\}/);
 console.log("projects.check: ok");

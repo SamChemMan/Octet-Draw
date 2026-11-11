@@ -5825,11 +5825,11 @@ button.variant.add {
 .home-carry .home-thumb {
   box-shadow: var(--shadow-float);
 }
-/* The selection box dragged from Home's background (Home.tsx): the Select tool's box (.box), over the page, in
-   Octet's blue always, as Home's selected drawings are. */
+/* The selection box dragged from Home's background (Home.tsx): the Select tool's box (.box), over the page (a
+   folder's front too), in Octet's blue always, as Home's selected drawings are. */
 .home-box {
   position: fixed;
-  z-index: 1;
+  z-index: 5;
   overflow: visible;
   pointer-events: none;
   --select: var(--brand-bright);

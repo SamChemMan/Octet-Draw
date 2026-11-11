@@ -484,8 +484,8 @@ export function Home(p: Props) {
 
   // A box dragged from the background selects the drawings it touches, as the Select tool's box does on the canvas: it
   // starts when the press moves 4 px, or at once after a hold of HOLD_MS, and it is drawn as that box. Shift adds to the
-  // selection and ⌘ (Ctrl) turns each drawing over, as clicks do. Escape, or the window losing the focus, puts the
-  // selection back.
+  // selection and ⌘ (Ctrl) turns each drawing over, as clicks do. Escape, the window losing the focus, or a press taken
+  // for a scroll (touch) puts the selection back.
   const boxEl = useRef<SVGSVGElement>(null), boxAt = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const [boxing, setBoxing] = useState(false);
   const placeBox = () => { const s = boxEl.current?.style, b = boxAt.current; if (s) Object.assign(s, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.width}px`, height: `${b.height}px` }); };
@@ -519,6 +519,7 @@ export function Home(p: Props) {
       clearTimeout(hold);
       removeEventListener("pointermove", move);
       removeEventListener("pointerup", up);
+      removeEventListener("pointercancel", away);
       removeEventListener("keydown", escape, true);
       removeEventListener("blur", away);
       stop();
@@ -529,9 +530,19 @@ export function Home(p: Props) {
       if (!keep) setChosen(before);
     };
     const up = () => end(true), away = () => end(false);
-    const escape = (ev: KeyboardEvent) => { if (ev.key === "Escape" && on) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
+    // Escape takes the box away at once, but the press ends when the button is let go, so that click clears nothing.
+    const escape = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || !on) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      removeEventListener("pointermove", move);
+      stop();
+      setBoxing(false);
+      setChosen(before);
+    };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
+    addEventListener("pointercancel", away);
     addEventListener("keydown", escape, true);
     addEventListener("blur", away);
   };
