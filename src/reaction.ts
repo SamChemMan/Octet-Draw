@@ -147,6 +147,14 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
     }
   }
   row.sort((p, q) => lo(p) - lo(q));
+  // A plus sign that the structure beside it has come to reach over (a reactant cleaned up, or turned) is not walked
+  // to. It is still the row's: between two neighbours with no plus sign, where its middle stands.
+  const bare = (it: Item) => it.step.kind === "structure" || it.step.kind === "text";
+  for (const it of inLine) {
+    if (it.step.kind !== "plus" || row.includes(it)) continue;
+    const k = row.findIndex((r, i) => i > 0 && bare(row[i - 1]) && bare(r) && mid(row[i - 1]) < mid(it) && mid(it) < mid(r));
+    if (k > 0) row.splice(k, 0, it);
+  }
   const steps = row.map((it) => it.step);
   const arrowIds = steps.flatMap((s) => (s.kind === "arrow" ? [s.id] : []));
 
@@ -283,14 +291,15 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const way = (r: Reaction) => { const a = arrows.find((x) => x.id === r.arrows[0])!, dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1]; return Math.abs(dx) > 3 * Math.abs(dy) ? Math.sign(dx) : 0; };
   const span = (r: Reaction) => union([...r.steps, ...[...r.conditions.values()].flatMap((c) => [...c.above, ...c.below])].map((x) => x.box));
   const starts = (r: Reaction) => r.steps[0]?.kind === "arrow", ends = (r: Reaction) => r.steps[r.steps.length - 1]?.kind === "structure";
-  // The line above or below a line of the same reaction (below: the next one down the page).
-  const next = (r: Reaction, down: boolean): Reaction | undefined => {
+  // The nearest line above or below that could be a line of the same reaction (below: the next one down the page),
+  // among the arrows no higher up the page than `under`.
+  const near = (r: Reaction, down: boolean, under = Infinity): Reaction | undefined => {
     const w = way(r);
     if (!w || (down ? !ends(r) : !starts(r))) return undefined;
     const b = span(r);
     let best: Reaction | undefined, gap = Infinity;
     for (const a of arrows) {
-      if (!straightArrow(a) || r.arrows.includes(a.id) || (down ? Math.max(a.from[1], a.to[1]) > b[1] : Math.min(a.from[1], a.to[1]) < b[3])) continue;
+      if (!straightArrow(a) || r.arrows.includes(a.id) || Math.max(a.from[1], a.to[1]) > (down ? b[1] : under) || (!down && Math.min(a.from[1], a.to[1]) < b[3])) continue;
       const o = row(a.id);
       if (!o || way(o) !== w || (down ? !starts(o) : !ends(o)) || o.arrows.some((id) => r.arrows.includes(id))) continue;
       const c = span(o), d = down ? b[1] - c[3] : c[1] - b[3];
@@ -298,6 +307,12 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
       best = o; gap = d;
     }
     return best;
+  };
+  // A line below continues this one only when no other line that it could continue lies between the two: the second
+  // line of another scheme drawn under this one continues that scheme's first line. (Their rows are read already.)
+  const next = (r: Reaction, down: boolean) => {
+    const o = near(r, down), between = o && down ? near(o, false, span(r)[1]) : undefined;
+    return between && !between.arrows.some((id) => r.arrows.includes(id)) ? undefined : o;
   };
   let top = first;
   for (let k = 0, up = next(top, false); up && k < 50; k++, up = next(top, false)) top = up;
@@ -334,7 +349,8 @@ export type Layout = {
 //   renderer stacks captions kept on an arrow); text drawn above or below it is kept on it from now on; structures
 //   above or below it stand in a row, centred on it, a quarter gap clear of its text.
 // - A reaction wider than the page wraps onto lines two bond lengths apart, each centred under the first. Octet breaks
-//   a line only before an arrow (before a plus sign if it must), and balances the lines.
+//   a line only before an arrow (before a plus sign if it must), and balances the lines. What it cannot break (the
+//   starting materials, their arrow and its product) stays on one line, however wide.
 // Octet keeps the reaction's way: a reaction drawn right to left, or down the page, is laid out that way (ChemDraw
 // turns every reaction to read left to right). The first thing in the row stays where it is, level with the first
 // arrow; with fixed (atoms already laid out by another reaction), the first structure among them stays instead, so
@@ -434,7 +450,7 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
   // after the first arrow, so the first line holds the starting materials and their arrow (a line of starting
   // materials alone would read as no reaction); the fewest lines, then the most even.
   const widthOf = (from: number, to: number) => parts.slice(from, to).reduce((w, p) => w + p.length, 0) + gap * Math.max(0, to - from - 1);
-  let breaks: number[] = [];
+  let breaks: number[] = [], widest = Infinity;
   if (flat && o.width && widthOf(0, parts.length) > o.width) {
     const firstArrow = parts.findIndex((p) => p.step.kind === "arrow"), at = (kind: string) => parts.flatMap((p, k) => (k > firstArrow && p.step.kind === kind ? [k] : []));
     for (const candidates of [at("arrow"), [...new Set([...at("arrow"), ...at("plus")])].sort((p, q) => p - q)]) {
@@ -443,14 +459,16 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
       for (const end of ends) for (const [from, b] of [...best]) {
         // (A first line of one structure alone gains no room: the reaction stays on one line.)
         if (from >= end || (!from && end < 2)) continue;
+        // (A piece with no break inside it stays whole, however wide: the rest still wraps.)
         const w = widthOf(from, end);
-        if (w > o.width && end - from > 1) continue;
+        if (w > o.width && ends.some((e) => e > from && e < end)) continue;
         const next = { lines: b.lines + 1, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] }, was = best.get(end);
         if (!was || next.lines < was.lines || (next.lines === was.lines && next.widest < was.widest - 1e-9)) best.set(end, next);
       }
+      // (Breaks before plus signs are used only when they make the widest line narrower.)
       const done = best.get(parts.length);
-      if (done && done.widest <= o.width + 1e-9) { breaks = done.cuts; break; }
-      if (done) breaks = done.cuts;
+      if (done && done.widest < widest - 1e-9) { breaks = done.cuts; widest = done.widest; }
+      if (widest <= o.width + 1e-9) break;
     }
   }
 

@@ -184,6 +184,72 @@ for (const id of [first, second]) {
   assert.equal(find(done, arrow)?.steps[0].kind, "structure", "it still starts with its starting materials");
 }
 
+// A first line too wide for the page (A + B → C) stays whole, as a line breaks only after the first arrow, and the
+// steps after it still wrap, onto lines that fit the page and start with an arrow. (Before 11 November 2026 one
+// such line kept the whole scheme on one line, far past the page's edge.)
+{
+  let t: Mol = EMPTY, x = 4;
+  const ids: number[] = [];
+  t = addRing(t, 6, false, { point: [0, 0] });
+  for (let k = 0; k < 4; k++) {
+    t = addRing(t, 6, false, { point: [x, 0] });
+    x += 3;
+    if (k < 3) { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [x - 1.4, 0], to: [x + 1.4, 0] }); ids.push(id); x += 3; }
+  }
+  const done = clean(t, find(t, ids[0]), 11), rings = fragments(done).map((g) => ink(done)(g)), heads = ids.map((id) => arrowOf(done, id));
+  const level = (b: Box) => Math.round(middle(b)[1] * 100) / 100, shaft = (a: Arrow): Box => [Math.min(a.from[0], a.to[0]), a.from[1], Math.max(a.from[0], a.to[0]), a.from[1]];
+  assert.ok(rings[2][2] - rings[0][0] > 11, "the first line is wider than the page");
+  assert.deepEqual([level(rings[1]), level(shaft(heads[0])), level(rings[2])], Array(3).fill(level(rings[0])), "A + B → C on the first line");
+  assert.ok(level(rings[3]) < level(rings[2]) - 1, "the steps after it wrap");
+  for (const k of [1, 2]) {
+    const line = [...rings, ...heads.map(shaft)].filter((b) => level(b) === level(rings[k + 2]));
+    assert.ok(Math.max(...line.map((b) => b[2])) - Math.min(...line.map((b) => b[0])) <= 11 + 1e-6, "each line after the first fits the page");
+    if (level(rings[k + 2]) !== level(rings[k + 1])) assert.equal(level(shaft(heads[k])), level(rings[k + 2]), "a new line starts with its arrow");
+  }
+}
+// A line breaks before a plus sign only when that makes the widest line narrower. In A + B → C → D + E → F the first
+// line is too wide whatever is done, so the rest breaks before its arrows (→ D + E, then → F), not before a plus sign.
+{
+  let t: Mol = EMPTY;
+  for (const x of [0, 3, 9, 15, 18, 24]) t = addRing(t, 6, false, { point: [x, 0] });
+  const ids = [4.6, 10.6, 19.6].map((x) => { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [x, 0], to: [x + 2.8, 0] }); return id; });
+  const done = clean(t, find(t, ids[0]), 10), [, , c, d, e, f] = fragments(done).map((g) => Math.round(middle(ink(done)(g))[1] * 100) / 100);
+  assert.ok(d < c - 1 && f < d - 1, "three lines");
+  assert.equal(e, d, "D + E on one line, after their arrow");
+  assert.deepEqual(done.captions!.map((p) => Math.round(middle(capBox(done)(p.id)!)[1] * 100) / 100 || 0).sort((p, q) => q - p), [c || 0, d], "a plus sign on the first line and one on the second");
+}
+// A plus sign that the structure beside it reaches over (a reactant cleaned up or turned where it stands, on either
+// side of the plus sign) is still the row's: Clean Up Reaction adds no second one, and sets it between the two.
+for (const at of [0.5, 2.5]) {
+  let t: Mol = EMPTY, arrow = 0, plus = 0;
+  t = addRing(t, 6, false, { point: [0, 0] });
+  t = addRing(t, 6, false, { point: [3, 0] });
+  [t, plus] = addCaption(t, { text: "+", x: at, y: 0, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [4.6, 0], to: [7.4, 0] });
+  t = addRing(t, 6, false, { point: [9, 0] });
+  const [a, b] = fragments(t).map((g) => ink(t)(g)), p = capBox(t)(plus)!;
+  assert.ok(at < 1 ? p[0] > a[0] && p[2] < a[2] : p[0] > b[0] && p[2] < b[2], "the plus sign stands in a structure's box");
+  const r = find(t, arrow);
+  assert.deepEqual(r.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"], `the plus sign at ${at} is read`);
+  assert.ok(r.captions.includes(plus));
+  const done = clean(t, r), again = find(done, arrow);
+  assert.equal(done.captions!.length, 1, "no second plus sign");
+  for (const g of gaps(done, again)) assert.ok(Math.abs(g - gap) < 1e-6, `even gaps: ${g}`);
+}
+// A plus sign drawn in a structure that has a plus sign beside it (a charge written as text) is not the row's.
+{
+  let t: Mol = EMPTY, arrow = 0, charge = 0, plus = 0;
+  t = addRing(t, 6, false, { point: [0, 0] });
+  t = addRing(t, 6, false, { point: [3, 0] });
+  [t, charge] = addCaption(t, { text: "+", x: 0.5, y: 0, align: "centre" });
+  [t, plus] = addCaption(t, { text: "+", x: 1.5, y: 0, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [4.6, 0], to: [7.4, 0] });
+  t = addRing(t, 6, false, { point: [9, 0] });
+  const r = find(t, arrow);
+  assert.deepEqual(r.steps.map((s) => (s.kind === "plus" ? s.id : s.kind)), ["structure", plus, "structure", "arrow", "structure"]);
+  assert.ok(!r.captions.includes(charge));
+}
+
 // Two reactions that share a structure (C ← A → B): laid out one after the other, A stays where the first put it.
 {
   let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0] });
@@ -536,5 +602,26 @@ else {
   for (const id of ids) assert.deepEqual(findReaction(once, id, d.arrows, d.ink, d.captionBox)?.arrows, ids, `one reaction from arrow ${id}`);
   const twice = cleanAll(once, () => true).mol;
   assert.deepEqual(twice.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), once.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), "a second clean-up moves nothing");
+}
+// Two wrapped schemes, one under the other (A → B, → C; then D → E, → F, each line 4 bond lengths under the one
+// before): each reads as its own two steps from any of its arrows. The second line of the lower scheme continues that
+// scheme's first line, the nearest above it, and not the last line of the scheme above.
+{
+  let t: Mol = EMPTY;
+  const ids: number[] = [];
+  for (const y of [0, -8]) {
+    for (const [x, dy] of [[0, 0], [6, 0], [4.5, -4]]) t = addRing(t, 6, false, { point: [x, y + dy] });
+    for (const [x, dy] of [[1.6, 0], [0, -4]]) { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [x, y + dy], to: [x + 2.8, y + dy] }); ids.push(id); }
+  }
+  for (const [k, id] of ids.entries()) assert.deepEqual(find(t, id).arrows, k < 2 ? ids.slice(0, 2) : ids.slice(2), `arrow ${k + 1} reads its own scheme`);
+}
+// A first line with nothing drawn under its arrow's level (both structures a little above it) still takes the line
+// under it.
+{
+  let t: Mol = EMPTY;
+  for (const [x, y] of [[0, 1.2], [6, 1.2], [4.5, -4]]) t = addRing(t, 6, false, { point: [x, y] });
+  const ids = [[1.6, 0], [0, -4]].map(([x, y]) => { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [x, y], to: [x + 2.8, y] }); return id; });
+  assert.ok(fragments(t).slice(0, 2).every((g) => ink(t)(g)[1] > 0), "the first line's structures are above their arrow's level");
+  for (const id of ids) assert.deepEqual(find(t, id).arrows, ids);
 }
 console.log("reaction.check: ok");

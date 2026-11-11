@@ -88,6 +88,22 @@ const ids = (await call("read_drawing", { atoms: true })).structuredContent;
 assert.equal(ids.structures[0].smiles, "C[C+](C)=O");
 assert.deepEqual([ids.arrows.map((a: { kind: string }) => a.kind), ids.shapes.map((s: { kind: string; mark: string }) => [s.kind, s.mark])], [["curved"], [["brackets", "‡"]]]);
 
+// Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A reactant
+// that then reaches over the plus sign beside it (terphenyl, drawn upright, lies flat when it is cleaned up) keeps
+// that plus sign: Octet adds no second one (docs/plans/mcp-v2.md, section 17).
+type Wrote = { isError?: true; structuredContent: { made: string[]; changed: string[]; boxes: Record<string, number[]>; check: "clean" | { overlaps?: string[][]; off_page?: string[] } } };
+const fits = (w: Wrote) => { const c = w.structuredContent.check; return c === "clean" || (!c.overlaps && !c.off_page); };
+{
+  d = drawing("paper", "Clean up");
+  const drawn: Wrote = await call("draw_reaction", { start: [{ text: "c1ccc(cc1)c1ccc(cc1)c1ccccc1", rotate: 90 }, { text: "aniline" }], steps: [{ reagents: ["AcOH"], products: [{ text: "N-benzylideneaniline" }] }], keep_orientation: false });
+  const pluses = () => (d.host.doc().captions ?? []).filter((c) => c.text.trim() === "+").length, arrow = Number(drawn.structuredContent.made.find((id) => id[0] === "a")!.slice(1));
+  assert.equal(pluses(), 1);
+  const cleaned: Wrote = await call("run_command", { command: "clean_up", ids: ["s1"] });
+  assert.ok(!cleaned.isError && fits(cleaned), JSON.stringify(cleaned.structuredContent.check));
+  assert.equal(pluses(), 1, "one plus sign after the clean-up");
+  assert.deepEqual(d.host.reaction(arrow)?.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"]);
+}
+
 // The runner: two inputs, a list of tool calls and a draw_reaction argument, drawn by two workers.
 const dir = mkdtempSync(join(tmpdir(), "octet-headless-"));
 try {
