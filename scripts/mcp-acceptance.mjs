@@ -60,22 +60,6 @@ async function client(name, brief = true) {
   }
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const headers = () => ({ authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", "mcp-session-id": session });
-  // Each server-sent event's message, as it comes: onEvent may return false to stop reading.
-  const events = async (r, onEvent) => {
-    const reader = r.body.getReader(), dec = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) return;
-      buf += dec.decode(value, { stream: true });
-      let k;
-      while ((k = buf.indexOf("\n\n")) >= 0) {
-        const data = buf.slice(0, k).split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
-        buf = buf.slice(k + 2);
-        if (data && (await onEvent(JSON.parse(data))) === false) { await reader.cancel(); return; }
-      }
-    }
-  };
   // A call with a progress token: its progress notifications, then its result.
   const streamed = async (tool, args, onProgress) => {
     const id = ++n, r = await fetch(URL_, { method: "POST", headers: headers(), body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: tool, arguments: args, _meta: { progressToken: `t${id}` } } }) });
@@ -110,6 +94,23 @@ async function lines(name, brief) {
   };
   const listen = async (onEvent) => p.listen(onEvent);
   return { call, read, post, streamed, listen };
+}
+
+// Each server-sent event's message, as it comes: onEvent may return false to stop reading.
+async function events(r, onEvent) {
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += dec.decode(value, { stream: true });
+    let k;
+    while ((k = buf.indexOf("\n\n")) >= 0) {
+      const data = buf.slice(0, k).split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+      buf = buf.slice(k + 2);
+      if (data && (await onEvent(JSON.parse(data))) === false) { await reader.cancel(); return; }
+    }
+  }
 }
 
 // An AI app that starts a program and talks to it on standard input and output (the relay, or the bundle's server).
@@ -563,6 +564,47 @@ const CASES = {
       console.log(`  N = ${N}, ms (median/slowest): ${by.join(", ")}`);
     }
   },
+  async 22() {
+    // Plan 3.1, 7.3: this client takes elicitation, so it is not told to ask the three questions. A draw with no brief
+    // has Octet ask the user (here, the script answers the form), and the same call draws; the session keeps the brief.
+    console.log("22. Elicitation: Octet asks the user for the brief, and the same call draws");
+    const hello = { protocolVersion: "2025-11-25", capabilities: { elicitation: {} }, clientInfo: { name: "acceptance-asked", version: "1" } }, forms = [];
+    const answer = (m) => { forms.push(m.params); return { jsonrpc: "2.0", id: m.id, result: { action: "accept", content: { destination: "paper", journal_or_size: "JACS, 2 columns" } } }; };
+    let call, said, stop = () => {};
+    if (headless) {
+      const p = stdio(headless, ["--headless", "--mcp"]);
+      said = (await p.ask("initialize", hello)).result?.instructions;
+      p.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      p.listen((m) => { if (m.method === "elicitation/create") p.send(answer(m)); });
+      call = async (name, args) => (await p.ask("tools/call", { name, arguments: args })).result;
+      stop = p.stop;
+    } else {
+      let session, k = 0;
+      const post = (body) => fetch(URL_, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", ...(session ? { "mcp-session-id": session } : {}) }, body: JSON.stringify(body) });
+      const r = await post({ jsonrpc: "2.0", id: ++k, method: "initialize", params: hello });
+      session = r.headers.get("mcp-session-id") ?? undefined;
+      said = (await r.json()).result?.instructions;
+      await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+      // The call's reply, or its event stream: the question on it is answered with a POST of its own.
+      call = async (name, args) => {
+        const id = ++k, r = await post({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+        if (!r.headers.get("content-type")?.startsWith("text/event-stream")) return (await r.json()).result;
+        let result;
+        await events(r, async (m) => { if (m.method === "elicitation/create") await post(answer(m)); else if (m.id === id) { result = m.result; return false; } });
+        return result;
+      };
+      await call("drawings", { action: "new", for: "quick" });
+    }
+    check(said?.split("\n")[1]?.startsWith("- For a scheme, route, figure, cycle or grid, just call draw"), "the instructions say to just call draw", said?.split("\n")[1]);
+    const r = await call("draw", { lines: "benzaldehyde -> benzyl alcohol" });
+    check(forms.length === 1 && forms[0].requestedSchema?.properties?.destination, "Octet asked the user once, with its form", JSON.stringify(forms));
+    check(r && !r.isError && /^Octet keeps this brief for the session\. The drawing now uses ACS Document 1996 on ACS2,/.test(r.content?.[0]?.text ?? ""), "the same call kept the brief (JACS, two columns) and drew", r?.content?.[0]?.text);
+    const d = (await call("read", { detail: "full" }))?.structuredContent;
+    check(d?.reactions?.length === 1, "the reaction is drawn", JSON.stringify(d?.reactions));
+    const again = await call("draw", { lines: "benzyl alcohol -> benzaldehyde" });
+    check(again && !again.isError && forms.length === 1, "the next scheme asks nothing", again?.content?.[0]?.text);
+    stop();
+  },
   async 7(a) {
     console.log("7. Export: the dialog opens, and the next call still answers");
     const e = await a.call("advanced", { tool: "export", args: { format: "pdf" } });
@@ -573,7 +615,7 @@ const CASES = {
 };
 
 const want = process.argv.slice(headless ? 4 : 2);
-const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "7"].filter((k) => (!want.length || want.includes(k)) && !(headless && ["7", "9", "18", "21"].includes(k)));
+const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "7"].filter((k) => (!want.length || want.includes(k)) && !(headless && ["7", "9", "18", "21"].includes(k)));
 const a = await client("acceptance");
 // Cases 2 to 4 run in case 1's drawing, and 6 in case 5's; run alone, each starts its own.
 for (const k of order) {

@@ -99,9 +99,10 @@ const warnOn = (t: string) => WARNING_TYPES.find((w) => w.id === t)!.on;
 const STEREO = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
 
 // Each AI app session's brief (set_brief), kept as Octet's window keeps it (src-tauri/src/mcp.rs): a new session has
-// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts).
+// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts). elicit: the user's
+// answer to a question Octet asks through the AI app (plan 7.3), for an AI app that takes elicitation.
 const briefs = new Map<string, string>();
-export const session = (client: string, id: string): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b) });
+export const session = (client: string, id: string, elicit?: From["elicit"]): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b), ...(elicit ? { elicit } : {}) });
 
 /** A new drawing for a purpose (File > New For: paper, thesis, slides, poster, experiment, quick), as a Host with
  * Undo and Redo. Its ids start again from the first (mcp.ts resetIds), so the same calls give the same drawing. */

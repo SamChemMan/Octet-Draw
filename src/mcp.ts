@@ -366,6 +366,27 @@ const READING = { type: "object", required: ["drawing", "structures", "reactions
 // or grid is drawn, and set_brief's arguments, their answers in the same order.
 const QUESTIONS = "1. Do you have a preferred working style? If so, ask them for a drawing in it. 2. Where is this going, and how big does it need to be? 3. Is there anything to emphasise, or a layout to follow?";
 const BRIEF_FIRST = `Octet needs the brief first. Ask the user these three questions, then call set_brief: ${QUESTIONS}`;
+// An AI app that takes elicitation/create (plan 3.1, 7.3) has Octet ask the user itself, in the AI app's own form: a
+// flat object of text and one choice. The choice is an enum with enumNames, which both versions with elicitation take
+// (MCP 2025-06-18 and 2025-11-25, Elicitation, Requested Schema); the page does not know which one the AI app agreed.
+const ASK_BRIEF = { message: "Where is this drawing going, and in what style?", requestedSchema: { type: "object", properties: {
+  destination: { type: "string", title: "Where it goes", enum: ["quick", "paper", "thesis", "slides", "poster", "notebook"], enumNames: ["Quick look, no page", "Paper", "Thesis", "Slides", "Poster", "Notebook"] },
+  journal_or_size: { type: "string", title: "Journal or size", description: "For example JACS, 2 columns; A4; 85 x 60 mm" },
+  emphasis: { type: "string", title: "What to emphasise" }, layout: { type: "string", title: "Layout to follow" },
+}, required: ["destination"] } };
+const UNANSWERED = `Octet changed nothing. The user closed Octet's questions without answering. Ask them in the chat, then call again with brief: ${QUESTIONS}`;
+// The brief from the user's answer (the AI app's, as mcp.rs checked it), or why there is none. decline: the user has no
+// preference, so quick. The destination and its journal or size are read as draw's brief line is (briefOf); emphasis
+// and layout are the user's words as they are, so what one field says never reads as another.
+function answered(text: string | undefined): unknown {
+  let r: { action?: string; content?: Record<string, unknown> };
+  try { r = JSON.parse(text ?? ""); } catch { return UNANSWERED; }
+  if (r?.action === "decline") return briefOf("quick");
+  const v = (k: string) => { const x = r.content?.[k]; return typeof x === "string" || typeof x === "number" ? clean(String(x)).replace(/[\s,;.]+$/, "") : ""; };
+  if (r?.action !== "accept" || !(DESTINATIONS as readonly string[]).includes(v("destination"))) return UNANSWERED;
+  const b = briefOf([v("destination"), v("journal_or_size").replace(/\b(emphasis|layout)\s*:/gi, "$1")].filter(Boolean).join(", "));
+  return typeof b === "string" ? UNANSWERED : { destination: (b as { destination: unknown }).destination, ...(v("emphasis") ? { emphasis: v("emphasis") } : {}), ...(v("layout") ? { layout: v("layout") } : {}) };
+}
 const DESTINATIONS = ["quick", "paper", "thesis", "slides", "poster", "notebook"] as const;
 // The journals' presets by the short names a user gives them (journalOf reads each as its preset).
 const JOURNALS = Object.keys(PRESETS).filter((p) => !p.includes("ChemDraw")).map((p) => p.replace(/ Document 1996| \(.*\)/, ""));
@@ -753,6 +774,10 @@ const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's compu
 - To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
 - Each call is one undo step. Never delete the user's work unless they ask.
 - advanced help gives the arguments of every draw kind, change op and tool.`;
+// The instructions for an AI app that takes elicitation (plan 3.1; mcp.rs reads that from its initialize): Octet asks
+// the user the brief's questions itself, so the AI app does not spend a turn on them. Only the bullet that asks them
+// changes.
+const instructionsFor = (elicit: boolean) => (elicit ? INSTRUCTIONS.replace(/^- Before a scheme.*$/m, "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.") : INSTRUCTIONS);
 
 // ---- What each tool does ----
 
@@ -2989,15 +3014,25 @@ let queue: Promise<unknown> = Promise.resolve();
 // progress: sends a progress notification (JSON) on the call's event stream; cancelled: the call was cancelled.
 // brief: the session's brief (set_brief), as its transport keeps it (none until set_brief); keep: keeps a new one for
 // the session (mcp.rs mcp_brief), for its later calls in every drawing. unset: the session has no drawing yet.
+// elicit: asks the user through the AI app's form (elicitation/create params) and gives the answer as JSON, or rejects
+// when there is none (mcp.rs mcp_elicit); only for an AI app that takes elicitation.
 // timed: when mcp.rs sent the request and when this page got it, with the page's visibility and focus then (a dev
 // build run with OCTET_MCP_TIMES): the reply's _meta gives them, with when the work started and ended (plan 17.5).
-export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown; unset?: boolean; timed?: { sent: number; got: number; visibility: string; focus: boolean } };
+export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown; unset?: boolean; elicit?: (params: object) => Promise<string>; timed?: { sent: number; got: number; visibility: string; focus: boolean } };
 
 // Runs f after every request queued before it; later ones wait for it.
 function queued<T>(f: () => Promise<T>): Promise<T> {
   const run = queue.then(f);
   queue = run.catch(() => {});
   return run;
+}
+// A turn in the same queue, taken part way through a call: it comes after every request queued before it, and what it
+// gives lets later ones go.
+function turn(): Promise<() => void> {
+  let go!: () => void;
+  const ready = queue, mine = new Promise<void>((r) => { go = r; });
+  queue = ready.then(() => mine);
+  return ready.then(() => go);
 }
 // What is answered at once, outside the queue (plan 17.5): the protocol's own requests and drawings, which read and
 // change no drawing, so a session's first requests never wait behind another session's work in this page. Everything
@@ -3009,8 +3044,11 @@ export function handle(body: string, host: () => Host, version: string, from: Fr
   let msg: Message;
   try { msg = JSON.parse(body); } catch { return Promise.resolve(reply(null, undefined, { code: -32700, message: "The request is not JSON." })); }
   const free = FREE.has(msg?.method as string) || (msg?.method === "tools/call" && msg.params?.name === "drawings");
-  let start = 0;
-  const work = () => { start = Date.now(); return answer(msg, host, version, from, free); }, run = free ? work() : queued(work), t = from.timed;
+  let start = 0, go = () => {};
+  // A call from an AI app that takes elicitation may first wait for the user's answer (plan 7.3): it takes its turn
+  // after that, so no other request waits for the user.
+  const take = from.elicit && !free && msg?.method === "tools/call" ? () => turn().then((g) => { go = g; start = Date.now(); }) : undefined;
+  const work = () => { start = Date.now(); return answer(msg, host, version, from, free, take); }, run = free ? work() : take ? work().finally(() => go()) : queued(work), t = from.timed;
   if (!t) return run;
   return run.then((body) => {
     const r = JSON.parse(body), end = Date.now();
@@ -3036,8 +3074,9 @@ const highest = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows 
 const ANYWHERE = new Set(["list", "use", "new"]);
 const CUT = " (cut: detail: full gives all of it)";
 
-// free: answered outside the queue, so it neither waits for the drawing to settle nor touches it.
-async function answer(msg: Message, host: () => Host, version: string, from: From, free: boolean): Promise<string> {
+// free: answered outside the queue, so it neither waits for the drawing to settle nor touches it. take: a tools/call
+// that came outside the queue takes its turn there once it has the brief.
+async function answer(msg: Message, host: () => Host, version: string, from: From, free: boolean, take?: () => Promise<void>): Promise<string> {
   const id = msg?.id ?? null;
   if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return reply(id, undefined, { code: -32600, message: "Not a JSON-RPC 2.0 request." });
   switch (msg.method) {
@@ -3046,7 +3085,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       return reply(id, {
         protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[0], capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: false }, prompts: { listChanged: false } },
         serverInfo: { name: "octet-draw", title: "Octet Draw", version, description: "Draws and reads chemical structures, reactions, schemes and catalytic cycles in the Octet Draw window open on this computer.", websiteUrl: "https://octet.software" },
-        instructions: INSTRUCTIONS,
+        instructions: instructionsFor(!!from.elicit),
       });
     }
     case "ping": return reply(id, {});
@@ -3094,17 +3133,36 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes) : "arguments: not an object";
       if (typeof routed === "string") return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${routed}.` }], isError: true });
       // A scheme, route, figure, cycle or grid waits for the brief (plan 3.1): the AI app asks the user first, and gives
-      // the answers with the call (draw's brief) or before it (set_brief).
-      const brief = routed.brief;
-      if (!from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: BRIEF_FIRST }], isError: true });
-      const tool = opOf(routed.op), args = routed.args, unfit = wrongWith(tool.inputSchema, args, notes, routed.at) ?? (brief === undefined ? undefined : wrongWith(opOf("brief").inputSchema, brief, notes, "brief")), wrong = unfit ?? tool.refuse?.(args);
-      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
+      // the answers with the call (draw's brief) or before it (set_brief). An AI app that takes elicitation has Octet
+      // ask the user (plan 7.3), and so does set_brief with no destination: the same call then goes on with the answers.
+      let brief = routed.brief;
+      const asks = !!from.elicit && !from.lost && (routed.op === "brief" ? routed.args.destination === undefined : !from.brief && brief === undefined && needsBrief(routed.op, routed.args));
+      if (!asks && !from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: BRIEF_FIRST }], isError: true });
+      // set_brief's other arguments are checked before it asks, with a destination standing in for the answer.
+      const tool = opOf(routed.op), own = asks && tool.name === "brief";
+      let args = routed.args, unfit = wrongWith(tool.inputSchema, own ? { destination: { kind: "quick" }, ...args } : args, notes, routed.at);
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
+      let stopped = false, halt = () => {};
+      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; halt(); };
+      if (asks && !unfit) {
+        // Octet's window says it waits for the user, with Stop, which ends the wait at once (as a cancel does): the
+        // notice opens first, then says how far the call is, as progress does.
+        h.working(busy, stop);
+        h.working(busy, stop, `Waiting for your answer in ${from.client && from.client !== "An AI app" ? from.client : "the AI app"}`);
+        const said = await Promise.race([from.elicit!(ASK_BRIEF).catch(() => undefined), new Promise<undefined>((r) => { halt = () => r(undefined); })]);
+        h.working();
+        if (stopped || (await from.cancelled?.())) return reply(id, { content: [{ type: "text", text: `${named.name} was cancelled, and the drawing is as it was before the call.` }], isError: true });
+        const got = answered(said);
+        if (typeof got === "string") return reply(id, { content: [{ type: "text", text: got }], isError: true });
+        if (own) { args = { ...(got as object), ...args }; unfit = wrongWith(tool.inputSchema, args, notes, routed.at); } else brief = got;
+      }
+      if (take) await take(); // (only then: an await of nothing would still let a request sent after this one go first)
+      unfit ??= brief === undefined ? undefined : wrongWith(opOf("brief").inputSchema, brief, notes, "brief");
+      const wrong = unfit ?? tool.refuse?.(args);
+      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
       if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call drawings, then drawings with use.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
-      let stopped = false;
-      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
       // The session keeps a new brief only when the call that gives it does what it asks.
       let kept: string | undefined;
       const ctx: Ctx = {

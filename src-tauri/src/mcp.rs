@@ -6,6 +6,8 @@
 // carry no other site's Origin (DNS rebinding) and carry the key (a bearer token) the user copied into the AI app.
 // Initialize gives each AI app a session id, so the page can name the app that drew. `Octet Draw --mcp` relays
 // standard input and output to the same server, for AI apps that start their servers themselves (Claude Desktop).
+// An AI app that takes elicitation/create lets the page ask the user something in the middle of a call (mcp_elicit,
+// plan 7.3): the request goes out on the call's event stream, and the AI app's answer comes back as a POST.
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -29,6 +31,8 @@ const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024; // a request from the AI app
 const MAX_REPLY: usize = 24 * 1024 * 1024; // a reply from the page (a picture of the drawing)
 const WAIT: Duration = Duration::from_secs(120); // a batch of 200 structures
+const ASK: Duration = Duration::from_secs(300); // the longest the page waits for the user to fill in the AI app's form (mcp_elicit)
+const MOST_ANSWER: usize = 16 * 1024; // the AI app's answer to an elicitation/create
 const MOST_SESSIONS: usize = 64;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -78,6 +82,7 @@ pub fn closed(app: &AppHandle, label: &str) {
     mcp.shared.heard.lock().unwrap().remove(label);
     mcp.shared.pending.lock().unwrap().retain(|_, p| {
         if p.window == label {
+            p.unask();
             let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The drawing closed before the call finished.")));
         }
         p.window != label
@@ -90,6 +95,7 @@ fn drawing_uri_label(uri: &str) -> Option<&str> {
     uri.strip_prefix("octet://drawing/").map(|r| r.split('/').next().unwrap_or(""))
 }
 // A request the page is answering: its window, its JSON-RPC id, its session, and where its progress and reply go.
+// elicit: its session's AI app takes elicitation/create; asked: the one the page waits on now (mcp_elicit).
 struct Pending {
     window: String,
     rid: serde_json::Value,
@@ -97,9 +103,24 @@ struct Pending {
     session: Option<String>,
     tx: mpsc::Sender<Msg>,
     request: serde_json::Value, // what was sent to the page, to send again when the page has not said it got it
+    elicit: bool,
+    asked: Option<Asking>,
+}
+// An elicitation/create the page waits on: its JSON-RPC id, the fields its form asks for, and where the answer goes
+// (None: an answer that is not one). Dropped (the call ended, or was cancelled), it ends the wait at once.
+struct Asking(serde_json::Value, Vec<String>, mpsc::Sender<Option<String>>);
+impl Pending {
+    // Octet stops waiting for the user's answer with none (its time is up, Stop, a cancel, the call ends): it cancels
+    // its elicitation/create on the call's stream, so the AI app closes the form (MCP, Cancellation).
+    fn unask(&mut self) {
+        if let Some(Asking(rid, ..)) = self.asked.take() {
+            let _ = self.tx.send(Msg::Progress(serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": rid, "reason": "Octet stopped waiting for the answer." } }).to_string()));
+        }
+    }
 }
 enum Msg {
     Progress(String), // a notifications/progress message, as JSON
+    Ask(String),      // an elicitation/create request, as JSON
     Done(String),     // the reply
     Got,              // the page has the request
 }
@@ -109,11 +130,13 @@ enum Msg {
 // works there; a window coming to the front later does not move it.
 // stream: its event stream for notifications (GET); subs: the drawing URIs it subscribed to; bucket: its calls left this
 // second (D16), and when it was last filled; waiting: its calls under way. brief: the user's answers to set_brief's
-// three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief.
+// three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief. elicit: the
+// AI app said at initialize that it takes elicitation/create in form mode (elicits).
 struct Session {
     client: String,
     drawing: Option<String>,
     brief: Option<String>,
+    elicit: bool,
     last: Instant,
     stream: Option<(u64, mpsc::Sender<String>)>, // the stream's own number, and where its notifications go
     subs: HashSet<String>,
@@ -276,6 +299,7 @@ pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String, listener: u3
     if was.is_some_and(|w| w != page) {
         mcp.shared.pending.lock().unwrap().retain(|_, p| {
             if p.window == label {
+                p.unask();
                 let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The Octet window started again. Try again.")));
             }
             p.window != label
@@ -291,7 +315,8 @@ pub fn mcp_reply(mcp: State<'_, Mcp>, id: u64, body: String) -> Result<(), Strin
     // With no window, the reply goes to the program that started Octet, or to a file (--convert): a drawing as large as
     // Save writes, twice (the text, and the same in structuredContent), in base64.
     let most = if crate::windows::HEADLESS.load(Ordering::Relaxed) { 4 * crate::MAX_BYTES as usize } else { MAX_REPLY };
-    if let Some(p) = mcp.shared.pending.lock().unwrap().remove(&id) {
+    if let Some(mut p) = mcp.shared.pending.lock().unwrap().remove(&id) {
+        p.unask();
         let _ = p.tx.send(Msg::Done(if body.len() > most { error_reply(Some(&p.rid), -32603, "The reply is too large.") } else { body }));
     }
     Ok(())
@@ -313,6 +338,51 @@ pub fn mcp_progress(mcp: State<'_, Mcp>, id: u64, body: String) {
 #[tauri::command(async)]
 pub fn mcp_cancelled(mcp: State<'_, Mcp>, id: u64) -> bool {
     mcp.shared.pending.lock().unwrap().get(&id).is_none_or(|p| p.cancelled)
+}
+
+// The page asks the user something through the AI app's own form, in the middle of request `id` (plan 7.3): body is the
+// elicitation/create params. The AI app's answer, checked (answered), or Err when there is none: its AI app does not
+// take elicitation, the call already asks, was stopped or cancelled, ASK went by, or the answer was not one.
+#[tauri::command]
+pub async fn mcp_elicit(mcp: State<'_, Mcp>, id: u64, body: String) -> Result<String, String> {
+    let shared = mcp.shared.clone();
+    tauri::async_runtime::spawn_blocking(move || ask(&shared, id, &body, ASK)).await.map_err(|e| e.to_string())?
+}
+fn ask(shared: &Shared, id: u64, body: &str, wait: Duration) -> Result<String, String> {
+    const NONE: &str = "The user did not answer.";
+    let params: serde_json::Value = serde_json::from_str(body).map_err(|_| NONE)?;
+    let fields = params.pointer("/requestedSchema/properties").and_then(|p| p.as_object()).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let (tx, rx) = mpsc::channel();
+    let rid = serde_json::json!(format!("octet-ask-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
+    {
+        let mut pending = shared.pending.lock().unwrap();
+        let p = pending.get_mut(&id).filter(|p| p.elicit && !p.cancelled && p.asked.is_none()).ok_or(NONE)?;
+        p.asked = Some(Asking(rid.clone(), fields, tx));
+        let _ = p.tx.send(Msg::Ask(serde_json::json!({ "jsonrpc": "2.0", "id": rid, "method": "elicitation/create", "params": params }).to_string()));
+    }
+    let got = rx.recv_timeout(wait);
+    if let Some(p) = shared.pending.lock().unwrap().get_mut(&id) {
+        p.unask();
+    }
+    got.ok().flatten().ok_or_else(|| NONE.into())
+}
+
+// A JSON-RPC response from the AI app: the answer to the elicitation/create of a call of the same session that waits
+// for it, as the page reads it (checked). A response nothing waits for is ignored.
+fn answered(shared: &Shared, message: &serde_json::Value, sid: Option<&str>) {
+    let Some(rid) = message.get("id") else { return };
+    if let Some(p) = shared.pending.lock().unwrap().values_mut().find(|p| p.session.as_deref() == sid && p.asked.as_ref().is_some_and(|a| &a.0 == rid)) {
+        let Asking(_, fields, tx) = p.asked.take().unwrap();
+        let _ = tx.send(checked(message, &fields));
+    }
+}
+// The answer is untrusted, as everything from outside is: at most MOST_ANSWER, an action of the three, and only the
+// form's fields that are text or a number. None: it is not an answer.
+fn checked(message: &serde_json::Value, fields: &[String]) -> Option<String> {
+    let r = message.get("result").filter(|_| message.to_string().len() <= MOST_ANSWER)?;
+    let action = r.get("action")?.as_str().filter(|a| matches!(*a, "accept" | "decline" | "cancel"))?;
+    let content: serde_json::Map<String, serde_json::Value> = r.get("content").and_then(|c| c.as_object()).map(|c| c.iter().filter(|(k, v)| fields.contains(k) && (v.is_string() || v.is_number())).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+    Some(serde_json::json!({ "action": action, "content": content }).to_string())
 }
 
 // A drawing changed (the page says so at most every half second): each session subscribed to it hears so (D12).
@@ -588,35 +658,48 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     // A notification or a response from the AI app needs no answer.
     let Some(id) = message.get("id").filter(|_| message.get("method").is_some()) else {
         cancel(shared, &message, sid.as_deref());
+        answered(shared, &message, sid.as_deref());
         return respond(&mut stream, "202 Accepted", "", None);
     };
-    let (client, session, window, lost, brief, unset) = match direct(app, shared, id, method, &message, sid.as_deref(), true) {
+    let (client, session, window, lost, brief, unset, elicit) = match direct(app, shared, id, method, &message, sid.as_deref(), true) {
         Routed::Answer(r) => return respond(&mut stream, "200 OK", &r, None),
         Routed::Unknown => return respond(&mut stream, "404 Not Found", "", None),
-        Routed::Call { client, session, window, lost, brief, unset } => (client, session, window, lost, brief, unset),
+        Routed::Call { client, session, window, lost, brief, unset, elicit } => (client, session, window, lost, brief, unset, elicit),
     };
     let new_session = session.as_deref().filter(|_| method == "initialize");
     let Some(window) = window else {
         finished(shared, session.as_deref());
         return respond(&mut stream, "200 OK", &error_reply(Some(id), -32603, "Octet has no window open."), None);
     };
-    let reply = match send(app, shared, &window, id, method, &body, &client, session.as_deref(), lost, brief, unset, READY) {
-        // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
-        Ok(sent) if message.pointer("/params/_meta/progressToken").is_some() => {
-            let new = new_session.map(|s| format!("Mcp-Session-Id: {s}\r\n")).unwrap_or_default();
-            let ok = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{new}Connection: close\r\n\r\n").is_ok();
-            let event = |s: &mut TcpStream, data: &str| ok && write!(s, "event: message\ndata: {}\n\n", data.replace('\n', " ")).and_then(|_| s.flush()).is_ok();
-            let r = answer(app, shared, sent, id, |p| event(&mut stream, p));
-            event(&mut stream, &r);
+    let sent = match send(app, shared, &window, id, method, &body, &client, session.as_deref(), lost, brief, unset, elicit, READY) {
+        Ok(sent) => sent,
+        Err(r) => {
             finished(shared, session.as_deref());
-            let _ = stream.shutdown(Shutdown::Both);
-            return;
+            return respond(&mut stream, "200 OK", &r, new_session);
         }
-        Ok(sent) => answer(app, shared, sent, id, |_| true),
-        Err(r) => r,
     };
+    // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply. Any other
+    // call becomes one only when the page asks the user something on the way (plan 7.3): its headers wait until then.
+    let (new, mut open) = (new_session.map(|s| format!("Mcp-Session-Id: {s}\r\n")).unwrap_or_default(), None);
+    if message.pointer("/params/_meta/progressToken").is_some() {
+        opened(&mut stream, &mut open, &new);
+    }
+    let reply = answer(app, shared, sent, id, |p| event(&mut stream, &mut open, &new, p));
     finished(shared, session.as_deref());
-    respond(&mut stream, "200 OK", &reply, new_session);
+    if open.is_none() {
+        return respond(&mut stream, "200 OK", &reply, new_session);
+    }
+    event(&mut stream, &mut open, &new, &reply);
+    let _ = stream.shutdown(Shutdown::Both);
+}
+
+// A call's event stream: its headers, written once (open: whether they went), then each message as an event. false:
+// the AI app has gone.
+fn opened(s: &mut impl Write, open: &mut Option<bool>, new: &str) -> bool {
+    *open.get_or_insert_with(|| write!(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{new}Connection: close\r\n\r\n").is_ok())
+}
+fn event(s: &mut impl Write, open: &mut Option<bool>, new: &str, data: &str) -> bool {
+    opened(s, open, new) && write!(s, "event: message\ndata: {}\n\n", data.replace('\n', " ")).and_then(|_| s.flush()).is_ok()
 }
 
 // notifications/cancelled stops the call it names, between its parts (the page puts the drawing back).
@@ -625,17 +708,24 @@ fn cancel(shared: &Shared, message: &serde_json::Value, sid: Option<&str>) {
         let want = message.pointer("/params/requestId");
         if let Some(p) = shared.pending.lock().unwrap().values_mut().find(|p| p.session.as_deref() == sid && Some(&p.rid) == want) {
             p.cancelled = true;
+            p.unask(); // a question the page waits on ends now
         }
     }
 }
 
 // Where a request goes (direct), for the server and for `--headless --mcp`: an answer here, a session Octet does not
 // know, or a call to a drawing window, with the AI app's name, its session, the window, the drawing it lost, its brief
-// (set_brief) and whether the session has no drawing yet.
+// (set_brief), whether the session has no drawing yet, and whether its AI app takes elicitation/create.
 enum Routed {
     Answer(String),
     Unknown,
-    Call { client: String, session: Option<String>, window: Option<String>, lost: Option<String>, brief: Option<String>, unset: bool },
+    Call { client: String, session: Option<String>, window: Option<String>, lost: Option<String>, brief: Option<String>, unset: bool, elicit: bool },
+}
+
+// Whether an initialize says the AI app takes elicitation/create in form mode (MCP 2025-11-25, Elicitation,
+// Capabilities): an empty elicitation is form mode; one with only url mode is not.
+fn elicits(message: &serde_json::Value) -> bool {
+    message.pointer("/params/capabilities/elicitation").and_then(|e| e.as_object()).is_some_and(|e| e.is_empty() || e.contains_key("form"))
 }
 
 // Initialize starts a session; a later request names its session, and one Octet does not know (ended, idle, or from
@@ -667,10 +757,11 @@ fn direct(app: &AppHandle, shared: &Shared, id: &serde_json::Value, method: &str
             sessions.remove(&oldest);
         }
         let (name, new) = (client_name(message), random_hex(16).unwrap_or_default());
-        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
-        return Routed::Call { client: name, session: Some(new), window: near, lost: None, brief: None, unset: true };
+        let elicit = elicits(message);
+        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, elicit, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
+        return Routed::Call { client: name, session: Some(new), window: near, lost: None, brief: None, unset: true, elicit };
     }
-    let Some(s) = sid else { return Routed::Call { client: "An AI app".into(), session: None, window: front, lost: None, brief: shared.loose.lock().unwrap().clone(), unset: false } };
+    let Some(s) = sid else { return Routed::Call { client: "An AI app".into(), session: None, window: front, lost: None, brief: shared.loose.lock().unwrap().clone(), unset: false, elicit: false } };
     let front_used = front.as_deref().is_some_and(|f| sessions.iter().any(|(k, x)| k != s && uses(x, f)));
     let Some(session) = sessions.get_mut(s) else { return Routed::Unknown };
     session.last = Instant::now();
@@ -705,7 +796,7 @@ fn direct(app: &AppHandle, shared: &Shared, id: &serde_json::Value, method: &str
     }
     let named = drawing_uri(app, uri).filter(|_| method == "resources/read").map(String::from);
     session.waiting += 1;
-    Routed::Call { client: session.client.clone(), session: Some(s.to_string()), window: named.or(window), lost, brief: session.brief.clone(), unset: session.drawing.is_none() }
+    Routed::Call { client: session.client.clone(), session: Some(s.to_string()), window: named.or(window), lost, brief: session.brief.clone(), unset: session.drawing.is_none(), elicit: session.elicit }
 }
 
 // A call routed to a session has ended: it no longer counts against the session's calls under way.
@@ -717,7 +808,7 @@ const WAITED: &str = "Octet did not answer in time.";
 
 // Sends a request to a window's page. A window that has just opened (File > New, drawings new) listens once its page
 // has started: up to `ready`; then the AI app is told to call again. Err: the reply when the window cannot be sent to.
-fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, method: &str, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>, brief: Option<String>, unset: bool, ready: Duration) -> Result<(u64, mpsc::Receiver<Msg>), String> {
+fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, method: &str, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>, brief: Option<String>, unset: bool, elicit: bool, ready: Duration) -> Result<(u64, mpsc::Receiver<Msg>), String> {
     let (start, listens) = (Instant::now(), || shared.ready.lock().unwrap().contains_key(window));
     while !listens() && start.elapsed() < ready {
         std::thread::sleep(Duration::from_millis(50));
@@ -729,10 +820,11 @@ fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, 
     let (tx, rx) = mpsc::channel();
     // unset: the session has no drawing yet (drawings list says none). sent: when this side sent the request (ms since
     // 1970), only in a dev build run with OCTET_MCP_TIMES set: the page then gives each call's times in the reply's
-    // _meta, to show whether WebKit slows the page of a covered window (plan 17.5).
+    // _meta, to show whether WebKit slows the page of a covered window (plan 17.5). elicit: the page may ask the user
+    // (mcp_elicit).
     let at = (cfg!(debug_assertions) && std::env::var_os("OCTET_MCP_TIMES").is_some()).then(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64));
-    let request = serde_json::json!({ "id": n, "body": String::from_utf8_lossy(body), "client": client, "session": session, "lost": lost, "brief": brief, "unset": unset, "sent": at });
-    shared.pending.lock().unwrap().insert(n, Pending { window: window.to_string(), rid: id.clone(), session: session.map(String::from), tx, cancelled: false, request: request.clone() });
+    let request = serde_json::json!({ "id": n, "body": String::from_utf8_lossy(body), "client": client, "session": session, "lost": lost, "brief": brief, "unset": unset, "elicit": elicit, "sent": at });
+    shared.pending.lock().unwrap().insert(n, Pending { window: window.to_string(), rid: id.clone(), session: session.map(String::from), tx, cancelled: false, request: request.clone(), elicit, asked: None });
     if app.emit_to(window, "mcp", request).is_err() {
         shared.pending.lock().unwrap().remove(&n);
         return Err(error_reply(Some(id), -32603, WAITED));
@@ -740,19 +832,21 @@ fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, 
     Ok((n, rx))
 }
 
-// The page's reply to a request sent, or WAITED after WAIT. Each progress message goes to `each` first, which stops
-// the wait by answering false (the AI app has gone).
+// The page's reply to a request sent, or WAITED after WAIT. Each progress message, and each question the page asks the
+// user (mcp_elicit), goes to `each` first, which stops the wait by answering false (the AI app has gone). A question
+// gives the call ASK more, the time the user has to answer it.
 // A request the page has not said it got within GOT is sent again, up to three times in all: a page between two
 // listeners, or one still starting, loses what is sent to it, and the call would wait the whole of WAIT. The page
 // answers one copy only.
 fn answer(app: &AppHandle, shared: &Shared, (n, rx): (u64, mpsc::Receiver<Msg>), id: &serde_json::Value, mut each: impl FnMut(&str) -> bool) -> String {
-    let end = Instant::now() + WAIT;
+    let mut end = Instant::now() + WAIT;
     let (mut got, mut sends) = (false, 1);
     let reply = loop {
         let left = end.saturating_duration_since(Instant::now());
         match rx.recv_timeout(if got || sends >= 3 { left } else { left.min(GOT) }) {
             Ok(Msg::Got) => got = true,
             Ok(Msg::Progress(p)) if each(&p) => continue,
+            Ok(Msg::Ask(q)) if each(&q) => end += ASK,
             Ok(Msg::Done(r)) => break Some(r),
             Err(mpsc::RecvTimeoutError::Timeout) if !got && sends < 3 && Instant::now() < end => {
                 sends += 1;
@@ -805,7 +899,7 @@ pub fn call(app: &AppHandle, window: &str, tool: &str, args: serde_json::Value) 
     let shared = &app.state::<Mcp>().shared;
     let id = serde_json::json!(1);
     let body = serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": tool, "arguments": args } }).to_string();
-    let reply = send(app, shared, window, &id, "tools/call", body.as_bytes(), "Octet Draw", None, None, None, false, WAIT).map_or_else(|r| r, |sent| answer(app, shared, sent, &id, |_| true));
+    let reply = send(app, shared, window, &id, "tools/call", body.as_bytes(), "Octet Draw", None, None, None, false, false, WAIT).map_or_else(|r| r, |sent| answer(app, shared, sent, &id, |_| true));
     let reply: serde_json::Value = serde_json::from_str(&reply).map_err(|e| e.to_string())?;
     let said = || reply.pointer("/result/content/0/text").or(reply.pointer("/error/message")).and_then(|t| t.as_str()).unwrap_or(WAITED).to_string();
     match reply.get("result") {
@@ -818,7 +912,8 @@ pub fn call(app: &AppHandle, window: &str, tool: &str, args: serde_json::Value) 
 // in Octet's own drawing windows, hidden. Each request takes the server's route to a window and its call there, with
 // no port, no key and no mcp.json. The program that started Octet is its one AI app, so there is no rate limit.
 // Requests go to the page in the order they come; each waits for its answer on a thread of its own, so a cancel goes
-// through while a call runs, and a call's progress and a subscribed drawing's updates come as lines too. When standard
+// through while a call runs, and a call's progress, the page's questions to the user (elicitation/create, whose answer
+// comes back as a line) and a subscribed drawing's updates come as lines too. When standard
 // input ends (the program closed it, or ended), the calls under way finish, and then Octet ends.
 pub fn stdio(app: &AppHandle) {
     let shared = app.state::<Mcp>().shared.clone();
@@ -833,9 +928,10 @@ pub fn stdio(app: &AppHandle) {
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let Some(id) = message.get("id").filter(|_| !method.is_empty()) else {
             cancel(&shared, &message, sid.as_deref());
+            answered(&shared, &message, sid.as_deref());
             continue;
         };
-        let (client, session, window, lost, brief, unset) = match direct(app, &shared, id, method, &message, sid.as_deref(), false) {
+        let (client, session, window, lost, brief, unset, elicit) = match direct(app, &shared, id, method, &message, sid.as_deref(), false) {
             Routed::Answer(r) => {
                 say(&out, &r);
                 continue;
@@ -844,7 +940,7 @@ pub fn stdio(app: &AppHandle) {
                 say(&out, &error_reply(Some(id), -32001, "This session has ended. Send initialize again."));
                 continue;
             }
-            Routed::Call { client, session, window, lost, brief, unset } => (client, session, window, lost, brief, unset),
+            Routed::Call { client, session, window, lost, brief, unset, elicit } => (client, session, window, lost, brief, unset, elicit),
         };
         // One program on standard input and output is one session: initialize again answers, and keeps the session
         // (its brief and its drawing) as it was.
@@ -855,7 +951,7 @@ pub fn stdio(app: &AppHandle) {
             std::thread::spawn(move || rx.iter().for_each(|note| say(&out, &note)));
             sid = session.clone();
         }
-        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, READY));
+        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, READY));
         let (app, shared, out, id) = (app.clone(), shared.clone(), out.clone(), id.clone());
         waiting.push(std::thread::spawn(move || {
             let reply = match sent {
@@ -898,7 +994,8 @@ struct Relay {
     dir: Option<PathBuf>,
     out: Mutex<Out>,
     // session: Octet's session for this AI app; hello: the AI app's initialize, sent again when Octet needs it; version:
-    // the protocol version agreed; watching: a thread tries Octet until it answers; listening: the GET stream's thread.
+    // the protocol version agreed; watching: a thread tries Octet until it answers; listening: the GET stream's thread;
+    // asks: the AI app takes elicitation/create, so a call may wait ASK more for the user's answer (plan 7.3).
     state: Mutex<RelayState>,
 }
 #[derive(Default)]
@@ -908,6 +1005,7 @@ struct RelayState {
     version: Option<String>,
     watching: bool,
     listening: bool,
+    asks: bool,
 }
 const CLOSED: &str = "Octet Draw is not open, or its AI apps are off. Open Octet Draw and turn on Settings > General > AI apps > Let AI apps use Octet, then try again.";
 
@@ -924,7 +1022,8 @@ impl Relay {
     fn take(self: &Arc<Self>, line: String) {
         let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else { return };
         if message.get("method").and_then(|m| m.as_str()) == Some("initialize") {
-            self.state.lock().unwrap().hello = Some(line.clone());
+            let mut st = self.state.lock().unwrap();
+            (st.hello, st.asks) = (Some(line.clone()), elicits(&message));
         }
         let me = self.clone();
         std::thread::spawn(move || me.handle(&line, &message));
@@ -1022,7 +1121,8 @@ impl Relay {
     }
     // A POST to Octet: its status, session and reply; progress and other messages on an event stream go to `each`.
     fn post(&self, info: &Info, body: &str, session: Option<&str>, each: impl Fn(&str)) -> std::io::Result<Got> {
-        let (status, head, mut reader) = self.request(info, "POST", body, session, "application/json, text/event-stream", WAIT + Duration::from_secs(20))?;
+        let wait = WAIT + Duration::from_secs(20) + if self.state.lock().unwrap().asks { ASK } else { Duration::ZERO };
+        let (status, head, mut reader) = self.request(info, "POST", body, session, "application/json, text/event-stream", wait)?;
         let session = header(&head, "mcp-session-id").map(String::from);
         let mut reply = None;
         if header(&head, "content-type").is_some_and(|t| t.starts_with("text/event-stream")) {
@@ -1340,7 +1440,7 @@ mod tests {
     // A session works in its drawing while it has a call under way or called in the last USING.
     #[test]
     fn a_session_works_in_its_drawing_while_it_calls() {
-        let at = |ago: u64, waiting| Session { client: "x".into(), drawing: Some("draw-1".into()), brief: None, last: Instant::now().checked_sub(Duration::from_secs(ago)).unwrap(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting };
+        let at = |ago: u64, waiting| Session { client: "x".into(), drawing: Some("draw-1".into()), brief: None, elicit: false, last: Instant::now().checked_sub(Duration::from_secs(ago)).unwrap(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting };
         assert!(uses(&at(5, 0), "draw-1"));
         assert!(!uses(&at(5, 0), "draw-2"));
         assert!(!uses(&at(USING.as_secs() + 1, 0), "draw-1"));
@@ -1355,6 +1455,178 @@ mod tests {
         assert_eq!(call, serde_json::json!({ "jsonrpc": "2.0", "id": "c1", "result": { "content": [{ "type": "text", "text": "The drawing is still starting. Call again." }], "isError": true } }));
         let other: serde_json::Value = serde_json::from_str(&starting(&serde_json::json!(2), "resources/read")).unwrap();
         assert_eq!((&other["error"]["message"], &other["id"]), (&serde_json::json!(STARTING), &serde_json::json!(2)));
+    }
+
+    // Plan 7.3: the page asks the user through the AI app's form. A call waiting on request 5 of session s.
+    fn waiting(shared: &Shared, elicit: bool) -> mpsc::Receiver<Msg> {
+        let (tx, rx) = mpsc::channel();
+        shared.pending.lock().unwrap().insert(5, Pending { window: "draw-1".into(), rid: serde_json::json!(9), cancelled: false, session: Some("s".into()), tx, request: serde_json::json!({}), elicit, asked: None });
+        rx
+    }
+    const FORM: &str = r#"{"message":"Where is this going?","requestedSchema":{"type":"object","properties":{"destination":{"type":"string"},"emphasis":{"type":"string"}},"required":["destination"]}}"#;
+    // The question the page asks, as it goes out, and its id.
+    fn question(rx: &mpsc::Receiver<Msg>) -> (serde_json::Value, serde_json::Value) {
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Msg::Ask(q)) => {
+                let v: serde_json::Value = serde_json::from_str(&q).unwrap();
+                (v["id"].clone(), v)
+            }
+            _ => panic!("no question went out"),
+        }
+    }
+    fn reply_to(rid: &serde_json::Value, result: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "jsonrpc": "2.0", "id": rid, "result": result })
+    }
+
+    #[test]
+    fn a_session_keeps_whether_its_ai_app_takes_elicitation() {
+        let hello = |caps: serde_json::Value| serde_json::json!({ "method": "initialize", "params": { "capabilities": caps } });
+        assert!(elicits(&hello(serde_json::json!({ "elicitation": {} }))), "empty is form mode");
+        assert!(elicits(&hello(serde_json::json!({ "elicitation": { "form": {}, "url": {} } }))));
+        assert!(!elicits(&hello(serde_json::json!({ "elicitation": { "url": {} } }))), "url mode only");
+        assert!(!elicits(&hello(serde_json::json!({}))));
+        assert!(!elicits(&hello(serde_json::json!({ "elicitation": true }))));
+        // The relay keeps it from the AI app's initialize: its calls may wait ASK more.
+        let relay = Relay::new(Some(std::env::temp_dir().join("octet-no-such-folder")), Box::new(Lines::default()));
+        relay.state.lock().unwrap().watching = true;
+        relay.take(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"elicitation":{}}}}"#.into());
+        assert!(relay.state.lock().unwrap().asks);
+    }
+
+    #[test]
+    fn a_question_goes_out_on_the_calls_stream_and_the_answer_comes_back() {
+        let shared = Arc::new(Shared::default());
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(10)));
+        let (rid, q) = question(&rx);
+        assert_eq!((q["method"].as_str(), &q["params"]), (Some("elicitation/create"), &serde_json::from_str::<serde_json::Value>(FORM).unwrap()));
+        assert!(rid.as_str().is_some_and(|r| r.starts_with("octet-ask-")));
+        // A call with no progress token becomes an event stream when it asks: the headers, then the question.
+        let (mut out, mut open) = (Vec::new(), None);
+        assert!(event(&mut out, &mut open, "", &q.to_string()) && event(&mut out, &mut open, "", "{}"));
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.starts_with("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n") && out.matches("HTTP/1.1").count() == 1 && out.contains(&format!("data: {q}\n\n")), "{out}");
+        // A second question while one waits is refused.
+        assert!(ask(&shared, 5, FORM, Duration::from_millis(10)).is_err());
+        // Answers nothing waits for are ignored: another id, and the right id from another session.
+        answered(&shared, &reply_to(&serde_json::json!("octet-ask-0"), serde_json::json!({ "action": "accept" })), Some("s"));
+        answered(&shared, &reply_to(&rid, serde_json::json!({ "action": "decline" })), Some("other"));
+        // The answer: only the form's fields that are text or a number.
+        answered(&shared, &reply_to(&rid, serde_json::json!({ "action": "accept", "content": { "destination": "paper", "emphasis": 2, "layout": "x", "other": "y" }, "extra": true })), Some("s"));
+        let got: serde_json::Value = serde_json::from_str(&asking.join().unwrap().unwrap()).unwrap();
+        assert_eq!(got, serde_json::json!({ "action": "accept", "content": { "destination": "paper", "emphasis": 2 } }));
+        assert!(shared.pending.lock().unwrap()[&5].asked.is_none());
+        // A call whose AI app does not take elicitation asks nothing.
+        let rx = waiting(&shared, false);
+        assert!(ask(&shared, 5, FORM, Duration::from_secs(10)).is_err() && rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn an_answer_that_is_not_one_is_refused() {
+        let f = ["destination".to_string()];
+        let ok = |r: serde_json::Value| checked(&reply_to(&serde_json::json!(1), r), &f);
+        assert_eq!(ok(serde_json::json!({ "action": "decline" })).as_deref(), Some(r#"{"action":"decline","content":{}}"#));
+        assert_eq!(ok(serde_json::json!({ "action": "cancel", "content": { "destination": { "a": 1 } } })).as_deref(), Some(r#"{"action":"cancel","content":{}}"#));
+        assert_eq!(ok(serde_json::json!({ "action": "maybe" })), None);
+        assert_eq!(ok(serde_json::json!({ "content": { "destination": "paper" } })), None);
+        assert_eq!(ok(serde_json::json!({ "action": "accept", "content": { "destination": "x".repeat(MOST_ANSWER) } })), None);
+        assert_eq!(checked(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "error": { "code": -1, "message": "no" } }), &f), None);
+        // Through the wait: such an answer ends it at once, with no answer.
+        let shared = Arc::new(Shared::default());
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(30)));
+        let (rid, _) = question(&rx);
+        answered(&shared, &reply_to(&rid, serde_json::json!({ "action": "submit" })), Some("s"));
+        assert!(asking.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn a_question_ends_when_its_time_is_up_or_its_call_is_cancelled() {
+        // Each time, Octet cancels its question on the call's stream, so the AI app closes the form.
+        let closed = |rx: &mpsc::Receiver<Msg>, rid: &serde_json::Value| match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Msg::Progress(n)) => {
+                let n: serde_json::Value = serde_json::from_str(&n).unwrap();
+                assert_eq!((n["method"].as_str(), &n["params"]["requestId"]), (Some("notifications/cancelled"), rid));
+            }
+            _ => panic!("the question was not cancelled"),
+        };
+        let shared = Arc::new(Shared::default());
+        let rx = waiting(&shared, true);
+        let t = Instant::now();
+        assert!(ask(&shared, 5, FORM, Duration::from_millis(50)).is_err() && t.elapsed() < Duration::from_secs(5));
+        assert!(shared.pending.lock().unwrap()[&5].asked.is_none(), "it can ask again");
+        let (rid, _) = question(&rx);
+        closed(&rx, &rid);
+        // notifications/cancelled ends the wait at once, long before its time is up.
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || { let t = Instant::now(); (ask(&s2, 5, FORM, Duration::from_secs(60)), t.elapsed()) });
+        let (rid, _) = question(&rx);
+        cancel(&shared, &serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 9 } }), Some("s"));
+        let (got, took) = asking.join().unwrap();
+        assert!(got.is_err() && took < Duration::from_secs(5), "{took:?}");
+        closed(&rx, &rid);
+        // So does the end of the call (the page answered, Stop): its Pending goes.
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(60)));
+        let (rid, _) = question(&rx);
+        shared.pending.lock().unwrap().remove(&5).unwrap().unask();
+        assert!(asking.join().unwrap().is_err());
+        closed(&rx, &rid);
+        // An answer that came cancels nothing.
+        let rx = waiting(&shared, true);
+        let s2 = shared.clone();
+        let asking = std::thread::spawn(move || ask(&s2, 5, FORM, Duration::from_secs(60)));
+        let (rid, _) = question(&rx);
+        answered(&shared, &reply_to(&rid, serde_json::json!({ "action": "decline" })), Some("s"));
+        assert!(asking.join().unwrap().is_ok());
+        shared.pending.lock().unwrap().remove(&5).unwrap().unask();
+        assert!(rx.try_recv().is_err());
+    }
+
+    // The relay (Claude Desktop) carries the question out on standard output and the AI app's answer back to Octet.
+    #[test]
+    fn the_relay_carries_a_question_and_its_answer() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-relay-ask-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k3y","program":""}}"#)).unwrap();
+        let head = |s: &TcpStream| {
+            let (mut r, mut head) = (std::io::BufReader::new(s.try_clone().unwrap()), String::new());
+            while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            let n = header(&head.lines().map(String::from).collect::<Vec<_>>(), "content-length").and_then(|n| n.parse().ok()).unwrap_or(0);
+            let mut body = vec![0; n];
+            r.read_exact(&mut body).unwrap();
+            String::from_utf8(body).unwrap()
+        };
+        let server = std::thread::spawn(move || {
+            // The call: its stream opens with the question; the answer comes as a POST of its own; then the reply.
+            let (mut call, _) = listener.accept().unwrap();
+            head(&call);
+            write!(call, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":\"octet-ask-1\",\"method\":\"elicitation/create\",\"params\":{{}}}}\n\n").unwrap();
+            call.flush().unwrap();
+            let (mut back, _) = listener.accept().unwrap();
+            let answer = head(&back);
+            write!(back, "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n").unwrap();
+            write!(call, "event: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}\n\n").unwrap();
+            answer
+        });
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        let r2 = relay.clone();
+        let calling = std::thread::spawn(move || run(&r2, r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"draw"}}"#));
+        let asked = (0..100).any(|_| { std::thread::sleep(Duration::from_millis(50)); !out.0.lock().unwrap().is_empty() });
+        assert!(asked, "the question came out");
+        assert_eq!(out.all()[0]["method"], "elicitation/create");
+        run(&relay, r#"{"jsonrpc":"2.0","id":"octet-ask-1","result":{"action":"decline"}}"#);
+        calling.join().unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&server.join().unwrap()).unwrap()["result"]["action"], "decline");
+        assert_eq!(out.all()[1]["id"], 7);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

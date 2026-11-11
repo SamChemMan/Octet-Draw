@@ -30,8 +30,11 @@ const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO"
 let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined, windowless = false, readied: (boolean | undefined)[] = [];
 // A box to type in or a dialog the last command left open (asking), and how often Escape closed one (dismiss).
 let asking = false, dismissed = 0;
-// What the window was told to show of an AI app at work (Host.working): the text, whether Stop is offered, how far.
+// What the window shows of an AI app at work after each Host.working: the text, whether Stop is offered, how far. As
+// in Editor, a call that says how far the call is changes only that.
 let far: [string | undefined, boolean, string | undefined][] = [];
+// The notice the window shows now, with its Stop, to press it.
+let notice: { text: string; stop?: () => void } | undefined;
 const ink = (atoms: number[]): Box | undefined => {
   const ps = atoms.map((i) => m.atoms[i]?.location).filter(Boolean);
   return ps.length ? [Math.min(...ps.map((p) => p[0])) - 0.3, Math.min(...ps.map((p) => p[1])) - 0.3, Math.max(...ps.map((p) => p[0])) + 0.3, Math.max(...ps.map((p) => p[1])) + 0.3] : undefined;
@@ -53,7 +56,7 @@ const host: Host = {
   reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
-  said: (t) => said.push(t), working: (text, stop, at) => { far.push([text, !!stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
+  said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
@@ -260,6 +263,95 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     fresh();
     o = await call("draw", { lines: "ethanol -> water", brief }, "s-9");
     assert.ok(o.isError && why.test(text(o)) && m === EMPTY && !briefs.has("s-9"), text(o));
+  }
+  // Plan 3.1, 7.3: an AI app that takes elicitation. Octet asks the user the brief itself, through the AI app's form,
+  // and the same call draws with the answers, as it would with them as draw's brief. An AI app without it is told the
+  // three questions, word for word, as before.
+  {
+    const asked: any[] = [];
+    let answer: () => Promise<string> = async () => "";
+    const ask = async (name: string, args: unknown, session: string) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }), () => host, "1.2.0", { ...as(session), elicit: async (p) => { asked.push(p); return answer(); } })).result;
+    const UNANSWERED = `Octet changed nothing. The user closed Octet's questions without answering. Ask them in the chat, then call again with brief: ${QUESTIONS.split(": ").slice(1).join(": ")}`;
+    // Accept: the drawing is made in the same call and undo step, with the reply a call with that brief gives, and the
+    // session keeps the brief.
+    fresh(); resetIds();
+    answer = async () => JSON.stringify({ action: "accept", content: { destination: "paper", journal_or_size: "JACS, 2 columns", emphasis: "the water, as drawn" } });
+    const o = await ask("draw", { lines: "ethanol -> water" }, "e-1");
+    assert.ok(!o.isError, text(o));
+    assert.deepEqual(JSON.parse(briefs.get("e-1")!), { destination: { kind: "paper", journal: "ACS Document 1996", columns: 2 }, style: "destination", emphasis: "the water, as drawn" });
+    assert.deepEqual([steps.length, said], [1, ["Test drew a reaction."]]);
+    assert.ok(far.some(([t, stop, at]) => t === "Test is drawing." && stop && at === "Waiting for your answer in Test"), JSON.stringify(far));
+    const given = o.content.map((c: { text?: string }) => c.text);
+    fresh(); resetIds();
+    assert.deepEqual((await call("draw", { lines: "ethanol -> water", brief: "paper, JACS, 2 columns emphasis: the water, as drawn" }, "e-2")).content.map((c) => c.text), given);
+    // The form: one short sentence, and a flat object of primitive fields (MCP 2025-11-25, Elicitation), only the
+    // destination required, each destination by a name a chemist reads, as an enum with enumNames: 2025-06-18 has no
+    // other titled choice.
+    const [form] = asked;
+    assert.ok(/^[^.]+\?$/.test(form.message) && form.message.length < 80, form.message);
+    assert.deepEqual([Object.keys(form.requestedSchema.properties), form.requestedSchema.required], [["destination", "journal_or_size", "emphasis", "layout"], ["destination"]]);
+    assert.ok(Object.values(form.requestedSchema.properties).every((x: any) => x.type === "string" && !x.properties && !x.items));
+    const choice = form.requestedSchema.properties.destination;
+    assert.deepEqual([choice.enum, choice.enumNames.length, choice.oneOf], [["quick", "paper", "thesis", "slides", "poster", "notebook"], 6, undefined]);
+    // The session keeps it: the next scheme asks nothing.
+    assert.ok(!(await ask("draw", { lines: "ethanol -> water" }, "e-1")).isError);
+    assert.equal(asked.length, 1);
+    // Decline: no preference, so Quick start.
+    fresh();
+    answer = async () => JSON.stringify({ action: "decline" });
+    let r = await ask("draw", { lines: "ethanol -> water" }, "e-3");
+    assert.match(text(r), /^Brief kept: Quick start \(ACS Document 1996, no page\)\. Drew the reaction\./);
+    assert.equal(JSON.parse(briefs.get("e-3")!).destination.kind, "quick");
+    // Cancel, no answer in time, or an answer that is not one: nothing changes, nothing is kept, and the AI app is told
+    // to ask in the chat.
+    for (const a of [async () => JSON.stringify({ action: "cancel" }), () => Promise.reject(new Error("The user did not answer.")), async () => JSON.stringify({ action: "accept", content: { emphasis: "x" } }), async () => JSON.stringify({ action: "accept", content: { destination: "spaceship" } }), async () => "nope"]) {
+      fresh();
+      answer = a;
+      r = await ask("draw", { lines: "ethanol -> water" }, "e-4");
+      assert.ok(r.isError && text(r) === UNANSWERED && m === EMPTY && !steps.length && !briefs.has("e-4"), text(r));
+      assert.equal(far.at(-1)?.[0], undefined, "the notice ends");
+    }
+    // Stop in Octet's window ends the wait at once.
+    fresh();
+    answer = () => new Promise(() => {});
+    const waiting = ask("draw", { lines: "ethanol -> water" }, "e-4");
+    await new Promise((d) => setTimeout(d, 10));
+    notice!.stop!();
+    r = await waiting;
+    assert.ok(r.isError && /^draw was cancelled/.test(text(r)) && m === EMPTY && !briefs.has("e-4"), text(r));
+    // What the user types in one field is not read as another: emphasis that says layout: stays emphasis.
+    fresh();
+    answer = async () => JSON.stringify({ action: "accept", content: { destination: "paper", emphasis: "the ester layout: vertical" } });
+    assert.ok(!(await ask("draw", { lines: "ethanol -> water" }, "e-8")).isError);
+    assert.deepEqual(JSON.parse(briefs.get("e-8")!), { destination: { kind: "paper" }, style: "destination", emphasis: "the ester layout: vertical" });
+    // While the user fills in the form, other requests to the window go on: they do not wait for the answer.
+    fresh();
+    let reply = (_: string) => {};
+    answer = () => new Promise((r) => { reply = r; });
+    const later = ask("draw", { lines: "ethanol -> water" }, "e-10");
+    assert.equal(await Promise.race([call("read", {}, "e-11").then(() => "read"), new Promise((d) => setTimeout(() => d("waited"), 3000))]), "read");
+    reply(JSON.stringify({ action: "decline" }));
+    assert.ok(!(await later).isError && steps.length === 1);
+    // An AI app without elicitation is asked nothing, and gets the three questions as before.
+    const before = asked.length;
+    assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "e-5")), QUESTIONS);
+    assert.equal(asked.length, before);
+    // set_brief with the answers missing asks the same form; without elicitation it is refused as before.
+    fresh();
+    answer = async () => JSON.stringify({ action: "accept", content: { destination: "thesis" } });
+    r = await ask("set_brief", {}, "e-6");
+    assert.ok(!r.isError && /^Octet keeps this brief for the session\./.test(text(r)) && asked.length === before + 1, text(r));
+    assert.equal(JSON.parse(briefs.get("e-6")!).destination.kind, "thesis");
+    assert.equal(text(await call("set_brief", {}, "e-7")), "Octet changed nothing. arguments: destination is missing.");
+    // A set_brief whose own arguments are wrong is refused before it asks anything.
+    assert.equal(text(await ask("set_brief", { style: "destination" }, "e-6")), "Octet changed nothing. style: not an object.");
+    assert.equal(asked.length, before + 1);
+    // The instructions differ by AI app in their bullet on the questions only: one that takes elicitation (mcp.rs reads
+    // its initialize) is told to just call draw.
+    const ins = async (elicit: boolean) => (JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "initialize", params: { capabilities: {} } }), () => host, "1.2.0", { ...as("s-1"), ...(elicit ? { elicit: async () => "" } : {}) })).result.instructions as string).split("\n");
+    const [plain, form2] = [await ins(false), await ins(true)];
+    assert.deepEqual([form2.length, form2.filter((l, k) => l !== plain[k]).length], [plain.length, 1]);
+    assert.equal(form2[1], "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.");
   }
   // The answers in one line, each part read one way; or set_brief's object.
   for (const [line, brief] of [
