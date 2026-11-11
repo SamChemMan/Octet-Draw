@@ -79,13 +79,15 @@ assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 assert.ok(tools.find((t) => t.name === "read_drawing")!.annotations.readOnlyHint);
 // The compound is listed once in each tool that takes compounds ($defs), however many places take one, and takes from
-// and changes (compound.ts); every reference in a tool's schema has its definition there.
-for (const t of tools as unknown as { name: string; inputSchema: { $defs?: { compound: { properties: Record<string, unknown> } } } }[]) {
-  const json = JSON.stringify(t.inputSchema), refs = json.match(/"\$ref":"#\/\$defs\/compound"/g)?.length ?? 0;
+// and changes (compound.ts); every reference in a tool's schema has its definition there. The same for text that can
+// be runs (rich, in a figure) and an arrow's end (place): a tool lists the pieces it refers to, and no other.
+for (const t of tools as unknown as { name: string; inputSchema: { $defs?: Record<string, { properties: Record<string, unknown> }> } }[]) {
+  const json = JSON.stringify(t.inputSchema), all = [...json.matchAll(/"\$ref":"([^"]*)"/g)].map((x) => x[1]), refs = all.filter((x) => x === "#/$defs/compound").length;
   assert.equal(refs, { draw_structures: 1, draw_reaction: 2, draw_cycle: 1 }[t.name] ?? 0, t.name);
-  assert.equal(!!t.inputSchema.$defs, refs > 0, t.name);
+  assert.equal(!!t.inputSchema.$defs, all.length > 0, t.name);
   if (refs) assert.ok(["text", "molecule", "labels", "from", "changes", "number", "like"].every((k) => k in t.inputSchema.$defs!.compound.properties), t.name);
-  assert.ok(!/"\$ref":"(?!#\/\$defs\/compound")/.test(json), t.name);
+  assert.deepEqual(Object.keys(t.inputSchema.$defs ?? {}).map((k) => `#/$defs/${k}`).sort(), [...new Set(all)].sort(), t.name);
+  assert.deepEqual([all.filter((x) => x === "#/$defs/rich").length, all.filter((x) => x === "#/$defs/place").length], { draw_figure: [4, 0], add_arrow: [0, 2] }[t.name] ?? [0, 0], t.name);
 }
 assert.ok(!tools.find((t) => t.name === "draw_reaction")!.annotations.readOnlyHint);
 // The tool table (D11): names of 64 characters at most from A-Z a-z 0-9 _ - ., a title, a closed input schema, an
@@ -124,6 +126,10 @@ const refused: [string, unknown, RegExp][] = [
   ["run_command", { command: "quit" }, /no command quit/],
   ["set_style", { preset: "Comic Sans" }, /not one of/],
   ["read_drawing", [], /not an object/],
+  // Through a piece a tool lists once (rich, place), a refusal names the place and the forms as before.
+  ["draw_figure", { panels: [{ title: 5, rows: [[{ text: "and" }]] }] }, /panels\[0\]\.title: not text, or runs/],
+  ["draw_figure", { panels: [{ rows: [[{ structure: "benzene", caption: [{ bold: true }] }]] }] }, /panels\[0\]\.rows\[0\]\[0\]\.caption: not text, or runs/],
+  ["add_arrow", { kind: "reaction", from: 5, to: [0, 0] }, /from: not an id \(s3, t5, s3\.2\) or a point \[x, y\]/],
   // The look-alikes of the lenient readings (test plan R2): each has no meaning, or more than one, and stays refused.
   ["draw_structures", { structures: [{ text: "benzene", number: true }] }, /structures\[0\]\.number: not text/],
   ["draw_structures", { structures: [{ text: "benzene", number: [13] }] }, /structures\[0\]\.number: not text/],

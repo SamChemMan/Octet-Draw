@@ -77,10 +77,10 @@ export type Host = {
 // ---- Arguments: a small JSON Schema the tools list, and the check every call goes through ----
 
 // An object with additionalProperties true takes any keys: its values are checked later (a batch step's arguments,
-// against that step's tool). anyOf: the first form that fits. $ref: the compound, which each tool that takes compounds
-// lists once (its $defs) however many places take one.
+// against that step's tool). anyOf: the first form that fits. $ref: a piece that a tool lists once (its $defs) however
+// many places take one: the compound, text that can be runs, and an arrow's end.
 type ObjSchema = { type: "object"; properties: Record<string, Schema | Prop>; required?: string[]; additionalProperties?: boolean; description?: string };
-type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: number; minItems?: number; description?: string } | { anyOf: (Schema | Prop)[]; description: string } | typeof COMPOUND;
+type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: number; minItems?: number; description?: string } | { anyOf: (Schema | Prop)[]; description: string } | { $ref: string };
 // The lenient readings (coerce). numeral: a whole number in JSON is read as its text (a compound number); also: other
 // names for an enum's values; default: the value a required argument takes when it is left out.
 // unlisted: an argument tools/list leaves out (detail on a write tool: the instructions say it once, for every tool).
@@ -91,14 +91,17 @@ const pick = (values: readonly string[], description?: string, own?: { also?: Re
 const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
-const COMPOUND = { $ref: "#/$defs/compound" } as const;
+// The pieces by name, a reference to one, and the piece a reference names.
+const DEFS: Record<string, Schema> = {};
+const define = (name: string, s: Schema): Schema => { DEFS[name] = s; return { $ref: `#/$defs/${name}` }; };
+const defined = (s: { $ref: string }) => DEFS[s.$ref.slice("#/$defs/".length)];
 
 export const MAX_TEXT = 300, MAX_STRUCTURE = 20_000, MOST_STRUCTURES = 200;
 const RADICALS = ["none", "doublet", "triplet", "singlet"] as const;
 // Where the error is, for the AI app to fix its call: "steps[2].above[0]: longer than 300 characters".
 function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
   const where = at || "arguments";
-  if ("$ref" in s) return check(compound, v, at);
+  if ("$ref" in s) return check(defined(s), v, at);
   if ("anyOf" in s) return s.anyOf.some((x) => !check(x, v, at)) ? undefined : `${where}: not ${s.description}`;
   if (s.type === "object") {
     if (!v || typeof v !== "object" || Array.isArray(v)) return `${where}: not an object`;
@@ -137,7 +140,7 @@ type Notes = Map<string, [string, number]>;
 const note = (notes: Notes, kind: string, line: string) => { const had = notes.get(kind); if (had) had[1]++; else notes.set(kind, [line, 1]); };
 const noted = (notes: Notes) => [...notes.values()].map(([line, n]) => (n > 1 ? `${line.slice(0, -1)}, and ${n - 1} more the same way.` : line));
 function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknown {
-  if ("$ref" in s) return coerce(compound, v, key, notes);
+  if ("$ref" in s) return coerce(defined(s), v, key, notes);
   if ("anyOf" in s) return s.anyOf.reduce((x, form) => coerce(form, x, key, notes), v);
   if (s.type === "object") {
     if (!v || typeof v !== "object" || Array.isArray(v)) return v;
@@ -175,7 +178,7 @@ const yes = (description?: string): Prop => ({ type: "boolean", ...(description 
 const POINT: Schema = { ...list(num(-1000, 1000), 2, 2), description: "[x, y], bond lengths, y up" };
 // Rich text (F6): runs, each with its own style, as Octet's Text menu sets them on part of a text.
 const RUNS = list(obj({ text: str(2000), bold: yes(), italic: yes(), underline: yes(), colour: str(7), script: pick(["sub", "super"]) }, ["text"]), 100, 1);
-const RICH: Schema = { anyOf: [str(2000), RUNS], description: "text, or runs" };
+const RICH = define("rich", { anyOf: [str(2000), RUNS], description: "text, or runs" });
 // A structure with set coordinates (F4), for what a SMILES lays out badly (a metal complex, a picture's own layout).
 const MOLECULE = obj({
   atoms: list(obj({ label: str(40), runs: RUNS, x: num(-1000, 1000), y: num(-1000, 1000), charge: int(-8, 8), colour: str(7) }, ["x", "y"]), 500, 1),
@@ -198,14 +201,14 @@ type Geometry = keyof typeof GEOMETRIES;
 const ORIENT = { up: str(40), down: str(40), left: str(40), right: str(40), rotate: num(-360, 360), flip: pick(["horizontal", "vertical"]), geometry: pick(Object.keys(GEOMETRIES)), colours: { type: "object", properties: {}, additionalProperties: true, description: "{label or element: '#rrggbb'}" }, like: str(40, "Drawn the same way round as this structure (an id such as s3), by the atoms they share") } as const;
 // A compound's changes to the one it is from (compound.ts reads each: a tool's list stays short).
 const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20);
-const compound = obj({
+const COMPOUND = define("compound", obj({
   text: structureText,
   molecule: MOLECULE,
   labels: { ...list(str(40), 20), description: "One for each *, in order" },
   from: str(40, "With changes: draw_structures says how"), changes: CHANGES,
   number: numeral(12), caption: str(MAX_TEXT),
   ...ORIENT,
-});
+}));
 const condition = str(MAX_TEXT);
 const ARROWS = ["reaction", "equilibrium", "retro", "resonance", "nogo"] as const;
 // Every command a chemist has (R7): the menu commands by id (Editor.tsx commands), and the Actions panel's actions on
@@ -242,7 +245,7 @@ const PANEL = obj({ title: RICH, subtitle: RICH, frame: pick(["none", "line", "f
 // its number or conditions), a gap clear of it.
 const ANCHORS = ["centre", "top_left", "top", "top_right", "left", "right", "bottom_left", "bottom", "bottom_right"] as const;
 const placing = (point: "at" | "to") => ({ [point]: POINT, anchor: pick(ANCHORS), right_of: str(40), left_of: str(40), below: str(40), above: str(40), gap: num(0, 100), align: pick(["top", "middle", "bottom", "left", "centre", "right"]) });
-const PLACE_AT: Schema = { anyOf: [str(40), POINT], description: "an id (s3, t5, s3.2) or a point [x, y] (each from -1000 to 1000)" };
+const PLACE_AT = define("place", { anyOf: [str(40), POINT], description: "an id (s3, t5, s3.2) or a point [x, y] (each from -1000 to 1000)" });
 // The properties every kind of object takes (R7), as the Actions panel and the Object, Text, Colour and Curves menus
 // set them. edit takes them all; add_text, add_arrow and add_shape take their kind's.
 const COLOUR_OR_NONE = str(7, "#rrggbb, or none");
@@ -2380,10 +2383,14 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (part === "cdxml") { const text = h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
-    case "tools/list": return reply(id, { tools: TOOLS.map((t) => ({
-      name: t.name, title: t.title, description: t.description, inputSchema: { ...(published(t.inputSchema) as object), additionalProperties: false, ...(JSON.stringify(t.inputSchema).includes(COMPOUND.$ref) ? { $defs: { compound: published(compound) } } : {}) }, ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
-      annotations: { readOnlyHint: t.hints.readOnly, destructiveHint: t.hints.destructive, idempotentHint: t.hints.idempotent, openWorldHint: false },
-    })) });
+    case "tools/list": return reply(id, { tools: TOOLS.map((t) => {
+      // $defs: the pieces this tool's schema refers to, each listed once. (No piece refers to another.)
+      const json = JSON.stringify(t.inputSchema), defs = Object.entries(DEFS).filter(([name]) => json.includes(`"#/$defs/${name}"`));
+      return {
+        name: t.name, title: t.title, description: t.description, inputSchema: { ...(published(t.inputSchema) as object), additionalProperties: false, ...(defs.length ? { $defs: Object.fromEntries(defs.map(([name, x]) => [name, published(x)])) } : {}) }, ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+        annotations: { readOnlyHint: t.hints.readOnly, destructiveHint: t.hints.destructive, idempotentHint: t.hints.idempotent, openWorldHint: false },
+      };
+    }) });
     case "tools/call": {
       const tool = TOOLS.find((t) => t.name === msg.params?.name), args = msg.params?.arguments ?? {};
       if (!tool) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
