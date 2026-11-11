@@ -74,7 +74,7 @@ function readItem(item: string) {
 // One grid for each reaction (an experiment page gives each new arrow one), laid out under it. When the reaction has
 // grids for its steps (Grid.step: Analyse stoichiometry on a scheme of several arrows, or One table for each step),
 // one table for each step instead, in the scheme's order, each under the one before; a grid of the whole reaction is
-// then not drawn.
+// then not drawn, and an arrow added to the scheme since (an experiment page gives it a grid) is a step with its grid.
 export function gridViews(m: Mol, d: GridDeps) {
   const seen = new Set<number>(), out: GridView[] = [];
   for (const g of m.grids ?? []) {
@@ -83,11 +83,11 @@ export function gridViews(m: Mol, d: GridDeps) {
     seen.add(r.arrows[0]);
     const steps = d.steps(r);
     if (!steps.length) continue;
-    const own = (m.grids ?? []).filter((x) => x.step && r.arrows.includes(x.arrow));
-    if (!own.length) { const v = layGrid(m, d, g, r, steps, out.length === 0); if (v) out.push(v); continue; }
+    const own = (m.grids ?? []).filter((x) => r.arrows.includes(x.arrow));
+    if (!own.some((x) => x.step)) { const v = layGrid(m, d, g, r, steps, out.length === 0); if (v) out.push(v); continue; }
     let before: GridView | undefined;
     for (const st of steps) {
-      const sg = own.find((x) => x.arrow === st.arrow), v = sg && layGrid(m, d, sg, r, steps, out.length === 0, { own: st, before });
+      const sg = own.find((x) => x.arrow === st.arrow && x.step) ?? own.find((x) => x.arrow === st.arrow), v = sg && layGrid(m, d, sg, r, steps, out.length === 0, { own: st, before });
       if (v) out.push(v);
       before = v;
     }
@@ -113,7 +113,8 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // label: what names it in a table of rows, its compound number or the text it is written as. given: the
   // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed. coef: its coefficient, for
   // a part of the equation; side: written over or under an arrow, where a number in front ("2 HCl") gives its
-  // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent.
+  // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent
+  // written or drawn over or under the arrow (benzene or acetone drawn in the equation is what reacts).
   // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
   // (every table Octet makes now) a solvent when it is a known one.
   // carried: a step's reactant made by the step before, its moles from that step's Measured mass.
@@ -123,7 +124,7 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
     const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
     if (p.kind === "structure") {
       const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
-      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: liquid?.solvent });
+      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: conditions && liquid?.solvent });
       return;
     }
     if (counted.has(p)) return;
@@ -132,7 +133,7 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
       const { n, plain, equiv, gas, liquid } = readItem(item), got = d.reagent(item);
       // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
       if (conditions && (!got || gas)) return;
-      parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: equiv ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: product ? undefined : liquid?.density, solvent: product ? undefined : liquid?.solvent });
+      parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: equiv ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: product ? undefined : liquid?.density, solvent: conditions && liquid?.solvent });
     });
   };
   // A step's table: what stands before its arrow, its conditions and what stands after it.
@@ -143,7 +144,10 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // Once a coefficient is written, each part of the equation has one.
   if (parts.some((p) => p.coef)) for (const p of parts) if (!p.side) p.coef ??= 1;
   const keyed = keyColumns(parts, g.typed, g.limiting), all = keyed.cols, hidden = g.hidden ?? {};
-  for (const c of all) if (!c.product) c.role = g.roles?.[c.key] ?? (g.roles && c.solvent ? "solvent" : "reactant");
+  // Roles and marks follow a compound redrawn, as its typed values do.
+  const rekey = <T>(x?: Record<string, T>) => (x && keyed.moved.size ? Object.fromEntries(Object.entries(x).map(([k, y]) => [keyed.moved.get(k) ?? k, y])) : x);
+  const roles = rekey(g.roles), taken = rekey(g.taken);
+  for (const c of all) if (!c.product) c.role = roles?.[c.key] ?? (roles && c.solvent ? "solvent" : "reactant");
   // A reactant the step before made, with a Measured mass there: its moles from that, shown as worked out; it is the
   // limiting reactant unless another is set.
   const made = step?.before;
@@ -205,7 +209,7 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const block = lines.length ? { lines, at, valueAt, right: valueAt + Math.max(...lines.map((l) => d.nameWidth(l.value, size))) } : undefined;
   // The table's foot: its last rule (as rows), or its last row; or the block's last line when that is lower.
   const bottom = Math.min(rules ? rules[rules.length - 1]?.[2] ?? top : top - rows.length * rh, ...lines.map((l) => l.y - rh));
-  return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections };
+  return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, roles, taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections };
 }
 
 export type GridView = NonNullable<ReturnType<typeof layGrid>>;
@@ -221,7 +225,7 @@ export function setRole(g: Grid, v: GridView, key: string, role: GridRole): Part
 export function keptGrid(g: Grid, v: GridView): Grid {
   const keys = new Set(v.all.map((c) => c.key)), own = <T>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).filter(([k]) => keys.has(k)));
   return { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting,
-    ...(g.roles ? { roles: own(g.roles) } : {}), ...(g.taken ? { taken: own(g.taken) } : {}) };
+    ...(v.roles ? { roles: own(v.roles) } : {}), ...(v.taken ? { taken: own(v.taken) } : {}) };
 }
 type GridRow = (typeof GRID_ROWS)[number];
 // A cell's text, and whether it was typed (typed values show bold, worked-out ones plain, as ChemDraw's grid does).
@@ -238,7 +242,8 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
   if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass"), typed: c.typed.mass !== undefined };
   if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
   if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
-  if (row.id === "conc") return c.role === "solvent" ? { text: formatAmount(s?.conc, "molarity"), typed: v.conc !== undefined } : { text: "" };
+  // Concentration: the one typed, bold, until amounts give it; worked out (plain) when every solvent's amount is typed.
+  if (row.id === "conc") return c.role === "solvent" ? { text: formatAmount(s?.conc ?? v.conc, "molarity"), typed: v.conc !== undefined && (s?.conc === undefined || Math.abs(s.conc / v.conc - 1) < 1e-9) } : { text: "" };
   if (row.id === "equiv" && c.role === "catalyst") return { text: formatAmount(s?.equiv, "mol%"), typed: c.typed.equiv !== undefined };
   if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
   return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };

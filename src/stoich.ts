@@ -27,15 +27,17 @@ export type Solved = {
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
 };
 
-// The limiting reactant: the one set, unless it is a solvent; else the first with the Reactant role; else the first
-// that is not a solvent.
+// The limiting reactant: the one set, when it has the Reactant role; else the first with the Reactant role; else the
+// first that is not a solvent. A catalyst or a solvent set as limiting (its role changed since) is not.
 // One pass, with nothing made: the table is laid out again on every change.
 export function limitingOf<T extends { key: string; product: boolean; role?: GridRole }>(components: T[], limiting?: string): T | undefined {
   let reactant: T | undefined, first: T | undefined;
   for (const c of components) {
     if (c.product || c.role === "solvent") continue;
-    if (c.key === limiting) return c;
-    if (!reactant && (c.role ?? "reactant") === "reactant") reactant = c;
+    if ((c.role ?? "reactant") === "reactant") {
+      if (c.key === limiting) return c;
+      reactant ??= c;
+    }
     first ??= c;
   }
   return reactant ?? first;
@@ -321,8 +323,8 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what
 // was typed for it: by its key, or else, for typed values whose key names no column (a compound redrawn, or a grid
 // from before keys named compounds, "r0"), by order: the first column on the same side with nothing of its own. The
-// limiting reactant follows its values.
-export function keyColumns<T extends { product: boolean; what: string }>(cols: T[], typed: Grid["typed"], limiting?: string): { cols: (T & { key: string; typed: Typed })[]; limiting?: string } {
+// limiting reactant follows its values. moved: each key whose values went to another column, and that column's key.
+export function keyColumns<T extends { product: boolean; what: string }>(cols: T[], typed: Grid["typed"], limiting?: string): { cols: (T & { key: string; typed: Typed })[]; limiting?: string; moved: Map<string, string> } {
   const count = new Map<string, number>();
   const keyed = cols.map((c) => { const base = `${c.product ? "p" : "r"}:${c.what}`, n = (count.get(base) ?? 0) + 1; count.set(base, n); return { ...c, key: n > 1 ? `${base}#${n}` : base, typed: typed[n > 1 ? `${base}#${n}` : base] ?? {} }; });
   const keys = new Set(keyed.map((c) => c.key)), moved = new Map<string, string>();
@@ -335,5 +337,5 @@ export function keyColumns<T extends { product: boolean; what: string }>(cols: T
     moved.set(k, c.key);
   }
   const lim = limiting && (keys.has(limiting) ? limiting : moved.get(limiting) ?? (old(limiting) ? keyed.filter((c) => !c.product)[Number(limiting.slice(1))]?.key : undefined));
-  return { cols: keyed, limiting: lim };
+  return { cols: keyed, limiting: lim, moved };
 }

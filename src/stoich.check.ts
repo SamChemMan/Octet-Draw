@@ -305,11 +305,26 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.equal(newer.at('r:"THF"').moles, undefined, "a solvent has no equivalents until some are typed");
   const role = (v: typeof newer.v, key: string) => cellText(v, v.cols.find((c) => c.key === key)!, v.rows.find((r) => r.id === "role")!).text;
   assert.deepEqual([role(newer.v, "r:S0"), role(newer.v, 'r:"THF"'), role(newer.v, "p:S1")], ["Reactant", "Solvent", "Product"]);
+  // A known solvent starts as one only over or under the arrow: benzene written in the equation is what reacts. Water
+  // over the arrow is a solvent.
+  const placed = grid(["benzene", "+", 0, "→", 1], { "r:S0": { moles: 0.001 } }, "r:S0", ["H2O"], undefined, { roles: {} });
+  assert.deepEqual(placed.v.all.filter((c) => !c.product).map((c) => [c.key, c.role]), [['r:"benzene"', "reactant"], ["r:S0", "reactant"], ['r:"H2O"', "solvent"]]);
   // Set as catalyst on an older table: that column changes, and THF stays a reactant.
   const changed = setRole({ arrow: 9, typed: {} }, older.v, "r:S0", "catalyst");
   assert.deepEqual(changed.roles, { 'r:"THF"': "reactant", "r:S0": "catalyst" });
   // A solvent set as limiting is not: the first reactant is.
   assert.equal(grid([0, "→", 1], {}, 'r:"THF"', ["THF"], undefined, { roles: {} }).v.limiting, "r:S0");
+  // Nor is a catalyst (the column was limiting before it was made one): 5 mol% is of the reactant.
+  const catLim = grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 }, "r:S1": { equiv: 0.05 } }, "r:S1", [], undefined, { roles: { "r:S1": "catalyst" } });
+  assert.equal(catLim.v.limiting, "r:S0");
+  near(catLim.at("r:S1").moles, 0.0005, "5 mol% of 10 mmol");
+  // A compound redrawn keeps its role and its mark, as it keeps its values (by order: keyColumns).
+  const redrawnGrid = { arrow: 9, typed: { "r:S0": { moles: 0.01 }, "r:S7": { mass: 0.1 } }, roles: { "r:S7": "catalyst" as const }, taken: { "r:S7": "mass" as const } };
+  const redrawn = grid([0, "+", 1, "→", 2], redrawnGrid.typed, "r:S0", [], undefined, { roles: redrawnGrid.roles, taken: redrawnGrid.taken });
+  assert.equal(redrawn.v.all.find((c) => c.key === "r:S1")!.role, "catalyst");
+  assert.deepEqual(cellText(redrawn.v, redrawn.v.cols[1], redrawn.v.rows.find((r) => r.id === "mass")!), { text: "100 mg", typed: true, taken: true });
+  const keptRedrawn = keptGrid(redrawnGrid, redrawn.v);
+  assert.deepEqual([keptRedrawn.roles, keptRedrawn.taken], [{ "r:S1": "catalyst" }, { "r:S1": "mass" }]);
   // 1 mmol in 5 mL of THF is 0.20 M; 0.1 M typed gives 10 mL; a catalyst's 0.05 eq. is 5.00 mol%.
   const conc = (more: object, thf: object = {}) => grid([0, "→", 1], { "r:S0": { moles: 0.001 }, 'r:"THF"': thf }, "r:S0", ["THF"], undefined, { roles: {}, ...more });
   const five = conc({}, { volume: 5 }), thfKey = 'r:"THF"';
@@ -320,6 +335,11 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   near(typedConc.at(thfKey).mass, 10 * 0.8833, "and its mass from THF's density");
   assert.equal(cellText(typedConc.v, typedConc.v.cols.find((c) => c.key === thfKey)!, typedConc.v.rows.find((r) => r.id === "conc")!).typed, true);
   near(conc({ conc: 0.1 }, { volume: 4 }).at(thfKey).conc, 0.25, "with every solvent's volume typed, the concentration is worked out");
+  // Bold only while it is the one typed: worked out from every solvent's volume, it is plain; before an amount gives
+  // it, the one typed shows.
+  const concCell = (g: typeof five) => cellText(g.v, g.v.cols.find((c) => c.key === thfKey)!, g.v.rows.find((r) => r.id === "conc")!);
+  assert.deepEqual(concCell(conc({ conc: 0.1 }, { volume: 4 })), { text: "0.25 M", typed: false });
+  assert.deepEqual(concCell(grid([0, "→", 1], {}, "r:S0", ["THF"], undefined, { roles: {}, conc: 0.1 })), { text: "0.10 M", typed: true });
   const cat = grid([0, "→", 1], { "r:S0": { moles: 0.01 }, 'r:"HCl"': { equiv: 0.05 } }, "r:S0", ["HCl"], undefined, { roles: { 'r:"HCl"': "catalyst" } });
   assert.deepEqual(cellText(cat.v, cat.v.cols.find((c) => c.key === 'r:"HCl"')!, cat.v.rows.find((r) => r.id === "equiv")!), { text: "5.00 mol%", typed: true });
   near(cat.at('r:"HCl"').moles, 0.0005, "5 mol% of 10 mmol");
@@ -398,10 +418,19 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   near(typedB[1].solved["r:S1"].moles, 2 / 110, "a mass typed in step 2 wins");
   const whole = views([{ arrow: 9, typed: { "r:S0": { mass: 1 } } }]);
   assert.deepEqual(whole.map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S2"]], "a grid without step covers the scheme");
-  assert.deepEqual(views([{ arrow: 9, typed: {} }, { arrow: 10, typed: {}, step: true }]).map((v) => v.arrow), [10], "with step tables, the scheme's grid is not drawn");
+  // With step tables, a grid with no step on a step's arrow is that step's (an arrow drawn or added since: an experiment
+  // page gives each new arrow a grid).
+  assert.deepEqual(views([{ arrow: 9, typed: {} }, { arrow: 10, typed: {}, step: true }]).map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S1"], ["r:S1", "p:S2"]]);
+  assert.deepEqual(views([{ arrow: 9, typed: {}, step: true }, { arrow: 10, typed: { "r:S1": { mass: 2 } } }]).map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S1"], ["r:S1", "p:S2"]]);
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /const made: Grid\[\] = all\.length > 1 \? all\.map\(\(a\) => \(\{ arrow: a, typed: \{\}, roles: \{\}, step: true \}\)\)/, "Analyse stoichiometry gives a scheme of several arrows a table for each step");
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.steps === "split" \? "One table for each step" : "One table for the scheme", "grid\.steps"/);
+  assert.match(editor, /steps: doc\.grids\?\.some\(\(g\) => g\.step && all\.includes\(g\.arrow\)\) \? "join" : "split"/, "a scheme with any step table offers One table for the scheme");
+  // Only a reactant is set as limiting; a catalyst's 5 or 5% is 5 mol%; a solvent's density leaves the concentration.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.role === "reactant" && !context\.limiting \? \[it\(<Target size=\{18\} \/>, "Set as limiting"/);
+  assert.match(editor, /if \(gc\.row === "limiting" && gcol\.role === "reactant"\)/);
+  assert.match(editor, /role === "catalyst" && field0 === "equiv" \? text\.replace\(\/\^\\s\*\(\[\\d\.,\]\+\(\?:e\[\+-\]\?\\d\+\)\?\)\\s\*%\?\\s\*\$\/i, "\$1 mol%"\)/);
+  assert.match(editor, /const open = !\["mass", "moles", "volume", "equiv"\]\.includes\(field\) \|\|/);
 }
 // Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
 // Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.

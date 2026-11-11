@@ -414,8 +414,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "grid":
       // ChemDraw's grid menu: Set Limiting, Hide Row, Hide Column, Show All (and Colors, the colour row).
-      // A reactant column's role: Reactant, Catalyst or Solvent (a solvent is never limiting).
-      items.push(...(!context.product && !context.limiting && context.role !== "solvent" ? [it(<Target size={18} />, "Set as limiting", "grid.limiting")] : []),
+      // A reactant column's role: Reactant, Catalyst or Solvent (only a reactant is limiting).
+      items.push(...(context.role === "reactant" && !context.limiting ? [it(<Target size={18} />, "Set as limiting", "grid.limiting")] : []),
         ...(context.role && context.role !== "reactant" ? [it(<TestTube size={18} />, "Set as reactant", "grid.role.reactant")] : []),
         ...(context.role && context.role !== "catalyst" ? [it(<Lightning size={18} />, "Set as catalyst", "grid.role.catalyst")] : []),
         ...(context.role && context.role !== "solvent" ? [it(<Drop size={18} />, "Set as solvent", "grid.role.solvent")] : []),

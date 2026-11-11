@@ -6021,11 +6021,12 @@ export default function Editor() {
   // name, or Limiting? (which a click or Return sets).
   const gridCol = (gc: { arrow: number; key: string }) => gridViews.find((x) => x.arrow === gc.arrow)?.cols.find((x) => x.key === gc.key);
   const gridTypes = (gc: GridCell) => !["name", "formula", "mw", "expectedMoles", "yield", "limiting", "role"].includes(gc.row) && (gc.row !== "expected" || gc.product) && (gc.row !== "conc" || gridCol(gc)?.role === "solvent");
-  // Limiting? sets the limiting reactant (not a solvent's); Role goes to the next role: Reactant, Catalyst, Solvent.
+  // Limiting? sets the limiting reactant (a column with the Reactant role); Role goes to the next role: Reactant, Catalyst,
+  // Solvent.
   const gridToggle = (gc: GridCell) => {
     const gcol = gridCol(gc);
     if (gc.product || !gcol) return;
-    if (gc.row === "limiting" && gcol.role !== "solvent") changeGrid(gc.arrow, () => ({ limiting: gc.key }));
+    if (gc.row === "limiting" && gcol.role === "reactant") changeGrid(gc.arrow, () => ({ limiting: gc.key }));
     if (gc.row === "role") changeGrid(gc.arrow, (g, v) => setRole(g, v, gc.key, ROLES[(ROLES.indexOf(gcol?.role ?? "reactant") + 1) % ROLES.length]));
   };
   // Type in a cell: what was typed there, or the key that started it (a key over a picked cell types over it, as in a
@@ -6063,7 +6064,7 @@ export default function Editor() {
   // (split: One table for each step).
   const gridSteps = (arrow: number): { steps?: "split" | "join" } => {
     const all = reactionOf(arrow)?.arrows ?? [arrow];
-    return all.length < 2 ? {} : { steps: all.every((a) => doc.grids?.some((g) => g.arrow === a && g.step)) ? "join" : "split" };
+    return all.length < 2 ? {} : { steps: doc.grids?.some((g) => g.step && all.includes(g.arrow)) ? "join" : "split" };
   };
   // A grid changed: its typed values and limiting reactant saved under each column's key as the grid now reads them
   // (keyColumns), so values matched by order are kept by key from now on.
@@ -6084,7 +6085,7 @@ export default function Editor() {
     setGridEdit(undefined);
     if (!w) return;
     const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
-    if (row.id === "limiting") return w.product || role === "solvent" ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    if (row.id === "limiting") return role !== "reactant" ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
     // Concentration: the grid's, for the solvent with no amount; typed here, this solvent's amount goes, so it is that one.
     if (row.id === "conc") {
       if (!text.trim()) return changeGrid(w.arrow, () => ({ conc: undefined }));
@@ -6101,21 +6102,23 @@ export default function Editor() {
       if (field === "mass" || field === "volume") return { taken: { ...rest, [w.key]: field } };
       return field === undefined && was === field0 ? { taken: rest } : {};
     };
+    // A catalyst's equivalents are in mol%: a bare 5, or 5%, is 5 mol%.
+    const amountText = role === "catalyst" && field0 === "equiv" ? text.replace(/^\s*([\d.,]+(?:e[+-]?\d+)?)\s*%?\s*$/i, "$1 mol%") : text;
     changeGrid(w.arrow, (g, v) => {
       const typed = { ...(g.typed[w.key] ?? {}) };
-      if (!text.trim()) delete typed[field0];
+      if (!amountText.trim()) delete typed[field0];
       else {
         const target = w.product && row.id === "expected", fields: Field[] = target ? ["mass"] : w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
-        // A catalyst's equivalents are in mol%: a bare 5 is 5 mol%.
-        const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && !target && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
-        const value = field && parseAmount(bare && field === "equiv" && role === "catalyst" ? `${text.trim()} mol%` : text, field, settings.massUnit);
+        const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(amountText), field = bare ? (w.product && !target && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(amountText, fd) !== undefined);
+        const value = field && parseAmount(amountText, field, settings.massUnit);
         if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info"); return {}; }
         if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
         typed[field] = value;
         const amount = (fd: string) => ["mass", "moles", "volume"].includes(fd);
-        // A solvent's amount: a concentration typed stays while another solvent has no amount to take it.
+        // A solvent's amount: a concentration typed stays while another solvent has no amount to take it. Its density or
+        // purity leaves the concentration as it is.
         if (role === "solvent") {
-          const open = v.all.some((c) => c.role === "solvent" && c.key !== w.key && !["mass", "moles", "volume", "equiv"].some((fd) => g.typed[c.key]?.[fd as Field] !== undefined));
+          const open = !["mass", "moles", "volume", "equiv"].includes(field) || v.all.some((c) => c.role === "solvent" && c.key !== w.key && !["mass", "moles", "volume", "equiv"].some((fd) => g.typed[c.key]?.[fd as Field] !== undefined));
           return { typed: { ...g.typed, [w.key]: typed }, ...(open ? {} : { conc: undefined }), ...marked(g, field) };
         }
         if (target || (!w.product && amount(field))) {
@@ -7400,16 +7403,15 @@ export default function Editor() {
       if (what === "steps") {
         const all = reactionOf(arrow)?.arrows ?? [arrow], own = doc.grids?.filter((g) => all.includes(g.arrow)) ?? [], rest = doc.grids?.filter((g) => !all.includes(g.arrow)) ?? [];
         const side = (g: Grid | undefined, s: string) => Object.fromEntries(Object.entries(g?.typed ?? {}).filter(([k]) => k[0] === s));
-        const stepOf = (a: number) => own.find((g) => g.arrow === a && g.step);
-        if (all.every(stepOf)) {
-          const { step: _, ...first } = stepOf(all[0])!;
-          return set({ ...doc, grids: [...rest, { ...first, typed: { ...side(first, "r"), ...side(stepOf(all[all.length - 1]), "p") } }] }, true);
+        // A step's grid: its own, or the one an arrow added to the scheme since was given (gridview.ts gridViews).
+        const gridOf = (a: number) => own.find((g) => g.arrow === a && g.step) ?? own.find((g) => g.arrow === a);
+        if (own.some((g) => g.step)) {
+          const { step: _, ...first } = gridOf(all[0]) ?? ({ arrow: all[0], typed: {} } as Grid);
+          return set({ ...doc, grids: [...rest, { ...first, typed: { ...side(first, "r"), ...side(gridOf(all[all.length - 1]), "p") } }] }, true);
         }
-        const whole = own.find((g) => !g.step);
-        return set({ ...doc, grids: [...rest, ...all.map((a, k): Grid => {
-          const base: Grid = stepOf(a) ?? (k === 0 && whole ? { ...whole, arrow: a, typed: side(whole, "r") } : { arrow: a, typed: {}, roles: {} });
-          return { ...base, typed: { ...base.typed, ...(k === all.length - 1 && !stepOf(a) ? side(whole, "p") : {}) }, step: true };
-        })] }, true);
+        // The scheme's table is its first grid, as drawn.
+        const whole = own[0];
+        return set({ ...doc, grids: [...rest, ...all.map((a, k): Grid => ({ ...(k === 0 && whole ? whole : { roles: {} }), arrow: a, typed: { ...(k === 0 ? side(whole, "r") : {}), ...(k === all.length - 1 ? side(whole, "p") : {}) }, step: true }))] }, true);
       }
       // Copy table: the table as shown, as tab-separated text.
       if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow), c = v && conditionsOf(v); return v && copyPlain(gridTsv(v, CONDITIONS.filter(([k]) => c![k]).map(([k, name]) => [name, c![k]!]))); }
