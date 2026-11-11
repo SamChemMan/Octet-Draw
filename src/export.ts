@@ -199,11 +199,11 @@ export function pictureAs(svg: string, f: { format: ExportFormat; margin: number
 // File > Export…: the drawing in every form the page has (svg from standaloneSvg). The app asks where to save,
 // offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF, PNG
 // and EMF carry the CDXML (CARRY_CDXML), as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
-// `transparent`; JPEG at `quality` (1 to 100, 95 if not given). mdl: the text of the MDL format asked for; csv: Home's
-// Experiments list; model: a 3MF file's 3D model (src/model3mf.ts); tex: chemfig code (chemfig.ts). Resolves to the path
-// written, or null if cancelled.
+// `transparent`; JPEG at `quality` (1 to 100, 95 if not given). mdl: the text of the MDL format asked for, or of CML or a
+// connection table (File > More Formats); csv: Home's Experiments list; model: a 3MF file's 3D model (src/model3mf.ts);
+// tex: chemfig code (chemfig.ts). Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat | "csv" | "3mf" | "tex"; csv?: string; model?: string; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
+  name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct"; csv?: string; model?: string; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean; quality?: number;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

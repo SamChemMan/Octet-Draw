@@ -1239,6 +1239,9 @@ function convert(input: string, format: string, options: Record<string, string> 
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
+// The drawing's molecules as CML (issue 78), as Indigo writes it: each atom's element, place, charge, isotope and
+// radical, each bond's order and wedge. Import reads it back.
+export const toCml = (drawn: Mol): string => convert(ketOf(drawn), "cml");
 // The drawing's molecules as a molfile: V3000, as ChemDraw 26.1 saves it and Edit > Copy As MOL Text gives it, or
 // V2000 (as ChemDraw puts it on the clipboard). A hydrogen bond is bond type 10 and a quadruple bond single, as
 // ChemDraw writes them. Map numbers and enhanced stereo go too; V2000 has no enhanced stereo. A query or Markush structure is
