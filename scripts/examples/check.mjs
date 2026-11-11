@@ -10,7 +10,10 @@ for (const file of process.argv.slice(2)) {
   try { await o.open(file); } catch (e) { console.log(`${basename(file)}: ${e.message}`); found++; continue; }
   const { warnings } = await o.call("read", { detail: "full" });
   console.log(`${basename(file)}: ${warnings.length ? `${warnings.length} to look at` : "clean"}`);
-  for (const w of warnings) console.log(`  ${w.atom ?? w.structure ?? w.ids?.join(" and ") ?? ""} ${w.message}`);
+  for (const w of warnings) {
+    const label = w.atom ?? w.structure ?? w.ids?.join(" and ");
+    console.log(`  ${label ? `${label} ` : ""}${w.message}`);
+  }
   found += warnings.length;
 }
 console.log(`${found} to look at.`);

@@ -10,8 +10,10 @@ mkdirSync(out, { recursive: true });
 // Rows from the top (a structure whose middle is above the bottom of the row's highest one is in that row), each left
 // to right. A box is [left, bottom, right, top].
 const inOrder = (structures) => {
-  const rows = [];
-  for (const s of [...structures].sort((p, q) => q.box[3] - p.box[3])) { const row = rows.at(-1); if (row && (s.box[1] + s.box[3]) / 2 > row[0].box[1]) row.push(s); else rows.push([s]); }
+  const rows = [], middle = (s) => (s.box[1] + s.box[3]) / 2;
+  for (const s of [...structures].sort((p, q) => q.box[3] - p.box[3])) {
+    if (rows.length && middle(s) > rows.at(-1)[0].box[1]) rows.at(-1).push(s); else rows.push([s]);
+  }
   return rows.flatMap((row) => row.sort((p, q) => p.box[0] - q.box[0]));
 };
 for (const file of files) {

@@ -13,9 +13,10 @@ let d = drawing("quick"), n = 0;
 // The drawing the session's calls go to from now on, which opens the next one as a window does.
 const opened = (next: typeof d): Host => {
   d = next;
+  // A file it cannot read opens no window, and says so as the window's File > Open does (Editor.tsx readFile).
+  d.host.opens = async (text) => { try { if (d.host.file(text)) return {}; } catch { /* as nothing read */ } return { failed: "Octet cannot read the structures in this file." }; };
   d.host.newWindow = (purpose, _session, text) => {
     const m = text === undefined ? undefined : d.host.file(text);
-    if (text !== undefined && !m) return Promise.resolve(undefined);
     const host = opened(drawing(purpose));
     if (m) host.set(m);
     return Promise.resolve(`headless-${++n}`);

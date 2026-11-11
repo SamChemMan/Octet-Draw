@@ -2993,8 +2993,10 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 // scheme starts with the brief (plan 11).
 const ASK = "First ask me the three questions in Octet's instructions, unless I have answered them, and give my answers as draw's brief. Then ";
 // A prompt for an AI app that takes elicitation says what its instructions say (instructionsFor): Octet asks the user
-// itself, so the AI app only calls. journal_figure's set_brief goes without a destination, which has Octet ask.
-const promptFor = (text: string, elicit: boolean) => (elicit ? text.replace(ASK, "Do not ask me Octet's questions: Octet asks me itself when it needs to. Give draw's brief only for answers I have already given. Just ").replace(/Ask me whether it goes in one column or two, and the other questions in Octet's instructions, then call set_brief with destination paper and journal [\s\S]*?\. (?=Then read with picture)/, "Call set_brief with no destination: Octet asks me itself where it goes (a paper, one column or two) and the rest. ") : text);
+// itself, so the AI app only calls, and gives as the brief what the user has already said. The prompt's own answers
+// count: fill_experiment's notebook, and journal_figure's journal (with no column unless the user gave one, as Octet's
+// form would ask for all of it again).
+const promptFor = (text: string, elicit: boolean) => (elicit ? text.replace(ASK, "Do not ask me Octet's questions: Octet asks me itself when it needs to. Give draw's brief only for answers I have already given. Just ").replace("(the destination is notebook)", "(give draw's brief notebook: the destination is notebook)").replace(/Ask me whether it goes in one column or two, and the other questions in Octet's instructions, then call set_brief with destination paper and journal ([\s\S]*?)\. (?=Then read with picture)/, "Call set_brief with destination paper and journal $1, and columns 1 or 2 only if I have said which. ") : text);
 type PromptArg = { name: string; description: string; required?: boolean };
 const PROMPTS: { name: string; title: string; description: string; arguments: PromptArg[]; text: (a: Record<string, string>) => string }[] = [
   { name: "draw_scheme", title: "Draw a scheme from text", description: "Draws the reactions in a procedure or a paragraph as one scheme", arguments: [{ name: "text", description: "The procedure or paragraph", required: true }],

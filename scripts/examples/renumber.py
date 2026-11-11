@@ -26,5 +26,6 @@ for file in files:
         operations.append({"op": "number", "structure": s["id"], "number": numbers[key]})
     if operations: o.call("change", {"operations": operations})
     o.save(os.path.join(out, os.path.basename(file)))
-    print(f"{os.path.basename(file)}: " + ", ".join(f"{s['number']} is {op['number']}" for s, op in zip(numbered, operations)))
+    renumbered = ", ".join(f"{s['number']} is {op['number']}" for s, op in zip(numbered, operations))
+    print(f"{os.path.basename(file)}: {renumbered}")
 o.close()
