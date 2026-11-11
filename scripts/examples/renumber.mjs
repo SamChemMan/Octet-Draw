@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { octet } from "./octet.mjs";
 
-const [out, ...files] = process.argv.slice(2), o = octet(), numbers = new Map();
+const [out, ...files] = process.argv.slice(2), o = octet(), numbers = {};
 mkdirSync(out, { recursive: true });
 // Rows from the top (a structure whose middle is above the bottom of the row's highest one is in that row), each left
 // to right. A box is [left, bottom, right, top].
@@ -21,11 +21,11 @@ for (const file of files) {
   const numbered = inOrder((await o.call("read", { detail: "full" })).structures.filter((s) => s.number));
   const operations = numbered.map((s) => {
     const key = s.inchiKey ?? s.smiles ?? `${file} ${s.id}`;
-    if (!numbers.has(key)) numbers.set(key, String(numbers.size + 1));
-    return { op: "number", structure: s.id, number: numbers.get(key) };
+    return { op: "number", structure: s.id, number: (numbers[key] ??= String(Object.keys(numbers).length + 1)) };
   });
   if (operations.length) await o.call("change", { operations });
   await o.save(join(out, basename(file)));
+  await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${numbered.map((s, k) => `${s.number} is ${operations[k].number}`).join(", ")}`);
 }
 await o.close();

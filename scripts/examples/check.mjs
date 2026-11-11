@@ -9,6 +9,7 @@ let found = 0;
 for (const file of process.argv.slice(2)) {
   try { await o.open(file); } catch (e) { console.log(`${basename(file)}: ${e.message}`); found++; continue; }
   const { warnings } = await o.call("read", { detail: "full" });
+  await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${warnings.length ? `${warnings.length} to look at` : "clean"}`);
   for (const w of warnings) {
     const label = w.atom ?? w.structure ?? w.ids?.join(" and ");

@@ -85,6 +85,9 @@ export type Host = {
   window: () => { id: string; name: string }; // the drawing (its window) this call acts on
   windows: () => Promise<{ id: string; name: string; edited: boolean }[]>; // Octet's drawings, Home's first
   target: (session: string | undefined, drawing: string) => Promise<boolean>; // the session's calls go to that drawing
+  // Closes a drawing the session opened with drawings new, after this call's reply: true; false: it has changes that
+  // are not saved, so it stays open (with no window it closes all the same); undefined: the session did not open it.
+  close: (session: string | undefined, drawing: string) => Promise<boolean | undefined>;
 };
 
 // ---- Arguments: a small JSON Schema the tools list, and the check every call goes through ----
@@ -358,7 +361,7 @@ const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also:
 const PICTURE_SIZE = Object.keys(SIZES), PURPOSES = ["paper", "thesis", "slides", "poster", "experiment", "quick"];
 // drawings new and use: the drawing the session's calls go to now. Nothing is drawn, so no change is reported: they are
 // answered outside the page's queue (plan 17.5), while another call may be changing the page's drawing.
-const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
+const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, CLOSED = { type: "object", required: ["closed"], properties: { closed: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
 const DRAWINGS = { type: "object", required: ["drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
 const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
@@ -517,6 +520,16 @@ const OPS: Op[] = [
     run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.`, data: { using: a.drawing } } : { text: `There is no drawing ${a.drawing}. Call drawings for the ids.`, error: true }),
   },
   {
+    // The drawing the session uses when none is given. A session's next call that needs a drawing after it closed its
+    // own is answered as any session with no drawing is (mcp.rs route).
+    name: "close", hints: ADD, outputSchema: CLOSED, done: "closed a drawing",
+    inputSchema: obj({ drawing: str(40) }),
+    run: async (host, a, ctx) => {
+      const id = a.drawing ?? host.window().id, closed = await host.close(ctx.session, id);
+      return closed ? { text: `Octet closed ${id}.`, data: { closed: id } } : { text: `Octet changed nothing. ${closed === false ? `${id} has changes that are not saved` : `This session did not open ${id} with drawings new`}: the user closes it in Octet's window.`, error: true };
+    },
+  },
+  {
     name: "move", title: "Move", hints: ADD, outputSchema: CHANGE, done: "moved part of the drawing",
     description: "Moves the ids together, with what belongs to them (numbers, conditions): by dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id or ids with gap and align. Text Octet places itself (numbers, conditions, a cycle's text) moves only with its structure, arrow or cycle. An atom (s3.2) or bond (s3.1-2) moves alone, its bonds stretching.",
     inputSchema: obj({ ids: list(str(40), 500, 1), dx: num(-1000, 1000), dy: num(-1000, 1000), ...placing("to") }, ["ids"]),
@@ -662,7 +675,7 @@ select: ids, for advanced run_command.
 draw: lines of one drawing, or kind (structures, cycle, figure, reaction) and its JSON (advanced help of the kind).` }, ...REPLY }, ["operations"]);
 const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
-const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
+const DRAWINGS_IN = obj({ action: pick(["list", "use", "new", "close"], undefined, { default: "list" }), drawing: str(40, "use, close: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
 // The brief as draw takes it (plan 3.1, 19.2): the user's answers in one line, read into set_brief's arguments; or
 // set_brief's own object. Words that are no destination, column, size or emphasis are the journal, which set_brief
 // refuses with the nearest when Octet has nothing for it.
@@ -739,8 +752,8 @@ const TOOLS: Tool[] = [
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
   {
-    name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new"],
-    description: "Octet's open drawings. list: each one's id, title and unsaved changes, and the one this session uses. use: this session's calls go to drawing. new: a new drawing for a purpose (experiment: a page with a reagent table), in a new window when this one has work in it; later calls go to it.",
+    name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new", "close"],
+    description: "Octet's open drawings. list: each one's id, title and unsaved changes, and the one this session uses. use: this session's calls go to drawing. new: a new drawing for a purpose (experiment: a page with a reagent table), in a new window when this one has work in it; later calls go to it. close: a drawing this session opened with new (drawing, else the one it uses); in a window, one with unsaved changes stays open.",
     inputSchema: DRAWINGS_IN,
     route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args }))(a),
   },
@@ -3078,7 +3091,7 @@ function index(m: Mol): Map<string, string> {
   return out;
 }
 const highest = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id));
-const ANYWHERE = new Set(["list", "use", "new"]);
+const ANYWHERE = new Set(["list", "use", "new", "close"]);
 const CUT = " (cut: detail: full gives all of it)";
 
 // free: answered outside the queue, so it neither waits for the drawing to settle nor touches it. take: a tools/call

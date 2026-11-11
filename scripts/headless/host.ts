@@ -293,6 +293,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     window: () => ({ id: "headless", name: title }),
     windows: async () => [],
     target: async (_session, id) => id === "headless",
+    close: async () => undefined,
   };
   return { host, told };
 }

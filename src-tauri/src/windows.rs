@@ -117,11 +117,11 @@ pub fn open(app: &AppHandle, start: serde_json::Value, session: Option<&str>) ->
     }
     // The session's before the window exists (the system may put it in front while it is made): another session with
     // no drawing never takes it (mcp.rs route). If no window is made, the session has its drawing from before again.
-    let was = session.and_then(|s| crate::mcp::give(app, s, Some(label.clone())));
+    let was = session.and_then(|s| crate::mcp::give(app, s, Some(label.clone()), true));
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
         if let (Some(s), Some(was)) = (session, was) {
-            crate::mcp::give(app, s, was);
+            crate::mcp::give(app, s, was, false);
         }
         e.to_string()
     })?;
@@ -299,6 +299,25 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
     window.set_focus()
 }
 
+// Whether a drawing window has unsaved changes, as its page last said (window_info).
+pub fn edited(app: &AppHandle, label: &str) -> bool {
+    app.state::<Windows>().open.lock().unwrap().iter().any(|i| i.label == label && i.edited)
+}
+
+// A window an AI app closes (mcp.rs mcp_close) is no longer the one in front, so no call goes to it while it closes.
+// gone: it closes for certain (no window), so it leaves the list now.
+pub fn leaving(app: &AppHandle, label: &str, gone: bool) {
+    {
+        let mut last = LAST.lock().unwrap();
+        if *last == label {
+            last.clear();
+        }
+    }
+    if gone {
+        unlist(app, label);
+    }
+}
+
 // Whether a window is the last of Octet's windows open.
 fn last<'a>(labels: impl Iterator<Item = &'a str>, label: &str) -> bool {
     !labels.into_iter().any(|l| ours(l) && l != label)
@@ -317,6 +336,10 @@ pub fn closed(app: &AppHandle, label: &str) {
         // An Octet that Windows started for Word ends when its last window closes and Word holds no object.
         crate::ole::win::maybe_exit(app);
     }
+    unlist(app, label);
+}
+fn unlist(app: &AppHandle, label: &str) {
+    let windows = app.state::<Windows>();
     let before = {
         let mut open = windows.open.lock().unwrap();
         let n = open.len();

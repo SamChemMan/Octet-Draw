@@ -60,7 +60,7 @@ const host: Host = {
   file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
-  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
+  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => undefined,
 };
 let n = 0;
 // Each session's brief (set_brief), as mcp.rs keeps it: a new session has none.
@@ -114,8 +114,8 @@ assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(t
 {
   const page = readFileSync(new URL("../docs/scripting.md", import.meta.url), "utf8");
   assert.deepEqual([...page.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]), tools.map((t) => t.name), "the scripting page's table of tools");
-  // Its rows for change and advanced name each operation and tool those take.
-  const ops = { change: tools[1].inputSchema.properties.operations.items.properties.op.enum, advanced: tools[4].inputSchema.properties.tool.enum } as Record<string, string[]>;
+  // Its rows for change, drawings and advanced name each operation, action and tool those take.
+  const ops = { change: tools[1].inputSchema.properties.operations.items.properties.op.enum, drawings: tools[3].inputSchema.properties.action.enum, advanced: tools[4].inputSchema.properties.tool.enum } as Record<string, string[]>;
   for (const [name, list] of Object.entries(ops)) { const row = page.match(new RegExp(`^\\| \`${name}\` \\|.*$`, "m"))![0]; for (const op of list) assert.ok(row.includes(`\`${op}\``), `the scripting page's ${name} row names ${op}`); }
   const shown = [...page.matchAll(/^### (\S+)\n\n```\w+\n([\s\S]*?)```$/gm)];
   assert.equal(shown.length, 10, "the client and four examples, in Python and JavaScript");
@@ -165,7 +165,7 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
   // (draw lists its lines and brief, which it reads itself into an operation and set_brief's arguments, and the JSON
   // of structures: the other kinds' JSON is in help, and taken as change's draw.)
   assert.equal(listed("draw").properties.lines.description, NOTATION);
-  for (const [name, route, of] of [["draw", "", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]]] as [string, string, string[]][])
+  for (const [name, route, of] of [["draw", "", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new", "close"]]] as [string, string, string[]][])
     for (const [k, p] of Object.entries(listed(name).properties) as [string, any][]) {
       if (k === route) { assert.deepEqual(p.enum, of, name); continue; }
       if (name === "draw" && (k === "lines" || k === "brief")) continue;
@@ -499,7 +499,7 @@ assert.equal(steps.length, 0);
   await no("advanced", { tool: "export", args: "pdf" }, /args: not an object/);
   await no("advanced", { tool: "export", format: "pdf" }, /arguments: format is not an argument of this tool\.$/);
   await no("advanced", { tool: "set_style", args: { journal: "Nature" } }, /^Octet changed nothing\. args: journal is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
-  await no("drawings", { action: "close" }, /action: not one of list, use, new/);
+  await no("drawings", { action: "shut" }, /action: not one of list, use, new, close/);
   await no("drawings", { action: "use" }, /drawing is missing/);
   await no("drawings", { action: "list", drawing: "draw-1" }, /drawing is not an argument of this tool\.$/);
   await no("drawings", [], /arguments: not an object/);
@@ -1104,6 +1104,24 @@ windowless = false;
   assert.ok(out.isError && commands.length === 0, text(out));
   assert.ok(!("text" in tools.find((t) => t.name === "drawings")!.inputSchema.properties));
   assert.match(((await call("advanced", { tool: "help", args: { of: "new" } })) as any).structuredContent.description, /text: a file's text/);
+}
+// drawings close: a drawing the session opened with drawings new closes (mcp.rs mcp_close), the one it uses when no
+// drawing is given. Octet refuses a drawing it did not open, and one with unsaved changes stays open: the reply says
+// why, and that the user closes it in Octet's window.
+{
+  const asked: unknown[][] = [], close = host.close;
+  host.close = async (...a) => { asked.push(a); return a[1] === "draw-1" ? true : a[1] === "draw-4" ? false : undefined; };
+  out = await call("drawings", { action: "close" });
+  assert.ok(!out.isError && text(out) === "Octet closed draw-1.", text(out));
+  assert.deepEqual(out.structuredContent, { closed: "draw-1" });
+  out = await call("drawings", { action: "close", drawing: "main" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. This session did not open main with drawings new: the user closes it in Octet's window.", text(out));
+  out = await call("drawings", { action: "close", drawing: "draw-4" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. draw-4 has changes that are not saved: the user closes it in Octet's window.", text(out));
+  assert.deepEqual(asked, [["s-1", "draw-1"], ["s-1", "main"], ["s-1", "draw-4"]]);
+  // A session whose drawing the user closed can still close another it opened.
+  assert.ok(!(await lost("drawings", { action: "close", drawing: "draw-1" })).isError);
+  host.close = close;
 }
 // K11: an AI app (or a script) still reads and writes no file: no tool and no operation takes a path.
 {

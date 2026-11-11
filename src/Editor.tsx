@@ -6640,6 +6640,8 @@ export default function Editor() {
     // A session's drawing changes without its window coming to the front (D1). A client with no session has the
     // window in front, so the window comes to the front.
     target: async (session, drawing) => { try { await (session ? invoke("mcp_target", { session, drawing }) : invoke("window_show", { label: drawing })); return true; } catch { return false; } },
+    // As File > Close (src-tauri/src/mcp.rs mcp_close). A client with no session opened nothing.
+    close: async (session, drawing) => (TAURI && session ? invoke<boolean>("mcp_close", { session, drawing }).catch(() => undefined) : undefined),
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
     dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),

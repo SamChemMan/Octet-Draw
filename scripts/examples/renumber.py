@@ -21,11 +21,11 @@ for file in files:
     numbered = in_order([s for s in o.call("read", {"detail": "full"})["structures"] if s.get("number")])
     operations = []
     for s in numbered:
-        key = s.get("inchiKey") or s.get("smiles") or f"{file} {s['id']}"
-        numbers.setdefault(key, str(len(numbers) + 1))
-        operations.append({"op": "number", "structure": s["id"], "number": numbers[key]})
+        number = numbers.setdefault(s.get("inchiKey") or s.get("smiles") or f"{file} {s['id']}", str(len(numbers) + 1))
+        operations.append({"op": "number", "structure": s["id"], "number": number})
     if operations: o.call("change", {"operations": operations})
     o.save(os.path.join(out, os.path.basename(file)))
+    o.call("drawings", {"action": "close"})
     renumbered = ", ".join(f"{s['number']} is {op['number']}" for s, op in zip(numbered, operations))
     print(f"{os.path.basename(file)}: {renumbered}")
 o.close()

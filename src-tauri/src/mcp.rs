@@ -131,10 +131,12 @@ enum Msg {
 // stream: its event stream for notifications (GET); subs: the drawing URIs it subscribed to; bucket: its calls left this
 // second (D16), and when it was last filled; waiting: its calls under way. brief: the user's answers to set_brief's
 // three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief. elicit: the
-// AI app said at initialize that it takes elicitation/create in form mode (elicits).
+// AI app said at initialize that it takes elicitation/create in form mode (elicits). opened: the drawings it opened with
+// drawings new, which it may close (mcp_close).
 struct Session {
     client: String,
     drawing: Option<String>,
+    opened: HashSet<String>,
     brief: Option<String>,
     elicit: bool,
     last: Instant,
@@ -237,10 +239,17 @@ pub fn mcp_status(mcp: State<'_, Mcp>) -> Option<Info> {
 }
 
 // The session's drawing from now on: drawings use, and drawings new (open_window gives the session the window it made
-// before it builds that window, so no other session's first call takes it). The session's drawing before; None: no
-// such session.
-pub fn give(app: &AppHandle, session: &str, drawing: Option<String>) -> Option<Option<String>> {
-    app.try_state::<Mcp>().and_then(|m| m.shared.sessions.lock().unwrap().get_mut(session).map(|s| std::mem::replace(&mut s.drawing, drawing)))
+// before it builds that window, so no other session's first call takes it; made: the session opened it, so it may
+// close it). The session's drawing before; None: no such session.
+pub fn give(app: &AppHandle, session: &str, drawing: Option<String>, made: bool) -> Option<Option<String>> {
+    app.try_state::<Mcp>().and_then(|m| {
+        m.shared.sessions.lock().unwrap().get_mut(session).map(|s| {
+            if made {
+                s.opened.extend(drawing.clone());
+            }
+            std::mem::replace(&mut s.drawing, drawing)
+        })
+    })
 }
 
 // The commands below only take a lock, so they run off the main thread (async): there they waited behind the window
@@ -251,7 +260,50 @@ pub fn mcp_target(app: AppHandle, session: String, drawing: String) -> Result<()
     if !crate::windows::ours(&drawing) || app.get_webview_window(&drawing).is_none() {
         return Err("There is no such drawing.".into());
     }
-    give(&app, &session, Some(drawing)).map(|_| ()).ok_or_else(|| "There is no such session.".into())
+    give(&app, &session, Some(drawing), false).map(|_| ()).ok_or_else(|| "There is no such session.".into())
+}
+
+// drawings close: a drawing the session opened with drawings new (in this run of Octet) closes, and a session that
+// used it has no drawing from now on. With windows it is File > Close, the page's own close (unsaved changes, recovery
+// copy), and one with unsaved changes stays open (false), for the user to close: never a question the call waits on.
+// With no window it goes at once, its page with it, and is off the list and never in front again before this call's
+// reply goes. Either way the window goes after the calls in it now (this one too) have their replies. Err: the session
+// did not open it.
+#[tauri::command(async)]
+pub fn mcp_close(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: String) -> Result<bool, ()> {
+    let window = app.get_webview_window(&drawing).ok_or(())?;
+    let headless = crate::windows::HEADLESS.load(Ordering::Relaxed);
+    let unsaved = !headless && crate::windows::edited(&app, &drawing);
+    if !closes(mcp.shared.sessions.lock().unwrap().get_mut(&session).ok_or(())?, &drawing, unsaved)? {
+        return Ok(false);
+    }
+    crate::windows::leaving(&app, &drawing, headless);
+    if headless {
+        mcp.shared.ready.lock().unwrap().remove(&drawing);
+    }
+    let shared = mcp.shared.clone();
+    let calls: Vec<u64> = shared.pending.lock().unwrap().iter().filter(|(_, p)| p.window == drawing).map(|(n, _)| *n).collect();
+    std::thread::spawn(move || {
+        while shared.pending.lock().unwrap().keys().any(|n| calls.contains(n)) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let _ = if headless { window.destroy() } else { window.close() };
+    });
+    Ok(true)
+}
+// Whether the session closes the drawing (mcp_close): one it opened, with nothing unsaved. It no longer uses it.
+fn closes(s: &mut Session, drawing: &str, unsaved: bool) -> Result<bool, ()> {
+    if !s.opened.contains(drawing) {
+        return Err(());
+    }
+    if unsaved {
+        return Ok(false);
+    }
+    s.opened.remove(drawing);
+    if s.drawing.as_deref() == Some(drawing) {
+        s.drawing = None;
+    }
+    Ok(true)
 }
 
 // The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
@@ -758,7 +810,7 @@ fn direct(app: &AppHandle, shared: &Shared, id: &serde_json::Value, method: &str
         }
         let (name, new) = (client_name(message), random_hex(16).unwrap_or_default());
         let elicit = elicits(message);
-        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, elicit, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
+        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, opened: HashSet::new(), brief: None, elicit, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
         return Routed::Call { client: name, session: Some(new), window: near, lost: None, brief: None, unset: true, elicit };
     }
     let Some(s) = sid else { return Routed::Call { client: "An AI app".into(), session: None, window: front, lost: None, brief: shared.loose.lock().unwrap().clone(), unset: false, elicit: false } };
@@ -1440,11 +1492,28 @@ mod tests {
     // A session works in its drawing while it has a call under way or called in the last USING.
     #[test]
     fn a_session_works_in_its_drawing_while_it_calls() {
-        let at = |ago: u64, waiting| Session { client: "x".into(), drawing: Some("draw-1".into()), brief: None, elicit: false, last: Instant::now().checked_sub(Duration::from_secs(ago)).unwrap(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting };
+        let at = |ago: u64, waiting| Session { client: "x".into(), drawing: Some("draw-1".into()), opened: HashSet::new(), brief: None, elicit: false, last: Instant::now().checked_sub(Duration::from_secs(ago)).unwrap(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting };
         assert!(uses(&at(5, 0), "draw-1"));
         assert!(!uses(&at(5, 0), "draw-2"));
         assert!(!uses(&at(USING.as_secs() + 1, 0), "draw-1"));
         assert!(uses(&at(USING.as_secs() + 1, 1), "draw-1"));
+    }
+
+    // drawings close: a session closes only a drawing it opened, and one with unsaved changes (in a window) stays open
+    // and stays its own. After it closes the drawing it used, it has none, so its next call is a new session's.
+    #[test]
+    fn a_session_closes_only_its_own_drawings() {
+        let mut s = Session { client: "x".into(), drawing: Some("draw-3".into()), opened: ["draw-2".into(), "draw-3".into()].into(), brief: None, elicit: false, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 };
+        assert_eq!(closes(&mut s, "draw-1", false), Err(()), "the user's drawing");
+        assert_eq!(closes(&mut s, "draw-3", true), Ok(false));
+        assert_eq!(s.drawing.as_deref(), Some("draw-3"));
+        assert_eq!(closes(&mut s, "draw-2", false), Ok(true));
+        assert_eq!(s.drawing.as_deref(), Some("draw-3"), "another of its drawings closed");
+        assert_eq!(closes(&mut s, "draw-2", false), Err(()), "closed already");
+        assert_eq!(closes(&mut s, "draw-3", false), Ok(true));
+        assert_eq!(s.drawing, None);
+        assert!(s.opened.is_empty());
+        assert_eq!(route(s.drawing.as_deref(), false, Some("draw-1".into()), Some("draw-1".into()), false, true), Ok((Some("draw-1".into()), true)), "it takes the window in front");
     }
 
     // A window whose page has not started is answered at once: a tool call with a result the model reads, any other
