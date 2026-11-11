@@ -28,7 +28,16 @@ near(l.x.moles, 0.008, "moles from volume, density and purity");
 near(solve([{ key: "y", mw: 50, product: false, typed: { volume: 5, molarity: 2 } }]).y.moles, 0.01, "moles from molarity");
 // Typing units, and showing them.
 near(parseAmount("250 mg", "mass"), 0.25, "mg");
-near(parseAmount("250", "mass"), 0.25, "bare mass is mg");
+near(parseAmount("250", "mass"), 250, "a bare mass is g (issue 134)");
+near(parseAmount("5", "measured"), 5, "a bare measured mass is g");
+near(parseAmount("250", "mass", "mg"), 0.25, "or mg, as Settings say");
+for (const unit of ["g", "mg"] as const) {
+  near(parseAmount("250 mg", "mass", unit), 0.25, "a typed unit wins");
+  near(parseAmount("0.25 g", "mass", unit), 0.25, "a typed unit wins");
+  near(parseAmount("2 kg", "mass", unit), 2000, "a typed unit wins");
+  near(parseAmount("5", "moles", unit), 0.005, "moles stay in mmol");
+}
+assert.match(readFileSync(new URL("settings.ts", import.meta.url), "utf8"), /aromaticOnOpen: "", massUnit: "g",/, "grams is the default");
 near(parseAmount("1.2", "equiv"), 1.2, "eq");
 near(parseAmount("98%", "purity"), 0.98, "%");
 assert.equal(parseAmount("lots", "mass"), undefined);
@@ -195,5 +204,13 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.ok(grid(["2", "+", 0, "→", 1], {}).keys.includes('r:"2"'), "2 + A");
   assert.equal(grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 } }).at("r:S1").equiv, 1);
   assert.equal(grid([0, "+", 1, "→", 2], {}).at("r:S1").equiv, undefined, "no equivalents shown where none are given");
+}
+// Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
+// Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.
+{
+  const old = '{"format":"octet","version":1,"app":"1.1.1","structure":{"atoms":[],"bonds":[]},"arrows":[{"kind":"reaction","x1":0,"y1":0,"x2":3,"y2":0}],"grids":[{"arrow":0,"typed":{"r:C2H6O":{"mass":0.25},"r:\\"K2CO3\\"":{"equiv":2},"p:C4H8O2":{"measured":0.3}},"limiting":"r:C2H6O"}]}';
+  const g = parse(old).grids![0];
+  assert.deepEqual(g.typed, { "r:C2H6O": { mass: 0.25 }, 'r:"K2CO3"': { equiv: 2 }, "p:C4H8O2": { measured: 0.3 } });
+  assert.equal(formatAmount(g.typed["r:C2H6O"].mass, "mass"), "250 mg");
 }
 console.log("stoich.check: ok");

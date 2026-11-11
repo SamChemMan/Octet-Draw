@@ -577,8 +577,8 @@ export default function Editor() {
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
   const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
-    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
+    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit }),
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -5830,7 +5830,7 @@ export default function Editor() {
       else {
         const fields: Field[] = w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
         const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
-        const value = field && parseAmount(text, field);
+        const value = field && parseAmount(text, field, settings.massUnit);
         if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info"); return {}; }
         if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
         typed[field] = value;

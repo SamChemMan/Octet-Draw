@@ -63,13 +63,14 @@ const UNITS: Record<Field, Record<string, number>> = {
   purity: { "%": 0.01 },
 };
 // A typed amount in base units: "250 mg", "1.2 eq", "0.5 mL", "98%". A bare number is taken in the field's usual unit
-// (mg, mmol, mL, g/mL, M, eq, %). Undefined when it is not a finite number of 0 or more, with a unit the field takes.
-// Greek mu (μ, as \mu types it) is the micro sign.
-export function parseAmount(text: string, field: Field): number | undefined {
+// (mmol, mL, g/mL, M, eq, %; a mass in g as ChemDraw takes it, or in mg as Settings > Typing can say, issue 134).
+// Undefined when it is not a finite number of 0 or more, with a unit the field takes. Greek mu (μ, as \mu types it) is
+// the micro sign.
+export function parseAmount(text: string, field: Field, mass: "g" | "mg" = "g"): number | undefined {
   const m = /^\s*(\d+(?:\.\d+)?|\.\d+)(?:e([+-]?\d+))?\s*([a-zA-Zµ%/0-9]*)\s*$/.exec(text.replace(",", ".").replace(/\u03bc/g, "µ"));
   if (!m) return undefined;
   const value = Number(m[1]) * 10 ** Number(m[2] ?? 0), unit = m[3], units = UNITS[field];
-  const plain: Record<Field, string> = { mass: "mg", measured: "mg", moles: "mmol", volume: "mL", density: "g/mL", molarity: "M", equiv: "eq", purity: "%" };
+  const plain: Record<Field, string> = { mass, measured: mass, moles: "mmol", volume: "mL", density: "g/mL", molarity: "M", equiv: "eq", purity: "%" };
   const k = unit === "" ? units[plain[field]] : units[unit];
   return k === undefined || !(value >= 0) || !Number.isFinite(value * k) ? undefined : value * k;
 }
