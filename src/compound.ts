@@ -7,7 +7,7 @@
 // places Octet found: it never guesses.
 import { bend, bondedTo, bondIndex, bondOrders, bondTo, deleteAtoms, deleteBond, flipBond, merge, nextDirection, pickAtoms, pos, reach, ringBonds, scaleAt, setBondSpec, setElement, setLabel, sprout, type P } from "./edit.ts";
 import { GROUPS, isElement, isGeneric, labelSmiles } from "./labels.ts";
-import { classes, expandWithOrigins, parseStructure, stereoFacts, stereoLabels, toInchiKey, toMolfile, toSmiles } from "./chem.ts";
+import { classes, expandWithOrigins, labelHits, parseStructure, stereoFacts, stereoLabels, toInchiKey, toMolfile, toSmiles } from "./chem.ts";
 import { problems } from "./check.ts";
 import { hydrogens, type Mol } from "./render.ts";
 
@@ -24,7 +24,7 @@ export type Change = { swap?: Record<string, unknown>; occurrence?: number; at?:
 export const TRANSFORMATIONS = `protect, deprotect: with a group (TBS, TBDPS, TES, TMS, TIPS, Bn, PMB, MOM, Ac, Bz, Boc, Cbz, Fmoc) on an O-H or N-H; with acetonide or carbonate, at the two atoms that carry a diol's hydroxyls ('4-5')
 acetylate, benzoylate, form_carbonate: protect with Ac, Bz, carbonate
 esterify: with the group the O-H takes (Me, Et, Bn, Ac); with no at, the acid's O-H
-hydrolyse: an ester (the part with the atom at names stays, or the larger part), a lactone, an acetonide, a carbonate, a silyl or MOM ether
+hydrolyse: an ester or an acetal, as a ketal or a THP ether (the part with the atom at names stays, or the larger part), a lactone, an acetonide, a carbonate, a silyl or MOM ether
 oxidise: an alcohol to an aldehyde or ketone, an aldehyde to an acid
 reduce: an aldehyde or ketone to an alcohol; an acid, ester or lactone to its alcohols
 hydrogenate: a C=C or C#C to a single bond. epoxidise, dihydroxylate: a C=C
@@ -33,7 +33,7 @@ open_epoxide: at the carbon that loses the oxygen (with: the group it takes; non
 lactonise: at an acid's or ester's carbon and the atom that carries the O-H ('1-5')
 close: a new bond between two atoms ('9-10'; to: single, double or triple). open: a ring bond broken
 join: a new bond from this compound's atom to an atom of another ('2-31'; with: that compound's number or id; to as close)
-at is an atom's number, or two with a hyphen. With no at, the one place the transformation fits.
+at is an atom's number or a group's label (OTBS: the atom it is on), or two numbers with a hyphen. With no at, the one place the transformation fits.
 config, on any change: the label of a new stereocentre ({'9': 'S'}) or double bond ({'5-6': 'E'}) in the new compound.`;
 // A group: the atoms on first's side of the one bond from the atom that carries it (on) to first.
 type Part = { on: number; first: number; atoms: number[] };
@@ -231,7 +231,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const ends = name.split("-").map(atomAt), bad = ends.find((e): e is string => typeof e === "string"), type = ({ single: 1, double: 2, triple: 3 } as Record<string, number>)[String(to)];
     if (ends.length !== 2 || bad || !type) return bad ?? "give bond as two atom numbers ('5-6') and to (single, double or triple)";
     const [a, b] = ends as number[], k = bondOf(a, b);
-    if (k < 0) return `${who(a)} and ${who(b)} are not bonded. A change cannot make or break a ring or a chain: give the compound as text`;
+    if (k < 0) return `${who(a)} and ${who(b)} are not bonded: bond changes a bond's order. To make a bond, give {do: 'close'} in one compound, or {do: 'join'} to another`;
     return retype(k, type);
   };
   const retype = (k: number, type: number): undefined => {
@@ -247,7 +247,8 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   // centre keeps its wedges (Indigo's WASM build has no reaction templates to run them with). A new atom goes where
   // the bond tool puts one (sprout). The atoms of a new small ring that the transformation adds or re-bonds (an
   // epoxide's O; an acetonide's or carbonate's O, C, O) go on a regular ring. A bond closed between atoms that are not
-  // one bond apart, or new atoms that lie on others, have the compound laid out again: the reply says so. ----
+  // one bond apart, or new atoms that lie on others, have the new ring drawn again alone (ringed); only when that does
+  // not work is the compound laid out again, and the reply says so. ----
   const configs: [string, string][] = []; // each label config asks for, by its atom's number or its bond's two
   type Site = { at: number[]; say: string; run: (ats: number[]) => string | undefined };
   const is = (i: number, ...labels: string[]) => !m.atoms[i].text && labels.includes(m.atoms[i].label);
@@ -315,7 +316,9 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const clear = (pts: P[]) => Math.min(...pts.flatMap((p) => m.atoms.flatMap((_, i) => (path.includes(i) || now.includes(i) ? [] : [Math.hypot(pos(m, i)[0] - p[0], pos(m, i)[1] - p[1])]))), Infinity);
     const [left, right] = [on(1), on(-1)], space = path.length === 2 && !ringBonds(m)[bondOf(path[0], path[1])] ? clear(left) - clear(right) : 0;
     if (Math.abs(space) > 0.2 * chord) return space > 0 ? left : right;
-    return (-sides([...path.slice(1, -1), ...[path[0], path[path.length - 1]].flatMap((i) => near[i]).filter((j) => !path.includes(j) && !now.includes(j))]) || sides(now) || 1) > 0 ? left : right;
+    // The side away from the path's other atoms and bonds, unless an atom is there and the other side has more room.
+    const pick = (-sides([...path.slice(1, -1), ...[path[0], path[path.length - 1]].flatMap((i) => near[i]).filter((j) => !path.includes(j) && !now.includes(j))]) || sides(now) || 1) > 0 ? left : right, other = pick === left ? right : left;
+    return clear(pick) < 0.5 * scaleAt(m, path[0]) && clear(other) > clear(pick) ? other : pick;
   };
   // Stereocentres drawn so that each reads as the label wanted: its own wedges turned over, or a wedge or a hash on one
   // of its single bonds (a bond to a group before a ring bond, and a bond to another centre last). The first that gives
@@ -351,6 +354,64 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const [ax, ay] = pos(m, a), [ux, uy] = [pos(m, b)[0] - ax, pos(m, b)[1] - ay], uu = ux * ux + uy * uy || 1;
     const at = ([x, y]: number[]): [number, number, number] => { const t = ((x - ax) * ux + (y - ay) * uy) / uu; return [2 * (ax + t * ux) - x, 2 * (ay + t * uy) - y, 0]; };
     return { ...m, atoms: m.atoms.map((x, i) => (move.has(i) ? { ...x, location: at(x.location) } : x)), bonds: m.bonds.map((bd) => ((bd.stereo === 1 || bd.stereo === 6) && move.has(bd.atoms[0]) ? { ...bd, stereo: 7 - bd.stereo } : bd)) };
+  };
+  // A new ring drawn regular, and only it and what it carries move. With the ring's bonds taken out, the largest part
+  // of the compound stays where it is, the ring's other atoms go on the regular ring through its atoms there (round),
+  // and each other part goes with its atoms on the ring. False when that does not work: the part that stays has atoms
+  // on the ring that are not one run, an atom would lie on another, or a bond would not be a bond's length.
+  const ringed = (cycle: number[]): boolean => {
+    const n = cycle.length, at = new Map(cycle.map((i, k) => [i, k])), L = scaleAt(m, cycle[0]), base = m, old = (i: number) => pos(base, i);
+    const near = bondedTo({ ...m, bonds: m.bonds.filter((b) => { const [p, q] = b.atoms.map((i) => at.get(i)); return p === undefined || q === undefined || ((p - q + n) % n !== 1 && (q - p + n) % n !== 1); }) }), parts: Set<number>[] = [];
+    for (const i of cycle) if (!parts.some((p) => p.has(i))) parts.push(reach(near, i, -1));
+    const stay = parts.reduce((p, q) => (q.size > p.size ? q : p));
+    // Its atoms on the ring are one run round the ring: the run first.
+    const s = cycle.findIndex((i, k) => stay.has(i) && !stay.has(cycle[(k + n - 1) % n])), k = cycle.filter((i) => stay.has(i)).length, run = cycle.slice(s).concat(cycle.slice(0, s));
+    if (s < 0 || run.slice(0, k).some((i) => !stay.has(i))) return false;
+    // On one atom, the ring goes in the widest gap between its other bonds (or 30° to one side), either way round.
+    const [ax, ay] = old(run[0]), angles = near[run[0]].map((j) => Math.atan2(old(j)[1] - ay, old(j)[0] - ax)).sort((p, q) => p - q);
+    const gap = angles.reduce((w, a, t) => { const g = (angles[t + 1] ?? angles[0] + 2 * Math.PI) - a; return g > w[0] ? [g, a + g / 2] : w; }, [0, 0]), R = L / (2 * Math.sin(Math.PI / n));
+    // Of the ways that leave no atom on another, the one whose labels meet fewest bonds and labels, when that is no
+    // more than the compound had.
+    let best: Mol | undefined, fewest = labelHits(from) + 1;
+    for (const [turn, tilt] of k > 1 ? [[0, 0]] : [1, -1].flatMap((t) => [0, 1, -1].map((d) => [t, (d * Math.PI) / 6]))) {
+      const way = gap[1] + tilt, pts = k > 1 ? round(run.slice(0, k), n - k, run.slice(k)) : Array.from({ length: n - 1 }, (_, t): P => [ax + R * Math.cos(way) + R * Math.cos(way + Math.PI + (turn * (t + 1) * 2 * Math.PI) / n), ay + R * Math.sin(way) + R * Math.sin(way + Math.PI + (turn * (t + 1) * 2 * Math.PI) / n)]);
+      const to = new Map(run.slice(k).map((i, t) => [i, pts[t]])), all = run.map((i) => to.get(i) ?? old(i)), mid = [0, 1].map((c) => all.reduce((sum, p) => sum + p[c], 0) / n);
+      // Each part in turn, the largest first, as the fit that comes least near the atoms placed before it. A part on
+      // ring atoms fits them (turned or turned over); a part on one atom points out from the ring's middle, or up to
+      // 90° to one side, either way over.
+      const atoms = base.atoms.map((a) => ({ ...a })), flip = new Set<number>(), placed: P[] = [...[...stay].map(old), ...pts];
+      let fits = true;
+      for (const part of [...parts].sort((p, q) => q.size - p.size)) {
+        const ends = [...part].filter((i) => to.has(i)), rest = [...part].filter((i) => !to.has(i));
+        if (part === stay || !ends.length) continue;
+        const [o, q] = ends.length > 1 ? [ends.map(old), ends.map((i) => to.get(i)!)] : [[old(ends[0]), rest.length ? [0, 1].map((c) => rest.reduce((sum, i) => sum + old(i)[c], 0) / rest.length) : old(ends[0])], [to.get(ends[0])!, [2 * to.get(ends[0])![0] - mid[0], 2 * to.get(ends[0])![1] - mid[1]]]];
+        const c0 = ends.length > 1 ? [0, 1].map((c) => o.reduce((sum, p) => sum + p[c], 0) / o.length) : o[0], c1 = ends.length > 1 ? [0, 1].map((c) => q.reduce((sum, p) => sum + p[c], 0) / q.length) : q[0];
+        const tries = [1, -1].flatMap((sy) => {
+          const u = o.map((p) => [p[0] - c0[0], sy * (p[1] - c0[1])]), v = q.map((p) => [p[0] - c1[0], p[1] - c1[1]]), t = Math.atan2(u.reduce((sum, p, i) => sum + p[0] * v[i][1] - p[1] * v[i][0], 0), u.reduce((sum, p, i) => sum + p[0] * v[i][0] + p[1] * v[i][1], 0));
+          return (ends.length > 1 ? [0] : [0, 1, -1, 2, -2, 3, -3]).map((d) => {
+            const [cs, sn] = [Math.cos(t + (d * Math.PI) / 6), Math.sin(t + (d * Math.PI) / 6)], move = (p: number[]): [number, number, number] => { const [x, y] = [p[0] - c0[0], sy * (p[1] - c0[1])]; return [c1[0] + x * cs - y * sn, c1[1] + x * sn + y * cs, 0]; };
+            const off = Math.max(0, ...ends.map((i) => Math.hypot(move(old(i))[0] - to.get(i)![0], move(old(i))[1] - to.get(i)![1]))), crowd = rest.reduce((sum, i) => { const [x, y] = move(old(i)); return sum + placed.reduce((s2, p) => s2 + Math.max(0, 0.6 * L - Math.hypot(p[0] - x, p[1] - y)), 0); }, 0);
+            return { sy, move, off, crowd };
+          });
+        }).filter((x) => x.off <= 0.1 * L).sort((x, y) => x.crowd - y.crowd);
+        if (!tries.length) { fits = false; break; }
+        for (const i of part) atoms[i] = { ...atoms[i], location: to.has(i) ? [...to.get(i)!, 0] as [number, number, number] : tries[0].move(old(i)) };
+        for (const i of rest) placed.push([atoms[i].location[0], atoms[i].location[1]]);
+        if (tries[0].sy < 0) for (const i of part) flip.add(i);
+      }
+      if (!fits) continue;
+      m = { ...base, atoms, bonds: base.bonds.map((b) => ((b.stereo === 1 || b.stereo === 6) && flip.has(b.atoms[0]) ? { ...b, stereo: 7 - b.stereo } : b)) };
+      if (!crowded((i) => m.atoms[i].location !== base.atoms[i].location) && !kept(base)) { const hits = labelHits(m); if (hits < fewest) [best, fewest] = [m, hits]; }
+      m = base;
+    }
+    if (best) m = best;
+    return !!best;
+  };
+  // An atom that moved (or is new) within half a bond of an atom it is not bonded to, or on a bond that is not about a
+  // bond's length.
+  const crowded = (moved: (i: number) => boolean) => {
+    const far = (i: number, j: number) => Math.hypot(pos(m, i)[0] - pos(m, j)[0], pos(m, i)[1] - pos(m, j)[1]) / scaleAt(m, i);
+    return m.bonds.some((b) => b.atoms.some(moved) && (far(b.atoms[0], b.atoms[1]) < 0.7 || far(b.atoms[0], b.atoms[1]) > 1.4)) || m.atoms.some((_, i) => moved(i) && m.atoms.some((_q, j) => j !== i && far(i, j) < 0.5 && bondOf(i, j) < 0));
   };
   // A new double bond drawn E or Z: as it is, or with the smaller side of the bond turned over.
   const geometry = (a: number, b: number, want: string): string | undefined => {
@@ -410,7 +471,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     m = { ...m, atoms: m.atoms.map((x, i) => (i === xa || i === xb ? { ...x, location: [...(i === xa ? pa : pb), 0] as [number, number, number] } : x)) };
     const c = plant(xb, "C", 1, pc);
     if (c === undefined) return ROOM;
-    link(xa, c); hit[a] = hit[b] = true;
+    link(xa, c); hit[a] = hit[b] = true; rings.push([...path, xb, c, xa].map((i) => was[i]));
     if (kind === "acetonide" ? plant(c, "C") === undefined || plant(c, "C") === undefined : plant(c, "O", 2) === undefined) return ROOM;
     return kept({ ...m, atoms: m.atoms.map((x, i) => (i === xa || i === xb ? before[i] : x)) });
   };
@@ -440,16 +501,44 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       return put({ on: c, first: o, atoms: [o] }, "OH") ?? (keep === "ring" ? cut(c, x!) : keep ? take({ on: c, first: x!, atoms: rest() }) : undefined);
     },
   }));
+  // Each acetal (a ketal, a THP ether) that no other site has: a carbon with no O but two on single bonds, each on
+  // another carbon. Hydrolysed, its C-O bonds break: the carbon takes an =O and each O an H. The part that stays is
+  // the one with an atom at names, else the largest (the carbon's part counts its new O); of two of one size, Octet
+  // does not choose.
+  const acetals = (others: Site[]): Site[] => {
+    const near = bondedTo(m), taken = new Set(others.flatMap((s) => s.at));
+    return m.atoms.flatMap((_, c): Site[] => {
+      const os = near[c].filter((j) => is(j, "O")), rs = os.map((o) => heavy(near, o).find((j) => j !== c)!);
+      if (!is(c, "C") || os.length !== 2 || os.some((o) => typeOf(c, o) !== 1 || heavy(near, o).length !== 2) || rs.some((r) => !is(r, "C")) || [c, ...os].some((i) => taken.has(i))) return [];
+      return [{ at: [c, ...os, ...rs], say: `the acetal at ${who(c)}`, run: (ats) => {
+        const apart = bondedTo({ ...m, bonds: m.bonds.filter((b) => !(b.atoms.includes(c) && b.atoms.some((i) => os.includes(i)))) }), parts: Set<number>[] = [];
+        for (const i of [c, ...os]) if (!parts.some((p) => p.has(i))) parts.push(reach(apart, i, -1));
+        const size = (p: Set<number>) => p.size + (p.has(c) ? 1 : 0), named = parts.filter((p) => ats.some((i) => p.has(i))), most = Math.max(...parts.map(size));
+        const keep = named.length === 1 ? named[0] : parts.filter((p) => size(p) === most).length === 1 ? parts.find((p) => size(p) === most)! : undefined;
+        if (!keep) return `the parts of the acetal at ${who(c)} are of one size: name an atom of the part that stays with at`;
+        hit[c] = true;
+        if (!keep.has(c)) return drop(m.atoms.flatMap((_a, i) => (keep.has(i) ? [] : [i]))) ? undefined : NOTHING;
+        // The carbon's =O is an O that goes with its part, where it is; or a new O, when both O stay.
+        const o = os.find((i) => !keep.has(i));
+        for (const i of os) if (i !== o) cut(c, i);
+        if (o === undefined) return plant(c, "O", 2) === undefined ? ROOM : undefined;
+        retype(bondOf(c, o), 2);
+        return drop(m.atoms.flatMap((_a, i) => (keep.has(i) || i === o ? [] : [i]))) ? undefined : NOTHING;
+      } }];
+    });
+  };
   // Each C=C (and, with triple, C≡C) that is not in an aromatic ring.
   const alkenes = (name: string, run: (a: number, b: number, ats: number[]) => string | undefined, ats: number[], triple = false) => {
     const near = bondedTo(m), inRing = ringBonds(m);
     return chosen(name, m.bonds.flatMap((b): Site[] => ((b.type === 2 || (triple && b.type === 3)) && b.atoms.every((i) => is(i, "C")) && !aromatic(near, b.atoms, inRing) ? [{ at: b.atoms, say: `the C${b.type === 2 ? "=" : "#"}C of ${who(b.atoms[0])} and ${who(b.atoms[1])}`, run: (named) => run(b.atoms[0], b.atoms[1], named) }] : [])), ats);
   };
   // The compound laid out again, as one read from a file is: for a ring closed between atoms that are far apart, and
-  // for new atoms that lie on others. Indigo lays out a MOL file of it (which keeps the order of its atoms and bonds;
+  // for new atoms that lie on others, when the new ring cannot be drawn alone (ringed). Indigo lays out a MOL file of it (which keeps the order of its atoms and bonds;
   // each label is one atom there, a carbon of its own mass, so two labels are two groups) and draws the wedges, so
   // each centre keeps its configuration. The reply says that the atoms moved.
   let shaped = false, relaid = false; // a transformation placed or moved atoms; the compound was laid out again
+  const loose: [number, number][] = []; // each bond that closed a ring between atoms far apart, as was has them
+  const rings: number[][] = []; // each new ring, by its atoms as was has them, for ringed
   const redrawn = (): string | undefined => {
     const old = m, L = scaleAt(m, 0), then = stereoLabels(m)?.atoms ?? [];
     let laid: Mol | undefined;
@@ -481,9 +570,10 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     link(a, b, type); shaped = true;
     const old = m, far = (i: number, j: number) => { const d = Math.hypot(pos(m, i)[0] - pos(m, j)[0], pos(m, i)[1] - pos(m, j)[1]) / scaleAt(m, i); return d < 0.7 || d > 1.4; };
     if (end !== undefined) { const [at] = round(end === b ? ring.slice(0, -1) : ring.slice(1), 1, [end]); m = { ...m, atoms: m.atoms.map((x, i) => (i === end ? { ...x, location: [at[0], at[1], 0] as [number, number, number] } : x)) }; }
+    rings.push(ring.map((i) => was[i]));
     if (!far(a, b) && (end === undefined || !far(end, near[end][0]))) return kept(old);
-    m = old;
-    return redrawn();
+    m = old; loose.push([was[a], was[b]]);
+    return undefined;
   };
   // A bond from an atom of this compound to an atom of another. The other compound is put in its place when every
   // change is made (placed, below): a later change may take off a group that is in the bond's way.
@@ -509,14 +599,15 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       if (k < 0 || near[a].some((j) => j !== b && move.has(j))) continue; // the bond is gone, or in a ring
       const apart = { ...m, bonds: m.bonds.filter((_, n) => n !== k) }, d = nextDirection(apart, a), e = nextDirection(apart, b), L = scaleAt(m, a), base = m, [bx, by] = pos(m, b);
       const gap = (x: Mol) => Math.min(...[...move].flatMap((i) => x.atoms.flatMap((p, j) => (move.has(j) ? [] : [Math.hypot(p.location[0] - x.atoms[i].location[0], p.location[1] - x.atoms[i].location[1])]))));
-      let best = -1;
+      let best = -1, out = base;
       for (const side of [0, 1, -1]) {
         const way = Math.atan2(d[1], d[0]) + (side * Math.PI) / 3, turn = way + Math.PI - Math.atan2(e[1], e[0]), [cs, sn] = [Math.cos(turn), Math.sin(turn)], [tx, ty] = [pos(base, a)[0] + Math.cos(way) * L, pos(base, a)[1] + Math.sin(way) * L];
         m = { ...base, atoms: base.atoms.map((x, i) => (move.has(i) ? { ...x, location: [tx + (x.location[0] - bx) * cs - (x.location[1] - by) * sn, ty + (x.location[0] - bx) * sn + (x.location[1] - by) * cs, 0] as [number, number, number] } : x)) };
-        for (const x of [m, over(a, b, move)]) if (gap(x) > best + 1e-6) [best, apart.atoms] = [gap(x), x.atoms];
+        // The mirror image keeps its wedges turned over with its atoms, so each centre keeps its configuration.
+        for (const x of [m, over(a, b, move)]) if (gap(x) > best + 1e-6) [best, out] = [gap(x), x];
         if (best >= 0.5 * L) break;
       }
-      m = { ...base, atoms: apart.atoms, bonds: over(a, b, new Set()).bonds };
+      m = out;
     }
   };
   const protect = (name: string, group: string | undefined, ats: number[]) => (DIOL.includes(group!) ? (ats.length === 2 ? bridge(group!, ats[0], ats[1]) : `${group} takes at: the two atoms that carry a diol's hydroxyls ('4-5')`) : PG.includes(group!) ? chosen(name, free(group!, false), ats) : `${name} takes with: ${[...PG, ...DIOL].join(", ")}`);
@@ -528,7 +619,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     benzoylate: (_, ats) => protect("benzoylate", "Bz", ats),
     form_carbonate: (_, ats) => protect("form_carbonate", "carbonate", ats),
     esterify: (c, ats) => (c.with && labelKey(c.with).atoms ? chosen("esterify", free(c.with, !ats.length), ats) : "esterify takes with: the group the O-H takes (Me, Et, Bn, Ac)"),
-    hydrolyse: (_, ats) => chosen("hydrolyse", [...acyls(false), ...relabel(/^(CO2|COO)(?!H$)./, () => "CO2H"), ...["Ac", "Bz"].flatMap((g) => off(g, false)), ...["TBS", "TBDPS", "TES", "TMS", "TIPS", "MOM"].flatMap((g) => off(g)), ...DIOL.flatMap(bridges)], ats),
+    hydrolyse: (_, ats) => { const sites = [...acyls(false), ...relabel(/^(CO2|COO)(?!H$)./, () => "CO2H"), ...["Ac", "Bz"].flatMap((g) => off(g, false)), ...["TBS", "TBDPS", "TES", "TMS", "TIPS", "MOM"].flatMap((g) => off(g)), ...DIOL.flatMap(bridges)]; return chosen("hydrolyse", [...sites, ...acetals(sites)], ats); },
     oxidise: (_, ats) => {
       const near = bondedTo(m);
       return chosen("oxidise", [
@@ -541,7 +632,9 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     epoxidise: (_, ats) => alkenes("epoxidise", (a, b) => {
       retype(bondOf(a, b), 1);
       const o = plant(a, "O", 1, round([a, b], 1)[0]);
-      return o === undefined ? ROOM : link(b, o);
+      if (o === undefined) return ROOM;
+      rings.push([a, b, o].map((i) => was[i]));
+      return link(b, o);
     }, ats),
     dihydroxylate: (_, ats) => alkenes("dihydroxylate", (a, b) => retype(bondOf(a, b), 1) ?? grow(a, "OH") ?? grow(b, "OH"), ats),
     hydroborate: (c, ats) => (ats.length === 1 ? alkenes("hydroborate", (a, b) => retype(bondOf(a, b), 1) ?? grow(ats[0], c.with ?? "OH"), ats) : "hydroborate takes at: the carbon of the C=C that takes the OH"),
@@ -588,12 +681,17 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     if (c.occurrence !== undefined && !(Number.isInteger(c.occurrence) && c.occurrence >= 1)) return "occurrence counts from 1";
     if (c.bond !== undefined) return typeof c.bond === "string" ? order(c.bond, c.to) : "give bond as two atom numbers ('5-6')";
     if (c.at !== undefined && (typeof c.at !== "string" || !c.at.trim())) return "at is an atom's number, or a group's label";
+    // A number is an atom's. An element with a number (C7) is an atom's when an atom has that number: else N3 is a label.
+    const at = c.at?.trim(), lettered = at && /^[A-Z][a-z]?(\d+)$/.exec(at), on = at && (/^\d+$/.test(at) || (lettered && m.atoms.some((a) => a.tag === Number(lettered[1])))) ? atomAt(at) : undefined;
+    if (typeof on === "string") return on;
     if (c.do !== undefined) {
       if (!Object.keys(DO).includes(String(c.do))) return `${String(c.do).slice(0, 40)} is not a transformation. They are: ${Object.keys(DO).join(", ")}`;
       if (c.with !== undefined && (typeof c.with !== "string" || !c.with.trim() || c.with.length > 40)) return "with is a group's label, or a compound's number";
       // An O-H, S-H or N-H that an earlier change wrote as a label (OH) is that atom: a transformation reads atoms.
       m.atoms.forEach((x, i) => { if (x.text && /^(OH|SH|NH2?)$/.test(x.text)) m = setElement(m, i, x.label); });
-      const ats = c.do === "join" || c.at === undefined ? [] : spots(c.at);
+      // at as a label (OTBS) is the atom the label is on, as it is for set, add and remove.
+      const parts = !at || c.do === "join" || on !== undefined || at.includes("-") ? undefined : named(at);
+      const ats = c.do === "join" || !at ? [] : !parts ? (on !== undefined ? [on] : spots(at)) : typeof parts === "string" ? parts : parts.length === 1 ? [parts[0].on] : parts.length ? `there are ${parts.length} ${at.slice(0, 40)} (on ${parts.map((p) => who(p.on)).join(", ")}): give at as the number of the atom the group is on` : `there is no ${at.slice(0, 40)}. ${places()}`;
       if (typeof ats === "string") return ats;
       // A transformation says what it does at a centre (a group goes on or comes off an O; a centre is made or goes),
       // so the reply has no word on a centre that keeps its configuration, as it has for set, add and remove.
@@ -601,9 +699,6 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       hit = was.map((w) => had.has(w));
       return wrong;
     }
-    // A number is an atom's. An element with a number (C7) is an atom's when an atom has that number: else N3 is a label.
-    const at = c.at?.trim(), lettered = at && /^[A-Z][a-z]?(\d+)$/.exec(at), on = at && (/^\d+$/.test(at) || (lettered && m.atoms.some((a) => a.tag === Number(lettered[1])))) ? atomAt(at) : undefined;
-    if (typeof on === "string") return on;
     if (c.swap !== undefined) {
       if (!c.swap || typeof c.swap !== "object" || !Object.keys(c.swap).length) return "swap takes {group: new group}, as { OBn: 'OTES' }";
       if (at && on === undefined) return "with swap, at is the number of the atom the group is on";
@@ -631,9 +726,16 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   placed();
   // An atom a transformation placed or moved that lies within half a bond of an atom it is not bonded to: the compound
   // is laid out again, as a crowded structure read from text is (mcp.ts).
-  if (shaped && !relaid && m.atoms.some((p, i) => (was[i] < 0 || p.location !== from.atoms[was[i]].location) && m.atoms.some((q, j) => j !== i && Math.hypot(p.location[0] - q.location[0], p.location[1] - q.location[1]) < 0.5 * scaleAt(m, i) && bondOf(i, j) < 0))) {
-    const wrong = redrawn();
-    if (wrong) return `${wrong}.`;
+  // A new ring is drawn again first (ringed), and only when that does not work the whole compound.
+  const moved = (i: number) => was[i] < 0 || m.atoms[i].location !== from.atoms[was[i]].location || loose.some((b) => b.includes(was[i]));
+  if (shaped && !relaid && crowded(moved)) {
+    const before = m;
+    for (const r of rings) { const cycle = r.map((w) => was.indexOf(w)); if (!cycle.includes(-1) && crowded(moved)) ringed(cycle); }
+    if (crowded(moved)) {
+      m = before;
+      const wrong = redrawn();
+      if (wrong) return `${wrong}.`;
+    }
   }
   // config: each new double bond turned to the E or Z asked for, then each centre drawn to read as its label.
   const wants = new Map<number, string>(), turned = new Set<number>();
@@ -641,6 +743,12 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const ends = spots(name), wrong = typeof ends === "string" ? ends : ends.length === 2 ? geometry(ends[0], ends[1], label) : void wants.set(ends[0], label);
     if (wrong) return `config: ${wrong}.`;
     if (ends.length === 2) turned.add(bondOf(ends[0] as number, ends[1] as number));
+  }
+  // config sets a centre the changes make, or one a change took the configuration of (an epoxide opened): never one
+  // that keeps its configuration, which config would turn over with no word.
+  for (const [j, label] of wants) {
+    const had = was[j] >= 0 ? stereoLabels(from)?.atoms[was[j]] : undefined, now = had && stereoLabels(m)?.atoms[j];
+    if (now && now !== label) return `config: ${who(j)} keeps its configuration (${now}) through these changes, and config sets only a new centre: to change ${who(j)}, give the compound as text.`;
   }
   const unsettled = settle(wants);
   if (unsettled) return `config: ${unsettled}.`;

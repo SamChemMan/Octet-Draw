@@ -280,7 +280,7 @@ The AI needs to name a place without atom ids. Three ways, in this order:
   keeps the one that reads as the centre did.
 - **Refused, never guessed:** a group that is there twice with no `occurrence`; a label or number that is not there
   (the reply lists the compound's numbers and labels); a change that breaks valence; a new double bond drawn atom to
-  atom that could be E or Z; a bond between atoms that are not bonded (a ring or chain made or broken); `from` that
+  atom that could be E or Z; a bond change between atoms that are not bonded (`close` and `join` make a bond); `from` that
   names nothing, two structures of the drawing with one number, or two compounds of the call with one number that
   are not one compound; a key that does not go with the change (`to` with `set`, `occurrence` with an atom's number);
   a label on a double or triple bond that Octet's label reader gets wrong (`=CHCO2Et`, `=CHCN`: it reads a label as on
@@ -338,9 +338,17 @@ name:
 - Each transformation finds every place it fits and is made at the one `at` names, or the only one; with none or
   more, the refusal names the places. They are made on the atoms as drawn (Indigo's WASM build has no reaction
   templates). New atoms go where the bond tool puts them; a new small ring is a regular ring.
-- **Not as specified:** a ring closed between atoms far apart (McMurry, 13; an oxetane), or new atoms with no room,
-  have the whole compound laid out again by Indigo, turned (or mirrored, with its wedges) to lie as it did, and the
-  reply says the atoms moved. Cleaning up the new ring only is left to do.
+- A ring closed between atoms far apart (an oxetane, 18), or new atoms with no room (6, 10, 12), has the new ring
+  drawn again alone: with the ring's bonds taken out, the largest part stays where it is, the ring is regular through
+  its atoms there, and each other part goes with its atoms on the ring (turned, or turned over with its wedges). A new
+  small ring goes on the side of its bond with room. `at` takes a label too (OTBS: the atom it is on). `hydrolyse`
+  also takes an acetal (a ketal, a THP ether: the part with the atom `at` names stays, or the largest). `config` on a
+  centre that the changes keep is refused: it sets only a new centre, or one a change took the configuration of.
+- **Not as specified:** when the part that stays has atoms of the new ring that are not one run (the McMurry, 13:
+  the A ring with the carbonate holds three atoms of the B ring), Octet lays out the whole compound with Indigo,
+  turned (or mirrored, with its wedges) to lie as it did, and the reply says the atoms moved. A ring-closing
+  metathesis between two vinyl labels (corpus grocott2025-fig4e, 20) cannot be said: no number names a label's
+  atoms.
 
 ### 4.4 What the taxol route looks like in v2 (target)
 

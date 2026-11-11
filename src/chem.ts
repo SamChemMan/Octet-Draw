@@ -537,6 +537,8 @@ function overLabels(m: Mol, ink?: Inks): [number, number, number][] {
   const seen = new Set(out.map((h) => h.join()));
   return out.concat(inkHits(m, ink).filter((h) => !seen.has(h.join())));
 }
+// How many labels meet a bond or a label they are not part of (compound.ts: a new ring drawn alone must add none).
+export const labelHits = (m: Mol) => overLabels(m, inkBoxes(m)).length;
 // A label's ink as render() draws it, in ACS Document 1996 (Arial 10 pt labels on 14.4 pt bonds) with Arial's own
 // glyph metrics, so a structure is drawn the same on any computer: for each labelled atom, the box round its element,
 // its H atoms and their count, and its charge, on the side render() puts them (OH or HO, the indole NH stacked), in bond
