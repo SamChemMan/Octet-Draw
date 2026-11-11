@@ -192,6 +192,9 @@ run("drugs", [
   // E and Z on an imino prefix's C=N, at the parent atom's locant: the cephalosporins' (2Z)-methoxyiminoacetyl group.
   "smiles:CO\\N=C(/C(=O)N[C@H]1[C@H]2SCC(COC(C)=O)=C(N2C1=O)C(O)=O)c1csc(N)n1 = (6R,7R)-3-[(acetyloxy)methyl]-7-{[(2Z)-(2-amino-1,3-thiazol-4-yl)(methoxyimino)acetyl]amino}-8-oxo-5-thia-1-azabicyclo[4.2.0]oct-2-ene-2-carboxylic acid",
   "smiles:O/N=C(\\C)C(=O)O = (2E)-2-(hydroxyimino)propanoic acid", "smiles:O\\N=C(\\C)C(=O)O = (2Z)-2-(hydroxyimino)propanoic acid",
+  // A thioate's alkyl names the atom it is on with more than one ester too (tiomesterone); not diacetate.
+  "smiles:CC(=O)SC1CCC(SC(C)=O)CC1 = S-[4-(acetylsulfanyl)cyclohexyl] ethanethioate",
+  "smiles:CC(=O)S[C@@H]1CC2=CC(=O)C[C@@H]([C@@]2([C@@H]3[C@@H]1[C@@H]4CC[C@]([C@]4(CC3)C)(C)O)C)SC(=O)C = S-[(1S,7R,8S,9S,10R,13S,14S,17S)-1-(acetylsulfanyl)-17-hydroxy-10,13,17-trimethyl-3-oxo-2,3,6,7,8,9,10,11,12,13,14,15,16,17-tetradecahydro-1H-cyclopenta[a]phenanthren-7-yl] ethanethioate",
 ]);
 
 // Ring imines, as ring ketones are (with indicated and added hydrogen), and nitroso on a carbonyl carbon.

@@ -2159,12 +2159,16 @@ class Namer {
     // A compound alkyl group after its locants goes in enclosing marks (P-16.5.1): 1-methyl 5-(2-methylpropyl) pentanedioate.
     const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "")
       + (sorted.length > 1 && g.sites.length === 1 && (g.name.compound || /^[\d(]/.test(g.name.text)) ? enclose(g.name) : times(g.sites.length, g.name)));
-    return `${alkyls.join(" ")} ${acid.text}`;
+    // A thioate's alkyl names the atom it is on, as in esterName; with more than one alkyl group that is not covered.
+    const vs = esters.filter((c) => site(c) !== undefined).map((c) => groupVariant(this, c)).filter((v) => v === "S" || v === "O");
+    if (vs.length && (sorted.length > 1 || sorted[0].sites.length > 1)) throw new Error("several thioesters");
+    return `${vs.length ? `${vs[0]}-${enclose(sorted[0].name)}` : alkyls.join(" ")} ${acid.text}`;
   }
   // Esters of a polyol (P-65.6.3.2.2): cut at each ester's C–O bond, one part holds every ester O and no ester carbon,
   // and the acids are all the same: ethane-1,2-diyl diacetate. The polyol's name (ethane-1,2-diol) gives the
   // alkyl's (ethane-1,2-diyl).
   polyolEster(esters: number[]): string | undefined {
+    if (esters.some((c) => groupVariant(this, c))) return undefined; // thioates: S-methyl, O-methyl (esterName)
     const os = esters.map((c) => this.esterO.get(c)!), yl = this.polyolYl(os, esters);
     if (!yl) return undefined;
     const acids = esters.map((c) => {
