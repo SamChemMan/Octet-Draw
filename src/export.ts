@@ -152,10 +152,11 @@ export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 export const pasteRefused = (clip: Pick<Clipboard, "filled">, text: string | undefined, why: string) =>
   text?.trim() ? `Octet cannot read this structure. ${why}` : clip.filled ? "Octet cannot read what is on the clipboard." : undefined;
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi";
 // The pictures: vector (PDF, SVG, EMF, EPS) and pixels at a resolution (PNG, TIFF, JPEG, GIF; JPEG is always on white).
+// BMP, in File > More Formats only, is pixels on white too.
 export const PICTURES: ExportFormat[] = ["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"];
-export const RASTERS: ExportFormat[] = ["png", "tif", "jpg", "gif"];
+export const RASTERS: ExportFormat[] = ["png", "tif", "jpg", "gif", "bmp"];
 // The pictures that carry the drawing's CDXML (the PDF as ChemDraw's does, the EMF in a comment, the PNG in a chunk), so
 // they open, drop and paste back into Octet as the drawing, from a file or copied back out of Word.
 export const CARRY_CDXML: ExportFormat[] = ["pdf", "png", "emf"];
@@ -189,19 +190,19 @@ export function withBackground(svg: string, hex: string): string {
   return box ? `${box[0]}<rect x="${box[1]}" y="${box[2]}" width="${box[3]}" height="${box[4]}" fill="${hex}"/>${svg.slice(box[0].length)}` : svg;
 }
 // A picture as a format saves it: with the margin, and for a raster format its background. Transparent only where the
-// format has it (JPEG has none); "page" is the drawing's own page colour (`page`), and white when it has none.
+// format has it (JPEG and BMP have none); "page" is the drawing's own page colour (`page`), and white when it has none.
 export function pictureAs(svg: string, f: { format: ExportFormat; margin: number; background: "white" | "transparent" | "page" }, page?: string): { svg: string; transparent: boolean } {
   const m = withMargin(svg, f.margin), raster = RASTERS.includes(f.format);
   if (raster && f.background === "page" && page) return { svg: withBackground(m, page), transparent: false };
-  return { svg: m, transparent: raster && f.format !== "jpg" && f.background === "transparent" };
+  return { svg: m, transparent: raster && f.format !== "jpg" && f.format !== "bmp" && f.background === "transparent" };
 }
 // File > Export…: the drawing in every form the page has (svg from standaloneSvg). The app asks where to save,
 // offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF, PNG
 // and EMF carry the CDXML (CARRY_CDXML), as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
 // `transparent`; JPEG at `quality` (1 to 100, 95 if not given). mdl: the text of the MDL format asked for; csv: Home's
-// Experiments list. Resolves to the path written, or null if cancelled.
+// Experiments list; model: a 3MF file's 3D model (src/model3mf.ts). Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat | "csv"; csv?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
+  name: string; format?: ExportFormat | "csv" | "3mf"; csv?: string; model?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean; quality?: number;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });
