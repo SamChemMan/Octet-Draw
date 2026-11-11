@@ -1982,12 +1982,8 @@ export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" |
   return out;
 }
 
-// Captions and arrows share one set of ids, unique within a drawing. floor: no new id at or below it, so an id an AI
-// app was given is not given to something else after a delete (mcp.ts, decision 0021).
-let floor = 0;
-export const keepIdsAbove = (n: number) => { floor = Math.max(floor, n); };
-export const startIds = () => { floor = 0; }; // a new drawing
-const nextId = (m: Mol) => Math.max(floor, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
+// Captions and arrows share one set of ids, unique within a drawing.
+const nextId = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
 export function addCycle(m: Mol, c: Omit<Cycle, "id">): [Mol, number] {
   const id = nextId(m);
   return [{ ...m, cycles: [...(m.cycles ?? []), { ...c, id }] }, id];

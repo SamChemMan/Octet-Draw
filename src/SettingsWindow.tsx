@@ -13,7 +13,7 @@ import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
-import { EXPORT_FORMATS, PICTURES, copyToClipboard, type ExportFormat } from "./export";
+import { EXPORT_FORMATS, PICTURES, type ExportFormat } from "./export";
 import { BACKDROPS, DpiField } from "./ExportDialog";
 import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
@@ -32,7 +32,7 @@ export type FilePrefs = {
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
   quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
 };
-const MAC = navigator.platform.startsWith("Mac"), LINUX = navigator.platform.startsWith("Linux");
+const MAC = navigator.platform.startsWith("Mac");
 // Office object: on Windows only, Copy puts an Octet Drawing object first, which Word, PowerPoint and Excel keep and
 // open in Octet (decision 0023).
 const WINDOWS = navigator.platform.startsWith("Win");
@@ -96,8 +96,6 @@ type Props = {
   updates: boolean; // check for updates when Octet opens (decision 0010)
   onUpdates: (on: boolean) => void;
   onCheckUpdates: () => void;
-  // AI apps (decision 0021): the server's address and key while it is on, and the switch.
-  mcp: { port: number; token: string; program: string } | null; onMcp: (on: boolean, newKey?: boolean) => void; onBundle: () => void;
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
   dictionary: { name: string; smiles: string }[];
@@ -345,7 +343,7 @@ function SelectionColour({ value, onChange }: { value: string; onChange: (hex: s
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
-  { id: "general", name: "General", icon: <GearSix size={16} />, words: "general updates version check structure ai apps mcp claude" },
+  { id: "general", name: "General", icon: <GearSix size={16} />, words: "general updates version check structure" },
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={16} />, words: "drawing tools bonds rings draw" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
@@ -582,15 +580,6 @@ export function SettingsWindow(p: Props) {
         <SelectionColour value={p.selectColour} onChange={p.onSelectColour} />
       )),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
-      d("general", "AI apps", "Let AI apps use Octet", "ai apps mcp claude chatgpt assistant model context protocol connect draw", <Switch on={!!p.mcp} label="Let AI apps use Octet" onChange={(on) => p.onMcp(on)} />),
-      ...(p.mcp ? [
-        // Each AI app starts Octet's relay (Octet Draw --mcp), which reads the port and key itself (decision 0021).
-        d("general", "AI apps", "Claude Code", "claude code command mcp add terminal", <button className="text-button" onClick={() => void copyToClipboard({ text: `claude mcp add --scope user octet-draw -- "${p.mcp!.program}" --mcp` })}>Copy command</button>),
-        ...(LINUX ? [] : [d("general", "AI apps", "Claude Desktop", "claude desktop install bundle extension mcpb", <button className="text-button" onClick={p.onBundle}>Install</button>)]),
-        d("general", "AI apps", "VS Code", "vs code visual studio copilot json settings", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ servers: { "octet-draw": { type: "stdio", command: p.mcp!.program, args: ["--mcp"] } } }, null, 2) })}>Copy settings</button>),
-        d("general", "AI apps", "Other AI apps", "cursor windsurf chatgpt config json other apps stdio", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: ["--mcp"] } } }, null, 2) })}>Copy settings</button>),
-        d("general", "AI apps", "Key", "key token new disconnect revoke", <button className="text-button" onClick={() => p.onMcp(true, true)}>New key</button>),
-      ] : []),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
         <span className="swatches" role="list" aria-label="Octet's colours">
           {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} data-tip={name} aria-label={name} />)}
@@ -620,7 +609,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

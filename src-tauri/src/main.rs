@@ -24,7 +24,6 @@ mod feedback;
 mod home;
 // Octet Drawing objects in Office for Windows (decision 0023). The COM server builds on Windows only (ole_windows.rs).
 mod ole;
-mod mcp;
 mod open;
 mod pubchem;
 mod quit;
@@ -1017,23 +1016,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     Ok((Menu::with_items(app, &items)?, checks, listed))
 }
 
-// The folder Tauri's app_data_dir names, for the AI apps relay, which runs without Tauri (mcp.rs).
-fn data_dir() -> Option<std::path::PathBuf> {
-    let id = "io.github.samchemman.octet-draw";
-    #[cfg(not(windows))]
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    #[cfg(target_os = "macos")]
-    return home.map(|h| h.join("Library/Application Support").join(id));
-    #[cfg(windows)]
-    return std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join(id));
-    #[cfg(target_os = "linux")]
-    return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
-}
-
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--mcp") {
-        return mcp::relay(data_dir());
-    }
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
     #[cfg(windows)]
@@ -1088,8 +1071,7 @@ fn main() {
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
-        .manage(mcp::Mcp::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1106,11 +1088,6 @@ fn main() {
             smoke::start(handle.clone());
             quit::install(handle);
             app.manage(recovery::start(handle));
-            // A dev build started with OCTET_MCP=1 lets AI apps in at once, for testing the tools (decision 0021).
-            #[cfg(debug_assertions)]
-            if std::env::var_os("OCTET_MCP").is_some() {
-                let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
-            }
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
             set_bar(handle, bar)?;
             #[cfg(windows)]
@@ -1176,7 +1153,6 @@ fn main() {
             tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => {
                 windows::closed(_app, &label);
                 quit::closed(_app, &label);
-                mcp::closed(_app, &label);
             }
             tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
             // Each open object tells Word it closed, and the class object goes (decision 0023).

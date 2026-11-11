@@ -35,10 +35,6 @@ tauri-plugin-updater = { version = "2.14", default-features = false, features = 
 # same features, so nothing new is built.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-# The key AI apps connect with (src/mcp.rs, decision 0021): the system's random numbers. Already in the build.
-getrandom = "0.3"
-# The Claude Desktop bundle's zip (src/mcp.rs): its checksums. Already in the build through png.
-crc32fast = "1"
 
 # A second launch on Windows and Linux gives its files to the Octet that runs (src/open.rs).
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]

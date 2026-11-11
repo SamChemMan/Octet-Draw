@@ -2,8 +2,7 @@
 // page): a column under each reactant, each reagent drawn or written above or below an arrow (as ChemDraw's grid takes
 // them, as reactants), and each product; text reagents such as H2O or MeOH too, each item of a list such as
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
-// worked out from what was typed (stoich.ts). Hidden rows and columns are left out. One module for the editor and for
-// a host with no window (decision 0021, scripts/headless), so the two lay grids out the same.
+// worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Grid, type Mol } from "./render.ts";
 import { conditionItems, inert, keyColumns, solve, type Field } from "./stoich.ts";
 import type { Reaction } from "./reaction.ts";

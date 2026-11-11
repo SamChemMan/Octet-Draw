@@ -10,10 +10,6 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | tauri-plugin-dialog (Rust) | 2.8 | Apache-2.0 OR MIT | Native Open and Save dialogs |
 | tauri-plugin-updater (Rust) | 2.14 | Apache-2.0 OR MIT | Check for Updates and the check when Octet opens, if the user allows it (decision 0010). Checks each update's minisign signature. It brings reqwest, hyper-rustls, rustls, rustls-platform-verifier, tokio-rustls (Apache-2.0 OR ISC OR MIT, or MIT OR Apache-2.0), ring (Apache-2.0 AND ISC), rustls-webpki and untrusted (ISC), minisign-verify (MIT), subtle (BSD-3-Clause) and tar (MIT OR Apache-2.0) |
 | reqwest, rustls (Rust) | 0.13, 0.23 | MIT OR Apache-2.0; Apache-2.0 OR ISC OR MIT | Name to Structure's PubChem step, with Online search on (`src-tauri/src/pubchem.rs`, decision 0015). The updater's own HTTPS client and TLS, with the same features: nothing new in the build |
-| getrandom (Rust) | 0.3 | MIT OR Apache-2.0 | The key AI apps connect with (`src-tauri/src/mcp.rs`, decision 0021). Already in the build through Tauri |
-| crc32fast (Rust) | 1.5 | MIT OR Apache-2.0 | The checksums in the Claude Desktop bundle's zip (`src-tauri/src/mcp.rs`, decision 0021). Already in the build through png |
-| @anthropic-ai/mcpb | latest | MIT and Apache-2.0 | Checked the Claude Desktop bundle's manifest once, run with npx. Not a dependency, not shipped |
-| MCP SDKs: @modelcontextprotocol/sdk (TypeScript), rmcp (Rust) | 1.32.2, 3.8.0 | MIT; Apache-2.0 | Checked 4 November 2026 and not used: Octet speaks the protocol itself in `src/mcp.ts` (decision 0021). Not shipped |
 | tauri-plugin-single-instance (Rust) | 2.5 | Apache-2.0 OR MIT | Windows and Linux: a file opened from Explorer or a file manager goes to the Octet that runs. On Linux it brings zbus, zvariant and endi (MIT) and the smol async crates (Apache-2.0 OR MIT) |
 | svg2pdf, pdf-writer, subsetter (Rust, typst project) | 0.13, 0.12, 0.2 | MIT OR Apache-2.0 | Vector PDF of the drawing for export and the clipboard, with font subsets and the CDXML in the PDF |
 | resvg, usvg (Rust, linebender) | 0.45 | Apache-2.0 OR MIT | Reads the drawing's SVG; draws the PNG export |

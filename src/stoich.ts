@@ -94,7 +94,7 @@ const WEIGHT: Record<string, number> = {
 };
 // A reagent as text over an arrow, as the reagent table reads it: without an amount before it ("1.2 equiv", "10 mol%",
 // "2 M"), a word for its form ("conc.", "aq.", "dry", "anhydrous", "cat."), or an amount or "cat." in brackets after
-// it, so "conc. H2SO4" and "Pd(PPh3)4 (5 mol%)" read as H2SO4 and Pd(PPh3)4 (decision 0021, D8).
+// it, so "conc. H2SO4" and "Pd(PPh3)4 (5 mol%)" read as H2SO4 and Pd(PPh3)4.
 export function reagentName(text: string): string {
   let t = text.trim();
   for (let k = 0; k < 4; k++) {
@@ -125,7 +125,7 @@ const GROUPS: [RegExp, string][] = [
   [/OAc/g, "(C2H3O2)"], [/OTf/g, "(CF3SO3)"], [/OTs/g, "(C7H7SO3)"], [/OMe/g, "(OCH3)"], [/OEt/g, "(OC2H5)"], [/tBu/g, "(C4H9)"], [/iPr/g, "(C3H7)"], [/nBu|Bu/g, "(C4H9)"],
   [/Ph/g, "(C6H5)"], [/Bn/g, "(C7H7)"], [/Bz/g, "(C7H5O)"], [/Ts/g, "(C7H7SO2)"], [/Tf/g, "(CF3SO2)"], [/Cp/g, "(C5H5)"], [/Ac/g, "(C2H3O)"], [/Me/g, "(CH3)"], [/Et/g, "(C2H5)"], [/Pr/g, "(C3H7)"],
 ];
-// A reagent's formula and molar mass as the reagent table takes it (Editor.tsx gridViews, mcp.ts): an acronym (NBS,
+// A reagent's formula and molar mass as the reagent table takes it (Editor.tsx gridViews): an acronym (NBS,
 // DMF, THF: capitals, no digits) as Name to Structure reads it; else the formula as written, its groups written out;
 // else Name to Structure's reading; else an atom label's. read: a name to SMILES; label: a label to SMILES; weigh:
 // SMILES to its formula and weight. Undefined when none reads it.

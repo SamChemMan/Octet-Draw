@@ -6,8 +6,7 @@ import { CheckCircle, Info, Warning, X } from "@phosphor-icons/react";
 import { noticeTime, type NoticeKind } from "./notice";
 import { useLeaving } from "./motion";
 
-// stays: the notice waits until it is replaced or cleared (an AI app drawing, with Stop).
-export type Notice = { text: string; kind: NoticeKind; action?: { label: string; run: () => void }; n: number; stays?: boolean };
+export type Notice = { text: string; kind: NoticeKind; action?: { label: string; run: () => void }; n: number };
 
 const ICONS: Record<NoticeKind, React.ReactNode> = {
   error: <Warning size={16} aria-hidden />,
@@ -27,7 +26,7 @@ export function NoticeBar({ notice, onGone }: { notice: Notice; onGone: () => vo
   }, []);
   useEffect(() => setFading(false), [notice.n]);
   useEffect(() => {
-    if (held || hidden || leaving || notice.stays) return;
+    if (held || hidden || leaving) return;
     const t = setTimeout(() => setFading(true), noticeTime(notice.text));
     return () => clearTimeout(t);
   }, [notice.n, held, hidden, leaving]); // eslint-disable-line react-hooks/exhaustive-deps

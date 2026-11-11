@@ -18,15 +18,6 @@
         "dev"
       ],
       "port": 1420
-    },
-    {
-      "name": "octet-mcp",
-      "runtimeExecutable": "/bin/zsh",
-      "runtimeArgs": [
-        "-lc",
-        "OCTET_MCP=1 npm run tauri dev -- --config '{\"build\":{\"devUrl\":\"http://localhost:1431\",\"beforeDevCommand\":\"npx vite --port 1431 --strictPort\"}}'"
-      ],
-      "port": 1431
     }
   ]
 }

@@ -732,7 +732,7 @@ console.log("cycle tidy ok");
 }
 console.log("cycle side arrow tool ok");
 
-// Step names placed clear (the Suzuki cycle from the MCP test): three intermediates, side arrows with text on every
+// Step names placed clear (a Suzuki cycle): three intermediates, side arrows with text on every
 // step and long names, so the names go inside where they fit, else outside. No name overlaps another, the centre
 // label, a side arrow or its text or an intermediate, and none crosses the circle. Text is half an em per character, as Arial is near enough.
 {

@@ -505,7 +505,7 @@ else {
   assert.equal(roleOf([], [a]), undefined, "in no reaction: a substance search");
   assert.equal(roleOf([], [a, b]), undefined);
 }
-// A scheme of three steps too wide for the page (an AI app's, decision 0021), each arrow with two lines kept above it
+// A scheme of three steps too wide for the page, each arrow with two lines kept above it
 // and a yield below: it wraps after the first step, and the second line runs on from its first arrow, every part a
 // gap after the one before (the pieces of a wrapped reaction read as reactions of their own, and are not laid out
 // again). A second Clean Up Reaction moves nothing.

@@ -2636,9 +2636,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
- "crc32fast",
  "dispatch2",
- "getrandom 0.3.4",
  "gtk",
  "image",
  "miniz_oxide 0.8.9",

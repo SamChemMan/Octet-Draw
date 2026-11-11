@@ -26,9 +26,6 @@ type P = [number, number];
 // attachment, in ChemDraw's three styles: a wavy line across the bond at this end (true), or a diamond or a star on
 // the atom that the bond stops at. bead: a polymer bead (a resin sphere) at this atom.
 export type Atom = {
-  // The id an AI app knows this atom's structure by (mcp.ts, decision 0021): one per structure, never given twice in a
-  // window. In memory only: files do not keep it (file.ts and cdxml.ts write the fields they name).
-  key?: number;
   // Contract Label's group, kept with the label as ChemDraw keeps a contracted fragment: its atoms and bonds as drawn,
   // the labelled atom first. Expand Label draws it out again when the label is no abbreviation Octet knows.
   inner?: Mol;
@@ -161,11 +158,7 @@ export type Caption = {
   // A compound number Octet gave (Number these compounds): an experiment page keeps it in reading order. Text the user
   // typed or edited, and every number in a file from Octet 1.1.0 or ChemDraw, has none and is never changed.
   auto?: true;
-  // What the text of a reaction's conditions says, when an AI app gave it as data (mcp.ts, decision 0021): its
-  // reagents, catalysts, solvents, temperature, time, atmosphere or yield. In memory only: files keep the text.
-  facts?: StepFacts;
 };
-export type StepFacts = { reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string };
 // Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
 // their arrow has changed length or direction since.
 export function placedAt(c: Pick<Caption, "placed" | "on">, arrows?: Arrow[]): [number, number] | undefined {

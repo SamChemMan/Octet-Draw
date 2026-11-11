@@ -1,6 +1,6 @@
-// Run: node src/reagents.check.ts. Reagents written over an arrow (decision 0021, D8): the reagent table reads each
+// Run: node src/reagents.check.ts. Reagents written over an arrow: the reagent table reads each
 // as Name to Structure does, after reagentName takes off its amount and form ("conc.", "(cat.)"), so each gets its
-// own formula, as a user and an AI app write them.
+// own formula, as a user writes them.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 

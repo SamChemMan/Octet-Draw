@@ -72,11 +72,9 @@ So:
   6 frames. At 60 frames a second the glide takes its 180 ms. Only when one frame takes longer than 30 ms (a drawing
   of hundreds of atoms on a slow computer) does it last longer, never a jump.
 - The glide's first frame is the drawing it starts from, which is drawn already, so it costs nothing.
-- Two cases move at once. Reduced motion, which the user chose in the system's settings (accessibility). And an AI
-  app's call (Sam, 7 November 2026): the MCP server is not for people, and its only goal is the best work in the
-  least time, so nothing it does glides, settles or animates, and any rule about look or feel gives way to speed
-  there. In 1.2 one check, `noMotion()` in `src/Editor.tsx`, covers both, at every motion: glides, the view, the page
-  outlines, the shake and the settle.
+- Reduced motion, which the user chose in the system's settings (accessibility), moves at once. One check,
+  `noMotion()` in `src/Editor.tsx`, covers it at every motion: glides, the view, the page outlines, the shake and the
+  settle.
 
 ### Smooth on a cheap laptop: the fast glide
 

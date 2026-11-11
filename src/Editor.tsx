@@ -132,7 +132,6 @@ import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
 import { GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
-import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
 import "./editor.css";
 
 
@@ -146,9 +145,6 @@ const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+
 const TAURI = "__TAURI_INTERNALS__" in window;
 // Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has
 // a window. ?window marks a drawing window; ?editor (tests) is the editor with no Home.
-type McpInfo = { port: number; token: string; program: string };
-// This page's own id, so the app can tell a reloaded page (whose requests are lost) from this one saying it listens again.
-const MCP_PAGE = Math.random().toString(36).slice(2);
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
 // A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
 labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
@@ -524,14 +520,8 @@ export default function Editor() {
   // The drawing as it is now, for work that ends later (Cut deletes after the copy is on the clipboard).
   const now = useRef(doc);
   now.current = doc;
-  // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
-  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
-  // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
-  // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
-  // 7 November 2026, decision 0024).
-  const noMotion = () => reduced() || mcpCalling.current;
-  const mcpWorking = useRef<number>(undefined);
-  mcpRenders.current++;
+  // No motion: with reduced motion (the user's own setting).
+  const noMotion = () => reduced();
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
   const [spring, setSpring] = useState<Tool>();
@@ -555,8 +545,8 @@ export default function Editor() {
   const [drag, setDrag] = useState<Drag>();
   // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
   const [notice, showNotice] = useState<Notice>();
-  const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"], stays?: boolean) =>
-    showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1, stays }) : undefined);
+  const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"]) =>
+    showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1 }) : undefined);
   // Feedback (for testers, not in the public release: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
   // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
   // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
@@ -1011,8 +1001,7 @@ export default function Editor() {
   // Clean up, Rotate 180°, Flip, every turn, Align, Distribute, Line up, and a catalytic cycle made or tidied glide into
   // place (FEEL-38). The drawing changes at once, as one undo step. Only the picture on screen moves to it (glide).
   // Every such change glides, however large the drawing (decision 0024), except when noMotion(): reduced motion, which the
-  // user chose in the system's settings, and an AI app's call, which wants only speed. A command that comes again before the
-  // last glide is over (a key held down) glides on from the picture on screen. path: the way there when it is not a
+  // user chose in the system's settings. A command that comes again before the last glide is over (a key held down) glides on from the picture on screen. path: the way there when it is not a
   // straight line (a turn).
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
   const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined; turn?: { centre: P; degrees: number }; before?: SVGGElement }>(undefined), glideShown = useRef<Mol>(undefined);
@@ -1228,16 +1217,14 @@ export default function Editor() {
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet Draw" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
-  // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws. crop: only this
-  // box of it (bond lengths, y up), for an AI app that asked to see what a call changed.
-  function pictureOf(part: Mol, crop?: Box): string | undefined {
+  // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws.
+  function pictureOf(part: Mol): string | undefined {
     const canvas = svg.current;
     if (!canvas) return undefined;
     flushSync(() => setExporting(part));
     try {
-      const ink = canvasInk(canvas), cut = ink && crop && ([Math.max(ink[0], crop[0] * L), Math.max(ink[1], -crop[3] * L), Math.min(ink[2], crop[2] * L), Math.min(ink[3], -crop[1] * L)] as Box);
-      const box = cut && cut[2] > cut[0] && cut[3] > cut[1] ? cut : ink;
-      return box && standaloneSvg(canvas, box, 1 / pt);
+      const ink = canvasInk(canvas);
+      return ink && standaloneSvg(canvas, ink, 1 / pt);
     } finally {
       flushSync(() => setExporting(undefined));
     }
@@ -2683,35 +2670,6 @@ export default function Editor() {
     });
     return () => { off.then((f) => f()); };
   }, []);
-  // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
-  // shows its address and key.
-  const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
-  useEffect(() => { if (TAURI && HOME_WINDOW && settings.mcp) void invoke<McpInfo | null>("mcp_set", { on: true }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Once an AI app subscribes to this drawing, each change to it (the user's or an AI app's) tells the AI apps that
-  // subscribed, at most twice a second.
-  const mcpChanged = useRef<number>(undefined), mcpWatched = useRef(false);
-  useEffect(() => {
-    if (!TAURI) return;
-    const off = listen("mcp-watch", () => { mcpWatched.current = true; });
-    return () => { off.then((f) => f()); };
-  }, []);
-  useEffect(() => {
-    if (!mcpWatched.current || mcpChanged.current !== undefined) return;
-    mcpChanged.current = window.setTimeout(() => { mcpChanged.current = undefined; void invoke("mcp_changed").catch(() => {}); }, 500);
-  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Each request the app's MCP server sends to this window, answered by mcp.ts.
-  useEffect(() => {
-    if (!TAURI) return;
-    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null }>("mcp", (e) => {
-      const p = e.payload;
-      void handleMcp(p.body, () => mcpHost.current!, version, {
-        client: p.client, session: p.session ?? undefined, lost: p.lost,
-        progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }),
-      }).then((body) => invoke("mcp_reply", { id: p.id, body }));
-    });
-    void off.then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
-    return () => { off.then((f) => f()); };
-  }, []);
   // Files to open or dropped: those named before the page started, then each time the app says more came. The page
   // listens first and then takes, so a file named in between is not left waiting.
   useEffect(() => {
@@ -3047,7 +3005,6 @@ export default function Editor() {
   };
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
-  useEffect(() => { if (TAURI && settingsOpen) void invoke<McpInfo | null>("mcp_status").then(setMcpInfo).catch(() => {}); }, [settingsOpen]);
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
@@ -6494,83 +6451,6 @@ export default function Editor() {
   const found = useMemo(() => (exporting || !settings.warnings ? [] : onCaptions(problems(chem.mol, stereoOf(doc)), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type))), [doc, chem, exporting, settings.warnings, settings.warningTypes, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // Every problem, those on objects with their warnings hidden too (for Check Structure), of the kinds switched on.
   const allProblems = () => onCaptions(problems(chem.mol, stereoOf(doc), true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
-  // AI apps (mcp.ts, decision 0021): what their tools do in this drawing, made again each time it draws. drawn: the
-  // drawing this one shows, so a tool can wait until what it set is drawn and measured (settle).
-  mcpHost.current = {
-    doc: () => now.current, style: () => style, rendered: doc, gliding: !!glide,
-    // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
-    ready: async () => { await ready; await loadNames(); setLoaded(true); setNamesLoaded(true); for (const end = Date.now() + 3000; !mcpHost.current!.loaded && Date.now() < end;) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); }); },
-    newWindow: async (purpose) => (TAURI ? invoke<string>("open_window", { start: { new: purpose } }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
-    loaded: loaded && namesLoaded,
-    structure: (text) => structureFromText(text),
-    tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
-    named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
-    begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
-    end: () => { joinNext.current = undefined; mcpCalling.current = false; },
-    set: (m) => (mcpWait.current = { mol: set(m) }).mol!,
-    // A message to itself is a task the browser runs at once, where a timer in a window behind others can wait a second.
-    settle: async () => {
-      // A call's changes do not glide (glideTo), so a settle waits only for the drawing to be drawn.
-      const end = Date.now() + 3000, w = mcpWait.current, done = () => (w.mol ? mcpHost.current!.rendered === w.mol : w.after === undefined || mcpRenders.current > w.after);
-      while (!done() && Date.now() < end) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
-      mcpWait.current = {};
-    },
-    cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
-    tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) { mcpWait.current = { after: mcpRenders.current }; glideTo(spread(doc, c)); } },
-    command: (id) => { const run = commands.current[id]; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); return true; },
-    // Any menu command or Actions panel action by its id, on the selection (run_command): mcp.ts checks the id
-    // against its catalogue first.
-    act: (id) => { if (modal()) return false; mcpWait.current = { after: mcpRenders.current }; runAction(id); return true; },
-    map: (reactants, products) => mapReaction(reactants, products),
-    reaction: (id) => reactionOf(id),
-    ink: (atoms) => inkBox(atoms),
-    textBox: (id) => captionBox(id),
-    labelBox: (i) => { const b = drawing.label[i]; return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
-    // A file's text as Export and Copy As write it (formatOf), for the drawing or a part of it; nothing is saved.
-    fileText: (format, part) => formatOf(part ?? now.current, format),
-    inchi: (m) => { try { const e = expandLabels(m); return { inchi: toInchi(e), key: toInchiKey(e) }; } catch { return {}; } },
-    reagent: (text) => reagentFormula(text, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
-    tables: () => gridViews.map((v) => {
-      const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
-      return { arrow: v.arrow, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
-    }),
-    problems: () => (loaded ? allProblems() : []),
-    smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
-    formula: (m) => { try { return analyse(m)?.[0]?.formula; } catch { return undefined; } },
-    // Structure to Name's own name, checked by reading it back (naming.ts checkedName).
-    name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
-    // A PNG at most 150 dpi, its long side at most `longest` px (so it costs the AI app fewer image tokens).
-    picture: async (m, crop, longest = 1000) => {
-      const svgText = pictureOf(m ?? now.current, crop), head = svgText?.slice(0, svgText.indexOf(">"));
-      // A crop (a part looked at closely) is drawn up to its long side: at 150 dpi a structure came out 120 px wide.
-      const side = (k: string) => Number(new RegExp(` ${k}="([\\d.]+)pt"`).exec(head ?? "")?.[1] ?? 0), dpi = Math.min(crop ? 1200 : 150, (longest * 72) / Math.max(side("width"), side("height"), 1));
-      return svgText && TAURI ? invoke<string>("mcp_png", { svg: svgText, dpi }) : undefined;
-    },
-    centre: () => toDoc(innerWidth / 2, innerHeight / 2),
-    restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
-    experiment: () => expPage,
-    said: (text) => { clearTimeout(mcpWorking.current); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
-    // Shown only for a call that takes a while, so a quick one does not flash it.
-    working: (text, stop) => {
-      clearTimeout(mcpWorking.current);
-      if (text) mcpWorking.current = window.setTimeout(() => setNotice(text, "info", { label: "Stop", run: () => stop?.() }, true), 400);
-      else showNotice((was) => (was?.stays ? undefined : was));
-    },
-    selection: () => ({ atoms: [...selection], items: [...picked] }),
-    select: (atoms, items) => { mcpWait.current = { after: mcpRenders.current }; setSelection(new Set(atoms)); setPicked(new Set(items)); },
-    file: (text) => {
-      if (/<CDXML[\s>/]/.test(text.slice(0, 65536))) { const read = fromCdxml(text); return read.style ? fitSizes(read.mol, read.style, style) : read.mol; }
-      // A MOL, SDF or RXN file keeps its own drawing, as File > Import keeps it; SMILES and names are laid out.
-      if (/V[23]000|^\$RXN|^\$RDFILE/m.test(text)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text, true) : undefined; } catch { return undefined; } }
-      return structureFromText(text);
-    },
-    window: () => ({ id: TAURI ? getCurrentWindow().label : "main", name }),
-    windows: async () => (TAURI ? (await invoke<OpenWindow[]>("window_list")).map((w) => ({ id: w.label, name: w.name, edited: w.edited })) : []),
-    // A session's drawing changes without its window coming to the front (D1). A client with no session has the
-    // window in front, so the window comes to the front.
-    target: async (session, drawing) => { try { await (session ? invoke("mcp_target", { session, drawing }) : invoke("window_show", { label: drawing })); return true; } catch { return false; } },
-    export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
-  };
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.
   const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has((p.shape ?? p.caption)!)));
   const subsetProblems = () => selectedOf(allProblems());
@@ -9132,8 +9012,6 @@ export default function Editor() {
           updates={settings.updates === true}
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
           onCheckUpdates={() => checkUpdates(true)}
-          mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
-          onBundle={() => void invoke("mcp_bundle", { tools: TOOL_TABLE.map(({ name, description }) => ({ name, description })) }).catch((e) => setNotice(failure("Octet cannot make the Claude Desktop bundle.", e)))}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>

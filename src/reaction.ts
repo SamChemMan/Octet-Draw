@@ -273,7 +273,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
 // starts with an arrow continues the line above it that ends with a structure, when that line is of arrows the same
 // way across the page, no more than LINES bond lengths above (Clean Up Reaction puts lines 2 bond lengths apart, plus
 // the reach of their text and structures), and overlaps it along the page. findReaction gives the whole reaction from
-// an arrow on any of its lines (decision 0021, D4).
+// an arrow on any of its lines.
 const LINES = 10;
 export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
   const rows = new Map<number, Reaction | undefined>();
