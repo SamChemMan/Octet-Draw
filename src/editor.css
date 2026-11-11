@@ -3853,12 +3853,29 @@ div.facts {
   stroke-width: 1.4px;
   vector-effect: non-scaling-stroke;
 }
-/* A stoichiometry grid's cell picked with Select. */
+/* The amount measured out in a stoichiometry grid: red text with a red line under it. */
+.stoich text.taken {
+  fill: var(--error);
+}
+.stoich line.taken {
+  stroke: var(--error);
+}
+
+/* A stoichiometry grid's cell picked with Select. It glides to the next cell as the keys move it (Excel's cell cursor
+   does the same), fades in where it is first picked, and its transform places it (Editor.tsx gridPickMark). */
 .grid-pick {
   fill: var(--select-tint);
   stroke: var(--select);
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
+  transform-origin: 0 0;
+  transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .grid-pick { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid-pick { transition: opacity var(--motion-fast) var(--ease-out); }
 }
 /* Show Reaction Interpretation: each part of the reaction under the pointer boxed and named, in the brand's blues. */
 .interpretation rect {

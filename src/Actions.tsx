@@ -11,7 +11,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -86,9 +86,11 @@ export type Context =
   // arrows is picked.
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean; width: number; gap: number; step: boolean; reversible: boolean; balance: "equal" | "forward" | "back"; shaped: boolean; hidden: boolean; arcs: boolean; named: boolean; side?: CycleSide; head: HeadShape; size: string }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean; roman?: boolean }
-  // A stoichiometry grid's cell picked: its column a product or a reactant (the limiting one or not), and whether any
-  // of the grid's rows or columns are hidden.
-  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean }
+  // A stoichiometry grid's cell picked: its column a product or a reactant (the limiting one or not), whether any
+  // of the grid's rows or columns are hidden, whether it shows as rows, and whether a row shown has nothing in it.
+  // role: a reactant column's role. mark: its Mass or Volume picked can be marked as measured; marked: it has a mark.
+  // steps: a scheme of several arrows, with a table for each step (join) or one for the scheme (split).
+  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join" }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
@@ -412,11 +414,21 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "grid":
       // ChemDraw's grid menu: Set Limiting, Hide Row, Hide Column, Show All (and Colors, the colour row).
-      items.push(...(!context.product && !context.limiting ? [it(<Target size={18} />, "Set as limiting", "grid.limiting")] : []),
+      // A reactant column's role: Reactant, Catalyst or Solvent (only a reactant is limiting).
+      items.push(...(context.role === "reactant" && !context.limiting ? [it(<Target size={18} />, "Set as limiting", "grid.limiting")] : []),
+        ...(context.role && context.role !== "reactant" ? [it(<TestTube size={18} />, "Set as reactant", "grid.role.reactant")] : []),
+        ...(context.role && context.role !== "catalyst" ? [it(<Lightning size={18} />, "Set as catalyst", "grid.role.catalyst")] : []),
+        ...(context.role && context.role !== "solvent" ? [it(<Drop size={18} />, "Set as solvent", "grid.role.solvent")] : []),
+        // The amount measured out: marked red with a line under it.
+        ...(context.mark ? [it(<Scales size={18} />, "Mark as measured", "grid.taken")] : []), ...(context.marked ? [it(<XSquare size={18} />, "Clear measured mark", "grid.untaken")] : []),
         it(<ArrowsInLineVertical size={18} />, "Hide row", "grid.hide.row"), it(<EyeClosed size={18} />, "Hide column", "grid.hide.col"),
+        // As rows, the quantities are the columns.
+        ...(context.empty ? [it(<FunnelSimple size={18} />, context.rows ? "Hide empty columns" : "Hide empty rows", "grid.hide.empty")] : []),
         ...(context.hidden ? [it(<Eye size={18} />, "Show all rows and columns", "grid.show")] : []),
-        // A reagent on each row and the products under them, or a column for each (issue 34).
-        it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
+        // The table as tab-separated text; then a reagent on each row and the products under them, or a column for
+        // each (issue 34).
+        it(<Thermometer size={18} />, "Conditions…", "grid.conditions"),
+        ...(context.steps ? [{ ...it(<ArrowsSplit size={18} />, context.steps === "split" ? "One table for each step" : "One table for the scheme", "grid.steps"), short: context.steps === "split" ? "Table for each step" : "One table for all" }] : []), it(<Clipboard size={18} />, "Copy table", "grid.copy"), it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
       break;
     case "cycle":
       if (context.side) {

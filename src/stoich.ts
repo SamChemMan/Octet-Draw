@@ -4,47 +4,84 @@
 // equivalents (its coefficient, 1 unless typed, as ChemDraw's product Equivalents row), and a measured mass gives its
 // yield. A product's mass typed (its Expected mass) is the mass wanted: with no reactant amount, it sets the scale
 // (issue 136). Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+// Each reactant has a role: a reactant (as every column of ChemDraw's grid), a catalyst (its equivalents in mol%) or a
+// solvent, which is never limiting, never sets the scale and has no equivalents until some are typed or written. The
+// solvents give the concentration of the limiting reactant, and a concentration typed gives the volume of the solvent
+// with none.
 
-import type { Grid } from "./render.ts";
+import type { Grid, GridConditions, GridRole } from "./render.ts";
+import { oneLine } from "./experiment.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
+import { LIQUIDS, type Liquid } from "./liquids.ts";
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
 export type Typed = Partial<Record<Field, number>>;
 // given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
-// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is).
-export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number };
+// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is). density: a
+// known liquid's listed density (liquids.ts), used when none is typed. role: a reactant's role; unset is a reactant.
+// carried: a reactant's moles from the step before (its Measured mass there), used when none of its amounts is typed.
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number; role?: GridRole; carried?: number };
+// conc: a solvent's, the concentration of the limiting reactant in all the solvents (mol/L).
 export type Solved = {
-  mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number;
+  mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number; conc?: number;
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
 };
 
-// Each component's amounts. limiting: the reactant the others are measured against (the first one when unset).
-export function solve(components: Component[], limiting?: string): Record<string, Solved> {
+// The limiting reactant: the one set, when it has the Reactant role; else the first with the Reactant role; else the
+// first that is not a solvent. A catalyst or a solvent set as limiting (its role changed since) is not.
+// One pass, with nothing made: the table is laid out again on every change.
+export function limitingOf<T extends { key: string; product: boolean; role?: GridRole }>(components: T[], limiting?: string): T | undefined {
+  let reactant: T | undefined, first: T | undefined;
+  for (const c of components) {
+    if (c.product || c.role === "solvent") continue;
+    if ((c.role ?? "reactant") === "reactant") {
+      if (c.key === limiting) return c;
+      reactant ??= c;
+    }
+    first ??= c;
+  }
+  return reactant ?? first;
+}
+// Each component's amounts. limiting: the reactant the others are measured against (limitingOf). conc: the
+// concentration typed (mol/L).
+export function solve(components: Component[], limiting?: string, conc?: number): Record<string, Solved> {
   const out: Record<string, Solved> = {};
-  const reactants = components.filter((c) => !c.product), lim = reactants.find((c) => c.key === limiting) ?? reactants[0];
+  const reactants = components.filter((c) => !c.product), lim = limitingOf(components, limiting);
   // Its equivalents: typed, else as its text gives them, else its coefficient over the limiting reactant's (issue 133).
   const ref = lim?.coef ?? 1, given = (c: Component) => c.typed.equiv ?? c.given ?? (c.coef === undefined ? undefined : c.coef / ref);
   // A reactant's moles from what was typed: moles, mass, volume with density, or volume with molarity.
   const own = (c: Component): number | undefined => {
-    const t = c.typed, purity = t.purity ?? 1;
+    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density;
     if (t.moles !== undefined) return t.moles;
     if (t.mass !== undefined && c.mw > 0) return (t.mass * purity) / c.mw;
-    if (t.volume !== undefined && t.density !== undefined && c.mw > 0) return (t.volume * t.density * purity) / c.mw;
+    if (t.volume !== undefined && density !== undefined && c.mw > 0) return (t.volume * density * purity) / c.mw;
     if (t.volume !== undefined && t.molarity !== undefined) return (t.volume / 1000) * t.molarity;
-    return undefined;
+    return c.carried;
   };
   let limMoles = lim ? own(lim) : undefined;
   // With the limiting reactant's amount unknown, another reactant with an amount and equivalents fixes it.
-  if (limMoles === undefined) for (const c of reactants) { const m = own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
+  if (limMoles === undefined) for (const c of reactants) { const m = c.role === "solvent" ? undefined : own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
   // With no reactant amount, a product's mass wanted fixes it.
   if (limMoles === undefined) for (const c of components) { const e = given(c) ?? 1; if (c.product && c.typed.mass !== undefined && c.mw > 0 && e > 0) { limMoles = c.typed.mass / c.mw / e; break; } }
   for (const c of reactants) {
-    const t = c.typed, purity = t.purity ?? 1;
+    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density, e = c === lim ? 1 : c.role === "solvent" ? given(c) : given(c) ?? 1;
     let moles = own(c);
-    if (moles === undefined && limMoles !== undefined) moles = limMoles * (c === lim ? 1 : given(c) ?? 1);
+    if (moles === undefined && limMoles !== undefined && e !== undefined) moles = limMoles * e;
     const mass = moles !== undefined && c.mw > 0 ? (moles * c.mw) / purity : t.mass;
-    const volume = t.volume ?? (mass !== undefined && t.density ? mass / t.density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
-    out[c.key] = { moles, mass, volume, purity, density: t.density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
+    const volume = t.volume ?? (mass !== undefined && density ? mass / density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
+    out[c.key] = { moles, mass, volume, purity, density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
+  }
+  // The solvents: a concentration typed gives the first with no volume the rest of the volume it needs; then the
+  // concentration in all of them.
+  if (reactants.some((c) => c.role === "solvent")) {
+    const solvents = reactants.filter((c) => c.role === "solvent"), volumeOf = () => solvents.reduce((v, c) => v + (out[c.key].volume ?? 0), 0);
+    const free = conc !== undefined && limMoles !== undefined ? solvents.find((c) => out[c.key].volume === undefined) : undefined;
+    if (free && limMoles !== undefined && conc !== undefined) {
+      const o = out[free.key], volume = (limMoles / conc) * 1000 - volumeOf(), mass = o.density ? volume * o.density : undefined, moles = mass !== undefined && free.mw > 0 ? (mass * o.purity) / free.mw : undefined;
+      if (volume > 0) out[free.key] = { ...o, volume, mass, moles, equiv: moles !== undefined && limMoles ? moles / limMoles : o.equiv };
+    }
+    const total = volumeOf();
+    for (const c of solvents) out[c.key].conc = limMoles !== undefined && total > 0 ? limMoles / (total / 1000) : undefined;
   }
   for (const c of components.filter((x) => x.product)) {
     const purity = c.typed.purity ?? 1, equiv = given(c) ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
@@ -62,7 +99,7 @@ const UNITS: Record<Field, Record<string, number>> = {
   volume: { L: 1000, l: 1000, mL: 1, ml: 1, µL: 1e-3, uL: 1e-3, ul: 1e-3 },
   density: { "g/mL": 1, "g/ml": 1, "g/cm3": 1, "kg/L": 1 },
   molarity: { M: 1, "mol/L": 1, mM: 1e-3 },
-  equiv: { eq: 1, equiv: 1, "": 1 },
+  equiv: { eq: 1, equiv: 1, "mol%": 0.01, "": 1 },
   purity: { "%": 0.01 },
 };
 // A typed amount in base units: "250 mg", "1.2 eq", "0.5 mL", "98%". A bare number is taken in the field's usual unit
@@ -78,10 +115,12 @@ export function parseAmount(text: string, field: Field, mass: "g" | "mg" = "g"):
   return k === undefined || !(value >= 0) || !Number.isFinite(value * k) ? undefined : value * k;
 }
 // An amount for the grid in the unit that reads best (250 mg, 1.25 mmol, 0.50 mL), three significant figures.
-export function formatAmount(value: number | undefined, field: Field | "mw" | "yield"): string {
+// A catalyst's equivalents ("mol%") in mol%: 0.05 is 5.00 mol%.
+export function formatAmount(value: number | undefined, field: Field | "mw" | "yield" | "mol%"): string {
   if (value === undefined || !Number.isFinite(value)) return "";
   const sig = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
   if (field === "mw") return value.toFixed(2);
+  if (field === "mol%") return `${(value * 100).toFixed(2)} mol%`;
   if (field === "yield" || field === "purity") return `${sig(value * 100)}%`;
   if (field === "equiv") return value.toFixed(2);
   const ladders: Partial<Record<Field, [string, number][]>> = {
@@ -158,6 +197,23 @@ const GROUP = new RegExp(Object.keys(GROUPS).join("|"), "g");
 // Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
 let abbreviated: Map<string, string> | undefined;
 const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
+// Octet's listed liquids (liquids.ts): by standard InChI, by name in lower case, and the formulas they have.
+let liquids: { inchi: Map<string, Liquid>; name: Map<string, Liquid>; formulas: Set<string> } | undefined;
+const listed = () => (liquids ??= { inchi: new Map(LIQUIDS.map((l) => [l.inchi, l])), name: new Map(LIQUIDS.flatMap((l) => l.names.map((n) => [n.toLowerCase(), l] as const))), formulas: new Set(LIQUIDS.map((l) => l.inchi.split("/")[1])) });
+// A drawn structure's listed liquid: by its formula first, then by its standard InChI, asked for only then, so a
+// structure with THF's formula (butanone, butanal) is never THF.
+export const liquidOf = (formula: string, inchi: () => string | undefined): Liquid | undefined => {
+  const l = listed();
+  if (!l.formulas.has(formula)) return undefined;
+  const i = inchi();
+  return i === undefined ? undefined : l.inchi.get(i);
+};
+// A reagent written as text: by a name the list gives it ("THF", "dry THF", "tetrahydrofuran"), else by Octet's
+// abbreviation's InChI. Undefined when it is not a listed liquid. The table reads each text once (gridview.ts readItem).
+export function liquidNamed(text: string): Liquid | undefined {
+  const plain = coefficient(reagentName(text))[0].trim(), l = listed(), inchi = l.name.has(plain.toLowerCase()) ? undefined : abbreviation(plain);
+  return l.name.get(plain.toLowerCase()) ?? (inchi === undefined ? undefined : l.inchi.get(inchi));
+}
 // Words for what a formula says (issue 132). A Map, so "constructor" is not one.
 const WORDS = new Map([["proton", "H+"], ["hydroxide", "OH−"], ["hydronium", "H3O+"], ["hydride", "H−"], ["water", "H2O"]]);
 // A formula and the charge at its end, raised: H+ is H and ⁺, OH− is OH and ⁻, SO4 2− and SO42− are SO4 and ²⁻, Fe³⁺
@@ -228,10 +284,27 @@ export function formulaWeight(text: string): number | undefined {
 }
 
 // A saved grid read as a hostile file is: typed amounts finite and not negative under known fields, keys short, at most
-// 60 components and the rows Octet has, and a layout only when it is "rows"; undefined when it is damaged.
+// 60 components and the rows Octet has, and a layout only when it is "rows"; undefined when it is damaged. The fields
+// added after 1.1.2 are each checked alone, and one that is wrong is left out with the grid kept: roles and taken at
+// most 60, each a reactant's key with a value from its list; conc a number above 0 and at most 1000 mol/L; conditions
+// the four names only, each one line of at most 200 characters (experiment.ts oneLine); step only true.
 const FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
 const KEY = /^(?:[rp]\d{1,2}|[rp]:[^\n\r]{1,80})$/;
-export const GRID_ROW_IDS = ["formula", "mw", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "purity", "expected", "expectedMoles", "measured", "yield"];
+export const GRID_ROW_IDS = ["formula", "mw", "role", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "conc", "purity", "expected", "expectedMoles", "measured", "yield"];
+export const ROLES: GridRole[] = ["reactant", "catalyst", "solvent"];
+export const CONDITIONS = [["temperature", "Temperature"], ["time", "Time"], ["atmosphere", "Atmosphere"], ["other", "Other"]] as const;
+const reactantKeyed = <T extends string>(x: unknown, values: readonly T[]): Record<string, T> | undefined => {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const list = Object.entries(x);
+  return list.length <= 60 && list.every(([k, v]) => KEY.test(k) && k[0] === "r" && values.includes(v)) ? Object.fromEntries(list) : undefined;
+};
+function readConditions(x: unknown): GridConditions | undefined {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const list = Object.entries(x);
+  if (!list.every(([k, v]) => CONDITIONS.some(([name]) => name === k) && typeof v === "string")) return undefined;
+  const kept = list.map(([k, v]) => [k, oneLine(v as string)]).filter(([, v]) => v);
+  return kept.length ? Object.fromEntries(kept) : undefined;
+}
 export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const g = raw as Record<string, unknown> | undefined, typed = g?.typed as Record<string, Record<string, unknown>> | undefined;
   if (!g || typeof typed !== "object" || !typed || Array.isArray(typed) || Object.keys(typed).length > 60) return undefined;
@@ -241,14 +314,17 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && GRID_ROW_IDS.includes(x)).slice(0, 20) : [];
   const cols = Array.isArray(h?.cols) ? (h!.cols as unknown[]).filter((x): x is string => typeof x === "string" && KEY.test(x)).slice(0, 60) : [];
   const colour = typeof g.colour === "string" && /^#[0-9a-f]{6}$/i.test(g.colour) ? g.colour : undefined;
-  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}) };
+  const roles = reactantKeyed(g.roles, ROLES), taken = reactantKeyed(g.taken, ["mass", "volume"] as const), conditions = readConditions(g.conditions);
+  const conc = typeof g.conc === "number" && Number.isFinite(g.conc) && g.conc > 0 && g.conc <= 1000 ? g.conc : undefined;
+  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
+    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}) };
 }
 
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what
 // was typed for it: by its key, or else, for typed values whose key names no column (a compound redrawn, or a grid
 // from before keys named compounds, "r0"), by order: the first column on the same side with nothing of its own. The
-// limiting reactant follows its values.
-export function keyColumns<T extends { product: boolean; what: string }>(cols: T[], typed: Grid["typed"], limiting?: string): { cols: (T & { key: string; typed: Typed })[]; limiting?: string } {
+// limiting reactant follows its values. moved: each key whose values went to another column, and that column's key.
+export function keyColumns<T extends { product: boolean; what: string }>(cols: T[], typed: Grid["typed"], limiting?: string): { cols: (T & { key: string; typed: Typed })[]; limiting?: string; moved: Map<string, string> } {
   const count = new Map<string, number>();
   const keyed = cols.map((c) => { const base = `${c.product ? "p" : "r"}:${c.what}`, n = (count.get(base) ?? 0) + 1; count.set(base, n); return { ...c, key: n > 1 ? `${base}#${n}` : base, typed: typed[n > 1 ? `${base}#${n}` : base] ?? {} }; });
   const keys = new Set(keyed.map((c) => c.key)), moved = new Map<string, string>();
@@ -261,5 +337,5 @@ export function keyColumns<T extends { product: boolean; what: string }>(cols: T
     moved.set(k, c.key);
   }
   const lim = limiting && (keys.has(limiting) ? limiting : moved.get(limiting) ?? (old(limiting) ? keyed.filter((c) => !c.product)[Number(limiting.slice(1))]?.key : undefined));
-  return { cols: keyed, limiting: lim };
+  return { cols: keyed, limiting: lim, moved };
 }
