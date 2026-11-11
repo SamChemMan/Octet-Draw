@@ -93,6 +93,18 @@ assert.match(css, /^button \{\n  font-family: inherit;\n\}/m);
 // them is 11 px.
 for (const sel of ["tray-button", "chip", "action"]) assert.match(css, new RegExp(`^\\.${sel} \\{[^}]*\\n  font-size: 13px;`, "m"), `.${sel} has its own font size`);
 assert.match(css, /^\.glyph-text \{[^}]*\n  font-size: 11px;/m);
+// A text icon is in Octet's font wherever it sits: a chip's text is the atom label font (Arial), so without this the A
+// for Automatic in a label's chips was Arial and the same A in its Alignment menu Instrument Sans.
+assert.match(css, /^\.glyph-text \{[^}]*\n  font-family: var\(--font-sans\);/m);
+// Every search field (Settings, Templates, Home's Experiments) has one look and the same clear button once it has text,
+// and never the platform's own.
+assert.match(css, /^\.settings-search,\n\.library-search \{[^}]*\n  height: 28px;/m);
+assert.match(css, /^\.settings-search input::-webkit-search-cancel-button,\n\.library-search input::-webkit-search-cancel-button \{\n  display: none;/m);
+assert.equal(css.match(/(?<!,\n)^\.(settings|library)-search \{[^}]*\n  height:/gm), null, "no second search field size");
+for (const [file, label, value] of [["SettingsWindow.tsx", "settings-search", "query"], ["TemplateLibrary.tsx", "library-search", "query"], ["Home.tsx", "library-search home-search", "search"]]) {
+  const field = new RegExp(`<label className="${label}">[\\s\\S]*?</label>`).exec(read(file))?.[0] ?? "";
+  assert.match(field, new RegExp(`\\{${value} && <button className="search-clear" [^\\n]*? aria-label="Clear search"><X size=\\{12\\} /></button>\\}`), `${file}: the search field's clear button`);
+}
 
 // Menu names fit the cell (brand/CLAUDE.md Menus: shorten the name, never the cell). The Symbols tool's cell has 148 px
 // for a name at 13 px; Arial runs about 7% narrower than Instrument Sans, so 138 px in Arial (arial.ts) is the limit.

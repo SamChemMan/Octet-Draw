@@ -299,7 +299,7 @@ function Panel(p: Props) {
         <Tabs keys={p.keys} value={p.spectrumKey} onKey={p.onKey} onClose={p.onCloseTab}>
           {p.addable.length > 0 && (
             <Pick label="Add spectrum" value="" className="tab-add" title="Add spectrum" groups={[p.addable.map((k) => ({ key: k, name: keyName(k), icon: <ChartLine size={18} /> }))]} onPick={p.onAddKey}>
-              <Plus size={16} aria-hidden />
+              <Plus size={12} aria-hidden />
             </Pick>
           )}
         </Tabs>

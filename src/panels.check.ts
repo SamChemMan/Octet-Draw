@@ -106,7 +106,7 @@ assert.match(spectrum, /\{closable && <CloseX name=\{keyName\(k\)\} onClose=\{\(
 assert.match(controls, /<CloseX name=\{p\.name\} onClose=\{p\.onClose\} \/>/);
 assert.match(controls, /className="close-x" tabIndex=\{-1\} aria-label=\{`Close \$\{name\}`\} data-tip="Close" onClick=\{\(\) => onClose\(\)\}><X size=\{12\} \/><\/button>/);
 assert.doesNotMatch(css + controls + spectrum, /pill-close|tab-close/, "no second close X");
-assert.match(css, /\n\.close-x,\n\.segmented button\.close-x \{\n  display: none;\n  place-items: center;\n  width: 18px;\n  min-width: 0;\n  height: 18px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-pill\);\n  background: transparent;\n  color: var\(--ink-muted\);\n  transform: none;\n  transition: none;\n\}/);
+assert.match(css, /\n\.close-x,\n\.segmented button\.close-x \{\n  display: none;\n  place-items: center;\n  width: 18px;\n  min-width: 0;\n  height: 18px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);\n  background: transparent;\n  color: var\(--ink-muted\);\n  transform: none;\n  transition: none;\n\}/);
 for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-x[^{}]*)\{([^}]*)\}/g)) {
   if (/\b(width|height|background|border-radius|color):/.test(m[2])) assert.ok(/^\.close-x,\n\.segmented button\.close-x $|close-x:hover/.test(m[1].trim() + " "), `one look for the close X: ${m[1].trim()}`);
 }
@@ -115,6 +115,19 @@ for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-
   const right = Number(/\.spectrum-tab \.close-x \{\n  position: absolute;\n  top: 0;\n  bottom: 0;\n  right: (\d+)px;\n  margin: auto 0;\n\}/.exec(css)?.[1]);
   assert.equal(room - right - 18, 4, "the tab's X is 4 px clear of the name");
 }
+// Every X that closes something has the panel controls' corners (.actions-close, the brand's 6 px for controls): the
+// pill's and tab's X (18 px), and the X on a notice and on a floating template palette, which are a panel's Close.
+{
+  const radius = (sel: string) => new RegExp(`\\n${sel} \\{[^}]*\\n  border-radius: ([^;]+);`).exec(css)?.[1];
+  assert.equal(radius("\\.actions-close"), "var(--radius-sm)");
+  assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close"), "a pill's or tab's X has the panel controls' corners");
+  assert.match(read("./NoticeBar.tsx"), /<button className="actions-close" aria-label="Close" data-tip="Close" onClick=\{onGone\}><X size=\{12\} \/><\/button>/);
+  assert.match(read("./TemplateLibrary.tsx"), /<button className="actions-close" aria-label=\{`Close \$\{palette\.set\}`\} data-tip="Close" onClick=\{onClose\}>/);
+  assert.match(css, /\n\.floating-size \{[^}]*\n  width: 24px;\n  height: 24px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
+  assert.doesNotMatch(css + read("./NoticeBar.tsx") + read("./TemplateLibrary.tsx"), /notice-close|floating-close/, "no second panel X");
+}
+// The + that adds a spectrum is a small action at the brand's 12 px, as the X beside it.
+assert.match(spectrum, /<Plus size=\{12\} aria-hidden \/>\n            <\/Pick>/);
 assert.match(spectrum, /<\/span>\n    \{children\}\n    <\/span>/);
 assert.match(spectrum, /<Pick label="Add spectrum" value="" className="tab-add"/);
 // The tab shown and a button that is on keep their tint under the pointer, as a segmented control's choice does.
