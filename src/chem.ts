@@ -32,11 +32,23 @@ const load = () => Indigo().then((m: IndigoModule) => { indigo = watched(m); });
 export let ready: Promise<void> = load();
 const MOST_FAILS = 500, restarts = new Set<(e: unknown) => void>();
 export const onRestart = (f: (e: unknown) => void) => { restarts.add(f); return () => void restarts.delete(f); };
+// Indigo reads a structure's stereocentres from its depth (z) with a symmetry search that has no limit. With many
+// like groups (isopropyl, trimethylsilyl, CF3), most of all with their hydrogens drawn as atoms, it runs for minutes
+// (src/depth.check.ts). So each call has Indigo's own timeout. A read it stops is read again as a query structure,
+// with no error and the wrong masses, so a call that took that long fails here.
+// ponytail: one 2-second ceiling for every call. A structure past it gets no SMILES, InChI or file from Indigo. If
+// that matters, give the InChI library the depth itself (a molfile read with skip-3d-chirality).
+const MOST_MS = 2000;
 function watched(m: IndigoModule): IndigoModule {
   const out: IndigoModule = {};
   for (const [k, f] of Object.entries(m)) out[k] = typeof f !== "function" ? f : function (...a: unknown[]) {
     if (indigo !== out) throw new Error("Indigo is not loaded yet");
-    try { return new.target ? Reflect.construct(f, a) : f(...a); } catch (e) { failed(e); throw e; }
+    for (const x of a) if (x instanceof m.MapStringString) (x as { set(k: string, v: string): void }).set("timeout", String(MOST_MS));
+    const t = performance.now();
+    let r: unknown;
+    try { r = new.target ? Reflect.construct(f, a) : f(...a); } catch (e) { failed(e); throw e; }
+    if (performance.now() - t >= MOST_MS) throw new RangeError("It takes more than 2 seconds to work out.");
+    return r;
   };
   return out;
 }
@@ -1205,10 +1217,12 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
 // Hydrogen bonds are left out (they are not chemistry Indigo works out), unless hbonds asks for them; a quadruple
 // bond, which Indigo has no type for, goes as a single bond. Without wedges (wedges false), Indigo also reads a
-// drawing whose wedges it rejects: formulas and masses do not need them. keep: each atom's map number and enhanced
+// drawing whose wedges it rejects: formulas and masses do not need them, nor the depth, which Indigo reads as
+// stereochemistry (slowly, see watched), so it goes flat. keep: each atom's map number and enhanced
 // stereo flag, and each bond's Rxn mark, go too, for MDL and reaction files. mol: the molecule with its labels
 // expanded already.
 type KetOptions = { wedges?: boolean; keep?: boolean; hbonds?: boolean; mol?: Mol };
+const flat = (p: number[]): [number, number, number] => [p[0], p[1], 0];
 function ketOf(drawn: Mol, { wedges = true, keep = false, hbonds = false, mol }: KetOptions = {}): string {
   const expanded = mol ?? expandLabels(hbonds || !drawn.bonds.some((b) => b.type === HBOND) ? drawn : { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) });
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: ketMol(expanded, wedges, keep) });
@@ -1225,7 +1239,7 @@ function ketMol(mol: Mol, wedges: boolean, keep: boolean) {
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet). KET's stereo labels are Octet's
   // flags ("abs", "&1", "or1"). An atom with its hydrogens set (a caption read as an element, edit.ts withCaptionAtoms)
   // goes with its valence too, so Bi stays Bi and is not BiH3.
-  const atoms = mol.atoms.map((a, i) => ({ label: a.label, location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical === 3 ? 1 : a.radical + 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
+  const atoms = mol.atoms.map((a, i) => ({ label: a.label, location: wedges ? a.location : flat(a.location), ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical === 3 ? 1 : a.radical + 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
     ...((metalled[i] && NONMETAL.has(a.label)) || a.implicitHCount !== undefined ? { explicitValence: valence(i, a) } : {}),
     ...(keep && a.map ? { mapping: a.map } : {}), ...(keep && /^(abs|&\d+|or\d+)$/.test(a.enhanced ?? "") ? { stereoLabel: a.enhanced } : {}) }));
   return { type: "molecule", atoms, bonds };
@@ -1719,7 +1733,7 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
   for (const r of touched) {
     const atoms = full.atoms.map((_, i) => i).filter((i) => find(i) === r), local = new Map(atoms.map((i, k) => [i, k]));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
-      atoms: atoms.map((i) => ({ label: full.atoms[i].label, location: full.atoms[i].location, implicitHCount: h[i], ...(full.atoms[i].charge ? { charge: full.atoms[i].charge } : {}) })),
+      atoms: atoms.map((i) => ({ label: full.atoms[i].label, location: flat(full.atoms[i].location), implicitHCount: h[i], ...(full.atoms[i].charge ? { charge: full.atoms[i].charge } : {}) })),
       bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type === QUADRUPLE ? 1 : b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
     try {
       const res = calculate(ket);
@@ -1873,7 +1887,7 @@ function polymerValues(part: Mol): Values | undefined {
     if (!atoms.length) return { counts: {} as Record<string, number>, weight: 0, exact: 0, masses: {} as Record<string, number> };
     const local = new Map(atoms.map((i, k) => [i, k]));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
-      atoms: atoms.map((i) => ({ label: x.atoms[i].label, location: x.atoms[i].location, implicitHCount: h[i], ...(x.atoms[i].charge ? { charge: x.atoms[i].charge } : {}), ...(x.atoms[i].isotope ? { isotope: x.atoms[i].isotope } : {}) })),
+      atoms: atoms.map((i) => ({ label: x.atoms[i].label, location: flat(x.atoms[i].location), implicitHCount: h[i], ...(x.atoms[i].charge ? { charge: x.atoms[i].charge } : {}), ...(x.atoms[i].isotope ? { isotope: x.atoms[i].isotope } : {}) })),
       bonds: x.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: Math.min(3, b.type), atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
     try {
       // Indigo gives each piece apart ("C H3; C H3"): their sums.
