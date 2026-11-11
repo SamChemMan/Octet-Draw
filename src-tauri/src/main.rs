@@ -962,6 +962,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
+        &sep()?,
+        &item("search_scifinder", "Search SciFinder", "")?,
+        &sep()?,
+        &item("search_scholar", "Search Google Scholar", "")?,
+        &item("search_patents", "Search Google Patents", "")?,
     ])?;
     // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
     // full screen item.

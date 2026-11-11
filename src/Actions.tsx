@@ -260,9 +260,9 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // short: the name in a menu's cell, where the full name does not fit (the panel's rows show the full name).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean; short?: string };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
-// the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys and PubChem, when Online search is
-// on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the rest, the
-// clipboard and library); Arrange, Group (Group, Ungroup and Pick as one, as ChemDraw's right-click Group menu), Add frame,
+// the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys, PubChem and SciFinder, when Online
+// search is on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the
+// rest, the clipboard and library); Arrange, Group (Group, Ungroup and Pick as one, as ChemDraw's right-click Group menu), Add frame,
 // File and View when they apply. Delete is the last small button in every panel, with no title.
 const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "group", "frame", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
@@ -278,7 +278,7 @@ const KIND_OF: Record<string, string> = {
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.remove": "cycle",
   structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
-  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search",
+  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", clean_3d: "turn", clean_reaction_augmented: "turn", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group",
@@ -290,13 +290,13 @@ const KIND_OF: Record<string, string> = {
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
 
-// Search Reaxys and Search PubChem: Phosphor's magnifier and the site's first letter. No logos.
+// The online searches: Phosphor's magnifier and the site's letters. No logos.
 export function SearchGlyph({ letter }: { letter: string }) {
   return <span className="glyph-text search-glyph" aria-hidden><MagnifyingGlass size={16} />{letter}</span>;
 }
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-// online: Search Reaxys and Search PubChem are offered (Settings > Online search).
+// online: Search Reaxys, PubChem and SciFinder are offered (Settings > Online search).
 export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, warned = 0, online = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
@@ -317,7 +317,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
   // One press each: the selection (or the whole drawing) opens in the browser. The exact and substructure searches
   // that are not the default are in the Search menu, with keys.
-  const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true)] : [];
+  const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
+    it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
   const turnsAndFlips = [...turnings, ...flips, ...mirrors];

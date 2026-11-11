@@ -78,7 +78,7 @@ import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
-import { SEARCHES, searchNow, searchQuery } from "./search";
+import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
@@ -2567,7 +2567,7 @@ export default function Editor() {
     }])),
     recent_clear: () => refreshRecents(),
     revert: () => revertToSaved(),
-    // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
+    // The online searches (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
     // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
     // whole structure) and object goes over, or under, everything else; and the selected bonds go over (or under) the
@@ -5625,11 +5625,13 @@ export default function Editor() {
   const targets = () => {
     return withSalts(doc, fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked))));
   };
-  // Search Reaxys and Search PubChem (decision 0008): the selection, or the whole drawing when nothing is selected
-  // (as Copy), opens in the user's browser. Structures on one side of a reaction search Reaxys's reactions for them
-  // in that part, as ChemDraw's Reactant and Reaction product searches. Only a press runs a search.
-  function searchOnline(site: "reaxys" | "pubchem", exact: boolean) {
+  // The online searches (decision 0008): the selection, or the whole drawing when nothing is selected (as Copy), opens
+  // in Octet's Reaxys window or the user's browser. Structures on one side of a reaction search Reaxys's reactions for
+  // them in that part, as ChemDraw's Reactant and Reaction product searches. Only a press runs a search.
+  function searchOnline(site: Site, exact: boolean) {
     if (!loaded) return;
+    // Google Scholar gets names, so it waits for them, as Structure to name does.
+    if (site === "scholar" && !namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", "info"); }
     const all = !selection.size && !picked.size, part = all ? doc : extractSelection(doc, selection, picked);
     if (!part.atoms.length) return setNotice("Select a structure to search.", "info");
     const reactions: Reaction[] = [], seen = new Set<number>();
@@ -5641,11 +5643,18 @@ export default function Editor() {
     }
     const role = roleOf(reactions, fragments(doc).filter((g) => all || g.some((i) => selection.has(i))));
     if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.", "info");
-    let query: ReturnType<typeof searchQuery>;
-    try { query = searchQuery(part); } catch { return setNotice("Octet cannot read this structure."); }
+    let query: ReturnType<typeof searchQuery>, text: string | undefined;
+    try {
+      query = searchQuery(part);
+      // Google Scholar gets each structure's name, Google Patents the InChIKey of the whole selection.
+      if (query.smiles && site === "scholar") text = scholarText(withSalts(part, fragments(part)).map((g) => namedPart(g, part)));
+      if (query.smiles && site === "patents") text = toInchiKey(part);
+    } catch { return setNotice("Octet cannot read this structure."); }
     if (!searchNow()) return;
     // A query with generic labels always looks for substructures.
-    invoke("search_online", { site, ...query, exact: exact && !query.molfile, role: site === "reaxys" ? role : undefined })
+    invoke("search_online", { site, ...query, exact: exact && !query.molfile, role: site === "reaxys" ? role : undefined, text })
+      // SciFinder has no address that carries a structure, so its SMILES goes on the clipboard for SciFinder's Draw.
+      .then(() => { if (site === "scifinder") return copyToClipboard({ text: query.smiles }).then(() => setNotice("Octet copied the SMILES. Paste it in SciFinder.", "done")); })
       .catch((e) => setNotice(typeof e === "string" ? e : "Search runs in the Octet app."));
   }
   // The selection to the front or the back of the draw order (order.ts): each structure it touches, as a whole, and
@@ -6922,6 +6931,7 @@ export default function Editor() {
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
+      search_scifinder: ["Search SciFinder", "", <SearchGlyph letter="S" />], search_scholar: ["Search Google Scholar", "", <SearchGlyph letter="GS" />], search_patents: ["Search Google Patents", "", <SearchGlyph letter="GP" />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
