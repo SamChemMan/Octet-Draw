@@ -10,7 +10,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandLabels, mapReaction, parseStructure, ready, toSmiles } = await import("./chem.ts");
+const { analyse, expandLabels, mapReaction, parseStructure, ready, toMolfile, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
@@ -98,6 +98,23 @@ const refused: [string, unknown, RegExp][] = [
   ["run_command", { command: "quit" }, /no command quit/],
   ["set_style", { preset: "Comic Sans" }, /not one of/],
   ["read_drawing", [], /not an object/],
+  // The look-alikes of the lenient readings (test plan R2): each has no meaning, or more than one, and stays refused.
+  ["draw_structures", { structures: [{ text: "benzene", number: true }] }, /structures\[0\]\.number: not text/],
+  ["draw_structures", { structures: [{ text: "benzene", number: [13] }] }, /structures\[0\]\.number: not text/],
+  ["draw_structures", { structures: [{ text: "benzene", number: 1234567890123 }] }, /number: longer than 12/],
+  ["draw_structures", { structures: [{ text: "benzene", number: "1 (paclitaxel) x" }] }, /number: longer than 12/],
+  ["draw_structures", { structures: [{ text: "benzene", labels: [13] }] }, /labels\[0\]: not text/],
+  ["draw_structures", {}, /structures is missing/],
+  ["set_number", { structure: 13, number: "1" }, /structure: not text/],
+  ["get_file", { format: "molfile" }, /format: not one of cdxml, mol, mol2000, sdf, rxn, smiles, inchi, cdx/],
+  ["get_file", { format: "..mol" }, /format: not one of/],
+  ["get_file", { format: "m ol" }, /format: not one of/],
+  ["get_file", { format: "constructor" }, /format: not one of/],
+  ["get_file", { format: 5 }, /format: not text/],
+  ["get_file", {}, /format is missing/],
+  ["read_drawing", { detail: "long" }, /detail: not one of summary, full/],
+  ["new_drawing", { for: "book" }, /for: not one of paper, thesis, slides, poster, experiment, quick/],
+  ["new_drawing", { for: null }, /for: not text/],
 ];
 for (const [name, args, why] of refused) {
   const out = await call(name, args);
@@ -549,6 +566,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     [[{ tool: "edit", args: { ids: ["$1.s[0]"], colour: "#ff0000" } }], /Step 1 \(edit\) names step 1/],
     [[{ tool: "batch", args: {} }], /steps\[0\]\.tool: not one of/],
     [[{ tool: "draw_structures", args: { structures: [{ text: 5 }] } }], /Step 1 \(draw_structures\): structures\[0\]\.text: not text/],
+    // "$1.made" where one id is needed, when step 1 made two top-level objects: no one meaning, so refused as before.
+    [[{ tool: "draw_structures", args: { structures: [{ text: "water" }, { text: "benzene" }] } }, { tool: "add_text", args: { text: "x", below: "$1.made" } }], /Step 2 \(add_text\): \$1\.made names 2 objects here: give one, as \$1\.made\[0\]/],
+    [[{ tool: "draw_structures", args: { structures: [{ text: "water" }, { text: "benzene" }] } }, { tool: "add_text", args: { text: "x", below: "$1.s" } }], /Step 2 \(add_text\): \$1\.s names 2 objects here/],
     [Array(41).fill({ tool: "delete", args: { ids: ["s1"] } }), /more than 40/],
     [[{ tool: "draw_structures", args: { structures: [{ text: "water" }] } }, { tool: "draw_structures", args: { structures: [{ text: "not a compound at all" }] } }], /Step 2 \(draw_structures\) failed: Octet drew nothing/],
   ];
@@ -1005,6 +1025,132 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   [ga, gb] = fragments(m);
   assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `like: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
   assert.match(text(await call("draw_structures", { structures: [{ text: "benzene", like: "s99" }] })), /no structure s99/);
+}
+
+// Lenient arguments (R5, plan section 6): a form with one meaning is read as the form the tool takes, and the reply
+// says so in a line after the result (and in structuredContent.coerced). The look-alikes are in the refusals above.
+{
+  type Out = { content: { type: string; text?: string }[]; isError?: true; structuredContent?: { coerced?: string[]; made: string[]; steps: { s?: string[] }[] } };
+  const lenient = async (name: string, args: unknown) => (await call(name, args)) as unknown as Out;
+  const notes = (o: Out) => o.content.slice(1).flatMap((c) => (c.type === "text" ? c.text!.split("\n") : []));
+  const under = () => m.captions!.filter((c) => c.under).map((c) => [c.text, !!c.bold]);
+  // A number for a compound number, or for an atom's number, is its text.
+  fresh();
+  let o = await lenient("draw_structures", { structures: [{ text: "benzene", number: 13 }, { text: "water", number: 2.5 }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(under(), [["13", true], ["2.5", true]]);
+  assert.deepEqual(notes(o), ["Read number 13 as text, and 1 more the same way."]);
+  assert.deepEqual(o.structuredContent!.coerced, notes(o));
+  assert.ok(!text(o).includes("Read number"), "the result's own text is as it was");
+  const benzene = o.structuredContent!.made[0];
+  o = await lenient("set_number", { structure: "13", number: 14 });
+  assert.deepEqual([under()[0], notes(o)], [["14", true], ["Read number 14 as text."]]);
+  o = await lenient("edit", { ids: ["14"], number: 15 });
+  assert.deepEqual([under()[0], notes(o)], [["15", true], ["Read number 15 as text."]]);
+  o = await lenient("edit", { ids: [`${benzene}.1`], atom_number: 1 });
+  assert.deepEqual([m.atoms[0].number, notes(o)], ["1", ["Read atom_number 1 as text."]]);
+  // A call in the form the tool takes says nothing more.
+  assert.equal((await call("set_number", { structure: "15", number: "16" })).content.length, 1);
+
+  // An enum's value in other letters, after a dot, or by another of its names; a read's text stays its JSON.
+  for (const format of ["SMILES", ".smiles", " Smiles ", "smi"]) {
+    o = await lenient("get_file", { format });
+    assert.equal(text(o), "C1C=CC=CC=1.O", format);
+    assert.deepEqual(notes(o), [`Read format ${format} as smiles.`]);
+  }
+  for (const [detail, full] of [["short", false], ["brief", false], ["Summary", false], ["FULL", true]] as const) {
+    o = await lenient("read_drawing", { detail });
+    assert.equal("captions" in JSON.parse(text(o)), full, detail);
+    assert.deepEqual(notes(o), [`Read detail ${detail} as ${full ? "full" : "summary"}.`]);
+  }
+  o = await lenient("read_drawing", { detail: "summary" });
+  assert.ok(!o.isError && o.content.length === 1 && !("captions" in JSON.parse(text(o))), "summary is the listed value");
+  o = await lenient("export", { format: "JPEG" });
+  assert.match(text(o), /JPG chosen/);
+  assert.deepEqual(notes(o), ["Read format JPEG as jpg."]);
+  o = await lenient("set_style", { preset: "nature" });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual([m.style?.preset, notes(o)], ["Nature", ["Read preset nature as Nature."]]);
+
+  // A required argument left out takes its default: new_drawing {} is for quick.
+  commands = [];
+  o = await lenient("new_drawing", {});
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual([commands, notes(o)], [["new_quick"], ['No "for" was given: read as quick.']]);
+  o = await lenient("new_drawing", { for: ".Paper" });
+  assert.deepEqual([commands, notes(o)], [["new_quick", "new_paper"], ["Read for .Paper as paper."]]);
+
+  // "1 (taxol)" as a compound number is number 1 with the caption taxol, under the number. A caption can be given too.
+  fresh();
+  o = await lenient("draw_reaction", { start: [{ text: "ethanol", number: "2", caption: "from 3" }], steps: [{ products: [{ text: "water", number: "1 (paclitaxel)" }] }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(under(), [["2", true], ["from 3", false], ["1", true], ["paclitaxel", false]]);
+  assert.deepEqual(notes(o), ["Read number 1 (paclitaxel) as number 1 with the caption paclitaxel."]);
+  assert.deepEqual((await read()).structures.map((x: { number: string }) => x.number), ["2", "1"]);
+  // In a figure the caption is the item's own; an item that has one keeps its number as given.
+  fresh();
+  o = await lenient("draw_figure", { panels: [{ rows: [[{ structure: "benzene", number: "4 (minor)" }, { structure: "water", number: "5 (a)", caption: "given" }]] }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(m.captions!.map((c) => c.text).sort(), ["4", "5 (a)", "given", "minor"]);
+  assert.deepEqual(notes(o), ["Read number 4 (minor) as number 4 with the caption minor."]);
+  // Look-alikes stay one number: no space, two brackets, and set_number, which has no caption to give.
+  fresh();
+  o = await lenient("draw_structures", { structures: [{ text: "benzene", number: "1(taxol)" }, { text: "water", number: "2 (a) (b)" }] });
+  assert.deepEqual([under(), notes(o)], [[["1(taxol)", true], ["2 (a) (b)", true]], []]);
+  o = await lenient("set_number", { structure: "1(taxol)", number: "1 (taxol)" });
+  assert.deepEqual([under()[0], notes(o)], [["1 (taxol)", true], []]);
+
+  // "$1.made" where one id is needed: the one top-level object step 1 made (its number belongs to it).
+  fresh();
+  o = await lenient("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "benzene", number: 1 }] } }, { tool: "add_text", args: { text: "β-lactam", below: "$1.made" } }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(notes(o), ["Read number 1 as text.", `Read $1.made as ${o.structuredContent!.steps[0].s![0]}.`]);
+  assert.ok(m.captions!.some((c) => c.text === "β-lactam" && !c.under));
+
+  // A MOL file's text as a structure (V3000 and V2000, as get_file writes them, and with Windows line ends) is read
+  // as that file. With its spaces made one it is no MOL file, and is refused.
+  fresh();
+  await call("draw_structures", { structures: [{ text: "benzene", number: "2" }] });
+  const v3000 = toMolfile(parseStructure("Cc1ccccc1")), v2000 = toMolfile(parseStructure("Oc1ccccc1"), true);
+  assert.ok(/V3000/.test(v3000) && /V2000/.test(v2000) && / {2}/.test(v2000));
+  for (const [file, formula] of [[v3000, "C7H8"], [v2000, "C6H6O"], [v3000.replace(/\n/g, "\r\n"), "C7H8"]]) {
+    o = await lenient("replace_structure", { structure: "2", text: file });
+    assert.ok(!o.isError, text(o));
+    assert.deepEqual([(await read()).structures.map((x: { formula: string; number: string }) => [x.formula, x.number]), notes(o)], [[[formula, "2"]], []]);
+  }
+  o = await lenient("draw_structures", { structures: [{ text: v2000 }] });
+  assert.ok(!o.isError, text(o));
+  assert.ok(!(await call("draw_structures", { structures: [{ text: " benzene\n" }] })).isError, "a name with a line break after it is a name, not a file");
+  o = await lenient("replace_structure", { structure: "2", text: v2000.replace(/ {2,}/g, " ") });
+  assert.ok(o.isError && /cannot read/.test(text(o)), text(o));
+
+  // One compound drawn twice with one number (a scheme's product that starts the next scheme) is no warning; two
+  // compounds with one number are.
+  fresh();
+  await call("draw_reaction", { start: [{ text: "ethanol" }], steps: [{ products: [{ text: "benzene", number: "7" }] }] });
+  await call("draw_reaction", { start: [{ text: "benzene", number: "7" }], steps: [{ products: [{ text: "toluene", number: "8" }] }] });
+  const twice = async () => (await read()).warnings.map((w: { message: string }) => w.message).filter((t: string) => /Compound number/.test(t));
+  assert.deepEqual(await twice(), []);
+  await call("set_number", { structure: "8", number: "7" });
+  assert.deepEqual(await twice(), ["Compound number 7 is on more than one structure."]);
+
+  // The schemas keep each reading to one meaning: no two values of an enum are the same in other letters, another
+  // name is in small letters, is no value itself and names a value, and a default is a value of a required argument.
+  // tools/list gives none of this: an AI app is told the one form.
+  const walk = (s: any, at: string): void => {
+    if (!s || typeof s !== "object") return;
+    if (Array.isArray(s.enum)) {
+      const small = s.enum.map((e: string) => e.toLowerCase());
+      assert.equal(new Set(small).size, small.length, at);
+      for (const [k, v] of Object.entries(s.also ?? {})) assert.ok(k === k.trim().toLowerCase() && !small.includes(k) && s.enum.includes(v), `${at}: ${k}`);
+      if (s.default !== undefined) assert.ok(s.enum.includes(s.default), at);
+    }
+    if (s.type === "object") for (const [k, p] of Object.entries(s.properties) as [string, any][]) if (p.default !== undefined) assert.ok(s.required.includes(k), `${at}.${k}`);
+    for (const [k, v] of Object.entries(s)) walk(v, `${at}.${k}`);
+  };
+  for (const t of TOOL_TABLE) walk(t.inputSchema, t.name);
+  assert.ok(!/"(numeral|also|default)":/.test(JSON.stringify(tools)));
+  assert.ok((tools.find((t) => t.name === "new_drawing")!.inputSchema as unknown as { required: string[] }).required.includes("for"));
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

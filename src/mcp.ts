@@ -79,9 +79,12 @@ export type Host = {
 // against that step's tool). anyOf: the first form that fits.
 type ObjSchema = { type: "object"; properties: Record<string, Schema | Prop>; required?: string[]; additionalProperties?: boolean; description?: string };
 type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: number; minItems?: number; description?: string } | { anyOf: (Schema | Prop)[]; description: string };
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string };
+// The lenient readings (coerce). numeral: a JSON number is read as its text (a compound number); also: other names for
+// an enum's values; default: the value a required argument takes when it is left out.
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
-const pick = (values: readonly string[], description?: string): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}) });
+const pick = (values: readonly string[], description?: string, lenient?: { also?: Record<string, string>; default?: string }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...lenient });
+const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
 
@@ -119,6 +122,36 @@ function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
   if (typeof v !== "number" || !Number.isFinite(v) || (s.type === "integer" && !Number.isInteger(v))) return `${where}: not a ${s.type}`;
   return v < s.minimum || v > s.maximum ? `${where}: not between ${s.minimum} and ${s.maximum}` : undefined;
 }
+// Lenient arguments (R5): before the check, a form that has one meaning is read as the form the tool takes, and the
+// reply says so in a line, so the AI app learns it. A number for a compound number is its text. An enum's value in
+// other letters, after a dot or by another of its names is that value. A required argument left out takes its default.
+// "1 (taxol)" as a compound number is number 1 with the caption taxol. Everything else is left for the check to refuse.
+// notes: the readings of one call, each kind once: its first line, and how many there were.
+type Notes = Map<string, [string, number]>;
+const note = (notes: Notes, kind: string, line: string) => { const had = notes.get(kind); if (had) had[1]++; else notes.set(kind, [line, 1]); };
+const noted = (notes: Notes) => [...notes.values()].map(([line, n]) => (n > 1 ? `${line.slice(0, -1)}, and ${n - 1} more the same way.` : line));
+function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknown {
+  if ("anyOf" in s) return s.anyOf.reduce((x, form) => coerce(form, x, key, notes), v);
+  if (s.type === "object") {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+    const o = v as Record<string, unknown>;
+    for (const k of s.required ?? []) if (!(k in o)) { const p = s.properties[k]; if ("default" in p) { o[k] = p.default; note(notes, `${k} default`, `No "${k}" was given: read as ${p.default}.`); } }
+    for (const k of Object.keys(o)) { const p = s.properties[k]; if (p) o[k] = coerce(p, o[k], k, notes); }
+    const split = s.properties.caption && typeof o.number === "string" && o.caption === undefined ? /^(\S+) \(([^()]+)\)$/.exec(o.number.trim()) : null;
+    if (split) { note(notes, "caption", `Read number ${o.number} as number ${split[1]} with the caption ${split[2]}.`); [, o.number, o.caption] = split; }
+    return o;
+  }
+  if (s.type === "array") { if (Array.isArray(v)) for (let i = 0; i < v.length; i++) v[i] = coerce(s.items, v[i], key, notes); return v; }
+  if (s.type !== "string") return v;
+  if (s.numeral && typeof v === "number" && Number.isFinite(v)) { note(notes, `${key} text`, `Read ${key} ${v} as text.`); return String(v); }
+  if (s.enum && typeof v === "string" && !s.enum.includes(v)) {
+    const t = v.trim().replace(/^\./, "").toLowerCase(), value = s.enum.find((e) => e.toLowerCase() === t) ?? s.also?.[t];
+    if (typeof value === "string") { note(notes, `${key} ${value}`, `Read ${key} ${v.slice(0, 40)} as ${value}.`); return value; }
+  }
+  return v;
+}
+// A call's arguments, read leniently and then checked: what is wrong with them, or undefined.
+const wrongWith = (s: Schema, args: unknown, notes: Notes) => check(s, coerce(s, args, "", notes), "");
 // Control characters out of text the AI app gives (a line break stays where text takes one).
 const clean = (t: string, lines = false) => t.replace(lines ? /[\u0000-\u0009\u000b-\u001f\u007f]+/g : /[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " ").trim();
 
@@ -156,7 +189,7 @@ const compound = obj({
   text: structureText,
   molecule: MOLECULE,
   labels: { ...list(str(40), 20), description: "One for each *, in order" },
-  number: str(12),
+  number: numeral(12), caption: str(MAX_TEXT),
   ...ORIENT,
 });
 const condition = str(MAX_TEXT);
@@ -187,7 +220,7 @@ const PURPOSE_PAGES = Object.keys(PAGES) as PageName[];
 // draw_figure (F4): an item in a row, and a panel.
 const ITEM = obj({
   structure: structureText, molecule: MOLECULE, labels: { ...list(str(40), 20), description: "One for each *, in order" },
-  number: str(12), caption: RICH, brackets: pick(["brackets", "parens", "braces"]), brackets_bold: yes(), mark: str(12), colour: str(7),
+  number: numeral(12), caption: RICH, brackets: pick(["brackets", "parens", "braces"]), brackets_bold: yes(), mark: str(12), colour: str(7),
   text: RICH, ...ORIENT,
 });
 const PANEL = obj({ title: RICH, subtitle: RICH, frame: pick(["none", "line", "fill"]), fill: str(7), rows: list(list(ITEM, 8, 1), 6, 1) }, ["rows"]);
@@ -240,7 +273,8 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // progress: tells the AI app how far a long call is (when it asked); check: stops the call here when it was cancelled
 // (notifications/cancelled, or Stop in Octet's notice), and the drawing goes back as it was.
 // watched: the AI app asked for progress, so a long call shows each part as it goes.
-type Ctx = { session?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean };
+// notes: what the call's arguments were read as (coerce), for the reply.
+type Ctx = { session?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -257,7 +291,7 @@ const TOOLS: Tool[] = [
   {
     name: "read_drawing", title: "Read the drawing", hints: READ, outputSchema: READING,
     description: "Reads the open drawing: structures (id, SMILES, formula, name, number, box), reactions (each step's structures and conditions, then its products), cycles, free text, the style and page, and Octet's chemical warnings. detail: full adds every caption with its id and box, and the page's box. ids reads only those. atoms lists atom and bond ids for edit. picture adds a PNG. Boxes are in bond lengths, y up. Write results already give boxes and a layout check, so you seldom need to read.",
-    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: pick(["short", "full"], "full adds every caption (numbers, conditions, cycle text) with its box, to check the layout"), atoms: yes("List each structure's atoms (ids such as s3.2, with element, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
+    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: pick(["summary", "full"], "full adds every caption (numbers, conditions, cycle text) with its box, to check the layout", { also: { short: "summary", brief: "summary" } }), atoms: yes("List each structure's atoms (ids such as s3.2, with element, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
     // One snapshot (D3): the JSON and the picture are of the same drawing.
     run: async (host, a) => {
       await host.ready();
@@ -356,13 +390,13 @@ const TOOLS: Tool[] = [
   {
     name: "new_drawing", title: "New drawing", hints: ADD, outputSchema: CHANGE, done: "opened a new drawing",
     description: "Opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it. Later calls go to it (use_drawing goes back).",
-    inputSchema: obj({ for: pick(["paper", "thesis", "slides", "poster", "experiment", "quick"]) }, ["for"]),
+    inputSchema: obj({ for: pick(["paper", "thesis", "slides", "poster", "experiment", "quick"], undefined, { default: "quick" }) }, ["for"]),
     run: newDrawing,
   },
   {
     name: "export", title: "Export", hints: READ, outputSchema: CHANGE,
     description: "Opens Octet's Export dialog on a format. The user chooses where to save: Octet never saves a file for an AI app.",
-    inputSchema: obj({ format: pick(["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "cdxml", "cdx", "mol", "sdf", "rxn", "smi", "inchi", "oct"]) }, ["format"]),
+    inputSchema: obj({ format: pick(["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "cdxml", "cdx", "mol", "sdf", "rxn", "smi", "inchi", "oct"], undefined, { also: { tiff: "tif", jpeg: "jpg", smiles: "smi" } }) }, ["format"]),
     run: async (host, a) => (host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
   },
   {
@@ -386,7 +420,7 @@ const TOOLS: Tool[] = [
   {
     name: "set_number", title: "Compound number", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "numbered a compound",
     description: "Sets a structure's number (bold, under it); an empty number takes it away.",
-    inputSchema: obj({ structure: str(12), number: str(12) }, ["structure", "number"]),
+    inputSchema: obj({ structure: str(12), number: numeral(12) }, ["structure", "number"]),
     run: setNumber,
   },
   {
@@ -398,19 +432,19 @@ const TOOLS: Tool[] = [
   {
     name: "get_file", title: "Drawing as file text", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
     description: "Gives the drawing, or the ids, as a file's text: CDXML, MOL (V3000; mol2000 for V2000), SDF, RXN, SMILES, InChI, or CDX as base64. Nothing is saved.",
-    inputSchema: obj({ format: pick(FILE_FORMATS), ids: list(str(40), 500) }, ["format"]),
+    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles" } }), ids: list(str(40), 500) }, ["format"]),
     run: getFile,
   },
   {
     name: "edit", title: "Change objects", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed part of the drawing",
     description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read_drawing with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
     inputSchema: obj({
-      ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: str(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), query: QUERY,
+      ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: numeral(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), query: QUERY,
       bond: pick(Object.keys(BONDS)), position: pick(["left", "centre", "right", "auto"]), spacing: num(1, 100), topology: pick(["ring", "chain", "either", "none"]), reaction_centre: pick(["centre", "makebreak", "change", "makechange", "not", "nochange", "unmapped", "none"]), bond_query: pick(["any", "sd", "sa", "da", "none"]),
       ignore_warnings: { type: "boolean" }, highlight: COLOUR_OR_NONE, ring_fill: COLOUR_OR_NONE, rotate: num(-360, 360), scale: num(10, 1000), flip: pick(["horizontal", "vertical"]), perspective: { type: "boolean" }, stereo_labels: { type: "boolean" }, atom_numbers: { type: "boolean" }, aromatic_circles: { type: "boolean" },
       text: str(2000), runs: RUNS, ...TEXT_STYLE, align: pick(["left", "centre", "right", "justify", "above", "below", "auto"]), width: num(0.5, 300), line_height: LINE_HEIGHT, arrow: str(12, "a7, or none"), side: pick(["above", "below"]),
       ...ARROW_PROPS, kind: pick([...["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"], ...["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"]]), from: POINT, to: POINT,
-      ...SHAPE_PROPS, structure: str(MAX_STRUCTURE), number: str(12), box: BOX,
+      ...SHAPE_PROPS, structure: str(MAX_STRUCTURE), number: numeral(12), box: BOX,
     }, ["ids"]),
     run: edit,
   },
@@ -499,10 +533,10 @@ const boxOf = (m: Mol): Box => {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
-type Read = { mol: Mol; text: string; number?: string; named?: boolean };
+type Read = { mol: Mol; text: string; number?: string; caption?: string; named?: boolean };
 type RunIn = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; script?: "sub" | "super" };
 type MoleculeIn = { atoms: { label?: string; runs?: RunIn[]; x: number; y: number; charge?: number; colour?: string }[]; bonds?: { from: number; to: number; kind?: string; colour?: string }[] };
-type CompoundIn = { text?: string; molecule?: MoleculeIn; labels?: string[]; number?: string; like?: string } & Orient;
+type CompoundIn = { text?: string; molecule?: MoleculeIn; labels?: string[]; number?: string; caption?: string; like?: string } & Orient;
 // A structure turned to lie as one already drawn (like: s3), by the atoms they share: the two mapped as one reaction
 // step (Map Reaction Atoms), then the new one turned, or turned over, about its own middle (Augmented Clean Up
 // Reaction's turn, interpret.ts alignByMap). Unchanged when they share too few atoms to map.
@@ -519,17 +553,19 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
   const ok: Read[] = [], failed: string[] = [], wrong: string[] = [];
   for (const [k, it] of items.entries()) {
     if (ctx && items.length > 10 && k % 10 === 0) { await ctx.check(); ctx.progress(k, items.length, `Reading ${k + 1} of ${items.length}`); await host.settle(); }
-    const number = it.number ? clean(it.number) : undefined;
+    const number = it.number ? clean(it.number) : undefined, caption = it.caption ? clean(it.caption, true) : undefined;
     const like = it.like ? structureOf(host.doc(), it.like, host) : undefined;
     if (it.like && !like) { wrong.push(`like: there is no structure ${it.like.slice(0, 40)} in the drawing.`); continue; }
     const asLike = (mol: Mol) => (like ? likeOf(host, pickPart(host.doc(), like), mol) : mol);
     if (it.molecule) {
       const mol = fromMolecule(it.molecule), turned = typeof mol === "string" || !hinted(it) ? mol : orient(mol, it);
-      if (typeof turned === "string") wrong.push(typeof mol === "string" ? turned : `molecule: ${turned}.`); else ok.push({ mol: asLike(turned), text: "a molecule given atom by atom", number });
+      if (typeof turned === "string") wrong.push(typeof mol === "string" ? turned : `molecule: ${turned}.`); else ok.push({ mol: asLike(turned), text: "a molecule given atom by atom", number, caption });
       continue;
     }
     if (it.text === undefined) { wrong.push("Give each compound text (a name or SMILES) or a molecule."); continue; }
-    const text = clean(it.text, true), read = host.structure(text);
+    // Text of several lines (a MOL or SDF block, CDXML) keeps its lines and columns, as a file: only its control
+    // characters go. A MOL file's first line is often blank, so it is not trimmed.
+    const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), read = host.structure(text);
     let mol = read && crowded(read) ? host.tidy(read) : read;
     if (!mol?.atoms.length) { failed.push(text.length > 60 ? `${text.slice(0, 60)}…` : text); continue; }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
@@ -545,7 +581,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
       if (typeof turned === "string") { wrong.push(`"${text.slice(0, 60)}": ${turned}.`); continue; }
       mol = turned;
     }
-    ok.push({ mol: asLike(mol), text, number, named: host.named(text) });
+    ok.push({ mol: asLike(mol), text, number, caption, named: host.named(text) });
   }
   return { ok, failed, wrong };
 }
@@ -699,6 +735,7 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
   let number: number | undefined, first: number | undefined;
   if (over) [mol, first] = addCaption(mol, { ...over, under: atoms });
   if (s.number) [mol, number] = addCaption(mol, { text: s.number, x: 0, y: 0, bold: true, under: atoms });
+  if (s.caption) mol = addCaption(mol, { text: s.caption, x: 0, y: 0, under: atoms })[0];
   return { mol, atoms, width: b[2] - b[0], number, over: first };
 }
 // A compound as a result names it: the name given, else Octet's name for it, else its formula.
@@ -1647,6 +1684,9 @@ async function runTool(tool: Tool, host: Host, a: any, ctx: Ctx): Promise<Result
 
 // ---- Batch (F1) ----
 
+// Text that belongs to something (a number, conditions, a cycle's text), by id: it is in that object's box and moves
+// with it, so it is not a top-level object.
+const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under || c.on || c.cycle).map((c) => `t${c.id}`));
 // "$2.s[0]": the first structure step 2 made; "$2.s" or "$2.made" in a list, all of them.
 const REF = /^\$(\d{1,2})\.(made|s|t|a|b|c)(?:\[(\d{1,3})\])?$/;
 type Made = Record<"s" | "t" | "a" | "b" | "c", string[]>;
@@ -1659,16 +1699,25 @@ const byKind = (ids: string[]): Made => {
 // Every reference in a step's arguments (the steps they name).
 const refsIn = (v: unknown): number[] => (typeof v === "string" ? (REF.test(v) ? [Number(REF.exec(v)![1])] : []) : Array.isArray(v) ? v.flatMap(refsIn) : v && typeof v === "object" ? Object.values(v).flatMap(refsIn) : []);
 // A step's arguments with each reference to an earlier step's ids put in; or what is wrong.
-function resolve(v: unknown, made: Made[]): unknown {
+// top: each step's top-level objects (not a number or conditions, which belong to one).
+function resolve(v: unknown, made: Made[], top: string[][], notes: Notes): unknown {
   const ids = (t: string) => {
     const [, n, kind, at] = REF.exec(t)!, all = made[Number(n) - 1], list = kind === "made" ? [...all.s, ...all.t, ...all.a, ...all.b, ...all.c] : all[kind as keyof Made];
     if (at === undefined) return list;
     if (Number(at) >= list.length) throw new Error(`${t}: step ${n} made ${list.length} ${kind === "made" ? "objects" : { s: "structures", t: "texts", a: "arrows", b: "shapes", c: "cycles" }[kind]}`);
     return [list[Number(at)]];
   };
-  if (typeof v === "string" && REF.test(v)) { const l = ids(v); if (l.length !== 1) throw new Error(`${v} names ${l.length} objects here: give one, as ${v}[0]`); return l[0]; }
-  if (Array.isArray(v)) return v.flatMap((x) => (typeof x === "string" && REF.test(x) ? ids(x) : [resolve(x, made)]));
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x, made)]));
+  if (typeof v === "string" && REF.test(v)) {
+    const l = ids(v);
+    if (l.length === 1) return l[0];
+    // "$3.made" where one id is needed: the one top-level object step 3 made (a structure, not its number too).
+    const [, n, kind, at] = REF.exec(v)!, one = kind === "made" && at === undefined ? top[Number(n) - 1] : [];
+    if (one.length !== 1) throw new Error(`${v} names ${l.length} objects here: give one, as ${v}[0]`);
+    note(notes, v, `Read ${v} as ${one[0]}.`);
+    return one[0];
+  }
+  if (Array.isArray(v)) return v.flatMap((x) => (typeof x === "string" && REF.test(x) ? ids(x) : [resolve(x, made, top, notes)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x, made, top, notes)]));
   return v;
 }
 async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number]; args: Record<string, unknown> }[]; picture_size?: keyof typeof SIZES }, ctx: Ctx): Promise<Result> {
@@ -1678,24 +1727,25 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
   // Every step checked before anything is drawn: its arguments against its own tool, and each reference to an
   // earlier step.
   for (const [k, st] of a.steps.entries()) {
-    const wrong = check(toolOf(st.tool).inputSchema, args[k], ""), late = refsIn(args[k]).find((n) => n < 1 || n > k);
+    const wrong = wrongWith(toolOf(st.tool).inputSchema, args[k], ctx.notes), late = refsIn(args[k]).find((n) => n < 1 || n > k);
     if (wrong) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}): ${wrong}.`, error: true };
     if (late !== undefined) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}) names step ${late}: a step can name only the steps before it (they count from 1).`, error: true };
   }
-  const made: Made[] = [], said: string[] = [];
+  const made: Made[] = [], top: string[][] = [], said: string[] = [];
   for (const [k, st] of a.steps.entries()) {
     await ctx.check();
     ctx.progress(k, a.steps.length, `Step ${k + 1} of ${a.steps.length}: ${st.tool}`);
     let given: Record<string, unknown>;
-    try { given = resolve(args[k], made) as Record<string, unknown>; } catch (e) { throw new Error(`Step ${k + 1} (${st.tool}): ${(e as Error).message}.`); }
-    const wrong = check(toolOf(st.tool).inputSchema, given, "");
+    try { given = resolve(args[k], made, top, ctx.notes) as Record<string, unknown>; } catch (e) { throw new Error(`Step ${k + 1} (${st.tool}): ${(e as Error).message}.`); }
+    const wrong = wrongWith(toolOf(st.tool).inputSchema, given, ctx.notes);
     if (wrong) throw new Error(`Step ${k + 1} (${st.tool}): ${wrong}.`);
     await host.settle();
     const was = index(host.doc()), out = await runTool(toolOf(st.tool), host, given, ctx);
     if (out.error) throw new Error(`Step ${k + 1} (${st.tool}) failed: ${out.text}`);
     data.push(out.data ?? {});
     await host.settle();
-    made.push(byKind([...index(host.doc()).keys()].filter((id) => !was.has(id))));
+    const now = host.doc(), fresh = [...index(now).keys()].filter((id) => !was.has(id)), owned = ownedText(now);
+    made.push(byKind(fresh)); top.push(fresh.filter((id) => !owned.has(id)));
     said.push(`${k + 1}. ${out.text.replace(UNDO, "").replace(/ Call read_drawing[^.]*\.$/, "")}`);
   }
   return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, data: { steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]).filter(([key]) => key !== "names")) })) }, ...(picture ? { cropped: true as const } : {}), longest: SIZES[a.picture_size ?? "small"] + (a.picture_size ? 0 : 200) };
@@ -1704,7 +1754,7 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
 // ---- A figure (F4) ----
 
 type Rich = string | RunIn[];
-type ItemIn = Omit<CompoundIn, "text"> & { structure?: string; caption?: Rich; brackets?: "brackets" | "parens" | "braces"; brackets_bold?: boolean; mark?: string; colour?: string; text?: Rich };
+type ItemIn = Omit<CompoundIn, "text" | "caption"> & { structure?: string; caption?: Rich; brackets?: "brackets" | "parens" | "braces"; brackets_bold?: boolean; mark?: string; colour?: string; text?: Rich };
 type PanelIn = { title?: Rich; subtitle?: Rich; frame?: "none" | "line" | "fill"; fill?: string; rows: ItemIn[][] };
 // Text or runs as a caption's text (and runs); or what is wrong.
 function richOf(t: Rich): { text: string; runs?: TextRun[] } | string {
@@ -2057,9 +2107,11 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     ...shownProblems(host).map((p) => ({ message: p.message, structure: p.atom !== undefined ? idOf([p.atom]) : undefined, ...(p.atom !== undefined ? { atom: atomId(p.atom) } : {}), ...(p.fix ? { fix: p.fix.label } : {}) })),
     ...layoutWarnings(host, m),
   ];
-  // A compound number on two structures (as ChemDraw numbers them, each is the drawing's own).
-  const numbers = structures.flatMap((x) => (x.number ? [x.number] : []));
-  for (const k of new Set(numbers.filter((x, i) => numbers.indexOf(x) !== i))) warnings.push({ message: `Compound number ${k} is on more than one structure.`, structure: undefined });
+  // A compound number on two structures that differ (as ChemDraw numbers them, each is the drawing's own). One compound
+  // drawn twice, as a scheme's product that starts the next scheme, keeps its number.
+  const numbered = new Map<string, Set<string>>();
+  for (const x of structures) if (x.number) numbered.set(x.number, (numbered.get(x.number) ?? new Set()).add(x.inchiKey ?? x.smiles ?? x.id));
+  for (const [k, compounds] of numbered) if (compounds.size > 1) warnings.push({ message: `Compound number ${k} is on more than one structure.`, structure: undefined });
   const sel = host.selection(), selected = [...new Set([...groups.filter((g) => g.some((i) => sel.atoms.includes(i))).map((g) => sid(m, g)!), ...sel.items.map((id) => `${m.cycles?.some((c) => c.id === id) ? "c" : m.arrows?.some((x) => x.id === id) ? "a" : "t"}${id}`)])];
   const details = host.experiment() ? detailsOf(m.annotations) : undefined;
   const box = (b?: Box) => b?.map((v) => Math.round(v * 10) / 10);
@@ -2176,7 +2228,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
     case "tools/call": {
       const tool = TOOLS.find((t) => t.name === msg.params?.name), args = msg.params?.arguments ?? {};
       if (!tool) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
-      const wrong = check(tool.inputSchema, args, "") ?? tool.refuse?.(args);
+      const notes: Notes = new Map(), wrong = wrongWith(tool.inputSchema, args, notes) ?? tool.refuse?.(args);
       if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.` }], isError: true });
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
@@ -2184,7 +2236,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       const token = msg.params?._meta?.progressToken;
       let stopped = false;
       const ctx: Ctx = {
-        session: from.session, client: from.client ?? "An AI app",
+        session: from.session, client: from.client ?? "An AI app", notes,
         progress: (done, total, message) => { if ((typeof token === "string" || typeof token === "number") && from.progress) from.progress(JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: token, progress: done, ...(total ? { total } : {}), ...(message ? { message } : {}) } })); },
         check: async () => { if (stopped || (await from.cancelled?.())) throw new Cancelled(); },
       };
@@ -2217,12 +2269,15 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
           touched = [...made, ...changed];
           // Only the top-level objects': a caption that belongs to something (a number, conditions, a cycle's text) is
           // in its box already, and leaving it out keeps the result short for the AI app to read.
-          const owned = new Set((after.captions ?? []).filter((c) => c.under || c.on || c.cycle).map((c) => `t${c.id}`));
+          const owned = ownedText(after);
           const boxes = Object.fromEntries(touched.filter((k) => !owned.has(k)).slice(0, 200).flatMap((k) => { const b = boxOfIds(h, after, [k]); return b ? [[k, rounded(b)]] : []; }));
           structured = { drawing: { id: drawing.id, title: drawing.name }, done: text, made, changed, deleted: [...was.keys()].filter((k) => !now.has(k)), ...(touched.length ? { boxes } : {}), ...out.data, warnings: fresh, check: layoutCheck(h, after) };
         }
         // The sentence once, then the data as compact JSON (without the sentence again), for AI apps that read text.
         const content: unknown[] = [{ type: "text", text: tool.outputSchema === CHANGE && structured ? `${text}\n${JSON.stringify({ ...structured, done: undefined })}` : text }];
+        // What the arguments were read as (R5), a line each, after the result (a read's text stays its JSON).
+        const coerced = noted(notes);
+        if (coerced.length) { content.push({ type: "text", text: coerced.join("\n") }); if (structured) structured = { ...structured, coerced }; }
         // A picture of what the call made or changed, cropped to it, smaller than a read's (F2).
         const cropped = wantPicture || !!out.cropped, crop = cropped ? (touched.length ? boxOfIds(h, after, touched, 1) : undefined) : out.crop;
         if (out.picture || (cropped && !out.error)) { const png = await h.picture(out.of, crop, out.longest ?? (cropped ? 800 : 1000)); if (png) content.push({ type: "image", data: png, mimeType: "image/png" }); }
@@ -2244,8 +2299,9 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
 
 // A tool's schema as tools/list gives it (R4): without the limits Octet checks itself (lengths, counts, ranges; a
 // call past one is refused and told the limit), so the list an AI app reads is shorter. The enums and types stay, and
-// a tool's own arguments stay closed (additionalProperties false), so a misspelt one is refused.
-const LIMITS = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum"]);
+// a tool's own arguments stay closed (additionalProperties false), so a misspelt one is refused. The lenient readings
+// (numeral, also, default) are Octet's own too: an AI app is told the one form each argument takes.
+const LIMITS = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;

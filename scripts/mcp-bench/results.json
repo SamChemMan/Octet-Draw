@@ -1,29 +1,31 @@
 {
  "tools": 26,
- "toolsList": 63348,
+ "toolsList": 63462,
  "instructions": 2358,
  "cases": {
   "taxol-schemes": {
    "calls": 3,
    "failed": 0,
+   "coerced": 1,
    "sent": 4436,
-   "read": 15836,
+   "read": 15889,
    "ms": 2599,
    "slowest": 1589,
-   "right": 18,
+   "right": 19,
    "of": 19,
-   "warnings": 44
+   "warnings": 42
   },
   "taxol-v1-job": {
    "calls": 33,
-   "failed": 6,
-   "sent": 15365,
-   "read": 282623,
-   "ms": 3649,
-   "slowest": 1595,
-   "right": 18,
+   "failed": 0,
+   "coerced": 5,
+   "sent": 15482,
+   "read": 359204,
+   "ms": 4236,
+   "slowest": 1604,
+   "right": 19,
    "of": 19,
-   "warnings": 17
+   "warnings": 23
   }
  }
 }

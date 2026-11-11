@@ -2,7 +2,8 @@
 // The MCP benchmark (docs/plans/mcp-v2.md, section 14, step 0): each case in cases/ is a whole job as an AI app does
 // it, replayed in Octet with no window (scripts/headless/host.ts). It measures what the job costs the AI app and the
 // user: tool calls, failed calls, characters of arguments written, characters of replies read, and Octet's own time.
-// A call that Octet refuses counts as failed: the AI app pays for it with a round trip.
+// A call that Octet refuses counts as failed: the AI app pays for it with a round trip. Coerced counts the lines that
+// say Octet read an argument leniently (plan section 6): each is a form the AI app can learn to send right.
 // It also measures what every chat pays before its first call: the size of tools/list and of the instructions.
 // The numbers are kept in results.json. A run compares with them, and a worse number fails the run; --write keeps the
 // new numbers (after a change that is meant to move them). Time is the best of three runs, and fails past 1.2 times
@@ -18,7 +19,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 type Call = { name: string; arguments?: unknown | ((results: any[]) => unknown) };
 type Case = { about: string; for?: string; calls: Call[]; expect?: { smiles?: Record<string, string> } };
-type Measure = { calls: number; failed: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number };
+type Measure = { calls: number; failed: number; coerced: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number };
 
 // As draw.ts: Indigo's wasm as first compiled, so the process ends when the work does.
 if (!process.execArgv.includes("--liftoff-only")) process.exit(spawnSync(process.execPath, ["--liftoff-only", ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" }).status ?? 1);
@@ -35,7 +36,7 @@ const KEY = /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/;
 const keyOf = (text: string) => (KEY.test(text) ? text : toInchiKey(parseStructure(text)));
 
 async function run(c: Case): Promise<Measure> {
-  const d = drawing(c.for ?? "paper"), results: any[] = [], m: Measure = { calls: 0, failed: 0, sent: 0, read: 0, ms: 0, slowest: 0 };
+  const d = drawing(c.for ?? "paper"), results: any[] = [], m: Measure = { calls: 0, failed: 0, coerced: 0, sent: 0, read: 0, ms: 0, slowest: 0 };
   const rpc = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), () => d.host, version, { client: "Octet bench" }));
   for (const call of c.calls) {
     const args = typeof call.arguments === "function" ? call.arguments(results) : (call.arguments ?? {}), t = performance.now();
@@ -46,6 +47,8 @@ async function run(c: Case): Promise<Measure> {
     m.calls++; m.sent += JSON.stringify(args).length; m.read += content.reduce((n, x) => n + (x.text?.length ?? 0) + (x.data?.length ?? 0), 0);
     m.ms += ms; m.slowest = Math.max(m.slowest, ms);
     if (r.error || r.result?.isError) m.failed++;
+    // The lenient readings come as lines of text after the result's own.
+    m.coerced += content.slice(1).reduce((n, x) => n + (x.text?.split("\n").length ?? 0), 0);
   }
   // The finished drawing, read in full outside the job's count.
   const end = (await rpc("tools/call", { name: "read_drawing", arguments: { detail: "full" } })).result?.structuredContent;
@@ -71,10 +74,10 @@ const tokens = (chars: number) => Math.round(chars / 3.5);
 console.log(`tools/list: ${now.tools} tools, ${now.toolsList} characters (about ${tokens(now.toolsList)} tokens)${kept ? `, was ${kept.toolsList}` : ""}. Instructions: ${now.instructions} characters.`);
 than("tools/list characters", now.toolsList, kept?.toolsList);
 than("instructions characters", now.instructions, kept?.instructions);
-console.log("| Case | Calls | Failed | Sent | Read | Octet ms | Slowest call ms | Right | Warnings |\n|---|---|---|---|---|---|---|---|---|");
+console.log("| Case | Calls | Failed | Coerced | Sent | Read | Octet ms | Slowest call ms | Right | Warnings |\n|---|---|---|---|---|---|---|---|---|---|");
 for (const [name, m] of Object.entries(now.cases)) {
-  const was = kept?.cases[name], cell = (k: "calls" | "failed" | "sent" | "read" | "ms" | "slowest" | "warnings") => (was && was[k] !== m[k] ? `${m[k]} (was ${was[k]})` : `${m[k] ?? ""}`);
-  console.log(`| ${name} | ${cell("calls")} | ${cell("failed")} | ${cell("sent")} | ${cell("read")} | ${cell("ms")} | ${cell("slowest")} | ${m.of ? `${m.right} of ${m.of}` : ""} | ${cell("warnings")} |`);
+  const was = kept?.cases[name], cell = (k: "calls" | "failed" | "coerced" | "sent" | "read" | "ms" | "slowest" | "warnings") => (was && was[k] !== m[k] ? `${m[k]} (was ${was[k]})` : `${m[k] ?? ""}`);
+  console.log(`| ${name} | ${cell("calls")} | ${cell("failed")} | ${cell("coerced")} | ${cell("sent")} | ${cell("read")} | ${cell("ms")} | ${cell("slowest")} | ${m.of ? `${m.right} of ${m.of}` : ""} | ${cell("warnings")} |`);
   for (const k of ["calls", "failed", "sent", "read", "warnings"] as const) than(`${name} ${k}`, m[k], was?.[k]);
   than(`${name} ms`, m.ms, was?.ms, (v) => v * 1.2 + 50);
   if ((m.right ?? 0) < (was?.right ?? 0)) worse.push(`${name} structures right: ${m.right}, was ${was?.right}`);

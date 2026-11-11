@@ -355,6 +355,21 @@ Rules:
   can count them.
 - A refusal always says the fix in one line, with the accepted values. That is true today: keep it.
 
+Built on 11 November 2026 (`coerce` in `mcp.ts`, before each `check`):
+
+- The lines come as a second text block after the result ("Read number 13 as text."), and in
+  `structuredContent.coerced`. A read's first block stays its JSON. Many readings of one kind in a call are one line
+  ("Read number 2 as text, and 19 more the same way.").
+- A number is read as text only for a compound number and an atom's number (`numeral` in the schema). `text: 5` is
+  still refused.
+- Other names for an enum's values are `also` in the schema: `short` and `brief` for `summary`; `smi` and `smiles`,
+  `jpeg`, `tiff` for the file formats.
+- `new_drawing`'s `for` stays required in `tools/list`. A call without it is for `quick`, and the reply says so.
+- Every compound takes `caption` (text under its number), which is where `"1 (taxol)"` puts `taxol`. `set_number` and
+  `edit` have no caption, so they keep such a number as it is given.
+- `$3.made` is read as one id in `resolve`, where a batch puts ids in.
+- Not built: a number for other short text (`equiv: 1.2`, `temperature: 25`), and text for a number (`columns: "4"`).
+
 ## 7. The transport (`src-tauri/src/mcp.rs`)
 
 ### 7.1 What stays
@@ -521,6 +536,8 @@ benchmark runner should time only the MCP part.
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0: v1 with R7 (11 Nov) | 63,348 (18,100), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,599 | 18 of 19 | 44 |
 | | | | taxol-v1-job | 33 | 6 | 15,365 | 282,623 | 3,649 | 18 of 19 | 17 |
+| 1, arguments: lenient (11 Nov) | 63,462 (18,130), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 15,889 | 2,657 | 19 of 19 | 42 |
+| | | | taxol-v1-job | 33 | 0 | 15,482 | 359,204 | 4,236 | 19 of 19 | 23 |
 
 - `taxol-schemes` is the three final `draw_reaction` calls only. `taxol-v1-job` is the whole job rebuilt from section
   0's notes (no record of the chat's calls was kept): the six refusals, the check grid, the style changes, the titles,
@@ -530,6 +547,16 @@ benchmark runner should time only the MCP part.
 - Right: 18 of 19, as the last product's number is `1 (taxol)`, not `1` (section 6 reads that as number 1 with a
   caption). Compound 20 is a reagent over an arrow, so it is not counted.
 - The 44 warnings are the three schemes drawn over one another and past the page edge (section 17).
+- Step 1, arguments: no call is refused. The six calls that were refused now do their work, so `taxol-v1-job` does
+  more than before: the check grid is drawn twice and read twice, and the β-lactam batch draws. That is the growth in
+  characters read and in Octet's time, not slower code (the three schemes alone take the same time). The case's
+  `delete` call now names both grids and the structure `replace_structure` made. Its warnings went from 17 to 23: two
+  fewer for compounds 7 and 13 drawn twice, one more for the caption `taxol` past the page edge with its structure,
+  and seven more where the case's later row moves put scheme 3 on the β-lactam. The runner also counts coerced lines:
+  1 and 5. `tools/list` grew by 114 characters: `caption` on each of the four compound lists, and `summary` for
+  `short`. Times were taken with other work running on the Mac: the three schemes took 2,656 ms before the change on
+  the same day, so `results.json` keeps 2,599 for them. The coerce step itself takes about 4 µs on scheme 3's
+  arguments (the dispatcher refuses them in 18 µs, 13 to 14 before) and nothing that can be measured on a small call.
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -551,11 +578,13 @@ first.
 
 ## 17. Known issues to fix along the way (from the taxol run)
 
-- `replace_structure` refuses MOL text that `get_file` wrote (section 6).
+- `replace_structure` refuses MOL text that `get_file` wrote (section 6). Fixed on 11 November: text of several lines
+  keeps its spaces.
 - `add_text` with `below` a structure in a scheme attaches to the next arrow as a condition. It should be free text.
 - `run_command clean_up` on one reactant added a second "+" beside the existing one.
 - `draw_reaction` lays long schemes past the page edge (R4, section 5.4).
-- A compound repeated across schemes (7, 13) warns "number on more than one structure" (section 5.4).
+- A compound repeated across schemes (7, 13) warns "number on more than one structure" (section 5.4). Fixed on 11
+  November: the warning is only for structures that differ (by InChIKey).
 - Calls on one session wait behind a long batch (section 8).
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
   `mcp.json`. Give dev builds their own identifier, or their own file name.
