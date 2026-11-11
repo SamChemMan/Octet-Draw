@@ -62,3 +62,9 @@ export function hexOf(css: string): string | undefined {
   if (m) return m[4] !== undefined && Number(m[4]) === 0 ? undefined : `#${m.slice(1, 4).map((v) => Math.min(255, Number(v)).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
   return HEX.test(css.trim()) ? css.trim().toUpperCase() : undefined;
 }
+// Colour by Element is a toggle: whether every heteroatom among these atoms (scope: their indices) has its element's
+// colour already, so the command puts them back in the document's ink. by: each element's colour. False with none.
+export function elementColoursOn(atoms: { label: string; colour?: string }[], scope: Set<number>, by: Record<string, string>): boolean {
+  const own = atoms.filter((a, i) => scope.has(i) && by[a.label]);
+  return own.length > 0 && own.every((a) => a.colour?.toLowerCase() === by[a.label].toLowerCase());
+}

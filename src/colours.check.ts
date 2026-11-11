@@ -3,7 +3,7 @@
 // read right, and every place that offers colours using the one menu.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ADD, addColour, chosenKey, colourOptions, hexOf, moveColour, OWN_MOST, ownIndex, PICK, RECENT_MOST, recentColours, rememberColour } from "./colours.ts";
+import { ADD, addColour, chosenKey, colourOptions, elementColoursOn, hexOf, moveColour, OWN_MOST, ownIndex, PICK, RECENT_MOST, recentColours, rememberColour } from "./colours.ts";
 import { COLOURS, HIGHLIGHT_COLOURS } from "./docstyle.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -98,3 +98,16 @@ assert.match(menus, /listOpen = \(\) => [^\n]*\.eyedropper/);
 assert.match(menus, /addEventListener\("wheel", away, true\)/);
 assert.match(editor, /const mine = settings\.palette\.slice\(0, 20\)/);
 assert.match(read("../src-tauri/src/eyedropper.rs"), /type_\(\)\.name\(\) != "GdkX11Display"/);
+
+// Colour by Element is a toggle (docs/plans/charts.md, H1): on only when every heteroatom in scope has its element's
+// colour. A carbon's own colour does not count, and neither does an atom outside the selection.
+{
+  const by = { N: "#2F6FED", O: "#E5484D" }, all = new Set([0, 1, 2, 3]);
+  const atoms = [{ label: "C", colour: "#123456" }, { label: "N" }, { label: "O" }, { label: "C" }];
+  assert.equal(elementColoursOn(atoms, all, by), false, "nothing coloured yet");
+  assert.equal(elementColoursOn([atoms[0], { label: "N", colour: "#2f6fed" }, { label: "O", colour: "#E5484D" }, atoms[3]], all, by), true, "every heteroatom has its colour, in any case of letters");
+  assert.equal(elementColoursOn([atoms[0], { label: "N", colour: "#2F6FED" }, { label: "O", colour: "#00FF00" }, atoms[3]], all, by), false, "one in another colour");
+  assert.equal(elementColoursOn([atoms[0], { label: "N", colour: "#2F6FED" }, { label: "O" }, atoms[3]], new Set([0, 1]), by), true, "only the selection counts");
+  assert.equal(elementColoursOn(atoms, new Set([0, 3]), by), false, "no heteroatom in scope");
+  assert.match(editor, /on = elementColoursOn\(doc\.atoms, atoms, by\)/);
+}
