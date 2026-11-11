@@ -904,6 +904,20 @@ Test it with a small client in `scripts/` that answers elicitation, as `mcp-eval
 - The MCP spec has an experimental tasks feature for this. Check its state in the 2025-11-25 spec and later before
   building. If clients support it, use it instead of `job`.
 
+**Not built (11 November 2026).** A job would make a long draw slower for the user, so it is left out.
+
+- Measured on the Node host, one `draw` call with the brief in it: the taxol route (3 schemes, 19 numbered compounds)
+  takes 1.6 to 2.0 s, and the same lines given twice (6 schemes, 38 numbered compounds) take 3.6 to 4.3 s. So a
+  40-compound route takes about 4 s, which is past this section's own line of about 3 s.
+- A job costs the AI model one more turn: it calls, gets `{ job }`, then calls `job` for the result. In the lab runs
+  (19.5) a job with one Octet call takes Opus about 19 s, nearly all of it the model's. One more turn costs more than
+  the 4 s it would save.
+- What else a job would have fixed is done another way. Calls from several sessions no longer wait on each other
+  (17.5, built). Progress and Stop show in the window during a call (9). A call that waits for the user's answer
+  waits outside the page's queue (3.1).
+- Build it when a call is measured over about 10 s in the app. Use the spec's tasks feature then, if AI apps
+  support it.
+
 ## 9. The overlay while the AI works (**Sam**)
 
 Sam: the blur and glow (`src/McpMagic.tsx`, uncommitted on `ole-1.2`) is "not fun enough or magic enough". Put a fun
@@ -1104,7 +1118,7 @@ this plan and `scripts/mcp-bench/`). **Ask Sam** before rebasing, committing or 
 | 5 | Tool merge (5.1 to 5.3), `$defs`, instructions (11) | 1 to 2 | `tools/list` under 4,000 tokens (done: 13,824 characters, 5.5); evals pass at least as well as v1 (not run: they need the app) |
 | 6 | Overlay animation (9) | 0.5 to 1 | Sam likes it; `motion.check.ts` passes |
 | 7 | Elicitation (3.1, 7.3) | 1 to 2 | A test client gets the form and the brief is stored |
-| 8 | Background jobs (8) | 2 to 4 | A 40-compound route returns at once; progress in the overlay |
+| 8 | Background jobs (8) | 2 to 4 | A 40-compound route returns at once; progress in the overlay. **Not built:** a 38-compound route takes about 4 s in one call, and a job adds a model turn that costs more (section 8) |
 | 3b | Named transformations (4.3) | 3 to 5 | Only after measuring 3a and 4. Each transformation has stereo tests. With step 4's letters for conditions, the taxol route at under a fifth of today's characters (moved from 3a, if Sam agrees) |
 
 First release candidate: steps 0 to 6 (about 9 to 14 days). Then 7 and 8. Then decide on 3b.
@@ -1385,7 +1399,8 @@ Left after wave A:
   The three taxol schemes' 40 warnings are all this.
 - A salt drawn as two ions under one number still warns "number on more than one structure" (17.1, Salts). Fixed
   in `mcp/fit` (17.1).
-- Calls on one session wait behind a long batch (section 8, step 8).
+- Calls on one session wait behind a long batch (section 8, step 8). Left so: the longest call measured takes
+  about 4 s (section 8, not built).
 - A dev build beside the installed Octet on Windows and Linux: the second Octet gives its files to the first and
   ends, so a dev build needs its own identifier there (decision 0021). On every platform the two share recent
   drawings and Home's folders, and the one that saves last drops what the other added.
