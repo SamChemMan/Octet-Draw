@@ -38,7 +38,9 @@ import markSmall from "../brand/logos/octet-mark-small.svg";
 import markWhite from "../brand/logos/octet-mark-white.svg";
 import lockup from "../brand/logos/octet-lockup.svg";
 import lockupWhite from "../brand/logos/octet-lockup-white.svg";
-import { ColourPop } from "./ColourPicker";
+import { ColourPop, colourItems, pickColour } from "./ColourPicker";
+import { ADD, addColour, colourOptions, PICK, rememberColour } from "./colours";
+import type { Swatch } from "./settings";
 import { Dialog, useModal } from "./Dialog";
 import { tileTo } from "./keys";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
@@ -197,7 +199,7 @@ type Props = {
   onStarter: (text: string) => void; // opens an example drawing as a new drawing
   lib: HomeLibrary; // the projects and thumbnails
   drops?: boolean; // files from Finder can be dropped on a tile (the app; the UI-only preview takes pictures by the browser's drop)
-  palette?: { name: string; hex: string }[]; // the user's own colours, after Octet's, as in every colour row
+  palette?: Swatch[]; onPalette?: (palette: Swatch[]) => void; // the user's own colours, after Octet's, as in every colour menu
   layout: HomeLayout; onLayout: (layout: HomeLayout) => void; // the sections' order and the folded ones (settings)
   experiments: ExperimentEntry[]; onRemoveExperiment: (path: string) => void; onExportExperiments: (list: ExperimentEntry[]) => void;
   selectAll: { current?: () => void }; // Edit > Select All (⌘A) over Home
@@ -234,8 +236,9 @@ export function Home(p: Props) {
   // A project being named: a new one (with the drawings it takes when it is made), or one being renamed.
   const [naming, setNaming] = useState<{ id?: string; value: string; then?: { path: string; name?: string }[] }>();
   const [deleting, setDeleting] = useState<Project>();
-  // A project's colour being picked freely (Custom colour…): shown on its folder as it changes, kept when it closes.
-  const [picking, setPicking] = useState<{ id: string; hex: string; anchor: DOMRect; keep: HTMLElement | null }>();
+  // A project's colour being picked freely (Add colour…): shown on its folder as it changes, kept when it closes, and
+  // kept with the user's own colours when it changed.
+  const [picking, setPicking] = useState<{ id: string; from: string; hex: string; anchor: DOMRect; keep: HTMLElement | null }>();
   const open = projectOf(lib.store, lib.open);
   // The Experiments list, open in Home's place, with its search and sort.
   const [lab, setLab] = useState(false), [search, setSearch] = useState(""), [sort, setSort] = useState<ExperimentSort>({ by: "date", down: true });
@@ -589,15 +592,10 @@ export function Home(p: Props) {
       [item("folder:new", "New folder…", <FolderSimplePlus size={18} />), ...(now ? [item("out", "Remove from folder", <FolderSimpleMinus size={18} />)] : [])]].filter((g) => g.length);
   };
   const thumbGroups = (own: boolean): MenuItem[][] => [[item("thumb", "Choose picture…", <ImageSquare size={18} />), ...(own ? [item("auto", "Use automatic thumbnail", <ArrowCounterClockwise size={18} />)] : [])]];
-  // A folder's colours: the document's colours, then the user's own, then Custom colour… (as the Actions panel's colour
-  // row has them).
+  // A folder's colours: Octet's colour menu (colourOptions), as every colour menu has them.
   const colourGroups = (id: string): MenuItem[][] => {
     const x = projectOf(lib.store, id), now = x ? colourOf(x) : PROJECT_COLOUR;
-    const list = [...COLOURS, ...(p.palette ?? []).map((c): [string, string] => [c.name, c.hex])], known = list.some(([, hex]) => hex.toUpperCase() === now);
-    return [
-      [...list.map(([name, hex]) => item(`colour:${hex}`, name, swatch(hex), false, hex.toUpperCase() === now)), ...(known ? [] : [item(`colour:${now}`, "Custom", swatch(now), false, true)])],
-      [item("colour:custom", "Custom colour…", <Palette size={18} />)],
-    ];
+    return colourItems(colourOptions(COLOURS, p.palette ?? [], now), (o) => `colour:${o.hex ?? o.key}`, now);
   };
   const menuGroups = (m: MenuFor): MenuItem[][] => {
     if (m.kind === "drawing") {
@@ -688,12 +686,13 @@ export function Home(p: Props) {
       if (key === "thumb") return void lib.chooseThumb({ project: m.id });
       if (key === "auto") return void lib.resetThumb({ project: m.id });
       if (key === "delete") return setDeleting(projectOf(lib.store, m.id));
-      if (key === "colour:custom") {
+      if (key === `colour:${ADD}`) {
         const x = projectOf(lib.store, m.id), tile = tileOf(m.id);
-        if (x && tile) setPicking({ id: x.id, hex: colourOf(x), anchor: tile.getBoundingClientRect(), keep: tile });
+        if (x && tile) setPicking({ id: x.id, from: colourOf(x), hex: colourOf(x), anchor: tile.getBoundingClientRect(), keep: tile });
         return;
       }
-      if (key.startsWith("colour:")) return void lib.colour(m.id, key.slice(7));
+      if (key === `colour:${PICK}`) return void pickColour().then((hex) => { if (hex) void lib.colour(m.id, hex); });
+      if (key.startsWith("colour:")) { rememberColour(key.slice(7)); return void lib.colour(m.id, key.slice(7)); }
     }
     if (m.kind === "section") {
       if (key === "fold") return fold(m.id);
@@ -1044,7 +1043,7 @@ export function Home(p: Props) {
       {menu && <ContextMenu label={menuLabel(menu)} at={menu.at} keyboard={menu.keyboard} groups={menuGroups(menu).filter((g) => g.length)} sub={sub} onChoose={choose} onClose={() => setMenu(undefined)} />}
       <Exit>{picking && (
         <ColourPop anchor={picking.anchor} keep={picking.keep} label="Folder colour" value={picking.hex} onChange={(hex) => setPicking((x) => x && { ...x, hex })}
-          onClose={() => { void lib.colour(picking.id, picking.hex); setPicking(undefined); }} />
+          onClose={() => { void lib.colour(picking.id, picking.hex); setPicking(undefined); if (picking.hex !== picking.from) { rememberColour(picking.hex); p.onPalette?.(addColour(p.palette ?? [], picking.hex)); } }} />
       )}</Exit>
       <Exit>{deleting && (
         <Dialog title={`Delete “${deleteName}”?`} action="Delete" onClose={() => setDeleting(undefined)} onAction={() => { const id = deleting.id; setDeleting(undefined); void lib.remove(id); }}>

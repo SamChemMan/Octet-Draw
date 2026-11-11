@@ -20,6 +20,7 @@ export type MenuItem = {
   style?: React.CSSProperties; // the name's own look (a font's name in that font)
   more?: boolean; // it opens a sub-menu beside the menu (a caret on its right)
   hint?: string; // its key, named with its name when the pointer rests on it
+  rename?: (name: string) => void; // its name is being changed: a field in its place, kept as it loses the focus
 };
 
 export const CELL = 192, GAP = 2, PAD = 4; // px: an option's width and height, the gap and the padding
@@ -74,12 +75,20 @@ export function Menu(p: Props) {
         <div key={i} className="menu-group" role="group">
           {g.map((item) => (
             <div key={item.key} className={item.arrived ? "variant-cell arrived" : "variant-cell"}>
-              <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
-                onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
-                {item.icon}
-                <span className="variant-name" style={item.style}>{item.name}</span>
-                {item.more && <CaretRight size={12} className="submenu-caret" aria-hidden />}
-              </button>
+              {item.rename ? (
+                <label className="variant">
+                  {item.icon}
+                  <input className="variant-input" aria-label={`Name of ${item.name}`} defaultValue={item.name} maxLength={40} spellCheck={false} autoFocus onFocus={(e) => e.currentTarget.select()}
+                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); }} onBlur={(e) => item.rename!(e.currentTarget.value)} />
+                </label>
+              ) : (
+                <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
+                  onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
+                  {item.icon}
+                  <span className="variant-name" style={item.style}>{item.name}</span>
+                  {item.more && <CaretRight size={12} className="submenu-caret" aria-hidden />}
+                </button>
+              )}
               {item.action && (
                 <button className="variant-action" aria-label={item.action.label} data-tip={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
                   {item.action.icon}
@@ -122,7 +131,8 @@ export function Menu(p: Props) {
 // button only when not even six options fit above and there is more room below. more: a last option that opens a
 // longer list (every font on the computer) with a field to find one. Arrow keys move along the list, a letter goes to
 // the next option that starts with it, Return picks, Escape closes. A list opened by the keyboard takes the focus; one
-// opened by a click leaves it where it was (in text being typed, say).
+// opened by a click leaves it where it was (in text being typed, say). A right-click on an option (or the Menu key)
+// opens the option's own menu, where the list has one (the user's own colours in a colour list).
 const ROW = 32; // px: a list option's height and the gap under it
 export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving)"); // a list or a colour picker is open: its keys come first
 type PickProps = {
@@ -139,6 +149,8 @@ type PickProps = {
   onKey?: (e: React.KeyboardEvent<HTMLButtonElement>) => boolean | void; // a key on the closed button; true when it used it
   start?: boolean; // open as it comes on screen, with the longer list (Text > Font > Other Font…)
   disabled?: boolean; // nothing to choose yet: the button shows, greyed, as a disabled button does
+  onPress?: (e: React.PointerEvent, key: string) => void; // a press on an option, which may become a drag
+  onItemMenu?: (key: string, at: { x: number; y: number }, keyboard: boolean) => void; // a right-click, the Menu key or Shift+F10 on an option
 };
 
 // A list's keys (Pick's, the Actions menu's): up and down move along its options, Home and End go to the ends, a
@@ -162,9 +174,10 @@ export function Pick(p: PickProps) {
   const close = (refocus = false) => { setOpen(undefined); setAll(undefined); setQuery(""); if (refocus) button.current?.focus(); };
   useEffect(() => {
     if (!open) return;
-    const inside = (t: EventTarget | null) => t instanceof Node && (!!list.current?.contains(t) || !!button.current?.contains(t));
+    // An option's own right-click menu (onItemMenu) is part of the list: its clicks and its Escape are its own.
+    const inside = (t: EventTarget | null) => t instanceof Node && (!!list.current?.contains(t) || !!button.current?.contains(t) || (t instanceof Element && !!t.closest(".context-menu")));
     const away = (e: PointerEvent) => { if (!inside(e.target)) close(); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(true); } };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector(".context-menu .strip:not(.leaving)")) { e.preventDefault(); e.stopImmediatePropagation(); close(true); } };
     // It closes when its button scrolls away under it, as when the panel scrolls.
     const scrolled = (e: Event) => { if (!inside(e.target)) close(); };
     addEventListener("pointerdown", away, true);
@@ -199,6 +212,8 @@ export function Pick(p: PickProps) {
   };
   const keys = (e: React.KeyboardEvent) => {
     if (e.key === "Tab") return close();
+    const focused = (e.target as HTMLElement).dataset.item;
+    if (menuKey(e) && focused && p.onItemMenu) { e.preventDefault(); e.stopPropagation(); const r = (e.target as HTMLElement).getBoundingClientRect(); return p.onItemMenu(focused, { x: r.left + r.width / 2, y: r.bottom - 8 }, true); }
     if (listKeys(e, list.current!)) return;
     if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement) e.stopPropagation(); // the list's keys are its own
   };
@@ -213,8 +228,11 @@ export function Pick(p: PickProps) {
         {p.children}
       </button>
       <Exit>{open && createPortal(
-        <div ref={list} onKeyDown={keys}>
-          <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} style={place()}
+        <div ref={list} onKeyDown={keys} onContextMenu={(e) => {
+          const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item;
+          if (key && p.onItemMenu) { e.preventDefault(); p.onItemMenu(key, { x: e.clientX, y: e.clientY }, false); }
+        }}>
+          <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} onPress={p.onPress} style={place()}
             head={all && (
               <input className="list-find" autoFocus placeholder={p.more!.find} aria-label={p.more!.find} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
