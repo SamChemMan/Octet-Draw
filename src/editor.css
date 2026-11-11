@@ -4893,6 +4893,27 @@ button.variant.add {
     display: block;
   }
 }
+/* Print's preview on Linux: the pages in their rows and columns on a grey ground, at most 260 px tall. */
+.print-preview {
+  display: grid;
+  justify-self: stretch;
+  place-items: center;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.print-sheets {
+  display: grid;
+  gap: var(--space-1);
+  width: min(100%, calc(260px * var(--across)));
+}
+.print-sheets img {
+  display: block;
+  width: 100%;
+  height: auto;
+  outline: 1px solid var(--hairline);
+  background: var(--canvas);
+}
 
 /* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. */
 .export {
