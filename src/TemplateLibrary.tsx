@@ -20,7 +20,7 @@ import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { Segmented } from "./Fields";
 import { ART_SETS, isArt, LIBRARY, loadMore, type LibraryItem } from "./library";
-import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, labelTurn, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
+import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
 import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
@@ -98,12 +98,14 @@ const Thumb = ({ item, px }: { item: LibraryItem; px?: number }) => <StructureTh
 function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const L = style.bond, drawing = render(mol, style, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
   const filled = (a: Arrow) => !!(a.curve?.closed && a.fill) && a.style !== "membrane", arrows = mol.arrows ?? [];
-  // A TLC plate's origin and solvent front (unless hidden) and its spots, as the canvas draws them.
-  const plates = (mol.shapes ?? []).filter((x) => x.kind === "tlc").map(tlcLayout), w = style.line / 2;
+  // A TLC plate's origin and solvent front (unless hidden) and its spots (a gel's bands), and a plasmid map's
+  // regions, as the canvas draws them.
+  const plates = (mol.shapes ?? []).filter(isPlate).map(tlcLayout), w = style.line / 2;
   const level = (x0: number, x1: number, y: number): [number, number][] => [at([x0, y]), at([x1, y])].flatMap(([x, y]) => [[x, y - w], [x, y + w]] as [number, number][]);
-  const across = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (["origin", "front"] as const).filter((h) => !x.tlc?.hide?.includes(h)).map((h) => { const t = plates[k], q = level(t.x0, t.x1, t[h]); return [q[0], q[2], q[3], q[1]]; }));
-  const spots = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (x.tlc?.spots ?? []).map((s) => spotPath(plates[k], s).map(at) as [number, number][]));
-  const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, style, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, style, L))), ...across, ...spots];
+  const across = (mol.shapes ?? []).filter(isPlate).flatMap((x, k) => (["origin", "front"] as const).filter((h) => x.kind === "tlc" && !x.tlc?.hide?.includes(h)).map((h) => { const t = plates[k], q = level(t.x0, t.x1, t[h]); return [q[0], q[2], q[3], q[1]]; }));
+  const spots = (mol.shapes ?? []).filter(isPlate).flatMap((x, k) => (x.tlc?.spots ?? []).filter((s) => s.rf >= 0 && s.rf <= 1).map((s) => spotPath(plates[k], s).map(at) as [number, number][]));
+  const regions = (mol.shapes ?? []).filter((x) => x.kind === "plasmid").flatMap((x) => plasmidLayout(x, 0).regions.map((r) => r.path.map(at) as [number, number][]));
+  const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, style, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, style, L))), ...across, ...spots, ...regions];
   const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
   const words = placeCaptions(mol, drawing, (t, c) => textWidth(t, (c.size ?? CAPTION_PT) * (4 / 3), c.bold, c.italic, fontStack(c.font ?? "Arial")), arrows);
   const marks: Mark[] = (mol.shapes ?? []).filter((x) => x.mark && isBracket(x)).map((x) => ({ ...markAt(x, L), text: x.mark!, size: CAPTION_PT * (4 / 3) * scaleOf(x) }));

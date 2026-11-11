@@ -7,7 +7,7 @@
 // arrow keys that walk the bonds (edit.ts walkHot) can be chosen by ear.
 import { ARROWS, BONDS, SHAPES } from "./kinds.ts";
 import { atomAt, bondAt, fragments, pos, type BondSpec } from "./edit.ts";
-import { HBOND, curved, hydrogens, isBracket, orderOf, straightArrow, type Arrow, type Atom, type Bond, type Box, type Group, type Mol, type Shape } from "./render.ts";
+import { HBOND, bandSize, curved, hydrogens, isBracket, orderOf, sizeText, straightArrow, type Arrow, type Atom, type Bond, type Box, type Group, type Mol, type Shape } from "./render.ts";
 import { plotName } from "./pageplot.ts";
 import { ELEMENTS } from "./metals.ts";
 import { rings } from "./rings.ts";
@@ -174,6 +174,16 @@ function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string }
 function shapeText(sh: Shape): { name: string; more?: string } {
   const base = SHAPES[sh.kind], dashed = sh.dashed ? ", dashed" : "";
   if (sh.rgroup) return { name: `R-group definition ${sh.rgroup.name}` };
+  // A gel by its lanes' names and the sizes of the bands it draws (in its range), largest first; a plasmid map by its
+  // length, regions and markers.
+  if (sh.kind === "gel" && sh.tlc) {
+    const t = sh.tlc, unit = t.unit ?? "kDa", lanes = Array.from({ length: t.lanes }, (_, k) => t.spots.filter((x) => x.lane === k && x.rf >= 0 && x.rf <= 1).map((x) => sizeText(bandSize(t, x.rf))).sort((p, q) => Number(q) - Number(p)));
+    return { name: `${base}, ${count(t.lanes, "lane")}, ${count(lanes.flat().length, "band")}`, more: lanes.map((b, k) => `Lane ${t.names?.[k] || k + 1}: ${b.length ? `${b.join(", ")} ${unit}` : "no bands"}`).join(". ") };
+  }
+  if (sh.plasmid) {
+    const p = sh.plasmid, parts = [...p.regions.map((r) => `${r.name || "region"} ${r.start} to ${r.end}${r.dir === "reverse" ? ", reverse" : ""}`), ...p.markers.map((m) => `${m.name} at ${m.at}`)];
+    return { name: `${base}${p.name ? ` ${p.name}` : ""}, ${p.bp} bp, ${count(p.regions.length, "region")}, ${count(p.markers.length, "marker")}`, ...(parts.length ? { more: parts.join(". ").slice(0, 400) } : {}) };
+  }
   if (sh.tlc) {
     const t = sh.tlc, lanes = Array.from({ length: t.lanes }, (_, k) => t.spots.filter((x) => x.lane === k).map((x) => x.rf).sort((p, q) => p - q));
     return { name: `${base}, ${count(t.lanes, "lane")}, ${count(t.spots.length, "spot")}`, more: lanes.map((rf, k) => `Lane ${k + 1}: ${rf.length ? `Rf ${rf.join(", ")}` : "no spots"}`).join(". ") };

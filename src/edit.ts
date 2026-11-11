@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
+import { AROMATIC, bandRf, bandSize, GEL, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -2355,6 +2355,7 @@ export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = ne
 // TLC plate lanes, as ChemDraw's Add Lane, Duplicate Lane, Delete Lane and a drag of a lane's origin tick. A lane
 // added or taken away widens or narrows the plate on its right by one lane, so every lane keeps its width, and spots
 // stay in their lanes. at: where the new lane goes (0 is first); copy: the lane whose spots it takes (Duplicate).
+// A gel's lane names go with their lanes; a new lane is named by the number of lanes before it, a copy as its lane.
 const TLC_LANES = 40;
 const widen = (sh: Shape, d: number): Shape => (sh.to[0] >= sh.from[0] ? { ...sh, to: [sh.to[0] + d, sh.to[1]] } : { ...sh, from: [sh.from[0] + d, sh.from[1]] });
 export function addLane(sh: Shape, at: number, copy?: number): Shape {
@@ -2362,14 +2363,15 @@ export function addLane(sh: Shape, at: number, copy?: number): Shape {
   if (tlc.lanes >= TLC_LANES) return sh;
   const k = Math.max(0, Math.min(tlc.lanes, at)), w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
   const spots = [...tlc.spots.map((x) => (x.lane >= k ? { ...x, lane: x.lane + 1 } : x)), ...(copy === undefined ? [] : tlc.spots.filter((x) => x.lane === copy).map((x) => ({ ...x, lane: k })))];
-  return { ...widen(sh, w), tlc: { ...tlc, lanes: tlc.lanes + 1, spots } };
+  const names = tlc.names && [...tlc.names.slice(0, k), copy === undefined ? String(tlc.lanes) : tlc.names[copy] ?? "", ...tlc.names.slice(k)];
+  return { ...widen(sh, w), tlc: { ...tlc, lanes: tlc.lanes + 1, spots, ...(names ? { names } : {}) } };
 }
 // A lane and its spots taken away (a plate keeps one lane).
 export function deleteLane(sh: Shape, k: number): Shape {
   const tlc = sh.tlc ?? { lanes: 1, spots: [] };
   if (tlc.lanes <= 1 || k < 0 || k >= tlc.lanes) return sh;
   const w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
-  return { ...widen(sh, -w), tlc: { ...tlc, lanes: tlc.lanes - 1, spots: tlc.spots.filter((x) => x.lane !== k).map((x) => (x.lane > k ? { ...x, lane: x.lane - 1 } : x)) } };
+  return { ...widen(sh, -w), tlc: { ...tlc, lanes: tlc.lanes - 1, spots: tlc.spots.filter((x) => x.lane !== k).map((x) => (x.lane > k ? { ...x, lane: x.lane - 1 } : x)), ...(tlc.names ? { names: tlc.names.filter((_, j) => j !== k) } : {}) } };
 }
 // A lane moved to another place among the lanes, with its spots; the others close up behind it.
 export function moveLane(sh: Shape, from: number, to: number): Shape {
@@ -2377,7 +2379,21 @@ export function moveLane(sh: Shape, from: number, to: number): Shape {
   if (from === to || from < 0 || to < 0 || from >= tlc.lanes || to >= tlc.lanes) return sh;
   const order = Array.from({ length: tlc.lanes }, (_, k) => k).filter((k) => k !== from);
   order.splice(to, 0, from);
-  return { ...sh, tlc: { ...tlc, spots: tlc.spots.map((x) => ({ ...x, lane: order.indexOf(x.lane) })) } };
+  return { ...sh, tlc: { ...tlc, spots: tlc.spots.map((x) => ({ ...x, lane: order.indexOf(x.lane) })), ...(tlc.names ? { names: order.map((k) => tlc.names![k] ?? "") } : {}) } };
+}
+// A new gel, as wide as its lanes allow: its first lane named M with the unit's ladder in it, the others numbered.
+export function newGel(from: [number, number], to: [number, number], unit: "kDa" | "bp" = "kDa"): Omit<Shape, "id"> {
+  const lanes = Math.max(2, Math.round(Math.abs(to[0] - from[0]) / 1.2)), tlc: Tlc = { lanes, spots: [], unit, names: ["M", ...Array.from({ length: lanes - 1 }, (_, k) => String(k + 1))] };
+  return { kind: "gel", from, to, tlc: { ...tlc, spots: GEL[unit].ladder.map((n) => ({ lane: 0, rf: bandRf(tlc, n) })) } };
+}
+// Bands added to a gel's lane at sizes (kDa or bp, as ChemDraw's Add Bands), the gel's range changed with its bands
+// kept at their sizes (ChemDraw's Set Range: ones outside it are not drawn), and its first lane given the ladder of a
+// unit, the gel's sizes then read in that unit.
+export const addBands = (t: Tlc, lane: number, sizes: number[]): Tlc => ({ ...t, spots: [...t.spots, ...sizes.filter((n) => n > 0 && Number.isFinite(n)).slice(0, 400 - t.spots.length).map((n) => ({ lane, rf: bandRf(t, n) }))] });
+export const setRange = (t: Tlc, range: [number, number]): Tlc => ({ ...t, range, spots: t.spots.map((x) => ({ ...x, rf: bandRf({ ...t, range }, bandSize(t, x.rf)) })) });
+export function withLadder(t: Tlc, unit: "kDa" | "bp"): Tlc {
+  const { range: _, ...rest } = t, next: Tlc = { ...rest, unit };
+  return { ...next, spots: [...t.spots.filter((x) => x.lane !== 0), ...GEL[unit].ladder.map((n) => ({ lane: 0, rf: bandRf(next, n) }))] };
 }
 
 // A TLC spot's style, as ChemDraw's spot styles go together: Filled, Hollow and Octet's Shaded are its fill; Dashed

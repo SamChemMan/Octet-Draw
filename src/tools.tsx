@@ -16,7 +16,7 @@ import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbit
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
 // The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
 export { ARROWS, BONDS, SHAPES, type BondKind };
@@ -95,7 +95,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -245,6 +245,8 @@ export function ShapeGlyph({ kind }: { kind: ShapeKind }) {
     case "parens": return <Icon><path d="M84,40 Q36,128 84,216" /><path d="M172,40 Q220,128 172,216" /></Icon>;
     case "braces": return <Icon><path d="M88,40 Q64,40 64,64 L64,108 Q64,128 44,128 Q64,128 64,148 L64,192 Q64,216 88,216" /><path d="M168,40 Q192,40 192,64 L192,108 Q192,128 212,128 Q192,128 192,148 L192,192 Q192,216 168,216" /></Icon>;
     case "tlc": return <TlcGlyph />;
+    case "gel": return <GelGlyph />;
+    case "plasmid": return <PlasmidGlyph />;
     case "table": return <TableGlyph />;
     default: return <Icon><rect x={40} y={64} width={176} height={128} /></Icon>;
   }
@@ -310,6 +312,24 @@ export const TlcGlyph = () => (
   </Icon>
 );
 
+// A gel: its outline, a well at the top of each lane, a ladder of bands in the first lane and a band in each other.
+export const GelGlyph = () => (
+  <Icon>
+    <rect x={40} y={32} width={176} height={192} rx={8} />
+    <path d="M64,64H96M112,64H144M160,64H192" strokeWidth={10} />
+    <path d="M64,104H96M64,144H96M64,184H96M112,124H144M160,164H192" strokeWidth={14} />
+  </Icon>
+);
+
+// A plasmid map: its ring, a region along it and a marker across it.
+export const PlasmidGlyph = () => (
+  <Icon>
+    <circle cx={128} cy={128} r={80} />
+    <path d="M179.4,66.7 A80,80 0 0 1 189.3,179.4" strokeWidth={32} strokeLinecap="butt" />
+    <line x1={71.6} y1={107.5} x2={34} y2={93.8} />
+  </Icon>
+);
+
 // A table in journal style: top, header and bottom rules, and its columns of text as short strokes.
 export const TableGlyph = () => (
   <Icon>
@@ -371,7 +391,7 @@ export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
 );
 
 // The specialist tools' names and icons.
-const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
+const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, gel: { name: "Gel", icon: <GelGlyph /> }, plasmid: { name: "Plasmid map", icon: <PlasmidGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
   massspec: { name: "Mass spec analysis", icon: <MassSpecGlyph /> },
   synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
 

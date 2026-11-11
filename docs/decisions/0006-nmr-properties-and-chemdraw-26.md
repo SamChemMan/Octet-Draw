@@ -7,8 +7,10 @@ Status: decided by Sam, 16 October 2026. Changes the brief's "Out of scope for v
 
 - The baseline is ChemDraw 26.1 (it was 22.2). Every chemistry feature of it is in scope.
 - Peptide, RNA and DNA sequences are in scope (issues 27 and 99): the Sequence tool, HELM and FASTA in and out,
-  custom monomers, and a Clean Up that knows the residues (ChemDraw's Clean Up Biopolymer). Other biology features
-  stay out for now: graphic monomers, BioDraw shapes, antibodies, plasmids and gels.
+  custom monomers, and a Clean Up that knows the residues (ChemDraw's Clean Up Biopolymer). Gels and plasmid maps
+  (issue 96) and membranes (issue 95) are in 1.1.2 as Octet's own objects. ChemDraw's own gel, plasmid map and BioDraw
+  objects are not read or written yet. Other biology features stay out for now: graphic monomers, the other BioDraw
+  shapes and antibodies.
 - ¹H and ¹³C NMR prediction, with spectra, is in scope. Sam: "low key a massive feature we all use very often".
 - Property prediction is in scope: the values ChemDraw's Chemical Properties window shows (boiling and melting
   points, critical temperature, pressure and volume, heat of formation, Gibbs energy, logP, molar refractivity,

@@ -11,7 +11,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -80,7 +80,7 @@ export type Context =
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
-      ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean } // a TLC plate's side ticks and transparency, and whether a lane is picked
+      ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean; unit?: string } // a TLC plate's side ticks and transparency, whether a lane is picked, and a gel's unit
   // step: one step of the cycle is picked; reversible, balance, shaped and hidden are that step's (shaped: it has a lead,
   // trail, bow or balance to reset; hidden: its arc is not drawn). arcs: some step's arc is hidden. side: one of its side
   // arrows is picked.
@@ -96,7 +96,8 @@ export type Context =
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
-  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number };
+  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string } // unit: a gel's band, its sizes' unit
+  | { kind: "part"; region: boolean }; // a plasmid map's region (or marker) picked on it
 
 type Props = {
   open: boolean;
@@ -281,6 +282,7 @@ const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", centre_view: "view", import: "file", expand_generic_sdf: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.remove": "cycle",
+  "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
   structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", clean_3d: "turn", rotate_dialog: "turn", scale_dialog: "turn",
@@ -461,6 +463,28 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<Checkerboard size={18} />, context.transparent ? "Make opaque" : "Make transparent", "shape.transparent")), scale, centre, inWindow, ...order, keep, del);
         break;
       }
+      if (context.shape === "gel") {
+        const hidden = (k: string) => context.hide?.includes(k);
+        // Lanes as a TLC plate's; bands typed in at their sizes (ChemDraw's Add Bands and Set Range); and the first lane
+        // given the other unit's ladder.
+        items.push(it(<Plus size={18} />, "Add a lane", "shape.lanes.1"), it(<Copy size={18} />, context.lane ? "Duplicate the lane" : "Duplicate the last lane", "shape.lanes.copy"),
+          it(<Minus size={18} />, context.lane ? "Delete the lane" : "Delete the last lane", "shape.lanes.-1"),
+          it(<ListPlus size={18} />, context.lane ? "Add bands…" : "Add bands to the last lane…", "shape.bands"), it(<Gauge size={18} />, "Set the range…", "shape.range"),
+          it(<span className="glyph-text">{context.unit}</span>, context.rf ? "Hide the sizes" : "Show the sizes", "shape.rf"),
+          small(it(<SortDescending size={18} />, hidden("scale") ? "Show the scale" : "Hide the scale", "shape.hide.scale")),
+          small(it(<TextColumns size={18} />, hidden("names") ? "Show the lane names" : "Hide the lane names", "shape.hide.names")),
+          small(it(<AlignBottomSimple size={18} />, hidden("origin") ? "Show the wells" : "Hide the wells", "shape.hide.origin")),
+          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")),
+          small(it(<Ladder size={18} />, context.unit === "bp" ? "Use a protein ladder" : "Use a DNA ladder", "shape.ladder")),
+          small(it(<Checkerboard size={18} />, context.transparent ? "Make opaque" : "Make transparent", "shape.transparent")), scale, centre, inWindow, ...order, keep, del);
+        break;
+      }
+      if (context.shape === "plasmid") {
+        // ChemDraw's Regions and Markers, one at a time (double-click one to change it), and the map's name and length.
+        items.push(it(<ChartDonut size={18} />, "Add a region…", "shape.region"), it(<MapPin size={18} />, "Add a marker…", "shape.marker"),
+          it(<PencilSimple size={18} />, "Name and length…", "shape.plasmid"), scale, centre, inWindow, ...order, keep, del);
+        break;
+      }
       if (context.shape === "table") {
         // At the cell last typed in, or at the end of the table.
         items.push(it(<RowsPlusBottom size={18} />, "Add a row below", "shape.row.after"), it(<ColumnsPlusRight size={18} />, "Add a column after", "shape.col.after"),
@@ -474,8 +498,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.rgroup) items.push(it(<TreeStructure size={18} />, "R-Logic…", "rlogic"));
       items.push(...turnsAndFlips, ...objects, ...order, keep, del);
       break;
+    case "part":
+      items.push(it(<Pencil size={18} />, context.region ? "Edit the region…" : "Edit the marker…", "part.edit"), inWindow, del);
+      break;
     case "spot":
-      items.push(it(<Percent size={18} />, "Set Rf…", "spot.setrf"), it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), inWindow, del);
+      items.push(context.unit ? it(<Equalizer size={18} />, "Set the size…", "spot.setrf") : it(<Percent size={18} />, "Set Rf…", "spot.setrf"),
+        context.unit ? it(<span className="glyph-text">{context.unit}</span>, context.rf ? "Hide its size" : "Show its size", "spot.rf") : it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), inWindow, del);
       break;
     case "arrow":
       if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...objects, ...order, keep, del); break; }
@@ -689,7 +717,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     cycle: "Catalytic cycle",
     grid: "Stoichiometry grid",
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
-    spot: "TLC spot",
+    spot: context.kind === "spot" && context.unit ? "Band" : "TLC spot",
+    part: context.kind === "part" && context.region ? "Region" : "Marker",
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
     line: "Line",
   }[context.kind];
@@ -897,7 +926,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
 
-      {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "picture" && (
+      {context.kind === "shape" && !["tlc", "gel", "plasmid", "table", "picture"].includes(context.shape) && (
         <div className="chips arrows" role="group" aria-label="Shape">
           {(isBracket({ kind: context.shape }) ? ["brackets", "parens", "braces"] as ShapeKind[] : ["box", "rounded", "oval", "highlight"] as ShapeKind[]).map((kind) => (
             <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} data-tip={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
@@ -906,7 +935,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {context.kind === "shape" && !isBracket({ kind: context.shape }) && context.shape !== "highlight" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "picture" && (() => {
+      {context.kind === "shape" && !isBracket({ kind: context.shape }) && !["highlight", "tlc", "gel", "plasmid", "table", "picture"].includes(context.shape) && (() => {
         // The shape's style, drawn as the shape itself in each style.
         const row = context.shape === "oval" ? "oval" : context.shape === "rounded" ? "rounded" : "box";
         return (
@@ -923,7 +952,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
-      {(context.kind === "spot" || (context.kind === "shape" && context.shape === "tlc")) && (
+      {(context.kind === "spot" || (context.kind === "shape" && (context.shape === "tlc" || context.shape === "gel"))) && (
         // A spot's style (or every spot's, from the plate), each drawn as a spot.
         // Its fill (filled, hollow or shaded), then its outline's dashed, bold and doubled, each on or off.
         <div className="chips styles" role="group" aria-label="Spot">
