@@ -11,14 +11,15 @@ export type Nucleus = "1H" | "13C" | "19F" | "31P";
 // frequency as a share of ¹H's (Ξ, IUPAC 2001: the ¹H frequency × ratio is its frequency on the same magnet), the
 // decimals a shift is given to, the spread a good shift stays within (ppm), whether it is drawn as a trace with
 // integrals (¹H, ¹⁹F) or as sticks (¹³C, ³¹P), the range shown when nothing is outside it, the padding round the
-// signals, and whether its spectrum is ¹H-decoupled by default (¹³C{¹H} and ³¹P{¹H}, as most labs run them; ¹⁹F
-// coupled, as H–F splitting tells the chemist something).
-export type NucleusInfo = { el: string; name: string; ratio: number; decimals: number; tight: number; trace: boolean; range: [number, number]; pad: number; decouple: boolean };
+// signals, whether its spectrum is ¹H-decoupled by default (¹³C{¹H} and ³¹P{¹H}, as most labs run them; ¹⁹F
+// coupled, as H–F splitting tells the chemist something), and whether its shifts fall back on codes on kinds (codes();
+// not ³¹P, which they made worse on held-out spectra, 14.66 to 14.78 ppm).
+export type NucleusInfo = { el: string; name: string; ratio: number; decimals: number; tight: number; trace: boolean; range: [number, number]; pad: number; decouple: boolean; kinds: boolean };
 export const NUCLEI: Record<Nucleus, NucleusInfo> = {
-  "1H": { el: "H", name: "¹H", ratio: 1, decimals: 2, tight: 0.15, trace: true, range: [0, 10], pad: 0.5, decouple: false },
-  "13C": { el: "C", name: "¹³C", ratio: 0.25145020, decimals: 1, tight: 1.5, trace: false, range: [0, 200], pad: 10, decouple: true },
-  "19F": { el: "F", name: "¹⁹F", ratio: 0.94094011, decimals: 1, tight: 2, trace: true, range: [-200, 0], pad: 5, decouple: false },
-  "31P": { el: "P", name: "³¹P", ratio: 0.40480742, decimals: 1, tight: 3, trace: false, range: [-50, 50], pad: 5, decouple: true },
+  "1H": { el: "H", name: "¹H", ratio: 1, decimals: 2, tight: 0.15, trace: true, range: [0, 10], pad: 0.5, decouple: false, kinds: true },
+  "13C": { el: "C", name: "¹³C", ratio: 0.25145020, decimals: 1, tight: 1.5, trace: false, range: [0, 200], pad: 10, decouple: true, kinds: true },
+  "19F": { el: "F", name: "¹⁹F", ratio: 0.94094011, decimals: 1, tight: 2, trace: true, range: [-200, 0], pad: 5, decouple: false, kinds: true },
+  "31P": { el: "P", name: "³¹P", ratio: 0.40480742, decimals: 1, tight: 3, trace: false, range: [-50, 50], pad: 5, decouple: true, kinds: false },
 };
 export const NUCLEUS_LIST = Object.keys(NUCLEI) as Nucleus[];
 export const isNucleus = (x: unknown): x is Nucleus => typeof x === "string" && x in NUCLEI;
@@ -108,8 +109,8 @@ export function hapto(g: Graph): number[] {
 }
 
 type Edge = { to: number; bond: string };
-// eta: each atom's metal when it is η-bonded to one (hapto), else -1.
-export type Env = { g: Graph; edges: Edge[][]; label: string[]; cls: number[]; aromatic: boolean[]; eta: number[] };
+// eta: each atom's metal when it is η-bonded to one (hapto), else -1. kind: each atom's kind (kinds()), once made.
+export type Env = { g: Graph; edges: Edge[][]; label: string[]; cls: number[]; aromatic: boolean[]; eta: number[]; kind?: string[] };
 
 // Bonds in no ring (bridges), by Tarjan's method, without recursion.
 function bridges(n: number, adj: { to: number; k: number }[][]): Set<number> {
@@ -168,8 +169,9 @@ export function environment(g: Graph): Env {
 // hydrogens, then each sphere's atoms. Each atom is described by its label, the bonds and descriptions of the atoms
 // in the sphere before that reach it, and its bonds to atoms in its own sphere (& where a ring closes). Every list is
 // sorted, so the codes are the same whatever order the atoms were drawn in. There is always one code per level.
-export function hose(env: Env, centre: number, levels = LEVELS): string[] {
-  const { edges, label } = env, dist = new Map([[centre, 0]]), spheres: string[] = [], out: string[] = [];
+// label: env.label, or each atom's kind (kinds()) for codes on kinds.
+export function hose(env: Env, centre: number, levels = LEVELS, label = env.label): string[] {
+  const { edges } = env, dist = new Map([[centre, 0]]), spheres: string[] = [], out: string[] = [];
   const head = `${label[centre]}H${env.g.atoms[centre].h}`;
   let desc = new Map([[centre, head]]);
   for (let level = 1; level <= levels; level++) {
@@ -193,10 +195,27 @@ export function hose(env: Env, centre: number, levels = LEVELS): string[] {
   }
   return out;
 }
-// An atom's codes from level 0 to the longest, indexed by level. Level 0 is the atom alone: its label, its hydrogens
-// and whether it is η-bonded to a metal (^), so a Cp or arene ring on a metal the table has never seen gets the shifts
-// of such rings on other metals. It is the last resort, so every atom gets a shift, rated rough when it comes from it.
-export const codes = (env: Env, centre: number): string[] => [`${env.label[centre]}H${env.g.atoms[centre].h}${env.eta[centre] >= 0 ? "^" : ""}`, ...hose(env, centre)];
+// Each atom's kind: its label with its bonds that are not single and what they go to: S=O=O in a sulfonyl, C=O, C%N,
+// C*C*N beside the N of a pyridine. Made once per structure, the first time an atom needs codes on kinds.
+const kinds = (env: Env) => (env.kind ??= env.label.map((l, i) => `${l}${env.edges[i].filter((e) => e.bond).map((e) => e.bond + env.label[e.to]).sort().join("")}`));
+// An atom's codes from the most it tells to the least, each with the spheres it matches. Spheres 1 and 2 also come as
+// codes on kinds (k:), after the next sphere by labels and before the same sphere by labels: when the table has no atom
+// with the same next sphere, a code on kinds still tells a sulfonyl or carbonyl neighbour from a sulfide or ether one,
+// and a ring atom beside a ring N from one that is not. They are made only when asked for, so the many atoms that
+// match three spheres or more never make them; a nucleus without kinds (NUCLEI) has none. Level 0 is the atom alone:
+// its label, its hydrogens and whether it is η-bonded to a metal (^), so a Cp or arene ring on a metal the table has
+// never seen gets the shifts of such rings on other metals. It is the last resort, so every atom gets a shift, rated
+// rough when it comes from it.
+export function* codes(env: Env, centre: number, nucleus: Nucleus): Generator<[string, number]> {
+  const plain = hose(env, centre);
+  for (let level = LEVELS; level > 2; level--) yield [plain[level - 1], level];
+  const kind = NUCLEI[nucleus].kinds ? hose(env, centre, 2, kinds(env)) : [];
+  for (let level = 2; level > 0; level--) {
+    if (kind.length) yield [`k:${kind[level - 1]}`, level];
+    yield [plain[level - 1], level];
+  }
+  yield [`${env.label[centre]}H${env.g.atoms[centre].h}${env.eta[centre] >= 0 ? "^" : ""}`, 0];
+}
 // A description as 8 hex digits, so codes stay short however deep they go.
 const short = (s: string) => codeHash("1H", s).toString(16).padStart(8, "0");
 
@@ -284,19 +303,21 @@ function find(t: Table, h: number) {
   }
   return -1;
 }
-// An atom's shift: from its longest code the table has (level 0 at the least), as measured in `solvent` where the
-// solvent table has that code. Undefined when not even the atom alone is there.
-export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: string): { shift: number; sd: number; based: number; level: number; solvent?: string } | undefined {
+// An atom's shift: from its most telling code the table has (level 0 at the least), as measured in `solvent` where the
+// solvent table has that code; level: the spheres that code matches; code: the hash of its longest code (its class, as
+// Signal has it). Undefined when not even the atom alone is there.
+export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: string): { shift: number; sd: number; based: number; level: number; solvent?: string; code: string } | undefined {
   const t = tables[nucleus], st = solvent ? solventTables[nucleus] : undefined;
   if (!t) return undefined;
-  const all = codes(env, atom);
-  for (let level = all.length - 1; level >= 0; level--) {
-    const i = find(t, codeHash(nucleus, all[level]));
+  let longest: string | undefined;
+  for (const [code, level] of codes(env, atom, nucleus)) {
+    const h = codeHash(nucleus, code), i = find(t, h);
+    longest ??= h.toString(36);
     if (i < 0) continue;
-    const j = st ? find(st, codeHash(nucleus, solventCode(solvent!, all[level]))) : -1;
-    if (j >= 0) { const k = st!.scale ?? 100; return { shift: st!.shift[j] / k, sd: st!.sd[j] / k, based: st!.n[j], level, solvent }; }
+    const j = st ? find(st, codeHash(nucleus, solventCode(solvent!, code))) : -1;
+    if (j >= 0) { const k = st!.scale ?? 100; return { shift: st!.shift[j] / k, sd: st!.sd[j] / k, based: st!.n[j], level, solvent, code: longest }; }
     const k = t.scale ?? 100;
-    return { shift: t.shift[i] / k, sd: t.sd[i] / k, based: t.n[i], level };
+    return { shift: t.shift[i] / k, sd: t.sd[i] / k, based: t.n[i], level, code: longest };
   }
   return undefined;
 }
@@ -528,7 +549,7 @@ export function predict(drawn: Graph, nucleus: Nucleus, solvent?: string, decoup
       atoms: members.map((i) => from[i]), shift: found.shift, nuclei, couplings: couplings.sort((a, b) => b.j - a.j),
       ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based, level: found.level, ...(found.solvent ? { solvent: found.solvent } : {}),
       group: groupName(env, c, members, nucleus),
-      code: codeHash(nucleus, hose(env, c)[LEVELS - 1]).toString(36),
+      code: found.code,
       ...((nucleus === "19F" || nucleus === "31P") && env.edges[c].some((e) => metalLike(g.atoms[e.to].el)) ? { metal: true as const } : {}),
     });
   }
@@ -551,10 +572,12 @@ function groupName(env: Env, c: number, members: number[], nucleus: Nucleus): st
 // How far to trust a shift, as ChemDraw rates its estimates. Good: four or more spheres of the atom's surroundings
 // matched, the measured shifts agree (spread up to NUCLEI's tight value: 0.15 ppm for ¹H, 1.5 for ¹³C, 2 for ¹⁹F, 3 for
 // ³¹P), and there were two or more of them (one is enough when all six spheres matched). Rough: two spheres or fewer
-// matched, the shifts spread more than twice that, or a ¹⁹F or ³¹P atom on a metal. Medium otherwise.
+// matched, the shifts spread more than twice that, a ¹⁹F or ³¹P atom on a metal, or a hydrogen on O, N or S (broad),
+// whose shift moves with the solvent and the concentration (ChemDraw rates shifts that depend on the solvent rough;
+// on held-out spectra those rated good were 0.5 ppm out). Medium otherwise.
 export function quality(s: Signal, nucleus: Nucleus): "good" | "medium" | "rough" {
   const level = s.level ?? 0, tight = NUCLEI[nucleus].tight;
-  if (level <= 2 || s.sd > 2 * tight || s.metal) return "rough";
+  if (level <= 2 || s.sd > 2 * tight || s.metal || s.broad) return "rough";
   return level >= 4 && s.sd <= tight && (s.based >= 2 || level === 6) ? "good" : "medium";
 }
 // A shift as text: NUCLEI's decimals, with a true minus sign (U+2212) for print; plain: a hyphen-minus, for a

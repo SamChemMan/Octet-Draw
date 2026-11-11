@@ -38,3 +38,14 @@ molecule's stereoisomers are held out with it. Held-out tenth: ¹H 0.26 ppm (13,
 ¹⁹F 6.18 ppm (645; 42% rated good, MAE 1.45), ³¹P 14.66 ppm (1,431; 19% rated good, MAE 3.50; 13.13 ppm with the
 nmrshiftdb2 ID hold-out). The ¹H and ¹³C codes in both versions differ by more than 0.01 ppm in 9 and 24 codes of
 263,437 and 777,264, all from the charge-separated bonds above. The file grew from 6.30 to 6.64 MB.
+
+11 November 2026: codes on kinds. An atom's kind is its label with its bonds that are not single and what they go to
+(S=O=O for a sulfonyl S, C=O, C*C*N beside a pyridine N). For ¹H, ¹³C and ¹⁹F, spheres 1 and 2 also go in as codes on
+kinds ("k:" before the code). Octet tries each after the next sphere by labels and before the same sphere by labels,
+so a carbon whose second sphere the table lacks still sees a sulfonyl, carbonyl or ring N beside it. ³¹P has no codes
+on kinds: they made it worse (14.66 to 14.78 ppm). The codes by labels are as before. Held-out tenth: ¹H 0.261 to
+0.250 ppm (13,237 shifts), ¹³C 2.353 to 2.198 (37,275), ¹⁹F 6.18 to 6.06 (645), ³¹P 14.66 (no change). ¹³C beside a
+sulfonyl 4.93 to 2.96 ppm (106 shifts), in heteroaromatic rings 2.99 to 2.65 (5,429), in bridged bicyclics 3.40 to
+3.11 (1,222), beside a peroxide O 7.50 to 6.89 (6). ¹H beside a sulfonyl 0.94 to 0.79 (32), in heteroaromatic rings
+0.33 to 0.32 (1,043), in bridged bicyclics 0.42 to 0.41 (609), beside a peroxide O 0.20 to 0.21 (7). Hydrogens on O, N and S are now rated rough: 20% of
+them were rated good, and those were 0.5 ppm out. The file grew from 6.64 to 7.11 MB.
