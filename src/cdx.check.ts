@@ -305,3 +305,13 @@ const kept: Mol = {
   assert.match(rust("export.rs"), /\("cds", "ChemDraw Style Sheet \(CDS\)", &\["cds"\]\)[\s\S]*"cds" => e\.cds\.is_some\(\)[\s\S]*"cds" => base64[^\n]*e\.cds/);
   console.log("cdx.check: style sheets ok");
 }
+
+// A big-endian file (ChemDraw 4 on the Mac) reads its signed numbers as a little-endian one does: a charge of −1.
+{
+  const b16 = (v: number) => [(v >> 8) & 0xff, v & 0xff], b32 = (v: number) => [...b16(v >>> 16), ...b16(v & 0xffff)];
+  const bprop = (tag: number, data: number[]) => [...b16(tag), ...b16(data.length), ...data];
+  const bobj = (tag: number, id: number, ...inner: number[][]) => [...b16(tag), ...b32(id), ...inner.flat(), 0, 0];
+  const big = new Uint8Array([...ascii(MAGIC), 1, 2, 3, 4, ...new Array(10).fill(0), ...bobj(0x8000, 0, bobj(0x8001, 1, bobj(0x8003, 2, bobj(0x8004, 3, bprop(0x0421, [0xff])))))]);
+  assert.equal(cdxToXml(big).kids.find((k) => k.name === "page")!.kids[0].kids[0].attrs.Charge, "-1");
+  console.log("cdx.check: big-endian signs ok");
+}

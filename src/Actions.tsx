@@ -189,7 +189,7 @@ function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: 
           value={typed}
           onFocus={(e) => e.target.select()}
           onChange={(e) => setTyped(e.target.value.replace(/[^\d.]/g, ""))}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); endTyping(true); } }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); endTyping(e.key === "Enter"); } }}
           onBlur={() => endTyping(true)}
         />
       ) : (
