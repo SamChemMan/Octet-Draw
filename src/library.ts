@@ -29,10 +29,17 @@ const read = (c: Raw[number]): Set => ({
 export const LIBRARY: Set[] = (data as Raw).map(read);
 // Templates renamed to the abbreviations common.ts cites, under their old names too, so one kept in the Ring strip stays.
 const RENAMED: Record<string, string> = { bipy: "bpy", terpy: "tpy", pybox: "PyBOX" };
+// Clip art: a template with no atoms (Lab, Cells, Symbols and the other drawn sets), as against a structure. A set is
+// clip art when all its templates are (ART_SETS, by name). The library, View > Templates and the command palette keep
+// the two apart.
+export const isArt = (t: LibraryItem) => !t.mol.atoms.length;
+export const ART_SETS = new Set<string>();
 const byKind = new Map<string, LibraryItem>();
 const index = () => {
   for (const c of LIBRARY) for (const t of c.items) byKind.set(t.kind, t);
   for (const [from, to] of Object.entries(RENAMED)) { const t = byKind.get(`lib:${to}`); if (t) byKind.set(`lib:${from}`, t); }
+  ART_SETS.clear();
+  for (const c of LIBRARY) if (c.items.every(isArt)) ART_SETS.add(c.name);
 };
 index();
 export const libraryItem = (kind: string) => byKind.get(kind);

@@ -290,15 +290,16 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
 }
 
 // View > Templates (ChemDraw's View > Templates): the template sets a floating palette opens for, the user's own
-// (My templates first) and then Octet's, each as an item "templates_<k>" in that order. The page sends both lists (at
-// most 80 sets, names cut to 40 characters) and opens the palette for the item chosen.
+// (My templates first), then Octet's structures and Octet's clip art, as the library has them apart, each as an item
+// "templates_<k>" in that order. The page sends the three lists (at most 80 sets each, names cut to 40 characters) and
+// opens the palette for the item chosen.
 #[derive(Default)]
-struct TemplateSets(Mutex<(Vec<String>, Vec<String>)>);
+struct TemplateSets(Mutex<[Vec<String>; 3]>);
 
 #[tauri::command]
-fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>) -> Result<(), String> {
+fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
     let clean = |list: Vec<String>| list.into_iter().take(80).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>()).collect::<Vec<_>>();
-    let next = (clean(own), clean(octet));
+    let next = [clean(own), clean(octet), clean(art)];
     {
         let mut held = held.0.lock().unwrap();
         if *held == next {
@@ -307,6 +308,21 @@ fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<Str
         *held = next;
     }
     rebuild(&app)
+}
+
+// A menu's items for the template sets, group by group (the user's, Octet's structures, Octet's clip art), with a
+// separator between two groups that have sets.
+fn in_groups<'a, M: IsMenuItem<Wry>>(items: &'a [M], groups: &[Vec<String>; 3], seps: &'a [PredefinedMenuItem<Wry>; 2]) -> Vec<&'a dyn IsMenuItem<Wry>> {
+    let mut list: Vec<&'a dyn IsMenuItem<Wry>> = Vec::new();
+    let mut at = 0;
+    for (k, n) in groups.iter().map(Vec::len).filter(|&n| n > 0).enumerate() {
+        if k > 0 {
+            list.push(&seps[k - 1]);
+        }
+        list.extend(items[at..at + n].iter().map(|m| m as &dyn IsMenuItem<Wry>));
+        at += n;
+    }
+    list
 }
 
 // File > More Formats (Settings > Pro > More formats): the rare formats the page lists (40 at most), each an id ("more_"
@@ -628,16 +644,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
     // File > Save Templates for ChemDraw: each template set (as View > Templates lists them, "ctp_<k>") saved as a
     // ChemDraw template file. The items change with the sets, so they are not commands with shortcuts.
-    let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
-    let ctp_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+    let template_sets = app.state::<TemplateSets>().0.lock().unwrap().clone();
+    let ctp_items = template_sets.iter().flatten().enumerate()
         .map(|(k, name)| MenuItem::with_id(app, format!("ctp_{k}"), name, true, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let ctp_sep = sep()?;
-    let mut ctp_list: Vec<&dyn IsMenuItem<Wry>> = ctp_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
-    if !own_sets.is_empty() && !octet_sets.is_empty() {
-        ctp_list.push(&ctp_sep);
-    }
-    ctp_list.extend(ctp_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let ctp_seps = [sep()?, sep()?];
+    let ctp_list = in_groups(&ctp_items, &template_sets, &ctp_seps);
     let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
     // File > More Formats, while Settings > Pro > More formats is on: the rare formats, as the page lists them. Each is a
     // command with a shortcut, as File's others are. Off, File has no More Formats.
@@ -752,17 +764,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // ChemDraw's View > Show Reaction Interpretation.
     let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
     // View > Templates: each set shows or hides its floating palette, ticked while it is open (ChemDraw's View > Templates
-    // toggles a palette's window). The user's sets come first, then Octet's. The items change with
-    // the sets, so they are not commands with shortcuts, and Settings does not list them.
-    let set_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+    // toggles a palette's window). The user's sets come first, then Octet's structures, then its clip art. The items
+    // change with the sets, so they are not commands with shortcuts, and Settings does not list them.
+    let set_items = template_sets.iter().flatten().enumerate()
         .map(|(k, name)| CheckMenuItem::with_id(app, format!("templates_{k}"), name, true, false, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let sets_sep = sep()?;
-    let mut sets_list: Vec<&dyn IsMenuItem<Wry>> = set_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
-    if !own_sets.is_empty() && !octet_sets.is_empty() {
-        sets_list.push(&sets_sep);
-    }
-    sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let sets_seps = [sep()?, sep()?];
+    let sets_list = in_groups(&set_items, &template_sets, &sets_seps);
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
     let view = Submenu::with_items(app, "&View", true, &[
         // ChemDraw's keys: Actual Size and Fit to Window.

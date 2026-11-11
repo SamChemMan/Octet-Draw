@@ -88,7 +88,7 @@ import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
-import { LIBRARY, libraryItem, type LibraryItem } from "./library";
+import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
@@ -725,9 +725,12 @@ export default function Editor() {
   const keepOpen = (set: string, tool: TemplateTool) => setSettings((s) => ({ ...s, palettes: openPalette(s.palettes, set, tool) }));
   // View > Templates shows or hides a set's palette, as ChemDraw's does; a palette opened there is the Template tool's.
   const togglePalette = (set: string) => setSettings((s) => ({ ...s, palettes: s.palettes.some((f) => f.set === set) ? closePalette(s.palettes, set) : openPalette(s.palettes, set, "template") }));
-  const ownSets = [MY_SET, ...settings.templateSets], octetSets = LIBRARY.map((c) => c.name), menuSets = [...ownSets, ...octetSets];
-  const setsMenu = ownSets.join("\n");
-  useEffect(() => { if (TAURI) invoke("set_template_sets", { own: ownSets, octet: octetSets }).then(syncChecks).catch(() => {}); }, [setsMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Octet's sets in two groups, as the library shows them: structures, then clip art. The menu is built again when the
+  // later sets have loaded (library.ts loadMore), so each item opens the set it names.
+  const octetSets = LIBRARY.map((c) => c.name).filter((n) => !ART_SETS.has(n)), artSets = [...ART_SETS];
+  const ownSets = [MY_SET, ...settings.templateSets], menuSets = [...ownSets, ...octetSets, ...artSets];
+  const setsMenu = menuSets.join("\n");
+  useEffect(() => { if (TAURI) invoke("set_template_sets", { own: ownSets, octet: octetSets, art: artSets }).then(syncChecks).catch(() => {}); }, [setsMenu]); // eslint-disable-line react-hooks/exhaustive-deps
   // A ChemDraw template file (.ctp, or .cts stationery) opened or dropped: its panes become a new set of the user's,
   // named after the file, and the library opens on it.
   function openTemplateFile(fileName: string, text: string) {
@@ -7247,7 +7250,7 @@ export default function Editor() {
       ...variants("bond", "bond", (Object.keys(BONDS) as BondKind[]).map((k) => [k, `${BONDS[k].name} bond`, <BondGlyph kind={k} />]), "Bonds"),
       { id: "tool:chain", name: "Chain", group: "Tools", keys: toolKey("tool.chain"), icon: <ChainGlyph />, run: pick("chain") },
       ...variants("ring", "ring", (Object.keys(RINGS) as RingKind[]).map((k) => [k, RINGS[k].name, <RingGlyph kind={k} />]), "Rings"),
-      ...LIBRARY.flatMap((c) => variants("template", "template", c.items.map((t) => [t.kind, t.name, <TemplateGlyph mol={t.icon ?? t.mol} />]), c.name, "template")),
+      ...LIBRARY.flatMap((c) => variants("template", "template", c.items.map((t) => [t.kind, t.name, <TemplateGlyph mol={t.icon ?? t.mol} />]), c.name, ART_SETS.has(c.name) ? "template clip art" : "template structure")),
       ...templates.map((t) => ({ id: `template:${templateKind(t.id)}`, name: t.name, group: "My templates", icon: <TemplateGlyph mol={t.mol} />, run: pick("template", ["template", templateKind(t.id)]) })),
       // Each template set as a floating palette (View > Templates).
       ...menuSets.map((set) => ({ id: `palette:${set}`, name: `Keep ${set} open`, group: "Templates", icon: <ArrowSquareOut size={18} />, run: () => keepOpen(set, "template") })),

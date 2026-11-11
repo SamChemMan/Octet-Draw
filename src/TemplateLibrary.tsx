@@ -1,6 +1,7 @@
-// The template library beside the Ring strip (and the Template tool's): categories down the side, a search that looks
-// in all of them and also finds structures by name or abbreviation (TREN, dppf, a name OPSIN reads), each one a
-// template like the library's own, and each template drawn as it will look on the page. Click one to use it; pin it (or drag it onto
+// The template library beside the Ring strip (and the Template tool's): categories down the side, Structures or Clip
+// art over them (each kind has its own sets; the user's show with both), a search that looks in all of them, shows its
+// results under their kind and also finds structures by name or abbreviation (TREN, dppf, a name OPSIN reads), each one
+// a template like the library's own, and each template drawn as it will look on the page. Click one to use it; pin it (or drag it onto
 // the Ring strip) to keep it there; drag it onto the toolbar for a shortcut, or onto the canvas to place it. The
 // user's own templates come first, in named sets (CD-33, as ChemDraw's template documents): New set adds one, a
 // double-click on a set's name renames it, its × removes it (its templates go to My templates). In My templates and
@@ -11,13 +12,14 @@
 // place, and a selection dragged from the canvas onto the open set or a set's name goes in it. Keep open (the open
 // set's button, or a set's menu) tears a set off into a floating palette (FloatingTemplates, below). The library and
 // each palette have a template size (SizeChoice), and a set's menu saves it as a ChemDraw template file.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
-import { LIBRARY, loadMore, type LibraryItem } from "./library";
+import { Segmented } from "./Fields";
+import { ART_SETS, isArt, LIBRARY, loadMore, type LibraryItem } from "./library";
 import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
@@ -223,6 +225,9 @@ function useOrder(grid: React.RefObject<HTMLElement | null>, onPlace: ((id: stri
 
 // The last library change shown (reveal's n): a library opened again later shows no name field.
 let revealed = 0;
+// The library's two kinds of template, each with its own sets: structures (rings, amino acids, ligands) and clip art
+// (lab glassware, cells, symbols). The user's own sets show with both.
+const KINDS: [string, string][] = [["structures", "Structures"], ["art", "Clip art"]];
 // A click on the name of a template of the user's waits this long for a second click, which renames it (ms).
 const NAME_CLICK = 250;
 
@@ -247,9 +252,20 @@ export function LibraryPanel(p: TemplateActions & {
   useEffect(() => { void loadMore().then(() => setSets(LIBRARY.length)); }, []);
   const categories = useMemo(() => [...own.filter((c) => c.items.length || p.onSets), ...LIBRARY.map((c) => ({ ...c, own: false }))], [own, p.onSets, sets]);
   const fresh = p.reveal && p.reveal.n !== revealed ? p.reveal : undefined;
-  // It opens on the set a template was just added to, or on the category of the template in hand.
+  // It opens on the set a template was just added to, or on the category of the template in hand, and on that
+  // template's kind (structures for anything else the tool has, as a ring).
   const [category, setCategory] = useState(() => fresh?.set ?? categories.find((c) => c.items.some((t) => t.kind === p.current))?.name ?? categories[0].name);
+  const [art, setArt] = useState(() => categories.some((c) => c.items.some((t) => t.kind === p.current && isArt(t))));
+  const listed = categories.filter((c) => c.own || ART_SETS.has(c.name) === art);
   const [query, setQuery] = useState(""), leaving = useLeaving();
+  // The other kind opens on its set with the template in hand, or its first set; the same kind shows its open set again.
+  const showKind = (kind: string) => {
+    setQuery("");
+    if ((kind === "art") === art) return;
+    const list = categories.filter((c) => !c.own && ART_SETS.has(c.name) === !art);
+    setArt(!art);
+    setCategory((list.find((c) => c.items.some((t) => t.kind === p.current)) ?? list[0]).name);
+  };
   // A set's name being typed: a new set ("" until it has one), or one being renamed.
   const [naming, setNaming] = useState<{ from?: string; value: string }>();
   // The template whose name is being typed, the template whose menu is open (at the pointer, or under the template
@@ -271,7 +287,7 @@ export function LibraryPanel(p: TemplateActions & {
     addEventListener("pointerup", up);
     return () => removeEventListener("pointerup", up);
   }, []);
-  const grid = useRef<HTMLDivElement>(null), timer = useRef<number>(undefined), refocus = useRef<string>(undefined);
+  const grid = useRef<HTMLDivElement>(null), timer = useRef<number>(undefined), refocus = useRef<string>(undefined), uid = useId();
   useEffect(() => () => clearTimeout(timer.current), []);
   // A name typed with the keyboard gives the focus back to its template.
   useEffect(() => {
@@ -340,6 +356,53 @@ export function LibraryPanel(p: TemplateActions & {
     if (key === "rename") return setNaming({ from: s.set, value: s.set });
     if (key === "remove") { p.onSets?.remove(s.set); if (category === s.set) setCategory(MY_SET); }
   };
+  // A template's tile, with its pin (or, for one of the user's, its ×). Its name is a field while it is renamed.
+  const cell = (t: LibraryItem, k: number) => {
+    const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind), mark = ordering ? order.markOf(t.kind, k === shown.length - 1) : undefined;
+    if (editing === t.kind) return (
+      <div key={t.kind} className="library-cell">
+        <div className="library-item editing">
+          <Thumb item={t} px={px} />
+          <input className="library-rename" aria-label="Template name" autoFocus defaultValue={t.name} maxLength={80} spellCheck={false} onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== "Escape") return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.key === "Escape") e.currentTarget.value = t.name;
+              refocus.current = t.kind;
+              e.currentTarget.blur();
+            }}
+            onBlur={(e) => { setEditing(undefined); p.onRename?.(ownId(t.kind)!, e.target.value); }} />
+        </div>
+      </div>
+    );
+    return (
+      <div key={t.kind} className={mark ? `library-cell ${mark}` : "library-cell"}>
+        <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut data-kind={t.kind}
+          onPointerDown={(e) => { if (e.button === 0) { carried.current = t.kind; setDragging(true); if (ordering) order.start(e, t.kind); } p.onPress(e, t.kind); }}
+          onClick={(e) => {
+            clearTimeout(timer.current);
+            if (mine && p.onRename && onName(e)) timer.current = window.setTimeout(() => p.onChoose(t.kind), NAME_CLICK);
+            else p.onChoose(t.kind);
+          }}
+          onDoubleClick={(e) => { if (mine && p.onRename && onName(e)) { clearTimeout(timer.current); setEditing(t.kind); } }}
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
+          onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
+          <Thumb item={t} px={px} />
+          <span className="library-name">{t.name}</span>
+        </button>
+        {mine && p.onRemove ? (
+          <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
+            <X size={12} />
+          </button>
+        ) : p.onKeep && !mine && (
+          <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
+            <PushPin size={12} />
+          </button>
+        )}
+      </div>
+    );
+  };
   return (
     <div className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}
       style={{ "--thumb": `${px}px` } as React.CSSProperties}>
@@ -349,9 +412,11 @@ export function LibraryPanel(p: TemplateActions & {
           <input placeholder="Search" aria-label="Search templates" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }} />
         </label>
+        {/* While searching, neither kind is on: the results are from both. */}
+        <Segmented className="library-kind" label="Show" value={query ? "" : art ? "art" : "structures"} options={KINDS} onChange={showKind} />
         <div className="library-sets">
-          {categories.map((c, k) => (
-            <div key={c.name} className={c.own && !categories[k + 1]?.own && p.onSets ? "library-set last" : "library-set"}>
+          {listed.map((c, k) => (
+            <div key={c.name} className={c.own && !listed[k + 1]?.own && p.onSets ? "library-set last" : "library-set"}>
               {naming?.from === c.name ? nameField : (
                 <button className="library-category" aria-pressed={!query && category === c.name} onClick={() => { setCategory(c.name); setQuery(""); }} {...(c.own ? drop(c.name) : {})}
                   onDoubleClick={() => { if (c.own && c.name !== MY_SET && p.onSets) setNaming({ from: c.name, value: c.name }); }}
@@ -370,7 +435,7 @@ export function LibraryPanel(p: TemplateActions & {
                   <X size={12} />
                 </button>
               )}
-              {c.own && !categories[k + 1]?.own && p.onSets && (naming && !naming.from ? nameField : (
+              {c.own && !listed[k + 1]?.own && p.onSets && (naming && !naming.from ? nameField : (
                 <button className="library-category library-new" onClick={() => setNaming({ value: "" })}><Plus size={12} aria-hidden />New set</button>
               ))}
             </div>
@@ -396,52 +461,13 @@ export function LibraryPanel(p: TemplateActions & {
               </button>
             </div>
           )}
-          {shown.map((t, k) => {
-            const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind), mark = ordering ? order.markOf(t.kind, k === shown.length - 1) : undefined;
-            if (editing === t.kind) return (
-              <div key={t.kind} className="library-cell">
-                <div className="library-item editing">
-                  <Thumb item={t} px={px} />
-                  <input className="library-rename" aria-label="Template name" autoFocus defaultValue={t.name} maxLength={80} spellCheck={false} onFocus={(e) => e.target.select()}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== "Escape") return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (e.key === "Escape") e.currentTarget.value = t.name;
-                      refocus.current = t.kind;
-                      e.currentTarget.blur();
-                    }}
-                    onBlur={(e) => { setEditing(undefined); p.onRename?.(ownId(t.kind)!, e.target.value); }} />
-                </div>
-              </div>
-            );
-            return (
-              <div key={t.kind} className={mark ? `library-cell ${mark}` : "library-cell"}>
-                <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut data-kind={t.kind}
-                  onPointerDown={(e) => { if (e.button === 0) { carried.current = t.kind; setDragging(true); if (ordering) order.start(e, t.kind); } p.onPress(e, t.kind); }}
-                  onClick={(e) => {
-                    clearTimeout(timer.current);
-                    if (mine && p.onRename && onName(e)) timer.current = window.setTimeout(() => p.onChoose(t.kind), NAME_CLICK);
-                    else p.onChoose(t.kind);
-                  }}
-                  onDoubleClick={(e) => { if (mine && p.onRename && onName(e)) { clearTimeout(timer.current); setEditing(t.kind); } }}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
-                  onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
-                  <Thumb item={t} px={px} />
-                  <span className="library-name">{t.name}</span>
-                </button>
-                {mine && p.onRemove ? (
-                  <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
-                    <X size={12} />
-                  </button>
-                ) : p.onKeep && !mine && (
-                  <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
-                    <PushPin size={12} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          {!query ? shown.map(cell) : KINDS.map(([kind, name]) => [kind, name, shown.filter((t) => isArt(t) === (kind === "art"))] as const).filter(([, , list]) => list.length).map(([kind, name, list]) => (
+            // Results are in a group for each kind, under its name.
+            <div key={kind} className="library-group" role="group" aria-labelledby={`${uid}-${kind}`}>
+              <span className="library-group-name" id={`${uid}-${kind}`}>{name}</span>
+              {list.map(cell)}
+            </div>
+          ))}
           {!shown.length && query && <p className="library-none">No template called “{query.trim()}”. Type its name in the Ring list to add it.</p>}
         </div>
       </div>

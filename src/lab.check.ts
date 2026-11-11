@@ -27,6 +27,12 @@ assert.deepEqual(all.items.map((t) => t.name), ["Light bulb", "LED", "Round-bott
 // The illustration sets drawn the same way (tools/library/equipment.mjs and bio.mjs): checked as the Lab group is.
 const DRAWN = ["Lab equipment", "Biomolecules", "Cells", "BioArt", "Anatomy", "Organisms", "Bugs", "Symbols"];
 for (const name of DRAWN) assert.ok(library.find((c) => c.name === name)?.items.length, `the ${name} set`);
+// The library shows Lab and the drawn sets as Clip art, and every other set as Structures (library.ts ART_SETS).
+{
+  const { LIBRARY, ART_SETS, loadMore } = await import("./library.ts");
+  await loadMore();
+  for (const c of LIBRARY) assert.equal(ART_SETS.has(c.name), ["Lab", ...DRAWN].includes(c.name), `${c.name} is ${ART_SETS.has(c.name) ? "" : "not "}clip art (a drawn set goes in DRAWN)`);
+}
 // The TLC plate is Octet's own TLC object (the TLC tool's), so its lanes and spots stay editable.
 const plate = all.items.find((t) => t.name === "TLC plate")!.mol!;
 assert.deepEqual(plate.shapes?.map((x) => [x.kind, x.tlc?.lanes]), [["tlc", 3]]);
