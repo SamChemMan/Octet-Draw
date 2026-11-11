@@ -311,9 +311,15 @@ const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 
 // A file's contents for the page: its text, or a CDX file's bytes in base64 (which starts "VmpDRDAxMDA", the
 // magic). Anything else that is not UTF-8 text is an InvalidData error.
+// It reads 64 MB at most, whatever the file's size said before (a file that grows, or one such as /dev/zero).
 pub fn read_text_or_cdx(path: &Path) -> std::io::Result<String> {
     use base64::Engine;
-    let bytes = fs::read(path)?;
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(path)?.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(std::io::Error::other("This file is larger than 64 MB."));
+    }
     if bytes.starts_with(b"VjCD0100") {
         return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
     }
@@ -457,9 +463,10 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
 // Returns its name and text (a CDX file's bytes in base64).
+pub const STRUCTURES: [&str; 14] = ["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"];
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Structures", &STRUCTURES).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -1031,15 +1038,35 @@ fn data_dir() -> Option<std::path::PathBuf> {
     return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
 }
 
+// How Octet was started. --headless and --convert count wherever they are, so `--mcp --headless` is never the relay
+// into the user's own Octet, and headless takes no other argument.
+#[derive(Debug, PartialEq)]
+enum Start {
+    App,
+    Relay,
+    Headless,
+    Convert(convert::Job),
+}
+fn start(args: &[String]) -> Result<Start, String> {
+    let has = |a: &str| args.iter().any(|x| x == a);
+    if has("--convert") {
+        return convert::parse(&args.iter().filter(|x| *x != "--convert").cloned().collect::<Vec<_>>()).map(Start::Convert);
+    }
+    if has("--headless") {
+        return match args.iter().find(|x| !matches!(x.as_str(), "--headless" | "--mcp")) {
+            Some(x) => Err(format!("Octet with no window does not take {x}. Use: Octet Draw --headless --mcp")),
+            None => Ok(Start::Headless),
+        };
+    }
+    Ok(if args.first().map(String::as_str) == Some("--mcp") { Start::Relay } else { Start::App })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let first = args.first().map(String::as_str);
-    if first == Some("--mcp") {
-        return mcp::relay(data_dir());
-    }
     // Octet with no window (plan 18): --headless (with --mcp) answers MCP on standard input and output, and --convert
     // converts files. Neither shows a window, a Dock icon or a menu, starts the AI apps' server or keeps recovery copies.
-    let job = (first == Some("--convert")).then(|| {
+    let mode = start(&args);
+    if !matches!(mode, Ok(Start::App | Start::Relay)) {
         // The release build on Windows is a window program: its lines go to the console it was started from, when it
         // has no output of its own (a pipe it was given stays as it is).
         #[cfg(windows)]
@@ -1056,12 +1083,17 @@ fn main() {
                 }
             }
         }
-        convert::parse(&args[1..]).unwrap_or_else(|e| {
+    }
+    let headless = matches!(mode, Ok(Start::Headless | Start::Convert(_)));
+    let job = match mode {
+        Ok(Start::Relay) => return mcp::relay(data_dir()),
+        Ok(Start::Convert(job)) => Some(job),
+        Ok(_) => None,
+        Err(e) => {
             eprintln!("{e}");
             std::process::exit(2)
-        })
-    });
-    let headless = job.is_some() || first == Some("--headless");
+        }
+    };
     windows::HEADLESS.store(headless, std::sync::atomic::Ordering::Relaxed);
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
@@ -1262,5 +1294,33 @@ mod tests {
         assert!(!changed(&stamps, &path), "Octet's own save");
         fs::remove_file(&path).unwrap();
         assert!(!changed(&stamps, &path), "a file that is gone");
+    }
+
+    // --headless and --convert count wherever they are; headless takes only --mcp; the relay and a normal start are as
+    // before (a file Explorer passes opens).
+    #[test]
+    fn the_start_is_read() {
+        let start = |line: &str| start(&line.split(' ').filter(|a| !a.is_empty()).map(String::from).collect::<Vec<_>>());
+        assert_eq!(start(""), Ok(Start::App));
+        assert_eq!(start("a.cdxml"), Ok(Start::App));
+        assert_eq!(start("--mcp"), Ok(Start::Relay));
+        for line in ["--headless", "--headless --mcp", "--mcp --headless"] {
+            assert_eq!(start(line), Ok(Start::Headless), "{line}");
+        }
+        assert!(start("--headless --mcp a.cdxml").is_err());
+        assert!(start("--headless --convert a.cdxml --to pdf").is_err(), "convert does not take --headless");
+        assert!(matches!(start("a.cdxml --convert --to pdf"), Ok(Start::Convert(_))));
+        assert!(start("--convert a.cdxml").is_err());
+    }
+
+    // A file read for the page is 64 MB at most, whatever its size said: one that grew after it was measured is refused.
+    #[test]
+    fn a_file_is_read_to_64_mb_at_most() {
+        let path = std::env::temp_dir().join(format!("octet-read-test-{}.cdxml", std::process::id()));
+        fs::File::create(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert!(read_text_or_cdx(&path).is_err());
+        fs::File::create(&path).unwrap().set_len(10).unwrap();
+        assert_eq!(read_text_or_cdx(&path).unwrap().len(), 10);
+        fs::remove_file(&path).unwrap();
     }
 }

@@ -4,6 +4,7 @@
 // file treated as hostile), the page makes the file as read with a format makes it (Export's own code), and the
 // window closes. Octet reads only the files and folders named here and writes only into --out or beside each input.
 // A file that is there is never written over without --overwrite: the new one gets a number.
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,8 +15,6 @@ use tauri::{AppHandle, Manager};
 use crate::export::{file_of, Export, FORMATS};
 
 const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--recursive] [--overwrite]";
-// What a folder gives: the drawings and structure files Open and Import a Structure read.
-const READS: [&str; 11] = ["oct", "cdxml", "cdx", "octet", "mol", "sdf", "sd", "rxn", "smi", "smiles", "inchi"];
 // The formats read gives in base64 (the rest it gives as the file's text).
 const BINARY: [&str; 8] = ["pdf", "png", "emf", "eps", "tif", "jpg", "gif", "cdx"];
 
@@ -80,13 +79,15 @@ fn format_of(name: &str) -> Option<&'static str> {
 }
 
 // The files to convert: each file named, and every file in each folder named that Octet reads (in folders inside it
-// too with --recursive, not following links), in order. A name that is neither is named with its reason.
+// too with --recursive, not following links), in order. A name that is neither is named with its reason. Only files:
+// a named pipe or a device would never end.
 fn files(job: &Job) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
     let (mut found, mut wrong) = (Vec::new(), Vec::new());
     for input in &job.inputs {
         match fs::metadata(input) {
             Ok(m) if m.is_dir() => folder(input, job.recursive, &mut found, &mut wrong),
-            Ok(_) => found.push(input.clone()),
+            Ok(m) if m.is_file() => found.push(input.clone()),
+            Ok(_) => wrong.push((input.clone(), "This is not a file.".into())),
             Err(e) => wrong.push((input.clone(), reason(&e))),
         }
     }
@@ -104,10 +105,14 @@ fn folder(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>, wrong: &mut Vec
             if recursive {
                 folder(&p, true, found, wrong);
             }
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| READS.contains(&e.to_ascii_lowercase().as_str())) {
+        } else if m.is_file() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| reads(&e.to_ascii_lowercase())) {
             found.push(p);
         }
     }
+}
+// What a folder gives: the drawings Open opens and the files Import a Structure reads (not every .txt file).
+fn reads(ext: &str) -> bool {
+    crate::open::DRAWINGS.contains(&ext) || (crate::STRUCTURES.contains(&ext) && ext != "txt")
 }
 fn reason(e: &std::io::Error) -> String {
     match e.kind() {
@@ -118,13 +123,14 @@ fn reason(e: &std::io::Error) -> String {
 }
 
 // Where a file's new file goes: in --out or beside it, with the format's extension. One that is there already is kept,
-// and the new one gets a number (figure3 2.pdf), unless --overwrite.
-fn target(input: &Path, out: Option<&Path>, ext: &str, overwrite: bool) -> PathBuf {
+// and the new one gets a number (figure3 2.pdf), unless --overwrite. One this run wrote (a.cdxml and a.smi, both to
+// a.pdf) is never written over: --overwrite is for the files that were there before.
+fn target(input: &Path, out: Option<&Path>, ext: &str, overwrite: bool, written: &HashSet<PathBuf>) -> PathBuf {
     let dir = out.or(input.parent()).unwrap_or(Path::new("."));
     let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled".into());
     let mut path = dir.join(format!("{stem}.{ext}"));
     let mut n = 2;
-    while !overwrite && fs::symlink_metadata(&path).is_ok() {
+    while written.contains(&path) || (!overwrite && fs::symlink_metadata(&path).is_ok()) {
         path = dir.join(format!("{stem} {n}.{ext}"));
         n += 1;
     }
@@ -138,7 +144,8 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
     for (p, why) in &wrong {
         say!(stderr, "{}: {why}", p.display());
     }
-    // A style from a drawing: read once, with Open's limits.
+    // A style from a drawing: read once, with Open's limits, and opened once as each file takes it. A file that is not
+    // a drawing, or has no style, ends the run here with its reason (each file would otherwise fail with the wrong one).
     let style_file = job.style.as_deref().map(Path::new).filter(|p| p.is_file());
     let style_text = match style_file.map(|p| crate::open::read(p, &p.display().to_string())) {
         Some(Err(why)) => {
@@ -148,6 +155,12 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
         Some(Ok(t)) => Some(t),
         None => None,
     };
+    if let Some(t) = &style_text {
+        if let Err(why) = hidden(app, json!({ "text": t, "name": "style", "style": t }), |w| crate::mcp::call(app, w, "read", json!({}))) {
+            say!(stderr, "{}: {why}", job.style.as_deref().unwrap_or_default());
+            return 1;
+        }
+    }
     if let Some(out) = &job.out {
         if let Err(e) = fs::create_dir_all(out) {
             say!(stderr, "{}: {e}", out.display());
@@ -155,16 +168,19 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
         }
     }
     let ext = FORMATS.iter().find(|f| f.0 == job.to).map_or(job.to.as_str(), |f| f.2[0]);
-    let mut done = 0;
+    let (mut done, mut written) = (0, HashSet::new());
     for p in &found {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        match convert(app, job, p, &name, style_text.as_deref()).and_then(|bytes| {
-            let to = target(p, job.out.as_deref(), ext, job.overwrite);
-            crate::write_atomic(&to, &bytes).map(|_| to).map_err(|e| e.to_string())
+        match convert(app, job, p, &name, style_text.as_deref()).and_then(|(bytes, lost)| {
+            let to = target(p, job.out.as_deref(), ext, job.overwrite, &written);
+            crate::write_atomic(&to, &bytes).map(|_| (to, lost)).map_err(|e| e.to_string())
         }) {
-            Ok(to) => {
+            Ok((to, lost)) => {
                 done += 1;
-                say!(stdout, "{name} -> {}", to.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
+                // What File > Open says it could not keep, said here too.
+                let lost = lost.map(|l| format!(" (Octet left out {l}.)")).unwrap_or_default();
+                say!(stdout, "{name} -> {}{lost}", to.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
+                written.insert(to);
             }
             Err(why) => say!(stderr, "{name}: {why}"),
         }
@@ -174,19 +190,34 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
     i32::from(done < all)
 }
 
-// One file's new file: opened in a hidden window as File > Open opens it, restyled, then made as read makes it.
-fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&str>) -> Result<Vec<u8>, String> {
+// A hidden drawing window that opens `start`, for `work`, closed after.
+fn hidden<T>(app: &AppHandle, start: serde_json::Value, work: impl FnOnce(&str) -> Result<T, String>) -> Result<T, String> {
+    let window = crate::windows::open(app, start)?;
+    let made = work(&window);
+    if let Some(w) = app.get_webview_window(&window) {
+        let _ = w.destroy();
+    }
+    made
+}
+
+// What the page could not keep of the file it opened, from a reply (the page adds it with no window).
+fn lost(reply: &serde_json::Value) -> Option<String> {
+    reply["lost"].as_str().map(String::from)
+}
+
+// One file's new file, and what Octet left out of it: opened in a hidden window as File > Open opens it, restyled, then
+// made as read makes it.
+fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&str>) -> Result<(Vec<u8>, Option<String>), String> {
     // (A file Octet may not read is named so, not as a file it cannot open.)
     fs::File::open(path).map_err(|e| reason(&e))?;
     let text = crate::open::read(path, name)?;
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let window = crate::windows::open(app, json!({ "text": text, "name": stem, "style": style }))?;
-    let made = (|| {
+    hidden(app, json!({ "text": text, "name": stem, "style": style }), |window| {
         if let Some(preset) = job.style.as_deref().filter(|_| style.is_none()) {
-            crate::mcp::call(app, &window, "advanced", json!({ "tool": "set_style", "args": { "preset": preset } }))?;
+            crate::mcp::call(app, window, "advanced", json!({ "tool": "set_style", "args": { "preset": preset } }))?;
         }
         if job.each {
-            return each(app, &window, &job.to);
+            return each(app, window, &job.to);
         }
         let mut args = json!({ "format": job.to });
         for (k, v) in [("dpi", job.dpi), ("width_mm", job.width)] {
@@ -194,13 +225,13 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
                 args[k] = json!(v);
             }
         }
-        let read = crate::mcp::call(app, &window, "read", args)?;
+        let read = crate::mcp::call(app, window, "read", args)?;
         let text = read["text"].as_str().unwrap_or_default().to_string();
         if BINARY.contains(&job.to.as_str()) {
-            return base64::engine::general_purpose::STANDARD.decode(text).map_err(|e| e.to_string());
+            return base64::engine::general_purpose::STANDARD.decode(text).map(|b| (b, lost(&read))).map_err(|e| e.to_string());
         }
         if job.to == "svg" {
-            return Ok(text.into_bytes());
+            return Ok((text.into_bytes(), lost(&read)));
         }
         // The text formats as Export writes them (a newline after SMILES and InChI).
         let mut e = Export::default();
@@ -211,16 +242,12 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
             "inchi" => &mut e.inchi,
             _ => &mut e.mdl,
         } = Some(text);
-        file_of(&job.to, &e)
-    })();
-    if let Some(w) = app.get_webview_window(&window) {
-        let _ = w.destroy();
-    }
-    made
+        file_of(&job.to, &e).map(|b| (b, lost(&read)))
+    })
 }
 
 // --to sdf --each: every compound in the drawing, each a record with its compound number as a data field.
-fn each(app: &AppHandle, window: &str, to: &str) -> Result<Vec<u8>, String> {
+fn each(app: &AppHandle, window: &str, to: &str) -> Result<(Vec<u8>, Option<String>), String> {
     let summary = crate::mcp::call(app, window, "read", json!({}))?;
     let mut out = String::new();
     for s in summary["structures"].as_array().into_iter().flatten() {
@@ -231,7 +258,7 @@ fn each(app: &AppHandle, window: &str, to: &str) -> Result<Vec<u8>, String> {
         }
         out += "\n$$$$\n";
     }
-    Ok(out.into_bytes())
+    Ok((out.into_bytes(), lost(&summary)))
 }
 
 #[cfg(test)]
@@ -259,15 +286,18 @@ mod tests {
     fn a_file_there_is_never_written_over() {
         let dir = std::env::temp_dir().join(format!("octet-convert-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let input = dir.join("figure3.cdxml");
-        assert_eq!(target(&input, None, "pdf", false), dir.join("figure3.pdf"));
+        let (input, none) = (dir.join("figure3.cdxml"), HashSet::new());
+        assert_eq!(target(&input, None, "pdf", false, &none), dir.join("figure3.pdf"));
         fs::write(dir.join("figure3.pdf"), "kept").unwrap();
-        assert_eq!(target(&input, None, "pdf", false), dir.join("figure3 2.pdf"));
+        assert_eq!(target(&input, None, "pdf", false, &none), dir.join("figure3 2.pdf"));
         fs::write(dir.join("figure3 2.pdf"), "kept").unwrap();
-        assert_eq!(target(&input, None, "pdf", false), dir.join("figure3 3.pdf"));
-        assert_eq!(target(&input, None, "pdf", true), dir.join("figure3.pdf"));
+        assert_eq!(target(&input, None, "pdf", false, &none), dir.join("figure3 3.pdf"));
+        assert_eq!(target(&input, None, "pdf", true, &none), dir.join("figure3.pdf"));
+        // With --overwrite, a file this run wrote is still kept (figure3.cdxml and figure3.smi, both to figure3.pdf).
+        let written = HashSet::from([dir.join("figure3.pdf"), dir.join("figure3 2.pdf")]);
+        assert_eq!(target(&dir.join("figure3.smi"), None, "pdf", true, &written), dir.join("figure3 3.pdf"));
         // --out: there, not beside the input.
-        assert_eq!(target(&input, Some(&dir.join("out")), "pdf", false), dir.join("out/figure3.pdf"));
+        assert_eq!(target(&input, Some(&dir.join("out")), "pdf", false, &none), dir.join("out/figure3.pdf"));
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -275,14 +305,24 @@ mod tests {
     fn folders_give_the_files_octet_reads() {
         let dir = std::env::temp_dir().join(format!("octet-convert-walk-{}", std::process::id()));
         fs::create_dir_all(dir.join("inner")).unwrap();
-        for f in ["b.cdxml", "a.oct", "notes.txt", "c.MOL", "inner/d.cdx"] {
+        for f in ["b.cdxml", "a.oct", "notes.txt", "c.MOL", "e.rdf", "f.cml", "g.ket", "inner/d.cdx"] {
             fs::write(dir.join(f), "x").unwrap();
         }
-        let job = |recursive| Job { inputs: vec![dir.clone(), dir.join("gone.cdxml")], recursive, ..Default::default() };
+        // A named pipe, in the folder and named: never read (it would never end).
+        #[cfg(unix)]
+        assert!(std::process::Command::new("mkfifo").arg(dir.join("pipe.cdxml")).status().unwrap().success());
+        let mut inputs = vec![dir.clone(), dir.join("gone.cdxml")];
+        if cfg!(unix) {
+            inputs.push(dir.join("pipe.cdxml"));
+        }
+        let job = |recursive| Job { inputs: inputs.clone(), recursive, ..Default::default() };
         let (found, wrong) = files(&job(false));
-        assert_eq!(found, ["a.oct", "b.cdxml", "c.MOL"].map(|f| dir.join(f)));
-        assert_eq!(wrong, [(dir.join("gone.cdxml"), "There is no such file or folder.".to_string())]);
-        assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "inner/d.cdx"].map(|f| dir.join(f)));
+        assert_eq!(found, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket"].map(|f| dir.join(f)));
+        assert_eq!(wrong[0], (dir.join("gone.cdxml"), "There is no such file or folder.".to_string()));
+        if cfg!(unix) {
+            assert_eq!(wrong[1], (dir.join("pipe.cdxml"), "This is not a file.".to_string()));
+        }
+        assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "inner/d.cdx"].map(|f| dir.join(f)));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

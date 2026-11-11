@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 use crate::{recent, Picked, MAX_BYTES};
 
 const MOST: usize = 20; // files kept waiting at one time
-const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
+pub const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
 const PICTURES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp"];
 // Vector pictures Octet opens only for the drawing in them (export::cdxml_from_picture).
 const VECTORS: [&str; 2] = ["pdf", "emf"];
@@ -145,6 +145,8 @@ pub fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
+        // (A named pipe or a device would never end: Octet reads files only.)
+        Ok(m) if !m.is_file() => Err("This is not a file.".into()),
         Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.")),
     }
 }

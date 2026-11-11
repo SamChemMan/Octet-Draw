@@ -530,7 +530,7 @@ export default function Editor() {
   const now = useRef(doc);
   now.current = doc;
   // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
-  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean; indigo: boolean; fileNow: McpHost["fileText"] }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
+  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
   // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
   // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
   // 7 November 2026, decision 0024).
@@ -1809,8 +1809,9 @@ export default function Editor() {
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
   // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
   // SDF or SMILES file opens as a new drawing of its structures, in the middle. A drawing made already (of a picture)
-  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). Gives why it did not open.
-  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): string | undefined {
+  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). Gives why it did not open, or
+  // what it left out.
+  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): { failed?: string; lost?: string } {
     drawingColours.current = [];
     try {
       let read: ReturnType<typeof readOct>;
@@ -1826,7 +1827,9 @@ export default function Editor() {
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const opened = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
-      const mol = (styleText && restyledFrom(opened, styleText)) || opened;
+      // (A style file that is not a drawing is named so, not this file: --convert opens it first on its own.)
+      let mol = opened;
+      if (styleText !== undefined) { let m; try { m = restyledFrom(opened, styleText); } catch { /* not a drawing */ } if (!m) return { failed: "This file has no document settings." }; mol = m; }
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
       // on the structures, or on everything else when there are none (text, arrows, pictures).
@@ -1845,10 +1848,11 @@ export default function Editor() {
       if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
       else sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
+      return left ? { lost: lostText(lost) } : {};
     } catch (e) {
-      const why = failure("Octet cannot open this file.", e);
-      setNotice(why);
-      return why;
+      const failed = failure("Octet cannot open this file.", e);
+      setNotice(failed);
+      return { failed };
     }
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
@@ -2735,11 +2739,12 @@ export default function Editor() {
     if (!TAURI) return;
     const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null }>("mcp", (e) => {
       const p = e.payload;
-      // With no window (--convert), a file that did not open answers each call with why, for Octet to name the file.
-      void started.current.then((failed) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: (JSON.parse(p.body) as { id?: unknown }).id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
+      // With no window (--convert), a file that did not open answers each call with why, for Octet to name the file,
+      // and each result says what Octet left out of it, as File > Open does.
+      void started.current.then(({ failed, lost } = {}) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: (JSON.parse(p.body) as { id?: unknown }).id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
         client: p.client, session: p.session ?? undefined, lost: p.lost,
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }),
-      }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
+      }).then((body) => { if (!lost || !HEADLESS) return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
     });
     void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
     return () => { off.then((f) => f()); };
@@ -2755,8 +2760,8 @@ export default function Editor() {
   }, []);
   // A new drawing window opens what Home or another window asked for (src-tauri/src/windows.rs).
   // With no window (--convert), what a new window opens is open before it answers (mcp_ready, above): the call that
-  // comes at once finds it. started gives why it did not open.
-  const started = useRef<Promise<string | undefined>>(Promise.resolve(undefined));
+  // comes at once finds it. started gives why it did not open, or what it left out.
+  const started = useRef<Promise<ReturnType<typeof load> | undefined>>(Promise.resolve(undefined));
   useEffect(() => {
     if (!DRAW_WINDOW) return;
     started.current = invoke<Start | null>("window_start").then(async (s) => {
@@ -6565,11 +6570,8 @@ export default function Editor() {
     textBox: (id) => captionBox(id),
     labelBox: (i) => { const b = drawing.label[i]; return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
     // A file as Export writes it, for the drawing or a part of it: its text (formatOf), or a picture as Export makes it
-    // with its settings and the options given (in base64; an SVG as text). Nothing is saved. In a window that has just
-    // opened (--convert) it waits for Indigo first.
-    indigo: loaded,
-    fileText: async (format, part, o) => { for (const end = Date.now() + 5000; !mcpHost.current!.indigo && Date.now() < end;) await tick(); return mcpHost.current!.fileNow(format, part, o); },
-    fileNow: async (format, part, o = {}) => {
+    // with its settings and the options given (in base64; an SVG as text). Nothing is saved.
+    fileText: async (format, part, o = {}) => {
       const mol = part ?? now.current;
       if (!PICTURES.includes(format as ExportFormat)) return formatOf(mol, format as PartFormat);
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
@@ -6619,7 +6621,8 @@ export default function Editor() {
     // A session's drawing changes without its window coming to the front (D1). A client with no session has the
     // window in front, so the window comes to the front.
     target: async (session, drawing) => { try { await (session ? invoke("mcp_target", { session, drawing }) : invoke("window_show", { label: drawing })); return true; } catch { return false; } },
-    export: (format) => { if (modal() || HEADLESS) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
+    headless: HEADLESS,
+    export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
   };
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.
   const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has((p.shape ?? p.caption)!)));

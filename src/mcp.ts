@@ -73,6 +73,7 @@ export type Host = {
   select: (atoms: number[], items: number[]) => void;
   file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF or RXN file, SMILES or InChI
   export: (format: string) => boolean; // Octet's Export dialog, on this format
+  headless?: boolean; // Octet with no window (--headless, --convert): no dialog opens, for no one is there to finish it
   window: () => { id: string; name: string }; // the drawing (its window) this call acts on
   windows: () => Promise<{ id: string; name: string; edited: boolean }[]>; // Octet's drawings, Home's first
   target: (session: string | undefined, drawing: string) => Promise<boolean>; // the session's calls go to that drawing
@@ -442,7 +443,7 @@ const OPS: Op[] = [
     name: "export", title: "Export", hints: READ, outputSchema: CHANGE,
     description: "Opens Octet's Export dialog on a format. The user chooses where to save: Octet never saves a file for an AI app.",
     inputSchema: obj({ format: pick(["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "cdxml", "cdx", "mol", "sdf", "rxn", "smi", "inchi", "oct"], undefined, { also: { tiff: "tif", jpeg: "jpg", smiles: "smi" } }) }, ["format"]),
-    run: async (host, a) => (host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
+    run: async (host, a) => (host.headless ? { text: NO_DIALOG, error: true } : host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
   },
   {
     name: "list", hints: READ, outputSchema: DRAWINGS,
@@ -1511,6 +1512,8 @@ async function arrange(host: Host, a: { ids: string[]; how: string }): Promise<R
 }
 
 async function getFile(host: Host, a: { format: FileFormat; ids?: string[] } & FileOptions): Promise<Result> {
+  // (A window that has just opened, --convert, has no Indigo yet.)
+  await host.ready();
   const m = host.doc();
   let part: Mol | undefined;
   if (a.ids?.length) {
@@ -1846,10 +1849,13 @@ async function addShapeTool(host: Host, a: ShapeIn & { kind: ShapeKind; around?:
   host.set(m);
   return { text: `Drew a${a.kind === "oval" ? "n" : ""} ${a.kind === "tlc" ? "TLC plate" : a.kind} b${id} ${a.around ? `round ${a.around.join(", ")}` : `at ${rounded(b).join(", ")}`}.${UNDO}` };
 }
+// Octet with no window has no one to finish a dialog: the commands that open one are refused.
+const NO_DIALOG = "Octet with no window has no dialogs. read with a format gives the drawing as a file.";
 // run_command: ids selected first (so the command acts on them), then the command or action by its id.
 const knownCommand = (id: string) => (MENU_COMMANDS as readonly string[]).includes(id.trim()) || ACTIONS.test(id.trim());
 async function runCommand(host: Host, a: { command: string; ids?: string[] }): Promise<Result> {
-  const id = a.command.trim();
+  const id = a.command.trim(), dialog = /dialog$|^(save|save_as|print|export|atom_properties|bond_properties|bracket_properties|document|page_setup|experiment_details|insert_|properties$|arrow\.(above|below))/.test(id);
+  if (dialog && host.headless) return { text: `${NO_DIALOG} Octet did not run ${id}.`, error: true };
   if (a.ids) {
     const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
@@ -1858,7 +1864,6 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   }
   const ran = (MENU_COMMANDS as readonly string[]).includes(id) ? host.command(id) || host.act(id) : host.act(id);
   await host.settle();
-  const dialog = /dialog$|^(save|save_as|print|export|atom_properties|bond_properties|bracket_properties|document|page_setup|experiment_details|insert_|properties$|arrow\.(above|below))/.test(id);
   return ran ? { text: `Ran ${id}.${dialog ? " Octet shows its dialog, or a box to type in: the user finishes it." : ""}` } : { text: `Octet cannot run ${id} now.`, error: true };
 }
 
