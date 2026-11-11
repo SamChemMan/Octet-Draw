@@ -1943,6 +1943,16 @@ export default function Editor() {
       setNotice(failure("Octet cannot read this file.", e));
     }
   }
+  // File > More Formats > Open CIF or mmCIF… (issue 79): a crystal structure, or a macromolecule's ligands, opens as a
+  // new drawing, as the file opens from Finder (cif.ts reads it).
+  async function openCif() {
+    try {
+      const picked = await invoke<[string, string] | null>("open_cif");
+      if (picked) await takeFiles([{ name: picked[0], path: null, text: picked[1], picture: null, error: null, at: null }], false);
+    } catch (e) {
+      setNotice(failure("Octet cannot open this file.", e));
+    }
+  }
   // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
   // Where a pasted or named structure goes: to the right of everything drawn (arrows, shapes and text too). Just
   // after a reaction arrow it lands as the product: on the arrow's level, at the reaction's spacing.
@@ -2175,7 +2185,9 @@ export default function Editor() {
   // File > More Formats (Settings > Pro > More formats): the rare formats, one line each. A line is the command's id
   // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
   // The menu, the palette and Settings' shortcuts take each format from here.
-  const moreFormats: [string, string, React.ReactNode, () => void][] = [];
+  const moreFormats: [string, string, React.ReactNode, () => void][] = [
+    ["more_cif", "Open CIF or mmCIF…", <FolderOpen size={18} />, () => void openCif()],
+  ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {

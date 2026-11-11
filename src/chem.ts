@@ -11,6 +11,7 @@ import { kekulise } from "./rings.ts";
 import { counts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
 import { isQueryMolfile, readV3000, RXCTR, writeV3000 } from "./molv3.ts";
+import { isCif, readCif } from "./cif.ts";
 import { axialLabels } from "./axial.ts";
 import { sandwichIons } from "./metals.ts";
 import { cipLabels } from "./cip.ts";
@@ -145,14 +146,15 @@ const over = (most: number, what: string) => new RangeError(`It has more than ${
 // Atoms in a SMILES (bracket atoms and the organic subset), up to the first space (CXSMILES and names come after it).
 export const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|Br|Cl|[BCNOPSFIbcnops*]/g)?.length ?? 0;
 
-// A structure file (MOL, SDF, RXN, RDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
+// A structure file (MOL, SDF, RXN, RDF, CDXML, KET, SMILES, CIF), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out. A reaction keeps its
-// arrows and plus signs; an RD file's reactions stand one under another.
+// arrows and plus signs; an RD file's reactions stand one under another. A CIF or mmCIF file (cif.ts) has its own limits.
 // Throws a RangeError, with the reason to show, for text over Octet's limits.
 // An MDL file (MOL, SDF, RXN, RDF) whose only enhanced stereochemistry is its chiral flag: no V3000 stereo collections.
 // Indigo reads the flag as abs (1) or &1 (0) on every stereocentre.
 export const chiralFlagOnly = (text: string) => /V2000|V3000/.test(text) && !/MDLV30\/STE(ABS|RAC|REL)/.test(text);
 export function importStructure(text: string): Mol {
+  if (isCif(text)) return readCif(text);
   if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
   const ind = engine(), opts = new ind.MapStringString();
   try {
