@@ -35,10 +35,12 @@ export const onRestart = (f: (e: unknown) => void) => { restarts.add(f); return 
 // Indigo reads a structure's stereocentres from its depth (z) with a symmetry search that has no limit. With many
 // like groups (isopropyl, trimethylsilyl, CF3), most of all with their hydrogens drawn as atoms, it runs for minutes
 // (src/depth.check.ts). So each call has Indigo's own timeout. A read it stops is read again as a query structure,
-// with no error and the wrong masses, so a call that took that long fails here.
-// ponytail: one 2-second ceiling for every call. A structure past it gets no SMILES, InChI or file from Indigo. If
-// that matters, give the InChI library the depth itself (a molfile read with skip-3d-chirality).
-const MOST_MS = 2000;
+// with no error and the wrong masses, so a call that took that long fails here. The ceiling is 10 seconds: a 3D MOL
+// file of TIPS-protected adenosine with its hydrogens takes 2 seconds to read on a fast Mac, and must still open.
+// ponytail: one ceiling for every call. A structure past it gets no SMILES, InChI or file from Indigo, and the name,
+// abbreviation and CAS number, which read the depth, stop the window for 10 seconds each time it changes. If that
+// matters, give the InChI library the depth itself (a molfile read with skip-3d-chirality).
+const MOST_MS = 10_000;
 function watched(m: IndigoModule): IndigoModule {
   const out: IndigoModule = {};
   for (const [k, f] of Object.entries(m)) out[k] = typeof f !== "function" ? f : function (...a: unknown[]) {
@@ -47,7 +49,7 @@ function watched(m: IndigoModule): IndigoModule {
     const t = performance.now();
     let r: unknown;
     try { r = new.target ? Reflect.construct(f, a) : f(...a); } catch (e) { failed(e); throw e; }
-    if (performance.now() - t >= MOST_MS) throw new RangeError("It takes more than 2 seconds to work out.");
+    if (performance.now() - t >= MOST_MS) throw new RangeError(`It takes more than ${MOST_MS / 1000} seconds to work out.`);
     return r;
   };
   return out;
