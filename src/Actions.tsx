@@ -127,9 +127,10 @@ const STYLES: BondKind[] = ["single", "double", "triple", "quadruple", "bolddoub
 // On a chain end: the groups chemists put there most. Values are what the atom becomes.
 const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂H", "CO2H"], ["CF₃", "CF3"], ["CN", "CN"], ["Ph", "Ph"]];
 
-// Digits in a formula as subscripts: C8H9NO2 → C₈H₉NO₂.
+// The counts in a formula as subscripts: C8H9NO2 → C₈H₉NO₂. A count follows an element, ")" or "]", so an isotope's
+// mass number ([13C]) and a hydrate's number (·5H2O) stay as they are.
 const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
-export const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
+export const formula = (f: string) => f.replace(/(?<=[A-Za-z)\]])\d+/g, (n) => n.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]));
 
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
 // list), each drawn as itself with its name. Colours are ColourPick's (ColourPicker.tsx), which works the same way.

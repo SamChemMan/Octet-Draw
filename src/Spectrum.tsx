@@ -7,8 +7,8 @@
 // the panel fills the canvas with the structure beside the spectrum (the canvas's own drawing, shown again).
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChartLine, CopySimple, LinkBreak, ListBullets, Plus, Tag, Trash, X } from "@phosphor-icons/react";
-import { PanelControls, ResizeEdge, type Sizing } from "./PanelControls";
+import { ChartLine, CopySimple, LinkBreak, ListBullets, Plus, Tag, Trash } from "@phosphor-icons/react";
+import { CloseX, PanelControls, ResizeEdge, type Sizing } from "./PanelControls";
 import { acsText, countText, detailsTable, isNucleus, multiplicity, NUCLEI, quality, shiftText, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { levels, measuredText, nameOf, nucleusText, reversed, type Analysis, type Measured } from "./measured";
 import { Select } from "./Select";
@@ -577,7 +577,7 @@ function Tabs({ keys, value, onKey, onClose, children }: { keys: string[]; value
         <span key={k} className={closable ? "spectrum-tab closable" : "spectrum-tab"}>
           <button type="button" role="tab" data-key={k} aria-selected={k === value} tabIndex={k === value ? 0 : -1} onClick={() => onKey(k)}
             onKeyDown={(e) => { if (closable && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); e.stopPropagation(); onClose(k); } }}>{keyName(k)}</button>
-          {closable && <button type="button" className="tab-close" tabIndex={-1} aria-label={`Close ${keyName(k)}`} data-tip="Close" onClick={() => onClose(k)}><X size={12} /></button>}
+          {closable && <CloseX name={keyName(k)} onClose={() => onClose(k)} />}
         </span>
       ))}
     </span>

@@ -13,6 +13,7 @@ import { subset } from "./edit";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
 import { listOpen, Pick } from "./Menu";
+import { formula } from "./Actions";
 import { useMovable } from "./movable";
 import { holdCursor } from "./cursor";
 import { useLeaving } from "./motion";
@@ -128,7 +129,10 @@ function Panel(p: Props) {
   const [typed, setTyped] = useState<number>();
   useLayoutEffect(() => setTyped(undefined), [one?.ion.label, one?.ion.formula]);
   const measured = one && found(one), foundMz = typed ?? measured?.mz, oneCalc = one && calc(one);
-  const line = one && oneCalc !== undefined ? hrmsLine({ source: p.prefs.source, label: one.ion.label, formula: one.ion.formula, calcd: oneCalc, found: foundMz }) : "";
+  // The HRMS line: plain text to copy or add to the drawing (a caption makes its own subscripts), and shown with the
+  // formula's subscripts, as the Actions panel shows a formula.
+  const hrms = one && oneCalc !== undefined ? { source: p.prefs.source, label: one.ion.label, formula: one.ion.formula, calcd: oneCalc, found: foundMz } : undefined;
+  const line = hrms ? hrmsLine(hrms) : "";
   const table = () => [["Ion", "Formula", "m/z", ...(mirror ? ["Found", "Error (ppm)"] : [])].join("\t"), ...rows.map((r) => {
     const m = calc(r), f = found(r);
     return [r.ion.label, r.ion.formula, fmt(m), ...(mirror ? [f ? f.mz.toFixed(d) : "", f && m ? ppm(f.mz, m).toFixed(1) : ""] : [])].join("\t");
@@ -235,7 +239,7 @@ function Panel(p: Props) {
                   <tr key={k} className={[lit(k) && "lit", chosen === k && "chosen"].filter(Boolean).join(" ") || undefined}
                     onPointerEnter={() => point(k)} onPointerLeave={() => point(undefined)} onClick={() => setChosen(k)}>
                     <td><span className="dot" style={{ background: r.colour }} />{r.ion.label}</td>
-                    <td className="formula">{r.ion.formula}</td>
+                    <td className="formula">{formula(r.ion.formula)}</td>
                     <td className="num">{fmt(m)}</td>
                     {mirror && <><td className="num">{f ? f.mz.toFixed(d) : "–"}</td><td className="num">{f && m ? ppm(f.mz, m).toFixed(1) : "–"}</td><td className="num">{fit === undefined ? "–" : `${Math.round(fit)}%`}</td></>}
                   </tr>
@@ -246,7 +250,7 @@ function Panel(p: Props) {
         </div>
       </div>
       <footer className="spectrum-foot massspec-foot">
-        <p className="spectrum-text">{line}</p>
+        <p className="spectrum-text">{hrms && hrmsLine({ ...hrms, formula: formula(hrms.formula) })}</p>
         <span className="spectrum-gap" />
         <Select label="Source" value={p.prefs.source} options={SOURCES.map((s) => [s, s])} onChange={(source) => set({ source })} />
         <label className="massspec-found">Found

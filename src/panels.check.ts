@@ -36,8 +36,8 @@ assert.match(css, /\.spectrum\.expanded \{\n  top: var\(--space-4\);\n  bottom: 
 assert.match(controls, /useLayoutEffect\(\(\) => views\.subscribe\(\(\) => place\.current\(\)\), \[views\]\);/, "a pan or zoom places the pills with no React render");
 assert.match(controls, /pill\.style\.left = `\$\{Math\.max\(72, Math\.min\(room\.width - pill\.offsetWidth - 16, x\)\)\}px`;/, "a pill stays in view");
 assert.match(controls, /pill\.style\.top = `\$\{Math\.max\(16, Math\.min\(room\.height - dock - 40, y\)\)\}px`;/);
-assert.match(css, /\.pill:hover \.pill-close,\n\.pill:focus-within \.pill-close \{\n  display: grid;/);
-assert.match(css, /@media \(hover: none\), \(pointer: coarse\) \{\n  \.pill-close \{\n    display: grid;/, "the X always shows for touch and pen");
+assert.match(css, /:is\(\.pill, \.spectrum-tab\):is\(:hover, :focus-within\) \.close-x \{\n  display: grid;/);
+assert.match(css, /@media \(hover: none\), \(pointer: coarse\) \{\n  \.close-x,\n  \.segmented button\.close-x \{\n    display: grid;/, "the X always shows for touch and pen");
 for (const file of ["export.ts", "file.ts", "cdxml.ts"]) assert.doesNotMatch(read(`./${file}`), /pill/i, `${file} knows nothing of pills`);
 assert.match(controls, /e\.key === "Delete" \|\| e\.key === "Backspace"/, "Delete on a focused pill closes it");
 
@@ -100,13 +100,41 @@ assert.match(spectrum, /if \(closable && \(e\.key === "Delete" \|\| e\.key === "
 // A tab has a close button only when there are two or more (one alone closes with the panel), in room of its own so it
 // never covers the name; + is the last segment of the same control, outside the tab list.
 assert.match(spectrum, /const closable = keys\.length > 1;/);
-assert.match(spectrum, /\{closable && <button type="button" className="tab-close"/);
-assert.match(read("editor.css"), /\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: 22px;/);
+assert.match(spectrum, /\{closable && <CloseX name=\{keyName\(k\)\} onClose=\{\(\) => onClose\(k\)\} \/>\}/);
+// One close X for a pill and a spectrum tab: one component (CloseX) and one rule (.close-x), the panel controls' look
+// (no fill, muted, sunken under the pointer) at 18 px. The tab's X sits in the tab's own room, 4 px clear of the name.
+assert.match(controls, /<CloseX name=\{p\.name\} onClose=\{p\.onClose\} \/>/);
+assert.match(controls, /className="close-x" tabIndex=\{-1\} aria-label=\{`Close \$\{name\}`\} data-tip="Close" onClick=\{\(\) => onClose\(\)\}><X size=\{12\} \/><\/button>/);
+assert.doesNotMatch(css + controls + spectrum, /pill-close|tab-close/, "no second close X");
+assert.match(css, /\n\.close-x,\n\.segmented button\.close-x \{\n  display: none;\n  place-items: center;\n  width: 18px;\n  min-width: 0;\n  height: 18px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-pill\);\n  background: transparent;\n  color: var\(--ink-muted\);\n  transform: none;\n  transition: none;\n\}/);
+for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-x[^{}]*)\{([^}]*)\}/g)) {
+  if (/\b(width|height|background|border-radius|color):/.test(m[2])) assert.ok(/^\.close-x,\n\.segmented button\.close-x $|close-x:hover/.test(m[1].trim() + " "), `one look for the close X: ${m[1].trim()}`);
+}
+{
+  const room = Number(/\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: (\d+)px;/.exec(css)?.[1]);
+  const right = Number(/\.spectrum-tab \.close-x \{\n  position: absolute;\n  top: 0;\n  bottom: 0;\n  right: (\d+)px;\n  margin: auto 0;\n\}/.exec(css)?.[1]);
+  assert.equal(room - right - 18, 4, "the tab's X is 4 px clear of the name");
+}
 assert.match(spectrum, /<\/span>\n    \{children\}\n    <\/span>/);
 assert.match(spectrum, /<Pick label="Add spectrum" value="" className="tab-add"/);
 // The tab shown and a button that is on keep their tint under the pointer, as a segmented control's choice does.
 assert.match(read("editor.css"), /\.segmented button:hover:not\(\[aria-checked="true"\], \[aria-selected="true"\]\)/);
 assert.match(read("editor.css"), /\.spectrum-button:hover:not\(:disabled, \[aria-pressed="true"\]\)/);
+// Mass spec's HRMS line and ion table show each formula with its subscripts, from the Actions panel's formula helper;
+// what is copied or added to the drawing stays plain text (a caption makes its own subscripts).
+{
+  const ms = read("./MassSpec.tsx");
+  assert.match(ms, /<p className="spectrum-text">\{hrms && hrmsLine\(\{ \.\.\.hrms, formula: formula\(hrms\.formula\) \}\)\}<\/p>/);
+  assert.match(ms, /<td className="formula">\{formula\(r\.ion\.formula\)\}<\/td>/);
+  assert.match(ms, /const line = hrms \? hrmsLine\(hrms\) : "";/);
+  // The helper itself: only a count (after an element, ")" or "]") is a subscript.
+  const helper = new Function(`${/const SUBSCRIPT = [^\n]+/.exec(actions)![0]}\nreturn ${/export const formula = \(f: string\) => ([^\n]+);/.exec(actions)![0].replace("export const formula = (f: string) => ", "(f) => ").replace(/;$/, "")};`)() as (f: string) => string;
+  assert.equal(helper("C7H7O3"), "C₇H₇O₃");
+  assert.equal(helper("C10H13O2"), "C₁₀H₁₃O₂");
+  assert.equal(helper("Fe2(SO4)3"), "Fe₂(SO₄)₃");
+  assert.equal(helper("C5[13C]H6"), "C₅[13C]H₆", "an isotope's mass number is no count");
+  assert.equal(helper("CuSO4·5H2O"), "CuSO₄·5H₂O");
+}
 // The header's formula has its subscripts, as the Actions panel's has; an abbreviation keeps its digits (2-MeTHF).
 assert.match(editor, /return a \? a\.abbreviation \?\? subscripts\(a\.formula\) : "";/);
 assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);

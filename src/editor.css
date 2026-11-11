@@ -1511,6 +1511,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
+  font-size: 13px;
   transition: transform var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -4537,6 +4538,45 @@ div.facts {
   display: flex;
   gap: 2px;
 }
+/* The X that closes a pill or a spectrum tab (CloseX in PanelControls.tsx): one look, the panel controls' (no fill,
+   muted ink, sunken under the pointer, no motion) at 18 px, so it fits a 24 px pill or tab. It shows on hover and focus
+   of its pill or tab, and always for touch and pen. ".segmented button.close-x" outranks the segmented control's own
+   button rules, so a tab's X looks the same as a pill's. */
+.close-x,
+.segmented button.close-x {
+  display: none;
+  place-items: center;
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  transform: none;
+  transition: none;
+}
+:is(.pill, .spectrum-tab):is(:hover, :focus-within) .close-x {
+  display: grid;
+}
+@media (hover: none), (pointer: coarse) {
+  .close-x,
+  .segmented button.close-x {
+    display: grid;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .close-x:hover,
+  .segmented button.close-x:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.close-x:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
 .spectrum > .panel-controls {
   position: absolute;
   top: calc(var(--space-1) + 2px);
@@ -4558,40 +4598,19 @@ div.facts {
   height: 100%;
 }
 .spectrum-tab.closable button[role="tab"] {
-  padding-right: 22px;
+  padding-right: 25px;
 }
 .spectrum-tabs button[aria-selected="true"] {
   background: var(--brand-mist);
   color: var(--link);
 }
-.spectrum-tab .tab-close {
-  min-width: 0;
+/* A tab's X (CloseX) sits in the tab's own room at its right end, 4 px clear of the name. */
+.spectrum-tab .close-x {
   position: absolute;
-  top: 50%;
-  right: 4px;
-  display: none;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  transform: translateY(-50%);
-}
-.spectrum-tab:hover .tab-close,
-.spectrum-tab:focus-within .tab-close {
-  display: grid;
-}
-@media (hover: none), (pointer: coarse) {
-  .spectrum-tab .tab-close {
-    display: grid;
-  }
-}
-.spectrum-tab .tab-close:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
+  top: 0;
+  bottom: 0;
+  right: 3px;
+  margin: auto 0;
 }
 .spectrum-none {
   color: var(--ink-muted);
@@ -6866,36 +6885,16 @@ div.facts {
   line-height: 16px;
   text-align: center;
 }
-.pill-close {
-  display: none;
-  place-items: center;
-  width: 18px;
-  height: 18px;
+.pill .close-x {
   margin-right: 3px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink-muted);
-}
-.pill:hover .pill-close,
-.pill:focus-within .pill-close {
-  display: grid;
-}
-@media (hover: none), (pointer: coarse) {
-  .pill-close {
-    display: grid;
-  }
 }
 @media (hover: hover) and (pointer: fine) {
-  .pill-open:hover,
-  .pill-close:hover {
+  .pill-open:hover {
     background: var(--surface-sunken);
     color: var(--ink);
   }
 }
-.pill-open:focus-visible,
-.pill-close:focus-visible {
+.pill-open:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
