@@ -526,20 +526,44 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
   changes (`compound.ts`) are written in brackets after its number: `16[OBn>OTES; 20:OH]`, `7[join 2-1 8 (2S)]`.
 - **The hook (for the merger):** `draw` takes `lines` (text; its description is `NOTATION`), and `kind` is no longer
   required. Its route becomes `route: (a, notes) => (a.lines !== undefined ? fromLines(a) : <as now>)`. The other
-  arguments of the call (placement, `columns`, `keep_orientation`, `picture`, `detail`) go with the lines. A batch
-  through `draw` is drawn as `change` draws one. `tools/list` is at 13,995 of 14,000 characters: the 609 need room
-  found, for example by cutting what `draw` says of a reaction's JSON.
+  arguments of the call go with the lines when they draw one thing. When they draw several (a batch: titles with
+  schemes, two schemes), only `picture`, `picture_size` and `detail` go with them, and anything else (placement,
+  `columns`, `keep_orientation`) is refused in one line that says to draw them in separate calls. A batch through
+  `draw` is drawn as `change` draws one (`callOf` in `notation.ts` gives that call).
+- **Room in `tools/list`:** it is at 13,995 of 14,000 characters, and `lines` adds 658. Measured with the hook in place
+  (`lines` added, `kind` not required): cutting these from `draw` brings the list to 13,980. From its description:
+  the reaction example (" Example, a reaction: start [...] ... number:'1'}]}].", 187), the generic group sentence
+  (" For a generic group (R, Ar, L) ... ['PPh3', 'PPh3']).", 135; lines write `{R}`), " Give a compound's name when you
+  know it, else a SMILES." (56), " (Octet wraps it between steps to fit the page)" (46) and " Octet lays it out, below
+  what is drawn unless you place it." (60). From `steps`: the bracket after "its conditions as data" (" (reagents,
+  then catalysts, go over the arrow; ... one free line or compound each)", 167), which says where each JSON field
+  goes. If the tool table changes first, measure again.
 - **Measured** (`src/notation.check.ts`): the 60 corpus jobs and the taxol route, written in the notation, draw the
   same as their JSON (each compound by number and InChIKey, every text, each arrow's kind with the words and
-  structures over and under it). 18,416 characters against 34,638 as JSON (53%); taxol 1,729 against 3,916. Reading the
+  structures over and under it). 18,420 characters against 34,638 as JSON (53%); taxol 1,729 against 3,916. Reading the
   taxol route takes about 0.05 ms a line. Hostile text (100,000 characters of brackets, arrows or separators; a
   million characters; lone surrogates; control characters) is refused or read in about 0.2 s at most.
+- **Octet's own sorting:** the same transcriptions with every `^`, `_` and `"..."` taken out (a model that leaves the
+  sides to Octet) put each arrow's words and structures on the sides the paper does in 20 of the 40 jobs with arrows
+  (8 before a catalyst's loading, light and molecular sieves went under the arrow, as the papers draw them). The rest
+  are choices the papers make one way and another (Et3N under the arrow in one, step names such as SET and
+  N-alkylation, operations a) b) laid out by hand), so a model that wants the paper's exact layout still marks them.
+- **Review fixes (11 November):** a bracket atom alone (`[Pd]`, `[Li]`) is a SMILES, and a change in brackets is only
+  a transformation `compound.ts` knows (the names are in `src/named.ts`, which loads no Indigo). `(R)`, `(S)`, `(E)`,
+  `(Z)` or `(2S)` after a name, and an earlier number that is also a formula (`C`, `CO`), are refused with both
+  readings (`[R]` and `**C**` are the numbers). Steps that come back to their first compound are a cycle only with a
+  title or a `+x` or `-x`; with a yield or a line over or under an arrow they are a scheme, and with neither they are
+  refused. A reagent in its solvent (`HCl/dioxane`) goes over the arrow; `yield 88%` and `E:Z >95:5` are yields; `—>`
+  and `–>` are arrows; a reaction SMILES with agents, a comma with no space that is not between locants (`B,X`) and
+  operations that skip a number are refused with what to write.
 - **Still JSON only:** a compound's hints (up, down, left, right, rotate, flip, geometry, colours, like) and a molecule
   atom by atom; MOL or CDXML text as a compound; `from` by a structure's id (`s3`); a figure item's brackets, mark and
   colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`; `draw_route`'s `legend` and a
   step's `label` (not built). Every operation of `change` other than draw.
-- **Not done:** the model test. No model could be started from this session (`claude -p` had no sign-in). The twelve
-  jobs and the checker are `scripts/mcp-evals/notation.ts` (`ask` runs `claude -p` on each and checks it).
+- **Not done:** the model test. No model could be started from the builder's session or the review fix's (`claude -p`:
+  "OAuth session expired"). The twelve jobs and the checker are `scripts/mcp-evals/notation.ts`: `ask` runs `claude -p`
+  on each and checks it, or `prompts` prints each prompt for a fresh model with no tools and `check answers.json`
+  checks what they wrote.
 
 ## 6. Lenient arguments (R5)
 

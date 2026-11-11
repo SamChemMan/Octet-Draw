@@ -10,11 +10,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("notation.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
-const { fromLines, NOTATION } = await import("./notation.ts");
+const { callOf, fromLines, NOTATION } = await import("./notation.ts");
 await load();
 
-// A route as the call that draws it: a kind of draw, or a change of several operations (as a batch is).
-const callOf = (r: { op: string; args: any }): [string, unknown] => (r.op === "batch" ? ["change", { operations: r.args.steps.map((s: { tool: string; args: object }) => (s.tool === "text" ? { op: "text", ...s.args } : { op: "draw", kind: s.tool, ...s.args })) }] : ["draw", { kind: r.op, ...r.args }]);
 const words = (t: string) => t.split(/[\s,;]+/).filter(Boolean);
 // What a drawing shows: each structure by its number and InChIKey; each arrow's kind with the words and structures
 // over and under it (line breaks and the order of items aside); and every other text.
@@ -70,9 +68,9 @@ const NOTES: Record<string, string> = {
   "grocott2025-fig4a": "rotenone -> C=CC(C)[C@H]1CC2=C(O1)C=CC3=C2O[C@@H]4COC5=CC(=C(C=C5[C@@H]4C3=O){OMe}){OMe} (11a), @CC(C)=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C, 1b, _\"3 equiv. 1b\", _\"20 mol% HG II catalyst\", _\"(CH2Cl)2, 100 °C, 16 h (94% AY)\", _\"then\", _\"TBAF/citric acid, MeOH, 100 °C\", 73% (1:1 d.r.)",
   "grocott2025-fig4c": "C=C[C@H]({Bn})N{Boc} -> C/C=C/C[C@H]({Bn})N{Boc} (16), @C=CC(C)S(=O)(=O)CO[Si](C)(C)C(C)(C)C, 4 equiv. 1c, _\"5 mol% HG-II catalyst\", CH2Cl2, 40 °C, 16 h, _\"then TBAF, citric acid\", MeOH, 40 °C, 16 h, 60% (70:30 E:Z)",
   "grocott2025-fig4d": "{Bn}C/C=C\\C(C)S(=O)(=O)C{OTBS} ((Z)-17) -> {Bn}CC/C=C/C ((E)-18), TBAF, citric acid, MeOH, 40 °C, 16 h, 90%",
-  "grocott2025-fig4e": "O=C1CCCCCCC/C=C\\CCCCCCO1 -> non-8-en-1-yl undec-10-enoate (19), 8 equiv. 1a, 10 mol% HG-II, \"CH2Cl2, 40 °C, 16 h\", _\"then TBAF/citric acid\", MeOH, 40 °C, 16 h, 81%\n-> O=C1CCCCCCCC/C=C\\CCCCCCCO1 (20), 7.5 mol% M2001 catalyst, _\"(CH2Cl)2 (5 mM), 60 °C\", _\"~20 mbar, 24 h\", 74% AY (1:9 E:Z)",
+  "grocott2025-fig4e": "O=C1CCCCCCC/C=C\\CCCCCCO1 -> non-8-en-1-yl undec-10-enoate (19), 8 equiv. 1a, 10 mol% HG-II, \"CH2Cl2, 40 °C, 16 h\", _\"then TBAF/citric acid\", MeOH, 40 °C, 16 h, 81%\n-> O=C1CCCCCCCC/C=C\\CCCCCCCO1 (20), ^7.5 mol% M2001 catalyst, _\"(CH2Cl)2 (5 mM), 60 °C\", _\"~20 mbar, 24 h\", 74% AY (1:9 E:Z)",
   "proctor2019-scheme39": "5-(4-chlorophenyl)pyrimidine-2,4-diamine + ethylboronic acid -> pyrimethamine (41), 2 equiv. TFA, 1 atm O2, AcOH/MeCN, 110 °C, 10 h, 70%",
-  "proctor2019-scheme47": "OC(=O)C1(CC1){CF3} (1) -> S=C1C=CC=CN1OC(=O)C1(CC1){CF3} (2), \"(COCl)2\", _\"then\", _@S=C1C=CC=CN1O[Na]\n-> {CF3}C1(CC1)Sc1ccccn1 (3), visible light, EtOAc\n-> {CF3}C1(CC1)S(=O)(=O)c1ccccn1 (4), RuCl3, NaIO4, 50%\n-> [Na]OS(=O)C1(CC1){CF3} (5), NaOEt, 75%\n-> Oc1nc2ccccc2nc1C1(CC1){CF3} (6), @quinoxalin-2-ol, 1 equiv. TsOH·H2O, 5 equiv. t-BuOOH, 1.5 equiv. ZnCl2, 2.5:1 CH2Cl2:H2O (0.18 M), 0 °C to rt, 1–48 h, 77%",
+  "proctor2019-scheme47": "OC(=O)C1(CC1){CF3} (1) -> S=C1C=CC=CN1OC(=O)C1(CC1){CF3} (2), \"(COCl)2\", _\"then\", _@S=C1C=CC=CN1O[Na]\n-> {CF3}C1(CC1)Sc1ccccn1 (3), ^visible light, EtOAc\n-> {CF3}C1(CC1)S(=O)(=O)c1ccccn1 (4), RuCl3, NaIO4, 50%\n-> [Na]OS(=O)C1(CC1){CF3} (5), NaOEt, 75%\n-> Oc1nc2ccccc2nc1C1(CC1){CF3} (6), @quinoxalin-2-ol, 1 equiv. TsOH·H2O, 5 equiv. t-BuOOH, 1.5 equiv. ZnCl2, 2.5:1 CH2Cl2:H2O (0.18 M), 0 °C to rt, 1–48 h, 77%",
   "proctor2019-scheme9-mechanism": "{tBu}c1ccc(cc1)C([O-])=O -> {tBu}c1ccc(cc1)C([O])=O (12), SET, _\"*Ir(III) to Ir(II)\"\n-> {tBu}c1ccc(cc1)C(=O)OBr (11), 13\n-> {tBu}c1cc[c]cc1 (A), SET, _\"Ir(II) to Ir(III)\", _\"− Br−, − CO2\"\n-> {tBu}c1ccc(cc1)-c1ccccn1 (B), pyridine, _\"− e−, − H+\"",
   "proctor2019-scheme45-one-pot": "quinine -> COc1cc2c(cc1{CF3})nc({iPr})cc2[C@@H](O)[C@@H]1C[C@@H]2CCN1C[C@@H]2C=C (1), [Zn](SO2CF3)2, standard conditions, _\"then [Zn](SO2i-Pr)2 and t-BuOOH\", _\"(one pot)\", 30%",
   "proctor2019-scheme68-quinoline": "quinoline + 1-methylcyclohexene -> 2-(1-methylcyclohexyl)quinoline + 4-(1-methylcyclohexyl)-1,2,3,4-tetrahydroquinoline (51), 1.0 equiv. Fe(acac)3, 1.5 equiv. PhSiH3, 2.0 equiv. BF3·Et2O, THF/MeOH, 60 °C, 4 h, _\"44% and 34% (51)\"",
@@ -91,12 +89,12 @@ const NOTES: Record<string, string> = {
   "robinson2026-fig5a": "piribedil + {TsO}CCC=C (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.[O-]{Ts} (12a), _\"N-alkylation\"\n-> {BBN}CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.[O-]{Ts} (13a), 9-BBN–H\n-> c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1 (14a), SPhos·Pd-G3, _\"t-BuOK\", 47% (64% assay)",
   "robinson2026-fig5b": "{TsO}CCOCC=C (15)\n{TsO}CCOCCOCCC=C (16)\n{TsO}CC(=O)N1CCC(CC=C)CC1 (17)\n{TsO}CCOc1ccc({Bpin})cc1 (18)\n{OTs}CC(=O)N1CCN(CC1)c1ccc({Bpin})cc1 (19)",
   "robinson2026-fig5d": "dibenzylmethylamine -> CN(Cc1ccccc1)CCc1ccccc1 (27), 1. 3b, MeCN, 23 °C; KHF2, HCl (81%) _2. Pd(PhCN)2Cl2 (10 mol%), RuPhos, t-BuOK, 1,4-dioxane/H2O, 90 °C (78%)\n-> CN(CCc1ccccc1)CC(=O)N1CCN(CC1)c1ccc(Cc2ccccc2)cc1 (28), 1. 19, MeCN, 60 °C (64%) _2. RuPhos·Pd-G3 (10 mol%), K3PO4, 1,4-dioxane/H2O, 90 °C (75%)",
-  "trowbridge2018-fig2a": "butyraldehyde (1a) + dibenzylamine (2a) + butyl acrylate (3a) -> CCCC(N({Bn}){Bn})CC{CO2Bu} (5a), 1 mol% Ir(ppy)3, 40 W blue LED, Hantzsch ester 4a, _\"20 mol% propionic acid, 4 Å mol. sieves\", CH2Cl2, RT, 2 h, 84%",
+  "trowbridge2018-fig2a": "butyraldehyde (1a) + dibenzylamine (2a) + butyl acrylate (3a) -> CCCC(N({Bn}){Bn})CC{CO2Bu} (5a), 1 mol% Ir(ppy)3, ^40 W blue LED, Hantzsch ester 4a, _\"20 mol% propionic acid, 4 Å mol. sieves\", CH2Cl2, RT, 2 h, 84%",
   "trowbridge2018-fig2a-catalyst": "{EtO2C}C1=C(C)NC(C)=C({CO2Et})C1 (4a)\nfac-Ir(ppy)3 (Ir(ppy)3)",
   "trowbridge2018-fig2b-aldehydes": "CCCC(N({Bn}){Bn})CC{CO2Bu} (5a)\n{MeO}C(=O)CCC(N({Bn}){Bn})CC{CO2Bu} (5b)\n{TBSO}CCCC(N({Bn}){Bn})CC{CO2Bu} (5c)\nc1ccccc1CCC(N({Bn}){Bn})CC{CO2Bu} (5d)\n{Boc}n1cc(CCC(N({Bn}){Bn})CC{CO2Bu})c2ccccc12 (5e)\nCc1ccc(CCC(N({Bn}){Bn})CC{CO2Bu})o1 (5f)\nCC(C)C(N({Bn}){Bn})CC{CO2Bu} (5g)\nC1CCCCC1C(N({Bn}){Bn})CC{CO2Bu} (5h)\n{Boc}N1CCC(CC1)C(N({Bn}){Bn})CC{CO2Bu} (5i)\nC1COCCC1C(N({Bn}){Bn})CC{CO2Bu} (5j)\n{Boc}N1CC(C1)C(N({Bn}){Bn})CC{CO2Bu} (5k)\nFC1(F)CC(C1)C(N({Bn}){Bn})CC{CO2Bu} (5l)\nC(N({Bn}){Bn})CC{CO2Bu} (5m)",
   "trowbridge2018-fig3a-cycle": "Ir(ppy)3 (Ir(III)) -> Ir(ppy)3 (Ir(III)*), 40 W blue lamp -> [Ir-]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13 (Ir(II)), +4a, -4a′ -> Ir(III), +Int-I, -Int-II, SET",
   "trowbridge2018-fig3a-pathway": "butyraldehyde (1a) + dibenzylamine (2a) -> CCCC=[N+]({Bn})Cc1ccccc1 (Int-I), H+, _\"− H2O\"\n-> CCC[CH]N({Bn})Cc1ccccc1 (Int-II), [Ir(II)ppy3]−, _\"SET\"\n-> CCCC(C[CH]{CO2Bu})N({Bn})Cc1ccccc1 (Int-IV), @butyl acrylate, _\"radical addition\"\n-> CCCC(CC{CO2Bu})N({Bn})[CH]c1ccccc1 (Int-V), _\"1,5-HAT\"\n-> CCCC(CC{CO2Bu})N({Bn})Cc1ccccc1 (5a), 4a′, _\"HAT\"",
-  "trowbridge2018-fig3b-d4": "butyraldehyde (1a) + C=CC(=O){OBu} (3a) -> CCCC(CC([2H]){CO2Bu})N(C([2H]){Ph})C([2H])([2H]){Ph} (d4-5a), 1 mol% Ir(ppy)3, 40 W blue LED, 4a, 20 mol% propionic acid, \"4 Å mol. sieves, RT, CH2Cl2, 2 h\", _@[2H]C([2H])(NC([2H])([2H])c1ccccc1)c1ccccc1, 67%",
+  "trowbridge2018-fig3b-d4": "butyraldehyde (1a) + C=CC(=O){OBu} (3a) -> CCCC(CC([2H]){CO2Bu})N(C([2H]){Ph})C([2H])([2H]){Ph} (d4-5a), 1 mol% Ir(ppy)3, ^40 W blue LED, 4a, 20 mol% propionic acid, \"4 Å mol. sieves, RT, CH2Cl2, 2 h\", _@[2H]C([2H])(NC([2H])([2H])c1ccccc1)c1ccccc1, 67%",
   "trowbridge2018-fig2b-5aq": "dibenzylamine (2a) + C=C1N({Cbz})[C@H]({tBu})OC1=O -> O=C1O[C@@H]({tBu})N({Cbz})[C@H]1CCN({Bn}){Bn} (5aq), (CH2O)n (5 equiv), methoxyethyl Hantzsch ester (1.5 equiv), Ir(ppy)3 (1 mol%), EtCO2H (20 mol%), CH2Cl2, RT, 2 h, _\"4 Å mol. sieves, 40 W blue LED\", 56%, >20:1 d.r.",
   "trowbridge2018-fig4a-amines": "CCCC(CC({Ph}){Ph})N1CCC(CC1){R}:\n#\nR=Ph (7a) 51% | R=CF3 (7b) 54% | CCCC(CC({Ph}){Ph})N1CCN(CC1){Boc} (7c) 38% | CCCC(CC({Ph}){Ph})N1C[C@@H](C)O[C@@H](C)C1 (7d) 60% | CCCC(CC({Ph}){Ph})N1C[C@H]2C[C@H]2C1 (7e) 25% | CCCC(CC({Ph}){Ph})N1C[C@H]2C[C@@H](C1)c1ccccc12 (7f) 38%\nCCCC(CC({Ph}){Ph})N1[C@H]2CC[C@@H]1CC(=O)C2 (7g) 34% | CCCC(CC({Ph}){Ph})N1CC({OMe})C1 (7h) 81% | CCCC(CC({Ph}){Ph})N(CC)C1CCCCC1 (7i) 69% | CCCC(CC({Ph}){Ph})N(C)CC{OMe} (7j) 86% | CCCC(CC({Ph}){Ph})N(C)C (7k) 88% | CC1(C)CCCC(C)(C)N1CC[C@@H]1N({Cbz})[C@H]({tBu})OC1=O (7l) 61% (>20:1 d.r.)",
   "trowbridge2018-fig4b-10a": "pyrrolidine + cyclohexanone -> 1-(cyclohex-1-en-1-yl)pyrrolidine\n-> C1CCN(C1)C1(CC({Ph}){Ph})CCCCC1 (10a), Ph2C=CH2 (2 equiv), Hantzsch ester 4a, Ir(ppy)3 (1 mol%), EtCO2H (20 mol%), CH2Cl2, RT, 2 h, _\"4 Å mol. sieves, 40 W blue LED\", 53%",
@@ -120,11 +118,12 @@ const route = JSON.parse(readFileSync(new URL("taxol/route.json", here), "utf8")
 jobs.set("taxol-route", { tool: "change", arguments: { operations: route.schemes.flatMap((s: { title: string; start: unknown; steps: unknown }) => [{ op: "text", text: s.title }, { op: "draw", kind: "reaction", start: s.start, steps: s.steps }]) } });
 assert.deepEqual([...jobs.keys()].sort(), Object.keys(NOTES).sort());
 let json = 0, lines = 0;
-const table: string[] = [];
+const table: string[] = [], wanted = new Map<string, Awaited<ReturnType<typeof shown>>>();
 for (const [id, text] of Object.entries(NOTES)) {
   const j = jobs.get(id)!, r = fromLines({ lines: text });
   assert.ok(typeof r !== "string", `${id}: ${r}`);
-  assert.deepEqual(await shown(...callOf(r)), await shown(j.tool, j.arguments), id);
+  wanted.set(id, await shown(j.tool, j.arguments));
+  assert.deepEqual(await shown(...callOf(r)), wanted.get(id), id);
   const a = JSON.stringify(j.arguments).length;
   json += a; lines += text.length;
   table.push(`| ${id} | ${a} | ${text.length} |`);
@@ -132,6 +131,24 @@ for (const [id, text] of Object.entries(NOTES)) {
 console.log(`| Job | JSON | Notation |\n|---|---|---|\n${table.join("\n")}\n| All ${table.length} | ${json} | ${lines} |`);
 // The notation is little more than half the JSON.
 assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
+// The same jobs with no ^, _ or "..." (a model that leaves the sides to Octet): the jobs whose arrows then have the
+// words and structures over and under them that the paper has.
+{
+  const bare = (t: string) => t.replace(/(^|[\s,;])[\^_](?=\S)/g, "$1").replace(/"/g, "");
+  let arrows = 0, same = 0;
+  const differ: string[] = [];
+  for (const [id, text] of Object.entries(NOTES)) {
+    const want = wanted.get(id)!;
+    if (!("arrows" in want) || !want.arrows.length || bare(text) === text) { if ("arrows" in want && want.arrows.length) { arrows++; same++; } continue; }
+    arrows++;
+    const r = fromLines({ lines: bare(text) }), got = typeof r === "string" ? { refused: r } : await shown(...callOf(r));
+    if ("arrows" in got && JSON.stringify(got.arrows) === JSON.stringify(want.arrows)) same++;
+    else differ.push(`${id}: ${"arrows" in got ? got.arrows.filter((a) => !want.arrows.includes(a)).join(" / ") : got.refused}`);
+  }
+  console.log(`With no ^, _ or "...": ${same} of ${arrows} jobs with arrows have each side as the paper has.\n${differ.join("\n")}`);
+  // 8 before light, sieves and a catalyst's loading went under the arrow (11 November 2026).
+  assert.ok(same >= 20, `${same}`);
+}
 
 // ---- Hard cases: the arguments each must give, or its refusal ----
 
@@ -205,9 +222,42 @@ const HARD: [string, object | RegExp][] = [
   ["A -> B (", /a bracket is not closed/],
   ["A ->", /an arrow has no product after it/],
   ["[NH3]->[Pt]", /reads as a dative bond in a SMILES or as an arrow/],
-  ["3[foo bar baz]", /foo has two places \(bar, baz\)/],
+  ["3[reduce 7 9]", /reduce has two places \(7, 9\)/],
+  ["3[foo bar]", /foo is not a transformation\. They are: protect, deprotect/],
   ["3[7=OTBS]", /cannot read the change "7=OTBS"/],
   ["", /nothing to draw/],
+  // A SMILES of one bracket atom is a SMILES: a change is only one compound.ts knows.
+  ["anisole (1) -> [Pd] (2)", R([{ text: "anisole", number: "1" }], [{ products: [{ text: "[Pd]", number: "2" }] }])],
+  ["[Li] + A -> B", R([T("[Li]"), T("A")], [{ products: [B] }])],
+  ["A (1) -> [Cu] (2)", R([{ text: "A", number: "1" }], [{ products: [{ text: "[Cu]", number: "2" }] }])],
+  ["A -> B, @[Pd]", R(A, [{ above: [T("[Pd]")], products: [B] }])],
+  ["PhBr (1)\n[Mg]", { op: "structures", args: { structures: [{ text: "PhBr", number: "1" }, T("[Mg]")] } }],
+  // (R) after a name is a number or a configuration; [R] is a number.
+  ["2-butanone -> 2-butanol (R), NaBH4", /"2-butanol \(R\)" reads two ways: \(R\) is compound R \(write \[R\]\), or a configuration \(write \(R\)-2-butanol\)/],
+  ["A -> B (2S)", /reads two ways: \(2S\) is compound 2S/],
+  ["A -> B [R]", R(A, [{ products: [{ text: "B", number: "R" }] }])],
+  // A number given earlier that is also a SMILES; **C** is the compound.
+  ["X (C) -> Y (D)\nC + O -> CO", /"C" reads two ways: compound C \(write \*\*C\*\*\), or the structure C/],
+  ["X (C) -> Y (D)\n**C** + O -> CO", { op: "batch", args: { steps: [{ tool: "reaction", args: { start: [{ text: "X", number: "C" }], steps: [{ products: [{ text: "Y", number: "D" }] }] } }, { tool: "reaction", args: { start: [{ from: "C", number: "C" }, T("O")], steps: [{ products: [T("CO")] }] } }] } }],
+  // Back to the first compound with no +x, -x or title: a cycle or a scheme. A yield makes it a scheme.
+  ["benzyl alcohol (1) -> 1[OH>OTBS] (2), TBSCl, imidazole, DMF -> 1, TBAF, THF", /the steps come back to 1, so they read two ways: a catalytic cycle \(write \+x for what goes in, -x for what comes out\) or a scheme/],
+  ["A (1) -> B (2), X, 90% -> 1, Y, 80%", R([{ text: "A", number: "1" }], [{ reagents: ["X"], yield: "90%", products: [{ text: "B", number: "2" }] }, { reagents: ["Y"], yield: "80%", products: [{ from: "1", number: "1" }] }])],
+  // A scope's groups split as conditions do: 2,4-Cl2C6H3 is one group; a space before NAME= starts the next.
+  ["{Ar}C(C)=O:\nAr=2,4-Cl2C6H3 (1) 90%", { op: "structures", args: { structures: [{ text: "*C(C)=O", labels: ["2,4-Cl2C6H3"], number: "1", caption: "90%" }] } }],
+  ["{R}c1ccc({Ar})cc1:\nR=Me, Ar=3,5-(CF3)2C6H3 (2) | R=Et Ar=Ph (3)", { op: "structures", args: { structures: [{ text: "*c1ccc(*)cc1", labels: ["Me", "3,5-(CF3)2C6H3"], number: "2" }, { text: "*c1ccc(*)cc1", labels: ["Et", "Ph"], number: "3" }], columns: 2 } }],
+  // A reagent in its solvent goes over the arrow; a mixture of solvents under it.
+  ["A -> B, HCl/dioxane, NaOMe/MeOH, THF/H2O (4:1)", R(A, [{ reagents: ["HCl/dioxane", "NaOMe/MeOH"], solvents: ["THF/H2O (4:1)"], products: [B] }])],
+  // A yield or ratio with its word first.
+  ["A -> B, yield 88%, E:Z >95:5, d.r. 10:1", R(A, [{ yield: "yield 88%, E:Z >95:5, d.r. 10:1", products: [B] }])],
+  // Arrows that autocorrect makes; a reaction SMILES with agents.
+  ["A —> B", R(A, [{ products: [B] }])],
+  ["A –> B", R(A, [{ products: [B] }])],
+  ["CCO>[H+]>CC=O", /reaction SMILES with agents: write CCO -> CC=O, \[H\+\]/],
+  // A comma with no space that is not between locants.
+  ["A -> B,X", /"B,X": put a space after the comma before X/],
+  ["4,4'-dimethoxy-1,1'-biphenyl + N,N-diethyl-2,6-xylidine -> X", R([T("4,4'-dimethoxy-1,1'-biphenyl"), T("N,N-diethyl-2,6-xylidine")], [{ products: [T("X")] }])],
+  // Operations that skip a number.
+  ["A -> B, 1. X 3. Y", /operation 3 follows 1: number them in order/],
 ];
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
@@ -218,6 +268,9 @@ for (const [text, want] of HARD) {
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });
 assert.match(String(fromLines({ lines: "A -> B", kind: "cycle" })), /kind does not go with lines, which draw a reaction/);
 assert.deepEqual(fromLines({ lines: "A -> B", kind: "reaction" }), { op: "reaction", args: { start: A, steps: [{ products: [B] }] } });
+// Several drawings take what the reply is to have, and nothing that places one drawing.
+assert.deepEqual(fromLines({ lines: "# S\nA -> B", picture: true }), { op: "batch", args: { steps: [{ tool: "text", args: { text: "S" } }, { tool: "reaction", args: { start: A, steps: [{ products: [B] }] } }], picture: true } });
+assert.match(String(fromLines({ lines: "# S\nA -> B", columns: 2 })), /columns goes with one drawing, and these lines make 2: draw them in separate calls, or leave columns out/);
 
 // ---- Speed, and hostile text ----
 

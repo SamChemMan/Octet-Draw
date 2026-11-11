@@ -11,9 +11,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 // As run.ts: Indigo's wasm as first compiled, so the process ends when the work does.
 if (!process.execArgv.includes("--liftoff-only")) process.exit(spawnSync(process.execPath, ["--liftoff-only", ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" }).status ?? 1);
 
-// The headless host first: notation.ts reads compound.ts, which loads Indigo as the window does.
 const { load, drawing } = await import("../headless/host.ts");
-const { NOTATION, fromLines } = await import("../../src/notation.ts");
+const { NOTATION, callOf, fromLines } = await import("../../src/notation.ts");
 type Want = { smiles: Record<string, string>; arrows?: string[]; words?: string[]; cycle?: true };
 const JOBS: { id: string; job: string; want: Want }[] = [
   { id: "fischer", job: "Draw the Fischer esterification: benzoic acid and methanol give methyl benzoate (number it 1) with sulfuric acid at reflux for 6 h, 88% yield.", want: { smiles: { 1: "COC(=O)c1ccccc1" }, arrows: ["reaction"], words: ["H2SO4", "88%"] } },
@@ -43,7 +42,7 @@ async function check(answers: Record<string, string>) {
     if (typeof r === "string") wrong.push(`read: ${r}`);
     else {
       const d = drawing("paper"), call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", { client: "Notation test" })).result;
-      const done = r.op === "batch" ? await call("change", { operations: r.args.steps.map((s: { tool: string; args: object }) => (s.tool === "text" ? { op: "text", ...s.args } : { op: "draw", kind: s.tool, ...s.args })) }) : await call("draw", { kind: r.op, ...r.args });
+      const done = await call(...callOf(r));
       if (done.isError) wrong.push(`drawn: ${done.content[0].text}`);
       else {
         const full = (await call("read", { detail: "full" })).structuredContent, m = d.host.doc();

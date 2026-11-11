@@ -5,7 +5,8 @@
 // and Octet sorts the rest, as the conditions of a drawn arrow are read (conditionKind). fromLines gives the arguments
 // the drawing code takes: a kind of draw with its arguments, or a batch of them (several schemes, a title, a grid).
 // Anything with one meaning is read; anything with two is refused with both named. Nothing here touches the drawing.
-import { TO, WITH } from "./compound.ts";
+import { isElement } from "./labels.ts";
+import { NAMED, TO, WITH } from "./named.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
 // What a model reads in the tool list (about 600 characters: the list is 14,000 in all).
@@ -26,7 +27,7 @@ type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; 
 
 const MOST = 100_000; // characters: a 50-step route is about 5,000
 // Arrows, longest first. Unicode or ASCII, as a model writes them.
-const ARROWS: [string, string][] = [["-/->", "nogo"], ["-x->", "nogo"], ["-X->", "nogo"], ["<-->", "resonance"], ["-->", "reaction"], ["<=>", "equilibrium"], ["<->", "resonance"], ["-/>", "nogo"], ["->", "reaction"], ["=>", "retro"], [">>", "reaction"],
+const ARROWS: [string, string][] = [["-/->", "nogo"], ["-x->", "nogo"], ["-X->", "nogo"], ["<-->", "resonance"], ["-->", "reaction"], ["<=>", "equilibrium"], ["<->", "resonance"], ["-/>", "nogo"], ["->", "reaction"], ["—>", "reaction"], ["–>", "reaction"], ["=>", "retro"], [">>", "reaction"],
   ["→", "reaction"], ["⟶", "reaction"], ["⇌", "equilibrium"], ["⇄", "equilibrium"], ["⇋", "equilibrium"], ["↔", "resonance"], ["⟷", "resonance"], ["⇒", "retro"], ["⟹", "retro"], ["↛", "nogo"]];
 const FIRST = new Set(ARROWS.map(([t]) => t[0])), arrowAt = (s: string, i: number) => (FIRST.has(s[i]) ? ARROWS.find(([t]) => s.startsWith(t, i)) : undefined);
 // A separator between items: a semicolon, or a comma before a space (2,6-lutidine and (1S,2R) are one item).
@@ -90,16 +91,23 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
     if ("([".includes(ch)) { if (!depth++ && /\s/.test(t[i - 1] ?? "")) open = i; }
     else if (")]".includes(ch) && !--depth && open >= 0) { if (i + 1 === t.length || /\s/.test(t[i + 1])) groups.push([open, i]); open = -1; }
   }
-  const bold = /\s\*\*([^*\s]{1,14})\*\*(?=\s|$)/.exec(t);
+  const bold = /(?:^|\s)\*\*([^*\s]{1,14})\*\*(?=\s|$)/.exec(t);
   const first = ([a, b]: [number, number]) => cut(t.slice(a + 1, b), (i) => sepAt(t.slice(a + 1, b), i)), numbered = [...groups].reverse().find((g) => isNumber(first(g)[0].text.trim()));
   if (numbered) {
     const [n, ...more] = first(numbered);
-    number = n.text.trim(); caption = [...more.map((x) => x.text.trim()), t.slice(numbered[1] + 1).replace(/^[\s,;]+/, "").trim(), caption].filter(Boolean).join(", ") || undefined; t = t.slice(0, numbered[0]).trim();
+    number = n.text.trim(); caption = [...more.map((x) => x.text.trim()), t.slice(numbered[1] + 1).replace(/^[\s,;]+/, "").trim(), caption].filter(Boolean).join(", ") || undefined;
+    // (R), (S), (E), (Z), (2S) after a name: a compound's number, or its configuration.
+    if (t[numbered[0]] === "(" && CONFIG.test(number)) return `"${s.trim().slice(0, 40)}" reads two ways: (${number}) is compound ${number} (write [${number}]), or a configuration (write (${number})-${t.slice(0, numbered[0]).trim().slice(0, 30)})`;
+    t = t.slice(0, numbered[0]).trim();
   }
   else if (bold) { number = bold[1]; caption = [t.slice(bold.index + bold[0].length).trim(), caption].filter(Boolean).join(" ") || undefined; t = t.slice(0, bold.index).trim(); }
   else if (groups.length && t[groups[groups.length - 1][0]] === "(" && groups[groups.length - 1][1] === t.length - 1) { const [a] = groups[groups.length - 1]; caption ??= t.slice(a); t = t.slice(0, a).trim(); }
   else { const y = /\s(\d+(?:\.\d+)?\s*%.*)$/.exec(t); if (y && !caption) { caption = y[1]; t = t.slice(0, y.index).trim(); } }
-  if (!t) return `"${s.trim().slice(0, 40)}" has no name or SMILES`;
+  // **3** alone is compound 3.
+  if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
+  // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
+  const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
+  if (odd > 0) return `"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`;
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
   // An earlier compound, changed: 3[...], or [...] for the one before.
@@ -113,6 +121,8 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
     }
     if (block[1]) return `${block[1]}[${block[2].slice(0, 40)}]: ${changes}`;
   }
+  // A number given earlier that is also a formula or SMILES (C, CO, PC4).
+  if (known.has(t) && !REFERENCE.test(t) && /^(?:[A-Z][a-z]?\d*)+$/.test(t) && t.match(/[A-Z][a-z]?/g)!.every(isElement)) return `"${t}" reads two ways: compound ${t} (write **${t}**), or the structure ${t} (write its name)`;
   if (reference(t)) return { from: t, number: number ?? t, ...(caption ? { caption } : {}) };
   // {R} in a SMILES is a generic group with the label R (a * with labels in the JSON form).
   const labels: string[] = [], text = t.replace(/\{([^{}]*)\}/g, (_, x: string) => (labels.push(x.trim()), "*"));
@@ -150,6 +160,8 @@ function changesOf(block: string): Change[] | string {
     else if ((m = /^([a-z][a-z_]*(?: (?:epoxide|carbonate))?)((?:\s+\S+)*)$/i.exec(t))) {
       // A named transformation: British or American spelling, a space or an underscore.
       const name = m[1].toLowerCase().replace(" ", "_").replace(/i[sz]e$/, "ise").replace(/y[sz]e$/, "yse"), x: Change = { do: name };
+      // Only a name compound.ts knows: [Pd] alone is a SMILES.
+      if (!(NAMED as readonly string[]).includes(name)) return `${name} is not a transformation. They are: ${NAMED.join(", ")}`;
       let role: string | undefined;
       for (const w of m[2].trim().split(/\s+/).filter(Boolean)) {
         if (/^(?:at|with|to)$/.test(w)) { role = w; continue; }
@@ -166,16 +178,22 @@ function changesOf(block: string): Change[] | string {
 // ---- Conditions ----
 
 // A yield, or what goes with one under the arrow: 88%, 18–73%, 95% e.e., 63% over 2 steps, 47% (64% assay),
-// >20:1 d.r., 4:1 anti:syn.
-const YIELD = /^(?:[~≈>]?\d+(?:[.,]\d+)?(?:\s*[–-]\s*\d+(?:\.\d+)?)?\s*%(?:\s*(?:yield|ee|e\.e\.|de|d\.e\.|er|e\.r\.|conv\.?|AY|assay|brsm|isolated|over \d+ steps|\([^()]*\)))*|[>~≈]?\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?\s*(?:d\.?r\.?|e\.?r\.?|r\.?r\.?|[EZ]\s*:\s*[EZ]|anti\s*:\s*syn|syn\s*:\s*anti)|racemic)$/i;
+// >20:1 d.r., 4:1 anti:syn, and with the word first: yield 88%, E:Z >95:5, d.r. 10:1.
+const RATIO = String.raw`d\.?r\.?|e\.?r\.?|r\.?r\.?|[EZ]\s*:\s*[EZ]|anti\s*:\s*syn|syn\s*:\s*anti`, PARTS = String.raw`[>~≈]?\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?`;
+const YIELD = new RegExp(String.raw`^(?:(?:yield\s*:?\s*)?[~≈>]?\d+(?:[.,]\d+)?(?:\s*[–-]\s*\d+(?:\.\d+)?)?\s*%(?:\s*(?:yield|ee|e\.e\.|de|d\.e\.|er|e\.r\.|conv\.?|AY|assay|brsm|isolated|over \d+ steps|\([^()]*\)))*|${PARTS}\s*(?:${RATIO})|(?:${RATIO})\s*[=:]?\s*${PARTS}|racemic)$`, "i");
 // Each item's place: a reaction's fields, or a free line over or under its arrow.
-function kindOf(t: string): ReturnType<typeof conditionKind> | "reagents" {
+function kindOf(t: string): ReturnType<typeof conditionKind> | "reagents" | "below" {
   if (YIELD.test(t)) return "yield";
+  // As the papers draw them: a catalyst's loading (20 mol% catalyst·TfOH, 5 mol% HG-II catalyst), light (390-nm LEDs,
+  // visible light) and molecular sieves go under the arrow, as a line.
+  if (/\bcatalyst(?:·\S+)?$|\b(?:LEDs?|light|lamp|irradiation)\b|\bsieves\b|^\d+\s*Å\s*MS$/i.test(t)) return "below";
   const k = conditionKind(t);
   if (k) return k;
-  // r.t., a solvent mixture (THF/H2O, 2.5:1 CH2Cl2:H2O, THF–iPrOH) and a time range (1–48 h), as their parts are.
+  // r.t., a solvent mixture (THF/H2O, 2.5:1 CH2Cl2:H2O, THF–iPrOH (4:1)) and a time range (1–48 h), as their parts
+  // are, with acetic acid as a solvent among them (AcOH/MeCN). A reagent in its solvent (HCl/dioxane, TBAF/THF) is a
+  // reagent.
   if (/^r\.\s?t\.?$/i.test(t)) return "temperature";
-  if (t.replace(/^[\d.:\s]+(?=\D)/, "").split(/\s*[/:–]\s*|\s+-\s+/).some((p) => solvent(p))) return "solvents";
+  if (t.replace(/^\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?\s+/, "").replace(/\s*\([^()]*\)$/, "").split(/\s*[/:–]\s*|\s+-\s+/).every((p) => solvent(p) || /^(?:AcOH|HOAc)$/i.test(p))) return "solvents";
   if (/^\d+(?:\.\d+)?\s*[–-]\s*\d+(?:\.\d+)?\s*(?:h|min|d)$/.test(t)) return "time";
   return "reagents";
 }
@@ -191,10 +209,12 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
   // Numbered operations: from the first item that starts with one, each to the next in order, even with no comma
   // before it (1. n-BuLi, THF 2. DMF).
   const ops: Item[][] = [], plain: Item[] = [];
-  let lead: string | undefined;
+  let lead: string | undefined, skip: string | undefined;
   for (const it of items) {
     const parts = cut(it.text, (i) => {
       const m = (!i || /\s/.test(it.text[i - 1])) && OP.exec(it.text.slice(i, i + 9));
+      // A number that skips one (1. X 3. Y) is a mistake, not part of the operation before it.
+      if (m && /^\d/.test(lead ?? "") && /^\d+$/.test(m[3]) && Number(m[3]) > Number(lead) + 1) skip ??= `operation ${m[3]} follows ${lead}: number them in order`;
       if (!m || (m[2] && m[4] !== ")") || (lead === undefined ? i > 0 : !follows(lead, m[3]))) return 0;
       lead = m[3];
       return m[0].length;
@@ -205,6 +225,7 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
       if (p.by) ops.push([{ text, by }]); else if (ops.length) ops[ops.length - 1].push({ text, by }); else plain.push({ text, by });
     }
   }
+  if (skip) return skip;
   const out: Omit<Step, "products"> & { [k: string]: unknown } = {}, sides: { above: Line[]; below: Line[] } = { above: [], below: [] };
   const cyc: { in: string[]; out: string[]; name: string[] } = { in: [], out: [], name: [] }, yields: string[] = [];
   const add = (k: "reagents" | "catalysts" | "solvents", t: string) => ((out[k] as string[] | undefined) ?? (out[k] = [])).push(t);
@@ -245,6 +266,7 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
     if (/^[-−](?=\s|\D)/.test(t) && !/^[-−]\s*\d/.test(t)) { free("below", "less", t); continue; }
     if (/^\+/.test(t)) { free("above", "more", t); continue; }
     const k = kindOf(t);
+    if (k === "below") { free("below", k, t); continue; }
     last = undefined;
     if (k === "yield") yields.push(t);
     else if (k === "temperature" || k === "time" || k === "atmosphere") join(k, t);
@@ -332,9 +354,11 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (chain) {
       const c = chain, first = c.start[0], end = c.steps[c.steps.length - 1].products;
       chain = undefined;
-      // A chain back to its first compound (its number, or its text again) is a catalytic cycle: step k runs from
-      // intermediate k to k + 1, the last back to the first.
-      if (c.start.length === 1 && end.length === 1 && c.steps.length > 1 && ((first.number !== undefined && end[0].from === first.number && !end[0].changes) || (first.text !== undefined && end[0].text === first.text && String(end[0].labels) === String(first.labels)))) {
+      // A chain back to its first compound (its number, or its text again) with a title (its centre) or a step with +x
+      // or -x is a catalytic cycle: step k runs from intermediate k to k + 1, the last back to the first. With neither,
+      // it is a scheme when a step has a yield or a line over or under its arrow, which a cycle's steps do not take.
+      const back = c.start.length === 1 && end.length === 1 && c.steps.length > 1 && ((first.number !== undefined && end[0].from === first.number && !end[0].changes) || (first.text !== undefined && end[0].text === first.text && String(end[0].labels) === String(first.labels)));
+      if (back && (c.heads.length || c.steps.some((s) => cut(s.conditions, (i) => sepAt(s.conditions, i)).some((x) => /^\s*(?:\+|[-−](?!\s*\d))/.test(x.text))))) {
         if (c.steps.some((s) => s.products.length !== 1)) return `Line ${c.steps[0].line}: a cycle has one intermediate a step`;
         const steps: Record<string, unknown>[] = [];
         for (const [k, s] of c.steps.entries()) {
@@ -352,6 +376,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof x === "string") return `Line ${s.line}: ${x}`;
         steps.push({ ...x, ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
+      if (back && !steps.some((s) => s.yield || s.above || s.below)) return `Line ${c.steps[0].line}: the steps come back to ${first.number ?? first.text}, so they read two ways: a catalytic cycle (write +x for what goes in, -x for what comes out) or a scheme (give a step its yield)`;
       ops.push({ tool: "reaction", args: { start: c.start, steps } });
     }
     if (grid) {
@@ -381,6 +406,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     }
     const split = arrowsOf(line);
     if (typeof split === "string") return `Line ${at}: ${split}`;
+    const smiles = !split.arrows.length && /^([^\s>]+)>([^\s>]+)>([^\s>]+)$/.exec(line);
+    if (smiles) return `Line ${at}: "${line.slice(0, 40)}" is a reaction SMILES with agents: write ${smiles[1].slice(0, 20)} -> ${smiles[3].slice(0, 20)}, ${smiles[2].slice(0, 20)}`;
     // A scope's core: a SMILES with {R} groups, ending with a colon or after "core:". Lines R=Me (5) 80% are its
     // compounds.
     if (!split.arrows.length && line.includes("{") && (/:$/.test(line) || /^core\b/i.test(line))) {
@@ -431,7 +458,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         // A compound of the scope: its groups (R=Me, Ar=Ph), then its number and caption.
         const tail = /\s(?=[([]|\*\*|")|$/.exec(t)!, own = compound(`x${t.slice(tail.index)}`, known), values = new Map<string, string>();
         if (typeof own === "string") return `Line ${at}: ${own}`;
-        for (const kv of t.slice(0, tail.index).replace(/\s*=\s*/g, "=").split(/[,;]\s*|\s+/).filter(Boolean)) {
+        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=.
+        const given = t.slice(0, tail.index).replace(/\s*=\s*/g, "=");
+        for (const kv of cut(given, (i) => sepAt(given, i)).flatMap((x) => x.text.split(/\s+(?=[^\s=]+=)/)).map((x) => x.trim()).filter(Boolean)) {
           const m = /^([^=]+)=(.+)$/.exec(kv), k = m?.[1].trim();
           if (!m || !core.slots.includes(k!)) return `Line ${at}: "${kv.slice(0, 40)}" is not a group of the core (${core.slots.join(", ")}): write R=Me`;
           values.set(k!, m[2].trim());
@@ -451,5 +480,12 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   if (!ops.length) return "There is nothing to draw: write one reaction a line (A + B -> C, conditions), or compounds";
   if (rest.kind !== undefined && (ops.length > 1 || rest.kind !== ops[0].tool)) return `kind does not go with lines, which draw ${ops.length > 1 ? "several things" : `a ${ops[0].tool}`}: leave kind out`;
   delete rest.kind;
+  // Several drawings take only what the reply is to have; where each goes is for one drawing.
+  const one = ops.length > 1 && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
+  if (one) return `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
   return ops.length === 1 ? { op: ops[0].tool, args: { ...ops[0].args, ...rest } } : { op: "batch", args: { steps: ops, ...rest } };
 }
+
+/** fromLines' result as the call that draws it: a kind of draw, or a change of several operations (a batch is drawn
+ * as change draws one). For the checks and the model test, which call the tools as an AI app does. */
+export const callOf = (r: { op: string; args: any }): [string, unknown] => (r.op === "batch" ? ["change", { operations: r.args.steps.map((s: { tool: string; args: object }) => (s.tool === "text" ? { op: "text", ...s.args } : { op: "draw", kind: s.tool, ...s.args })), ...(({ steps: _, ...reply }) => reply)(r.args) }] : ["draw", { kind: r.op, ...r.args }]);
