@@ -517,6 +517,8 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 // either side of its bond (MeO as OMe: labels.ts attachmentFirst). NC is the nitrile written from the left (NC–R), as
 // an AI app copies it from a picture: Octet's own reading of NC, bond on N, is an isocyanide.
 const kept = (label: string) => (label === "NC" ? "CN" : attachmentFirst(label));
+// An atom's label is the one an AI app names (a hint's atom, a colour's key): as it gave it, or as Octet kept it.
+const isLabel = (text: string | undefined, name: string) => text !== undefined && (text === name || text === kept(name));
 // An atom with the label an AI app gives it, set as the editor sets a typed label. Ar on an atom with a bond is an
 // aryl group, as it is for a *: argon has no bonds.
 function labelled(m: Mol, i: number, label: string): Mol {
@@ -615,7 +617,7 @@ const hinted = (o: Orient) => o.rotate !== undefined || !!o.flip || !!o.geometry
 function atomNamed(m: Mol, name: string): number | undefined {
   const n = /^#(\d{1,4})$/.exec(name.trim());
   if (n) return Number(n[1]) < m.atoms.length ? Number(n[1]) : undefined;
-  const i = m.atoms.findIndex((a) => a.text === name);
+  const i = m.atoms.findIndex((a) => isLabel(a.text, name));
   if (i >= 0) return i;
   const j = m.atoms.findIndex((a) => !a.text && a.label === name);
   return j >= 0 ? j : undefined;
@@ -691,7 +693,7 @@ function orient(m: Mol, o: Orient): Mol | string {
     if (pairs.length > 40) return "colours: at most 40";
     for (const [key, colour] of pairs) {
       if (typeof colour !== "string" || !COLOUR.test(colour)) return `colours: ${key.slice(0, 40)} takes #rrggbb, not ${String(colour).slice(0, 20)}`;
-      const hit = mol.atoms.map((a, i) => (a.text === key || (!a.text && a.label === key) ? i : -1)).filter((i) => i >= 0);
+      const hit = mol.atoms.map((a, i) => (isLabel(a.text, key) || (!a.text && a.label === key) ? i : -1)).filter((i) => i >= 0);
       if (!hit.length) return `colours: there is no atom ${key.slice(0, 40)}`;
       mol = { ...mol, atoms: mol.atoms.map((a, i) => (hit.includes(i) ? { ...a, colour } : a)) };
     }
@@ -1752,14 +1754,14 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
   }
   const { ok, failed, wrong, note } = await read(host, items.filter(isStructure).map(({ structure, caption: _c, text: _t, ...i }) => ({ ...i, text: structure })), ctx);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
-  const stray = colours.find(([key]) => !/^[A-Z][a-z]?$/.test(key) && !ok.some((x) => x.mol.atoms.some((y) => y.text === key || y.label === key)));
+  const stray = colours.find(([key]) => !/^[A-Z][a-z]?$/.test(key) && !ok.some((x) => x.mol.atoms.some((y) => isLabel(y.text, key) || y.label === key)));
   if (stray) return { text: `Octet drew nothing. element_colours: there is no element or label ${stray[0].slice(0, 40)}.`, error: true };
   await ctx.check();
   // Laid out twice (R5): first from estimated sizes, each row drawn as it is ready at about its place, so the user sees
   // the figure build up where it will be; then measured as drawn and moved to its exact place, with its brackets and
   // frames, in one step.
   let m = host.doc();
-  const [x0, y0] = origin(host, m), s = host.style(), k = 72 / 25.4 / s.bond, colourOf = new Map(colours as [string, string][]);
+  const [x0, y0] = origin(host, m), s = host.style(), k = 72 / 25.4 / s.bond, colourOf = new Map(colours.flatMap(([key, c]) => [[kept(key), c], [key, c]]) as [string, string][]);
   const framed = (p: PanelIn) => (p.frame ?? "none") !== "none", inner = (p: PanelIn) => (framed(p) ? PANEL_PAD : 0);
   type Size = { w: number; up: number; down: number; under?: number };
   // An item's size from its boxes: a structure's ink with its number and caption under it, or a text's box.

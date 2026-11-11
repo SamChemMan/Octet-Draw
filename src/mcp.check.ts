@@ -673,6 +673,16 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     assert.deepEqual([got[0], got[6], got[10]], ["C7H8O", "C7H5N", "C7H5N"], `MeO, NC and CN on ${smiles}`);
     assert.ok(!toSmiles(expandLabels(m)).includes("[C-]"), "NC for a * is no isocyanide");
   }
+  // A hint or a colour that names a label as the AI app gave it finds the label as Octet kept it.
+  fresh();
+  out = await call("draw_structures", { structures: [{ text: "*c1ccccc1", labels: ["MeO"], right: "MeO", colours: { MeO: "#C42B2B" } }] });
+  assert.ok(!out.isError, text(out));
+  assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
+  assert.ok(m.atoms.find((a) => a.text)!.location[0] > Math.max(...m.atoms.filter((a) => !a.text).map((a) => a.location[0])), "the label named by right is the atom furthest right");
+  fresh();
+  out = await call("draw_figure", { panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["MeO"] }]] }], element_colours: { MeO: "#C42B2B" } });
+  assert.ok(!out.isError, text(out));
+  assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
   // A label on an atom of a molecule, and one set with edit, are kept the same way.
   fresh();
   await call("draw_structures", { structures: [{ molecule: { atoms: [{ label: "MeO", x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], bonds: [{ from: 0, to: 1 }, { from: 1, to: 2 }] } }] });
