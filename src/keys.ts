@@ -289,6 +289,17 @@ export function tileTo(key: string, from: number, tiles: Rect[]): number | undef
   return row.reduce((a, b) => (off(b.r) < off(a.r) - 0.5 ? b : a)).k;
 }
 
+// A selection box dragged over Home's tiles: the tiles it touches (by key), with the ones selected before it began.
+// how: Shift adds them, ⌘ (Ctrl on Windows and Linux) turns each one over, as clicks do. A plain box takes its own only.
+export function boxPicks(box: Rect, tiles: (Rect & { key: string })[], before: ReadonlySet<string>, how?: "add" | "turn"): Set<string> {
+  const out = new Set(how ? before : []);
+  for (const t of tiles) {
+    if (t.x >= box.x + box.width || box.x >= t.x + t.width || t.y >= box.y + box.height || box.y >= t.y + t.height) continue;
+    if (how !== "turn" || !out.delete(t.key)) out.add(t.key);
+  }
+  return out;
+}
+
 // Feedback's keys (for testers, REL-8): ⌘ (Ctrl on Windows and Linux) held, with 1, 2 and 3 all pressed within
 // 400 ms. Only the presses count, as macOS sends no key-up while ⌘ is held. pressed: when each digit was last
 // pressed (ms); it is emptied when the keys are complete.
