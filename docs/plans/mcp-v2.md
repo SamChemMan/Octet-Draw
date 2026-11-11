@@ -1821,6 +1821,10 @@ next by one or two passes and by 10% in seconds, so one run proves nothing: comp
 | Lines, six tools | Haiku | 10, 12, 11 | 54, 50, 50 | 19, 18, 21 | 3, 0, 3 | 115,038, 114,485, 93,701 | 531, 525, 445 |
 | Round 3 (`6482004`) | Opus | 14, 14, 14 | 44, 45, 43 | 16, 17, 15 | 1, 1, 0 | 24,496, 25,120, 23,772 | 273, 275, 264 |
 | Round 3 | Haiku | 11, 11, 9 | 49, 52, 49 | 19, 19, 16 | 1, 3, 1 | 105,093, 92,981, 106,725 | 496, 438, 531 |
+| Round 3b (`877a97f`) | Opus | 11, 11, 12 | 42, 49, 42 | 14, 22, 14 | 0, 1, 0 | 23,279, 29,086, 24,374 | 251, 311, 258 |
+| Round 3b | Haiku | 11, 11, 11 | 55, 51, 47 | 22, 21, 19 | 4, 3, 2 | 102,450, 98,844, 85,085 | 475, 464, 395 |
+| Rounds 3 to 3c and elicitation (`b290c32`) | Opus | 14, 13, 14 | 42, 43, 42 | 14, 15, 14 | 0, 0, 0 | 26,661, 23,454, 23,720 | 284, 257, 261 |
+| Rounds 3 to 3c and elicitation | Haiku | 13, 12, 14 | 46, 46, 48 | 15, 17, 17 | 0, 0, 2 | 98,327, 99,249, 97,694 | 450, 460, 459 |
 
 (The old-tools rows used an earlier wording of the lab's own prompt, so read them against the rest for calls and
 passes only. Round 3's third Haiku run lost one job to a message that was not the chemist's.)
@@ -1844,9 +1848,20 @@ What the runs say:
 - **Models do not use changes** (`3[OBn>OTES]`) when they have the SMILES: copying is cheaper than thinking, and that
   is right.
 
-Kept for Sam: round 3's clearing step makes the `taxol-v1-job` replay read 170,273 characters against a kept 169,999
-(its later moves are fixed numbers tuned to the old shapes). The kept number is not raised and round 3 stays on
-`mcp/ai3` until he says which: accept the number, or record the replay again.
+- **Round 3b made one thing worse, and the runs caught it.** Its new route example put the second reactant among the
+  conditions, and a start line `A + B` with no arrow was read as one salt, so both models lost the two three-step jobs
+  in 10 of 12 tries. Round 3c put it right: 12 of 12 on the last row.
+- **The last row is the best of each model**: Opus 257 to 284 s with 14 or 15 calls for 14 jobs, Haiku 12 to 14 jobs
+  right where it had 10 to 12. What still fails is the model's own chemistry (a cis ring fusion left unmarked, a wrong
+  iminium), which no wording of Octet's changes.
+- **Elicitation is not in these numbers.** The lab's jobs carry the user's answers, so the turn it saves (the model
+  asking the three questions) never happens there. Acceptance case 22 shows it works on a real build.
+- **The scope's `R=` with an amine is not used yet.** Both models still write the 12 products out. It costs nothing
+  to have, and the example shows it.
+
+The `taxol-v1-job` replay reads 170,273 characters since round 3 (169,999 before). Its row moves are fixed distances
+made up from this plan's notes, with no recording behind them to make again, so the kept number was changed to
+170,273 (Sam left the choice open, 11 November). Calls, warnings and structures right are the same.
 
 ### 19.6 As built (round 3b, 11 November 2026, branch `mcp/ai3`)
 
