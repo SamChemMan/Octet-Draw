@@ -355,17 +355,17 @@ function SelectionColour({ value, onChange }: { value: string; onChange: (hex: s
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
-  { id: "general", name: "General", icon: <GearSix size={16} />, words: "general updates version check structure" },
-  { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
-  { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={16} />, words: "drawing tools bonds rings draw" },
-  { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
+  { id: "general", name: "General", icon: <GearSix size={18} />, words: "general updates version check structure" },
+  { id: "document", name: "Document", icon: <FileText size={18} />, words: "document style page text" },
+  { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={18} />, words: "drawing tools bonds rings draw" },
+  { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={18} />, words: "keyboard shortcut hotkey keys" },
   // The Actions panel's one setting and the colours share a module, so no module holds a single setting.
-  { id: "appearance", name: "Appearance", icon: <Swatches size={16} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
-  { id: "files", name: "Import and export", icon: <Files size={16} />, words: "import export file clipboard" },
-  { id: "warnings", name: "Warnings", icon: <Warning size={16} />, words: "warnings chemical check structure errors problems" },
-  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={16} />, words: "dictionary names name to structure own words abbreviations add structure" },
+  { id: "appearance", name: "Appearance", icon: <Swatches size={18} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
+  { id: "files", name: "Import and export", icon: <Files size={18} />, words: "import export file clipboard" },
+  { id: "warnings", name: "Warnings", icon: <Warning size={18} />, words: "warnings chemical check structure errors problems" },
+  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure" },
   // The settings few people need, such as the rare formats in the File menu.
-  { id: "pro", name: "Pro", icon: <Toolbox size={16} />, words: "pro advanced expert rare" },
+  { id: "pro", name: "Pro", icon: <Toolbox size={18} />, words: "pro advanced expert rare" },
 ];
 // The module saved last time, as a module that is there now (Actions panel and Colours became Appearance).
 export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "colours" ? "appearance" : MODULES.find((m) => m.id === id)?.id ?? "document");
