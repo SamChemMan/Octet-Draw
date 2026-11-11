@@ -324,10 +324,11 @@ fn create_new_show_and_close() {
 #[ignore = "writes the registry and starts Octet: Windows CI"]
 fn started_for_word_waits_for_the_first_object() {
     register();
-    let before = octets_running();
     let mut octet_for_word = Command::new(octet()).arg("-Embedding").spawn().expect("octet runs");
     std::thread::sleep(Duration::from_secs(15));
     assert!(octet_for_word.try_wait().unwrap().is_none(), "Octet ended before Word's first call");
+    // Counted now, not before the start: the Octet of the test before this one can take a moment to end.
+    let running = octets_running();
     let machine = with_ole(|| {
         let stg = storage();
         let (site, _log, _site_obj) = site(stg.clone());
@@ -335,7 +336,7 @@ fn started_for_word_waits_for_the_first_object() {
         // SAFETY: COM calls on a live object.
         unsafe {
             OleRun(&obj).unwrap();
-            assert_eq!(octets_running(), before + 1, "the Octet that waited serves the object");
+            assert_eq!(octets_running(), running, "the Octet that waited serves the object");
             obj.Close(OLECLOSE_NOSAVE).unwrap();
         }
         machine
