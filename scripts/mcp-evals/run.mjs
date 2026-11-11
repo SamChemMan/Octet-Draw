@@ -31,13 +31,13 @@ const SYSTEM = "The user has connected Octet Draw, the chemical drawing app open
 // Each text's InChIKey, as Octet reads it, in a scratch drawing of the client's own (texts Octet cannot read are left out).
 async function keysOf(o, texts) {
   const keys = {};
-  await o.call("new_drawing", { for: "paper" });
+  await o.call("drawings", { action: "new", for: "paper" });
   const draw = async (batch) => {
-    const r = await o.call("draw_structures", { structures: batch.map((text) => ({ text })) });
+    const r = await o.call("draw", { kind: "structures", structures: batch.map((text) => ({ text })) });
     if (r.isError) { if (batch.length > 1) for (const t of batch) await draw([t]); return; }
     const d = await o.read(), made = r.structuredContent?.made ?? [];
     batch.forEach((text, j) => { const s = d.structures.find((x) => x.id === made[j]); if (s?.inchiKey) keys[text] = s.inchiKey; });
-    await o.call("delete", { ids: d.structures.map((s) => s.id) });
+    await o.call("change", { operations: [{ op: "delete", ids: d.structures.map((s) => s.id) }] });
   };
   for (let k = 0; k < texts.length; k += 10) await draw(texts.slice(k, k + 10));
   return keys;
@@ -54,9 +54,9 @@ async function prepare() {
   writeFileSync(keysFile, JSON.stringify(keys, null, 1));
   mkdirSync(join(OUT, "pictures"), { recursive: true });
   for (const c of pictures) {
-    await o.call("new_drawing", { for: "paper" });
-    await o.call(c.picture.reaction ? "draw_reaction" : "draw_structures", c.picture.reaction ?? c.picture);
-    const png = (await o.call("read_drawing", { picture: true })).content.find((x) => x.type === "image");
+    await o.call("drawings", { action: "new", for: "paper" });
+    await o.call("draw", c.picture.reaction ? { kind: "reaction", ...c.picture.reaction } : { kind: "structures", ...c.picture });
+    const png = (await o.call("read", { picture: true })).content.find((x) => x.type === "image");
     writeFileSync(join(OUT, "pictures", `${c.id}.png`), Buffer.from(png.data, "base64"));
   }
   return keys;
@@ -65,8 +65,8 @@ async function prepare() {
 // A case's own drawing and its setup, in a new session: the AI app's calls go to that drawing.
 async function start(c) {
   const o = await connect(`octet-evals-${c.id}`);
-  const made = await o.call("new_drawing", { for: c.for ?? "paper" });
-  if (made.isError) throw new Error(`${c.id}: new_drawing: ${made.text}`);
+  const made = await o.call("drawings", { action: "new", for: c.for ?? "paper" });
+  if (made.isError) throw new Error(`${c.id}: drawings new: ${made.text}`);
   for (const [tool, args] of c.setup ?? []) { const r = await o.call(tool, args); if (r.isError) throw new Error(`${c.id}: setup ${tool}: ${r.text}`); }
   return o;
 }
@@ -140,9 +140,9 @@ const AGENT = process.env.MCP_EVAL_DIR ?? "agent", state = (id) => join(OUT, AGE
 // The case's session, or (when Octet has let it go: it keeps 64) a new one in the case's drawing.
 async function resume(name, s) {
   const o = await connect(name, s.session);
-  if (!(await o.call("list_drawings")).isError) return o;
+  if (!(await o.call("drawings", { action: "list" })).isError) return o;
   const fresh = await connect(name);
-  await fresh.call("use_drawing", { drawing: s.drawing });
+  await fresh.call("drawings", { action: "use", drawing: s.drawing });
   return fresh;
 }
 if (cmd === "tools") {

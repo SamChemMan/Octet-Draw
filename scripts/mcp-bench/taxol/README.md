@@ -7,7 +7,7 @@ and 5 in Octet in about 40 tool calls and well over an hour, most of it Claude's
   `node scheme.mjs write` (in this folder) writes the three scheme files.
 - `structures.json`: the 20 compounds (2 to 20, and 1, taxol) in full, from `scheme.mjs` (`FULL`). The benchmark
   compares what is drawn with these by InChIKey.
-- `scheme1.json`, `scheme2.json`, `scheme3.json`: the three `draw_reaction` arguments as they were finally drawn
+- `scheme1.json`, `scheme2.json`, `scheme3.json`: the three reactions' arguments (`draw` with kind `reaction`) as they were finally drawn
   (groups as `*` with labels OTBS, OTBDPS, OBn, OTES, OAc, OBz).
 - `route.json`: the same three schemes in the v2 form (docs/plans/mcp-v2.md, sections 4 and 5.4): a compound that is
   an earlier one with a change is written `from` it with `changes`, and the atoms that change later have map numbers

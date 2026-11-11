@@ -3,7 +3,7 @@
 // Reaction and tidying a cycle with the editor's own code, and the drawing measured as the window draws it (render,
 // fitArrows and placeCaptions, with text measured as browser.ts measures it). There is no picture (a PNG needs a
 // renderer: resvg is MPL-2.0, which Sam has not approved), no other windows and no dialogs: export, save and print
-// answer that Octet cannot. get_file gives the drawing's text (CDXML, MOL, SDF, RXN, SMILES, InChI, CDX) as Export
+// answer that Octet cannot. A read with format gives the drawing's text (CDXML, MOL, SDF, RXN, SMILES, InChI, CDX) as Export
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";

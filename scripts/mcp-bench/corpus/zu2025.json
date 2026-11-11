@@ -10,8 +10,9 @@
       "kind": "S1",
       "figure": "Fig. 2a",
       "prompt": "Draw the model reaction of Fig. 2a from the attached paper: amine 1 and aryl bromide 2 giving the C-arylated product 3a and the N-arylated by-product 3b, with the standard conditions over and under the arrow. Use Ph, MeO and OMe labels as the paper does and show the stereocentre of 3a.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" }, { "text": "*c1ccc(Br)cc1", "labels": ["MeO"], "number": "2" }],
         "steps": [
           {
@@ -43,8 +44,9 @@
       "kind": "F1",
       "figure": "Fig. 2b",
       "prompt": "Draw the four ketone photocatalysts of Fig. 2b in a row, PC1 to PC4, each with its number and under it the yield and e.e. of 3a it gave.",
-      "tool": "draw_figure",
+      "tool": "draw",
       "arguments": {
+        "kind": "figure",
         "panels": [
           {
             "rows": [
@@ -72,8 +74,9 @@
       "kind": "F9",
       "figure": "Fig. 2c",
       "prompt": "Draw the chiral bis(imidazoline) ligand (R)-L of Fig. 2c, with tBu and nPr as labels and both stereocentres shown.",
-      "tool": "draw_structures",
+      "tool": "draw",
       "arguments": {
+        "kind": "structures",
         "structures": [
           {
             "text": "*C(*)[C@@H]1CN(c2cccc(*)c2)C(=N1)C1=N[C@@H](CN1c1cccc(*)c1)C(*)*",
@@ -89,8 +92,9 @@
       "kind": "F4",
       "figure": "Table 1",
       "prompt": "Draw the first part of the amine scope of Table 1 (acyclic and cyclic anilines, products 4 to 20) as a numbered grid, with NHBoc, Ph and the other groups as labels as the paper has them, and each stereocentre shown.",
-      "tool": "draw_structures",
+      "tool": "draw",
       "arguments": {
+        "kind": "structures",
         "structures": [
           { "text": "*c1ccc(cc1)[C@H](C)N*", "labels": ["NHBoc", "Ph"], "number": "4" },
           { "text": "*c1ccc(cc1)[C@H](CCC)N*", "labels": ["NHBoc", "Ph"], "number": "5" },
@@ -138,8 +142,9 @@
       "kind": "S9",
       "figure": "Fig. 3a",
       "prompt": "Draw the two-step route of Fig. 3a to the glucagon receptor antagonist 81: amine 79 and the aryl bromide, with the arylation and then the ester hydrolysis as steps 1 and 2 over one arrow, and the yield and e.e. under it.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "CC(C)CNc1ccc(cc1)C(=O)NCCC(=O)OC", "number": "79" }, { "text": "2-(4-bromophenyl)-5-phenyl-1,3,4-oxadiazole" }],
         "steps": [
           {
@@ -156,8 +161,9 @@
       "kind": "S20",
       "figure": "Fig. 3b",
       "prompt": "Draw the arylation of Fig. 3b: amine 84 and 4-bromo-4'-chlorobiphenyl giving drug molecule 85, with both stereocentres of 85 shown, CO2Et as a label, and the yield and d.r. under the arrow.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "*[C@@H]1CCCN(C1)C(=O)c1ccc(NCC2CCCCC2)cc1", "labels": ["CO2Et"], "number": "84" },
           { "text": "4-bromo-4'-chlorobiphenyl" }
@@ -183,8 +189,9 @@
       "kind": "S1",
       "figure": "Fig. 3c",
       "prompt": "Draw the one-step synthesis of drug molecule 88 in Fig. 3c: amine 87 and the aryl bromide by name, the product with its stereocentre shown and CO2Me as a label, and the yield and e.e. under the arrow.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "4'-(tert-butyl)-N-isopentyl-[1,1'-biphenyl]-4-amine", "number": "87" },
           { "text": "methyl 3-(4-bromobenzamido)propanoate" }
@@ -207,8 +214,9 @@
       "kind": "S11",
       "figure": "Fig. 4a",
       "prompt": "Draw the radical trapping experiment of Fig. 4a (top): amine 1 and methyl 4-bromobenzoate, with the added olefin drawn as a structure over the arrow, giving the trapped adduct 113 and the arylation product 50.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" }, { "text": "*c1ccc(Br)cc1", "labels": ["CO2Me"] }],
         "steps": [
           {
@@ -235,8 +243,9 @@
       "kind": "S18",
       "figure": "Fig. 4b",
       "prompt": "Draw the stoichiometric experiment of Fig. 4b: amine 1 and the nickel(II) aryl bromide complex C (drawn in full, with tBu and nPr as labels) giving product 46, with the conditions over and under the arrow.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "*NCCCC*", "labels": ["Ph", "Ph"], "number": "1" },
           {
@@ -267,8 +276,9 @@
       "kind": "S13",
       "figure": "Fig. 4d",
       "prompt": "Draw the nickel cycle of the proposed mechanism in Fig. 4d: intermediates A to D with L, Ar and Alkyl as labels, the step names inside, and what comes in and goes out at each step.",
-      "tool": "draw_cycle",
+      "tool": "draw",
       "arguments": {
+        "kind": "cycle",
         "intermediates": [
           { "text": "*[Ni]Br", "labels": ["L"], "number": "A" },
           { "text": "*[Ni](Br)(Br)*", "labels": ["L", "Ar"], "number": "B" },

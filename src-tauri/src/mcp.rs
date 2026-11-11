@@ -201,7 +201,7 @@ pub fn mcp_status(mcp: State<'_, Mcp>) -> Option<Info> {
     mcp.running.lock().unwrap().as_ref().map(|(i, _)| i.clone())
 }
 
-// The session's drawing from now on (use_drawing, new_drawing). The window must be one of Octet's drawings.
+// The session's drawing from now on (drawings use and new). The window must be one of Octet's drawings.
 #[tauri::command]
 pub fn mcp_target(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: String) -> Result<(), String> {
     if !crate::windows::ours(&drawing) || app.get_webview_window(&drawing).is_none() {
@@ -547,7 +547,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
                 return respond(&mut stream, "200 OK", &serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": {} }).to_string(), None);
             }
             // The session's drawing; else the window in front, which it keeps. A drawing that has closed is lost: the
-            // page says so, and list_drawings and use_drawing still work. Reading a drawing's resource goes to it.
+            // page says so, and drawings list and use still work. Reading a drawing's resource goes to it.
             let open = session.drawing.as_ref().filter(|d| app.get_webview_window(d).is_some()).cloned();
             let lost = session.drawing.clone().filter(|_| open.is_none());
             if session.drawing.is_none() {

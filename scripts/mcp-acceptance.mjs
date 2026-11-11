@@ -39,7 +39,7 @@ async function client(name) {
     const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
   };
-  const read = async () => (await call("read_drawing", { detail: "full" })).structuredContent;
+  const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const headers = () => ({ authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", "mcp-session-id": session });
   // Each server-sent event's message, as it comes: onEvent may return false to stop reading.
   const events = async (r, onEvent) => {
@@ -118,22 +118,22 @@ const SCHEME = { start: [{ text: "benzaldehyde", number: "1" }], steps: [
 const CASES = {
   async 1(a) {
     console.log("1. Compound 5 with a carbon of six bonds: warned, then fixed");
-    const made = await a.call("new_drawing", { for: "paper" });
-    check(!made.isError && made.structuredContent?.opened, "new_drawing gives the drawing", made.text);
-    const r = await a.call("draw_structures", { structures: [{ text: "OC(=O)C(C)(C)(C)(C)c1ccccc1", number: "5" }] });
+    const made = await a.call("drawings", { action: "new", for: "paper" });
+    check(!made.isError && made.structuredContent?.opened, "drawings new gives the drawing", made.text);
+    const r = await a.call("draw", { kind: "structures", structures: [{ text: "OC(=O)C(C)(C)(C)(C)c1ccccc1", number: "5" }] });
     check(r.structuredContent?.warnings?.some((w) => /6 bonds/.test(w)), "the result names the warning", r.text);
     let d = await a.read();
     check(d.experiment === undefined && !(d.reagentTables ?? []).length, "a paper drawing is not an experiment page", JSON.stringify(d.experiment));
-    check(d.warnings.length === 1 && d.warnings[0].structure === d.structures[0].id, "read_drawing gives the warning on the structure", JSON.stringify(d.warnings));
+    check(d.warnings.length === 1 && d.warnings[0].structure === d.structures[0].id, "read gives the warning on the structure", JSON.stringify(d.warnings));
     check(new RegExp(`^${d.structures[0].id}\\.\\d+$`).test(d.warnings[0]?.atom ?? ""), "and on its atom, by the atom's id", d.warnings[0]?.atom);
-    const fix = await a.call("replace_structure", { structure: "5", text: "2-methyl-2-phenylpropanoic acid" });
-    check(!fix.isError, "replace_structure takes the compound number as the id", fix.text);
+    const fix = await a.call("change", { operations: [{ op: "replace", structure: "5", text: "2-methyl-2-phenylpropanoic acid" }] });
+    check(!fix.isError, "replace takes the compound number as the id", fix.text);
     d = await a.read();
     check(d.warnings.length === 0 && d.structures[0]?.formula === "C10H12O2" && d.structures[0].number === "5", "fixed, still compound 5", JSON.stringify(d.structures.map((s) => [s.formula, s.number])));
   },
   async 2(a) {
     console.log("2. The three-step nitrostyrene scheme");
-    const r = await a.call("draw_reaction", SCHEME);
+    const r = await a.call("draw", { kind: "reaction", ...SCHEME });
     check(!r.isError, "drawn", r.text);
     const d = await a.read(), again = await a.read();
     const scheme = d.reactions.find((x) => x.steps.length === 3);
@@ -144,11 +144,11 @@ const CASES = {
   },
   async 3(a) {
     console.log("3. The esterification below it: the clash of numbers warned, then renumbered");
-    await a.call("draw_reaction", { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] });
+    await a.call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] });
     let d = await a.read();
     check(d.warnings.some((w) => /number 1 is on more than one/.test(w.message)), "the clash is a warning", JSON.stringify(d.warnings));
     const ester = d.structures.find((s) => s.formula === "C4H8O2");
-    const re = await a.call("set_number", { structure: ester?.id ?? "?", number: "6" });
+    const re = await a.call("change", { operations: [{ op: "number", structure: ester?.id ?? "?", number: "6" }] });
     check(!re.isError, "renumbered", re.text);
     d = await a.read();
     check(!d.warnings.length, "no warnings now", JSON.stringify(d.warnings));
@@ -159,7 +159,7 @@ const CASES = {
     let d = await a.read();
     const r = d.reactions.find((x) => x.products.some((p) => d.structures.find((s) => s.id === p)?.number === "6"));
     const ids = r ? [...r.steps.flatMap((s) => [s.arrow, ...s.before]), ...r.products] : [];
-    const del = await a.call("delete", { ids });
+    const del = await a.call("change", { operations: [{ op: "delete", ids }] });
     check(!del.isError, "deleted", del.text);
     d = await a.read();
     check(!d.captions.some((c) => ["+", "H2SO4 (cat.)", "reflux", "6"].includes(c.text.trim())), "no plus signs, conditions or number left", JSON.stringify(d.captions.map((c) => c.text)));
@@ -167,24 +167,24 @@ const CASES = {
   },
   async 5(a) {
     console.log("5. The ethyl acetate experiment page");
-    const made = await a.call("new_drawing", { for: "experiment" });
+    const made = await a.call("drawings", { action: "new", for: "experiment" });
     check(!made.isError, "new experiment page", made.text);
-    await a.call("draw_reaction", { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4"], below: ["reflux, 4 h", "90%"], products: [{ text: "ethyl acetate" }] }] });
-    const f = await a.call("fill_experiment", { details: { title: "Ethyl acetate", date: "4 November 2026", notebook: "SE-112" }, amounts: [{ of: "acetic acid", mass: "6.0 g", limiting: true }, { of: "ethanol", moles: "300 mmol" }, { of: "H2SO4", volume: "0.1 mL" }, { of: "ethyl acetate", measured: "7.9 g" }] });
+    await a.call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4"], below: ["reflux, 4 h", "90%"], products: [{ text: "ethyl acetate" }] }] });
+    const f = await a.call("advanced", { tool: "fill_experiment", args: { details: { title: "Ethyl acetate", date: "4 November 2026", notebook: "SE-112" }, amounts: [{ of: "acetic acid", mass: "6.0 g", limiting: true }, { of: "ethanol", moles: "300 mmol" }, { of: "H2SO4", volume: "0.1 mL" }, { of: "ethyl acetate", measured: "7.9 g" }] } });
     check(!f.isError && !/cannot read|no column/.test(f.text), "every amount taken, H2SO4 included", f.text);
-    const p = await a.call("add_text", { text: "Acetic acid (6.0 g, 100 mmol) and ethanol (13.8 g, 300 mmol) were heated at reflux with conc. H2SO4 (0.1 mL) for 4 h. Distillation gave ethyl acetate (7.9 g, 90%)." });
+    const p = await a.call("change", { operations: [{ op: "text", text: "Acetic acid (6.0 g, 100 mmol) and ethanol (13.8 g, 300 mmol) were heated at reflux with conc. H2SO4 (0.1 mL) for 4 h. Distillation gave ethyl acetate (7.9 g, 90%)." }] });
     check(!p.isError, "procedure added", p.text);
     const d = await a.read();
     check(d.experiment?.title === "Ethyl acetate", "details set", JSON.stringify(d.experiment));
     const cols = d.reagentTables?.[0]?.columns ?? [], col = (key) => cols.find((c) => c.key === key);
     check(col("r:C2H4O2")?.typed.mass === 6 && col('r:"H2SO4"')?.typed.volume === 0.1, "amounts kept as typed", JSON.stringify(cols.map((c) => [c.key, c.typed])));
     check(col('r:"H2SO4"')?.formula === "H2SO4" && Math.abs(col('r:"H2SO4"').mw - 98.07) < 0.01, "H2SO4 has its column, with its formula", JSON.stringify(cols.map((c) => [c.key, c.formula, c.mw])));
-    check(Array.isArray(d.reagentTables?.[0]?.box), "read_drawing gives the reagent table's box");
+    check(Array.isArray(d.reagentTables?.[0]?.box), "read gives the reagent table's box");
     layout(d, "the page");
   },
   async 6(a) {
     console.log("6. ACS2: the page laid out again");
-    const s = await a.call("set_style", { page: "ACS2" });
+    const s = await a.call("advanced", { tool: "set_style", args: { page: "ACS2" } });
     check(!s.isError, "set_style", s.text);
     const d = await a.read();
     check(d.page === "ACS2", "the page is ACS2");
@@ -192,17 +192,17 @@ const CASES = {
   },
   async 8(a) {
     console.log("8. A Suzuki cycle: step names clear of each other and of the structures");
-    await a.call("new_drawing", { for: "paper" });
-    const r = await a.call("draw_cycle", { intermediates: [{ text: "[Pd]" }, { text: "Br[Pd]c1ccccc1" }, { text: "c1ccc(cc1)[Pd]c1ccccc1" }], centre: "Pd(PPh3)4", steps: [{ step: 0, in: "PhBr", name: "oxidative addition" }, { step: 1, in: "PhB(OH)2, base", out: "BrB(OH)2", name: "transmetalation" }, { step: 2, out: "Ph–Ph", name: "reductive elimination" }] });
+    await a.call("drawings", { action: "new", for: "paper" });
+    const r = await a.call("draw", { kind: "cycle", intermediates: [{ text: "[Pd]" }, { text: "Br[Pd]c1ccccc1" }, { text: "c1ccc(cc1)[Pd]c1ccccc1" }], centre: "Pd(PPh3)4", steps: [{ step: 0, in: "PhBr", name: "oxidative addition" }, { step: 1, in: "PhB(OH)2, base", out: "BrB(OH)2", name: "transmetalation" }, { step: 2, out: "Ph–Ph", name: "reductive elimination" }] });
     check(!r.isError, "drawn", r.text);
     let d = await a.read();
     layout(d, "the cycle");
     // A cycle's id is the whole cycle: moved, its intermediates go with it; deleted, nothing of it is left.
     const c = d.cycles[0]?.id, before = d.structures.map((s) => s.box[0]);
-    await a.call("move", { ids: [c], dx: 2, dy: 0 });
+    await a.call("change", { operations: [{ op: "move", ids: [c], dx: 2, dy: 0 }] });
     d = await a.read();
     check(d.structures.every((s, k) => Math.abs(s.box[0] - before[k] - 2) < 0.05), "moving the cycle moves its intermediates", JSON.stringify(d.structures.map((s) => s.box[0])));
-    await a.call("delete", { ids: [c] });
+    await a.call("change", { operations: [{ op: "delete", ids: [c] }] });
     d = await a.read();
     check(!d.cycles.length && !d.structures.length && !d.captions.length, "deleting the cycle leaves nothing of it", `${d.structures.length} structures, ${d.captions.length} captions`);
   },
@@ -210,40 +210,40 @@ const CASES = {
     console.log("9. Two sessions in two drawings, with a third window brought to the front");
     const [p, q] = [await client("acceptance-p"), await client("acceptance-q")];
     const other = { post: (body) => fetch(URL_, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }) };
-    // At the same time: each new_drawing goes to the window it opened, not to the other's.
-    const [dp, dq] = (await Promise.all([p, q].map((x) => x.call("new_drawing", { for: "paper" })))).map((r) => r.structuredContent?.opened);
+    // At the same time: each new drawing goes to the window it opened, not to the other's.
+    const [dp, dq] = (await Promise.all([p, q].map((x) => x.call("drawings", { action: "new", for: "paper" })))).map((r) => r.structuredContent?.opened);
     check(dp && dq && dp !== dq, "each session has its own new drawing, opened at the same time", `${dp} ${dq}`);
-    // A request with no session acts on the window in front, and use_drawing then brings that window to the front.
-    await other.post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "use_drawing", arguments: { drawing: "main" } } });
-    await p.call("draw_structures", { structures: [{ text: "benzene" }] });
-    await q.call("draw_structures", { structures: [{ text: "water" }] });
+    // A request with no session acts on the window in front, and drawings with use then brings that window to the front.
+    await other.post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "drawings", arguments: { action: "use", drawing: "main" } } });
+    await p.call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
+    await q.call("draw", { kind: "structures", structures: [{ text: "water" }] });
     const [rp, rq] = [await p.read(), await q.read()];
     check(rp.drawing.id === dp && same(rp.structures.map((s) => s.formula), ["C6H6"]), "session p drew in its drawing", JSON.stringify([rp.drawing.id, rp.structures.map((s) => s.formula)]));
     check(rq.drawing.id === dq && same(rq.structures.map((s) => s.formula), ["H2O"]), "session q drew in its drawing", JSON.stringify([rq.drawing.id, rq.structures.map((s) => s.formula)]));
   },
   async 10(a) {
     console.log("10. A grid of 200 structures");
-    await a.call("new_drawing", { for: "paper" });
+    await a.call("drawings", { action: "new", for: "paper" });
     const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
-    const r = await a.call("draw_structures", { structures: Array.from({ length: 200 }, (_, k) => ({ text: names[k % names.length], number: `S${k + 1}` })) });
+    const r = await a.call("draw", { kind: "structures", structures: Array.from({ length: 200 }, (_, k) => ({ text: names[k % names.length], number: `S${k + 1}` })) });
     check(!r.isError, "drawn", r.text.slice(0, 200));
     check(r.ms < 10_000, "under 10 s", `${r.ms} ms`);
     // With a progress token: progress as it goes, then the result, on one event stream.
-    await a.call("new_drawing", { for: "paper" });
+    await a.call("drawings", { action: "new", for: "paper" });
     const big = { structures: Array.from({ length: 60 }, (_, k) => ({ text: names[k % names.length] })) }, notes = [];
-    let s = await a.streamed("draw_structures", big, (p) => { notes.push(p); });
+    let s = await a.streamed("draw", { kind: "structures", ...big }, (p) => { notes.push(p); });
     check(s.type === "text/event-stream" && s.reply?.result && !s.reply.result.isError, "answered on an event stream", JSON.stringify(s.reply).slice(0, 200));
     check(notes.length >= 5 && notes.every((p, k) => p.total === 60 && (!k || p.progress > notes[k - 1].progress)), "progress for each ten structures", JSON.stringify(notes.slice(0, 3)));
     // notifications/cancelled after the first progress: the call stops and the drawing is as it was.
     const before = (await a.read()).structures.length;
-    s = await a.streamed("draw_structures", { structures: Array.from({ length: 200 }, (_, k) => ({ text: names[k % names.length] })) }, async (p, id) => { if (p.progress === 10) await a.post({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "test" } }); });
+    s = await a.streamed("draw", { kind: "structures", structures: Array.from({ length: 200 }, (_, k) => ({ text: names[k % names.length] })) }, async (p, id) => { if (p.progress === 10) await a.post({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "test" } }); });
     check(s.reply?.result?.isError && /was cancelled/.test(s.reply.result.content[0].text), "cancel stops the call", JSON.stringify(s.reply).slice(0, 200));
     const after = (await a.read()).structures.length;
     check(after === before, "and leaves the drawing as it was", `${before} then ${after}`);
   },
   async 17(a) {
     console.log("17. Prompts, drawing resources and a subscription");
-    const d = (await a.call("new_drawing", { for: "paper" })).structuredContent?.opened;
+    const d = (await a.call("drawings", { action: "new", for: "paper" })).structuredContent?.opened;
     const init = await a.post({ jsonrpc: "2.0", id: 900, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance", version: "1" } } });
     check(init.result?.capabilities?.resources?.subscribe && init.result.capabilities.prompts, "Octet offers resources and prompts", JSON.stringify(init.result?.capabilities));
     const prompts = (await a.post({ jsonrpc: "2.0", id: 901, method: "prompts/list" })).result?.prompts ?? [];
@@ -252,7 +252,7 @@ const CASES = {
     check(/Benzaldehyde was reduced/.test(got.result?.messages?.[0]?.content?.text ?? ""), "a prompt with its argument", JSON.stringify(got).slice(0, 200));
     const list = (await a.post({ jsonrpc: "2.0", id: 903, method: "resources/list" })).result?.resources?.map((r) => r.uri) ?? [];
     check(list.includes("octet://drawings") && list.includes(`octet://drawing/${d}`), "the new drawing is a resource", list.join(", "));
-    await a.call("draw_structures", { structures: [{ text: "benzene" }] });
+    await a.call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
     const json = await a.post({ jsonrpc: "2.0", id: 904, method: "resources/read", params: { uri: `octet://drawing/${d}` } });
     check(JSON.parse(json.result?.contents?.[0]?.text ?? "{}").structures?.[0]?.formula === "C6H6", "read as JSON", JSON.stringify(json).slice(0, 200));
     const cdxml = await a.post({ jsonrpc: "2.0", id: 905, method: "resources/read", params: { uri: `octet://drawing/${d}/cdxml` } });
@@ -264,7 +264,7 @@ const CASES = {
     // Subscribed: a change to the drawing sends resources/updated on the session's event stream.
     const updated = [], stop = await a.listen((m) => { if (m.method === "notifications/resources/updated") updated.push(m.params.uri); });
     await a.post({ jsonrpc: "2.0", id: 908, method: "resources/subscribe", params: { uri: `octet://drawing/${d}` } });
-    await a.call("draw_structures", { structures: [{ text: "water" }] });
+    await a.call("draw", { kind: "structures", structures: [{ text: "water" }] });
     await new Promise((r) => setTimeout(r, 1500));
     stop();
     check(updated.includes(`octet://drawing/${d}`), "a subscribed drawing tells the app it changed", JSON.stringify(updated));
@@ -273,22 +273,22 @@ const CASES = {
     console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
-    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw_reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
+    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw with kind reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
     r.send({ jsonrpc: "2.0", method: "notifications/initialized" });
     const tools = (await r.ask("tools/list")).result?.tools ?? [];
-    check(tools.length >= 20, "the tools", `${tools.length}`);
-    const d = (await r.ask("tools/call", { name: "new_drawing", arguments: { for: "paper" } })).result?.structuredContent?.opened;
+    check(tools.length === 5 && JSON.stringify(tools).length < 14000, "the five tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);
+    const d = (await r.ask("tools/call", { name: "drawings", arguments: { action: "new", for: "paper" } })).result?.structuredContent?.opened;
     const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
     const some = (k) => ({ structures: Array.from({ length: k }, (_, i) => ({ text: names[i % names.length] })) });
-    let res = await r.ask("tools/call", { name: "draw_structures", arguments: some(60), _meta: { progressToken: "p" } });
+    let res = await r.ask("tools/call", { name: "draw", arguments: { kind: "structures", ...some(60) }, _meta: { progressToken: "p" } });
     const progress = r.notes.filter((m) => m.method === "notifications/progress" && m.params.progressToken === "p");
     check(!res.result?.isError && progress.length >= 5, "progress, then the result", `${progress.length} progress; ${JSON.stringify(res).slice(0, 120)}`);
-    res = await r.ask("tools/call", { name: "draw_structures", arguments: some(200), _meta: { progressToken: "q" } }, (id) => {
+    res = await r.ask("tools/call", { name: "draw", arguments: { kind: "structures", ...some(200) }, _meta: { progressToken: "q" } }, (id) => {
       const wait = setInterval(() => { if (r.notes.some((m) => m.params?.progressToken === "q")) { clearInterval(wait); r.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id } }); } }, 5);
     });
     check(/was cancelled/.test(res.result?.content?.[0]?.text ?? ""), "a cancel goes through while the call runs", JSON.stringify(res).slice(0, 160));
     await r.ask("resources/subscribe", { uri: `octet://drawing/${d}` });
-    await r.ask("tools/call", { name: "draw_structures", arguments: some(1) });
+    await r.ask("tools/call", { name: "draw", arguments: { kind: "structures", ...some(1) } });
     check(await until(() => r.notes.some((m) => m.method === "notifications/resources/updated" && m.params.uri === `octet://drawing/${d}`), 4000), "a drawing's update comes through", JSON.stringify(r.notes.filter((m) => !m.params?.progressToken)).slice(0, 200));
     check(!r.bad.length, "only MCP messages on standard output", r.bad.join(" | "));
     r.stop();
@@ -312,29 +312,29 @@ const CASES = {
     writeFileSync(server, readFileSync(fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url)), "utf8").replaceAll("mcp.json", "mcp-dev.json"));
     const b = stdio(process.execPath, [server]);
     await b.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-bundle", version: "1" } });
-    const read = await b.ask("tools/call", { name: "list_drawings", arguments: {} });
+    const read = await b.ask("tools/call", { name: "drawings", arguments: { action: "list" } });
     check(!read.result?.isError && read.result?.structuredContent, "the bundle's server reaches Octet", JSON.stringify(read).slice(0, 160));
     b.stop();
     rmSync(home, { recursive: true, force: true });
   },
   async 11(a) {
     console.log("11. Align and space evenly (Octet's Object > Align and Distribute)");
-    await a.call("new_drawing", { for: "paper" });
-    await a.call("draw_structures", { structures: [{ text: "benzene", number: "1" }, { text: "naphthalene", number: "2" }, { text: "pyridine", number: "3" }] });
-    await a.call("move", { ids: ["2"], dx: 0, dy: -2 });
-    let r = await a.call("arrange", { ids: ["1", "2", "3"], how: "top" });
+    await a.call("drawings", { action: "new", for: "paper" });
+    await a.call("draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "naphthalene", number: "2" }, { text: "pyridine", number: "3" }] });
+    await a.call("change", { operations: [{ op: "move", ids: ["2"], dx: 0, dy: -2 }] });
+    let r = await a.call("change", { operations: [{ op: "arrange", ids: ["1", "2", "3"], how: "top" }] });
     check(!r.isError, "align top", r.text);
     let d = await a.read(), tops = d.structures.map((s) => s.box[3]);
     check(Math.max(...tops) - Math.min(...tops) < 0.05, "their tops line up", JSON.stringify(tops));
-    r = await a.call("arrange", { ids: ["1", "2", "3"], how: "across" });
+    r = await a.call("change", { operations: [{ op: "arrange", ids: ["1", "2", "3"], how: "across" }] });
     d = await a.read();
     const b = d.structures.map((s) => s.box).sort((p, q) => p[0] - q[0]), gaps = [b[1][0] - b[0][2], b[2][0] - b[1][2]];
     check(!r.isError && Math.abs(gaps[0] - gaps[1]) < 0.05, "spaced evenly across", JSON.stringify(gaps));
   },
   async 12(a) {
     console.log("12. Conditions as data, read back as fields with formulas");
-    await a.call("new_drawing", { for: "paper" });
-    const r = await a.call("draw_reaction", { start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["MeNO2", "NH4OAc"], solvents: ["AcOH"], temperature: "reflux", time: "4 h", yield: "78%", products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] }] });
+    await a.call("drawings", { action: "new", for: "paper" });
+    const r = await a.call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["MeNO2", "NH4OAc"], solvents: ["AcOH"], temperature: "reflux", time: "4 h", yield: "78%", products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] }] });
     check(!r.isError, "drawn", r.text);
     const f = (await a.read()).reactions[0]?.steps[0]?.fields ?? {};
     check(JSON.stringify(f.reagents?.map((x) => [x.text, x.formula, x.resolved])) === JSON.stringify([["MeNO2", "MeNO2", true], ["NH4OAc", "NH4OAc", true]]), "reagents with their formulas", JSON.stringify(f.reagents));
@@ -342,7 +342,7 @@ const CASES = {
   },
   async 13(a) {
     console.log("13. The drawing as CDXML text, InChI and source in the reading");
-    const c = await a.call("get_file", { format: "cdxml" });
+    const c = await a.call("read", { format: "cdxml" });
     check(!c.isError && /<CDXML[\s>]/.test(c.structuredContent?.text ?? ""), "CDXML text", c.text.slice(0, 120));
     const d = await a.read();
     check(d.structures.every((s) => /^InChI=1S\//.test(s.inchi ?? "") && /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/.test(s.inchiKey ?? "")), "every structure has its InChI and InChIKey", JSON.stringify(d.structures.map((s) => s.inchiKey)));
@@ -351,9 +351,9 @@ const CASES = {
   async 14(a) {
     console.log("14. The same calls on a new drawing give the same drawing");
     const once = async () => {
-      await a.call("new_drawing", { for: "paper" });
-      await a.call("draw_reaction", SCHEME);
-      const d = await a.read(), c = (await a.call("get_file", { format: "cdxml" })).structuredContent?.text ?? "";
+      await a.call("drawings", { action: "new", for: "paper" });
+      await a.call("draw", { kind: "reaction", ...SCHEME });
+      const d = await a.read(), c = (await a.call("read", { format: "cdxml" })).structuredContent?.text ?? "";
       return { d: JSON.stringify({ ...d, drawing: undefined }), c: c.replace(/CreationDate="[^"]*"|ModificationDate="[^"]*"/g, "") };
     };
     const [p, q] = [await once(), await once()];
@@ -362,48 +362,48 @@ const CASES = {
   },
   async 15(a) {
     console.log("15. The scheme first on an empty A4 page: on the page");
-    await a.call("new_drawing", { for: "paper" });
-    await a.call("draw_reaction", SCHEME);
+    await a.call("drawings", { action: "new", for: "paper" });
+    await a.call("draw", { kind: "reaction", ...SCHEME });
     layout(await a.read(), "the scheme alone");
   },
   async 16(a) {
     console.log("16. A mechanism: a charge set, curly arrows from a lone pair and a bond, brackets with a mark");
-    await a.call("new_drawing", { for: "paper" });
-    await a.call("draw_structures", { structures: [{ text: "[OH-]" }, { text: "CBr" }] });
-    const full = async () => (await a.call("read_drawing", { atoms: true, detail: "full" })).structuredContent;
+    await a.call("drawings", { action: "new", for: "paper" });
+    await a.call("draw", { kind: "structures", structures: [{ text: "[OH-]" }, { text: "CBr" }] });
+    const full = async () => (await a.call("read", { atoms: true, detail: "full" })).structuredContent;
     let d = await full();
     const [oh, mebr] = d.structures, o = oh.atoms.find((x) => x.label === "O"), c = mebr.atoms.find((x) => x.label === "C"), cbr = mebr.bonds[0];
     check(o?.charge === -1, "hydroxide drawn with its charge", JSON.stringify(oh.atoms));
-    let r = await a.call("edit", { ids: [o.id], lone_pairs: 3 });
+    let r = await a.call("change", { operations: [{ op: "edit", ids: [o.id], lone_pairs: 3 }] });
     check(!r.isError, "lone pairs set", r.text);
-    r = await a.call("add_arrow", { kind: "curved", from: `${o.id}:pair`, to: c.id });
+    r = await a.call("change", { operations: [{ op: "arrow", kind: "curved", from: `${o.id}:pair`, to: c.id }] });
     check(!r.isError, "curved arrow from the lone pair to the carbon", r.text);
-    r = await a.call("add_arrow", { kind: "curved", from: cbr.id, to: mebr.atoms.find((x) => x.label === "Br").id, bend: -0.4 });
+    r = await a.call("change", { operations: [{ op: "arrow", kind: "curved", from: cbr.id, to: mebr.atoms.find((x) => x.label === "Br").id, bend: -0.4 }] });
     check(!r.isError, "curved arrow from the C–Br bond to Br", r.text);
-    r = await a.call("edit", { ids: [cbr.id], bond: "dashed" });
+    r = await a.call("change", { operations: [{ op: "edit", ids: [cbr.id], bond: "dashed" }] });
     check(!r.isError, "the breaking bond dashed", r.text);
-    r = await a.call("add_shape", { kind: "brackets", around: [mebr.id], mark: "‡" });
+    r = await a.call("change", { operations: [{ op: "shape", kind: "brackets", around: [mebr.id], mark: "‡" }] });
     check(!r.isError, "brackets with ‡", r.text);
     d = await full();
     check(d.arrows.filter((x) => x.kind === "curved").length === 2 && d.shapes?.[0]?.mark === "‡", "read back: two curved arrows and the bracket", JSON.stringify([d.arrows, d.shapes]));
     check(d.structures[1].bonds[0].kind === "dashed", "read back: the dashed bond", JSON.stringify(d.structures[1].bonds));
     // A straight arrow between two structures runs edge to edge (the headless session's case).
-    await a.call("new_drawing", { for: "paper" });
-    await a.call("draw_structures", { structures: [{ text: "acetone" }, { text: "benzene" }] });
+    await a.call("drawings", { action: "new", for: "paper" });
+    await a.call("draw", { kind: "structures", structures: [{ text: "acetone" }, { text: "benzene" }] });
     const two = await a.read();
-    r = await a.call("add_arrow", { kind: "reaction", from: two.structures[0].id, to: two.structures[1].id });
+    r = await a.call("change", { operations: [{ op: "arrow", kind: "reaction", from: two.structures[0].id, to: two.structures[1].id }] });
     check(!r.isError && !/overlaps/.test(r.text), "a reaction arrow between two structures, clear of both", r.text);
     layout(await a.read(), "the arrow between them");
   },
   async 19(a) {
     console.log("19. Speed: a batch with references, placement, boxes and a cropped picture (plan section 19)");
-    await a.call("new_drawing", { for: "paper" });
+    await a.call("drawings", { action: "new", for: "paper" });
     const png = (r) => r.content?.find((x) => x.type === "image")?.data.length ?? 0;
-    let r = await a.call("batch", { steps: [
-      { tool: "draw_structures", args: { structures: [{ text: "benzene", number: "1" }] } },
-      { tool: "draw_structures", args: { structures: [{ text: "toluene", number: "2" }], right_of: "$1.s[0]", gap: 2 } },
-      { tool: "add_text", args: { runs: [{ text: "Figure 1. ", bold: true }, { text: "Two arenes" }], below: "$1.s", align: "left" } },
-      { tool: "add_shape", args: { kind: "rounded", around: ["$1.s[0]", "$2.s[0]", "$3.t[0]"], fill: "solid", colour: "#EEF2F8" } },
+    let r = await a.call("change", { operations: [
+      { op: "draw", kind: "structures", structures: [{ text: "benzene", number: "1" }] },
+      { op: "draw", kind: "structures", structures: [{ text: "toluene", number: "2" }], right_of: "$1.s[0]", gap: 2 },
+      { op: "text", runs: [{ text: "Figure 1. ", bold: true }, { text: "Two arenes" }], below: "$1.s", align: "left" },
+      { op: "shape", kind: "rounded", around: ["$1.s[0]", "$2.s[0]", "$3.t[0]"], fill: "solid", colour: "#EEF2F8" },
     ], picture: true, detail: "full" });
     check(!r.isError, "the batch draws", r.text);
     check(r.ms < 2000, "in under 2 s", `${r.ms} ms`);
@@ -411,40 +411,40 @@ const CASES = {
     let d = await a.read();
     const box = (id) => d.structures.find((x) => x.id === id)?.box ?? d.captions.find((x) => x.id === id)?.box;
     check(Math.abs(sc.boxes[s1][2] + 2 - sc.boxes[s2][0]) < 0.05, "step 2 sits 2 bond lengths right of step 1, with its number", JSON.stringify([sc.boxes[s1], sc.boxes[s2]]));
-    check(same(sc.boxes[s2].map((v) => Math.round(v)), box(s2) && sc.boxes[s2].map((v) => Math.round(v))), "the result's boxes are read_drawing's", JSON.stringify([sc.boxes[s2], box(s2)]));
+    check(same(sc.boxes[s2].map((v) => Math.round(v)), box(s2) && sc.boxes[s2].map((v) => Math.round(v))), "the result's boxes are read's", JSON.stringify([sc.boxes[s2], box(s2)]));
     const caption = d.captions.find((c) => c.id === sc.steps[2].t[0]);
     check(caption?.runs?.length === 2 && caption.runs[0].bold, "the caption keeps its runs", JSON.stringify(caption));
     layout(d, "the batch");
     // A PNG's long side, from its header.
     const side = (res) => { const b = Buffer.from(res.content?.find((x) => x.type === "image")?.data ?? "", "base64"); return b.length > 24 ? Math.max(b.readUInt32BE(16), b.readUInt32BE(20)) : 0; };
     check(side(r) > 0 && side(r) <= 800, "a write result's picture is at most 800 px", side(r));
-    const one = await a.call("read_drawing", { ids: [s1], picture: true }), whole = await a.call("read_drawing", { picture: true, picture_size: "small" });
+    const one = await a.call("read", { ids: [s1], picture: true }), whole = await a.call("read", { picture: true, picture_size: "small" });
     check(png(one) > 0 && png(one) < png(r), "a picture of one id is smaller than the batch's", `${png(one)} / ${png(r)}`);
     check(side(whole) <= 600, "picture_size small is at most 600 px", side(whole));
     // One undo step takes away the whole batch.
-    await a.call("run_command", { command: "undo" });
+    await a.call("advanced", { tool: "run_command", args: { command: "undo" } });
     d = await a.read();
     check(d.structures.length === 0 && !(d.shapes ?? []).length, "one Undo takes away the whole batch", JSON.stringify(d.structures.map((x) => x.id)));
     // A failing step leaves the drawing as it was, and names the step.
-    await a.call("draw_structures", { structures: [{ text: "phenol" }] });
+    await a.call("draw", { kind: "structures", structures: [{ text: "phenol" }] });
     const before = await a.read();
-    r = await a.call("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "water" }] } }, { tool: "move", args: { ids: ["s999"], dx: 1, dy: 0 } }] });
+    r = await a.call("change", { operations: [{ op: "draw", kind: "structures", structures: [{ text: "water" }] }, { op: "move", ids: ["s999"], dx: 1, dy: 0 }] });
     check(r.isError && /Step 2 \(move\) failed/.test(r.text), "a failing step is named", r.text);
     d = await a.read();
     check(same(d.structures.map((x) => x.id), before.structures.map((x) => x.id)), "and the drawing is as it was", JSON.stringify(d.structures.map((x) => x.id)));
-    // add_arrow between two points (a dividing line).
-    r = await a.call("add_arrow", { kind: "line", from: [-10, -12], to: [10, -12] });
-    check(!r.isError, "add_arrow takes two points", r.text);
+    // An arrow between two points (a dividing line).
+    r = await a.call("change", { operations: [{ op: "arrow", kind: "line", from: [-10, -12], to: [10, -12] }] });
+    check(!r.isError, "an arrow takes two points", r.text);
   },
   async 20(a) {
-    console.log("20. draw_figure: a two-panel figure like Elliot's, in one call");
-    await a.call("new_drawing", { for: "paper" });
+    console.log("20. A figure: a two-panel figure like Elliot's, in one call");
+    await a.call("drawings", { action: "new", for: "paper" });
     const M = (x, y) => ({ label: "M", x, y, colour: "#6B35B8" });
     const s1 = { atoms: [M(0, 0), { label: "O", x: 1, y: 0.6 }, { label: "Si(OtBu)2", x: 1.9, y: 0 }, { label: "O", x: 1, y: -0.6 }, { label: "OSi", x: -1.2, y: 0.8 }, { label: "OSi", x: -1.4, y: -0.1 }, { label: "OSi", x: -1.1, y: -1 }],
       bonds: [{ from: 0, to: 1 }, { from: 1, to: 2 }, { from: 2, to: 3 }, { from: 3, to: 0 }, { from: 0, to: 4, kind: "hashwedge" }, { from: 0, to: 5, kind: "wedge" }, { from: 0, to: 6, kind: "hashwedge" }] };
     const s2 = { atoms: [M(0, 0), { label: "OSiPh3", x: 0, y: 1.2 }, { label: "OSiPh3", x: 0, y: -1.2 }, { label: "OSiPh3", x: 1.1, y: 0.4 }, { label: "OSiPh3", x: 1.1, y: -0.4 }, { label: "MeCN", x: -1.1, y: 0.4 }, { label: "MeCN", x: -1.1, y: -0.4 }],
       bonds: [{ from: 0, to: 1 }, { from: 0, to: 2 }, { from: 0, to: 3, kind: "hashwedge" }, { from: 0, to: 4, kind: "wedge" }, { from: 0, to: 5, kind: "hashwedge" }, { from: 0, to: 6, kind: "wedge" }] };
-    const r = await a.call("draw_figure", { panels: [
+    const r = await a.call("draw", { kind: "figure", panels: [
       { title: "A  Siloxides", subtitle: "Mazzanti et al.", frame: "fill", fill: "#EEF2F8", rows: [[
         { molecule: s1, number: "S-1", caption: [{ text: "M = " }, { text: "Ce, Tb, Pr", colour: "#6B35B8" }] },
         { molecule: s2, number: "S-2", caption: "M = Ce, Pr, Tb" },
@@ -456,7 +456,7 @@ const CASES = {
         { structure: "CCN(CC)P(=N[Tb])(N(CC)CC)N(CC)CC", number: "I-2", brackets: "brackets", mark: "n" },
       ]] },
     ], colour_by_element: true, picture: true, detail: "full" });
-    check(!r.isError, "draw_figure draws", r.text);
+    check(!r.isError, "draw draws the figure", r.text);
     check(r.ms < 3000, "in under 3 s", `${r.ms} ms`);
     const fig = r.structuredContent?.figure, d = await a.read();
     const frames = (fig ?? []).map((p) => d.shapes?.find((x) => x.id === p.frame)?.box);
@@ -472,10 +472,10 @@ const CASES = {
   },
   async 7(a) {
     console.log("7. Export: the dialog opens, and the next call still answers");
-    const e = await a.call("export", { format: "pdf" });
+    const e = await a.call("advanced", { tool: "export", args: { format: "pdf" } });
     check(!e.isError, "the Export dialog opens on PDF", e.text);
-    const d = await a.call("read_drawing", {});
-    check(!d.isError, "read_drawing still answers", d.text.slice(0, 200));
+    const d = await a.call("read", {});
+    check(!d.isError, "read still answers", d.text.slice(0, 200));
   },
 };
 
@@ -484,7 +484,7 @@ const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "
 const a = await client("acceptance");
 // Cases 2 to 4 run in case 1's drawing, and 6 in case 5's; run alone, each starts its own.
 for (const k of order) {
-  if (["2", "3", "4"].includes(k) && !order.includes("1") && k === order[0]) await a.call("new_drawing", { for: "paper" });
+  if (["2", "3", "4"].includes(k) && !order.includes("1") && k === order[0]) await a.call("drawings", { action: "new", for: "paper" });
   try { await CASES[k](a); } catch (e) { check(false, `case ${k} ran to the end`, e.message); }
 }
 console.log(failed ? `${failed} check${failed === 1 ? "" : "s"} failed.` : "Every check passed.");

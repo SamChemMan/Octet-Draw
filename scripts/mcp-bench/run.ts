@@ -59,11 +59,11 @@ async function run(c: Case): Promise<Measure> {
     m.coerced += content.slice(1).reduce((n, x) => n + (x.text?.split("\n").length ?? 0), 0);
   }
   // The finished drawing, read in full outside the job's count.
-  const end = (await rpc("tools/call", { name: "read_drawing", arguments: { detail: "full" } })).result?.structuredContent;
+  const end = (await rpc("tools/call", { name: "read", arguments: { detail: "full" } })).result?.structuredContent;
   const want = Object.entries(c.expect?.smiles ?? {});
   if (want.length) [m.right, m.of] = [want.filter(([number, text]) => end?.structures?.some((s: any) => s.number === number && s.inchiKey === keyOf(text))).length, want.length];
   m.warnings = end?.warnings?.length;
-  m.summary = (await rpc("tools/call", { name: "read_drawing", arguments: {} })).result?.content?.[0]?.text?.length;
+  m.summary = (await rpc("tools/call", { name: "read", arguments: {} })).result?.content?.[0]?.text?.length;
   return m;
 }
 

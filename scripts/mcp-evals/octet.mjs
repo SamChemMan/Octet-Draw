@@ -34,6 +34,6 @@ export async function connect(name, session) {
     return { ...res, text: res.content?.find((c) => c.type === "text")?.text ?? "" };
   };
   const tools = async () => (await post({ jsonrpc: "2.0", id: ++n, method: "tools/list" })).result.tools;
-  const read = async () => (await call("read_drawing", { detail: "full" })).structuredContent;
+  const read = async () => (await call("read", { detail: "full" })).structuredContent;
   return { call, tools, read, instructions, get session() { return session; } };
 }

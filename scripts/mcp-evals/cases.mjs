@@ -7,7 +7,7 @@
 //   setup      calls made before the AI app starts (a drawing to read or fix), with the case's client
 //   picture    a structure or scheme Octet draws first, given to the AI app as a PNG (see run.mjs pictures)
 //   want       SMILES Octet turns into InChIKeys before the run, so checks compare structures, not strings
-//   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read_drawing (detail full) at
+//   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read (detail full) at
 //              the end, answer the AI app's last text, key(smiles) the InChIKey, loose(smiles) its first block (no
 //              stereo), answered the InChIKeys of the SMILES in the answer (answerSmiles: true)
 
@@ -82,7 +82,7 @@ export const WANT = [...new Set(Object.values(S).flat())];
 const SUZUKI = "4-Bromoanisole (1.87 g, 10.0 mmol), phenylboronic acid (1.46 g, 12.0 mmol), Pd(PPh3)4 (0.35 g, 0.30 mmol) and K2CO3 (2.76 g, 20.0 mmol) in toluene/EtOH/H2O (4:1:1, 30 mL) were stirred at 80 °C under N2 for 12 h. Column chromatography gave 4-methoxybiphenyl as a white solid (1.62 g, 88%).";
 const SUZUKI_DRAWN = { start: [{ text: S.bromoanisole }, { text: S.phenylboronic }], steps: [{ reagents: ["K2CO3"], catalysts: ["Pd(PPh3)4"], solvents: ["toluene/EtOH/H2O"], temperature: "80 °C", time: "12 h", yield: "88%", products: [{ text: S.methoxybiphenyl, number: "3" }] }] };
 
-// Elliot's figure as an agent drew it with draw_figure (plan section 20): the restyle case starts from it.
+// Elliot's figure as an agent drew it with draw, kind figure (plan section 20): the restyle case starts from it.
 const LANTHANIDE = JSON.parse(readFileSync(new URL("./lanthanide.json", import.meta.url), "utf8"));
 // The figure's five compound numbers, with or without spaces (S-1, S - 1), and its five structures.
 const figureParts = (d) => [[d.structures.length >= 5, "five structures", String(d.structures.length)], ...["S-1", "S-2", "S-3", "I-1", "I-2"].map((n) => [[...d.structures.map((s) => s.number ?? ""), words(d)].join(" ").replace(/\s/g, "").includes(n.toLowerCase()) || d.structures.some((s) => s.number?.replace(/\s/g, "") === n), `${n} is there`])];
@@ -138,22 +138,22 @@ export const CASES = [
     check: ({ d, loose }) => [...is(d, loose(S.tbsEther), "the TBS ether"), clean(d)] },
 
   // ---- J3: two-way read and fix ----
-  { id: "fix-valence", set: "train", job: "fix", setup: [["draw_structures", { structures: [{ text: "CC(C)(C)(C)(C)O" }] }]],
+  { id: "fix-valence", set: "train", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "CC(C)(C)(C)(C)O" }] }]],
     prompt: "This should be tert-butanol. Find what is wrong with my drawing and fix it.",
     check: ({ d, key }) => [...is(d, key(S.tBuOH), "tert-butanol"), [d.structures.length === 1, "one structure", String(d.structures.length)], clean(d)] },
-  { id: "fix-product", set: "train", job: "fix", setup: [["draw_reaction", { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", products: [{ text: S.propylAcetate, number: "3" }] }] }]],
+  { id: "fix-product", set: "train", job: "fix", setup: [["draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", products: [{ text: S.propylAcetate, number: "3" }] }] }]],
     prompt: "Is the product in this scheme right? Fix it if not, and keep its number.",
     check: ({ d, key }) => [...is(d, key(S.ethylAcetate), "ethyl acetate", { as: "product", number: "3" }), [!find(d, key(S.propylAcetate)), "propyl acetate is gone"], clean(d), ...layout(d)] },
-  { id: "fix-numbers", set: "train", job: "fix", setup: [["draw_structures", { structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "1" }, { text: "phenol" }] }]],
+  { id: "fix-numbers", set: "train", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "1" }, { text: "phenol" }] }]],
     prompt: "Tidy up my compound numbers so that each compound has its own number, starting at 1.",
     check: ({ d }) => { const n = d.structures.map((s) => s.number).sort(); return [[JSON.stringify(n) === '["1","2","3"]', "numbered 1, 2 and 3", JSON.stringify(n)], clean(d)]; } },
-  { id: "read-identify", set: "train", job: "read", setup: [["draw_structures", { structures: [{ text: S.aspirin, number: "1" }, { text: S.ibuprofen, number: "2" }] }]],
+  { id: "read-identify", set: "train", job: "read", setup: [["draw", { kind: "structures", structures: [{ text: S.aspirin, number: "1" }, { text: S.ibuprofen, number: "2" }] }]],
     prompt: "What are compounds 1 and 2 in my drawing, and what are their molecular formulae?",
     check: ({ d, answer }) => { const a = sub(answer).toLowerCase(); return [[/aspirin|acetylsalicylic/.test(a), "names aspirin"], [/ibuprofen/.test(a), "names ibuprofen"], [a.includes("c9h8o4"), "gives C9H8O4"], [a.includes("c13h18o2"), "gives C13H18O2"], [d.structures.length === 2, "the drawing is not changed", String(d.structures.length)]]; } },
-  { id: "fix-stereo", set: "held", job: "fix", setup: [["draw_structures", { structures: [{ text: S.rIbuprofen, number: "1" }] }]],
+  { id: "fix-stereo", set: "held", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: S.rIbuprofen, number: "1" }] }]],
     prompt: "This is meant to be (S)-ibuprofen, the active one. Fix it.",
     check: ({ d, key }) => [...is(d, key(S.sIbuprofen), "(S)-ibuprofen", { number: "1" }), [!find(d, key(S.rIbuprofen)), "(R) is gone"], clean(d)] },
-  { id: "fix-check", set: "held", job: "fix", setup: [["draw_structures", { structures: [{ text: "c1ccccc1N(=O)=O", number: "1" }, { text: "CC(=O)OCC", number: "2" }] }]],
+  { id: "fix-check", set: "held", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "c1ccccc1N(=O)=O", number: "1" }, { text: "CC(=O)OCC", number: "2" }] }]],
     prompt: "Check my drawing for errors and fix any you find.",
     check: ({ d }) => [clean(d), [d.structures.some((s) => s.formula === "C6H5NO2" && s.number === "1"), "nitrobenzene is still 1"], [d.structures.length === 2, "two structures", String(d.structures.length)]] },
 
@@ -183,16 +183,16 @@ export const CASES = [
     check: ({ d, key }) => [...S.biaryls.flatMap((x, k) => is(d, key(x), `product 7${"abcd"[k]}`, { number: `7${"abcd"[k]}` })), clean(d), ...layout(d)] },
 
   // ---- J6: style and export ----
-  { id: "style-jacs", set: "train", job: "style", setup: [["set_style", { preset: "New Document (ChemDraw)" }], ["draw_reaction", SUZUKI_DRAWN]],
+  { id: "style-jacs", set: "train", job: "style", setup: [["advanced", { tool: "set_style", args: { preset: "New Document (ChemDraw)" } }], ["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
     prompt: "Make this drawing ready for a figure in a J. Am. Chem. Soc. paper.",
     check: ({ d }) => [[d.style === "ACS Document 1996", "the ACS style", d.style], ...layout(d)] },
-  { id: "style-rsc", set: "train", job: "style", setup: [["draw_reaction", SUZUKI_DRAWN]],
+  { id: "style-rsc", set: "train", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
     prompt: "Change my drawing to the RSC style, two-column width.",
     check: ({ d }) => [[d.style === "RSC", "the RSC style", d.style], ...layout(d)] },
-  { id: "read-smiles", set: "train", job: "read", setup: [["draw_reaction", SUZUKI_DRAWN]], answerSmiles: true,
+  { id: "read-smiles", set: "train", job: "read", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]], answerSmiles: true,
     prompt: "Give me the SMILES of every compound in this drawing.",
     check: ({ d, answered }) => d.structures.map((s) => [answered.includes(s.inchiKey), `gives ${s.name ?? s.formula} as SMILES`]) },
-  { id: "style-wiley", set: "held", job: "style", setup: [["draw_reaction", SUZUKI_DRAWN]],
+  { id: "style-wiley", set: "held", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
     prompt: "This is going in Angewandte. Set the drawing up for it.",
     check: ({ d }) => [[d.style === "Wiley (Angewandte)", "the Wiley style", d.style], ...layout(d)] },
 
@@ -201,7 +201,7 @@ export const CASES = [
   { id: "figure-lanthanide", set: "speed", job: "figure", pictureFile: "lanthanide-figure.png",
     prompt: "Recreate the figure in this picture in Octet: both panels, titles, citations, every structure with its labels, wedges and colours, the numbers, the M = lines and the brackets. Make it look as good as the picture.",
     check: ({ d }) => [...figureParts(d), ...layout(d)] },
-  { id: "restyle-lanthanide", set: "speed", job: "figure", setup: [["draw_figure", LANTHANIDE]], pictureFile: "lanthanide-figure-restyled.png",
+  { id: "restyle-lanthanide", set: "speed", job: "figure", setup: [["draw", { kind: "figure", ...LANTHANIDE }]], pictureFile: "lanthanide-figure-restyled.png",
     prompt: "Restyle my figure so it looks like this picture: the panel titles and citations, the numbers and captions under the structures, the colours, the line between the panels and the box round the side text. Keep the structures as they are.",
     check: ({ d }) => [...figureParts(d), [says(d, "siloxides") && says(d, "imidophosphoranes"), "both titles"], [(d.shapes?.length ?? 0) >= 1, "a shape (the box or the line)", String(d.shapes?.length ?? 0)], ...layout(d)] },
 ];
