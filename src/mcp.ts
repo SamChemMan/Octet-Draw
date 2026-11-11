@@ -64,7 +64,7 @@ export type Host = {
   restyle: (s: DocStyle) => void; // Document settings (one undo step)
   experiment: () => boolean; // the drawing is an experiment page
   said: (text: string) => void; // tells the user what an AI app did, with Undo
-  working: (text?: string, stop?: () => void) => void; // tells the user an AI app is drawing, with Stop; none clears it
+  working: (text?: string, stop?: () => void, far?: string) => void; // tells the user an AI app is drawing, with Stop; far: how far the call is ("Step 9 of 17"), no new call; none clears it
   selection: () => { atoms: number[]; items: number[] };
   select: (atoms: number[], items: number[]) => void;
   file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF or RXN file, SMILES or InChI
@@ -2401,19 +2401,23 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call list_drawings, then use_drawing.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
       let stopped = false;
+      const changes = !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
       const ctx: Ctx = {
         session: from.session, client: from.client ?? "An AI app", notes,
-        progress: (done, total, message) => { if ((typeof token === "string" || typeof token === "number") && from.progress) from.progress(JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: token, progress: done, ...(total ? { total } : {}), ...(message ? { message } : {}) } })); },
+        // A call that changes the drawing also tells the window how far it is, for the user (McpMagic's pill): the
+        // tool's own words, which say what it counts ("Step 2 of 3", "Drew 3 of 5 rows"). What follows a colon is for
+        // the AI app (a tool's name).
+        progress: (done, total, message) => { if (changes && message) h.working(busy, stop, message.split(":")[0]); if ((typeof token === "string" || typeof token === "number") && from.progress) from.progress(JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: token, progress: done, ...(total ? { total } : {}), ...(message ? { message } : {}) } })); },
         check: async () => { if (stopped || (await from.cancelled?.())) throw new Cancelled(); },
       };
-      const changes = !tool.hints.readOnly, reports = tool.outputSchema === CHANGE;
+      const reports = tool.outputSchema === CHANGE;
       // picture on a tool that changes the drawing is the dispatcher's (F2): the tool never sees it. detail on a tool
       // whose result is a change is too (R6).
       const wantPicture = changes && args.picture === true, wantFull = reports && args.detail === "full";
       if (changes) delete args.picture;
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
-      if (changes) { h.begin(`mcp-${++steps}`); h.working(`${ctx.client} is drawing.`, () => { stopped = true; }); }
+      if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
       let before: Mol | undefined, told = false, shown: Box | undefined;
       try {
         await h.settle();

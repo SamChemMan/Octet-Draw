@@ -741,8 +741,8 @@ button.variant.add {
     opacity: 0;
   }
 }
-/* A shortcut that lands settles into place, and the other icons ripple a 2px bounce out from it. The one
-   place Octet bounces (brand/BRAND.md, Motion). */
+/* A shortcut that lands settles into place, and the other icons ripple a 2px bounce out from it. One of the
+   two places Octet bounces (brand/BRAND.md, Motion); the other is .mcp-atom. */
 .tool.landed .glyph {
   animation: settle var(--motion-drop) var(--ease-drop);
 }
@@ -959,7 +959,13 @@ button.variant.add {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   color: var(--ink);
+  transition: translate var(--motion) var(--ease-out);
   animation: notice-in var(--motion-fast) var(--ease-out);
+}
+/* While an AI app's pill shows (.mcp-pill, below) a notice sits above it, a small space between them: the pill is in
+   the notice's place, and would cover its Undo and Close. 46px: the pill's height. */
+.mcp-magic ~ .notice {
+  translate: 0 calc(-46px - var(--space-2) - var(--dock, 0px));
 }
 .notice.leaving {
   animation: notice-out var(--motion-fast) var(--ease-out) forwards;
@@ -1019,6 +1025,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .notice {
+    transition: none;
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
@@ -1029,12 +1036,14 @@ button.variant.add {
   }
 }
 
-/* An AI app at work in this window (McpMagic.tsx). The window goes soft under a light blur; a glow in Octet's colours
-   (the brand blue and the metal, iodine and phosphorus atom colours) sways round its edge, a thin bright line with a
-   bloom inside it that breathes; a glass pill at the bottom says who is drawing. While a call runs the window takes
-   no clicks and the blur is a little stronger; between calls ("thinking") it is lighter and the glow dims. It comes in
-   with motion-slow and leaves with motion-fast. The loops are the slow, even pulses the brand allows while something
-   waits, with no spin and no overshoot. Reduced motion: the glow and the pill stay still, and only fade. */
+/* An AI app at work in this window (McpMagic.tsx). A molecule is built in the middle of the window, in Octet's blue:
+   each atom pops in with a small overshoot (the second place Octet bounces: brand/BRAND.md, Motion), the bonds draw
+   between them, and the whole turns slowly, clears and gives way to the next (mcp-life: one turn of it is one
+   molecule). It stays in the middle until the overlay goes, the time the AI app thinks included. A glass pill at the
+   bottom says who is drawing. While a call runs the window is soft and takes no clicks; a moment after the call
+   (held, magic.ts HOLD) the drawing is clear again, but for the molecule. It comes in with motion-slow and leaves
+   with motion-fast. Every motion here is a transform or an opacity, so none makes the browser lay the window out
+   again. Reduced motion: one molecule, still, and only fades. */
 .mcp-magic {
   position: fixed;
   inset: 0;
@@ -1045,71 +1054,110 @@ button.variant.add {
 .mcp-magic.leaving {
   animation: notice-out var(--motion-fast) var(--ease-out) forwards;
 }
+/* The soft window of a call. It and the molecule lie on the page, so they take its colours (McpMagic sets the page's
+   theme and its own colour on them; engineering paper's is set with the canvas's, .canvas.paper-blueprint). */
 .mcp-scrim {
   position: absolute;
   inset: 0;
-  background: color-mix(in oklab, var(--canvas) 8%, transparent);
-  -webkit-backdrop-filter: blur(1.5px);
-  backdrop-filter: blur(1.5px);
-  transition: background var(--motion-slow) var(--ease-out), backdrop-filter var(--motion-slow) var(--ease-out), -webkit-backdrop-filter var(--motion-slow) var(--ease-out);
+  background: color-mix(in oklab, var(--canvas) 20%, transparent);
+  -webkit-backdrop-filter: blur(3px) saturate(1.15);
+  backdrop-filter: blur(3px) saturate(1.15);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--motion-slow) var(--ease-out), visibility var(--motion-slow);
+}
+.mcp-magic.held .mcp-scrim {
+  opacity: 1;
+  visibility: visible;
 }
 .mcp-magic.calling .mcp-scrim {
   pointer-events: auto;
   cursor: progress;
-  background: color-mix(in oklab, var(--canvas) 20%, transparent);
-  -webkit-backdrop-filter: blur(3px) saturate(1.15);
-  backdrop-filter: blur(3px) saturate(1.15);
 }
-.mcp-glows {
-  position: absolute;
-  inset: 0;
-  opacity: 0.45;
-  transition: opacity var(--motion-slow) var(--ease-out);
-}
-.mcp-magic.calling .mcp-glows {
-  opacity: 1;
-}
-/* The edge only: the turning colours, cut to a frame by a mask (the mask's colour is not drawn). */
-.mcp-glow {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  padding: 2px;
-  -webkit-mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(white 0 0) content-box exclude, linear-gradient(white 0 0);
-}
-.mcp-glow.wide {
-  padding: 18px;
-}
-.mcp-bloom {
-  position: absolute;
-  inset: 0;
-  filter: blur(22px);
-  opacity: 0.7;
-  animation: mcp-breathe 2.8s ease-in-out infinite;
-}
-.mcp-glow-turn {
+/* The molecule's ground, in the middle of the window: the canvas colour with a soft edge, so the molecule reads over a
+   drawing. */
+.mcp-stage {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 150vmax;
-  height: 150vmax;
-  margin: -75vmax 0 0 -75vmax;
-  background: conic-gradient(from 0deg, var(--brand-bright), var(--atom-metal), var(--atom-i), var(--atom-p), var(--brand-bright), var(--atom-metal), var(--brand-bright));
-  animation: mcp-sway 7s ease-in-out infinite alternate;
+  width: 200px;
+  height: 200px;
+  margin: -100px 0 0 -100px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--canvas) 82%, transparent);
+  box-shadow: 0 0 var(--space-6) var(--space-4) color-mix(in oklab, var(--canvas) 82%, transparent);
 }
-@keyframes mcp-sway {
-  from {
-    transform: rotate(-90deg);
+/* The molecule, about the middle of its ground. One turn of mcp-life is one molecule: as the turn ends, McpMagic puts
+   the next molecule in, in a new element. */
+.mcp-mol {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  animation: mcp-life 7s ease-in-out infinite;
+}
+@keyframes mcp-life {
+  0% {
+    opacity: 0;
+    transform: rotate(-14deg) scale(0.97);
   }
+  4% {
+    opacity: 0;
+  }
+  5%,
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(26deg) scale(1.03);
+  }
+}
+/* The molecule's parts. mcp-gone clears them for good as the molecule's turn ends (39 steps of --motion: 7.02 s, when
+   mcp-life has cleared the molecule), so a page too busy to put the next molecule in on time leaves the ground empty
+   and never shows this one again. It has its own element: with both on .mcp-mol, Chrome ran the two on the page's
+   thread, every frame. */
+.mcp-parts {
+  animation: mcp-gone var(--motion-fast) var(--ease-out) calc(39 * var(--motion)) forwards;
+}
+@keyframes mcp-gone {
   to {
-    transform: rotate(270deg);
+    opacity: 0;
   }
 }
-@keyframes mcp-breathe {
-  50% {
-    opacity: 0.35;
+/* --i: the step (of --motion) at which a part of the molecule comes; --turn: the way a bond points (magic.ts). A bond
+   draws from its first atom: both ends of mcp-draw list the same transforms, so every engine goes from one to the
+   other part by part. */
+.mcp-bond {
+  position: absolute;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--brand);
+  transform-origin: 0 50%;
+  transform: rotate(var(--turn)) scaleX(1);
+  animation: mcp-draw var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--i) * var(--motion));
+}
+@keyframes mcp-draw {
+  from {
+    opacity: 0;
+    transform: rotate(var(--turn)) scaleX(0);
+  }
+}
+.mcp-atom {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--brand);
+  animation: mcp-pop var(--motion-drop) var(--ease-drop) both;
+  animation-delay: calc(var(--i) * var(--motion));
+}
+@keyframes mcp-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
   }
 }
 .mcp-pill {
@@ -1144,6 +1192,7 @@ button.variant.add {
   }
 }
 .mcp-sparkle {
+  display: flex;
   flex: none;
   color: var(--brand-bright);
   animation: mcp-twinkle 1.6s ease-in-out infinite;
@@ -1154,24 +1203,16 @@ button.variant.add {
     transform: scale(0.8) rotate(45deg);
   }
 }
-/* A light runs along the words, left to right, then starts again out of sight. */
+/* What a screen reader reads out as it changes: who draws, and the steps (McpMagic). */
+.mcp-said {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .mcp-text {
   overflow: hidden;
   text-overflow: ellipsis;
-  background: linear-gradient(90deg, var(--ink) 0 42%, var(--brand-bright) 50%, var(--ink) 58% 100%);
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: mcp-shimmer 2.4s ease-in-out infinite;
-}
-@keyframes mcp-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
 }
 .mcp-steps {
   flex: none;
@@ -1183,15 +1224,12 @@ button.variant.add {
   font-weight: 500;
 }
 @media (prefers-reduced-motion: reduce) {
-  .mcp-glow-turn,
-  .mcp-bloom,
+  .mcp-mol,
+  .mcp-parts,
+  .mcp-bond,
+  .mcp-atom,
   .mcp-sparkle {
     animation: none;
-  }
-  .mcp-text {
-    animation: none;
-    background: none;
-    color: var(--ink);
   }
   .mcp-pill {
     animation: fade-in var(--motion-fast) var(--ease-out);
@@ -3815,9 +3853,13 @@ button.variant.add {
   background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
 }
 .canvas.paper-blueprint,
-.style-preview.paper-blueprint {
+.style-preview.paper-blueprint,
+.mcp-magic .paper-blueprint {
   --canvas: #1D4B86;
-  background-color: #1D4B86;
+}
+.canvas.paper-blueprint,
+.style-preview.paper-blueprint {
+  background-color: var(--canvas);
 }
 /* The background choices in Settings: each a small page of itself. */
 .paper-choices {

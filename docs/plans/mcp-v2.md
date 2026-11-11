@@ -490,6 +490,56 @@ animation on screen, in Octet's style, for the whole time Claude is working, not
 - **Calls that change nothing** (reads) do not start it. Today `working()` is only called for write tools: keep that,
   and add the job state.
 
+**Built (11 November 2026, branch `mcp/overlay`).** `src/McpMagic.tsx`, `src/magic.ts` and the `.mcp-` rules in
+`src/editor.css`; `src/motion.check.ts` holds its rules.
+
+- The molecules: benzene, caffeine, cyclooctatetraene (the octagon of the mark) and aspirin. One molecule has 7 s:
+  the first atom at 0.36 s, built by 2.0 to 2.4 s, whole until 6.0 s, clear by 7 s. Each atom pops in 260 ms with the
+  overshoot, each bond draws in 180 ms. A double bond in a ring has its second line inside the ring. A C=O is
+  centred, as the page draws one.
+- It is in the middle of the window for the whole time, the 8 s after the last call included (`LINGER`). **Sam to
+  confirm.** Between calls the drawing is clear but for the molecule's ground, 200 px across, and an AI app's drawing
+  lands in the middle of the window, so the ground covers part of it for up to 8 s. Clicks pass through the ground.
+  The first build moved the molecule down to the pill between calls: a call takes about 110 ms, so the molecule was
+  by the pill almost all the time, and went up and down at each call.
+- During a call, and for 1 s after (`HOLD`), the window is soft. Only a call blocks clicks.
+- A notice sits above the pill while the overlay shows (`.mcp-magic ~ .notice`). The pill is in the notice's place,
+  and it stayed 1.5 s before: at 8 s it covered the Undo and Close of "Claude drew a reaction." for all of the
+  notice's 5 s. The notice glides down when the overlay goes.
+- **Sam to choose the words.** After a call the notice says "Claude drew a reaction." and the pill under it still
+  says "Claude is drawing", for up to 8 s. Octet cannot tell that the AI app has finished.
+- The pill shows a call's progress in the tool's own words, which say what is counted: "Step 2 of 3", "Drew 3 of 5
+  rows", "Laid out the figure". A tool's name after a colon is left out. It reaches the pill through
+  `Host.working(text, stop, far)`. Background jobs (section 8) are not built here: a job passes its progress the same
+  way ("9 of 17 compounds").
+- A screen reader reads out who draws and the step count as they change. A call's progress is in the pill to read,
+  and is not read out at each change. Not tried with VoiceOver.
+- A molecule that has cleared cannot show again. `mcp-gone` clears its parts for good as its turn ends, so a page
+  too busy to put the next molecule in on time (a call can hold the page's thread for over 1 s) shows an empty ground.
+  Tried in Chrome with the page's thread held for 900 ms across the end of a turn.
+- It is drawn with plain boxes and CSS keyframes. In Chrome an SVG's parts could not be moved off the page's
+  thread: each frame of the build laid the SVG out and painted it, and a loop on an `<svg>` kept the page's thread at
+  work every frame.
+- The glow is gone (its colours were not brand colours) and so is the light that ran along the pill's words (it was
+  a background position, which the browser paints each frame).
+
+Measured in Chrome 156 on Sam's Mac at 120 frames a second, during a call, 15 s traced. Every number here is from
+Chrome:
+
+| | Page-thread work | Frames that ran style | Layouts | Paints |
+|---|---|---|---|---|
+| The old blur and glow (the first build's trace) | 74 ms a second | every frame | 0 | two every frame |
+| The molecule | 17 ms a second, 4 of them the script that ran the test | 469 of about 2,200 (while a molecule builds) | 2 (one for each new molecule) | 55 (at the same two times) |
+
+A second animation on the same element as `mcp-life` took both off Chrome's own thread: the page's thread then ran
+style on every frame, 73 ms a second. So `mcp-gone` is on an element of its own, and `motion.check.ts` holds that.
+
+**Not seen in the app.** The app's web views are WKWebView (Mac) and WebKitGTK (Linux): nothing above was run in
+either. To check in the `octet-mcp-beta` build: light, dark and engineering paper; Reduce Motion on in System
+Settings; VoiceOver on; a Web Inspector timeline while it shows; that the soft window fades in and out (it is a
+backdrop filter faded by opacity); and that each bond draws out from its atom (both ends of `mcp-draw` now list the
+same transforms, so no engine has to go between them as matrices).
+
 ## 10. Short replies (R6)
 
 - Every write result by default: one sentence, then `{ made: [...top-level ids], check: "clean" | {...}, warnings:

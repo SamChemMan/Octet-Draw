@@ -133,6 +133,7 @@ import { history, type History } from "./history";
 import { GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
 import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
+import { LINGER } from "./magic";
 import { McpMagic, type Magic } from "./McpMagic";
 import "./editor.css";
 
@@ -533,15 +534,17 @@ export default function Editor() {
   const noMotion = () => reduced() || mcpCalling.current;
   const mcpWorking = useRef<number>(undefined);
   mcpRenders.current++;
-  // An AI app at work in this window (McpMagic.tsx): shown from its first call that changes the drawing until a moment
-  // after its last, so a run of calls reads as one piece of work.
-  const [magic, setMagic] = useState<Magic>();
-  // A call ended: the window takes clicks again at once, and the magic goes if no call comes in the next 1.5 s (an AI
-  // app thinks between calls for about that long).
+  // An AI app at work in this window (McpMagic.tsx): shown from its first call that changes the drawing until some
+  // seconds after its last, so a run of calls, with the time the AI app thinks between them, reads as one piece of work.
+  // How far a long call is ("Step 9 of 17") is a store: it can change many times in a call, and only the pill draws
+  // again.
+  const [magic, setMagic] = useState<Magic>(), [mcpFar] = useState(() => store<string | undefined>(undefined));
+  // A call ended: the window takes clicks again at once, and the magic goes if no call comes in the next 8 s (LINGER).
   const mcpRest = () => {
     clearTimeout(mcpWorking.current);
+    mcpFar.set(undefined);
     setMagic((was) => was && { ...was, calling: false, stop: undefined });
-    mcpWorking.current = window.setTimeout(() => setMagic(undefined), 1500);
+    mcpWorking.current = window.setTimeout(() => setMagic(undefined), LINGER);
   };
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
@@ -6567,8 +6570,10 @@ export default function Editor() {
     restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
     experiment: () => expPage,
     said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
-    // The window shows the AI app at work (McpMagic) while each call runs, and for a moment after.
-    working: (text, stop) => {
+    // The window shows the AI app at work (McpMagic) while each call runs, and for some seconds after. How far the
+    // call is counts no new step.
+    working: (text, stop, far) => {
+      if (far) return mcpFar.set(far);
       clearTimeout(mcpWorking.current);
       if (text) setMagic((was) => ({ text, stop, calling: true, steps: (was?.steps ?? 0) + 1 }));
       else mcpRest();
@@ -9793,7 +9798,7 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
-      <Exit>{magic && <McpMagic magic={magic} />}</Exit>
+      <Exit>{magic && <McpMagic magic={magic} progress={mcpFar} page={{ paper, dark: darkPaper, own }} />}</Exit>
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />
     </div>
