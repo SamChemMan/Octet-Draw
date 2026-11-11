@@ -96,7 +96,9 @@ type Props = {
   // The session's structure by name or formula (pointing at it lights the structure), its spectra as tabs (keys), the
   // kinds a new tab can be (+), and a tab's close (B1.8). noStructure: the structure is gone (B1.12).
   sizing: Sizing; // the strip's height, set by its top edge (B1.3)
-  onDecouple: (on: boolean) => void; // Decouple ¹H for the nucleus shown (¹⁹F, ³¹P)
+  // Decouple ¹H for the nucleus shown (¹⁹F, ³¹P), from its setting: a structure with no F or P has no prediction to
+  // read it from.
+  decoupled: boolean; onDecouple: (on: boolean) => void;
   title: string; onPointTitle: (on: boolean) => void; addable: string[]; onAddKey: (key: string) => void; onCloseTab: (key: string) => void; noStructure?: boolean;
 };
 
@@ -307,7 +309,7 @@ function Panel(p: Props) {
         {showP && !faint && <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} data-tip={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>}
         <Segmented label="Labels" value={p.labels} options={[["auto", "Auto"], ["horizontal", "Horizontal"], ["vertical", "Vertical"]]} onChange={p.onLabels} />
         {/* ¹⁹F and ³¹P with or without their ¹H couplings (¹³C is always decoupled). */}
-        {showP && nucleus && nucleus !== "1H" && nucleus !== "13C" && <button className="spectrum-button" aria-pressed={!!p.prediction?.decoupled} onClick={() => p.onDecouple(!p.prediction?.decoupled)} data-tip={p.prediction?.decoupled ? "Show the couplings to ¹H" : "Take away the couplings to ¹H"}>Decouple ¹H</button>}
+        {showP && nucleus && nucleus !== "1H" && nucleus !== "13C" && <button className="spectrum-button" aria-pressed={p.decoupled} onClick={() => p.onDecouple(!p.decoupled)} data-tip={p.decoupled ? "Show the couplings to ¹H" : "Take away the couplings to ¹H"}>Decouple ¹H</button>}
         {showP && !showM && <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} data-tip={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>}
         {showM && m && <span className="spectrum-threshold"><Slider name="Threshold" value={Math.round(m.threshold * 1000) / 10} min={0.5} max={50} step={0.5} show={(v) => `${v}%`} onChange={(v) => p.onThreshold(v / 100)} /></span>}
         <span className="spectrum-gap" />

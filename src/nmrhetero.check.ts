@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { hydrogens } from "./render.ts";
 import type { Graph } from "./naming.ts";
-import { acsText, acsTitle, detailsTable, frequency, guessNucleus, hasNucleus, multiplicity, predict, quality, readTables, NUCLEI, NUCLEUS_LIST, type Nucleus, type Signal } from "./nmr.ts";
+import { acsText, acsTitle, detailsTable, frequency, guessNucleus, multiplicity, predict, quality, readTables, NUCLEI, NUCLEUS_LIST, type Nucleus, type Signal } from "./nmr.ts";
 import { fullRange, solventPeaks, spectrumFigure, spectrumLines } from "./spectrumplot.ts";
 import { analyse, fromJcamp, measuredText } from "./measured.ts";
 
@@ -133,12 +133,12 @@ assert.match(acsText(predict(ph3po, "31P")!, 400, "CDCl₃"), /^³¹P\{¹H\} NMR
 // ¹³C is always ¹H-decoupled.
 assert.equal(predict(phcf3, "13C", undefined, false)!.decoupled, true);
 
-// --- B3.10: only nuclei the structure has ---------------------------------------------------------------------------
-assert.equal(hasNucleus(benzene, "19F"), false);
-assert.equal(hasNucleus(phcf3, "19F"), true);
-assert.equal(hasNucleus(phcf3, "31P"), false);
-assert.equal(hasNucleus(pph3, "31P"), true);
-assert.equal(hasNucleus(benzene, "1H"), true);
+// --- B3.10: every nucleus for every structure -----------------------------------------------------------------------
+// A structure with no F or P predicts no ¹⁹F or ³¹P signals, so the panel shows the nucleus's range with nothing on it.
+assert.equal(predict(benzene, "19F"), undefined);
+assert.equal(predict(phcf3, "31P"), undefined);
+assert.deepEqual(fullRange(undefined, "19F"), NUCLEI["19F"].range);
+assert.deepEqual(fullRange(undefined, "31P"), NUCLEI["31P"].range);
 
 // --- B3.11: the plot ------------------------------------------------------------------------------------------------
 // The range fits the signals, at least 20 ppm wide; ¹⁹F's shifts are negative, written with a true minus.
