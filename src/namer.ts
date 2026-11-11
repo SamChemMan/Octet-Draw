@@ -261,6 +261,31 @@ const CATENATE = new Set(["Si", "Ge", "Sn", "Pb", "B"]);
 // Senior parent hydrides (P-44.1.2): the senior atom in this order, carbon last. Mercury, a metal, first.
 const PARENT_ORDER = ["Hg", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Al", "Ga", "In", "Tl", "O", "S", "Se", "Te"];
 
+// Whether an amine N (atom i) is a bridgehead whose R or S follows from the other bridgehead's: three bridges of one
+// atom or more join it to an atom with R or S (labelled), and every ring through the two has seven atoms at most, too
+// small to turn a bridgehead in. OPSIN and InChI do not read R or S on such an N, so the name leaves it out: ajmaline's
+// N15. An N at a ring fusion inverts, and Tröger's base, whose bridgeheads are both N, keeps its labels (no name).
+function lockedN(adj: number[][], i: number, labelled: (j: number) => boolean): boolean {
+  if (adj[i].length !== 3) return false;
+  // The shortest way from each neighbour to each atom up to five bonds away, not through N.
+  const ways = adj[i].map((x) => {
+    const prev = new Map([[x, -1]]);
+    for (let front = [x], d = 0; d < 5; d++) {
+      const next: number[] = [];
+      for (const a of front) for (const b of adj[a]) if (b !== i && !prev.has(b)) { prev.set(b, a); next.push(b); }
+      front = next;
+    }
+    return prev;
+  });
+  const path = (w: Map<number, number>, p: number) => { const out: number[] = []; for (let a = p; a >= 0; a = w.get(a)!) out.push(a); return out; };
+  return [...ways[0].keys()].some((p) => {
+    if (!labelled(p) || !ways[1].has(p) || !ways[2].has(p)) return false;
+    const [a, b, c] = ways.map((w) => path(w, p));
+    return a.length > 1 && b.length > 1 && c.length > 1 && new Set([...a, ...b, ...c]).size === a.length + b.length + c.length - 2
+      && a.length + b.length <= 7 && a.length + c.length <= 7 && b.length + c.length <= 7;
+  });
+}
+
 class Namer {
   n: number; el: string[]; h: number[]; q: number[]; adj: number[][]; bond = new Map<string, number>();
   inRing: boolean[]; rings: number[][] = []; ringOf: number[];
@@ -302,7 +327,8 @@ class Namer {
       this.bond.set(this.key(b.a, b.b), b.order);
       if (b.cip) this.cipBond.set(this.key(b.a, b.b), b.cip);
     }
-    this.cip = g.atoms.map((a) => a.cip);
+    const rs = (j: number) => g.atoms[j].el !== "N" && /^[RS]$/.test(g.atoms[j].cip ?? "");
+    this.cip = g.atoms.map((a, i) => (a.cip && a.el === "N" && !a.charge && !a.h && lockedN(this.adj, i, rs) ? undefined : a.cip));
     this.iso = g.atoms.map((a) => a.iso);
     this.hx = g.atoms.map((a) => a.hx ?? []);
     this.isotopic = g.atoms.some((a) => a.iso || a.hx?.length);

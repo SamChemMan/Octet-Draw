@@ -202,7 +202,28 @@ run("bridged fused", [
   "1,2,3,4,4a,9,10,10a-octahydro-10,4a-(epiminoethano)phenanthrene", "aconitane",
   "6,11-dimethyl-3-(3-methylbut-2-en-1-yl)-1,2,3,4,5,6-hexahydro-2,6-methano-3-benzazocin-8-ol",
   "quinolizin-5-ium", "indolizin-4-ium", "1-methyl-1H-imidazo[1,2-a]pyridin-4-ium", "pyrido[1,2-a]pyrimidin-5-ium", "2,3-dihydro-1H-pyrrolizin-4-ium",
+  "ajmalane", "ajmalene", "ajmalyne",
 ]);
+// R or S on an amine N at a bridgehead (Octet's own drawing of ajmalene from its name has a wedge there) follows from
+// the other bridgehead's: the name leaves it out, as OPSIN and InChI do. Tröger's base, whose bridgeheads are both N,
+// and the N of a ring fusion, which inverts, keep theirs, so they get no name.
+{
+  const withN = (input: string, labels: string[]) => {
+    const smiles = input.startsWith("smiles:") ? input.slice(7) : opsin.parseToSmiles(input), g = graphOf(molOf(smiles), cipOf(smiles))!;
+    const nb = (i: number) => g.bonds.filter((b) => b.a === i || b.b === i);
+    const ns = g.atoms.flatMap((a, i) => (a.el === "N" && nb(i).length === 3 && nb(i).every((b) => nb(b.a === i ? b.b : b.a).length > 1) ? [i] : []));
+    assert.equal(ns.length, labels.length, `${input}: ring N atoms`);
+    return { plain: iupacNameWhy(g).name, labelled: iupacNameWhy({ ...g, atoms: g.atoms.map((a, i) => (ns.includes(i) ? { ...a, cip: labels[ns.indexOf(i)] } : a)) }).name };
+  };
+  for (const input of ["ajmalene", "ajmalane", "ajmalyne", "smiles:C=C[C@H]1C[N]2CC[C@H]1C[C@@H]2CO"]) {
+    const { plain, labelled } = withN(input, ["R"]);
+    assert.ok(plain, `${input} is named`);
+    assert.equal(labelled, plain, `${input}: its bridgehead N's R or S is left out`);
+  }
+  assert.match(withN("smiles:Cc1ccc2c(c1)CN1CN2Cc2cc(C)ccc21", ["R", "R"]).labelled!, /^\(5R,11R\)-/, "Tröger's base keeps R and S on its N");
+  assert.match(withN("smiles:C1CC[N]2CCC[C@@H]2C1", ["S"]).labelled!, /\b4S\b/, "an N at a ring fusion keeps its R or S");
+}
+console.log("namer-fused.check: R or S on a bridgehead amine N left out where the other bridgehead sets it ok");
 // Spiro unions with a polycyclic component (P-24.5): components in alphabetical order, the second primed; identical
 // components as spirobi[...]; saturated monocyclic components by their saturated names.
 run("spiro", [
