@@ -1545,8 +1545,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
     // Each run's colour: its own, else the node's. ChemDraw draws a label in its runs' colours (its Text tool colours
-    // the runs, not the node), so a colour every run has is the label's own. Where they differ, the label keeps the
-    // node's colour and a run in another colour keeps its own (issue 64): #000000 for black in a coloured label.
+    // the runs and leaves the node as it was), so a colour every run has is the label's own. Where they differ, the
+    // label keeps the node's colour and a run in another colour keeps its own (issue 64): #000000 for black in a
+    // coloured label.
     const ss = t?.kids.filter((k) => k.name === "s") ?? [], hues = ss.map((k) => (k.attrs.color === undefined ? colour : colourOf(k.attrs.color)) ?? "#000000");
     if (hues.length && hues.every((h) => h === hues[0])) { if (hues[0] === "#000000") delete a.colour; else a.colour = hues[0]; }
     // Each run's bold, italic and underline, its superscript or subscript (face 0x40 or 0x20; 0x60 is Formula), and its

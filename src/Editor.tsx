@@ -880,8 +880,9 @@ export default function Editor() {
   };
   // Runs without their own colours, once the whole text took a colour: none when nothing else is styled.
   const uncoloured = (runs: TextRun[]) => { const r = without(runs, ["colour"]); return styled(r) ? r : undefined; };
-  // A colour on the whole label being typed (it takes it when its box closes): its characters lose their own.
-  const tintLabel = (colour: string) => editing && setEditing({ ...editing, colour,
+  // A colour on the whole label being typed (it takes it when its box closes): its characters, and the next ones typed,
+  // lose their own.
+  const tintLabel = (colour: string) => editing && setEditing({ ...editing, colour, pending: editing.pending && { ...editing.pending, colour: undefined },
     ...(editing.runs?.some((r) => r.colour) ? { runs: without(editing.runs, ["colour"]), version: (editing.version ?? 0) + 1, caret: labelApi.current?.range() } : {}) });
   // Bold, italic, underline and Plain on the label being typed (ChemDraw's Text menu as it is typed): on the characters
   // selected, else on the next ones typed, as in a caption.
@@ -7045,11 +7046,12 @@ export default function Editor() {
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
       // A label being typed: part of it selected takes the colour (issue 64), as part of a caption does, and a part in
-      // the label's own colour has none of its own. Else the whole label takes it when its box closes.
+      // the label's own colour has none of its own (a label in its element's colour has none yet). Else the whole label
+      // takes it when its box closes.
       if (editing) {
-        const [s, e] = labelApi.current?.range() ?? [0, 0], own = (editing.colour !== "element" && editing.colour) || doc.atoms[editing.atom].colour || "#000000";
+        const [s, e] = labelApi.current?.range() ?? [0, 0], own = editing.colour === "element" ? undefined : editing.colour ?? doc.atoms[editing.atom].colour ?? "#000000";
         if (s === e || (!s && e >= editing.value.length)) return tintLabel(hex);
-        return styleLabel((st) => ({ ...st, colour: hex.toLowerCase() === own.toLowerCase() ? undefined : hex }));
+        return styleLabel((st) => ({ ...st, colour: hex.toLowerCase() === own?.toLowerCase() ? undefined : hex }));
       }
       if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);

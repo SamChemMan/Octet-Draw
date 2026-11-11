@@ -42,9 +42,9 @@ export type Atom = {
   shade?: true;
   // The label's text style (ChemDraw's Text menu on a selected label). Unset uses the document's label font and size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
-  // A written label's characters that are bold, italic or underlined where the rest are not (styled as it is typed, as
-  // ChemDraw's label runs): its text in runs, each with only those styles; text is always their text joined. The label's
-  // own bold, italic and underline go on all of it.
+  // A written label's characters that are bold, italic, underlined or in a colour where the rest are not (styled as it
+  // is typed, as ChemDraw's label runs): its text in runs, each with only those styles; text is always their text
+  // joined. The label's own bold, italic, underline and colour go on all of it, and a run's colour is drawn over it.
   runs?: TextRun[];
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
