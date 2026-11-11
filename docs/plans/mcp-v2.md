@@ -258,6 +258,32 @@ The AI needs to name a place without atom ids. Three ways, in this order:
 3. **Natural product numbering** (later, optional). For known skeletons (taxane, steroid, prostaglandin), a table maps
    C1 to C20 onto a SMARTS for the skeleton. Only after 1 and 2 work.
 
+### 4.2.1 As built (step 3a, 11 November 2026): `src/compound.ts`
+
+- **A group** is a part of the compound joined to the rest by one bond. It is named by a label: a label written on an
+  atom (`OBn`), or atoms that are that label's structure (a benzyl ether drawn atom by atom is `OBn` too). `swap`
+  takes any group so. `=O` and `#N` say the bond.
+- **`at` is a map number** (`"7"`, or `"C7"`) and names **the atom that carries the group. That atom stays.** Its group
+  is its one group through an atom that is not carbon (OH, OTBS, =O, Br: the functional group); with none, its one
+  carbon group. `set` puts the new group where the old one was, `remove` leaves a hydrogen, `add` takes the place of a
+  hydrogen. An atom with two such groups is refused with both named (`swap` then says which). `at` can also be a label,
+  which is then the group itself.
+- **Nothing else moves.** The new group is a label on the old group's first atom, on the same bond with its wedge, so
+  each stereocentre keeps its configuration (retention at the atom a change is made at, and the reply says so). A
+  group added at a stereocentre goes where the hydrogen was: Octet tries each gap, plain, hashed and wedged, and
+  keeps the one that reads as the centre did.
+- **Refused, never guessed:** a group that is there twice with no `occurrence`; a label or number that is not there
+  (the reply lists the compound's numbers and labels); a change that breaks valence; a new double bond that could be
+  E or Z; a bond between atoms that are not bonded (a ring or chain made or broken); `from` that names nothing, or two
+  structures with one number.
+- **Not in 3a:** a new stereocentre or E/Z bond with a set configuration, and rings made or opened (acetonides,
+  epoxides, carbonates, lactones). These are the named transformations of 4.3. Until then such a compound is written
+  in full.
+- Map numbers are kept on the atoms in memory (`Atom.tag`), through every change and from call to call. They are not
+  drawn, and no file has them. A drawing saved and opened again has lost them.
+- The compound is listed once in each tool (`$defs.compound`), and `changes` is listed as a list of objects that
+  `compound.ts` checks itself, so `tools/list` did not grow.
+
 ### 4.3 Named transformations (phase 2)
 
 A small library of reaction templates (SMIRKS-like, run with Indigo's reaction tools in `chem.ts`), each with a short
@@ -521,7 +547,16 @@ benchmark runner should time only the MCP part.
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0: v1 with R7 (11 Nov) | 63,348 (18,100), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,599 | 18 of 19 | 44 |
 | | | | taxol-v1-job | 33 | 6 | 15,365 | 282,623 | 3,649 | 18 of 19 | 17 |
+| 3a: compounds from earlier ones (11 Nov) | 63,319 (18,100), 26 tools | 2,460 | taxol-chained | 3 | 0 | 3,887 | 15,367 | 2,135 | 19 of 19 | 42 |
+| | | | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,689 | 18 of 19 | 44 |
 
+- `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
+  4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
+  job's arguments fall by 12% only, as the other twelve compounds (new skeletons, rings made and opened, a new centre
+  with a set configuration) and the conditions (1,640 characters) are written as before. Section 4.4's fifth is not
+  reached by 3a alone: it needs the named transformations (3b) and `draw_route`'s letters for conditions (5.4).
+  Octet makes a compound from another in 4 ms where reading it from SMILES takes 11 ms (the seven with changes:
+  29 ms against 76 ms).
 - `taxol-schemes` is the three final `draw_reaction` calls only. `taxol-v1-job` is the whole job rebuilt from section
   0's notes (no record of the chat's calls was kept): the six refusals, the check grid, the style changes, the titles,
   the reads and the row moves. It has no pictures (there is no picture with no window), so the 465 KB read is not in

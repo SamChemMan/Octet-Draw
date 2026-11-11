@@ -1,7 +1,7 @@
 {
  "tools": 26,
- "toolsList": 63348,
- "instructions": 2358,
+ "toolsList": 63319,
+ "instructions": 2460,
  "cases": {
   "taxol-schemes": {
    "calls": 3,
@@ -24,6 +24,17 @@
    "right": 18,
    "of": 19,
    "warnings": 17
+  },
+  "taxol-chained": {
+   "calls": 3,
+   "failed": 0,
+   "sent": 3887,
+   "read": 15367,
+   "ms": 2120,
+   "slowest": 1183,
+   "right": 19,
+   "of": 19,
+   "warnings": 42
   }
  }
 }

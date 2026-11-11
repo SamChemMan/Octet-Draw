@@ -37,6 +37,9 @@ export type Atom = {
   isotope?: number; // mass number, written before the element (13C, 2H)
   pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean | "diamond" | "star"; bead?: boolean;
   map?: number; // a reaction atom map number: the same atom before and after
+  // The map number an AI app wrote on this atom in a SMILES ([C@H:7]), to name the atom in a later change (compound.ts).
+  // In memory only, as key: it is never drawn, and no file keeps it.
+  tag?: number;
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
   // location[2] is the atom's depth (z, in bond lengths; nearer the viewer is larger), from a turn in 3D (Structure
