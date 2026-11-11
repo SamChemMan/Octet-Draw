@@ -58,8 +58,8 @@ The code clean-up from the same review is on hold until Sam says go.
 
 ## 1.2: Octet for AI apps (MCP)
 
-Branch: `release-1.2-mcp`. The plan (`docs/plans/mcp-v2.md`) and the tests (`docs/plans/mcp-v2-tests.md`) are on
-that branch only.
+Branch: `release-1.2-mcp`, on GitHub since 11 November 2026. The plan (`docs/plans/mcp-v2.md`) and the tests
+(`docs/plans/mcp-v2-tests.md`) are on that branch only.
 
 An AI app draws in Octet through Octet's MCP server. The MCP must have every function that the app has.
 Scripting (issue 89) and batch conversion (issue 91) use the same engine, with no window.
@@ -90,9 +90,8 @@ To do before the release:
 1. Merge `release-1.1.2` into `release-1.2-mcp` when Sam says (plan section 17.3).
 2. After that merge, give `place_template` the new template sets and give `run_command` the spectrum commands
    (plan section 15.2).
-3. Do the steps in plan section 17.4 before any push.
-4. Test with one AI app that is not from Anthropic. This needs Sam's sign-in.
-5. Sam answers the open questions in plan section 16.
+3. Test with one AI app that is not from Anthropic. This needs Sam's sign-in.
+4. Sam answers the open questions in plan section 16.
 
 ## Checks that wait
 
