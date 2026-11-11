@@ -845,11 +845,12 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       }
       return [];
     }
-    const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
+    const look: { font?: string; bold?: true; italic?: true; underline?: true; colour?: string } = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     const shape: Piece[] = [];
     capAt[i] = M('H').ascent;
-    // A written label with some characters bold, italic or underlined (its runs): each character's style, by its place
-    // in the text. Text from place at is measured and drawn piece by piece, each piece in its own style.
+    // A written label with some characters bold, italic, underlined or in their own colour (its runs): each character's
+    // style, by its place in the text. Text from place at is measured and drawn piece by piece, each piece in its own
+    // style. Colour is not measured, so a red N takes the room a black one does.
     const styled = a.text && a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((x) => x.text.split("").map(() => x)) : undefined;
     // A piece in superscript or subscript (issue 44) is drawn as a mass number or count is: k its size against the
     // rest, dy how far its baseline moves (down is positive). Text already drawn small (a count, a charge) is not
@@ -860,7 +861,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       for (let k = 0; k < text.length; k++) {
         const st = styled[at + k], last = out[out.length - 1];
         if (last && k && styled[at + k - 1] === st) { last.text += text[k]; continue; }
-        out.push({ text: text[k], look: { ...look, ...(st?.bold ? { bold: true } : {}), ...(st?.italic ? { italic: true } : {}), ...(st?.underline ? { underline: true } : {}) }, ...(st?.script && f === 1 ? { script: st.script } : {}) });
+        out.push({ text: text[k], look: { ...look, ...(st?.bold ? { bold: true } : {}), ...(st?.italic ? { italic: true } : {}), ...(st?.underline ? { underline: true } : {}), ...(st?.colour ? { colour: st.colour } : {}) }, ...(st?.script && f === 1 ? { script: st.script } : {}) });
       }
       return out.map(({ script, ...p }) => {
         const fc = p.look.font || p.look.bold || p.look.italic ? { font: p.look.font, bold: p.look.bold, italic: p.look.italic } : undefined;

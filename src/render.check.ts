@@ -281,6 +281,10 @@ console.log("render.check: written labels ok");
   assert.deepEqual(styledAt("OMe", [-1, 0], [{ text: "OH", bold: true }]).map((l) => [l.text, !!l.bold]), [["O", false], ["Me", false]]);
   const two = styledAt("OMe\nCH2Cl2", [-1, 0], [{ text: "OMe\n" }, { text: "CH2", bold: true }, { text: "Cl2" }]);
   assert.deepEqual(two.filter((l) => l.bold).map((l) => l.text).sort(), ["2", "C", "H"], "C, H and the first 2 bold on the second line");
+  // A part in its own colour (issue 64) is drawn in it over the label's colour, and takes the room it takes in black.
+  const hued = render({ atoms: [{ label: "O", text: "OMe", colour: "#1D4E89", runs: [{ text: "O", colour: "#B42323" }, { text: "Me" }], location: [0, 0, 0] }, { label: "C", location: [-1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, wider);
+  assert.deepEqual(hued.labels.map((l) => [l.text, l.colour]), [["O", "#B42323"], ["Me", "#1D4E89"]]);
+  assert.deepEqual(hued.labels.map((l) => l.x), styledAt("OMe", [-1, 0], undefined).map((l) => l.x));
   console.log("render.check: labels with styled characters ok");
 }
 

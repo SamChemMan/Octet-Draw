@@ -878,6 +878,11 @@ export default function Editor() {
     labelOpen.current = true;
     setEditing({ atom, value, runs: (a.text && a.runs && plainOf(a.runs) === a.text ? a.runs : [{ text: value }]).map((r) => ({ ...own, ...r })) });
   };
+  // Runs without their own colours, once the whole text took a colour: none when nothing else is styled.
+  const uncoloured = (runs: TextRun[]) => { const r = without(runs, ["colour"]); return styled(r) ? r : undefined; };
+  // A colour on the whole label being typed (it takes it when its box closes): its characters lose their own.
+  const tintLabel = (colour: string) => editing && setEditing({ ...editing, colour,
+    ...(editing.runs?.some((r) => r.colour) ? { runs: without(editing.runs, ["colour"]), version: (editing.version ?? 0) + 1, caret: labelApi.current?.range() } : {}) });
   // Bold, italic, underline and Plain on the label being typed (ChemDraw's Text menu as it is typed): on the characters
   // selected, else on the next ones typed, as in a caption.
   const styleLabel = (patch: (s: RunStyle, all: RunStyle) => RunStyle) => {
@@ -5695,8 +5700,11 @@ export default function Editor() {
   const lineOf = <T extends Arrow | Shape | Cycle | Caption>(xs: T[]) => xs.find((x) => !("curve" in x && x.curve?.closed && x.fill)) ?? xs[0];
   // The colour the Actions panel shows as chosen: the first selected thing's (lineOf), for every kind of selection.
   const selectionColour = (context: Context): { value: string; tints?: boolean } | undefined => {
-    // A label being typed: its colour (the colour row is for it while its box is open).
-    if (editing && doc.atoms[editing.atom]) return { value: editing.colour && editing.colour !== "element" ? editing.colour : doc.atoms[editing.atom].colour ?? "#000000" };
+    // A label being typed: its colour, or the colour of the part selected (the colour row is for it while its box is open).
+    if (editing && doc.atoms[editing.atom]) {
+      const [s, e] = labelApi.current?.range() ?? [0, 0], part = s < e ? common(editing.runs ?? [], s, e).colour : undefined;
+      return { value: part ?? (editing.colour && editing.colour !== "element" ? editing.colour : doc.atoms[editing.atom].colour ?? "#000000") };
+    }
     // Pictures take no colour (ChemDraw's pictures have none).
     if (context.kind === "shape" && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
@@ -6985,9 +6993,9 @@ export default function Editor() {
   // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
   // with the user's own from Settings > Colours); carbon and hydrogen keep the ink.
   function colourByElement() {
-    if (editing) return setEditing({ ...editing, colour: "element" }); // a label being typed: its element's colour
+    if (editing) return tintLabel("element"); // a label being typed: its element's colour
     const by = { ...elementColours(), ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label] } : a)) }, true);
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label], ...(a.runs ? { runs: uncoloured(a.runs) } : {}) } : a)) }, true);
   }
   // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
   // each document).
@@ -7036,8 +7044,13 @@ export default function Editor() {
     if (command === "delete" && context.kind === "grid") return runAction("grid.remove");
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
-      // A label being typed takes the colour when its box closes.
-      if (editing) return setEditing({ ...editing, colour: hex });
+      // A label being typed: part of it selected takes the colour (issue 64), as part of a caption does, and a part in
+      // the label's own colour has none of its own. Else the whole label takes it when its box closes.
+      if (editing) {
+        const [s, e] = labelApi.current?.range() ?? [0, 0], own = (editing.colour !== "element" && editing.colour) || doc.atoms[editing.atom].colour || "#000000";
+        if (s === e || (!s && e >= editing.value.length)) return tintLabel(hex);
+        return styleLabel((st) => ({ ...st, colour: hex.toLowerCase() === own.toLowerCase() ? undefined : hex }));
+      }
       if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
@@ -7045,11 +7058,12 @@ export default function Editor() {
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
       return set({
         ...doc,
-        atoms: context.kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (selection.has(i) ? { ...a, colour: ink } : a)), // a bond alone keeps its atoms' colours
+        // A bond alone keeps its atoms' colours. A whole label takes the colour on all its characters, as a caption does.
+        atoms: context.kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (selection.has(i) ? { ...a, colour: ink, ...(a.runs ? { runs: uncoloured(a.runs) } : {}) } : a)),
         bonds: doc.bonds.map((b) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? { ...b, colour: ink } : b)),
         arrows: doc.arrows?.map(pick), shapes: doc.shapes?.map(pick), cycles: doc.cycles?.map(pick),
         // A whole caption takes the colour on all its characters: its runs lose their own.
-        captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex, ...(c.runs ? { runs: styled(without(c.runs, ["colour"])) ? without(c.runs, ["colour"]) : undefined } : {}) } : c)),
+        captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex, ...(c.runs ? { runs: uncoloured(c.runs) } : {}) } : c)),
       }, true);
     }
     // Highlight colours and ring fills, as ChemDraw's Highlight and Ring Fill colour toolbars; none takes them off. A
@@ -8973,9 +8987,9 @@ export default function Editor() {
         // goes on with the label, in one step (black is the ink: no colour of its own).
         const ids = editing.all ?? [editing.atom], by = { ...elementColours(), ...settings.elementColours }, chosen = editing.colour;
         const tint = (m: Mol): Mol => !chosen ? m : { ...m, atoms: m.atoms.map((x, i) => (!ids.includes(i) ? x : { ...x, colour: chosen === "element" ? by[x.label] ?? x.colour : chosen.toLowerCase() === "#000000" ? undefined : chosen })) };
-        // The text as kept (each line trimmed), and its styles: what all of it has is the label's own bold, italic and
-        // underline, the rest its runs (a label that is an element has no runs). A font or size chosen while typing goes
-        // on all of it; a size is the size drawn, kept over the atom's scale.
+        // The text as kept (each line trimmed), and its styles: what all of it has is the label's own bold, italic,
+        // underline and colour, the rest its runs (a label that is an element has no runs). A font or size chosen while
+        // typing goes on all of it; a size is the size drawn, kept over the atom's scale.
         // A name typed as LaTeX's, \delta, is its character, δ (escapes.ts).
         const typed = trimLines(expandRuns(editing.runs ?? [{ text: editing.value }], keptText(a.text))), text = plainOf(typed), st = labelStyle(typed);
         const ownSize = (x: Atom) => { const v = Math.round(((editing.size ?? 0) / scaleOf(x)) * 100) / 100; return Math.abs(v - style.labelSize) < 0.01 ? undefined : v; };
@@ -8983,6 +8997,7 @@ export default function Editor() {
           if (!ids.includes(i)) return x;
           const { bold: _b, italic: _i, underline: _u, runs: _r, ...rest } = x;
           return { ...rest, ...(st.bold ? { bold: true } : {}), ...(st.italic ? { italic: true } : {}), ...(st.underline ? { underline: true } : {}),
+            ...(st.colour ? { colour: st.colour.toLowerCase() === "#000000" ? undefined : st.colour } : {}),
             ...(editing.font ? { font: editing.font === style.labelFont ? undefined : editing.font } : {}), ...(editing.size ? { size: ownSize(x) } : {}) };
         }) });
         // The label's runs (its characters' own styles); a raised or lowered part is drawn, not read (issue 44).
@@ -9008,7 +9023,7 @@ export default function Editor() {
             pending={editing.pending}
             api={labelApi}
             look={(r) => ({ fontWeight: r.bold ? "bold" : "", fontStyle: r.italic ? "italic" : "", textDecoration: r.underline ? "underline" : "",
-              verticalAlign: r.script === "sub" ? "sub" : r.script === "super" ? "super" : "", fontSize: r.script ? "75%" : "" })}
+              verticalAlign: r.script === "sub" ? "sub" : r.script === "super" ? "super" : "", fontSize: r.script ? "75%" : "", color: r.colour ?? "" })}
             style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom - 0.6 * size - 2, fontSize: size, fontFamily: fontStack(editing.font ?? a.font ?? style.labelFont),
               color: (chosen === "element" ? by[editing.value.trim()] : chosen) ?? a.colour }}
             onRuns={(runs, rebuild) => setEditing((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
