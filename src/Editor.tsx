@@ -6041,8 +6041,9 @@ export default function Editor() {
       }, 1000);
     };
     casLook.current = look;
-    // After the frame is drawn: a timer set in the frame's callback runs once the frame is on screen.
-    const frame = requestAnimationFrame(() => { timer = window.setTimeout(look); });
+    // After the frame is drawn: a timer set in the frame's callback runs once the frame is on screen. A PubChem answer
+    // can run look before then, so its timer goes first (or that structure would be asked for twice).
+    const frame = requestAnimationFrame(() => { clearTimeout(timer); timer = window.setTimeout(look); });
     return () => { casLook.current = undefined; cancelAnimationFrame(frame); clearTimeout(timer); };
   }, [properties, namesLoaded, settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing

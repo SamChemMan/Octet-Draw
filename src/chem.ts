@@ -1196,12 +1196,13 @@ export function toMolfile(drawn: Mol, v2000 = false): string {
 export const toInchiKey = (drawn: Mol): string => convert(ketOf(drawn), "inchi-key");
 // A structure's standard InChIKey, for the Properties panel's CAS row. It is kept by the structure as drawn, wherever
 // it is on the page (stereo comes from where the atoms are), so a structure moved, or drawn again the same, is not
-// worked out again. Undefined when Indigo cannot make one.
+// worked out again. Only its atoms and bonds make the key: a part keeps the rest of the drawing (captions, pictures,
+// spectra), which is no chemistry and can be megabytes. Undefined, kept too, when Indigo cannot make one.
 const drawnKeys = new Map<string, string | undefined>();
 export function drawnInchiKey(part: Mol): string | undefined {
   const o = part.atoms[0]?.location ?? [];
-  const shape = JSON.stringify(part, (k, v) => (k === "location" ? v.map((c: number, i: number) => Math.round((c - (o[i] ?? 0)) * 1000)) : v));
-  return lastUsed(drawnKeys, 200, shape, () => { try { return toInchiKey(part) || undefined; } catch { return undefined; } });
+  const shape = JSON.stringify([part.atoms, part.bonds], (k, v) => (k === "location" ? v.map((c: number, i: number) => Math.round((c - (o[i] ?? 0)) * 1000)) : v));
+  return remembered(drawnKeys, shape, () => { try { return toInchiKey(part) || undefined; } catch { return undefined; } });
 }
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
 // so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go

@@ -53,6 +53,13 @@ let t0 = performance.now();
 for (let i = 0; i < 1000; i++) cas(moved);
 const keptMs = (performance.now() - t0) / 1000;
 assert.ok(keptMs < 0.5, `a kept lookup takes ${keptMs.toFixed(3)} ms`);
+// The panel's structures keep the rest of the drawing (subset). A 1 MB picture and a caption there change nothing.
+const busy: Mol = { ...moved, captions: [{ id: 1, text: "Scheme 1", x: 3, y: 4 }], shapes: [{ id: 2, kind: "picture", from: [0, 0], to: [9, 9], picture: { png: "89".repeat(500_000) } }] };
+assert.equal(cas(busy), "50-78-2");
+t0 = performance.now();
+for (let i = 0; i < 20; i++) cas({ ...busy, captions: [{ id: 1, text: "Scheme 1", x: i, y: 4 }] });
+const busyMs = (performance.now() - t0) / 20;
+assert.ok(busyMs < 0.5, `a kept lookup in a drawing with a picture takes ${busyMs.toFixed(3)} ms`);
 
 // The row: after the formula, with each structure's number, not marked predicted; no row when no structure has one.
 const [s] = structures(aspirin)!;
