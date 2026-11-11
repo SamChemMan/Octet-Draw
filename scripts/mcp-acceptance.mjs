@@ -598,7 +598,7 @@ const CASES = {
     check(said?.split("\n")[1]?.startsWith("- For a scheme, route, figure, cycle or grid, just call draw"), "the instructions say to just call draw", said?.split("\n")[1]);
     const r = await call("draw", { lines: "benzaldehyde -> benzyl alcohol" });
     check(forms.length === 1 && forms[0].requestedSchema?.properties?.destination, "Octet asked the user once, with its form", JSON.stringify(forms));
-    check(r && !r.isError && /^Octet keeps this brief for the session\. The drawing now uses ACS Document 1996 on ACS2,/.test(r.content?.[0]?.text ?? ""), "the same call kept the brief (JACS, two columns) and drew", r?.content?.[0]?.text);
+    check(r && !r.isError && /^Brief kept: ACS Document 1996 on ACS2\. Drew /.test(r.content?.[0]?.text ?? ""), "the same call kept the brief (JACS, two columns) and drew", r?.content?.[0]?.text);
     const d = (await call("read", { detail: "full" }))?.structuredContent;
     check(d?.reactions?.length === 1, "the reaction is drawn", JSON.stringify(d?.reactions));
     const again = await call("draw", { lines: "benzyl alcohol -> benzaldehyde" });
