@@ -90,7 +90,8 @@ export function setOwnNames(list: OwnName[]) {
     const k = commonKey(n.name);
     if (!k || names.has(k)) continue;
     names.set(k, n);
-    if (n.inchi && !byInchi.has(n.inchi)) byInchi.set(n.inchi, n.name);
+    // A CAS number in the dictionary (one PubChem gave a structure for) never names a structure.
+    if (n.inchi && !casNumber(n.name) && !byInchi.has(n.inchi)) byInchi.set(n.inchi, n.name);
   }
   [own, ownByInchi] = [names, byInchi];
 }
@@ -199,7 +200,7 @@ export function nameToSmiles(name: string): string | undefined {
   if (!s || s.length > 1000) return undefined;
   // A CAS number is looked for as the number alone ("CAS 64-17-5" and "[64-17-5]" are 64-17-5): the user's dictionary
   // keeps each one PubChem gave a structure for, so it reads offline from then on.
-  const mine = own.get(commonKey(casNumber(s) ?? s));
+  const cas = casNumber(s), mine = own.get(commonKey(s)) ?? (cas ? own.get(commonKey(cas)) : undefined);
   if (mine) return mine.smiles;
   // "rna: AACGUU" and "dna: ATGC" are built as SMILES, without OPSIN.
   const nucleic = nucleicText(s);

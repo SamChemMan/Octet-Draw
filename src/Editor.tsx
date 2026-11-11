@@ -797,7 +797,7 @@ export default function Editor() {
   }
   // A name from the user's own dictionary draws with the name under it, as ChemDraw's does.
   const withOwnCaption = (name: string, frag: Mol): Mol => {
-    const own = ownName(name);
+    const own = casNumber(name) ? undefined : ownName(name); // a CAS number draws with no caption, as one from Octet's dictionary does
     if (!own || !frag.atoms.length) return frag;
     const xs = frag.atoms.map((a) => a.location[0]), ys = frag.atoms.map((a) => a.location[1]);
     return addCaption(frag, { text: own.name, x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...ys) - 1, under: frag.atoms.map((_, i) => i) })[0];
@@ -2323,28 +2323,23 @@ export default function Editor() {
     rememberName(text, frag);
     setNaming(undefined);
     // A CAS number PubChem gave a structure for goes into the user's dictionary (Settings > Dictionary), so it reads
-    // offline from then on. It has no InChI there, so Convert Structure to Name never gives the number as a name.
+    // offline from then on. A CAS number in the dictionary never names a structure (names.ts setOwnNames).
     const cas = casNumber(text), kept = cas && smiles ? withOwnName(settings.dictionary, { name: cas, smiles }) : settings.dictionary;
     if (kept !== settings.dictionary) setSettings((st) => ({ ...st, dictionary: withOwnName(st.dictionary, { name: cas!, smiles: smiles! }) }));
-    setNotice(kept !== settings.dictionary ? "Drawn from PubChem. Octet added this CAS number to your dictionary, so it draws offline." : "Drawn from PubChem.", "info");
+    setNotice(kept !== settings.dictionary ? "Drawn from PubChem. This CAS number is in your dictionary. Octet can now draw it offline." : "Drawn from PubChem.", "info");
   };
-  // on: Online search is on (the notice that turns it on asks before the setting has reached this function).
-  function askPubChem(text: string, on = settings.onlineSearch): boolean {
+  function askPubChem(text: string): boolean {
     const s = text.trim();
-    if (!TAURI || !on || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || PEPTIDE.test(s) || NUCLEIC.test(s) || looksLikeSmiles(s)) return false;
+    if (!TAURI || !settings.onlineSearch || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || PEPTIDE.test(s) || NUCLEIC.test(s) || looksLikeSmiles(s)) return false;
     setAsking(s);
-    invoke<string | null>("pubchem_structure", { text: s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
+    invoke<string | null>("pubchem_structure", { text: casNumber(s) ?? s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
     return true;
   }
-  // A CAS number Octet does not have, with Online search off: a notice offers to turn Online search on and ask PubChem.
-  // Nothing goes online until the user clicks it. The field shakes as for any text Octet cannot read.
+  // A CAS number Octet does not have, with Online search off: a notice says so and its button opens Settings at Online
+  // search. The notice changes no setting and nothing goes online. The field shakes as for any text Octet cannot read.
   function offerPubChem(text: string): boolean {
-    const s = text.trim();
-    if (!TAURI || settings.onlineSearch || !namesLoaded || !casNumber(s)) return false;
-    setNotice("Octet does not have this CAS number offline. To ask PubChem, turn on Online search.", "info", { label: "Turn on", run: () => {
-      setSettings((st) => ({ ...st, onlineSearch: true }));
-      void invoke("set_online_search", { on: true }).then(() => askPubChem(s, true), () => {});
-    } });
+    if (!TAURI || settings.onlineSearch || !namesLoaded || !casNumber(text)) return false;
+    setNotice("Octet does not have this CAS number offline. To ask PubChem, turn on Online search in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     return false;
   }
   // The name field shakes for text that is not a name.
