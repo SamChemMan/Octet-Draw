@@ -12,6 +12,7 @@ import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide } from "./cycle.ts";
+import { chemicalText, labelSmiles, standsIn, units } from "./labels.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, parseAmount, reagentName, type Field } from "./stoich.ts";
 import { PRESETS, PAGES, pageSize, presetAt, type DocStyle, type PageName } from "./docstyle.ts";
@@ -512,9 +513,11 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
   if (!mapped) return mol;
   return pickPart(clearScheme(alignByMap(mapped, steps), r.atoms), [...r.atoms]);
 }
-// Each compound read; the texts Octet cannot read (failed); and what is wrong with the rest (wrong: a molecule with a
-// bond to no atom, labels that do not fit the *s).
-async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[] }> {
+// Each compound read; the texts Octet cannot read (failed); what is wrong with the rest (wrong: a molecule with a
+// bond to no atom, labels that do not fit the *s); and a sentence for the result (note) that names each label Octet
+// reads no group in and that stands in for none (R, X, Ar, OR), so no reply is silent on a group Octet did not read.
+// A label set as text only, or of more than one word, is not chemistry by design: it is not named.
+async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[]; note: string }> {
   await host.ready();
   const ok: Read[] = [], failed: string[] = [], wrong: string[] = [];
   for (const [k, it] of items.entries()) {
@@ -547,7 +550,11 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     }
     ok.push({ mol: asLike(mol), text, number, named: host.named(text) });
   }
-  return { ok, failed, wrong };
+  const unread = [...new Set(ok.flatMap((s) => s.mol.atoms.flatMap((x) => {
+    const t = x.text && x.chemical !== false ? chemicalText(x.text, x.runs)! : "";
+    return t && !/\s/.test(t) && !labelSmiles(t) && !units(t).some((u) => standsIn(u.text)) ? [x.text!] : [];
+  })))];
+  return { ok, failed, wrong, note: unread.length ? ` Octet does not know the label${unread.length > 1 ? "s" : ""} ${unread.join(", ")}: ${unread.length > 1 ? "they are" : "it is"} drawn as text.` : "" };
 }
 // Runs as Octet keeps them (TextRun): control characters out (spaces kept), each colour #rrggbb; or what is wrong.
 function runsOf(r: RunIn[]): TextRun[] | string {
@@ -717,7 +724,7 @@ const failedNote = (failed: string[], wrong: string[] = []) => `${failed.length 
 const UNDO = " One undo step.";
 
 async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number }, ctx: Ctx): Promise<Result> {
-  const { ok, failed, wrong } = await read(host, a.structures, ctx);
+  const { ok, failed, wrong, note } = await read(host, a.structures, ctx);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   // A cancel that came while Octet read the names stops the call before it draws.
   if (a.structures.length > 10) { await host.settle(); await ctx.check(); }
@@ -732,7 +739,7 @@ async function drawStructures(host: Host, a: { structures: { text: string; numbe
     if (k === ok.length - 1 || (ok.length <= 30 && k % cols === cols - 1)) m = host.set(m); // a small grid is drawn a row at a time
   });
   await host.settle();
-  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${Math.ceil(ok.length / cols)} row${ok.length > cols ? "s" : ""} of ${Math.min(cols, ok.length)}: ${ok.map((s) => label(host, s)).join(", ")}.${failedNote(failed)}${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${Math.ceil(ok.length / cols)} row${ok.length > cols ? "s" : ""} of ${Math.min(cols, ok.length)}: ${ok.map((s) => label(host, s)).join(", ")}.${failedNote(failed)}${note}${UNDO}`, data: { names: names(host, ok) } };
 }
 
 type StepIn = StepFacts & { arrow?: ArrowKind; above?: string[]; below?: string[]; products: CompoundIn[] };
@@ -760,7 +767,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   const lines = a.steps.map(stepLines);
   // In the order they are drawn: each step's structures over and under its arrow, then its products.
   const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t) => ({ text: t.replace(/^structure:\s*/i, "") })), ...s.products])];
-  const { ok, failed, wrong } = await read(host, all);
+  const { ok, failed, wrong, note } = await read(host, all);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
   let m = host.doc();
@@ -825,11 +832,11 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     host.set(shift(host.doc(), new Set(r.atoms), new Set([...r.arrows, ...r.captions]), [over, 0]));
     await host.settle();
   }
-  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}: ${said.join(" ")}. Octet laid it out with Clean Up Reaction.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}: ${said.join(" ")}. Octet laid it out with Clean Up Reaction.${note}${UNDO}`, data: { names: names(host, ok) } };
 }
 
 async function drawCycle(host: Host, a: { intermediates: { text: string; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean }): Promise<Result> {
-  const { ok, failed, wrong } = await read(host, a.intermediates);
+  const { ok, failed, wrong, note } = await read(host, a.intermediates);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const n = ok.length, sizes = ok.map((s) => boxOf(s.mol)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
   const radius = Math.max(3, (big + 2) / (2 * Math.sin(Math.PI / n))), clockwise = !a.anticlockwise;
@@ -862,7 +869,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   await host.settle();
   host.tidyCycle(id);
   await host.settle();
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}: ${ok.map((s) => label(host, s)).join(" → ")}${a.centre ? `, with "${clean(a.centre)}" in the middle` : ""}${sides.length ? `; side arrows at ${sides.join("; ")}` : ""}. Octet tidied it with Clean Up.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}: ${ok.map((s) => label(host, s)).join(" → ")}${a.centre ? `, with "${clean(a.centre)}" in the middle` : ""}${sides.length ? `; side arrows at ${sides.join("; ")}` : ""}. Octet tidied it with Clean Up.${note}${UNDO}`, data: { names: names(host, ok) } };
 }
 
 // ---- Ids (D5) ----
@@ -908,14 +915,14 @@ function structureOf(m: Mol, id: string, host?: Host): number[] | undefined {
 async function replaceStructure(host: Host, a: { structure: string; text: string }): Promise<Result> {
   const m = host.doc(), atoms = structureOf(m, a.structure, host);
   if (!atoms) return { text: `There is no structure ${a.structure}. Call read_drawing for the ids.`, error: true };
-  const { ok, failed } = await read(host, [{ text: a.text }]);
+  const { ok, failed, note } = await read(host, [{ text: a.text }]);
   if (!ok.length) return { text: `Octet changed nothing.${failedNote(failed)}`, error: true };
   const old = host.ink(atoms)!, number = (m.captions ?? []).find((c) => c.bold && c.under?.some((i) => atoms.includes(i)));
   const kept = erase(m, new Set(m.bonds.flatMap((b, k) => (atoms.includes(b.atoms[0]) ? [k] : []))), new Set(atoms));
   const b = boxOf(ok[0].mol), r = place(kept, { ...ok[0], number: number?.text }, (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, (old[1] + old[3]) / 2);
   host.set(r.mol);
   await host.settle();
-  return { text: `Replaced ${a.structure} with ${label(host, ok[0])}${number ? `, numbered ${number.text}` : ""}.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Replaced ${a.structure} with ${label(host, ok[0])}${number ? `, numbered ${number.text}` : ""}.${note}${UNDO}`, data: { names: names(host, ok) } };
 }
 
 async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
@@ -1728,7 +1735,7 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
     if (typeof r === "string") return { text: `Octet drew nothing. ${r}.`, error: true };
     texts.set(t, r);
   }
-  const { ok, failed, wrong } = await read(host, items.filter(isStructure).map(({ structure, caption: _c, text: _t, ...i }) => ({ ...i, text: structure })), ctx);
+  const { ok, failed, wrong, note } = await read(host, items.filter(isStructure).map(({ structure, caption: _c, text: _t, ...i }) => ({ ...i, text: structure })), ctx);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const stray = colours.find(([key]) => !/^[A-Z][a-z]?$/.test(key) && !ok.some((x) => x.mol.atoms.some((y) => y.text === key || y.label === key)));
   if (stray) return { text: `Octet drew nothing. element_colours: there is no element or label ${stray[0].slice(0, 40)}.`, error: true };
@@ -1863,7 +1870,7 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
   const n = atoms.length ? ok.length : 0;
   const inside = (pageSize(s)[0] - 30) * k, r1 = (v: number) => Math.round(v * 10) / 10;
   const wider = `${need > asked + 1e-6 ? ` (wider than ${a.width ? "asked" : "the page allows"}: its rows need ${r1(need)})` : ""}${W > inside + 1e-6 ? `. The page is ${r1(inside)} bond lengths wide inside its margins: use a larger page (set_style) or fewer items a row` : ""}`;
-  return { text: `Drew a figure of ${a.panels.length} panel${a.panels.length > 1 ? "s" : ""} and ${n} structure${n === 1 ? "" : "s"}, ${Math.round(W * 10) / 10} bond lengths wide${wider}: ${ok.map((x) => label(host, x)).join(", ")}.${UNDO}`, data: { figure, names: names(host, ok) } };
+  return { text: `Drew a figure of ${a.panels.length} panel${a.panels.length > 1 ? "s" : ""} and ${n} structure${n === 1 ? "" : "s"}, ${Math.round(W * 10) / 10} bond lengths wide${wider}: ${ok.map((x) => label(host, x)).join(", ")}.${note}${UNDO}`, data: { figure, names: names(host, ok) } };
 }
 
 // ---- Layout warnings (D10) ----

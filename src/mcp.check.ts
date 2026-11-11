@@ -619,6 +619,36 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(!out.isError, text(out));
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), ["L", "Ar"]);
   assert.match(text(await call("draw_structures", { structures: [{ text: "*[Pd]*", labels: ["L"] }] })), /has 2 \* but 1 labels/);
+  // C6: a label Octet reads no group in, and that stands in for none, is named in the result of every tool that takes
+  // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in (L, Ar, R1) and a label written round one
+  // (OR, NHPG) are not named. Ar stays a generic group: it is no phenyl.
+  fresh();
+  out = await call("draw_structures", { structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
+  assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
+  fresh();
+  out = await call("draw_structures", { structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }] });
+  assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));
+  const drawn = (await read()).structures.map((x: { smiles: string; formula: string }) => [x.formula, x.smiles]);
+  assert.equal(drawn[0][0], "BrPd", "L and Ar count as no atoms");
+  assert.ok(drawn[1][0] === "C16H25BO2" && !drawn[1][1].includes("*"), `Bpin and t-Bu are read: ${drawn[1]}`);
+  for (const [tool, args] of [
+    ["draw_structures", { structures: [{ molecule: { atoms: [{ label: "Xyz", x: 0, y: 0 }, { label: "OTBS", x: 1, y: 0 }], bonds: [{ from: 0, to: 1 }] } }] }],
+    ["draw_reaction", { start: [{ text: "*c1ccccc1", labels: ["Xyz"] }], steps: [{ products: [{ text: "benzene" }] }] }],
+    ["draw_cycle", { intermediates: [{ text: "*c1ccccc1", labels: ["Xyz"] }, { text: "benzene" }, { text: "toluene" }] }],
+    ["draw_figure", { panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["Xyz"] }]] }] }],
+  ] as const) {
+    fresh();
+    out = await call(tool, args);
+    assert.match(text(out), / Octet does not know the label Xyz: it is drawn as text\. One undo step\./, tool);
+  }
+  // replace_structure too, for a structure whose text the editor reads with such a label in it (a file's).
+  fresh();
+  await call("draw_structures", { structures: [{ text: "benzene" }] });
+  const structure = host.structure;
+  host.structure = () => ({ atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", text: "Xyz", location: [1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] });
+  out = await call("replace_structure", { structure: (await read()).structures[0].id, text: "a file with the label Xyz" });
+  host.structure = structure;
+  assert.match(text(out), /^Replaced .* Octet does not know the label Xyz: it is drawn as text\. One undo step\./);
 }
 
 // F4: draw_figure. Panels, rows, numbers, captions, side text and brackets, as one undo step; the ids by place.
