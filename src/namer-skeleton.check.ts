@@ -183,6 +183,9 @@ run("drugs", [
   "smiles:NC(N)=NS(=O)(=O)c1ccccc1 = N''-(benzenesulfonyl)guanidine", "smiles:CN/C(NCC)=N\\C#N = (E)-N''-cyano-N-ethyl-N'-methylguanidine",
   "smiles:CN/C(NCCSCc1nc[nH]c1C)=N\\C#N", "smiles:C1OC2COC3OCOC3C2O1 = 5,5a,8a,8b-tetrahydro-2H,3aH,7H-bis[1,3]dioxolo[4,5-b:4',5'-d]pyran",
   "smiles:CC1(C)O[C@@H]2CO[C@@]3(COS(N)(=O)=O)OC(C)(C)O[C@H]3[C@@H]2O1",
+  // E and Z on an imino prefix's C=N, at the parent atom's locant: the cephalosporins' (2Z)-methoxyiminoacetyl group.
+  "smiles:CO\\N=C(/C(=O)N[C@H]1[C@H]2SCC(COC(C)=O)=C(N2C1=O)C(O)=O)c1csc(N)n1 = (6R,7R)-3-[(acetyloxy)methyl]-7-{[(2Z)-(2-amino-1,3-thiazol-4-yl)(methoxyimino)acetyl]amino}-8-oxo-5-thia-1-azabicyclo[4.2.0]oct-2-ene-2-carboxylic acid",
+  "smiles:O/N=C(\\C)C(=O)O = (2E)-2-(hydroxyimino)propanoic acid", "smiles:O\\N=C(\\C)C(=O)O = (2Z)-2-(hydroxyimino)propanoic acid",
 ]);
 
 // Ring imines, as ring ketones are (with indicated and added hydrogen), and nitroso on a carbonyl carbon.

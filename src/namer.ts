@@ -1531,14 +1531,22 @@ class Namer {
       const c = this.cipBond.get(this.key(st.group, this.imineN(st.group)!));
       if (c === "E" || c === "Z") stereo.push({ at: loc(num, st.atom), text: `${label(num, st.atom)}${c}` });
     }
-    // E and Z on an ylidene's double bond, at the parent atom's locant: (2E)-2-ethylidenecyclohexan-1-one.
+    // E and Z on an ylidene's or imino group's double bond, at the parent atom's locant: (2E)-2-ethylidenecyclohexan-1-one,
+    // cefotaxime's [(2Z)-2-(2-amino-1,3-thiazol-4-yl)-2-(methoxyimino)acetyl]. A hydrazinylidene group cites its own
+    // (namer-hetero.ts): [(E)-2-phenylhydrazinylidene].
     for (const a of new Set(prefixes.filter((x) => !x.n).map((x) => x.atom))) for (const y of this.adj[a]) {
       const free = opts.attach && a === opts.attach[0] && y === opts.attach[1]; // cited by the parent the group is on
-      const c = !inParent.has(y) && !free && this.el[y] === "C" && this.ord(a, y) === 2 ? this.cipBond.get(this.key(a, y)) : undefined;
+      const c = !inParent.has(y) && !free && (this.el[y] === "C" || (this.el[y] === "N" && this.het.get(y) !== "hz")) && this.ord(a, y) === 2 ? this.cipBond.get(this.key(a, y)) : undefined;
       if (c === "E" || c === "Z") stereo.push({ at: loc(num, a), text: `${label(num, a)}${c}` });
     }
-    if (fused || assembly) {
+    if (assembly) {
       if (atoms.some((a) => this.adj[a].some((b) => inParent.has(b) && /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")))) throw new Error("ring E/Z");
+    } else if (fused) {
+      // E and Z on a double bond in a large ring of a fused system, at its lower locant: brefeldin A's (2E,10E).
+      for (const a of atoms) for (const b of this.adj[a]) {
+        const c = inParent.has(b) && loc(num, a) < loc(num, b) ? this.cipBond.get(this.key(a, b)) : undefined;
+        if (c === "E" || c === "Z") stereo.push({ at: loc(num, a), text: `${label(num, a)}${c}` });
+      }
     } else if (p.hetero) {
       const e = this.cipBond.get(this.key(atoms[0], atoms[1])); // (E)-diazene-1,2-dicarboxylate
       if (e === "E" || e === "Z") stereo.push({ at: 0, text: e });

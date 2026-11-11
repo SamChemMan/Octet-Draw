@@ -242,6 +242,14 @@ run("large rings", [
   "benzo[18]annulene", "cyclododeca[b]pyridine", "benzo[10]annulene", "6,7,8,9,10,11-hexahydro-5H-benzo[9]annulene",
   "2,3,5,6,8,9,11,12,14,15-decahydro-1,4,7,10,13,16-benzohexaoxacyclooctadecine",
 ]);
+// E and Z on a double bond in a large ring of a fused system, at its lower locant: brefeldin A's (2E,10E). Indigo lays
+// out such a ring's E double bond as Z, so these take E and Z from the SMILES.
+for (const input of ["(10E)-6,7,8,9-tetrahydro-5H-benzo[9]annulene", "(10Z)-6,7,8,9-tetrahydro-5H-benzo[9]annulene",
+  "(1R,2E,6S,10E,11aS,13S,14aR)-1,13-dihydroxy-6-methyl-1,6,7,8,9,11a,12,13,14,14a-decahydro-4H-cyclopenta[f][1]oxacyclotridecin-4-one"]) {
+  const smiles = opsin.parseToSmiles(input), g = graphOf(molOf(smiles), { atoms: cipOf(smiles).atoms, bonds: parsed(smiles).bonds.map((b) => b.cip) })!;
+  assert.equal(iupacNameWhy(g).name, input);
+}
+console.log("namer-fused.check: E and Z in large fused rings ok");
 // Acyl groups on fused and other rings, numbered as the ring (these once failed with "Cannot read properties of
 // undefined (reading 'indexOf')"): folic acid, methotrexate, carbonyldiimidazole and imidazole acids.
 run("ring acyl groups", [
