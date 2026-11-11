@@ -632,7 +632,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
     }
     // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
-    // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
+    // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text, ⌥⌘E HELM (on
+    // the Mac only: Ctrl+Alt+E is AltGr+E, which types € on many keyboards).
     section.replace("Edit › Copy As".into());
     let copy_as = Submenu::with_items(app, "Copy As", true, &[
         &item("copy_smiles", "SMILES", "Alt+CmdOrCtrl+C")?,
@@ -641,6 +642,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_cdxml", "CDXML Text", "CmdOrCtrl+D")?,
         &item("copy_mol", "MOL Text", "Alt+CmdOrCtrl+O")?,
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
+        &item("copy_helm", "HELM", if cfg!(target_os = "macos") { "Alt+CmdOrCtrl+E" } else { "" })?,
+        &item("copy_fasta", "FASTA", "")?,
     ])?;
     section.replace("Edit".into());
     // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.

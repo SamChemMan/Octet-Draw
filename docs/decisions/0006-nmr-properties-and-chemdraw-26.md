@@ -1,11 +1,14 @@
 # 0006: NMR prediction, property prediction and every chemistry feature of ChemDraw 26.1 are in scope
 
-Status: decided by Sam, 16 October 2026. Changes the brief's "Out of scope for version 1" list.
+Status: decided by Sam, 16 October 2026. Changes the brief's "Out of scope for version 1" list. Changed by Sam,
+9 November 2026 (issue 99): peptide, RNA and DNA sequences are in scope from 1.1.2.
 
 ## Decision
 
-- The baseline is ChemDraw 26.1 (it was 22.2). Every chemistry feature of it is in scope. Biology features
-  (HELM, biopolymers, sequences, antibodies, plasmids) stay out for now.
+- The baseline is ChemDraw 26.1 (it was 22.2). Every chemistry feature of it is in scope.
+- Peptide, RNA and DNA sequences are in scope (issues 27 and 99): the Sequence tool, HELM and FASTA in and out, and
+  a Clean Up that knows the residues (ChemDraw's Clean Up Biopolymer). Other biology features stay out for now:
+  ChemDraw's monomer libraries and their editor, graphic monomers, BioDraw shapes, antibodies, plasmids and gels.
 - ¹H and ¹³C NMR prediction, with spectra, is in scope. Sam: "low key a massive feature we all use very often".
 - Property prediction is in scope: the values ChemDraw's Chemical Properties window shows (boiling and melting
   points, critical temperature, pressure and volume, heat of formation, Gibbs energy, logP, molar refractivity,
@@ -37,3 +40,7 @@ derivative of ODbL 1.0. What follows from it:
 
 Chemists predict NMR spectra and properties every day, and ChemDraw has had both for years. Octet replaces
 ChemDraw, so leaving them out would make it worse for daily work.
+
+Sequences came in because users asked for them (issues 27 and 99). Peptide chemists draw modified peptides, and a
+long chain needs a straight backbone with its residues on either side to be readable. They pass sequences around as
+HELM and receive them as FASTA.
