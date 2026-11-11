@@ -3,6 +3,7 @@
 // structure, and reads structures back on paste.
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Properties } from "./experiment.ts";
 
 // Octet's own layers, not part of the drawing: page marks and grid, selection (its frame and resize handles too),
 // hover, reaction interpretation, NMR shifts, problems, handles, guides, the rubber band, the eraser and the rest.
@@ -199,9 +200,10 @@ export function pictureAs(svg: string, f: { format: ExportFormat; margin: number
 // offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF, PNG
 // and EMF carry the CDXML (CARRY_CDXML), as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
 // `transparent`; JPEG at `quality` (1 to 100, 95 if not given). mdl: the text of the MDL format asked for; csv: Home's
-// Experiments list. Resolves to the path written, or null if cancelled.
+// Experiments list; info: the drawing's title, author and keywords, for a PDF's document information. Resolves to the
+// path written, or null if cancelled.
 export type ExportRequest = {
   name: string; format?: ExportFormat | "csv"; csv?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
-  dpi?: number; transparent?: boolean; quality?: number;
+  dpi?: number; transparent?: boolean; quality?: number; info?: Properties;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

@@ -208,7 +208,7 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let tree = crate::export::tree(svg).unwrap();
         let x = "<CDXML><page><fragment/></page></CDXML>";
-        for (file, bytes) in [("e.pdf", crate::export::make_pdf(svg, Some(x)).unwrap()), ("f.png", crate::export::make_png(svg, 72.0, true, Some(x)).unwrap()), ("g.emf", crate::vector::make_emf(&tree, Some(x)))] {
+        for (file, bytes) in [("e.pdf", crate::export::make_pdf(svg, Some(x), None).unwrap()), ("f.png", crate::export::make_png(svg, 72.0, true, Some(x)).unwrap()), ("g.emf", crate::vector::make_emf(&tree, Some(x)))] {
             fs::write(dir.join(file), bytes).unwrap();
             let (text, picture, error) = opened_picture(&dir.join(file), file, &file[2..], false);
             assert!(text.is_some_and(|t| t.ends_with(x)) && picture.is_none() && error.is_none(), "{file}");
@@ -216,7 +216,7 @@ mod tests {
         // Dropped on a tile on Home, Octet's PNG is the thumbnail, a picture.
         let (text, picture, _) = opened_picture(&dir.join("f.png"), "f.png", "png", true);
         assert!(text.is_none() && picture.is_some());
-        fs::write(dir.join("h.pdf"), crate::export::make_pdf(svg, None).unwrap()).unwrap();
+        fs::write(dir.join("h.pdf"), crate::export::make_pdf(svg, None, None).unwrap()).unwrap();
         assert!(opened_picture(&dir.join("h.pdf"), "h.pdf", "pdf", false).2.unwrap().contains("no Octet or ChemDraw drawing"));
         assert!(opened_picture(&png, "b.png", "png", false).1.is_some());
         fs::remove_dir_all(&dir).unwrap();

@@ -70,7 +70,7 @@ import { createPortal, flushSync } from "react-dom";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { formatAmount, parseAmount, reagentFormula, type Field } from "./stoich";
-import { FIELDS as DETAILS, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
+import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -150,6 +150,10 @@ const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
 // A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
 labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
 const HOME_WINDOW = TAURI && !DRAW_WINDOW && !new URLSearchParams(location.search).has("editor");
+// The computer user's name, a new drawing's author (Settings > Document > Properties). Asked for once as the window
+// loads, before the window asks what it opens, so a new window's first drawing has it.
+let systemName = "";
+if (TAURI) void invoke<string>("user_name").then((n) => { systemName = n; }, () => {});
 // File > Print's paper size (printDrawing).
 let pageSheet: CSSStyleSheet | undefined;
 // In the app, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use
@@ -1365,7 +1369,7 @@ export default function Editor() {
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
     try {
       const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) });
       if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -1379,7 +1383,7 @@ export default function Editor() {
     if (!svg) return setNotice("There is nothing to export.", "info");
     try {
       const pic = pictureAs(svg, { ...f, format }, pageColour(style));
-      const path = await exportFile({ name, format, svg: pic.svg, cdxml: CARRY_CDXML.includes(format) ? formatOf(part, "cdxml") : undefined, dpi: f.dpi, transparent: pic.transparent, quality: f.quality });
+      const path = await exportFile({ name, format, svg: pic.svg, cdxml: CARRY_CDXML.includes(format) ? formatOf(part, "cdxml") : undefined, dpi: f.dpi, transparent: pic.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) });
       if (path) saved(path);
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -1548,6 +1552,11 @@ export default function Editor() {
     crashOffered = true;
     invoke<string | null>("crash_report").then((log) => { if (log) setDialog({ kind: "crashed", log }); }).catch(() => {});
   }, []);
+  // A new drawing's author is the computer's user, unless its template names one.
+  const authored = (m: Mol): Mol => {
+    const p = detailsOf(m.annotations, PROPERTIES);
+    return systemName && !p.author ? { ...m, annotations: withDetails(m.annotations, { ...p, author: systemName }, PROPERTIES) } : m;
+  };
   // A new drawing for Quick start or a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the
   // open zoom. ⌘N starts the one picked last, as ChemDraw's New takes the stationery used last; Return on Home starts
   // Quick start.
@@ -1558,13 +1567,13 @@ export default function Editor() {
     const style = styleFor(settings, id), own = settings.ownPurposes.find((p) => p.id === id);
     let template: Mol | undefined;
     try { template = own?.start ? parse(own.start) : undefined; } catch { template = undefined; }
-    const fresh: Mol = { ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, template) : {}) };
+    const fresh = authored({ ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, template) : {}) });
     drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
   const startTutorial = () => elsewhere ? inNew({ tutorial: true }) : keepWork(() => {
-    const style = styleFor(settings, "paper"), fresh: Mol = { ...EMPTY, style };
+    const style = styleFor(settings, "paper"), fresh = authored({ ...EMPTY, style });
     set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
   });
@@ -9282,6 +9291,8 @@ export default function Editor() {
           onExportNames={() => void exportNames()}
           onImportNames={() => void importNames()}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
+          annotations={doc.annotations}
+          onAnnotations={(annotations) => set({ ...doc, annotations }, true)}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
@@ -9572,7 +9583,7 @@ export default function Editor() {
             layout={settings.homeLayout} onLayout={(homeLayout) => setSettings((s) => ({ ...s, homeLayout }))} />)}
       <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
-          onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
+          onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh = authored({ ...EMPTY, style: doc.style }); setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
       )}</Exit>
       <Exit>{dialog?.kind === "templateSet" && (() => {
         // New set… (Add to templates and Move to): the set's name, then the template goes in it.

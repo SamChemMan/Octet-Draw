@@ -44,6 +44,21 @@ pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()>
     ::open::that_detached(target)
 }
 
+// The computer user's full name (the Mac's, or the GECOS field of /etc/passwd on Linux), else the login name: a new
+// drawing's author (Settings > Document > Properties). Windows gives the login name.
+#[tauri::command]
+fn user_name() -> String {
+    let login = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+    #[cfg(target_os = "macos")]
+    let full = objc2_foundation::NSFullUserName().to_string();
+    #[cfg(target_os = "linux")]
+    let full = std::fs::read_to_string("/etc/passwd").unwrap_or_default().lines().find_map(|l| Some(l.strip_prefix(&format!("{login}:"))?.split(':').nth(3)?.split(',').next()?.to_string())).unwrap_or_default();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let full = String::new();
+    let name = if full.trim().is_empty() { login } else { full };
+    name.chars().filter(|c| !c.is_control()).take(200).collect::<String>().trim().to_string()
+}
+
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
 #[tauri::command]
 fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
@@ -1078,7 +1093,7 @@ fn main() {
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
