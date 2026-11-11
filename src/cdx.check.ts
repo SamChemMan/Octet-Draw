@@ -2,6 +2,7 @@
 // bad file; also checks what Octet keeps from ChemDraw files (pictures, highlights, query bonds, property text and
 // polymer brackets) through CDXML, CDX, Octet's own file and editing.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { BASE64_MAGIC, MAGIC, NOT_CDX, cdxToXml, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx.ts";
 import { DAMAGED, TOO_BIG, fontCharset, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, presetAt, readStyle } from "./docstyle.ts";
@@ -11,7 +12,6 @@ import { isDrawingText, readCdx, readOct, writeCdx } from "./oct.ts";
 import type { Mol } from "./render.ts";
 import { analyse, fromJcamp, measuredText } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
-import { readFileSync } from "node:fs";
 
 // A CDX file by hand: the header, then objects and properties as [tag, bytes] in little-endian order.
 const u16 = (v: number) => [v & 0xff, (v >> 8) & 0xff], u32 = (v: number) => [...u16(v & 0xffff), ...u16(v >>> 16)];
@@ -297,8 +297,10 @@ const kept: Mol = {
   assert.equal(pageOf(prop(0x0204, [-2, -2, 2, 2].flatMap(coord))).page, "Letter");
   // A page with something on it keeps its own box, however small (a paste from ChemDraw, say).
   assert.deepEqual(fromCdxml('<CDXML><page id="1" BoundingBox="0 0 10 10" Width="540" Height="720"><t p="5 5"><s>x</s></t></page></CDXML>').style.custom, [28.93, 28.93]);
-  // Both ends: Apply Settings From File… takes .cds files, and Export writes one.
+  // Both ends: Apply Settings From File… takes .cds files, Save to file… sends the style sheet as cds, and Export
+  // writes it.
   const rust = (f: string) => readFileSync(new URL(`../src-tauri/src/${f}`, import.meta.url), "utf8");
+  assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /"export_file", \{ export: \{ name, cds: toBase64\(writeCdx\(EMPTY, savedStyle\(\)\)\) \} \}/);
   assert.match(rust("main.rs"), /const STYLES: [^\n]*"cds"[\s\S]*fn pick_style_file[^}]*add_filter\(STYLES\.0, STYLES\.1\)/);
   assert.match(rust("export.rs"), /\("cds", "ChemDraw Style Sheet \(CDS\)", &\["cds"\]\)[\s\S]*"cds" => e\.cds\.is_some\(\)[\s\S]*"cds" => base64[^\n]*e\.cds/);
   console.log("cdx.check: style sheets ok");
