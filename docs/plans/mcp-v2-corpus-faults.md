@@ -1,0 +1,290 @@
+# Faults in Octet that the paper corpus found (11 November 2026)
+
+Each was found while writing `scripts/mcp-bench/corpus/` and then reproduced by a second agent with the smallest
+input. Grouped by paper, as found, so some appear more than once. `docs/plans/mcp-v2.md` section 17.1 groups them.
+
+## zu2025
+
+- A * with the label Ar (or Ar1) is read as phenyl. R, L, Alkyl, Ar', Het and X stay generic. The tool description's own example for a generic group, '*c1ccccc1' with ['Ar'], comes out as biphenyl. Real fault in Octet. The Fig. 4d data is right.
+  - input: `draw_structures {structures:[{text:'*Br', labels:['Ar']}]}`
+  - got: `bromobenzene, C6H5Br, QARVLSVVCXYDNA-UHFFFAOYSA-N. '*c1ccccc1' with ['Ar'] gives 1,1'-biphenyl C12H10`
+  - expected: `A generic aryl bromide with no formula for Ar, as labels R or Alkyl give (formula Br, no InChIKey)`
+- draw_structures grid: neighbours overlap when a structure has a wide label on its left side. The column step seems to leave that label's width out. With one label each the boxes are 0.1 apart and no warning. The same molecules written in full are spaced properly. Real fault.
+  - input: `draw_structures {structures:[{text:'*c1ccc(*)cc1', labels:['CO2Et','NHBoc']},{text:'*c1ccc(*)cc1', labels:['CO2Et','NHBoc']}]}`
+  - got: `Warning 'Structure s1 overlaps structure s2.' Boxes [-19.4,-1,-11.8,0.8] and [-13.4,-1,-5.8,0.8]`
+  - expected: `Two structures side by side with a gap`
+- draw_structures with no columns puts up to 6 in one row whatever their width, so the row runs off the page. The description says 'one row for 6 or fewer', so this is as designed, but the design gives an off-page drawing with no call failed. Real.
+  - input: `draw_structures {structures:[6 x {text:'CCCCCCCCCCCC'}]} (also 4 x 'CCOC(=O)c1ccc(NC(CCC)c2ccc(NC(=O)OC(C)(C)C)cc2)cc1')`
+  - got: `1 row of 6, boxes out to x = 49.5. Warnings for s4, s5, s6 past the page's right edge. The 4-structure input: s3 and s4 past the edge, boxes to 43.7`
+  - expected: `Fewer columns so the grid fits the page width`
+- draw_reaction leaves a one-step reaction of long molecules past the page's right edge. Nothing is shortened or moved to a second row. Real. It is why fig2a, fig3a, fig3b, fig3c, fig4a and fig4b end with warnings.
+  - input: `draw_reaction {start:[{text:'CCCCCCCCCCCCCCCCCCCCCCCCO'}], steps:[{products:[{text:'CCCCCCCCCCCCCCCCCCCCCCCC=O', number:'2'}]}]}`
+  - got: `Product box [8,1.6,29,2.4]. Warning 'Structure s2 runs past the page's right edge.'`
+  - expected: `The reaction fitted to the page (product on a second row, or shorter gaps)`
+- When draw_reaction wraps a step's second product to the next row, read_drawing drops it from the reaction's products and its '+' becomes free text. No warning. Real.
+  - input: `draw_reaction {start:[{text:'c1ccccc1NCCCCc1ccccc1',number:'1'},{text:'COc1ccc(Br)cc1',number:'2'}], steps:[{reagents:['NiBr2·glyme'], products:[{text:'COc1ccc(cc1)C(CCCc1ccccc1)Nc1ccccc1',number:'3a'},{text:'COc1ccc(cc1)N(CCCCc1ccccc1)c1ccccc1',number:'3b'}]}]}`
+  - got: `products ['s3'] only. s4 (3b) is at [-5.9,-11.7,2.5,-4.7] on the next row, text [{id:'t7', text:'+'}] is free, warnings []`
+  - expected: `reactions[0].products = ['s3','s4'] (as ethanol -> acetaldehyde + acetic acid gives)`
+- The same reaction fits or does not fit depending on the length of the longest conditions line. The catalysts field joins its entries on one line, the arrow grows to that length, the first product starts past the edge, and then nothing wraps. With short lines the first product fits and the second wraps. Confirmed, but the cause is line length, not fields against lines: a catalysts field alone gives the same result. Same root as the two faults above.
+  - input: `The 5a input above with catalysts:['10% NiBr2·glyme','13% (R)-L','13% PC4'] in place of reagents, against the same with above:['10% NiBr2·glyme','13% (R)-L, 13% PC4','3.0 equiv. K3PO4']`
+  - got: `Catalysts field: one line '10% NiBr2·glyme, 13% (R)-L, 13% PC4', 3a at [14.7..21.3], 3b at [23.8..32.2], 4 warnings. Lines: 3a at [9..15.6], 3b wrapped and dropped from products, no warnings`
+  - expected: `The same fit to the page either way (the catalysts on two lines, or the products wrapped)`
+- A neutral N or P donor bonded to a metal in a SMILES gets a valence warning, although Octet names the result as a coordination compound. '<-' is unreadable. The charge-separated form ([n+] on [Pd-2]) gives the same name and no warning, so there is a way round, but the tool description and the instructions do not say so, and their own N#CC example warns. Real.
+  - input: `draw_structures {structures:[{text:'Cl[Pd](Cl)(n1ccccc1)n1ccccc1'}]}`
+  - got: `Named dichloridobis(pyridine)palladium(II), warnings 'N4 has 4 bonds. Nitrogen has a maximum of 3...' and N10. 'Cl[Pd](Cl)(N#CC)N#CC' warns for N4 and N7. 'Cl[Pd](Cl)(P(C)(C)C)P(C)(C)C' warns for P4 and P8. 'Cl[Pd-2](Cl)([n+]1ccccc1)[n+]1ccccc1' is clean`
+  - expected: `No valence warning for a ligand atom on a metal`
+- The geometry hint is refused for a chelate. This is what the tool description says ('use molecule ... a chelate ring'), so it is a stated limit and not a bug. The cost is real: complex C needs about 57 atoms of coordinates by hand, or Octet's own layout.
+  - input: `draw_structures {structures:[{text:'Br[Ni]1(Br)n2ccccc2-c2ccccn12', geometry:'square_planar'}]}`
+  - got: `Refused: 'geometry: a ring runs through the centre (a chelate), so its ligands cannot be placed one by one. Give a molecule with coordinates.' The same SMILES without geometry draws, named (2,2'-bipyridine-κ2N1,N1')dibromidonickel(II)`
+  - expected: `The four donor atoms placed square planar with the chelate ring kept`
+- A valence warning's message numbers the atom by its count in the whole drawing, while its atom id counts within the structure. It does not need a reaction: two structures in draw_structures show it. Real.
+  - input: `draw_structures {structures:[{text:'CCO'},{text:'Cl[Pd](Cl)(n1ccccc1)n1ccccc1'}]}`
+  - got: `message 'N7 has 4 bonds...' with atom 's2.4', and 'N13' with 's2.10'`
+  - expected: `Message and id name the same number (N4 with s2.4)`
+- draw_cycle puts a side arrow's text on top of an intermediate. It happens with R labels too, so it is not caused by the Ar fault. Real.
+  - input: `draw_cycle with the four intermediates of zu2025-fig4d (Ar labels changed to R) and steps [{step:0,in:'ArBr'},{step:1,in:'PC•−',out:'PC + Br−'},{step:2,in:'PhNHCH(•)Alkyl'},{step:3,out:'PhNHCH(Ar)Alkyl'}]`
+  - got: `Warning 'Structure s3 overlaps the text "PhNHCH(•)Alkyl" (t9).'`
+  - expected: `Side text clear of the intermediates`
+- Names of complexes. 'chloro' ligand names are unreadable, and so are the names Octet itself writes for the same complexes ('dichloridobis(pyridine)palladium(II)', 'bis(acetonitrile)dichloridopalladium(II)'). 'bis(acetonitrile)dichloropalladium(II)' is drawn as five loose pieces while the reply says 'Drew 1 structure'. 'NiBr2·glyme' and 'NiBr2(dme)' are unreadable (formula shorthand, so a smaller matter). Real.
+  - input: `draw_structures {structures:[{text:'bis(acetonitrile)dichloropalladium(II)'}]} and the same with 'dichloridobis(pyridine)palladium(II)'`
+  - got: `First: reply 'Drew 1 structure', drawing has s1 and s2 acetonitrile, s3 and s4 chloride, s5 palladium(2+). Second: 'Octet cannot read "dichloridobis(pyridine)palladium(II)"'. 'bis(triphenylphosphine)palladium(II) dichloride' is read as one complex (with P valence warnings)`
+  - expected: `Each drawn as one complex. Octet reads back the names it writes`
+
+## robinson2026
+
+- Real fault in Octet. The label Bpin is not read (nor BPin, B(pin), pinB). The atom stays a generic group with no InChIKey, and there is no warning. B(OH)2 is read. Costs 3b (fig3c) and 18, 19 (fig5b).
+  - input: `draw_structures {"structures":[{"text":"*c1ccccc1","labels":["Bpin"],"number":"1"}]}`
+  - got: `formula C6H5, no InChIKey, SMILES *C1C=CC=CC=1, warnings []`
+  - expected: `2-phenyl-4,4,5,5-tetramethyl-1,3,2-dioxaborolane, C12H17BO2`
+- Real fault in Octet. The label BBN is read as a chain B-B-N with no warning. The label 9-BBN is not read. The name 9-BBN gives *BBN (B2H4N). The name 9-borabicyclo[3.3.1]nonane is read. Costs 13a (fig5a).
+  - input: `draw_structures {"structures":[{"text":"*CCCC","labels":["BBN"],"number":"1"}]}`
+  - got: `(butylboranyl)boranamine, C4H13B2N, SMILES C(CCC)BBN, InChIKey KMSJALGYXRSMML-UHFFFAOYSA-N, warnings []`
+  - expected: `9-butyl-9-borabicyclo[3.3.1]nonane, CCCCB1C2CCCC1CCC2`
+- Real fault in Octet. A salt given as one compound (a SMILES with a dot, or one name) becomes two structures that both carry the number. read_drawing then warns about Octet's own drawing, the draw reply says check clean, and the reply's formula is the first ion only. No structure has the salt's InChIKey. Costs 12a and 13a (fig5a).
+  - input: `draw_structures {"structures":[{"text":"C[N+](C)(C)C.[Cl-]","number":"1"}]}  (same with text "tetramethylammonium chloride")`
+  - got: `s1 C4H12N (QEMXHQIAXOOASZ-UHFFFAOYSA-N) and s2 Cl (VEXZGXHMUGYJMC-UHFFFAOYSA-M), both number 1. Warning in read_drawing: "Compound number 1 is on more than one structure." names[0].formula is "C4H12N" ("Cl" for the name).`
+  - expected: `one compound numbered 1, C4H12ClN, InChIKey OKIZCWYLBDKLSU-UHFFFAOYSA-M`
+- Real fault in Octet. A scheme with a salt as a product does not wrap, and read_drawing reads it as separate reactions. fig5a gives 12 past-the-edge warnings and three reactions with empty "before". The same job without the tosylate anions gives 0 warnings. This is the cause of the fig5a layout warnings. It is the salt fault above, seen in draw_reaction.
+  - input: `draw_reaction {"start":[{"text":"biphenyl"}],"steps":[{"products":[{"text":"c1ccccc1c1ccccc1.[Cl-]","number":"1"}]},{"products":[{"text":"c1ccccc1c1ccccc1.[Cl-]","number":"2"}]},{"products":[{"text":"biphenyl","number":"3"}]},{"products":[{"text":"biphenyl","number":"4"}]},{"products":[{"text":"biphenyl","number":"5"}]}]}`
+  - got: `10 warnings: s4, s5, s6, their numbers and the arrows run past the page's right edge`
+  - expected: `the scheme wrapped to the page, as the same input with "biphenyl" for products 1 and 2 is (0 warnings)`
+- Real fault in Octet. The label F3B (the borate written from the left, as the paper draws 4a) is read as a chain F-F-F-B with no warning. BF3 gives a neutral boron and a warning about bonds. BF3- is not read. The corpus jobs write the borate as SMILES atoms, so this costs nothing in the table.
+  - input: `draw_structures {"structures":[{"text":"*C[N+](C)(C)C","labels":["F3B"],"number":"1"}]}`
+  - got: `SMILES C([N+](C)(C)C)FFFB, formula C4H13BF3N, InChIKey GSTNIBMHBFBBSH-UHFFFAOYSA-N, warnings []. With BF3: C([N+](C)(C)C)B(F)(F)F and "BF3 has 1 bond. It can have no bonds." With BF3-: generic group, no InChIKey.`
+  - expected: `F[B-](F)(F)C[N+](C)(C)C, C4H11BF3N`
+- Real fault in Octet, small. The label BF3K on a carbon draws a K-B bond and warns that the label can have no bonds. The InChIKey is still that of the salt, so 3a is counted right, but the job gets a warning for the paper's own notation.
+  - input: `draw_structures {"structures":[{"text":"BrC*","labels":["BF3K"],"number":"3a"}]}`
+  - got: `SMILES BrC[B]([K])(F)(F)F, InChIKey AZDFPIRYUOCVCJ-UHFFFAOYSA-N, warning "BF3K has 1 bond. It can have no bonds. Remove its bonds or change the label."`
+  - expected: `potassium (bromomethyl)trifluoroborate with no warning`
+- Real fault in Octet. Hyphenated group labels are not read: t-Bu, i-Pr, n-Bu, Oi-Pr, i-PrO, Ot-Bu. OtBu is not read either. tBu, iPr, CO2tBu and OTBS are read. No warning. Not in this corpus file (the paper has t-Bu in Fig. 4b).
+  - input: `draw_structures {"structures":[{"text":"*c1ccccc1","labels":["t-Bu"],"number":"1"},{"text":"*c1ccccc1","labels":["OtBu"],"number":"2"}]}`
+  - got: `both C6H5, no InChIKey, warnings []`
+  - expected: `tert-butylbenzene (YTZKOQUCBOVLHL-UHFFFAOYSA-N) and tert-butoxybenzene`
+- Real fault in Octet. The label D is not read as deuterium when given as a label for *. [2H] in the SMILES works (9b is right in fig3b).
+  - input: `draw_structures {"structures":[{"text":"*C(*)(C)N","labels":["D","D"],"number":"1"}]}`
+  - got: `formula C2H5N, no InChIKey, SMILES C(N)(C)(*)*, warnings []`
+  - expected: `[2H]C([2H])(C)N, InChIKey QUSNBJAOOMFDIB-CBTSVUPCSA-N`
+- Real fault in Octet. draw_structures picks its columns from the count and not from the widths, so a default grid can run off a paper page. Five biphenyls in a row fit, six do not. The scope job (19 structures, rows of 6) gets 18 warnings and fig5b gets 3.
+  - input: `draw_structures {"structures":[{"text":"biphenyl"},{"text":"biphenyl"},{"text":"biphenyl"},{"text":"biphenyl"},{"text":"biphenyl"},{"text":"biphenyl"}]}`
+  - got: `"Drew 6 structures in 1 row of 6", warning "Structure s6 runs past the page's right edge."`
+  - expected: `a grid that fits the page (fewer columns when the row is too wide)`
+- Real limit in Octet. draw_figure draws a row wider than the page and reports it. The reply tells the AI app to use a larger page or fewer items a row, so the app can fix it in a second call. 5 warnings in fig3b.
+  - input: `draw_figure {"panels":[{"rows":[[{"structure":"lomerizine"},{"structure":"lomerizine"},{"structure":"lomerizine"},{"structure":"lomerizine"}]]}]}`
+  - got: `"49.7 bond lengths wide (wider than the page allows: its rows need 49.7). The page is 35.4 bond lengths wide inside its margins", warning "Structure s4 runs past the page's right edge."`
+  - expected: `a figure inside the page`
+- Real limit in Octet, partly the job. One step that is too wide for the page is not fitted: draw_reaction wraps only between steps. fig3c has one step with two starting materials, a large product and four condition lines of up to 47 characters, as the paper has them. The same two large structures with a one-word condition and no second starting material fit with 0 warnings.
+  - input: `the robinson2026-fig3c job`
+  - got: `"Structure s3 runs past the page's right edge." and "The text \"10\" (t9) runs past the page's right edge."`
+  - expected: `the step fitted to the page`
+- draw_cycle on the Fig. 2 mechanism. (1) Real limit: side arrows take text only, so 4a and 2a cannot be structures on the cycle. (2) Half Octet, half data: an amine on Pd written as the paper draws it (plus on Pd, N with four bonds) warns, and there is no way to give a dative bond (a SMILES with <- or -> is refused). Writing [N+] with a neutral Pd gives no valence warning, but that is not how the paper places the charge. (3) Not a fault: full step names overlap on a 4-step cycle, the tool description says to keep them short, and the file uses OA, TM, RE.
+  - input: `draw_cycle {"intermediates":[{"text":"*[Pd]","labels":["L"]},{"text":"*[Pd+](C)N(C)(C)C","labels":["L"]}]}`
+  - got: `"N6 has 4 bonds. Nitrogen has a maximum of 3. Add a positive charge or remove a bond." With *[Pd+](C)<-N(C)(C)C: "Octet cannot read ...". With the full names on the 4-step cycle: "The text \"oxidative addition\" (t6) overlaps the text \"reductive elimination\" (t8)."`
+  - expected: `no chemistry warning for an amine bound to a metal, or a way to give the dative bond`
+- Real limit in Octet. A structure at the arrow ('structure:' in above or below) takes no number and no labels, so a numbered reagent the paper draws at the arrow (3a, 11a, 3b) cannot keep its number there, and 'structure: BrC*' cannot get its BF3K label. 'structure:' does work on both sides: in below it is drawn under the arrow (checked for the corrected fig3a job).
+  - input: `draw_reaction {"start":[{"text":"donepezil"}],"steps":[{"above":["structure: BrC*"],"products":[{"text":"benzene"}]}]}`
+  - got: `drawn as CH2Br with a bare *, formula CH2Br, no InChIKey, no number, warnings []`
+  - expected: `a way to give the structure at the arrow its label and compound number`
+
+## proctor2019
+
+- Real fault. An aromatic bracket atom with no H loses its radical. No warning. The Kekule form reads correctly.
+  - input: `draw_structures {text:'[c]1ccccc1'} (also 'Cc1cc[c]cc1')`
+  - got: `benzene, C6H6, UHOVQNZJYSORNB-UHFFFAOYSA-N; toluene for the second`
+  - expected: `phenyl radical, C6H5, CIUQDSCDWFSTQR-UHFFFAOYSA-N (what '[C]1=CC=CC=C1' gives)`
+- Real gap. Common label spellings are not expanded and nothing in the reply says so apart from the formula. A nonsense label ('Xyz') gets the same reply, so Octet treats them as generic groups. tBu expands.
+  - input: `draw_structures {text:'*c1ccccc1', labels:['t-Bu']}; same for i-Pr, n-Bu, OtBu, Ot-Bu, NPhth, PhthN, Ad`
+  - got: `'Drew 1 structure: C6H5', no warning, inchiKey undefined, SMILES '*C1C=CC=CC=1'`
+  - expected: `tert-butylbenzene, or a line in the reply that the label was kept as a generic group`
+- Real fault. A structure given with * and labels is drawn without the explicit H atoms Octet adds at ring-fusion stereocentres when the same structure is written out, so a wedge joins two stereocentres and a warning follows. The InChIKey is right both ways. The warning has no ids.
+  - input: `draw_structures {text:'*[C@@H](O)[C@@H]1C[C@@H]2CCN1C[C@@H]2C=C', labels:['Ph']} against 'c1ccccc1[C@@H](O)[C@@H]1C[C@@H]2CCN1C[C@@H]2C=C'`
+  - got: `with the label: 'This wedge or hash joins two stereocentres, so it is not clear which one it sets.' Written out: no warning, bridgehead H atoms drawn`
+  - expected: `the same drawing and no warning for both`
+- Real fault. Name to Structure refuses a quinuclidine name that gives the bridgeheads descriptors (1S,4S). The same name without them reads.
+  - input: `draw_structures {text:'(1S,2S,4S)-quinuclidin-2-ylmethanol'}; full case '(R)-(6-methoxyquinolin-4-yl)((1S,2S,4S,5R)-5-vinylquinuclidin-2-yl)methanol'`
+  - got: `'Octet drew nothing. Octet cannot read ...'`
+  - expected: `the structure, as '(2S)-quinuclidin-2-ylmethanol' and the (2S,4S,5R) name give (the second is quinine, LOUPRKONTZGTKE-WZBLMQSHSA-N)`
+- Confirmed as a coverage gap, not a wrong result. These abbreviations are refused with a clear message asking for a SMILES. Selectfluor and PIFA read.
+  - input: `draw_structures {text:'TRIP'}; also (R)-TRIP, TCYP, BDMAEE, Mes-Acr, DFMS`
+  - got: `'Octet drew nothing. Octet cannot read "TRIP": give a SMILES instead'`
+  - expected: `the reagent's structure`
+- Real fault. A 'structure:' line that shares an arrow side with text lines overlaps them. One structure and one text line over the arrow is clean. A text line then a structure under the arrow overlaps, and so do three text lines with a structure over it.
+  - input: `draw_reaction {start:[{text:'benzoic acid'}], steps:[{above:['(COCl)2'], below:['then','structure:S=C1C=CC=CN1O[Na]'], products:[{text:'benzoyl chloride'}]}]}`
+  - got: `'Structure s2 overlaps the text "then" (t3).' Four such warnings in proctor2019-scheme47`
+  - expected: `structure clear of the text`
+- Real limit in Octet, and the tool description admits it ('wraps between steps', 'keep lines short'). reagents or catalysts are joined into one line, the arrow grows to fit, and a one-step reaction runs off the page. The same reagents as three 'above' lines fit with no warning, so the data could avoid it, but it gives conditions as data as the tool asks.
+  - input: `draw_reaction {start:[{text:'benzene'}], steps:[{catalysts:['1 mol% [Ir(dF(CF3)ppy)2(dtbpy)]PF6','5 mol% (R)-TRIP or (R)-TCYP','10 mol% something else quite long here'], products:[{text:'toluene'}]}]}; and the scheme68 job without its solvent lines`
+  - got: `'Structure s2 runs past the page's right edge. Arrow a1 runs past the page's right edge.'`
+  - expected: `one item a line over the arrow, scheme inside the page`
+- Real fault. draw_structures puts four mid-size structures in one row past the right edge, with columns 4 and also with no columns set (its own default). draw_figure starts the figure at the page's middle (title at y 1.2 to 2 on a page from -29.2 to 29.2), so a two-panel figure runs off the bottom with the top half empty.
+  - input: `draw_structures {structures:[{text:'C=CCCOCc1ccc2ccccc2n1'},{text:'CC(C)c1n[nH]c2ccccc12'},{text:'CC(=O)c1ccc(CCc2ccccc2)c(n1)C(C)=O'},{text:'CC(C)(C)c1nc(NCc2ccccc2)c2[nH]cnc2n1'}]}; draw_figure: the proctor2019-scheme72-73-scope job`
+  - got: `'Structure s4 runs past the page's right edge.'; four captions of the last row past the bottom edge`
+  - expected: `grid and figure inside the page`
+- Real fault. The label BF3K expands to the right structure and still gets a warning about the label.
+  - input: `draw_structures {text:'*c1ccccc1', labels:['BF3K']}`
+  - got: `'BF3K has 1 bond. It can have no bonds. Remove its bonds or change the label.'`
+  - expected: `no warning (C6H5BF3K, DVAFPKUGAUFBTJ-UHFFFAOYSA-N is right)`
+- Real fault. read_drawing's SMILES marks Si as a radical when SiMe3 or TMS came from a label, and gives no name. Formula and key are right. Written out as SMILES it is clean and named.
+  - input: `draw_structures {text:'*c1ccccc1', labels:['SiMe3']}`
+  - got: `'C1(C=CC=CC=1)[Si](C)(C)C |^1:6|', no name`
+  - expected: `C[Si](C)(C)c1ccccc1 with no radical mark, name trimethyl(phenyl)silane`
+- Real fault. A long side-arrow text on a cycle runs past the page's left edge. A short one ('CO2') is clean.
+  - input: `draw_cycle {intermediates:[{text:'C[CH]C'},{text:'CC(C)C1C=C(C)c2ccccc2[NH+]1'},{text:'CC(C)[C]1C=C(C)c2ccccc2N1'}], steps:[{step:2, out:'product·H+, PhI, RCO2−, CO2'}]}`
+  - got: `'The text "product·H+, PhI, RCO2−, CO2" (t2) runs past the page's left edge.'`
+  - expected: `text inside the page (cycle moved right, or the text wrapped)`
+
+## trowbridge2018
+
+- Ir(ppy)3 read from its name is drawn with plain single Ir-N bonds and Octet's own check warns on each N. Real fault in Octet (its name reading and its valence check disagree). The complex also gets no name back.
+  - input: `draw_structures {"structures":[{"text":"Ir(ppy)3"}]}`
+  - got: `Three warnings: "N13 has 4 bonds. Nitrogen has a maximum of 3. Add a positive charge or remove a bond." and the same for N25 and N37. Nine in the cycle job. name is empty.`
+  - expected: `No warning on a structure Octet made from a name.`
+- fac- is accepted and ignored: the drawing is flat. mer- and the full name are not read. Real: the stereo descriptor is dropped with no note. The two unread names are gaps in Name to Structure.
+  - input: `draw_structures {"structures":[{"text":"fac-Ir(ppy)3"}]} ; the same with "mer-Ir(ppy)3" ; "tris(2-phenylpyridinato)iridium(III)"`
+  - got: `fac: same structure and InChIKey as Ir(ppy)3, bond kinds only single and double. mer and the full name: "Octet drew nothing. Octet cannot read ...".`
+  - expected: `fac drawn octahedral with wedges, or a note that fac was not drawn. mer and the full name read.`
+- draw_structures spaces its grid by atoms, so long labels run into the next structure. Real layout fault.
+  - input: `draw_structures {"structures":[{"text":"*CC","labels":["CO2Bn"]},{"text":"*CC","labels":["CO2CH(CF3)2"]}]}`
+  - got: `"Structure s1 overlaps structure s2." Boxes s1 [-19.6, 0.2, -16, 1], s2 [-18, 0.2, -12.2, 1]; check also lists text_on_bonds. In the fig2b job s4 (5d) overlaps s5 (5e).`
+  - expected: `Two structures with a gap.`
+- draw_structures picks columns without the page width. Real, though the description does say one row for 6 or fewer and the caller can set columns.
+  - input: `The fig2b-aldehydes job (13 structures, no columns) and the fig4c-drugs job (4 structures, no columns).`
+  - got: `fig2b: 3 rows of 5, s5 ends at x = 26.3 and s10 at 25.5. fig4c: one row, s3 ends at 23.3 and s4 at 40.6. Warnings "runs past the page's right edge" for the structures and their numbers.`
+  - expected: `A grid inside the page (pageBox x from -20.7 to 20.7).`
+- A one-step reaction with a long condition line goes off the page: the arrow is as long as the line and nothing wraps. Real. The description says to keep lines short, but this is one line of the paper's own conditions.
+  - input: `draw_reaction {"start":[{"text":"butyraldehyde"},{"text":"dibenzylamine"},{"text":"butyl acrylate"}],"steps":[{"below":["20 mol% propionic acid, 4 Å mol. sieves"],"products":[{"text":"CCCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1"}]}]}`
+  - got: `Arrow from x = 5.1 to 19.4, product s4 from 20.5 to 31. "Structure s4 runs past the page's right edge." With below ["RT"] the arrow ends at 8.1 and the product at 19.6, inside the page.`
+  - expected: `The product inside the page (line broken in two, or the product on a second row).`
+- draw_figure: in a row of structures of different heights each number sits under its structure but every caption sits on the row's bottom line. Real, minor. Six a row not fitting is as designed (the reply says so).
+  - input: `The fig4a-amines job (two rows of six, number and caption on each).`
+  - got: `Row 2: 7h's box ends at y = -11.4 and its caption 81% is at -13.8 to -13.1. 7g's box ends at -12.8, same caption line. Reply: "47.9 bond lengths wide (wider than the page allows...)" and 7 off-page warnings.`
+  - expected: `The yield directly under its number.`
+- Common labels are not read and Octet says nothing. D, t-Bu, i-Pr, n-Bu, OtBu, Ot-Bu, CO2t-Bu, 4-ClPh, 4-ClC6H4 and p-ClC6H4 stay as a generic atom. tBu, tBuO, CO2tBu and OCMe3 are read. Real fault.
+  - input: `draw_structures {"structures":[{"text":"*CC","labels":["D"]}]} ; the same with each label above`
+  - got: `Reply "Drew 1 structure in 1 row of 1: C2H5", warnings [], check "clean". read_drawing: formula C2H5, SMILES "C(C)* |$;;$|", no InChIKey.`
+  - expected: `(2H1)ethane for D, 2-ethoxy-2-methylpropane for OtBu, and so on. Or a warning that the label was kept as text.`
+- Two labels are read as the wrong group: NC as an isocyanide, P(O)(OEt)2 with an OH and two extra H. Real fault in label reading. I did not run ChemDraw to see what it does with NC.
+  - input: `draw_structures {"structures":[{"text":"*c1ccccc1","labels":["NC"]}]} ; {"text":"*CC","labels":["P(O)(OEt)2"]}`
+  - got: `C1(C=CC=CC=1)[N+]#[C-] |^1:6|, InChIKey RCIBIGQXGCBBCT. C(C)P(OCC)(OCC)O, C6H17O3P.`
+  - expected: `benzonitrile (JFDZBHWFFUWGJE, which the label CN gives); diethyl ethylphosphonate C6H15O3P (which PO(OEt)2 gives).`
+- read_drawing's SMILES marks a radical on the first atom of some expanded labels when there is none: Si in TMS, TIPS, TBS, SiMe3; N in O2N, NO2 (also NO2, which the first agent did not list) and in the NC isocyanide. Formula, InChIKey and the atom list are closed-shell. A real radical (CC[CH2]) is written the same way, so a reader cannot tell them apart. Real fault.
+  - input: `draw_structures {"structures":[{"text":"*CC","labels":["TMS"]}]} then read_drawing {"detail":"full","atoms":true}`
+  - got: `smiles "C(C)[Si](C)(C)C |^1:2|", atoms [{label TMS},{C},{C}] with no radical. The same compound given as SMILES reads back "CC[Si](C)(C)C". TBSO and OTIPS are clean.`
+  - expected: `smiles "C(C)[Si](C)(C)C"`
+- A compound that is only a label is refused, in draw_cycle and in draw_structures, and the message tells the caller to do what it did. Real gap: a cycle cannot have text nodes, as the paper's has.
+  - input: `draw_structures {"structures":[{"text":"*","labels":["L"]}]} ; draw_cycle with three {"text":"*","labels":["[Ir(III)ppy3]"]} intermediates`
+  - got: `"Octet drew nothing. Octet cannot read \"*\": give a SMILES instead (with * for a generic group such as L or R, and its labels)."`
+  - expected: `The label drawn as a text node.`
+- number is limited to 12 characters. Reproduced. It is a limit in the schema (str(12)), working as written; the paper's own label is 13.
+  - input: `draw_structures {"structures":[{"text":"Ir(ppy)3","number":"[Ir(III)ppy3]"}]}`
+  - got: `"Octet changed nothing. structures[0].number: longer than 12 characters."`
+  - expected: `The label under the structure.`
+- Names from this paper that Name to Structure does not read. Reproduced with nameToSmiles. desloratidine is the paper's misspelling, so that one is a wish for typo tolerance.
+  - input: `"desloratidine" ; "paraformaldehyde" ; "1,1,1,3,3,3-hexafluoroisopropyl acrylate" ; "tris(2-phenylpyridinato)iridium(III)" ; "mer-Ir(ppy)3"`
+  - got: `Not read. "desloratadine", "hexafluoroisopropyl acrylate", "1,1,1,3,3,3-hexafluoropropan-2-yl acrylate", "Hantzsch ester" and "Ir(ppy)3" are read.`
+  - expected: `Desloratadine for the misspelling; a structure or a clear answer for the others.`
+- Two gaps in the tools, reproduced: a structure over or under an arrow takes no number or labels, and draw_structures takes no caption. Not wrong output.
+  - input: `draw_reaction step with below ["structure:[2H]C([2H])(NC([2H])([2H])c1ccccc1)c1ccccc1"] ; draw_structures {"structures":[{"text":"CCO","number":"1","caption":"84%"}]}`
+  - got: `The structure is drawn with no number. "Octet changed nothing. structures[0]: caption is not an argument of this tool."`
+  - expected: `A number on the structure under the arrow; a caption under a grid entry.`
+- New, not on the first agent's list. When a 'structure:' line is the only thing over or under an arrow (or the other line is short, such as RT), the arrow keeps its default length, the structure hangs past the arrowhead over the product, and read_drawing does not list it in the step. With a bigger product the product also drops out of the reaction's products. Judged from boxes; the headless run gives no picture. The corpus jobs avoid it because their arrows carry longer text.
+  - input: `draw_reaction {"start":[{"text":"butyraldehyde"}],"steps":[{"above":["structure:dibenzylamine"],"products":[{"text":"CCCC"}]}]}`
+  - got: `Arrow x from -13 to -10.9, structure s2 from -12.3 to -5.3, product s3 from -9.8 to -7.2. Step reads above: [], no warning. With product CCCC=NCc1ccccc1: "Structure s2 overlaps structure s3" and products: []. With below structure and a numbered product: "Structure s2 overlaps the text \"x\"".`
+  - expected: `An arrow as long as the structure over it, the structure centred on the arrow, and above: ["s2"] in read_drawing.`
+- New, minor. read_drawing splits the condition line 1,5-HAT at its comma into two reagents.
+  - input: `draw_reaction {"start":[{"text":"CCCC"}],"steps":[{"below":["1,5-HAT"],"products":[{"text":"CCCCO"}]}]} then read_drawing {"detail":"full"}`
+  - got: `below ["1,5-HAT"] but fields.reagents [{"text":"1"},{"text":"5-HAT"}].`
+  - expected: `One entry, "1,5-HAT".`
+
+## gaunt2007
+
+- 1. A salt with a compound number is read back as two structures that both carry the number. read_drawing then warns about it, and no structure has the salt's InChIKey. The draw reply says check 'clean' and gives one ion's formula only. Octet draws the number once (one text, t1), so the picture is right and the reading is wrong. Real Octet fault. The data (compound 1 of gaunt2007-fig8 is the iodide salt) is right. Same with 'sodium chloride', 'tetrabutylammonium bromide' and in draw_reaction.
+  - input: `draw_structures {"structures":[{"text":"[Na+].[Cl-]","number":"1"}]}`
+  - got: `made s1, s2, t1. Reply: formula 'Na', warnings [], check 'clean'. read_drawing: s1 [Na+] number 1, s2 [Cl-] number 1, warning 'Compound number 1 is on more than one structure.'`
+  - expected: `One compound numbered 1 with InChIKey FAPWRFPIFSIZLT-UHFFFAOYSA-M, formula NaCl in the reply, no warning.`
+- 2. The labels Allyl, allyl, All and Vinyl are not read as groups. Octet draws a generic label, gives no InChIKey and no warning. Bn and Boc in the same place are read. src/labels.ts GROUPS has no allyl or vinyl entry. Real Octet gap. The data is right: the paper writes 'Allyl' on the nitrogen (gaunt2007-fig14 compound 3).
+  - input: `draw_structures {"structures":[{"text":"*N(C)C","labels":["Allyl"]}]}`
+  - got: `Formula C2H6N, SMILES *N(C)C, no InChIKey, warnings [], check 'clean'. The reply names it 'C2H6N'.`
+  - expected: `N,N-dimethylprop-2-en-1-amine, C5H11N, or a warning that the label was not read as a group.`
+- 3. Name to Structure misreads diphenylprolinol ethers. 'diphenylprolinol' and '(S)-alpha,alpha-diphenylprolinol' alone are read correctly (diphenyl(pyrrolidin-2-yl)methanol), but with 'trimethylsilyl ether' or 'methyl ether' after it, one phenyl goes on the ring nitrogen and one on C2. No warning, same formula. With Greek letters ('(S)-α,α-diphenylprolinol trimethylsilyl ether') the name is not read at all. Real Octet fault. The data's expected structure for catalyst 5 matches Fig. 7a.
+  - input: `draw_structures {"structures":[{"text":"(S)-diphenylprolinol trimethylsilyl ether"}]}`
+  - got: `(2S)-1,2-diphenyl-2-{[(trimethylsilyl)oxy]methyl}pyrrolidine, DWUAXVRBGZTBMN-HXUWFJFHSA-N. The methyl ether gives (2S)-2-(methoxymethyl)-1,2-diphenylpyrrolidine, CXXHSEMMYLWCBY-GOSISDBHSA-N.`
+  - expected: `C[Si](C)(C)OC(c1ccccc1)(c1ccccc1)[C@@H]1CCCN1 (RSUHWMSTWSSNOW-IBGZPJMESA-N).`
+- 4. draw_reaction does not make room for a 'structure:' line. The arrow's length comes from the text lines only (src/mcp.ts drawReaction: longest is taken over lines that are not structures, length = max(3, longest + 1)), and each structure is placed from the arrow's start. A wide structure ends up on the product. Pyridine fits. Hexane hangs over the product with no warning. Under the arrow it also overlaps the text. Real Octet fault. It gives the 8 warnings in gaunt2007-fig17 and both warnings in gaunt2007-fig3.
+  - input: `draw_reaction {"start":[{"text":"benzene"}],"steps":[{"above":["structure: Hantzsch ester"],"products":[{"text":"toluene"}]}]}`
+  - got: `Arrow box [-14.6, 2, -12.5, 2], Hantzsch ester box [-11.5, -0.7, -5.8, 4.7] (right of the arrow), toluene box [-6.8, -2.1, -4.7, 0.5]. Warning 'Structure s2 overlaps structure s3.' With hexane: structure [-13.7, 4.1, -9.4, 4.7] over product [-11.5, 0.7, -9.5, 3.3], no warning. With below ['structure: NFSI', 'THF, r.t.']: two overlap warnings.`
+  - expected: `The arrow at least as long as the structure over it, the structure centred on the arrow, the product clear of both.`
+- 5. draw_structures does not fit its grid to the page. The tool description says one row for 6 or fewer unless columns is set, so the rule is documented, but Octet then draws past the page and warns about its own drawing. An AI app cannot know the widths before it draws. Real Octet layout fault, not a data mistake (setting columns in the job would hide it). It gives the 8 warnings in gaunt2007-catalysts (11 structures in rows of 5).
+  - input: `draw_structures {"structures":[{"text":"anthracene"},{"text":"anthracene"},{"text":"anthracene"},{"text":"anthracene"},{"text":"anthracene"},{"text":"anthracene"}]}`
+  - got: `One row of 6, s6 box [18.2, -1.3, 23.5, 0.8], warning 'Structure s6 runs past the page's right edge.'`
+  - expected: `A grid inside the page margins (two rows of 3).`
+- 6. Names Octet does not read (minor): 'solanapyrone D' and 'L-Pro'. Octet says so and draws nothing, so no silent error. Not used in the jobs: product 3 of gaunt2007-fig11d is a SMILES.
+  - input: `draw_structures {"structures":[{"text":"solanapyrone D"}]} ; draw_structures {"structures":[{"text":"L-Pro"}]}`
+  - got: `Call fails: 'Octet drew nothing. Octet cannot read "solanapyrone D": give a SMILES instead ...'. Same for 'L-Pro'.`
+  - expected: `Solanapyrone D (C18H22O4, AWQLNKJBXASXDU-IPJQOSJUSA-N) and L-proline.`
+
+## grocott2025
+
+- Real fault. Hyphenated alkyl labels are not read as groups and Octet says nothing. n-Bu, n-Pr, i-Pr, t-Bu, s-Bu, n-Oct and n-C8H17 all stay as *; nBu, Bu, iPr, tBu and OTBS are read. An unknown label (Xyz) is also silent, which is right for a generic group, so the gap is the missing hyphen forms. Costs 4e and 4t in fig2b.
+  - input: `draw_structures {structures:[{text:'*c1ccccc1', labels:['n-Bu']}]}`
+  - got: `Drew 1 structure: C6H5, SMILES *C1C=CC=CC=1, no inchiKey, warnings [], check clean`
+  - expected: `butylbenzene, C10H14, OCKPCBLVNKHBMX-UHFFFAOYSA-N (what labels:['nBu'] gives)`
+- Real limit of the tool. A 'structure:' line over the arrow is a string, so it takes no number, labels or hints. With labels impossible, a * in it stays a * ('structure: C=CCS(=O)(=O)C*' gives C4H7O2S). A batch with set_number {structure:'$1.s[1]', number:'1a'} does number it, but Octet then warns that the number overlaps the arrow (and the text line '1a (4 equiv.)' if there is one). Costs 1a, 1b and 1c in fig2a, fig4a and fig4c.
+  - input: `draw_reaction {start:[{text:'*CC=C',labels:['Bn'],number:'2a'}], steps:[{above:['structure: C=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C','1a (4 equiv.)'], products:[{text:'*CCC=C',labels:['Bn'],number:'4a'}]}]}`
+  - got: `s2 drawn right (XOLQQGNFUURZFE-UHFFFAOYSA-N) with no number. After set_number: 'The text "1a (4 equiv.)" (t3) overlaps the text "1a" (t5). The text "1a" (t5) overlaps arrow a2.'`
+  - expected: `a way to give the over-arrow structure its number and labels in the same call, placed clear of the arrow`
+- Real fault. Name to Structure reads 'Hoveyda–Grubbs II' and 'Hoveyda–Grubbs 2nd generation catalyst' but refuses 'Hoveyda-Grubbs II catalyst', 'Hoveyda–Grubbs second-generation catalyst', 'Hoveyda–Grubbs catalyst', 'HG-II' and 'Grubbs II catalyst' ('Grubbs II' is read). Fails fig2a-catalyst.
+  - input: `draw_structures {structures:[{text:'Hoveyda-Grubbs II catalyst'}]}`
+  - got: `Octet drew nothing. Octet cannot read "Hoveyda-Grubbs II catalyst": give a SMILES instead`
+  - expected: `C31H38Cl2N2ORu, ZRPFJAPZDXQHSM-UHFFFAOYSA-L`
+- Real, in three parts. (1) 'Hoveyda–Grubbs II' by name is drawn with no O to Ru bond; the paper's box draws the chelate. (2) A SMILES with a plain O-Ru bond draws the chelate but warns about oxygen's valence, so there is no clean way to give a dative bond as text. (3) The 'O1->[Ru]' form is refused. That refusal is fair ('->' is not SMILES), but the message tells the caller to give a SMILES when it just did. Same kind of fault seen in Octet's own 'Grubbs II': it warns 'P25 has 4 bonds'. The InChIKey is the same with or without the O-Ru bond, so the benchmark cannot see any of this.
+  - input: `draw_structures {structures:[{text:'CC(C)[O]1[Ru](Cl)(Cl)(=Cc2ccccc21)=C1N(c2c(C)cc(C)cc2C)CCN1c1c(C)cc(C)cc1C'}]}`
+  - got: `'O4 has 3 bonds. Oxygen has a maximum of 2. Add a positive charge or remove a bond.' (the first agent quoted the atom as O82; in a new drawing it is O4)`
+  - expected: `the chelate with a dative O to Ru bond and no valence warning`
+- Real layout fault. Twenty structures at columns: 4 do not fit the default paper page and draw_structures neither fits them nor refuses. It does list every one in the reply. The data is right: the paper has four to a row.
+  - input: `grocott2025-fig2b as written (20 structures, columns: 4)`
+  - got: `24 warnings: s3, s4, s7, s8, s11, s12, s15, s16 past the right edge, s17 and s18 past the bottom, s19 and s20 past both, and the same for their 12 number texts`
+  - expected: `a grid inside the page margins, or one line saying how many fit`
+- Real fault. The same stereo structure draws clean from a full SMILES (Octet adds explicit H at the ring-fusion centres) but with one group given as * and a label it puts a wedge between two stereocentres and then warns about its own drawing. The InChIKey is right both ways. Reproduced on quinine with *=OMe and on 11a with two OMe labels; 'quinine' and 'rotenone' by name draw clean.
+  - input: `draw_structures {structures:[{text:'*C=1C=C2C(=CC=NC2=CC1)[C@@H](O)[C@H]1N2C[C@@H]([C@H](C1)CC2)C=C', labels:['OMe']}]}`
+  - got: `'This wedge or hash joins two stereocentres, so it is not clear which one it sets. Start it at one stereocentre only.'`
+  - expected: `no warning, as the same SMILES starting 'COC=1' gives`
+- Real layout fault, and Octet reports it. draw_figure draws a row of four mid-sized structures wider than the page.
+  - input: `grocott2025-fig2c as written (one row of 5, 6, 7, 8 with two-line captions)`
+  - got: `'38.7 bond lengths wide (wider than the page allows: its rows need 38.7). The page is 35.4 bond lengths wide inside its margins'`
+  - expected: `the row fitted to the page width`
+- Real limit. A double bond with no geometry in the SMILES is drawn, named and keyed as E, so an alkene of unstated geometry or an E/Z mixture cannot be given as text. parseStructure does the same, so the runner's key for such an expected SMILES would also be E. The file avoids this (16, (E)-18 and 20 all state their geometry).
+  - input: `draw_structures {structures:[{text:'CC=CCCCc1ccccc1'}]}`
+  - got: `[(4E)-hex-4-en-1-yl]benzene, ORKBJNQAFQMOGC-NSCUHMNNSA-N, no warning`
+  - expected: `ORKBJNQAFQMOGC-UHFFFAOYSA-N, drawn with a wavy or crossed bond`
+- Real fault. '(R)-carvone' is refused though '(S)-carvone', '(R)-(-)-carvone', '(-)-carvone' and 'carvone' are read. 'R-carvone', '(R)-limonene' and '(R)-(+)-limonene' are refused too; '(S)-limonene' and 'limonene' are read. Not in a job.
+  - input: `draw_structures {structures:[{text:'(R)-carvone'}]}`
+  - got: `Octet cannot read "(R)-carvone": give a SMILES instead`
+  - expected: `(5R)-2-methyl-5-(prop-1-en-2-yl)cyclohex-2-en-1-one, ULDHMXUKGWMISQ-SECBINFHSA-N`
+- Not a fault, as the first agent said. 'ambrettolide' reads as the natural 8-ene. I counted the paper's ring: 7 CH2 on the acyl side and 6 on the oxygen side, so it is the 10-ene, drawn Z. 19 (8 and 7 CH2) and 20 (8 and 7) agree with that. The job's SMILES for the start is right.
+  - input: `Name to Structure: 'ambrettolide'`
+  - got: `(8Z)-oxacycloheptadec-8-en-2-one, NVIPUOMWGQAOIT-RQOWECAXSA-N`
+  - expected: `for this paper: (10Z)-oxacycloheptadec-10-en-2-one, QILMAYXCYBTEDM-IWQZZHSRSA-N`
+- Partly wrong as the first agent stated it. Steroid stems with α and β are read: '17α-allylestr-4-en-17β-ol' gives allylestrenol (ATXHVCQZZJYMCF-XUDSTZEESA-N), and '(17β)-estr-4-en-17-ol' and '17-(prop-2-en-1-yl)estr-4-en-17-ol' are read. What fails is α or β together with a bracketed substituent name: '17α-(prop-2-en-1-yl)estr-4-en-17β-ol' and '(17β)-17-(prop-2-en-1-yl)estr-4-en-17-ol' are not read. Real but narrow.
+  - input: `Name to Structure: '17α-(prop-2-en-1-yl)estr-4-en-17β-ol'`
+  - got: `not read`
+  - expected: `allylestrenol, ATXHVCQZZJYMCF-XUDSTZEESA-N`

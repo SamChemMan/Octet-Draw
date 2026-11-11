@@ -1,0 +1,776 @@
+{
+ "source": {
+  "citation": "Trowbridge, Reich and Gaunt, Multicomponent synthesis of tertiary alkylamines by photocatalytic olefin-hydroaminoalkylation, Nature 2018",
+  "doi": "10.1038/s41586-018-0537-9",
+  "licence": "All rights reserved (Springer Nature): structures and conditions only, written by us"
+ },
+ "jobs": [
+  {
+   "id": "trowbridge2018-fig2a",
+   "kind": "S1",
+   "figure": "Fig. 2a",
+   "prompt": "Draw the reaction of Fig. 2a in the attached paper with the model substrates: butyraldehyde 1a, dibenzylamine 2a and butyl acrylate 3a give tertiary amine 5a. Put the conditions over and under the arrow as the figure has them, and the yield of 5a.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "butyraldehyde",
+      "number": "1a"
+     },
+     {
+      "text": "dibenzylamine",
+      "number": "2a"
+     },
+     {
+      "text": "butyl acrylate",
+      "number": "3a"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "1 mol% Ir(ppy)3, 40 W blue LED",
+       "Hantzsch ester 4a"
+      ],
+      "below": [
+       "20 mol% propionic acid, 4 Å mol. sieves",
+       "CH2Cl2, RT, 2 h"
+      ],
+      "yield": "84%",
+      "products": [
+       {
+        "text": "CCCC(N(*)*)CC*",
+        "labels": [
+         "Bn",
+         "Bn",
+         "CO2Bu"
+        ],
+        "number": "5a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1a": "CCCC=O",
+     "2a": "C(NCc1ccccc1)c1ccccc1",
+     "3a": "C=CC(=O)OCCCC",
+     "5a": "CCCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig2a-catalyst",
+   "kind": "S18",
+   "figure": "Fig. 2a (right-hand box)",
+   "prompt": "Draw the two reagents shown at the right of Fig. 2a: the Hantzsch ester 4a with its esters as EtO2C and CO2Et labels, and the photocatalyst fac-Ir(ppy)3 with Ir(ppy)3 written under it.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "*C1=C(C)NC(C)=C(*)C1",
+      "labels": [
+       "EtO2C",
+       "CO2Et"
+      ],
+      "number": "4a"
+     },
+     {
+      "text": "fac-Ir(ppy)3",
+      "number": "Ir(ppy)3"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "4a": "CCOC(=O)C1=C(C)NC(C)=C(C1)C(=O)OCC",
+     "Ir(ppy)3": "[Ir]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig2b-aldehydes",
+   "kind": "F4",
+   "figure": "Fig. 2b (aldehyde scope)",
+   "prompt": "Draw the aldehyde scope of Fig. 2b as a numbered grid: products 5a to 5m, with Bn, CO2Bu, TBSO, MeO and Boc as labels the way the paper draws them.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "CCCC(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5a"
+     },
+     {
+      "text": "*C(=O)CCC(N(*)*)CC*",
+      "labels": [
+       "MeO",
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5b"
+     },
+     {
+      "text": "*CCCC(N(*)*)CC*",
+      "labels": [
+       "TBSO",
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5c"
+     },
+     {
+      "text": "c1ccccc1CCC(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5d"
+     },
+     {
+      "text": "*n1cc(CCC(N(*)*)CC*)c2ccccc12",
+      "labels": [
+       "Boc",
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5e"
+     },
+     {
+      "text": "Cc1ccc(CCC(N(*)*)CC*)o1",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5f"
+     },
+     {
+      "text": "CC(C)C(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5g"
+     },
+     {
+      "text": "C1CCCCC1C(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5h"
+     },
+     {
+      "text": "*N1CCC(CC1)C(N(*)*)CC*",
+      "labels": [
+       "Boc",
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5i"
+     },
+     {
+      "text": "C1COCCC1C(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5j"
+     },
+     {
+      "text": "*N1CC(C1)C(N(*)*)CC*",
+      "labels": [
+       "Boc",
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5k"
+     },
+     {
+      "text": "FC1(F)CC(C1)C(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5l"
+     },
+     {
+      "text": "C(N(*)*)CC*",
+      "labels": [
+       "Bn",
+       "Bn",
+       "CO2Bu"
+      ],
+      "number": "5m"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "5a": "CCCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5b": "COC(=O)CCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5c": "CC(C)(C)[Si](C)(C)OCCCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5d": "c1ccccc1CCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5e": "CC(C)(C)OC(=O)n1cc(CCC(CCC(=O)OCCCC)N(Cc2ccccc2)Cc2ccccc2)c2ccccc12",
+     "5f": "Cc1ccc(CCC(CCC(=O)OCCCC)N(Cc2ccccc2)Cc2ccccc2)o1",
+     "5g": "CC(C)C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5h": "C1CCCCC1C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5i": "CC(C)(C)OC(=O)N1CCC(CC1)C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5j": "C1COCCC1C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5k": "CC(C)(C)OC(=O)N1CC(C1)C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5l": "FC1(F)CC(C1)C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "5m": "C(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig3a-cycle",
+   "kind": "S13",
+   "figure": "Fig. 3a (photocatalyst cycle)",
+   "prompt": "Draw the iridium photoredox cycle at the centre of Fig. 3a: Ir(ppy)3 is excited by the blue lamp, the excited state takes an electron from Hantzsch ester 4a (which leaves as its radical cation 4a′), and the Ir(II) anion reduces iminium ion Int-I to the α-amino radical Int-II by SET. Draw the three iridium species as structures.",
+   "tool": "draw_cycle",
+   "arguments": {
+    "intermediates": [
+     {
+      "text": "Ir(ppy)3",
+      "number": "Ir(III)"
+     },
+     {
+      "text": "Ir(ppy)3",
+      "number": "Ir(III)*"
+     },
+     {
+      "text": "[Ir-]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13",
+      "number": "Ir(II)"
+     }
+    ],
+    "steps": [
+     {
+      "step": 0,
+      "name": "40 W blue lamp"
+     },
+     {
+      "step": 1,
+      "in": "4a",
+      "out": "4a′"
+     },
+     {
+      "step": 2,
+      "in": "Int-I",
+      "out": "Int-II",
+      "name": "SET"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "Ir(III)": "[Ir]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13",
+     "Ir(III)*": "[Ir]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13",
+     "Ir(II)": "[Ir-]123(C4=CC=CC=C4C4=CC=CC=N41)(C1=CC=CC=C1C1=CC=CC=N12)C1=CC=CC=C1C1=CC=CC=N13"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig3a-pathway",
+   "kind": "S12",
+   "figure": "Fig. 3a (substrate pathway)",
+   "prompt": "Draw the main pathway of the mechanism in Fig. 3a as one scheme, with R = Et written out: 1a and 2a condense to iminium ion Int-I, SET gives α-amino radical Int-II, addition to butyl acrylate 3a (drawn over the arrow) gives radical Int-IV, 1,5-HAT gives the benzylic radical Int-V, and HAT from 4a′ gives 5a. Show the charge and each radical.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "butyraldehyde",
+      "number": "1a"
+     },
+     {
+      "text": "dibenzylamine",
+      "number": "2a"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "H+"
+      ],
+      "below": [
+       "− H2O"
+      ],
+      "products": [
+       {
+        "text": "CCCC=[N+](*)Cc1ccccc1",
+        "labels": [
+         "Bn"
+        ],
+        "number": "Int-I"
+       }
+      ]
+     },
+     {
+      "above": [
+       "[Ir(II)ppy3]−"
+      ],
+      "below": [
+       "SET"
+      ],
+      "products": [
+       {
+        "text": "CCC[CH]N(*)Cc1ccccc1",
+        "labels": [
+         "Bn"
+        ],
+        "number": "Int-II"
+       }
+      ]
+     },
+     {
+      "above": [
+       "structure:butyl acrylate"
+      ],
+      "below": [
+       "radical addition"
+      ],
+      "products": [
+       {
+        "text": "CCCC(C[CH]*)N(*)Cc1ccccc1",
+        "labels": [
+         "CO2Bu",
+         "Bn"
+        ],
+        "number": "Int-IV"
+       }
+      ]
+     },
+     {
+      "below": [
+       "1,5-HAT"
+      ],
+      "products": [
+       {
+        "text": "CCCC(CC*)N(*)[CH]c1ccccc1",
+        "labels": [
+         "CO2Bu",
+         "Bn"
+        ],
+        "number": "Int-V"
+       }
+      ]
+     },
+     {
+      "above": [
+       "4a′"
+      ],
+      "below": [
+       "HAT"
+      ],
+      "products": [
+       {
+        "text": "CCCC(CC*)N(*)Cc1ccccc1",
+        "labels": [
+         "CO2Bu",
+         "Bn"
+        ],
+        "number": "5a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1a": "CCCC=O",
+     "2a": "C(NCc1ccccc1)c1ccccc1",
+     "Int-I": "CCCC=[N+](Cc1ccccc1)Cc1ccccc1",
+     "Int-II": "CCC[CH]N(Cc1ccccc1)Cc1ccccc1",
+     "Int-IV": "CCCC(C[CH]C(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1",
+     "Int-V": "CCCC(CCC(=O)OCCCC)N(Cc1ccccc1)[CH]c1ccccc1",
+     "5a": "CCCC(CCC(=O)OCCCC)N(Cc1ccccc1)Cc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig3b-d4",
+   "kind": "S11",
+   "figure": "Fig. 3b (right)",
+   "prompt": "Draw the deuterium-labelling experiment on the right of Fig. 3b: butyraldehyde 1a and butyl acrylate 3a react with labelled dibenzylamine d4-2a, drawn as a structure under the arrow, to give d4-5a in 67% yield. Show every D.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "butyraldehyde",
+      "number": "1a"
+     },
+     {
+      "text": "C=CC(=O)*",
+      "labels": [
+       "OBu"
+      ],
+      "number": "3a"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "1 mol% Ir(ppy)3, 40 W blue LED",
+       "4a, 20 mol% propionic acid",
+       "4 Å mol. sieves, RT, CH2Cl2, 2 h"
+      ],
+      "below": [
+       "structure:[2H]C([2H])(NC([2H])([2H])c1ccccc1)c1ccccc1"
+      ],
+      "yield": "67%",
+      "products": [
+       {
+        "text": "CCCC(CC([2H])*)N(C([2H])*)C([2H])([2H])*",
+        "labels": [
+         "CO2Bu",
+         "Ph",
+         "Ph"
+        ],
+        "number": "d4-5a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1a": "CCCC=O",
+     "3a": "C=CC(=O)OCCCC",
+     "d4-5a": "CCCC(CC([2H])C(=O)OCCCC)N(C([2H])c1ccccc1)C([2H])([2H])c1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig2b-5aq",
+   "kind": "S20",
+   "figure": "Fig. 2b (5aq)",
+   "prompt": "Draw how 5aq of Fig. 2b is made: dibenzylamine 2a, paraformaldehyde and the chiral dehydroalanine acceptor (the 2-tert-butyl-4-methylene-oxazolidin-5-one with N-Cbz) give 5aq as one diastereomer. Draw both stereocentres with wedges as the paper does, Cbz and tBu as labels, and give the yield and d.r.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "dibenzylamine",
+      "number": "2a"
+     },
+     {
+      "text": "C=C1N(*)[C@H](*)OC1=O",
+      "labels": [
+       "Cbz",
+       "tBu"
+      ]
+     }
+    ],
+    "steps": [
+     {
+      "reagents": [
+       "(CH2O)n (5 equiv)",
+       "methoxyethyl Hantzsch ester (1.5 equiv)"
+      ],
+      "catalysts": [
+       "Ir(ppy)3 (1 mol%)",
+       "EtCO2H (20 mol%)"
+      ],
+      "solvents": [
+       "CH2Cl2"
+      ],
+      "temperature": "RT",
+      "time": "2 h",
+      "below": [
+       "4 Å mol. sieves, 40 W blue LED"
+      ],
+      "yield": "56%, >20:1 d.r.",
+      "products": [
+       {
+        "text": "O=C1O[C@@H](*)N(*)[C@H]1CCN(*)*",
+        "labels": [
+         "tBu",
+         "Cbz",
+         "Bn",
+         "Bn"
+        ],
+        "number": "5aq"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "2a": "C(NCc1ccccc1)c1ccccc1",
+     "5aq": "O=C1O[C@@H](C(C)(C)C)N(C(=O)OCc2ccccc2)[C@H]1CCN(Cc1ccccc1)Cc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig4a-amines",
+   "kind": "F4",
+   "figure": "Fig. 4a",
+   "prompt": "Draw the amine scope of Fig. 4a as a figure: products 7a to 7l in two rows of six, each with its number and its yield under it (and the d.r. for 7l). Keep the wedges on 7d, 7e, 7f and 7l, define both bridgehead centres of 7g (the paper draws it in perspective, with no wedges), and write Ph, CF3, OMe, Boc, Cbz and tBu as labels.",
+   "tool": "draw_figure",
+   "arguments": {
+    "panels": [
+     {
+      "rows": [
+       [
+        {
+         "structure": "CCCC(CC(*)*)N1CCC(CC1)*",
+         "labels": [
+          "Ph",
+          "Ph",
+          "Ph"
+         ],
+         "number": "7a",
+         "caption": "51%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1CCC(CC1)*",
+         "labels": [
+          "Ph",
+          "Ph",
+          "CF3"
+         ],
+         "number": "7b",
+         "caption": "54%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1CCN(CC1)*",
+         "labels": [
+          "Ph",
+          "Ph",
+          "Boc"
+         ],
+         "number": "7c",
+         "caption": "38%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1C[C@@H](C)O[C@@H](C)C1",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7d",
+         "caption": "60%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1C[C@H]2C[C@H]2C1",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7e",
+         "caption": "25%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1C[C@H]2C[C@@H](C1)c1ccccc12",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7f",
+         "caption": "38%"
+        }
+       ],
+       [
+        {
+         "structure": "CCCC(CC(*)*)N1[C@H]2CC[C@@H]1CC(=O)C2",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7g",
+         "caption": "34%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N1CC(*)C1",
+         "labels": [
+          "Ph",
+          "Ph",
+          "OMe"
+         ],
+         "number": "7h",
+         "caption": "81%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N(CC)C1CCCCC1",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7i",
+         "caption": "69%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N(C)CC*",
+         "labels": [
+          "Ph",
+          "Ph",
+          "OMe"
+         ],
+         "number": "7j",
+         "caption": "86%"
+        },
+        {
+         "structure": "CCCC(CC(*)*)N(C)C",
+         "labels": [
+          "Ph",
+          "Ph"
+         ],
+         "number": "7k",
+         "caption": "88%"
+        },
+        {
+         "structure": "CC1(C)CCCC(C)(C)N1CC[C@@H]1N(*)[C@H](*)OC1=O",
+         "labels": [
+          "Cbz",
+          "tBu"
+         ],
+         "number": "7l",
+         "caption": "61% (>20:1 d.r.)"
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "7a": "CCCC(CC(c1ccccc1)c1ccccc1)N1CCC(CC1)c1ccccc1",
+     "7b": "CCCC(CC(c1ccccc1)c1ccccc1)N1CCC(CC1)C(F)(F)F",
+     "7c": "CCCC(CC(c1ccccc1)c1ccccc1)N1CCN(CC1)C(=O)OC(C)(C)C",
+     "7d": "CCCC(CC(c1ccccc1)c1ccccc1)N1C[C@@H](C)O[C@@H](C)C1",
+     "7e": "CCCC(CC(c1ccccc1)c1ccccc1)N1C[C@H]2C[C@H]2C1",
+     "7f": "CCCC(CC(c1ccccc1)c1ccccc1)N1C[C@H]2C[C@@H](C1)c1ccccc12",
+     "7g": "CCCC(CC(c1ccccc1)c1ccccc1)N1[C@H]2CC[C@@H]1CC(=O)C2",
+     "7h": "CCCC(CC(c1ccccc1)c1ccccc1)N1CC(OC)C1",
+     "7i": "CCCC(CC(c1ccccc1)c1ccccc1)N(CC)C1CCCCC1",
+     "7j": "CCCC(CC(c1ccccc1)c1ccccc1)N(C)CCOC",
+     "7k": "CCCC(CC(c1ccccc1)c1ccccc1)N(C)C",
+     "7l": "CC1(C)CCCC(C)(C)N1CC[C@@H]1N(C(=O)OCc2ccccc2)[C@H](C(C)(C)C)OC1=O"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig4b-10a",
+   "kind": "S2",
+   "figure": "Fig. 4b (10a)",
+   "prompt": "Draw the two-step route of Fig. 4b for 10a: pyrrolidine and cyclohexanone give the enamine, which reacts with 1,1-diphenylethylene under the photocatalytic conditions to give the α-tertiary amine 10a. Give the conditions of the second step as the figure and its footnote have them, and the yield.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "pyrrolidine"
+     },
+     {
+      "text": "cyclohexanone"
+     }
+    ],
+    "steps": [
+     {
+      "products": [
+       {
+        "text": "1-(cyclohex-1-en-1-yl)pyrrolidine"
+       }
+      ]
+     },
+     {
+      "reagents": [
+       "Ph2C=CH2 (2 equiv)",
+       "Hantzsch ester 4a"
+      ],
+      "catalysts": [
+       "Ir(ppy)3 (1 mol%)",
+       "EtCO2H (20 mol%)"
+      ],
+      "solvents": [
+       "CH2Cl2"
+      ],
+      "temperature": "RT",
+      "time": "2 h",
+      "below": [
+       "4 Å mol. sieves, 40 W blue LED"
+      ],
+      "yield": "53%",
+      "products": [
+       {
+        "text": "C1CCN(C1)C1(CC(*)*)CCCCC1",
+        "labels": [
+         "Ph",
+         "Ph"
+        ],
+        "number": "10a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "10a": "C1CCN(C1)C1(CC(c2ccccc2)c2ccccc2)CCCCC1"
+    }
+   }
+  },
+  {
+   "id": "trowbridge2018-fig4c-drugs",
+   "kind": "F1",
+   "figure": "Fig. 4c",
+   "prompt": "Draw the four late-stage products of Fig. 4c as numbered structures: 11 (from paroxetine), 12 (from desloratadine), 13 (from amoxapine) and 14 (from ciprofloxacin). Keep the stereocentres the paper draws with wedges, leave the new centre of 11, 13 and 14 undefined (d.r. 1:1), and write Cbz and tBu as labels.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "Fc1ccc(cc1)[C@@H]1CCN(C[C@H]1COc1ccc2OCOc2c1)C(CCC)CC(c1ccccc1)c1ccccc1",
+      "number": "11"
+     },
+     {
+      "text": "Clc1ccc2C(=C3CCN(CC3)CC[C@@H]3N(*)[C@H](*)OC3=O)c3ncccc3CCc2c1",
+      "labels": [
+       "Cbz",
+       "tBu"
+      ],
+      "number": "12"
+     },
+     {
+      "text": "Clc1ccc2Oc3ccccc3N=C(N3CCN(CC3)C(C3CC(F)(F)C3)C[C@@H]3N(*)[C@H](*)OC3=O)c2c1",
+      "labels": [
+       "Cbz",
+       "tBu"
+      ],
+      "number": "13"
+     },
+     {
+      "text": "OC(=O)C1=CN(C2CC2)c2cc(N3CCN(CC3)C(CCC(=O)OC)C[C@@H]3N(*)[C@H](*)OC3=O)c(F)cc2C1=O",
+      "labels": [
+       "Cbz",
+       "tBu"
+      ],
+      "number": "14"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "11": "Fc1ccc(cc1)[C@@H]1CCN(C[C@H]1COc1ccc2OCOc2c1)C(CCC)CC(c1ccccc1)c1ccccc1",
+     "12": "Clc1ccc2C(=C3CCN(CC3)CC[C@@H]3N(C(=O)OCc4ccccc4)[C@H](C(C)(C)C)OC3=O)c3ncccc3CCc2c1",
+     "13": "Clc1ccc2Oc3ccccc3N=C(N3CCN(CC3)C(C3CC(F)(F)C3)C[C@@H]3N(C(=O)OCc4ccccc4)[C@H](C(C)(C)C)OC3=O)c2c1",
+     "14": "OC(=O)C1=CN(C2CC2)c2cc(N3CCN(CC3)C(CCC(=O)OC)C[C@@H]3N(C(=O)OCc4ccccc4)[C@H](C(C)(C)C)OC3=O)c(F)cc2C1=O"
+    }
+   }
+  }
+ ]
+}

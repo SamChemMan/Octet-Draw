@@ -1,0 +1,701 @@
+{
+ "source": {
+  "citation": "Proctor and Phipps, Recent Advances in Minisci-Type Reactions, Angew. Chem. Int. Ed. 2019",
+  "doi": "10.1002/anie.201900977",
+  "licence": "Wiley terms: structures and conditions only, written by us"
+ },
+ "jobs": [
+  {
+   "id": "proctor2019-scheme39",
+   "kind": "S1",
+   "figure": "Scheme 39",
+   "prompt": "Draw Scheme 39 of the attached review: the borono-Minisci ethylation that gives pyrimethamine (41), with the conditions over and under the arrow and the yield.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "5-(4-chlorophenyl)pyrimidine-2,4-diamine"
+     },
+     {
+      "text": "ethylboronic acid"
+     }
+    ],
+    "steps": [
+     {
+      "reagents": [
+       "2 equiv. TFA",
+       "1 atm O2"
+      ],
+      "solvents": [
+       "AcOH/MeCN"
+      ],
+      "temperature": "110 °C",
+      "time": "10 h",
+      "yield": "70%",
+      "products": [
+       {
+        "text": "pyrimethamine",
+        "number": "41"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "41": "CCc1nc(N)nc(N)c1-c1ccc(Cl)cc1"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme47",
+   "kind": "S2",
+   "figure": "Scheme 47",
+   "prompt": "Draw Scheme 47 of the attached review as one scheme: the acid to the Barton ester, the sulfide, the sulfone and the sodium sulfinate, then the Minisci reaction with quinoxalin-2-ol. Draw sodium pyrithione under the first arrow and quinoxalin-2-ol over the last one as structures. The paper gives these compounds no numbers: number them 1 to 6 in order.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "OC(=O)C1(CC1)*",
+      "labels": [
+       "CF3"
+      ],
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "(COCl)2"
+      ],
+      "below": [
+       "then",
+       "structure:S=C1C=CC=CN1O[Na]"
+      ],
+      "products": [
+       {
+        "text": "S=C1C=CC=CN1OC(=O)C1(CC1)*",
+        "labels": [
+         "CF3"
+        ],
+        "number": "2"
+       }
+      ]
+     },
+     {
+      "reagents": [
+       "visible light"
+      ],
+      "solvents": [
+       "EtOAc"
+      ],
+      "products": [
+       {
+        "text": "*C1(CC1)Sc1ccccn1",
+        "labels": [
+         "CF3"
+        ],
+        "number": "3"
+       }
+      ]
+     },
+     {
+      "reagents": [
+       "RuCl3",
+       "NaIO4"
+      ],
+      "yield": "50%",
+      "products": [
+       {
+        "text": "*C1(CC1)S(=O)(=O)c1ccccn1",
+        "labels": [
+         "CF3"
+        ],
+        "number": "4"
+       }
+      ]
+     },
+     {
+      "reagents": [
+       "NaOEt"
+      ],
+      "yield": "75%",
+      "products": [
+       {
+        "text": "[Na]OS(=O)C1(CC1)*",
+        "labels": [
+         "CF3"
+        ],
+        "number": "5"
+       }
+      ]
+     },
+     {
+      "above": [
+       "structure:quinoxalin-2-ol",
+       "1 equiv. TsOH·H2O",
+       "5 equiv. t-BuOOH",
+       "1.5 equiv. ZnCl2"
+      ],
+      "below": [
+       "2.5:1 CH2Cl2:H2O (0.18 M)",
+       "0 °C to rt, 1–48 h"
+      ],
+      "yield": "77%",
+      "products": [
+       {
+        "text": "Oc1nc2ccccc2nc1C1(CC1)*",
+        "labels": [
+         "CF3"
+        ],
+        "number": "6"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "OC(=O)C1(CC1)C(F)(F)F",
+     "2": "S=C1C=CC=CN1OC(=O)C1(CC1)C(F)(F)F",
+     "3": "FC(F)(F)C1(CC1)Sc1ccccn1",
+     "4": "FC(F)(F)C1(CC1)S(=O)(=O)c1ccccn1",
+     "5": "[Na+].[O-]S(=O)C1(CC1)C(F)(F)F",
+     "6": "Oc1nc2ccccc2nc1C1(CC1)C(F)(F)F"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme9-mechanism",
+   "kind": "S2",
+   "figure": "Scheme 9 (mechanism)",
+   "prompt": "Draw the mechanism of Scheme 9 of the attached review as a row of steps: 4-tert-butylbenzoate, the aroyloxyl radical 12, the hypobromite 11, the aryl radical and the 2-arylpyridine, with what each step needs over its arrow. Keep the paper's numbers 12 and 11, and number the aryl radical A and the product B.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "*c1ccc(cc1)C([O-])=O",
+      "labels": [
+       "tBu"
+      ]
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "SET"
+      ],
+      "below": [
+       "*Ir(III) to Ir(II)"
+      ],
+      "products": [
+       {
+        "text": "*c1ccc(cc1)C([O])=O",
+        "labels": [
+         "tBu"
+        ],
+        "number": "12"
+       }
+      ]
+     },
+     {
+      "above": [
+       "13"
+      ],
+      "products": [
+       {
+        "text": "*c1ccc(cc1)C(=O)OBr",
+        "labels": [
+         "tBu"
+        ],
+        "number": "11"
+       }
+      ]
+     },
+     {
+      "above": [
+       "SET"
+      ],
+      "below": [
+       "Ir(II) to Ir(III)",
+       "− Br−, − CO2"
+      ],
+      "products": [
+       {
+        "text": "*c1cc[c]cc1",
+        "labels": [
+         "tBu"
+        ],
+        "number": "A"
+       }
+      ]
+     },
+     {
+      "above": [
+       "pyridine"
+      ],
+      "below": [
+       "− e−, − H+"
+      ],
+      "products": [
+       {
+        "text": "*c1ccc(cc1)-c1ccccn1",
+        "labels": [
+         "tBu"
+        ],
+        "number": "B"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "11": "CC(C)(C)c1ccc(cc1)C(=O)OBr",
+     "12": "CC(C)(C)C1=CC=C(C=C1)C([O])=O",
+     "A": "CC(C)(C)C1=CC=[C]C=C1",
+     "B": "CC(C)(C)c1ccc(cc1)-c1ccccn1"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme45-one-pot",
+   "kind": "S9",
+   "figure": "Scheme 45 (sequential additions)",
+   "prompt": "Draw the one-pot sequential additions to quinine at the bottom of Scheme 45 of the attached review, with the two zinc sulfinate steps over and under the arrow as the paper has them and the yield. Number the product 1 (the paper gives it no number).",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "quinine"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "[Zn](SO2CF3)2",
+       "standard conditions"
+      ],
+      "below": [
+       "then [Zn](SO2i-Pr)2 and t-BuOOH",
+       "(one pot)"
+      ],
+      "yield": "30%",
+      "products": [
+       {
+        "text": "COc1cc2c(cc1*)nc(*)cc2[C@@H](O)[C@@H]1C[C@@H]2CCN1C[C@@H]2C=C",
+        "labels": [
+         "CF3",
+         "iPr"
+        ],
+        "number": "1"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "COC1C=C2C(=CC(=1)C(F)(F)F)N=C(C(C)C)C=C2[C@H]([C@]1([H])C[C@]2([H])CCN1C[C@@H]2C=C)O"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme68-quinoline",
+   "kind": "S11",
+   "figure": "Scheme 68 (quinoline)",
+   "prompt": "Draw the quinoline example of Scheme 68 of the attached review: quinoline and 1-methylcyclohexene under the iron conditions of the scheme, giving the C-2 product and the over-reduced by-product 51, with both yields.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "quinoline"
+     },
+     {
+      "text": "1-methylcyclohexene"
+     }
+    ],
+    "steps": [
+     {
+      "reagents": [
+       "1.0 equiv. Fe(acac)3",
+       "1.5 equiv. PhSiH3",
+       "2.0 equiv. BF3·Et2O"
+      ],
+      "solvents": [
+       "THF/MeOH"
+      ],
+      "temperature": "60 °C",
+      "time": "4 h",
+      "yield": "44% and 34% (51)",
+      "products": [
+       {
+        "text": "2-(1-methylcyclohexyl)quinoline"
+       },
+       {
+        "text": "4-(1-methylcyclohexyl)-1,2,3,4-tetrahydroquinoline",
+        "number": "51"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "51": "CC1(CCCCC1)C1CCNc2ccccc12"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme53",
+   "kind": "S18",
+   "figure": "Scheme 53",
+   "prompt": "Draw Scheme 53 of the attached review: the copper-catalysed alkylation of 6-bromobenzoxazole with bromocyclopentane, and under it the copper complex 47 and the ligand BDMAEE as structures, each with its label.",
+   "tool": "batch",
+   "arguments": {
+    "steps": [
+     {
+      "tool": "draw_reaction",
+      "args": {
+       "start": [
+        {
+         "text": "6-bromobenzoxazole"
+        },
+        {
+         "text": "bromocyclopentane"
+        }
+       ],
+       "steps": [
+        {
+         "catalysts": [
+          "10 mol% 47",
+          "10 mol% BDMAEE"
+         ],
+         "reagents": [
+          "1.2 equiv. t-BuONa"
+         ],
+         "solvents": [
+          "toluene"
+         ],
+         "temperature": "80–100 °C",
+         "time": "16 h",
+         "yield": "64%",
+         "products": [
+          {
+           "text": "6-bromo-2-cyclopentylbenzoxazole"
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "tool": "draw_structures",
+      "args": {
+       "structures": [
+        {
+         "text": "*c1ccccc1N1[Cu](*)N(C)(C)c2ccccc12",
+         "labels": [
+          "NMe2",
+          "PPh3"
+         ],
+         "number": "47"
+        },
+        {
+         "text": "bis(2-dimethylaminoethyl) ether",
+         "number": "BDMAEE"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "47": "CN(C)c1ccccc1N1[Cu](P(c2ccccc2)(c2ccccc2)c2ccccc2)N(C)(C)c2ccccc12",
+     "BDMAEE": "CN(C)CCOCCN(C)C"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme72-52",
+   "kind": "S20",
+   "figure": "Scheme 72 (compound 52)",
+   "prompt": "Draw the reaction of Scheme 72 of the attached review for its metyrapone example: metyrapone and the N-acetylvaline N-hydroxyphthalimide ester give 52 under the scheme's conditions. Show the new stereocentre of 52 with its wedge, and the yield and ee.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "metyrapone"
+     },
+     {
+      "text": "CC(C)C(*)C(=O)ON1C(=O)c2ccccc2C1=O",
+      "labels": [
+       "NHAc"
+      ]
+     }
+    ],
+    "steps": [
+     {
+      "catalysts": [
+       "1 mol% [Ir(dF(CF3)ppy)2(dtbpy)]PF6",
+       "5 mol% (R)-TRIP or (R)-TCYP"
+      ],
+      "below": [
+       "1,4-dioxane (0.1 M)",
+       "blue LEDs, rt, 14 h"
+      ],
+      "yield": "70%, 95% ee",
+      "products": [
+       {
+        "text": "*[C@@H](C(C)C)c1ccc(cn1)C(=O)C(C)(C)c1cccnc1",
+        "labels": [
+         "NHAc"
+        ],
+        "number": "52"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "52": "CC(=O)N[C@@H](C(C)C)c1ccc(cn1)C(=O)C(C)(C)c1cccnc1"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme72-73-scope",
+   "kind": "F4",
+   "figure": "Schemes 72 and 73 (selected scope)",
+   "prompt": "Draw the selected scopes of Schemes 72 and 73 of the attached review as one figure of two panels, each product with its stereocentre, and its yield and ee under it. Keep the number 52; the paper gives the other products no numbers, so number them 72a to 72d and 73a to 73d in reading order.",
+   "tool": "draw_figure",
+   "arguments": {
+    "panels": [
+     {
+      "title": "Quinolines and pyridines",
+      "subtitle": "Scheme 72",
+      "rows": [
+       [
+        {
+         "structure": "*[C@@H](C)c1cc(C)c2ccccc2n1",
+         "labels": [
+          "NHAc"
+         ],
+         "number": "72a",
+         "caption": "91% yield\n94% ee"
+        },
+        {
+         "structure": "*[C@@H](Cc1c[nH]c2ccccc12)c1cc(C)c2ccccc2n1",
+         "labels": [
+          "NHAc"
+         ],
+         "number": "72b",
+         "caption": "91% yield\n93% ee"
+        },
+        {
+         "structure": "*[C@@H](C*)c1ccc2cc(*)ccc2n1",
+         "labels": [
+          "NHAc",
+          "Ph",
+          "OMe"
+         ],
+         "number": "72c",
+         "caption": "82% yield\n94% ee"
+        }
+       ],
+       [
+        {
+         "structure": "*[C@@H](C(C)C)c1ccc(cn1)C(=O)OCCOC(=O)C(C)(C)Oc1ccc(Cl)cc1",
+         "labels": [
+          "NHAc"
+         ],
+         "number": "72d",
+         "caption": "86% yield\n93% ee"
+        },
+        {
+         "structure": "*[C@@H](C(C)C)c1ccc(cn1)C(=O)C(C)(C)c1cccnc1",
+         "labels": [
+          "NHAc"
+         ],
+         "number": "52",
+         "caption": "70% yield\n95% ee"
+        }
+       ]
+      ]
+     },
+     {
+      "title": "Isoquinolines",
+      "subtitle": "Scheme 73",
+      "rows": [
+       [
+        {
+         "structure": "*C(=O)N[C@@H](*)c1nccc2cc(Br)ccc12",
+         "labels": [
+          "OEt",
+          "Bn"
+         ],
+         "number": "73a",
+         "caption": "80% yield\n82% ee"
+        },
+        {
+         "structure": "*C(=O)N[C@@H](Cc1c[nH]c2ccccc12)c1nccc2ccccc12",
+         "labels": [
+          "OEt"
+         ],
+         "number": "73b",
+         "caption": "85% yield\n82% ee"
+        },
+        {
+         "structure": "*C(=O)N[C@@H](Cc1ccc(*)cc1)c1nccc2ccccc12",
+         "labels": [
+          "OEt",
+          "OAc"
+         ],
+         "number": "73c",
+         "caption": "84% yield\n84% ee"
+        },
+        {
+         "structure": "*C(=O)N[C@@H](CC(C)C)c1nccc2ccccc12",
+         "labels": [
+          "OEt"
+         ],
+         "number": "73d",
+         "caption": "82% yield\n66% ee"
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "52": "CC(=O)N[C@@H](C(C)C)c1ccc(cn1)C(=O)C(C)(C)c1cccnc1",
+     "72a": "CC(=O)N[C@@H](C)c1cc(C)c2ccccc2n1",
+     "72b": "CC(=O)N[C@@H](Cc1c[nH]c2ccccc12)c1cc(C)c2ccccc2n1",
+     "72c": "CC(=O)N[C@@H](Cc1ccccc1)c1ccc2cc(OC)ccc2n1",
+     "72d": "CC(=O)N[C@@H](C(C)C)c1ccc(cn1)C(=O)OCCOC(=O)C(C)(C)Oc1ccc(Cl)cc1",
+     "73a": "CCOC(=O)N[C@@H](Cc1ccccc1)c1nccc2cc(Br)ccc12",
+     "73b": "CCOC(=O)N[C@@H](Cc1c[nH]c2ccccc12)c1nccc2ccccc12",
+     "73c": "CCOC(=O)N[C@@H](Cc1ccc(OC(C)=O)cc1)c1nccc2ccccc12",
+     "73d": "CCOC(=O)N[C@@H](CC(C)C)c1nccc2ccccc12"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme40-scope",
+   "kind": "F1",
+   "figure": "Scheme 40 (selected scope)",
+   "prompt": "Draw the seven products of the selected scope of Scheme 40 of the attached review as a numbered grid, four in the first row. Keep the number 42; the paper gives the others no numbers, so number them 40a to 40f in reading order.",
+   "tool": "draw_structures",
+   "arguments": {
+    "columns": 4,
+    "structures": [
+     {
+      "text": "C=CCCOCc1ccc2ccccc2n1",
+      "number": "40a"
+     },
+     {
+      "text": "*c1n[nH]c2ccccc12",
+      "labels": [
+       "iPr"
+      ],
+      "number": "40b"
+     },
+     {
+      "text": "CC(=O)c1ccc(CC*)c(n1)C(C)=O",
+      "labels": [
+       "Ph"
+      ],
+      "number": "40c"
+     },
+     {
+      "text": "*c1nc(NCc2ccccc2)c2[nH]cnc2n1",
+      "labels": [
+       "tBu"
+      ],
+      "number": "40d"
+     },
+     {
+      "text": "*c1cccc(n1)-c1cccc(n1)-c1ccccn1",
+      "labels": [
+       "tBu"
+      ],
+      "number": "40e"
+     },
+     {
+      "text": "*c1cc2ccccc2c(n1)C1CCN(CC1)c1cccnc1",
+      "labels": [
+       "CO2Me"
+      ],
+      "number": "40f"
+     },
+     {
+      "text": "O=C1CC(Oc2ccc(cc12)-c1ccc(C)o1)c1cc(*)ccn1",
+      "labels": [
+       "CF3"
+      ],
+      "number": "42"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "42": "O=C1CC(Oc2ccc(cc12)-c1ccc(C)o1)c1cc(ccn1)C(F)(F)F",
+     "40a": "C=CCCOCc1ccc2ccccc2n1",
+     "40b": "CC(C)c1n[nH]c2ccccc12",
+     "40c": "CC(=O)c1ccc(CCc2ccccc2)c(n1)C(C)=O",
+     "40d": "CC(C)(C)c1nc(NCc2ccccc2)c2[nH]cnc2n1",
+     "40e": "CC(C)(C)c1cccc(n1)-c1cccc(n1)-c1ccccn1",
+     "40f": "COC(=O)c1cc2ccccc2c(n1)C1CCN(CC1)c1cccnc1"
+    }
+   }
+  },
+  {
+   "id": "proctor2019-scheme11-chain",
+   "kind": "S13",
+   "figure": "Scheme 11 (radical chain)",
+   "prompt": "Draw the radical chain of Scheme 11 of the attached review as a cycle: the isopropyl radical, its radical-cation adduct with protonated 4-methylquinoline, and the radical left after deprotonation, with what comes in and goes out at each step and \"radical chain\" in the middle. The paper gives these no numbers: number them A, B and C.",
+   "tool": "draw_cycle",
+   "arguments": {
+    "intermediates": [
+     {
+      "text": "C[CH]C",
+      "number": "A"
+     },
+     {
+      "text": "CC(C)C1C=C(C)c2ccccc2[NH+]1",
+      "number": "B"
+     },
+     {
+      "text": "CC(C)[C]1C=C(C)c2ccccc2N1",
+      "number": "C"
+     }
+    ],
+    "centre": "radical chain",
+    "steps": [
+     {
+      "step": 0,
+      "in": "4-methylquinoline·H+"
+     },
+     {
+      "step": 1,
+      "out": "H+"
+     },
+     {
+      "step": 2,
+      "in": "15",
+      "out": "product·H+, PhI, RCO2−, CO2"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "A": "C[CH]C",
+     "B": "CC(C)C1C=C(C)C2=CC=CC=C2[NH+]1",
+     "C": "CC(C)[C]1C=C(C)C2=CC=CC=C2N1"
+    }
+   }
+  }
+ ]
+}

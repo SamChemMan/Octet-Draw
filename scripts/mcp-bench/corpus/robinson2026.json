@@ -1,0 +1,324 @@
+{
+  "source": {
+    "citation": "Robinson et al., Programmable remodelling of carbon–nitrogen connectivity in amines, Nature 2026",
+    "doi": "10.1038/s41586-026-11009-1",
+    "licence": "CC BY 4.0"
+  },
+  "jobs": [
+    {
+      "id": "robinson2026-fig2-reaction",
+      "kind": "S1",
+      "figure": "Fig. 2 (top row)",
+      "prompt": "Draw the model reaction at the top of Fig. 2 of the attached paper: amine 1a and reagent 3a give the ammonium salt 4a, then the palladium step gives 2a. Put the conditions and yields on the arrows and keep the paper's compound numbers.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "4-benzylmorpholine", "number": "1a" },
+          { "text": "BrC*", "labels": ["BF3K"], "number": "3a" }
+        ],
+        "steps": [
+          {
+            "solvents": ["MeCN"],
+            "temperature": "90 °C",
+            "yield": "98%",
+            "products": [{ "text": "F[B-](F)(F)C[N+]1(Cc2ccccc2)CCOCC1", "number": "4a" }]
+          },
+          {
+            "catalysts": ["Pd(PhCN)2Cl2 (5 mol%)", "RuPhos (10 mol%)"],
+            "reagents": ["t-BuOK"],
+            "solvents": ["1,4-dioxane/H2O"],
+            "temperature": "90 °C",
+            "yield": "86% (assay)",
+            "products": [{ "text": "4-(2-phenylethyl)morpholine", "number": "2a" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "1a": "C1COCCN1Cc1ccccc1",
+          "3a": "[K+].F[B-](F)(F)CBr",
+          "4a": "F[B-](F)(F)C[N+]1(Cc2ccccc2)CCOCC1",
+          "2a": "C1COCCN1CCc1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig2-mechanism",
+      "kind": "S13",
+      "figure": "Fig. 2 (proposed mechanism)",
+      "prompt": "Draw the mechanism proposed in Fig. 2 of the attached paper as a catalytic cycle: the palladium intermediates int-I, int-II and int-IV with the ligand as L, the salt 4a going in, the amine borate int-III leaving and coming back, and 2a coming out.",
+      "tool": "draw_cycle",
+      "arguments": {
+        "intermediates": [
+          { "text": "*[Pd]", "labels": ["L"] },
+          { "text": "*[Pd+](Cc1ccccc1)N1(C[B-](F)(F)F)CCOCC1", "labels": ["L"], "number": "int-I" },
+          { "text": "*[Pd+]Cc1ccccc1", "labels": ["L"], "number": "int-II" },
+          { "text": "*[Pd](Cc1ccccc1)CN1CCOCC1", "labels": ["L"], "number": "int-IV" }
+        ],
+        "centre": "L = RuPhos",
+        "steps": [
+          { "step": 0, "in": "4a", "name": "OA" },
+          { "step": 1, "out": "int-III" },
+          { "step": 2, "in": "int-III", "name": "TM" },
+          { "step": 3, "out": "2a", "name": "RE" }
+        ]
+      },
+      "expect": { "smiles": {} }
+    },
+    {
+      "id": "robinson2026-fig3a",
+      "kind": "S11",
+      "figure": "Fig. 3a",
+      "prompt": "Draw Fig. 3a of the attached paper: donepezil, its ammonium trifluoroborate intermediate and the homologue 5. Draw the bromomethyl trifluoroborate reagent as a structure under the first arrow, where the paper has it, and give both yields.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "donepezil" }],
+        "steps": [
+          {
+            "above": ["N-alkylation"],
+            "below": ["structure: potassium (bromomethyl)trifluoroborate"],
+            "yield": "92%",
+            "products": [{ "text": "COc1cc2CC(CC3CC[N+](C[B-](F)(F)F)(Cc4ccccc4)CC3)C(=O)c2cc1OC" }]
+          },
+          {
+            "below": ["Pd catalyst"],
+            "yield": "62%",
+            "products": [{ "text": "COc1cc2CC(CC3CCN(CCc4ccccc4)CC3)C(=O)c2cc1OC", "number": "5" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "5": "COc1cc2CC(CC3CCN(CCc4ccccc4)CC3)C(=O)c2cc1OC"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig3b",
+      "kind": "F4",
+      "figure": "Fig. 3b",
+      "prompt": "Draw Fig. 3b of the attached paper as a figure: the drugs lomerizine, tinoridine and piribedil in one row and their one-carbon homologues 6, 8, 9a and 9b below, each with its number and its two yields as a caption.",
+      "tool": "draw_figure",
+      "arguments": {
+        "panels": [
+          {
+            "title": "Late-stage one-carbon homologation",
+            "rows": [
+              [
+                { "structure": "lomerizine", "caption": "lomerizine" },
+                { "structure": "tinoridine", "caption": "tinoridine" },
+                { "structure": "piribedil", "caption": "piribedil" }
+              ],
+              [
+                { "structure": "COc1ccc(CCN2CCN(CC2)C(c2ccc(F)cc2)c2ccc(F)cc2)c(OC)c1OC", "number": "6", "caption": "88%, 96%" },
+                { "structure": "CCOC(=O)c1c(N)sc2CN(CCc3ccccc3)CCc12", "number": "8", "caption": "98%, 25%" },
+                { "structure": "c1cnc(nc1)N1CCN(CCc2ccc3OCOc3c2)CC1", "number": "9a", "caption": "86%, 95%" },
+                { "structure": "[2H]C([2H])(Cc1ccc2OCOc2c1)N1CCN(CC1)c1ncccn1", "number": "9b", "caption": "83%, 67%" }
+              ]
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "6": "COc1ccc(CCN2CCN(CC2)C(c2ccc(F)cc2)c2ccc(F)cc2)c(OC)c1OC",
+          "8": "CCOC(=O)c1c(N)sc2CN(CCc3ccccc3)CCc12",
+          "9a": "c1cnc(nc1)N1CCN(CCc2ccc3OCOc3c2)CC1",
+          "9b": "[2H]C([2H])(Cc1ccc2OCOc2c1)N1CCN(CC1)c1ncccn1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig3c",
+      "kind": "S9",
+      "figure": "Fig. 3c",
+      "prompt": "Draw Fig. 3c of the attached paper: the N-PMB degrader derivative and reagent 3b give 10. Write the three operations (i) to (iii) on the one arrow as the paper has them, with the yield.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "O=C1CCC(N2Cc3cc(ccc3C2=O)C2CCN(Cc3ccccc3)CC2)C(=O)N1*", "labels": ["PMB"] },
+          { "text": "BrC*", "labels": ["Bpin"], "number": "3b" }
+        ],
+        "steps": [
+          {
+            "above": ["(i) 3b (1.5 equiv.), MeCN, RT; then KHF2, HCl", "(ii) Pd·PEPPSI-IPent (5 mol%), K3PO4"],
+            "below": ["i-PrOH, 1,4-dioxane/H2O, 90 °C", "(iii) CDI, CHCl3, 65 °C"],
+            "yield": "47%",
+            "products": [{ "text": "O=C1CCC(N2Cc3cc(ccc3C2=O)C2CCN(CCc3ccccc3)CC2)C(=O)N1*", "labels": ["PMB"], "number": "10" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "3b": "BrCB1OC(C)(C)C(C)(C)O1",
+          "10": "COc1ccc(CN2C(=O)CCC(N3Cc4cc(ccc4C3=O)C3CCN(CCc4ccccc4)CC3)C2=O)cc1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig4a-scope",
+      "kind": "F1",
+      "figure": "Fig. 4a",
+      "prompt": "Draw the amine scope of Fig. 4a of the attached paper as a numbered grid: the 19 products 2e to 2w, each with its number, with Ph, Boc and CO2Et as labels where the paper has them and the wedges as drawn.",
+      "tool": "draw_structures",
+      "arguments": {
+        "structures": [
+          { "text": "C[C@H]1C[C@@H](C)CN(CC*)C1", "labels": ["Ph"], "number": "2e" },
+          { "text": "C1COC2(O1)CCN(CC*)CC2", "labels": ["Ph"], "number": "2f" },
+          { "text": "OC1(*)CCN(CC*)CC1", "labels": ["Ph", "Ph"], "number": "2g" },
+          { "text": "*C1CCCN(CC*)C1", "labels": ["CO2Et", "Ph"], "number": "2h" },
+          { "text": "O=C1CC2(CCN(CC*)CC2)Oc2ccccc12", "labels": ["Ph"], "number": "2i" },
+          { "text": "C1CCN(CC*)C1", "labels": ["Ph"], "number": "2j" },
+          { "text": "*N1CCC2(C1)CCN(CC*)C2", "labels": ["Boc", "Ph"], "number": "2k" },
+          { "text": "*N1CCC2(CC1)CN(CC*)C2", "labels": ["Boc", "Ph"], "number": "2l" },
+          { "text": "*N1CCCN(CC*)CC1", "labels": ["Boc", "Ph"], "number": "2m" },
+          { "text": "Fc1ccc(cc1)[C@@H]1CCN(CC*)C[C@H]1COc1ccc2OCOc2c1", "labels": ["Ph"], "number": "2n" },
+          { "text": "CN(C)CC*", "labels": ["Ph"], "number": "2o" },
+          { "text": "C=CCCCN(C)CC*", "labels": ["Ph"], "number": "2p" },
+          { "text": "CN(C)C(=O)CN(C)CC*", "labels": ["Ph"], "number": "2q" },
+          { "text": "CN(CC*)CC[C@H](Oc1cccc2ccccc12)c1cccs1", "labels": ["Ph"], "number": "2r" },
+          { "text": "COc1cc2CCN(CC*)Cc2cc1OC", "labels": ["Ph"], "number": "2s" },
+          { "text": "c1ccc2c(c1)[nH]c1CN(CC*)CCc21", "labels": ["Ph"], "number": "2t" },
+          { "text": "CN(CC*)c1ccccc1", "labels": ["Ph"], "number": "2u" },
+          { "text": "c1ccc(cc1)N1CCN(CC*)CC1", "labels": ["Ph"], "number": "2v" },
+          { "text": "C[C@H]1CN(*)CCN1CC*", "labels": ["Boc", "Ph"], "number": "2w" }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "2e": "C[C@H]1C[C@@H](C)CN(CCc2ccccc2)C1",
+          "2f": "C1COC2(O1)CCN(CCc1ccccc1)CC2",
+          "2g": "OC1(c2ccccc2)CCN(CCc2ccccc2)CC1",
+          "2h": "CCOC(=O)C1CCCN(CCc2ccccc2)C1",
+          "2i": "O=C1CC2(CCN(CCc3ccccc3)CC2)Oc2ccccc12",
+          "2j": "C1CCN(CCc2ccccc2)C1",
+          "2k": "CC(C)(C)OC(=O)N1CCC2(C1)CCN(CCc1ccccc1)C2",
+          "2l": "CC(C)(C)OC(=O)N1CCC2(CC1)CN(CCc1ccccc1)C2",
+          "2m": "CC(C)(C)OC(=O)N1CCCN(CCc2ccccc2)CC1",
+          "2n": "Fc1ccc(cc1)[C@@H]1CCN(CCc2ccccc2)C[C@H]1COc1ccc2OCOc2c1",
+          "2o": "CN(C)CCc1ccccc1",
+          "2p": "C=CCCCN(C)CCc1ccccc1",
+          "2q": "CN(C)C(=O)CN(C)CCc1ccccc1",
+          "2r": "CN(CCc1ccccc1)CC[C@H](Oc1cccc2ccccc12)c1cccs1",
+          "2s": "COc1cc2CCN(CCc3ccccc3)Cc2cc1OC",
+          "2t": "c1ccc2c(c1)[nH]c1CN(CCc3ccccc3)CCc21",
+          "2u": "CN(CCc1ccccc1)c1ccccc1",
+          "2v": "c1ccc(cc1)N1CCN(CCc2ccccc2)CC1",
+          "2w": "C[C@H]1CN(CCN1CCc1ccccc1)C(=O)OC(C)(C)C"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig4a-2x",
+      "kind": "S20",
+      "figure": "Fig. 4a (2x)",
+      "prompt": "Draw the reaction that gives 2x in Fig. 4a of the attached paper, with the wedges as the paper has them: the (R)-amine goes to the (S)-product with inversion at the benzylic carbon. Put the two operations and their yields on the arrow.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "C[C@@H](N(C)C)c1ccccc1" }],
+        "steps": [
+          {
+            "above": ["1. BrCH2BF3K (3a), 78%", "2. Pd·PEPPSI-IPent, K3PO4, 42%"],
+            "below": ["inversion at the benzylic carbon"],
+            "products": [{ "text": "C[C@H](CN(C)C)c1ccccc1", "number": "2x" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "2x": "C[C@H](CN(C)C)c1ccccc1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig5a",
+      "kind": "S2",
+      "figure": "Fig. 5a",
+      "prompt": "Draw Fig. 5a of the attached paper for n = 1 as one scheme: piribedil and tosylate 11a give the ammonium tosylate 12a, 9-BBN–H gives the borane 13a, and the palladium step gives 14a. Use the labels TsO and BBN as the paper does and keep the compound numbers.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [
+          { "text": "piribedil" },
+          { "text": "*CCC=C", "labels": ["TsO"], "number": "11a" }
+        ],
+        "steps": [
+          {
+            "below": ["N-alkylation"],
+            "products": [{ "text": "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.[O-]*", "labels": ["Ts"], "number": "12a" }]
+          },
+          {
+            "reagents": ["9-BBN–H"],
+            "products": [{ "text": "*CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.[O-]*", "labels": ["BBN", "Ts"], "number": "13a" }]
+          },
+          {
+            "above": ["SPhos·Pd-G3"],
+            "below": ["t-BuOK"],
+            "yield": "47% (64% assay)",
+            "products": [{ "text": "c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1", "number": "14a" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "11a": "Cc1ccc(cc1)S(=O)(=O)OCCC=C",
+          "12a": "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]",
+          "13a": "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]",
+          "14a": "c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig5b",
+      "kind": "F9",
+      "figure": "Fig. 5b",
+      "prompt": "Draw the five bifunctional reagents 15 to 19 of Fig. 5b of the attached paper in a row with their numbers, with TsO (OTs on 19) and Bpin as labels as the paper has them.",
+      "tool": "draw_structures",
+      "arguments": {
+        "structures": [
+          { "text": "*CCOCC=C", "labels": ["TsO"], "number": "15" },
+          { "text": "*CCOCCOCCC=C", "labels": ["TsO"], "number": "16" },
+          { "text": "*CC(=O)N1CCC(CC=C)CC1", "labels": ["TsO"], "number": "17" },
+          { "text": "*CCOc1ccc(*)cc1", "labels": ["TsO", "Bpin"], "number": "18" },
+          { "text": "*CC(=O)N1CCN(CC1)c1ccc(*)cc1", "labels": ["OTs", "Bpin"], "number": "19" }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "15": "Cc1ccc(cc1)S(=O)(=O)OCCOCC=C",
+          "16": "Cc1ccc(cc1)S(=O)(=O)OCCOCCOCCC=C",
+          "17": "Cc1ccc(cc1)S(=O)(=O)OCC(=O)N1CCC(CC=C)CC1",
+          "18": "Cc1ccc(cc1)S(=O)(=O)OCCOc1ccc(cc1)B1OC(C)(C)C(C)(C)O1",
+          "19": "Cc1ccc(cc1)S(=O)(=O)OCC(=O)N1CCN(CC1)c1ccc(cc1)B1OC(C)(C)C(C)(C)O1"
+        }
+      }
+    },
+    {
+      "id": "robinson2026-fig5d",
+      "kind": "S9",
+      "figure": "Fig. 5d (iterative remodelling)",
+      "prompt": "Draw the two-step sequence in the lower part of Fig. 5d of the attached paper: dibenzylmethylamine to 27, then to 28. Each arrow has two operations joined by 'then': write them as two numbered lines with their yields.",
+      "tool": "draw_reaction",
+      "arguments": {
+        "start": [{ "text": "dibenzylmethylamine" }],
+        "steps": [
+          {
+            "above": ["1. 3b, MeCN, 23 °C; KHF2, HCl (81%)"],
+            "below": ["2. Pd(PhCN)2Cl2 (10 mol%), RuPhos, t-BuOK", "1,4-dioxane/H2O, 90 °C (78%)"],
+            "products": [{ "text": "CN(Cc1ccccc1)CCc1ccccc1", "number": "27" }]
+          },
+          {
+            "above": ["1. 19, MeCN, 60 °C (64%)"],
+            "below": ["2. RuPhos·Pd-G3 (10 mol%), K3PO4", "1,4-dioxane/H2O, 90 °C (75%)"],
+            "products": [{ "text": "CN(CCc1ccccc1)CC(=O)N1CCN(CC1)c1ccc(Cc2ccccc2)cc1", "number": "28" }]
+          }
+        ]
+      },
+      "expect": {
+        "smiles": {
+          "27": "CN(Cc1ccccc1)CCc1ccccc1",
+          "28": "CN(CCc1ccccc1)CC(=O)N1CCN(CC1)c1ccc(Cc2ccccc2)cc1"
+        }
+      }
+    }
+  ]
+}

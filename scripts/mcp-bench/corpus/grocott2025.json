@@ -1,0 +1,586 @@
+{
+ "source": {
+  "citation": "Grocott and Gaunt, One-carbon homologation of alkenes, Nature 2025",
+  "doi": "10.1038/s41586-025-09159-9",
+  "licence": "CC BY 4.0"
+ },
+ "jobs": [
+  {
+   "id": "grocott2025-fig2a",
+   "kind": "S11",
+   "figure": "Fig. 2a",
+   "prompt": "Draw the two steps of Fig. 2a from the attached paper as one scheme: alkene 2a, the cross-metathesis with reagent 1a drawn as a structure over the arrow, the latent homologue 3a, then the fragmentation and retro-ene step to 4a. Put each step's conditions and assay yield on its arrow and number the compounds as the paper does.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "*CC=C",
+      "labels": [
+       "Bn"
+      ],
+      "number": "2a"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: C=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C",
+       "1a (4 equiv.)"
+      ],
+      "below": [
+       "5 mol% HG-II catalyst",
+       "CH2Cl2, 40 °C, 8 h"
+      ],
+      "yield": "100% AY",
+      "products": [
+       {
+        "text": "*C/C=C/CS(=O)(=O)C*",
+        "labels": [
+         "Bn",
+         "OTBS"
+        ],
+        "number": "3a"
+       }
+      ]
+     },
+     {
+      "above": [
+       "MeOH-HCl"
+      ],
+      "below": [
+       "or TBAF, citric acid",
+       "MeOH, 40 °C, 16 h"
+      ],
+      "yield": "99% AY",
+      "products": [
+       {
+        "text": "*CCC=C",
+        "labels": [
+         "Bn"
+        ],
+        "number": "4a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "2a": "C=CCCc1ccccc1",
+     "1a": "C=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C",
+     "3a": "C(/C=C/CS(=O)(=O)CO[Si](C)(C)C(C)(C)C)Cc1ccccc1",
+     "4a": "C=CCCCc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig2a-catalyst",
+   "kind": "S18",
+   "figure": "Fig. 2a (inset)",
+   "prompt": "Draw the ruthenium catalyst shown in the box of Fig. 2a of the attached paper, and label it HG-II.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "Hoveyda–Grubbs II catalyst",
+      "number": "HG-II"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "HG-II": "CC(C)Oc1ccccc1C=[Ru](Cl)(Cl)=C1N(c2c(C)cc(C)cc2C)CCN1c1c(C)cc(C)cc1C"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig2b",
+   "kind": "F4",
+   "figure": "Fig. 2b",
+   "prompt": "Draw the scope of monosubstituted alkenes in Fig. 2b of the attached paper as a numbered grid, four to a row: the twenty homologated products 4b to 4u, with the paper's abbreviations for groups.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "methyl dodec-11-enoate",
+      "number": "4b"
+     },
+     {
+      "text": "1-nonadecene",
+      "number": "4c"
+     },
+     {
+      "text": "N#Cc1ccc(cc1)[C@H]1CC[C@H](CC=C)CC1",
+      "number": "4d"
+     },
+     {
+      "text": "*[C@H]1CC[C@@H](CC1)[C@H]1CC[C@H](CC=C)CC1",
+      "labels": [
+       "n-Bu"
+      ],
+      "number": "4e"
+     },
+     {
+      "text": "C=CCCc1ccc(*)c(*)c1",
+      "labels": [
+       "OMe",
+       "OMe"
+      ],
+      "number": "4f"
+     },
+     {
+      "text": "C=CCCc1cc(*)c(O)c(c1)*",
+      "labels": [
+       "OMe",
+       "CO2Me"
+      ],
+      "number": "4g"
+     },
+     {
+      "text": "C=CCCc1cc(*)c(O)c(c1)C(=O)NCCO",
+      "labels": [
+       "OMe"
+      ],
+      "number": "4h"
+     },
+     {
+      "text": "*c1oc2ccccc2c1C(=O)c1cc(Br)c(OCCCCCC=C)c(Br)c1",
+      "labels": [
+       "Et"
+      ],
+      "number": "4i"
+     },
+     {
+      "text": "*S(=O)(=O)c1ccc(cc1)C(=O)NCCC=C",
+      "labels": [
+       "Pr2N"
+      ],
+      "number": "4j"
+     },
+     {
+      "text": "CC(C)(Oc1ccc(cc1)C1CC1(Cl)Cl)C(=O)OCCCCC=C",
+      "number": "4k"
+     },
+     {
+      "text": "C=CCC(C)Cc1ccc2OCOc2c1",
+      "number": "4l"
+     },
+     {
+      "text": "C=CCCCC[C@](C)(N*)C(=O)*",
+      "labels": [
+       "Fmoc",
+       "OMe"
+      ],
+      "number": "4m"
+     },
+     {
+      "text": "C=CC[C@H](CO)N1C(=O)c2ccccc2C1=O",
+      "number": "4n"
+     },
+     {
+      "text": "C=CC[C@H](*)N*",
+      "labels": [
+       "Bn",
+       "Boc"
+      ],
+      "number": "4o"
+     },
+     {
+      "text": "C=CC[C@@H](C)[C@@H](O)c1ccc(*)cc1",
+      "labels": [
+       "OMe"
+      ],
+      "number": "4p"
+     },
+     {
+      "text": "C=CCc1ccc(*)c(*)c1",
+      "labels": [
+       "OBn",
+       "OMe"
+      ],
+      "number": "4q"
+     },
+     {
+      "text": "C=CCc1cc(Br)cc(c1)*",
+      "labels": [
+       "CF3"
+      ],
+      "number": "4r"
+     },
+     {
+      "text": "1-allyl-4-nitrobenzene",
+      "number": "4s"
+     },
+     {
+      "text": "*c1cn(C)c2c1nc([nH]c2=O)-c1cc(ccc1*)S(=O)(=O)N(*)CCC=C",
+      "labels": [
+       "n-Pr",
+       "OEt",
+       "Bn"
+      ],
+      "number": "4t"
+     },
+     {
+      "text": "*C1=C2C(=CC(=C1N3C[C@@H]4CCCN(C(=O)CC(C)CC=C)[C@@H]4C3)F)C(=O)C(=CN2C5CC5)C(=O)O",
+      "labels": [
+       "OMe"
+      ],
+      "number": "4u"
+     }
+    ],
+    "columns": 4
+   },
+   "expect": {
+    "smiles": {
+     "4b": "COC(=O)CCCCCCCCCC=C",
+     "4c": "CCCCCCCCCCCCCCCCCC=C",
+     "4d": "N#Cc1ccc(cc1)[C@H]1CC[C@H](CC=C)CC1",
+     "4e": "CCCC[C@H]1CC[C@@H](CC1)[C@H]1CC[C@H](CC=C)CC1",
+     "4f": "C=CCCc1ccc(OC)c(OC)c1",
+     "4g": "C=CCCc1cc(OC)c(O)c(c1)C(=O)OC",
+     "4h": "C=CCCc1cc(OC)c(O)c(c1)C(=O)NCCO",
+     "4i": "CCc1oc2ccccc2c1C(=O)c1cc(Br)c(OCCCCCC=C)c(Br)c1",
+     "4j": "CCCN(CCC)S(=O)(=O)c1ccc(cc1)C(=O)NCCC=C",
+     "4k": "CC(C)(Oc1ccc(cc1)C1CC1(Cl)Cl)C(=O)OCCCCC=C",
+     "4l": "C=CCC(C)Cc1ccc2OCOc2c1",
+     "4m": "C=CCCCC[C@](C)(NC(=O)OCC1c2ccccc2-c2ccccc12)C(=O)OC",
+     "4n": "C=CC[C@H](CO)N1C(=O)c2ccccc2C1=O",
+     "4o": "C=CC[C@H](Cc1ccccc1)NC(=O)OC(C)(C)C",
+     "4p": "C=CC[C@@H](C)[C@@H](O)c1ccc(OC)cc1",
+     "4q": "C=CCc1ccc(OCc2ccccc2)c(OC)c1",
+     "4r": "C=CCc1cc(Br)cc(c1)C(F)(F)F",
+     "4s": "C=CCc1ccc(cc1)[N+](=O)[O-]",
+     "4t": "CCCc1cn(C)c2c1nc([nH]c2=O)-c1cc(ccc1OCC)S(=O)(=O)N(Cc1ccccc1)CCC=C",
+     "4u": "COC1=C2C(=CC(=C1N3C[C@@H]4CCCN(C(=O)CC(C)CC=C)[C@@H]4C3)F)C(=O)C(=CN2C5CC5)C(=O)O"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig2c",
+   "kind": "F1",
+   "figure": "Fig. 2c",
+   "prompt": "Draw the four natural product homologues of Fig. 2c of the attached paper in a row, each with its number and, under it, its yield and name.",
+   "tool": "draw_figure",
+   "arguments": {
+    "panels": [
+     {
+      "rows": [
+       [
+        {
+         "structure": "C[C@]12CCCC([C@@H]1CC[C@@]([C@@H]2CC[C@](C)(CC=C)O)(C)O)(C)C",
+         "number": "5",
+         "caption": "51%\nhomosclareol"
+        },
+        {
+         "structure": "C[C@]12CC[C@H]3[C@H]([C@@H]1CC[C@]2(CCC=C)O)CCC4=CCCC[C@H]34",
+         "number": "6",
+         "caption": "63%\nhomoallylestrenol"
+        },
+        {
+         "structure": "CC(=O)O[C@H]1[C@H]([C@@H]2[C@]([C@H](CCC2(C)C)O)([C@@]3([C@@]1(O[C@@](CC3=O)(C)CC=C)C)O)C)O",
+         "number": "7",
+         "caption": "26% (47% brsm)\nhomoforskolin"
+        },
+        {
+         "structure": "*C=1C=C2C(=CC=NC2=CC1)[C@@H](O)[C@H]1N2C[C@@H]([C@H](C1)CC2)CC=C",
+         "labels": [
+          "OMe"
+         ],
+         "number": "8",
+         "caption": "75%\nhomoquinine"
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "5": "C[C@]12CCCC([C@@H]1CC[C@@]([C@@H]2CC[C@](C)(CC=C)O)(C)O)(C)C",
+     "6": "C[C@]12CC[C@H]3[C@H]([C@@H]1CC[C@]2(CCC=C)O)CCC4=CCCC[C@H]34",
+     "7": "CC(=O)O[C@H]1[C@H]([C@@H]2[C@]([C@H](CCC2(C)C)O)([C@@]3([C@@]1(O[C@@](CC3=O)(C)CC=C)C)O)C)O",
+     "8": "COC=1C=C2C(=CC=NC2=CC1)[C@@H](O)[C@H]1N2C[C@@H]([C@H](C1)CC2)CC=C"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig3a",
+   "kind": "S1",
+   "figure": "Fig. 3a",
+   "prompt": "Draw the one-carbon homologation of grazoprevir to homograzoprevir (9) from Fig. 3a of the attached paper, with the conditions under the arrow as the paper has them.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "grazoprevir"
+     }
+    ],
+    "steps": [
+     {
+      "below": [
+       "10 equiv. 1a",
+       "20 mol% HG-II catalyst",
+       "CH2Cl2, 40 °C, 8 h;",
+       "MeOH-HCl, 40 °C"
+      ],
+      "yield": "43%",
+      "products": [
+       {
+        "text": "COC1=CC2=NC3=C(CCCCC[C@@H]4C[C@H]4OC(=O)N[C@H](C(=O)N5C[C@@H](C[C@H]5C(=O)N[C@@]6(C[C@H]6CC=C)C(=O)NS(=O)(=O)C7CC7)O3)C(C)(C)C)N=C2C=C1",
+        "number": "9"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "9": "COC1=CC2=NC3=C(CCCCC[C@@H]4C[C@H]4OC(=O)N[C@H](C(=O)N5C[C@@H](C[C@H]5C(=O)N[C@@]6(C[C@H]6CC=C)C(=O)NS(=O)(=O)C7CC7)O3)C(C)(C)C)N=C2C=C1"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig3b",
+   "kind": "S9",
+   "figure": "Fig. 3b",
+   "prompt": "Draw the one-pot homologation of tacrolimus to homotacrolimus (10) from Fig. 3b of the attached paper: the metathesis conditions, then the TBAF and citric acid step, on one arrow.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "tacrolimus"
+     }
+    ],
+    "steps": [
+     {
+      "reagents": [
+       "1a (10 equiv.)"
+      ],
+      "catalysts": [
+       "HG-II (10 mol%)"
+      ],
+      "solvents": [
+       "CH2Cl2"
+      ],
+      "temperature": "40 °C",
+      "time": "16 h",
+      "below": [
+       "then TBAF/citric acid, MeOH, 40 °C"
+      ],
+      "yield": "53%",
+      "products": [
+       {
+        "text": "C[C@@H]1C[C@@H]([C@@H]2[C@H](C[C@H]([C@@](O2)(C(=O)C(=O)N3CCCC[C@H]3C(=O)O[C@@H]([C@@H]([C@H](CC(=O)[C@@H](/C=C(/C1)\\C)CCC=C)O)C)/C(=C/[C@@H]4CC[C@H]([C@@H](C4)OC)O)/C)O)C)OC)OC",
+        "number": "10"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "10": "C[C@@H]1C[C@@H]([C@@H]2[C@H](C[C@H]([C@@](O2)(C(=O)C(=O)N3CCCC[C@H]3C(=O)O[C@@H]([C@@H]([C@H](CC(=O)[C@@H](/C=C(/C1)\\C)CCC=C)O)C)/C(=C/[C@@H]4CC[C@H]([C@@H](C4)OC)O)/C)O)C)OC)OC"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig4a",
+   "kind": "S20",
+   "figure": "Fig. 4a",
+   "prompt": "Draw the homologation of rotenone to 11a from Fig. 4a of the attached paper, with reagent 1b drawn over the arrow, the conditions under it and the yield with its d.r. Keep rotenone's three stereocentres and leave the new one undefined.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "rotenone"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: CC(C)=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C",
+       "1b"
+      ],
+      "below": [
+       "3 equiv. 1b",
+       "20 mol% HG II catalyst",
+       "(CH2Cl)2, 100 °C, 16 h (94% AY)",
+       "then",
+       "TBAF/citric acid, MeOH, 100 °C"
+      ],
+      "yield": "73% (1:1 d.r.)",
+      "products": [
+       {
+        "text": "C=CC(C)[C@H]1CC2=C(O1)C=CC3=C2O[C@@H]4COC5=CC(=C(C=C5[C@@H]4C3=O)*)*",
+        "labels": [
+         "OMe",
+         "OMe"
+        ],
+        "number": "11a"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1b": "CC(C)=CCS(=O)(=O)CO[Si](C)(C)C(C)(C)C",
+     "11a": "C=CC(C)[C@H]1CC2=C(O1)C=CC3=C2O[C@@H]4COC5=CC(=C(C=C5[C@@H]4C3=O)OC)OC"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig4c",
+   "kind": "S9",
+   "figure": "Fig. 4c",
+   "prompt": "Draw the two-carbon homologation of Fig. 4c of the attached paper: the Boc-protected allylic amine, reagent 1c drawn over the arrow, the two sets of conditions joined by then, and product 16 as its E isomer with the yield and E:Z ratio.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "C=C[C@H](*)N*",
+      "labels": [
+       "Bn",
+       "Boc"
+      ]
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: C=CC(C)S(=O)(=O)CO[Si](C)(C)C(C)(C)C",
+       "4 equiv. 1c"
+      ],
+      "below": [
+       "5 mol% HG-II catalyst",
+       "CH2Cl2, 40 °C, 16 h",
+       "then TBAF, citric acid",
+       "MeOH, 40 °C, 16 h"
+      ],
+      "yield": "60% (70:30 E:Z)",
+      "products": [
+       {
+        "text": "C/C=C/C[C@H](*)N*",
+        "labels": [
+         "Bn",
+         "Boc"
+        ],
+        "number": "16"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "16": "C/C=C/C[C@H](Cc1ccccc1)NC(=O)OC(C)(C)C",
+     "1c": "C=CC(C)S(=O)(=O)CO[Si](C)(C)C(C)(C)C"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig4d",
+   "kind": "S20",
+   "figure": "Fig. 4d",
+   "prompt": "Draw the retro-ene experiment of Fig. 4d of the attached paper that starts from the Z allylsulfone (Z)-17 and gives only the E alkene (E)-18, with the reagents over the arrow, the solvent, temperature and time under it, and the yield.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "*C/C=C\\C(C)S(=O)(=O)C*",
+      "labels": [
+       "Bn",
+       "OTBS"
+      ],
+      "number": "(Z)-17"
+     }
+    ],
+    "steps": [
+     {
+      "reagents": [
+       "TBAF",
+       "citric acid"
+      ],
+      "solvents": [
+       "MeOH"
+      ],
+      "temperature": "40 °C",
+      "time": "16 h",
+      "yield": "90%",
+      "products": [
+       {
+        "text": "*CC/C=C/C",
+        "labels": [
+         "Bn"
+        ],
+        "number": "(E)-18"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "(Z)-17": "C(/C=C\\C(C)S(=O)(=O)CO[Si](C)(C)C(C)(C)C)Cc1ccccc1",
+     "(E)-18": "C/C=C/CCCc1ccccc1"
+    }
+   }
+  },
+  {
+   "id": "grocott2025-fig4e",
+   "kind": "S2",
+   "figure": "Fig. 4e",
+   "prompt": "Draw the ring expansion of Fig. 4e of the attached paper as a two-step scheme: the 17-membered lactone ambrettolide as the paper draws it, the ring-opened diene 19, and the 19-membered Z lactone 20, with each step's conditions and yield.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "O=C1CCCCCCC/C=C\\CCCCCCO1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "8 equiv. 1a",
+       "10 mol% HG-II",
+       "CH2Cl2, 40 °C, 16 h"
+      ],
+      "below": [
+       "then TBAF/citric acid",
+       "MeOH, 40 °C, 16 h"
+      ],
+      "yield": "81%",
+      "products": [
+       {
+        "text": "non-8-en-1-yl undec-10-enoate",
+        "number": "19"
+       }
+      ]
+     },
+     {
+      "above": [
+       "7.5 mol% M2001 catalyst"
+      ],
+      "below": [
+       "(CH2Cl)2 (5 mM), 60 °C",
+       "~20 mbar, 24 h"
+      ],
+      "yield": "74% AY (1:9 E:Z)",
+      "products": [
+       {
+        "text": "O=C1CCCCCCCC/C=C\\CCCCCCCO1",
+        "number": "20"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "19": "C=CCCCCCCCCC(=O)OCCCCCCCC=C",
+     "20": "O=C1CCCCCCCC/C=C\\CCCCCCCO1"
+    }
+   }
+  }
+ ]
+}

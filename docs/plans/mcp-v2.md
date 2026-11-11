@@ -595,6 +595,47 @@ first.
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
   `mcp.json`. Give dev builds their own identifier, or their own file name.
 
+### 17.1 Faults the paper corpus found (11 November 2026)
+
+60 jobs from six papers (`scripts/mcp-bench/corpus/`), each structure read from the page by one agent and checked by
+a second. v1 draws 225 of 240 numbered compounds right. The 67 confirmed faults, each with its smallest input, are
+in `docs/plans/mcp-v2-corpus-faults.md`. Grouped:
+
+| Group | Faults | Where |
+|---|---|---|
+| Labels not read, with no warning | `Bpin`, `BBN` (read as B-B-N), `F3B`, `D`, `Allyl`, `Vinyl`, `OtBu`, hyphenated `t-Bu`, `i-Pr`, `n-Bu`, `4-ClPh`. A nonsense label gets the same silent reply. | `src/labels.ts`; the reply in `read()` |
+| Labels read wrong | `Ar` drawn as phenyl (the tool description's own example); `NC` as an isocyanide; `P(O)(OEt)2`; `BF3K` warned though right; a radical marked on Si or N of an expanded label in `read_drawing`'s SMILES | `src/labels.ts`, `src/chem.ts` |
+| Salts | A salt given as one compound becomes two structures with the same number. No structure has the salt's InChIKey, and the scheme does not wrap. | `read()`, `place()` in `src/mcp.ts` |
+| Layout | `draw_structures` picks columns by count, not by the page or by label widths. A one-step reaction that is too wide is not fitted. A `structure:` line over an arrow gets no room. A wrapped second product drops out of the reaction as read. Side-arrow text on a cycle overlaps. | `src/mcp.ts`, `src/reaction.ts`, `src/cycle.ts` |
+| Tool gaps | A structure at an arrow takes no number or labels. `draw_structures` takes no caption. A number is at most 12 characters. A cycle takes no text node and no structure on a side arrow. A double bond with no geometry is drawn and keyed as E. | The compound object (section 4.1) fixes the first three |
+| Metals | A neutral N or P donor on a metal warns about valence. `Ir(ppy)3` by name warns on each N. `fac-` is dropped with no note. Hoveyda-Grubbs by name has no O to Ru bond. | `src/check.ts`, `src/complexes.ts` |
+| Name to Structure | `(R)-carvone` and `(R)-limonene` refused though the (S) forms read; chlorido complex names; spelling variants of catalyst names; a quinuclidine with bridgehead descriptors | `src/names.ts` (outside the MCP: for Sam to place in a release) |
+| Small | A valence warning numbers the atom by the whole drawing. `1,5-HAT` is split at its comma. Explicit H at ring fusions is missing when a group is a label. | `src/check.ts`, `classify()` in `src/mcp.ts` |
+
+The label, salt, layout and tool-gap groups are MCP work and are in the build order. Names and metals change what
+every user sees, so each needs Sam's yes and the ChemDraw cross-check.
+
+### 17.2 Indigo stops working after about 1,266 refused calls
+
+Found by the 1.1.2 session on the same night (it is the cause of the 1.1.1 crash): each call Indigo refuses loses 32
+to 48 bytes of its 64 KB stack for good, and then any call fails ("getWasmTableEntry(...) is not a function",
+"memory access out of bounds"). The benchmark met it when it drew all 60 corpus jobs three times in one process. An
+AI app sends many texts Octet cannot read, so a long MCP session can reach it too (test plan P6 and R3). The fix is
+on the 1.1.2 side (`item/indigo-crash`) and comes here with the merge. Until then the runner draws each corpus job
+once.
+
+### 17.3 Taking 1.1.2 into this branch (from the 1.1.2 session)
+
+`release-1.1.2` has a commit that takes the MCP out (`38674b3`). Record it as merged with none of its changes
+first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release-1.1.2`. Expect conflicts in
+`src/Editor.tsx`, `src/editor.css` and `src/releases.ts`. Only when Sam says.
+
+### 17.4 Before any push
+
+`docs/plans/mcp.md` and `docs/decisions/0021-mcp.md` are in this branch's history (from R7). Sam's notes say they
+stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
+they come out.
+
 ## 18. Scripting (#89) and batch conversion (#91): a proposal for Sam's yes
 
 Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
