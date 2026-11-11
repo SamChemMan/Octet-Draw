@@ -4,10 +4,10 @@
 // drawn as one reaction of three steps, laid out as the window lays it out (4 November 2026: every caption's box
 // within 0.1 bond length of the window's), and comes out as CDXML that Octet reads back as the same scheme.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("headless.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing } = await import("../scripts/headless/host.ts");
@@ -399,6 +399,34 @@ try {
   assert.deepEqual(scheme.structures.map((s: { inchiKey: string }) => s.inchiKey), ["HUMNYLRZRPPJDN-UHFFFAOYSA-N", "PIAOLBVUVDXHHL-VOTSOKGWSA-N", "BHHGXPLMPWCGHP-UHFFFAOYSA-N", "MODKMHXGCGKTLE-UHFFFAOYSA-N"]);
   assert.equal(JSON.parse(readFileSync(join(dir, "calls.drawn.json"), "utf8")).drawing.structures.length, 2);
   assert.match(readFileSync(join(dir, "scheme.cdxml"), "utf8"), /<scheme[\s\S]*<step[\s\S]*<step[\s\S]*<step/);
+
+  // The evals' cost report (scripts/mcp-evals/cost.mjs): one reply of the model logged as two lines counts once.
+  const reply = (at: string, content: object[]) => JSON.stringify({ timestamp: at, message: { role: "assistant", id: "m1", model: "any", content, usage: { output_tokens: 300, output_tokens_details: { thinking_tokens: 100 } } } });
+  mkdirSync(join(dir, "logs"));
+  writeFileSync(join(dir, "logs", "agent-1.jsonl"), [reply("2026-11-11T10:00:00Z", [{ type: "thinking" }]), reply("2026-11-11T10:00:20Z", [{ type: "tool_use", id: "u1", input: { command: "node call.mjs say-fix change '{}'" } }])].join("\n"));
+  writeFileSync(join(dir, "judged.jsonl"), JSON.stringify({ job: "say-fix", pass: true, calls: 1, refused: 0, sent: 2, read: 40 }));
+  const cost = spawnSync(process.execPath, [new URL("../scripts/mcp-evals/cost.mjs", import.meta.url).pathname, join(dir, "logs"), join(dir, "judged.jsonl")], { encoding: "utf8" });
+  assert.match(cost.stdout, /\| say-fix \| yes \| 1 \| 1 \| 0 \| 0 \| 300 \| 100 \| 2 \| 40 \| 20 \|/, cost.stdout + cost.stderr);
+
+  // The MCP server for evals (scripts/mcp-evals/headless.ts), with the evals' client in a process of its own (here,
+  // fetch reaches no network): two AI apps at once, each in a drawing of its own with its own ids; a picture asked for
+  // is said to be missing; a wrong key, and a session after DELETE, are refused.
+  const env = { ...process.env, OCTET_MCP_INFO: join(dir, "mcp.json") };
+  const server = spawn(process.execPath, [new URL("../scripts/mcp-evals/headless.ts", import.meta.url).pathname], { env, stdio: "ignore" });
+  try {
+    const client = `import { connect } from ${JSON.stringify(new URL("../scripts/mcp-evals/octet.mjs", import.meta.url).href)};
+      const [a, b] = await Promise.all([connect("a"), connect("b")]);
+      await Promise.all([a.call("draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }] }), b.call("draw", { kind: "structures", structures: [{ text: "toluene", number: "1" }, { text: "phenol", number: "2" }] })]);
+      const picture = (await a.call("read", { picture: true })).content.map((c) => c.text?.startsWith("No picture") ? "none" : c.type);
+      const [da, db] = await Promise.all([a.read(), b.read()]);
+      const { port, token } = JSON.parse((await import("node:fs")).readFileSync(process.env.OCTET_MCP_INFO, "utf8")), url = "http://127.0.0.1:" + port + "/mcp";
+      const wrong = (await fetch(url, { method: "POST", headers: { authorization: "Bearer " + token.replace(/./, "x"), "content-type": "application/json" }, body: "{}" })).status;
+      const ended = (await fetch(url, { method: "DELETE", headers: { authorization: "Bearer " + token, "mcp-session-id": a.session } })).status;
+      console.log(JSON.stringify({ a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError }));`;
+    const out = spawnSync(process.execPath, ["--input-type=module", "-e", client], { env, encoding: "utf8", timeout: 60_000 });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(JSON.parse(out.stdout), { a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true });
+  } finally { server.kill(); }
 } finally { rmSync(dir, { recursive: true, force: true }); }
 
 console.log("headless.check: ok");
