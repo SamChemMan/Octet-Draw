@@ -23,7 +23,7 @@ assert.match(start, /if first \{\n\s*WAITING\.store\(false, SeqCst\);\n\s*maybe_
 // Windows names the program in SetHostNames; the Mac's Word bridge says Word.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 const objects = readFileSync(new URL("../src-tauri/src/objects.rs", import.meta.url), "utf8");
-assert.match(editor, /<ExportButton lead=\{office && !office\.gone && \(/, "the button is there only in an open object's window");
+assert.match(editor, /\n        lead=\{office && !office\.gone && \(/, "the button is there only in an open object's window");
 assert.match(editor, /disabled=\{!mainDirty\}/);
 assert.match(editor, /office\.app \? `Update in \$\{office\.app\.replace\(\/\^Microsoft \/, ""\)\}` : `Update \$\{office\.host\}`/);
 assert.match(rs, /\*self\.app\.borrow_mut\(\) = program\.clone\(\);/, "Windows keeps the container's name");

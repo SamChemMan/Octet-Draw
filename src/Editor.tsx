@@ -10043,13 +10043,14 @@ export default function Editor() {
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
-      <ExportButton lead={office && !office.gone && (
+      <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
+        lead={office && !office.gone && (
         // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >
         // Update do. It is there only in a window opened from a document, and lights up once there is a change.
         <button className="export-button primary" disabled={!mainDirty} data-tip={`Update ${office.host}`} data-key={hint("save")} onClick={() => void officeUpdate()}>
           {office.app ? `Update in ${office.app.replace(/^Microsoft /, "")}` : `Update ${office.host}`}
         </button>
-      )} quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
+      )} />
       <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView} page={pageColour(style)}
           chemistry={(part) => {
