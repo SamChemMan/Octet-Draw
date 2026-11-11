@@ -493,13 +493,24 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
     open_external(&path).map_err(|e| e.to_string())
 }
 
-// Settings > General > Add to LibreOffice (Linux): opens Octet's extension for LibreOffice (tools/libreoffice), which
-// LibreOffice's Extension Manager offers to add. A Flatpak Octet opens it through the system's portal.
+// Settings > General > Add to LibreOffice (Linux): Octet's extension for LibreOffice (tools/libreoffice) in
+// LibreOffice's Extension Manager, which asks the user to confirm. `unopkg gui` shows the manager on its own when
+// LibreOffice is closed, so no restart is needed, and in LibreOffice when it is open. The .oxt opened as a file
+// starts a closed LibreOffice with the file as its argument, and the restart after the install opens it again: a
+// second install prompt. A Flatpak Octet has no unopkg and opens the file through the system's portal.
 #[cfg(target_os = "linux")]
 #[tauri::command]
 async fn add_to_libreoffice(app: AppHandle) -> Result<(), String> {
+    use std::process::{Command, Stdio};
     let path = app.path().resolve("libreoffice/octet-draw.oxt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
-    open_external(&path).map_err(|e| e.to_string())
+    match Command::new("unopkg").arg("gui").arg(&path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        // The manager runs until the user closes it. A thread waits for it, so no process is left behind.
+        Ok(mut manager) => {
+            std::thread::spawn(move || manager.wait());
+            Ok(())
+        }
+        Err(_) => open_external(&path).map_err(|e| e.to_string()),
+    }
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).

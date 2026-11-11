@@ -24,8 +24,17 @@ and Update puts it back.
 
 `tools/libreoffice`: a Python UNO component, `octet_draw.py`, with `Jobs.xcu`, `Addons.xcu`, `description.xml` and
 the manifest. `src-tauri/build.rs` zips them into `gen/octet-draw.oxt`, with Octet's version, and Linux builds
-bundle it (`tauri.linux.conf.json`). Settings > General > Add to LibreOffice opens it, and LibreOffice's Extension
-Manager asks the user to confirm. LibreOffice then asks to restart once.
+bundle it (`tauri.linux.conf.json`). Settings > General > Add to LibreOffice runs `unopkg gui` on it, and
+LibreOffice's Extension Manager asks the user to confirm.
+
+- LibreOffice closed: the manager shows on its own, and LibreOffice has the extension when it next starts. No
+  restart.
+- LibreOffice open: the manager shows in LibreOffice, which asks to restart once.
+- Octet does not open the .oxt as a file (`xdg-open`): that starts a closed LibreOffice with the file as its
+  argument, and LibreOffice's restart after the install opens the file again and asks to install it again. Tested in
+  the VM on 11 November 2026.
+- A Flatpak Octet has no `unopkg`, so it opens the file through the portal. When LibreOffice was closed, its restart
+  still asks to install the file again (tried in the VM). Cancel ends it.
 
 - A job on each new view (`OnViewCreated`) adds a mouse handler and a context menu item to Writer, Impress and Draw.
 - A double-click with the left button on a picture whose PDF holds CDXML (Octet's or ChemDraw's) opens Octet, and

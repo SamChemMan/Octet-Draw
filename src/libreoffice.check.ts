@@ -35,6 +35,9 @@ assert.equal(description.match(/<identifier value="([^"]+)"\/>/)?.[1], conf.iden
 assert.ok(description.includes('<version value="0.0.0"/>') && build.includes('replace("<version value=\\"0.0.0\\"/>"'), "build.rs writes Octet's version");
 assert.deepEqual(linuxConf, { bundle: { resources: { "gen/octet-draw.oxt": "libreoffice/octet-draw.oxt" } } }, "Linux builds bundle the .oxt");
 assert.ok(main.includes('resolve("libreoffice/octet-draw.oxt"') && /#\[cfg\(target_os = "linux"\)\] add_to_libreoffice/.test(main), "Add to LibreOffice opens the bundled .oxt, on Linux");
+// In LibreOffice's Extension Manager through `unopkg gui`, as fixed arguments: the .oxt opened as a file asks to be
+// installed again after LibreOffice's restart.
+assert.ok(main.includes('Command::new("unopkg").arg("gui").arg(&path)'), "Add to LibreOffice runs unopkg gui on the .oxt");
 assert.ok(settings.includes('invoke("add_to_libreoffice")') && settings.includes(">Add to LibreOffice<"));
 
 // The manifest registers the Python component and the configuration, and each file it names is there.
