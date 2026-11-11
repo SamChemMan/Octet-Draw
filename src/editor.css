@@ -1486,6 +1486,11 @@ button.variant.add {
   flex-wrap: wrap;
   gap: 2px;
 }
+/* Two buttons that never wrap apart (the attachment pair). */
+.tray-pair {
+  display: flex;
+  gap: 2px;
+}
 .tray-button {
   display: grid;
   place-items: center;
