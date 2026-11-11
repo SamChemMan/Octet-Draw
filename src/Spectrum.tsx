@@ -99,7 +99,7 @@ type Props = {
   // Decouple ¹H for the nucleus shown (¹⁹F, ³¹P), from its setting: a structure with no F or P has no prediction to
   // read it from.
   decoupled: boolean; onDecouple: (on: boolean) => void;
-  title: string; onPointTitle: (on: boolean) => void; addable: string[]; onAddKey: (key: string) => void; onCloseTab: (key: string) => void; noStructure?: boolean;
+  title: string; formulaTitle?: boolean; onPointTitle: (on: boolean) => void; addable: string[]; onAddKey: (key: string) => void; onCloseTab: (key: string) => void; noStructure?: boolean;
 };
 
 // While it is minimised the panel does not draw again: nothing of it shows.
@@ -293,7 +293,7 @@ function Panel(p: Props) {
           The controls sit in a row of their own under it. */}
       {!expanded && <ResizeEdge sizing={p.sizing} onMinimise={p.onMinimise} />}
       <header onPointerDown={move.onPointerDown}>
-        <h2 onPointerEnter={() => p.onPointTitle(true)} onPointerLeave={() => p.onPointTitle(false)}>{p.title || nameOf(p.spectrumKey)}{m && showM && m.title && <span className="spectrum-title">{m.title}</span>}</h2>
+        <h2 onPointerEnter={() => p.onPointTitle(true)} onPointerLeave={() => p.onPointTitle(false)}>{p.title ? (p.formulaTitle ? <span className="formula">{p.title}</span> : p.title) : nameOf(p.spectrumKey)}{m && showM && m.title && <span className="spectrum-title">{m.title}</span>}</h2>
       </header>
       <div className="spectrum-controls">
         <Tabs keys={p.keys} value={p.spectrumKey} onKey={p.onKey} onClose={p.onCloseTab}>
@@ -564,7 +564,7 @@ function Panel(p: Props) {
 function Tabs({ keys, value, onKey, onClose, children }: { keys: string[]; value: string; onKey: (k: string) => void; onClose: (k: string) => void; children?: React.ReactNode }) {
   const closable = keys.length > 1;
   return (
-    <span className="segmented spectrum-tabs">
+    <span className="segmented spectrum-tabs" style={children ? { gridTemplateColumns: `${keys.length}fr 1fr` } : undefined}>
     <span role="tablist" aria-label="Spectra"
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;

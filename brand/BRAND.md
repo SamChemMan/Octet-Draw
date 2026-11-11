@@ -91,6 +91,8 @@ Each kind of control has one look, on every page and in every panel. The values 
 
 Controls in one row have one height. A new control takes the height of its kind from this table.
 
+The segments of one segmented control have one width: the width of the widest segment. Tabs are segments. The + at the end of the tabs is a segment too, as wide as a tab.
+
 ### Shape, spacing and layers
 
 - Corners are a `radius` token. Marks under 12px use `radius-2xs`.
@@ -115,7 +117,9 @@ Controls in one row have one height. A new control takes the height of its kind 
 
 Hover, press and a change of state fade over `motion-fast` on every button. A row in a list or a menu has the press only, so its highlight follows the pointer with no delay.
 
-A toggle button and a segmented control are two kinds. A toggle that is on fills its full height. A segmented control shows its choice as a `brand-mist` segment inside the well.
+A toggle that sits beside fields and segmented controls (the Spectrum and Mass spec panels) is a segmented control of one: a well, with a `brand-mist` segment inside it when it is on. Chips, tools, rows and menu options fill their whole shape when they are on.
+
+A tab that can close has the same room on each side of its name. The X shows in the room on the right when the pointer or the focus is on the tab. The name stays in the middle and the X never covers it.
 
 ### Small actions
 
@@ -139,7 +143,7 @@ A shortcut beside a command is plain 11px text in `ink-faint`. Only the tutorial
 
 1. Find the control that does the same job. Use its component or its class.
 2. Take every size, corner, space, colour, shadow and time from a token.
-3. Run the app. Measure the new control and the controls beside it: height, corners, font, icon size. They must be equal.
+3. Run the app. Measure the new control and the controls beside it: height, width of each segment, corners, font, icon size. They must be equal. In development the app measures its own controls (`src/lookwatch.ts`). Read the console: an error that starts with `look:` is a control that does not match.
 4. Look at hover, press, focus, selected and disabled, in the light theme and the dark theme.
 5. Run `npm test`.
 
