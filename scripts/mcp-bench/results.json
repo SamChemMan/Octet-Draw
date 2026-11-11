@@ -1,7 +1,7 @@
 {
  "tools": 6,
  "toolsList": 12206,
- "instructions": 2162,
+ "instructions": 2160,
  "cases": {
   "corpus-chained": {
    "calls": 4,
@@ -9,8 +9,8 @@
    "coerced": 0,
    "sent": 1813,
    "read": 1424,
-   "ms": 131,
-   "slowest": 57,
+   "ms": 105,
+   "slowest": 53,
    "right": 6,
    "of": 6,
    "warnings": 2,
@@ -415,7 +415,7 @@
    "ms": 9,
    "slowest": 9,
    "warnings": 1,
-   "summary": 924
+   "summary": 949
   },
   "robinson2026-fig2-reaction": {
    "calls": 2,
@@ -696,8 +696,8 @@
    "coerced": 0,
    "sent": 3731,
    "read": 2964,
-   "ms": 1908,
-   "slowest": 958,
+   "ms": 1776,
+   "slowest": 856,
    "right": 19,
    "of": 19,
    "warnings": 40,
@@ -709,8 +709,8 @@
    "coerced": 0,
    "sent": 3606,
    "read": 4989,
-   "ms": 2083,
-   "slowest": 2067,
+   "ms": 1788,
+   "slowest": 1776,
    "right": 19,
    "of": 19,
    "warnings": 0,
@@ -722,8 +722,8 @@
    "coerced": 0,
    "sent": 3606,
    "read": 5453,
-   "ms": 2000,
-   "slowest": 1986,
+   "ms": 1804,
+   "slowest": 1792,
    "right": 19,
    "of": 19,
    "warnings": 40,
@@ -735,8 +735,8 @@
    "coerced": 1,
    "sent": 4522,
    "read": 2295,
-   "ms": 2726,
-   "slowest": 1628,
+   "ms": 2481,
+   "slowest": 1533,
    "right": 19,
    "of": 19,
    "warnings": 40,
@@ -747,9 +747,9 @@
    "failed": 0,
    "coerced": 5,
    "sent": 16042,
-   "read": 170273,
-   "ms": 4093,
-   "slowest": 1640,
+   "read": 169999,
+   "ms": 3713,
+   "slowest": 1545,
    "right": 19,
    "of": 19,
    "warnings": 9,
@@ -818,7 +818,7 @@
    "right": 3,
    "of": 3,
    "warnings": 9,
-   "summary": 2014
+   "summary": 2042
   },
   "trowbridge2018-fig3a-pathway": {
    "calls": 2,
@@ -998,7 +998,7 @@
    "ms": 5,
    "slowest": 5,
    "warnings": 0,
-   "summary": 895
+   "summary": 903
   },
   "zu2025-table1": {
    "calls": 2,
@@ -1473,7 +1473,7 @@
    "ms": 18,
    "slowest": 18,
    "warnings": 1,
-   "summary": 924
+   "summary": 949
   },
   "lines-robinson2026-fig2-reaction": {
    "calls": 1,
@@ -1655,7 +1655,7 @@
    "right": 3,
    "of": 3,
    "warnings": 9,
-   "summary": 2014
+   "summary": 2042
   },
   "lines-trowbridge2018-fig3a-pathway": {
    "calls": 1,
@@ -1835,7 +1835,7 @@
    "ms": 15,
    "slowest": 15,
    "warnings": 0,
-   "summary": 895
+   "summary": 903
   },
   "lines-zu2025-table1": {
    "calls": 1,
@@ -1856,8 +1856,8 @@
    "coerced": 0,
    "sent": 1780,
    "read": 950,
-   "ms": 1975,
-   "slowest": 1975,
+   "ms": 1851,
+   "slowest": 1851,
    "right": 19,
    "of": 19,
    "warnings": 0,
@@ -1874,7 +1874,7 @@
    "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 773
+   "summary": 777
   },
   "say-two-schemes": {
    "calls": 1,

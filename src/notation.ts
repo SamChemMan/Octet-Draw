@@ -458,6 +458,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         for (const y of [...((x as Step).above ?? []), ...((x as Step).below ?? [])]) if (typeof y !== "string") add(y, s.line);
         steps.push({ ...x, ...(s.added ? { above: [...s.added, ...((x as Step).above ?? [])] } : {}), ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
+      // A '+' partner (a starting material after the first, a step's added reactant) is marked in where (+ and its
+      // text): drawn from lines, one Octet cannot read as a structure that is not a SMILES is text over its arrow.
+      for (const y of [...c.start.slice(1), ...c.steps.flatMap((s) => s.added ?? [])]) if (y.text !== undefined) where?.set(`+${written(y as { text: string })}`, 0);
       if (round && !steps.some((s) => s.yield || s.above || s.below)) return `Line ${c.steps[0].line}: the steps come back to ${first.number ?? first.text}, so they read two ways: a catalytic cycle (write +x for what goes in, -x for what comes out) or a scheme (give a step its yield)`;
       ops.push({ tool: "reaction", args: { start: c.start, steps } });
     }
@@ -532,13 +535,14 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (pre.length) { before = parts[0].slice(lhs.text.length).replace(/^[,;]\s*/, "").trim(); said?.("before", `Line ${at}: Octet read "${before}", before the arrow, as the step's conditions.`); }
         const [mine, sides] = apart(lhs.text), start = compounds(mine, [], at);
         if (typeof start === "string") return start;
-        // A line whose starting materials include what the chain has just made (by its number, or the same text) goes on
-        // from it: the others are that step's added reactants, drawn over its arrow (12a + 9-BBN -> 13a).
+        // A line whose starting materials include all the chain has just made (by its number, or the same text and no
+        // other number) goes on from it: the others are that step's added reactants, drawn over its arrow (12a + 9-BBN
+        // -> 13a). A line from one of two products, or that gives one a new number, starts a scheme as before.
         const last = chain && (chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start);
-        const made = (c: Compound) => !c.changes && last!.some((p) => (c.from !== undefined && c.from === p.number) || (c.text !== undefined && c.text === p.text && String(c.labels) === String(p.labels)));
-        if (last && start.some(made)) {
+        const same = (c: Compound, p: Compound) => !c.changes && ((c.from !== undefined && c.from === p.number) || (c.text !== undefined && c.text === p.text && String(c.labels) === String(p.labels) && (c.number ?? p.number) === p.number));
+        if (last && last.every((p) => start.some((c) => same(c, p)))) {
           reactants = last;
-          added = start.filter((c) => !made(c));
+          added = start.filter((c) => !last.some((p) => same(c, p)));
           for (const x of sides) chain!.asides.push({ ...x, part: chain!.steps.length - 1, before: true });
         } else {
           const no = flush();

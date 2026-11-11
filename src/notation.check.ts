@@ -328,11 +328,16 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   const r = fromLines({ lines: P }) as { op: string; args: { schemes: { steps: { above?: unknown }[] }[] } };
   assert.deepEqual([r.op, r.args.schemes.length, r.args.schemes[0].steps.map((s) => s.above)], ["route", 1, [undefined, [{ text: "B1C2CCCC1CCC2" }], undefined]]);
   assert.deepEqual((fromLines({ lines: "CCO -> CC=O, PCC\nCC=O + CN -> CC=NC" }) as { args: { steps: { above?: unknown }[] } }).args.steps.map((s) => s.above), [undefined, [{ text: "CN" }]]);
+  // A line that gives what was made a new number, or that starts from one of two products, starts a scheme as before
+  // (the number kept; the scheme not carried on from a co-product).
+  for (const l of ["CC=O -> CCO (3), NaBH4\nCCO (5) + CC(=O)Cl -> CCOC(C)=O (6)", "CC=O -> CCO (3) + CO, NaBH4\nCO -> C=O (4), PCC"]) assert.equal((fromLines({ lines: l }) as { args: { schemes: unknown[] } }).args.schemes.length, 2, l);
   let said = "";
   const s = await shown("draw", { lines: P.replace("B1C2CCCC1CCC2", "9-BBN–H") }, undefined, (x) => (said = x.content[0].text));
   assert.match(said, /^Drew a scheme of 3 steps with 4 numbered compounds\. 9-BBN–H is text over its arrow\./);
   assert.ok("arrows" in s && s.arrows.includes("reaction | 9-BBN–H | ") && s.structures.filter((x) => x.startsWith("12a=")).length === 1, JSON.stringify(s));
   for (const [l, bad] of [["qqzx + CC -> CCO", "qqzx"], ["CC + C1CCCC -> CCO", "C1CCCC"]]) assert.match((await call("draw", { lines: l })).content[0].text, new RegExp(`^Octet drew nothing\\. Octet cannot read "${bad}" \\(line 1\\) as a structure\\.$`), l);
+  // Only lines' '+' partners: the JSON forms and an @name (a structure asked for) are refused as before.
+  for (const args of [{ kind: "reaction", start: [{ text: "CC" }, { text: "9-BBN–H" }], steps: [{ products: [{ text: "CCO" }] }] }, { kind: "reaction", start: [{ text: "CC" }], steps: [{ above: ["structure: 9-BBN–H"], products: [{ text: "CCO" }] }] }, { lines: "CC -> CCO, @9-BBN–H" }]) assert.match((await call("draw", args)).content[0].text, /^Octet drew nothing\. Octet cannot read "9-BBN–H"/, JSON.stringify(args));
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });

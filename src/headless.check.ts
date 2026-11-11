@@ -571,9 +571,28 @@ try {
   assert.ok(Math.abs((bestTurn(a0, a60).t * 180) / Math.PI - 60) < 5, `turned by ${(bestTurn(a0, a60).t * 180) / Math.PI}`);
   const cycle = await lines("# Hajos–Parrish proline cycle\nOC(=O)[C@@H]1CCCN1 (1) -> CC(=[N+]1CCC[C@H]1C(=O)[O-])CCC1(C)C(=O)CCC1=O (2), +triketone, -H2O -> C=C(CCC1(C)C(=O)CCC1=O)N1CCC[C@H]1C(=O)O (3), tautomerisation -> CC12C(=O)CCC1(O)CC(=[N+]3CCC[C@H]3C(=O)[O-])CC2 (4), intramolecular aldol -> 1, +H2O, -ketol");
   assert.equal(cycle.check, "clean", JSON.stringify(cycle.check));
-  // A cycle's centre text cannot be moved: the refusal names the call that gives it room.
-  const mid = d.host.doc().captions!.find((c) => c.cycle?.side === "centre")!, c5 = `c${mid.cycle!.cycle}`;
-  assert.match((await call("change", { operations: [{ op: "move", ids: [`t${mid.id}`], dx: 1, dy: 0 }] })).content[0].text, new RegExp(`run_command clean_up on ${c5}\\.`));
+  // A cycle's centre text cannot be moved: where check finds it on something, the refusal names the call that gives it
+  // room (and that call does); where it is clear, the refusal says no more than that.
+  const mid = d.host.doc().captions!.find((c) => c.cycle?.side === "centre")!, c5 = `c${mid.cycle!.cycle}`, nudge = async () => (await call("change", { operations: [{ op: "move", ids: [`t${mid.id}`], dx: 1, dy: 0 }] })).content[0].text;
+  assert.doesNotMatch(await nudge(), /run_command/);
+  const doc = d.host.doc();
+  d.host.set({ ...doc, captions: doc.captions!.map((c) => (c.id === mid.id ? { ...c, text: `${c.text}, ${c.text}, ${c.text}` } : c)) });
+  assert.match(await nudge(), new RegExp(`run_command clean_up on ${c5}\\.`));
+  assert.equal((await call("advanced", { tool: "run_command", args: { command: "clean_up", ids: [c5] } })).structuredContent.check, "clean");
+  // Long step names on a cycle of three, with side arrows (each name then goes inside): each is placed clear of the
+  // rest, as the window places it.
+  d = drawing("paper", "Names");
+  const named = (await call("draw", { brief: "quick", lines: "# Suzuki cycle\n[Pd] (1) -> Br[Pd]c1ccccc1 (2), oxidative addition of the aryl bromide, +PhBr -> c1ccc(cc1)[Pd]c1ccccc1 (3), transmetalation with the boronic acid, +ArB(OH)2 -> 1, reductive elimination of the biaryl product, -Ph–Ar" })).structuredContent;
+  assert.equal(named.check, "clean", JSON.stringify(named.check));
+  // Only a structure the call made is cleared: the user's own, with its labels on each other, only moves (in two steps,
+  // a batch, as in one).
+  d = drawing("paper", "Moved");
+  await call("draw", { kind: "structures", structures: [{ text: "OCCCCO" }], brief: "quick" });
+  const own = d.host.doc(), O = own.atoms.findIndex((a, i) => i && a.label === "O");
+  d.host.set({ ...own, atoms: own.atoms.map((a, i) => (i === O ? { ...a, location: [own.atoms[0].location[0] + 0.2, own.atoms[0].location[1], 0] } : a)) });
+  const was = d.host.doc().atoms.map((a) => a.location), moved = await call("change", { operations: [{ op: "move", ids: ["s1"], dx: 0.5 }, { op: "move", ids: ["s1"], dx: 0.5 }] });
+  assert.ok(moved.structuredContent.check.labels_overlap, JSON.stringify(moved.structuredContent));
+  assert.ok(d.host.doc().atoms.every((a, i) => Math.abs(a.location[0] - was[i][0] - 1) < 1e-6 && Math.abs(a.location[1] - was[i][1]) < 1e-6), "only moved");
 }
 
 console.log("headless.check: ok");

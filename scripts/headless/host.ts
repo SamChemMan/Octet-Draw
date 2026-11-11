@@ -83,7 +83,9 @@ function layOut(m: Mol) {
   const inkPx = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
   const nodeText = (m.captions ?? []).filter((c) => c.cycle?.side === "node");
   const texts = nodeText.length ? placeCaptions({ ...m, captions: nodeText }, drawing, width, arrows, pt, style.captionSize, new Map(), run, extent) : [];
-  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box);
+  // A step's name is placed where it is clear of the rest, as the window places it (each place measured as drawn).
+  const named = (id: number, anchor: "start" | "middle" | "end", wrap?: number) => { const c = m.captions?.find((x) => x.id === id); return c && placeCaptions({ ...m, captions: [c] }, drawing, width, arrows, pt, style.captionSize, new Map([[id, { x: 0, y: 0, anchor, wrap }]]), run, extent)[0]?.box; };
+  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box, named);
   const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize, cycles.anchors, run, extent);
   const ink = (atoms: number[]) => { const b = inkPx(atoms); return b && toDoc(b); };
   const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };

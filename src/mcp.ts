@@ -743,16 +743,16 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in it and read it back.
+const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's computer. These tools draw in the user's open drawing and read it.
 - Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
 - Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
-- Write each compound once, as a name or SMILES; a later one is a change to it (3[OBn>OTES]). A generic group or a metal's ligand is {R} in a SMILES ({L}[Pd]{L}).
+- Write each compound once, by name or SMILES; a later one is a change to it (3[OBn>OTES]). A generic group or metal ligand is {R} in a SMILES ({L}[Pd]{L}).
 - Do not sort conditions: list them after the product in any order, and Octet places each as papers do. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
-- The reply lists each compound as Octet read it, Octet's warnings, and check. When check is "clean", tell the user it is drawn in a sentence or two (they see it), and only what you changed from what they asked or could not do: do not read back or ask for a picture unless they ask how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
-- To match a picture, turn a compound with the hints (up, down, left, right, rotate, flip) in draw's structures, or with change's replace.
-- To highlight an atom, bond, group or structure, use change's edit with highlight, or ring_fill for a ring: a shape is a frame or a panel. Colour only what the user asks to colour.
-- Each call is one undo step. Never delete what the user drew unless they ask.
-- advanced help gives every argument of a kind of draw, an operation of change or an advanced tool.`;
+- The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), its warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
+- To match a picture, turn a compound with hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
+- To highlight an atom, bond, group or structure, use change's edit with highlight, or ring_fill for a ring: a shape is a frame or panel. Colour only what the user asks.
+- Each call is one undo step. Never delete the user's work unless they ask.
+- advanced help gives the arguments of each draw kind, change op and advanced tool.`;
 
 // ---- What each tool does ----
 
@@ -1147,9 +1147,10 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     all.push(...s.products); at.push(...s.products.map(() => undefined));
   }
   const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where);
-  // The first starting material and the products must be read. Any other Octet cannot read, and that is not a SMILES
-  // (a typo in one is refused), is a reagent's name: text over its arrow (9-BBN–H), and the reply says so.
-  const soft = lost.filter((k) => at[k] && !looksLikeSmiles(all[k].text!));
+  // The first starting material and the products must be read. A '+' partner of lines (fromLines marks it in where)
+  // Octet cannot read, and that is not a SMILES (a typo in one is refused), is a reagent's name: text over its arrow
+  // (9-BBN–H), and the reply says so. One given in JSON, or as @name, is refused as before.
+  const soft = lost.filter((k) => at[k] && ctx.where?.has(`+${written(all[k] as { text: string })}`) && !looksLikeSmiles(all[k].text!));
   if (wrong.length || soft.length < lost.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const asText = soft.map((k) => clean(all[k].text!) + (all[k].number ? ` (${clean(all[k].number!)})` : ""));
   for (const [j, k] of soft.entries()) if (at[k] !== true) (at[k] as Line)[0] = asText[j]; else lines[0].above.splice(a.steps[0].label ? 1 : 0, 0, [asText[j]]);
@@ -1364,7 +1365,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
     m = addCaption(m, { text: s.number ? `${s.text}\n${s.number}` : s.text, ...(s.number ? { runs: [...formulaTextRuns(s.text), { text: "\n" }, { text: s.number, bold: true }] } : {}), x: p[0], y: p[1], align: "centre", cycle: { cycle: id, step: k, side: "node" } })[0];
   });
   if (a.centre) m = addCaption(m, { text: clean(a.centre, true), x: centre[0], y: centre[1], align: "centre", cycle: { cycle: id, step: 0, side: "centre" } })[0];
-  const sides: string[] = [];
+  const sides: { text: string; step: number }[] = [];
   for (const st of a.steps ?? []) {
     if (st.step >= n) continue;
     const [i, o] = [st.in && clean(st.in, true), st.out && clean(st.out, true)];
@@ -1374,7 +1375,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
       m = mol;
       if (i) m = addCaption(m, { text: i, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "in", branch } })[0];
       if (o) m = addCaption(m, { text: o, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "out", branch } })[0];
-      sides.push(`${[i && `in: ${i}`, o && `out: ${o}`].filter(Boolean).join(", ")} at ${st.step}`);
+      sides.push({ text: [i && `in: ${i}`, o && `out: ${o}`].filter(Boolean).join(", "), step: st.step });
     }
     if (st.name) m = addCaption(m, { text: clean(st.name, true), x: 0, y: 0, italic: true, cycle: { cycle: id, step: st.step, side: "name" } })[0];
   }
@@ -1403,7 +1404,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
   const r1 = (v: number) => Math.round(v * 10) / 10, inside = -2 * leftMargin(st), wide = b && st.edges && !host.experiment() && b[2] - b[0] > inside + 1e-6;
   const advice = `${on.length ? ` The side text ${on.map((t) => `t${t.id}`).join(", ")} lies on an intermediate: give shorter side text.` : ""}${wide ? ` The cycle is ${r1(b[2] - b[0])} bond lengths wide (the page has ${r1(inside)}): give shorter side text, or a larger page or landscape (set_brief).` : ""}`;
   const words = items.flatMap((s) => ("read" in s ? [] : [s.number ?? s.text])), cycle = (m = host.doc()).cycles!.find((x) => x.id === id)!;
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `; ${sides.map((x) => x.replace(/\d+$/, (k) => stepAt(m, cycle, Number(k)))).join("; ")}` : ""}.${words.length ? ` ${words.join(", ")} ${words.length > 1 ? "are" : "is"} text: Octet cannot read ${words.length > 1 ? "them as structures" : "it as a structure"}.` : ""} Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `; ${sides.map((x) => `${x.text} at ${stepAt(m, cycle, x.step)}`).join("; ")}` : ""}.${words.length ? ` ${words.join(", ")} ${words.length > 1 ? "are" : "is"} text: Octet cannot read ${words.length > 1 ? "them as structures" : "it as a structure"}.` : ""} Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 // ---- Ids (D5) ----
@@ -1811,8 +1812,10 @@ async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } &
   if (by === placed(a)) return { text: by ? "Give dx and dy, or a place (to, right_of, left_of, below or above), not both." : "Give dx and dy, or a place: to [x, y], or right_of, left_of, below or above an id.", error: true };
   // Text Octet places itself (a number, a reaction's conditions, a cycle's text) goes with what it belongs to.
   const own = a.ids.filter((id) => { const c = /^t\d+$/.test(id) ? m.captions?.find((x) => x.id === Number(id.slice(1))) : undefined; return !!(c && (c.on || c.under || c.cycle)); });
-  // A cycle's centre text that meets an intermediate: Clean Up on the cycle makes its circle wide enough (spreadCycle).
-  const mids = [...new Set(own.flatMap((id) => { const c = m.captions!.find((x) => x.id === Number(id.slice(1)))!.cycle; return c?.side === "centre" ? [`c${c.cycle}`] : []; }))];
+  // A cycle's centre text that check finds on something: Clean Up on the cycle makes its circle wide enough (spreadCycle).
+  let k: Check | undefined;
+  const met = (id: string) => { k ??= layoutCheck(host, m); return k !== "clean" && !!k.overlaps?.some((p) => p.includes(id)); };
+  const mids = [...new Set(own.flatMap((id) => { const c = m.captions!.find((x) => x.id === Number(id.slice(1)))!.cycle; return c?.side === "centre" && met(id) ? [`c${c.cycle}`] : []; }))];
   const tied = own.length ? ` Octet places ${own.join(", ")} itself, with the structure, arrow or cycle ${own.length > 1 ? "they belong" : "it belongs"} to: move that instead.${mids.length ? ` To give a cycle's centre text room, run_command clean_up on ${mids.join(", ")}.` : ""}` : "";
   if (own.length === a.ids.length) return { text: `Octet moved nothing.${tied}`, error: true };
   const wrong = by ? undefined : placeProblem(host, m, a);
@@ -2690,15 +2693,16 @@ function layoutCheck(host: Host, m: Mol): Check {
 }
 // The calls that lay structures out themselves: what Octet's layout leaves for check to name there, Octet clears.
 const LAYS_OUT = new Set(["structures", "reaction", "route", "cycle", "figure", "replace", "edit", "batch"]);
-// Atom labels on each other in a structure this call made or changed (Indigo's layout, then Clean Up Reaction turning
-// a product to its reactant, leaves some: s3.22 on s3.27 in a taxol intermediate): Clean Up on those structures, as
+// Atom labels on each other in a structure this call made, by a new id (replace and edit's structure give one; one the
+// user drew and the call only moved keeps its id and its shape). Indigo's layout, then Clean Up Reaction turning a
+// product to its reactant, leaves some (s3.22 on s3.27 in a taxol intermediate): Clean Up on those structures, as
 // run_command clean_up does, which an AI app otherwise finds after 1 to 4 more calls. Clean Up never turns a structure
 // over but may turn it (by up to 30 degrees), so each is turned back to lie as it did (a hint's up or a product turned
 // to its reactant holds), and its reaction is laid out again. Kept only when their labels are clear, each keeps its
 // InChIKey and check names nothing new; else the drawing goes back. Once, never in a loop.
 async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
   if (check === "clean" || !check.labels_overlap) return check;
-  const was = index(before), m = h.doc(), now = index(m), ours = new Set(check.labels_overlap.flat().map((x) => x.replace(/\..*$/, "")).filter((s) => was.get(s) !== now.get(s)));
+  const was = new Set(structuresOf(before).map((g) => g.id)), m = h.doc(), ours = new Set(check.labels_overlap.flat().map((x) => x.replace(/\..*$/, "")).filter((s) => !was.has(s)));
   const gs = structuresOf(m).filter((g) => ours.has(g.id)), all = new Set(gs.flatMap((g) => g.atoms));
   if (!gs.length) return check;
   const key = (mol: Mol, atoms: number[]) => h.inchi(pickPart(mol, atoms)).key, keys = gs.map((g) => key(m, g.atoms)), picked = h.selection();
@@ -2824,7 +2828,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     id: `c${c.id}`, clockwise: c.clockwise, intermediates: c.nodes.map((n, i) => (n.length ? idOf(n) : ((t) => (t ? `t${t.id}` : null))(textOn(m, c, i)))),
     centre: centreText(m, c)?.text,
     sides: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && (x.cycle.side === "in" || x.cycle.side === "out")).map((x) => ({ id: `t${x.id}`, at: stepAt(m, c, x.cycle!.step), side: x.cycle!.side, text: x.text })),
-    names: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && x.cycle.side === "name").map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, text: x.text })),
+    names: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && x.cycle.side === "name").map((x) => ({ id: `t${x.id}`, at: stepAt(m, c, x.cycle!.step), text: x.text })),
   }));
   const at = (v: number) => Math.round(v * 10) / 10;
   const free = (m.captions ?? []).filter((c) => !c.on && !c.cycle && !(c.bold && c.under) && !inReactions.has(c.id) && keep(`t${c.id}`));

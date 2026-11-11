@@ -685,7 +685,7 @@ assert.deepEqual(m.captions!.filter((x) => x.cycle).map((x) => [x.text, x.cycle!
 d = await read();
 assert.deepEqual(d.cycles[0].intermediates, d.structures.map((s: { id: string }) => s.id));
 assert.equal(d.cycles[0].centre, "Pd(0)");
-assert.deepEqual(d.cycles[0].names.map((x: { text: string }) => x.text), ["OA"]);
+assert.deepEqual(d.cycles[0].names.map((x: { text: string; at: string }) => `${x.text} ${x.at}`), ["OA 1→5"]);
 // Each side arrow by the intermediates its step joins, by number or else place from 1, in the reply and in read: "steps
 // 0, 3" made Haiku put a side arrow one step early and never know.
 assert.match(text(out), /clockwise; in: PhBr at 1→5; in: ArB\(OH\)2, out: B\(OH\)3 at 5→3; out: Ph–Ar at 3→1\./);
@@ -1397,7 +1397,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to\./);
   // A clean check is a sentence or two to the user, with only what differs from what they asked: models answered with
   // 150 to 300 tokens that repeated every compound, the most of a plain job's time.
-  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two \(they see it\), and only what you changed from what they asked or could not do: do not read back or ask for a picture unless they ask how it looks\./);
+  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks\./);
+  // What the compounds list says, a name in it a rule (Octet read the compound as another), and the =id of a repeat.
+  assert.match(ins, /^Octet Draw is .* These tools draw in the user's open drawing and read it\.\n[^]*The reply lists each compound as Octet read it \(number, id, formula or =id if drawn again; a name only if read as another\)/);
   assert.ok(ins.length <= 2162, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
