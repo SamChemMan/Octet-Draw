@@ -8,6 +8,7 @@
 import { hydrogens, NONMETAL, QUADRUPLE, type Mol } from "./render.ts";
 import { ELEMENTS } from "./labels.ts";
 import { kekulise } from "./rings.ts";
+import { crossV, dotV } from "./clean3d.ts";
 
 type V = [number, number, number];
 type Row = Record<string, string>;
@@ -17,7 +18,7 @@ type Site = { el: string; p: V; name: string; charge: number };
 // A structure as read: its atoms, and its bonds as [atom, atom, order] when the file gives them.
 type Group = { sites: Site[]; bonds?: [number, number, number][] };
 
-const MOST = 1000; // atoms in one file
+const MOST = 1000; // atoms in one structure (a data block, or a ligand); MOST_ROWS limits the file
 const MOST_ROWS = 20_000, MOST_TAGS = 100, MOST_BLOCKS = 1000; // rows kept from the tables Octet reads, tags in one, data blocks
 // The tables Octet reads, by one tag each: the others are only checked.
 const READ = new Set(["_atom_site_fract_x", "_atom_site_cartn_x", "_chem_comp_atom_atom_id", "_chem_comp_bond_atom_id_1", "_entity_type"]);
@@ -38,7 +39,6 @@ const fail = (why: string): never => { throw new Error(`This CIF file is damaged
 // A number as CIF writes it, with its standard uncertainty in brackets (1.2345(6)); NaN for ? and . (unknown).
 const num = (s?: string) => (s ? Number(s.replace(/\(\d+\)$/, "")) : NaN);
 const dist = (p: V, q: V) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-const dot = (p: V, q: V) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
 // The element a type symbol (C, Fe3+, CL) or, in a site's label (C12A, Cl1), its letters name.
 const element = (s = "", label = false) => {
   const two = /^[a-z][a-z]/i.test(s) && (!label || /[a-z]/.test(s[1])) ? s[0].toUpperCase() + s[1].toLowerCase() : "", one = s.slice(0, 1).toUpperCase();
@@ -203,9 +203,11 @@ function near(s: Site[]): [number, number, number][] {
 // oxide or a nitro group's N (N+ and O−). An atom with more bonds than its valence (S, P, Cl) takes a double bond to a
 // terminal O or S for each bond over, shortest first. Two atoms each with room for two more bonds, close, take a triple
 // bond. Then atoms with room take double bonds, as many as fit, on the shortest bonds first (as Kekulé structures are
-// made); an N with room only as N+ (pyridinium, amidinium) comes last. A bond longer than 0.96 of its single bond is
-// never double, in case a hydrogen was not found. Last, an N or P with four bonds is N+ or P+, and in a structure with
-// its hydrogens found, an O with one bond and no H is O−.
+// made). An N with room only as N+ (pyridinium, amidinium), and in a structure with no hydrogens found an N on one atom
+// (NH2), takes one only where the other atoms cannot all have one: caffeine's N-methyls and adenine's NH2 stay as they
+// are. A bond longer than 0.96 of its single bond is never double, in case a hydrogen was not found. Last, an N or P
+// with four bonds is N+ or P+, a halogen on nothing is a halide (Cl−), and in a structure with its hydrogens found, an
+// O with one bond and no H is O−.
 function orders(s: Site[], bonds: [number, number, number][]) {
   const metal = (i: number) => !NONMETAL.has(s[i].el), all = s.map(() => 0), on: [number, number, number][][] = s.map(() => []);
   for (const b of bonds) {
@@ -223,16 +225,22 @@ function orders(s: Site[], bonds: [number, number, number][]) {
     for (const b of short) if (over > 0 && b.includes(i) && b[2] === 1 && /^(O|S|Se)$/.test(s[other(b, i)].el) && lone(other(b, i))) { b[2] = 2; over--; }
   });
   for (const b of short) if (b[2] === 1 && ratio(b) < 0.85 && room(b[0]) >= 2 && room(b[1]) >= 2) b[2] = 3;
-  const late = (i: number) => room(i) < 1 && s[i].el === "N" && !s[i].charge && used(i) === 3, can = (i: number) => room(i) >= 1 || late(i);
-  const edges = short.filter((b) => b[2] === 1 && ratio(b) < 0.96 && can(b[0]) && can(b[1]));
-  const rank = (i: number) => (late(i) ? 2 : s[i].el === "C" ? 0 : 1);
-  const order = [...new Set(edges.flatMap((b) => [b[0], b[1]]))].sort((p, q) => rank(p) - rank(q) || p - q);
-  kekulise(edges.map((b): [number, number] => [b[0], b[1]]), order).forEach((yes, k) => { if (yes) edges[k][2] = 2; });
   const found = s.some((x) => x.el === "H" || x.el === "D");
+  const late = (i: number) => room(i) < 1 && s[i].el === "N" && !s[i].charge && used(i) === 3, can = (i: number) => room(i) >= 1 || late(i);
+  const last = (i: number) => late(i) || (!found && s[i].el === "N" && on[i].length === 1);
+  const edges = short.filter((b) => b[2] === 1 && ratio(b) < 0.96 && can(b[0]) && can(b[1]));
+  // As many double bonds as fit on these edges, and how many atoms that are not last they take.
+  const pairs = (e: typeof edges) => {
+    const rank = (i: number) => (last(i) ? 2 : s[i].el === "C" ? 0 : 1), order = [...new Set(e.flatMap((b) => [b[0], b[1]]))].sort((p, q) => rank(p) - rank(q) || p - q);
+    const taken = kekulise(e.map((b): [number, number] => [b[0], b[1]]), order).flatMap((yes, k) => (yes ? [e[k]] : []));
+    return { taken, reach: taken.reduce((t, b) => t + Number(!last(b[0])) + Number(!last(b[1])), 0) };
+  };
+  const sure = edges.filter((b) => !last(b[0]) && !last(b[1])), first = pairs(sure), more = sure.length < edges.length ? pairs(edges) : first;
+  for (const b of (more.reach > first.reach ? more : first).taken) b[2] = 2;
   s.forEach((x, i) => {
     if (x.charge) return;
     if ((x.el === "N" || x.el === "P") && used(i) === 4) x.charge = 1;
-    else if (found && x.el === "O" && lone(i) && used(i) === 1) x.charge = -1;
+    else if ((found && x.el === "O" && lone(i) && used(i) === 1) || (/^(F|Cl|Br|I)$/.test(x.el) && !all[i])) x.charge = -1;
   });
 }
 
@@ -244,16 +252,16 @@ function face(ps: V[]): V[] {
   const axes: V[] = [];
   for (let v of [[1, 0.5, 0.25], [0.25, 1, 0.5]] as V[]) {
     for (let k = 0; k < 100; k++) {
-      let w = k ? (spread.map((row) => dot(row, v)) as V) : v;
-      for (const a of axes) { const d = dot(w, a); w = w.map((x, j) => x - d * a[j]) as V; }
+      let w = k ? (spread.map((row) => dotV(row, v)) as V) : v;
+      for (const a of axes) { const d = dotV(w, a); w = w.map((x, j) => x - d * a[j]) as V; }
       const l = Math.hypot(...w);
       if (l < 1e-9) break;
       v = w.map((x) => x / l) as V;
     }
     axes.push(v);
   }
-  const [x, y] = axes, z: V = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
-  return q.map((p) => [dot(p, x), dot(p, y), dot(p, z)]);
+  const [x, y] = axes, z = crossV(x, y);
+  return q.map((p) => [dotV(p, x), dotV(p, y), dotV(p, z)]);
 }
 
 // A CIF or mmCIF file as a drawing: its median bond between atoms other than H is one bond length (X-ray C–H bonds are
@@ -262,7 +270,7 @@ function face(ps: V[]): V[] {
 // file over Octet's limits.
 export function readCif(text: string): Mol {
   const groups = blocks(text).flatMap(groupsOf).filter((g) => g.sites.length);
-  if (groups.reduce((t, g) => t + g.sites.length, 0) > MOST) throw new RangeError(`It has more than ${MOST.toLocaleString("en-GB")} atoms.`);
+  if (groups.some((g) => g.sites.length > MOST)) throw new RangeError(`It has a structure of more than ${MOST.toLocaleString("en-GB")} atoms.`);
   for (const g of groups) if (!g.bonds) { g.bonds = near(g.sites); orders(g.sites, g.bonds); }
   const heavy = (x: Site) => x.el !== "H" && x.el !== "D";
   const lengths = groups.flatMap((g) => g.bonds!.flatMap(([i, j]) => (heavy(g.sites[i]) && heavy(g.sites[j]) ? [dist(g.sites[i].p, g.sites[j].p)] : []))).sort((p, q) => p - q), unit = lengths[lengths.length >> 1] || 1.5;

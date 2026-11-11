@@ -140,6 +140,37 @@ const act = readCif(ACT);
 assert.deepEqual(act.atoms.map((a) => [a.label, a.charge ?? 0]), [["C", 0], ["O", 0], ["O", -1], ["C", 0]]);
 assert.deepEqual(act.bonds.map((b) => b.type), [2, 1, 1], "the bonds' orders as the file gives them");
 
+// --- Bond orders at real bond lengths -------------------------------------------------------------------------------
+
+// Geometries optimised by GFN2-xTB, as "element x y z" (Å); each atom is named by its element and count (C1, C2, N1).
+const xyz = (s: string): [string, string, V][] => {
+  const n: Record<string, number> = {};
+  return s.trim().split(/\s*,\s*/).map((a) => { const [el, ...p] = a.split(" "); return [`${el}${(n[el] = (n[el] ?? 0) + 1)}`, el, p.map(Number) as V]; });
+};
+const doubles = (m: Mol) => m.bonds.filter((b) => b.type === 2).map((b) => b.atoms.map((i) => m.atoms[i].hiddenNumber).sort().join("=")).sort();
+const charged = (m: Mol) => m.atoms.flatMap((a) => (a.charge ? [`${a.hiddenNumber} ${a.charge}`] : []));
+// Caffeine, with its hydrogens: its N-methyls stay neutral N (an N on three atoms takes N+ only where it must).
+const caffeine = readCif(block("caffeine", xyz(`C -2.414 -0.656 -0.099, N -1.291 0.245 -0.091, C -1.324 1.585 -0.067, N -0.128 2.146 -0.053,
+  C 0.732 1.107 -0.068, C 0.039 -0.101 -0.093, C 0.707 -1.360 -0.123, O 0.181 -2.470 -0.150, N 2.091 -1.208 -0.122, C 2.907 -2.414 -0.152,
+  C 2.801 -0.017 -0.090, O 4.024 -0.021 -0.090, N 2.091 1.152 -0.069, C 2.793 2.421 -0.025, H -3.065 -0.431 -0.943, H -2.979 -0.557 0.827,
+  H -2.038 -1.673 -0.187, H -2.234 2.150 -0.061, H 2.234 -3.264 -0.232, H 3.500 -2.479 0.759, H 3.582 -2.375 -1.005, H 3.682 2.350 -0.649,
+  H 3.097 2.646 0.997, H 2.115 3.188 -0.388`)));
+assert.deepEqual(doubles(caffeine), ["C2=N2", "C3=C4", "C5=O1", "C7=O2"], "caffeine's Kekulé structure");
+assert.deepEqual(charged(caffeine), [], "caffeine has no charges");
+// N-Methylpyridinium bromide: the ring's N is N+, as the ring needs its third double bond, and the bromide is Br−.
+const pyridinium = readCif(block("pyridinium", xyz(`C -0.018 1.261 -0.147, N 1.424 1.266 -0.096, C 2.089 0.108 -0.057, C 3.467 0.080 0.015,
+  C 4.171 1.277 0.050, C 3.459 2.469 0.016, C 2.081 2.428 -0.056, Br 7.714 -0.185 -0.008, H -0.380 2.146 -0.665, H -0.423 1.260 0.866,
+  H -0.376 0.373 -0.661, H 1.510 -0.803 -0.085, H 3.997 -0.857 0.042, H 5.248 1.263 0.099, H 3.970 3.416 0.044, H 1.493 3.333 -0.083`)));
+assert.equal(doubles(pyridinium).length, 3, "the pyridinium ring has three double bonds");
+assert.ok(doubles(pyridinium).some((b) => b.includes("N1")), "one of them on N+");
+assert.deepEqual(charged(pyridinium), ["N1 1", "Br1 -1"]);
+// 9-Methyladenine as a ligand with no hydrogens (mmCIF): its NH2 (N3) stays NH2, and N9 (N1) stays neutral.
+const adenine = readCif(["data_x", "loop_", ...["group_PDB", "type_symbol", "label_atom_id", "Cartn_x", "Cartn_y", "Cartn_z"].map((t) => `_atom_site.${t}`),
+  ...xyz(`C -3.102 -1.957 -0.100, N -2.047 -0.979 -0.057, C -2.174 0.375 0.025, N -1.041 1.017 0.061, C -0.084 0.034 0.002, C 1.326 0.042 -0.001,
+  N 2.057 1.157 0.060, N 1.957 -1.143 -0.071, C 1.243 -2.255 -0.135, N -0.069 -2.399 -0.142, C -0.709 -1.222 -0.070`).map(([name, el, p]) => `HETATM ${el} ${name} ${p.join(" ")}`), ""].join("\n"));
+assert.deepEqual(doubles(adenine), ["C2=N2", "C3=C6", "C4=N4", "C5=N5"], "adenine's Kekulé structure");
+assert.deepEqual(charged(adenine), [], "adenine has no charges");
+
 // --- Hostile files --------------------------------------------------------------------------------------------------
 
 const refused = (text: string, why: RegExp) => assert.throws(() => readCif(text), why);
@@ -154,6 +185,8 @@ assert.equal(readCif(many(1000)).atoms.length, 1000);
 refused(`data_x\nloop_\n${Array.from({ length: 101 }, (_, k) => `_atom_site_cartn_${k ? `t${k}` : "x"}`).join("\n")}\n${"0 ".repeat(101)}\n`, /more than 100 tags/);
 assert.throws(() => readCif("data_x\n".repeat(1001)), (e: unknown) => e instanceof RangeError && /more than 1,000 data blocks/.test(e.message));
 assert.throws(() => readCif(many(1001)), (e: unknown) => e instanceof RangeError && /more than 1,000 atoms/.test(e.message));
+// The limit is for each structure: a file with several (a paper's crystal structures) opens with more in all.
+assert.equal(readCif(many(600) + "\n" + many(600).replace("data_x", "data_y")).atoms.length, 1200);
 // A large macromolecule: 200,000 polymer atoms are read past, quickly, and its one ligand opens.
 const big = ["data_big", "loop_", ...["group_PDB", "type_symbol", "label_atom_id", "label_comp_id", "label_asym_id", "Cartn_x", "Cartn_y", "Cartn_z"].map((t) => `_atom_site.${t}`),
   ...Array.from({ length: 200_000 }, (_, k) => `ATOM C CA ALA A ${(k % 97).toFixed(3)} ${(k % 89).toFixed(3)} ${(k % 83).toFixed(3)}`), "HETATM ZN ZN ZN B 1.000 2.000 3.000", ""].join("\n");
