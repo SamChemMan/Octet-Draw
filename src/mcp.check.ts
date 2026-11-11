@@ -65,6 +65,15 @@ const tools = (await send("tools/list")).result.tools as { name: string; inputSc
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 assert.ok(tools.find((t) => t.name === "read_drawing")!.annotations.readOnlyHint);
+// The compound is listed once in each tool that takes compounds ($defs), however many places take one, and takes from
+// and changes (compound.ts); every reference in a tool's schema has its definition there.
+for (const t of tools as unknown as { name: string; inputSchema: { $defs?: { compound: { properties: Record<string, unknown> } } } }[]) {
+  const json = JSON.stringify(t.inputSchema), refs = json.match(/"\$ref":"#\/\$defs\/compound"/g)?.length ?? 0;
+  assert.equal(refs, { draw_structures: 1, draw_reaction: 2, draw_cycle: 1 }[t.name] ?? 0, t.name);
+  assert.equal(!!t.inputSchema.$defs, refs > 0, t.name);
+  if (refs) assert.ok(["text", "molecule", "labels", "from", "changes", "number", "like"].every((k) => k in t.inputSchema.$defs!.compound.properties), t.name);
+  assert.ok(!/"\$ref":"(?!#\/\$defs\/compound")/.test(json), t.name);
+}
 assert.ok(!tools.find((t) => t.name === "draw_reaction")!.annotations.readOnlyHint);
 // The tool table (D11): names of 64 characters at most from A-Z a-z 0-9 _ - ., a title, a closed input schema, an
 // output schema, all four hints said outright and openWorldHint false; a read-only tool is never destructive.
@@ -91,6 +100,10 @@ const refused: [string, unknown, RegExp][] = [
   ["draw_reaction", { start: [], steps: [{ products: [{ text: "water" }] }] }, /start: fewer than 1/],
   ["draw_reaction", { start: [{ text: "ethanol", colour: "red" }], steps: [] }, /colour is not an argument/],
   ["draw_structures", { structures: [{ text: 5 }] }, /structures\[0\]\.text: not text/],
+  ["draw_structures", { structures: [{ from: 5 }] }, /structures\[0\]\.from: not text/],
+  ["draw_reaction", { start: [{ text: "ethanol" }], steps: [{ products: [{ from: "previous", changes: { swap: { OH: "OAc" } } }] }] }, /steps\[0\]\.products\[0\]\.changes: not a list/],
+  ["draw_cycle", { intermediates: [{ text: "benzene" }, { from: "previous", changes: ["OAc"] }] }, /intermediates\[1\]\.changes\[0\]: not an object/],
+  ["replace_structure", { structure: "s1", changes: Array(21).fill({}) }, /changes: more than 20 items/],
   ["draw_structures", { structures: [{ text: "water" }], columns: 0 }, /columns: not between 1 and 20/],
   ["draw_structures", { structures: [{ text: "water" }], columns: 1.5 }, /columns: not a integer/],
   ["draw_structures", { structures: Array(201).fill({ text: "water" }) }, /more than 200/],

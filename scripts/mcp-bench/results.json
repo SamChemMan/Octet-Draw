@@ -1,7 +1,7 @@
 {
  "tools": 26,
- "toolsList": 63348,
- "instructions": 2358,
+ "toolsList": 63605,
+ "instructions": 2457,
  "cases": {
   "gaunt2007-catalysts": {
    "calls": 1,
@@ -440,6 +440,17 @@
    "right": 2,
    "of": 2,
    "warnings": 0
+  },
+  "taxol-chained": {
+   "calls": 3,
+   "failed": 0,
+   "sent": 3887,
+   "read": 15367,
+   "ms": 2192,
+   "slowest": 1229,
+   "right": 19,
+   "of": 19,
+   "warnings": 42
   },
   "taxol-schemes": {
    "calls": 3,

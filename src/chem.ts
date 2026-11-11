@@ -1394,7 +1394,7 @@ export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
 // Each atom's symmetry class (atoms alike in the structure share one): element, charge and bonds, refined by neighbours.
 // loose: element and bonds only, so atoms alike but for where a ring's double bonds and charge are drawn (a triazolium's
 // two N) share one.
-function classes(m: Mol, loose = false): number[] {
+export function classes(m: Mol, loose = false): number[] {
   const at = bondedTo(m), ord = m.atoms.map(() => 0);
   for (const b of m.bonds) for (const i of b.atoms) ord[i] += orderOf(b.type);
   let cls = m.atoms.map((a, i) => (loose ? `${a.label}:${at[i].length}` : `${a.label}${a.charge ?? 0}:${at[i].length}:${ord[i]}`)), count = new Set(cls).size;
