@@ -436,7 +436,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 26] = [
+const FORMATS: [(&str, &str, &[&str]); 27] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -460,6 +460,7 @@ const FORMATS: [(&str, &str, &[&str]); 26] = [
     ("inchi", "InChI", &["inchi", "txt"]),
     ("ctp", "ChemDraw Template (CTP)", &["ctp"]),
     ("cts", "ChemDraw Template Style Sheet (CTS)", &["cts"]),
+    ("cds", "ChemDraw Style Sheet (CDS)", &["cds"]),
     ("csv", "CSV", &["csv"]),
     ("bmp", "Windows Bitmap (BMP)", &["bmp"]),
     ("3mf", "3D Manufacturing Format for Printing (3MF)", &["3mf"]),
@@ -474,6 +475,7 @@ pub struct Export {
     cdxml: Option<String>,
     cdx: Option<String>, // base64
     ctp: Option<String>, // a template set's ChemDraw template file, base64
+    cds: Option<String>, // the document's settings as a ChemDraw style sheet (a CDX file with no drawing), base64
     mdl: Option<String>, // the text of the MDL format asked for
     smiles: Option<String>,
     inchi: Option<String>,
@@ -503,6 +505,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "inchi" => e.inchi.is_some(),
         "smi" => e.smiles.is_some(),
         "ctp" | "cts" => e.ctp.is_some(),
+        "cds" => e.cds.is_some(),
         "csv" => e.csv.is_some(),
         "3mf" => e.model.is_some(),
         _ => e.mdl.is_some(),
@@ -545,6 +548,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "cdxml" => text(&e.cdxml),
         "cdx" => base64::engine::general_purpose::STANDARD.decode(e.cdx.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this drawing as CDX.".to_string())?,
         "ctp" | "cts" => base64::engine::general_purpose::STANDARD.decode(e.ctp.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this template file.".to_string())?,
+        "cds" => base64::engine::general_purpose::STANDARD.decode(e.cds.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this style sheet.".to_string())?,
         "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
         "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
         "csv" => text(&e.csv),

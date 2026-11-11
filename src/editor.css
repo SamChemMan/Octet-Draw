@@ -2687,6 +2687,7 @@ div.facts {
 }
 .settings-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-4);
   padding-top: var(--space-2);

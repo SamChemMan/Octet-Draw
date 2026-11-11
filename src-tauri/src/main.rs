@@ -318,6 +318,9 @@ const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
 // File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
 // and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
 const OPEN_ALL: (&str, &[&str]) = ("Drawings, spectra and templates", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc", "ctp", "cts"]);
+// File > Apply Settings From File… also takes a ChemDraw style sheet (.cds: a CDX file with the settings and no
+// drawing), as Settings > Document > Save to file… writes one.
+const STYLES: (&str, &[&str]) = ("Drawings and style sheets", &["oct", "cdxml", "cdx", "cds", "octet"]);
 // A ChemDraw template file: read, but never a drawing Octet saves over or lists on Home.
 pub fn is_template_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ctp") || e.eq_ignore_ascii_case("cts"))
@@ -396,18 +399,18 @@ async fn revert_drawing(app: AppHandle, picked: State<'_, Picked>, path: String)
     read_text_or_cdx(&p).map_err(|e| e.to_string())
 }
 
-// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing to take the style
-// from. Only read: it is not remembered for Save and does not go in the recent drawings.
+// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing or a style sheet to
+// take the style from. Only read: it is not remembered for Save and does not go in the recent drawings.
 #[tauri::command]
 async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
-    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter(STYLES.0, STYLES.1).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot open it.".into());
     }
-    read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing (Octet, CDXML or CDX).".to_string())
+    read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing or a style sheet (Octet, CDXML, CDX or CDS).".to_string())
 }
 
 // Opens one of Octet's own links in the browser (or, for feedback, the mail app). The page names it; only these fixed

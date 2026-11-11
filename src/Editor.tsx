@@ -1665,8 +1665,8 @@ export default function Editor() {
   // outlines do not grow into place.
   const openView = (d: DocStyle) => { lastK.current = frameStyle(d, L).k * d.scale; outlineFrom.current = undefined; setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(d) }); };
   // File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): the open drawing takes the
-  // whole style of another drawing (.oct or ChemDraw's CDXML): its lengths, text, labels, page and background, with
-  // one undo step. Its purpose stays, so its outlines do too.
+  // whole style of another drawing (.oct or ChemDraw's CDXML or CDX) or of a ChemDraw style sheet (.cds): its lengths,
+  // text, labels, page and background, with one undo step. Its purpose stays, so its outlines do too.
   async function applyStyleFile() {
     try {
       const text = await invoke<string | null>("pick_style_file");
@@ -1677,6 +1677,17 @@ export default function Editor() {
       set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true);
     } catch (e) {
       setNotice(failure("Octet cannot read this file.", e));
+    }
+  }
+  // Settings > Document > Save to file… (ChemDraw's Save As Stationery…): the style, with the user's colours, as a
+  // ChemDraw style sheet (.cds): a .cdx file with no drawing in it. Apply Settings From File… reads it back exactly,
+  // and ChemDraw reads its settings.
+  async function saveStyleFile() {
+    try {
+      const path = await invoke<string | null>("export_file", { export: { name, cds: toBase64(writeCdx(EMPTY, savedStyle())) } });
+      if (path) saved(path);
+    } catch (e) {
+      setNotice(failure("Octet cannot save these settings.", e));
     }
   }
   // Settings > Document > For, and For in the command palette: the open drawing takes a purpose's sizes and page in one
@@ -9523,6 +9534,7 @@ export default function Editor() {
           onExportNames={() => void exportNames()}
           onImportNames={() => void importNames()}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
+          onSaveFile={TAURI && !madeTemplate ? () => void saveStyleFile() : undefined}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}

@@ -1283,8 +1283,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   };
 
   // The document style, and the page that sets the coordinate frame: its printable area's centre is Octet's 0,0.
-  const pages = root.kids.filter((k) => k.name === "page");
-  const pb = reals(pages[0]?.attrs.BoundingBox, 4) ?? [0, 0, 540, 720];
+  // An empty page in an older ChemDraw style sheet has a box of 0 0 0 0 or -2 -2 2 2, which is no page: its Width and
+  // Height give its size, else ChemDraw's default page does.
+  const pages = root.kids.filter((k) => k.name === "page"), page = pages[0], box = reals(page?.attrs.BoundingBox, 4);
+  const pw = real(page?.attrs.Width), ph = real(page?.attrs.Height), none = page && !page.kids.length && (!box || (box[2] - box[0] < 72 && box[3] - box[1] < 72));
+  const pb = none && pw && ph ? [0, 0, pw, ph] : !none && box ? box : [0, 0, 540, 720];
   const W = Math.max(1, pb[2] - pb[0]), H = Math.max(1, pb[3] - pb[1]);
   const r = root.attrs, bondPt = real(r.BondLength), B = bondPt && bondPt >= 1 && bondPt <= 200 ? bondPt : 14.4;
   const mm = [((W + 72) * 25.4) / 72, ((H + 72) * 25.4) / 72];

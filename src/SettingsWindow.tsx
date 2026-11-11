@@ -57,7 +57,8 @@ type Props = {
   ownTemplates: { id: string; name: string }[]; // the user's own templates, to rename and remove here
   onRenameTemplate: (id: string, name: string) => void;
   onRemoveTemplate: (id: string) => void;
-  onApplyFile?: () => void; // the open drawing takes another drawing's style (File > Apply Settings From File…)
+  onApplyFile?: () => void; // the open drawing takes a drawing's or a style sheet's style (File > Apply Settings From File…)
+  onSaveFile?: () => void; // the open drawing's style as a ChemDraw style sheet (.cds)
   keys: Keymap; // the user's changes to the shortcuts
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
@@ -630,7 +631,8 @@ export function SettingsWindow(p: Props) {
         {!query && (
           <div className="settings-foot">
             {p.template ? <button className="dialog-button primary" onClick={p.onClose}>Done</button> : <>
-              {p.onApplyFile && <button className="text-button" onClick={p.onApplyFile}>Apply settings from file…</button>}
+              {p.onApplyFile && <button className="text-button" onClick={p.onApplyFile}>Apply from file…</button>}
+              {p.onSaveFile && <button className="text-button" onClick={p.onSaveFile}>Save to file…</button>}
               {p.onSavePurpose && <button className="text-button" onClick={() => setNaming("")}>Save as template…</button>}
               {p.isDefault
                 ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
