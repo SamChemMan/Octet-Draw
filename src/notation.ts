@@ -10,18 +10,26 @@ import { NAMED, TO, WITH } from "./named.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
-// them: a titled route with conditions and a step that changes a compound, a scope, a cycle; then one line of marks.
-export const NOTATION = `Lines as chemists type them, as in these 3 drawings:
-# Biaryl 4
-4-bromoanisole + PhB(OH)2 -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
--> 3[OMe>OH] (4), BBr3, CH2Cl2, −78 °C, 78%
+// them: a route from a lone numbered compound, and a second scheme from it by its number with lettered parts on one
+// arrow; a scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
+# Biaryl 3
+4-bromoanisole (2)
+-> 4-methoxybiphenyl (3), PhB(OH)2, Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
+# Triflate 4
+3 -> 3[OMe>OTf] (4), (a) BBr3, CH2Cl2, −78 °C, 78%; (b) Tf2O, pyridine, 90%
 
-{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=F (5b) 85%
+{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=morpholin-4-yl (5b) 85%
 
-Pd(0)L2 (A) -> L2Pd(Ar)Br (B), OA, +ArBr -> L2Pd(Ar)Ar' (C), TM, +Ar'B(OH)2, -B(OH)2Br -> A, RE, -Ar–Ar'
+anisole (6a) 51% | toluene (6b) 54%
+
+Pd(0)L2 (1)
+-> L2Pd(Ar)Br (2), OA, +ArBr
+-> L2Pd(Ar)Ar' (3), TM, +Ar'B(OH)2, -B(OH)2Br
+-> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. Marks: ^x over, _x under, "x" as written, @x drawn, (a) first: letters. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name. | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -37,7 +45,7 @@ type Op = { tool: string; args: Record<string, unknown> };
 // products on their line.
 type Aside = { sign: "+" | "-"; text: string; part: number; before: boolean };
 type Raw = { part: number; text: string; prev: Compound[]; line: number; asides: Aside[] };
-type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number }[]; heads: string[]; asides: Aside[]; raw: Raw[]; defs: string[]; centre: string[] };
+type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number; added?: Compound[] }[]; heads: string[]; asides: Aside[]; raw: Raw[]; defs: string[]; centre: string[] };
 
 // A refusal with its correction, when Octet can work one out: why, then what to replace in the line and with what, as
 // one string (no line holds a U+0000), so it goes back through every caller as any refusal does (fromLines' wrong).
@@ -418,6 +426,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       if (cyclic(c)) {
         if (c.steps.some((s) => s.products.length !== 1)) return `Line ${c.steps[0].line}: a cycle has one intermediate a step`;
         for (const r of c.raw) c.asides.push(...r.asides);
+        // A step's added reactants (B + X -> C) go in at that step, as +X does.
+        for (const [k, s] of c.steps.entries()) for (const x of s.added ?? []) c.asides.push({ sign: "+", text: x.text === undefined ? x.from! : written(x as { text: string }), part: k - 1, before: true });
         // What is written against a compound goes in or out at the arrow after it on its line; else what goes in goes
         // into the step from that compound, and what comes out comes from the step to it.
         // Among a step's text (OA +ArBr), it is the same.
@@ -454,8 +464,11 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         const x = conditions(s.conditions, known, false);
         if (typeof x === "string") return wrong(s.line, x);
         for (const y of [...((x as Step).above ?? []), ...((x as Step).below ?? [])]) if (typeof y !== "string") add(y, s.line);
-        steps.push({ ...x, ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
+        steps.push({ ...x, ...(s.added ? { above: [...s.added, ...((x as Step).above ?? [])] } : {}), ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
+      // A '+' partner (a starting material after the first, a step's added reactant) is marked in where (+ and its
+      // text): drawn from lines, one Octet cannot read as a structure that is not a SMILES is text over its arrow.
+      for (const y of [...c.start.slice(1), ...c.steps.flatMap((s) => s.added ?? [])]) if (y.text !== undefined) where?.set(`+${written(y as { text: string })}`, 0);
       if (round && !steps.some((s) => s.yield || s.above || s.below)) return `Line ${c.steps[0].line}: the steps come back to ${first.number ?? first.text}, so they read two ways: a catalytic cycle (write +x for what goes in, -x for what comes out) or a scheme (give a step its yield)`;
       ops.push({ tool: "reaction", args: { start: c.start, steps } });
     }
@@ -511,7 +524,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (def) { const no = flush(); if (no) return no; defs.push(centre!); continue; }
     if (split.arrows.length) {
       const { parts, arrows } = split, begin = (start: Compound[], hs: string[]): Chain => { const c = { start, steps: [], heads: hs, asides: [], raw: [], defs, centre: [] }; defs = []; return c; };
-      let reactants: Compound[], before = "";
+      let reactants: Compound[], before = "", added: Compound[] = [];
       if (!parts[0]) {
         // A compound alone on the line before (the first of its panel, under its title) is the start.
         const p = grid?.[grid.length - 1];
@@ -530,10 +543,14 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (pre.length) { before = parts[0].slice(lhs.text.length).replace(/^[,;]\s*/, "").trim(); said?.("before", `Line ${at}: Octet read "${before}", before the arrow, as the step's conditions.`); }
         const [mine, sides] = apart(lhs.text), start = compounds(mine, [], at);
         if (typeof start === "string") return start;
-        // A line that starts with the last line's products, by their numbers, goes on from them.
+        // A line whose starting materials include all the chain has just made (by its number, or the same text and no
+        // other number) goes on from it: the others are that step's added reactants, drawn over its arrow (12a + 9-BBN
+        // -> 13a). A line from one of two products, or that gives one a new number, starts a scheme as before.
         const last = chain && (chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start);
-        if (last && start.length === last.length && start.every((c, k) => c.from !== undefined && !c.changes && c.from === last[k].number)) {
+        const same = (c: Compound, p: Compound) => !c.changes && ((c.from !== undefined && c.from === p.number) || (c.text !== undefined && c.text === p.text && String(c.labels) === String(p.labels) && (c.number ?? p.number) === p.number));
+        if (last && last.every((p) => start.some((c) => same(c, p)))) {
           reactants = last;
+          added = start.filter((c) => !last.some((p) => same(c, p)));
           for (const x of sides) chain!.asides.push({ ...x, part: chain!.steps.length - 1, before: true });
         } else {
           const no = flush();
@@ -542,6 +559,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
           if (sides.length) chain.raw.push({ part: -1, text: lhs.text, prev: [], line: at, asides: sides.map((x) => ({ ...x, part: -1, before: true })) });
         }
       }
+      // A line with conditions before its first arrow puts each step's before its arrow, so what follows a product goes
+      // on the arrow after it (3 (3), -ketol -> 1), and the last product's on its own; else each goes after its product.
+      let carry = before;
       for (const [k, p] of parts.slice(1).entries()) {
         const first = cut(p, (i) => sepAt(p, i))[0].text;
         if (!first.trim()) return `Line ${at}: an arrow has no product after it`;
@@ -549,7 +569,10 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof made === "string") return made;
         const own = p.slice(first.length).replace(/^[,;]\s*/, ""), c = chain!, next = k < parts.length - 2;
         if (sides.length) c.raw.push({ part: c.steps.length, text: first, prev: reactants, line: at, asides: sides.map((x) => ({ ...x, part: c.steps.length, before: next })) });
-        c.steps.push({ arrow: arrows[k], products: made, conditions: k || !before ? own : own ? `${before}, ${own}` : before, next, line: at });
+        // (A yield stays with the product it follows: B (2), 90% -> C is 90% of B.)
+        const items = before && next ? cut(own, (i) => sepAt(own, i)).filter((x) => x.text.trim()) : [], ys = items.filter((x) => YIELD.test(x.text.trim()));
+        c.steps.push({ arrow: arrows[k], products: made, conditions: before ? [carry, ...ys.map((x) => x.text.trim()), next ? "" : own].filter(Boolean).join(", ") : own, next, line: at, ...(!k && added.length ? { added } : {}) });
+        carry = ys.length ? items.filter((x) => !ys.includes(x)).map((x, j) => (j ? `${x.by} ` : "") + x.text.trim()).join("") : own;
         reactants = made;
       }
       continue;
@@ -578,7 +601,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         }
         // A group the line does not give keeps its label (Ph in CC{Ph}).
         c = compound(core.text.replace(/\{([^{}]+)\}/g, (_, k: string) => `{${values.get(k.trim()) ?? k}}`), known);
-        if (typeof c !== "string") c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) };
+        // (Marked in where with =: a group given here that is no label is a structure, joined in its place.)
+        if (typeof c !== "string") { c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) }; where?.set(`=${written(c as { text: string })}`, at); }
       } else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
       if (typeof c === "string") return wrong(at, c);
       row.push(c); add(c, at);
