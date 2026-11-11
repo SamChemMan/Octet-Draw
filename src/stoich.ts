@@ -118,6 +118,19 @@ export function conditionItems(text: string): string[] {
   out.push(item.trim());
   return out.filter(Boolean);
 }
+// What one item of conditions is by its form: a yield, temperature, time, atmosphere, solvent or catalyst; else
+// undefined (a reagent, or a note). The AI apps' tools read a drawn line so (mcp.ts) and the line notation sorts an
+// AI app's conditions so (notation.ts).
+const SOLVENTS = new Set(["thf", "2-methf", "dmf", "dma", "dmso", "nmp", "dme", "meoh", "etoh", "iproh", "i-proh", "proh", "buoh", "t-buoh", "tbuoh", "mecn", "acetonitrile", "ch2cl2", "dcm", "dce", "chcl3", "ccl4", "toluene", "phme", "benzene", "xylene", "et2o", "ether", "mtbe", "dioxane", "1,4-dioxane", "hexane", "hexanes", "pentane", "heptane", "etoac", "acetone", "h2o", "water", "tfe", "hfip", "methanol", "ethanol", "dichloromethane", "chloroform", "diethyl ether", "ethyl acetate", "tetrahydrofuran", "dimethylformamide", "dimethyl sulfoxide"]);
+export const solvent = (t: string) => SOLVENTS.has(reagentName(t).toLowerCase());
+export function conditionKind(t: string): "yield" | "temperature" | "time" | "atmosphere" | "solvents" | "catalysts" | undefined {
+  if (/^\(?\s*\d+(?:[.,]\d+)?\s*%\s*\)?(?:\s*(?:yield|ee|de|conv\.?))?$/i.test(t)) return "yield";
+  if (/(?:^-?\d+(?:\.\d+)?\s*°\s*C\b|°C|\brt\b|room temperature|\breflux\b|^-?\d+\s*K$)/i.test(t)) return "temperature";
+  if (/^(?:\d+(?:\.\d+)?\s*(?:h|hr|hrs|hours?|min|mins|minutes?|d|days?|s|sec)|overnight|o\/n)$/i.test(t)) return "time";
+  if (/^(?:N2|Ar|argon|nitrogen|air|under (?:N2|Ar|argon|nitrogen|air))$/i.test(t)) return "atmosphere";
+  if (solvent(t)) return "solvents";
+  if (/\bcat\.?(?:\)|$)|\bcatalytic\b|mol\s?%/i.test(t)) return "catalysts";
+}
 // The gas a reaction runs under (N2, Ar, air): not a reagent, so it has no column in the table.
 export const inert = (text: string) => /^(?:under\s+)?(?:N2|N₂|Ar|argon|nitrogen|He|helium|air)(?:\s*\(?(?:atm|balloon)\)?)?$/i.test(text.trim());
 // Groups a condensed formula is written with, as formulas, so "Pd(PPh3)4", "NH4OAc" and "Et3N" weigh what they are.

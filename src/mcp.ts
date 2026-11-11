@@ -15,7 +15,7 @@ import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shap
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, isSide, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
-import { conditionItems, parseAmount, reagentName, type Field } from "./stoich.ts";
+import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { PRESETS, PAGES, pageSize, presetAt, type DocStyle, type PageName } from "./docstyle.ts";
 import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
@@ -2311,18 +2311,16 @@ const warningTexts = (host: Host, m: Mol) => [...shownProblems(host).map((p) => 
 // ---- A step's conditions as data (3b) ----
 
 // What a line of conditions says, when it was not given as data: each item (split at commas and semicolons) is a
-// yield, temperature, time, atmosphere, solvent or catalyst by its form, else a reagent.
-const SOLVENTS = new Set(["thf", "2-methf", "dmf", "dma", "dmso", "nmp", "dme", "meoh", "etoh", "iproh", "i-proh", "proh", "buoh", "t-buoh", "tbuoh", "mecn", "acetonitrile", "ch2cl2", "dcm", "dce", "chcl3", "ccl4", "toluene", "phme", "benzene", "xylene", "et2o", "ether", "mtbe", "dioxane", "1,4-dioxane", "hexane", "hexanes", "pentane", "heptane", "etoac", "acetone", "h2o", "water", "tfe", "hfip", "methanol", "ethanol", "dichloromethane", "chloroform", "diethyl ether", "ethyl acetate", "tetrahydrofuran", "dimethylformamide", "dimethyl sulfoxide"]);
+// yield, temperature, time, atmosphere, solvent or catalyst by its form (conditionKind), else a reagent.
 function classify(host: Host, text: string, into: StepFacts & { notes?: string[] }) {
   for (const line of text.split("\n")) for (const raw of line.split(/[;,](?![^(]*\))/)) {
-    const t = raw.trim();
+    const t = raw.trim(), k = t && conditionKind(t);
     if (!t) continue;
-    if (/^\(?\s*\d+(?:[.,]\d+)?\s*%\s*\)?(?:\s*(?:yield|ee|de|conv\.?))?$/i.test(t)) into.yield ??= t;
-    else if (/(?:^-?\d+(?:\.\d+)?\s*°\s*C\b|°C|\brt\b|room temperature|\breflux\b|^-?\d+\s*K$)/i.test(t)) into.temperature = into.temperature ? `${into.temperature}, ${t}` : t;
-    else if (/^(?:\d+(?:\.\d+)?\s*(?:h|hr|hrs|hours?|min|mins|minutes?|d|days?|s|sec)|overnight|o\/n)$/i.test(t)) into.time ??= t;
-    else if (/^(?:N2|Ar|argon|nitrogen|air|under (?:N2|Ar|argon|nitrogen|air))$/i.test(t)) into.atmosphere ??= t;
-    else if (SOLVENTS.has(reagentName(t).toLowerCase())) (into.solvents ??= []).push(t);
-    else if (/\bcat\.?(?:\)|$)|\bcatalytic\b|mol\s?%/i.test(t)) (into.catalysts ??= []).push(t);
+    if (k === "yield") into.yield ??= t;
+    else if (k === "temperature") into.temperature = into.temperature ? `${into.temperature}, ${t}` : t;
+    else if (k === "time") into.time ??= t;
+    else if (k === "atmosphere") into.atmosphere ??= t;
+    else if (k) (into[k] ??= []).push(t);
     // Words Octet reads as no compound ("then workup", "two steps") are a note.
     else if (/^[a-z][a-z\s-]*$/.test(t) && /\s/.test(t) && !host.reagent(t)) (into.notes ??= []).push(t);
     else (into.reagents ??= []).push(t);

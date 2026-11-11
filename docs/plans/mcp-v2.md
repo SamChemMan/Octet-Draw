@@ -507,6 +507,40 @@ three need the limit looked at again, or room found (`draw_route` can take over 
   passes. The Rust tests of the relay and the bundle now send the names `read`, `draw` and `advanced` (`mcp/integrate2`;
   not run there, as nothing was built).
 
+### 5.6 The line notation (11 November 2026, branch `mcp/lines`)
+
+Sam's order: optimise for the AI model, not for Octet. A one-reaction job costs a model about 3,000 output tokens and
+25 s for about 70 tokens of arguments (`scripts/mcp-evals/aicost.py`): the cost is deciding where each condition goes
+and writing nested JSON. So a model can write what a chemist types, and Octet sorts it:
+
+```
+4-bromoanisole + PhB(OH)2 (1.5 equiv) -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
+-> 3[OMe>OH] (4), BBr3, 78%
+```
+
+- **Built:** `src/notation.ts` (`fromLines`, and `NOTATION`, the 609-character description a model reads). It gives
+  the arguments the drawing code already takes: a kind of draw (reaction, structures, cycle, figure), or a batch of
+  them (a title and a scheme, several schemes, a scheme and a grid). The conditions are one list in any order, sorted as
+  a drawn arrow's are read (`conditionKind`, moved from `mcp.ts` to `stoich.ts` so both share it). A reactant that is
+  also the solvent, amounts in brackets, `then`, and numbered or lettered operations need no decision. A compound's
+  changes (`compound.ts`) are written in brackets after its number: `16[OBn>OTES; 20:OH]`, `7[join 2-1 8 (2S)]`.
+- **The hook (for the merger):** `draw` takes `lines` (text; its description is `NOTATION`), and `kind` is no longer
+  required. Its route becomes `route: (a, notes) => (a.lines !== undefined ? fromLines(a) : <as now>)`. The other
+  arguments of the call (placement, `columns`, `keep_orientation`, `picture`, `detail`) go with the lines. A batch
+  through `draw` is drawn as `change` draws one. `tools/list` is at 13,995 of 14,000 characters: the 609 need room
+  found, for example by cutting what `draw` says of a reaction's JSON.
+- **Measured** (`src/notation.check.ts`): the 60 corpus jobs and the taxol route, written in the notation, draw the
+  same as their JSON (each compound by number and InChIKey, every text, each arrow's kind with the words and
+  structures over and under it). 18,416 characters against 34,638 as JSON (53%); taxol 1,729 against 3,916. Reading the
+  taxol route takes about 0.05 ms a line. Hostile text (100,000 characters of brackets, arrows or separators; a
+  million characters; lone surrogates; control characters) is refused or read in about 0.2 s at most.
+- **Still JSON only:** a compound's hints (up, down, left, right, rotate, flip, geometry, colours, like) and a molecule
+  atom by atom; MOL or CDXML text as a compound; `from` by a structure's id (`s3`); a figure item's brackets, mark and
+  colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`; `draw_route`'s `legend` and a
+  step's `label` (not built). Every operation of `change` other than draw.
+- **Not done:** the model test. No model could be started from this session (`claude -p` had no sign-in). The twelve
+  jobs and the checker are `scripts/mcp-evals/notation.ts` (`ask` runs `claude -p` on each and checks it).
+
 ## 6. Lenient arguments (R5)
 
 Today `check()` in `mcp.ts` refuses anything not exactly in the schema. v2 adds a **coerce step before check**, for

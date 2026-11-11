@@ -20,6 +20,8 @@ import { hydrogens, type Mol } from "./render.ts";
 // ({ "5-6": "E" }). A label has one reading for any structure, as alpha and beta (which need a drawing's convention)
 // do not.
 export type Change = { swap?: Record<string, unknown>; occurrence?: number; at?: string; set?: string; add?: string; remove?: boolean; bond?: string; to?: "single" | "double" | "triple"; do?: string; with?: string; config?: unknown };
+// The named transformations that take with (a group, or another compound) and to (a bond order).
+export const WITH = ["protect", "deprotect", "esterify", "hydroborate", "open_epoxide", "join"], TO = ["close", "join"];
 /** The named transformations and what each takes, for an AI app that asks: a tool's own description names `do` only. */
 export const TRANSFORMATIONS = `protect, deprotect: with a group (TBS, TBDPS, TES, TMS, TIPS, Bn, PMB, MOM, Ac, Bz, Boc, Cbz, Fmoc) on an O-H or N-H; with acetonide or carbonate, at the two atoms that carry a diol's hydroxyls ('4-5')
 acetylate, benzoylate, form_carbonate: protect with Ac, Bz, carbonate
@@ -611,7 +613,6 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     }
   };
   const protect = (name: string, group: string | undefined, ats: number[]) => (DIOL.includes(group!) ? (ats.length === 2 ? bridge(group!, ats[0], ats[1]) : `${group} takes at: the two atoms that carry a diol's hydroxyls ('4-5')`) : PG.includes(group!) ? chosen(name, free(group!, false), ats) : `${name} takes with: ${[...PG, ...DIOL].join(", ")}`);
-  const WITH = ["protect", "deprotect", "esterify", "hydroborate", "open_epoxide", "join"], TO = ["close", "join"];
   const DO: Record<string, (c: Change, ats: number[]) => string | undefined> = {
     protect: (c, ats) => protect("protect", c.with, ats),
     deprotect: (c, ats) => (DIOL.includes(c.with!) ? chosen("deprotect", bridges(c.with!), ats) : PG.includes(c.with!) ? chosen("deprotect", off(c.with!), ats) : `deprotect takes with: ${[...PG, ...DIOL].join(", ")}`),
