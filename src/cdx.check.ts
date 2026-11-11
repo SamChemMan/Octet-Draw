@@ -4,13 +4,14 @@
 import assert from "node:assert/strict";
 import { BASE64_MAGIC, MAGIC, NOT_CDX, cdxToXml, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx.ts";
 import { DAMAGED, TOO_BIG, fontCharset, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
-import { DEFAULT_STYLE } from "./docstyle.ts";
+import { DEFAULT_STYLE, presetAt, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { deleteAtoms, extractSelection, insertMol } from "./edit.ts";
+import { EMPTY, deleteAtoms, extractSelection, insertMol } from "./edit.ts";
 import { isDrawingText, readCdx, readOct, writeCdx } from "./oct.ts";
 import type { Mol } from "./render.ts";
 import { analyse, fromJcamp, measuredText } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
+import { readFileSync } from "node:fs";
 
 // A CDX file by hand: the header, then objects and properties as [tag, bytes] in little-endian order.
 const u16 = (v: number) => [v & 0xff, (v >> 8) & 0xff], u32 = (v: number) => [...u16(v & 0xffff), ...u16(v >>> 16)];
@@ -271,4 +272,34 @@ const kept: Mol = {
   assert.equal(fromCdxml(cdxml).mol.captions![0].text, words + ", Ω µ ±");
   assert.equal(fromCdxml(cdxToXml(xmlToCdx(parseXml(cdxml)))).mol.captions![0].text, words + ", Ω µ ±");
   console.log("cdx.check: charsets ok");
+}
+
+// Style sheets (.cds, issue 74): a CDX file with the document's settings and an empty page. Settings > Document > Save
+// to file… writes the style as one (writeCdx of an empty drawing); Apply Settings From File… reads it, or ChemDraw's.
+{
+  // Octet's own: the whole style back exactly, and ChemDraw (which keeps no Octet data) still reads its settings.
+  const own = readStyle({ ...DEFAULT_STYLE, ...presetAt("RSC", 2), scale: 2, page: "Slide169", landscape: true, background: "dark", captionFont: "Helvetica", palette: [{ name: "Lab red", hex: "#B42323" }] });
+  const sheet = writeCdx(EMPTY, own);
+  assert.deepEqual(readOct(toBase64(sheet)).mol.style, own);
+  const chemdraw = readCdx(xmlToCdx(parseXml(toCdxml(EMPTY, own)))).mol.style!;
+  for (const k of ["bond", "line", "bold", "margin", "hash", "spacing", "labelFont", "labelSize", "captionFont", "captionSize", "chainAngle"] as const) assert.equal(chemdraw[k], own[k], k);
+  // ChemDraw's: an empty page whose box is 0 0 0 0 takes its size from its Width and Height (368.5 by 720.91 pt and
+  // an inch of margin), and one of -2 -2 2 2 with neither is ChemDraw's default page, US Letter.
+  const pageOf = (...page: number[][]) => readOct(toBase64(file(
+    prop(0x0805, coord(17)), prop(0x0807, coord(1)), prop(0x0804, u16(180)),
+    prop(0x0100, [...u16(1), ...u16(1), ...u16(3), ...u16(10000), ...u16(5), ...ascii("Arial")]),
+    prop(0x080a, [...u16(3), ...u16(0), ...u16(200), ...u16(3)]), prop(0x080b, [...u16(3), ...u16(0), ...u16(240), ...u16(3)]),
+    obj(0x8001, 1, ...page),
+  ))).mol.style!;
+  const old = pageOf(prop(0x0204, [0, 0, 0, 0].flatMap(coord)), prop(0x0812, coord(368.5)), prop(0x0813, coord(720.91)));
+  assert.deepEqual([old.bond, old.line, old.spacing, old.labelFont, old.labelSize, old.captionSize], [17, 1, 18, "Arial", 10, 12]);
+  assert.deepEqual([old.page, old.custom], ["Custom", [155.4, 279.72]]);
+  assert.equal(pageOf(prop(0x0204, [-2, -2, 2, 2].flatMap(coord))).page, "Letter");
+  // A page with something on it keeps its own box, however small (a paste from ChemDraw, say).
+  assert.deepEqual(fromCdxml('<CDXML><page id="1" BoundingBox="0 0 10 10" Width="540" Height="720"><t p="5 5"><s>x</s></t></page></CDXML>').style.custom, [28.93, 28.93]);
+  // Both ends: Apply Settings From File… takes .cds files, and Export writes one.
+  const rust = (f: string) => readFileSync(new URL(`../src-tauri/src/${f}`, import.meta.url), "utf8");
+  assert.match(rust("main.rs"), /const STYLES: [^\n]*"cds"[\s\S]*fn pick_style_file[^}]*add_filter\(STYLES\.0, STYLES\.1\)/);
+  assert.match(rust("export.rs"), /\("cds", "ChemDraw Style Sheet \(CDS\)", &\["cds"\]\)[\s\S]*"cds" => e\.cds\.is_some\(\)[\s\S]*"cds" => base64[^\n]*e\.cds/);
+  console.log("cdx.check: style sheets ok");
 }
