@@ -109,6 +109,15 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // The list is read at the start of every chat (test plan P4, A5): under 14,000 characters, about 4,000 tokens. The
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
+// The scripting page (docs/scripting.md, plan 18.2) cannot drift: its table of tools is the tools tools/list gives, and
+// each file it shows (### name, then its code) is the file in scripts/examples as it is.
+{
+  const page = readFileSync(new URL("../docs/scripting.md", import.meta.url), "utf8");
+  assert.deepEqual([...page.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]), tools.map((t) => t.name), "the scripting page's table of tools");
+  const shown = [...page.matchAll(/^### (\S+)\n\n```\w+\n([\s\S]*?)```$/gm)];
+  assert.equal(shown.length, 10, "the client and four examples, in Python and JavaScript");
+  for (const [, file, code] of shown) assert.equal(code, readFileSync(new URL(`../scripts/examples/${file}`, import.meta.url), "utf8"), `docs/scripting.md shows scripts/examples/${file} as it is`);
+}
 // draw's JSON compound says what its text takes, and what a change's at names, as the JSON form needs them.
 {
   const c = (tools[0].inputSchema as any).$defs.compound.properties;
