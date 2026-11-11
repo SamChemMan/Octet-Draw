@@ -17,10 +17,14 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
-// A dev build keeps a port and a file of its own (R11), so it and the installed Octet run at once and neither takes
-// the other's port or writes over its key: an AI app given one Octet's relay or address reaches that Octet.
-pub const PORT: u16 = if cfg!(debug_assertions) { 47682 } else { 47681 };
-const INFO: &str = if cfg!(debug_assertions) { "mcp-dev.json" } else { "mcp.json" };
+// A dev build keeps a file and a port of its own (test plan R11), so it and the installed Octet run at once and
+// neither takes the other's port or writes over its key: an AI app given one Octet's relay or address reaches that
+// Octet.
+const fn own(dev: bool) -> (&'static str, u16) {
+    if dev { ("mcp-dev.json", 47682) } else { ("mcp.json", 47681) }
+}
+const INFO: &str = own(cfg!(debug_assertions)).0;
+pub const PORT: u16 = own(cfg!(debug_assertions)).1;
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024; // a request from the AI app
 const MAX_REPLY: usize = 24 * 1024 * 1024; // a reply from the page (a picture of the drawing)
@@ -973,8 +977,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // R11: a dev build and the installed Octet share the data folder. Each reads only its own file, has its own port,
-    // and makes a bundle whose server reads that file.
+    // Test plan R11: a dev build and the installed Octet share the data folder. Each reads only its own file, has its
+    // own port, and makes a bundle whose server reads that file. Both builds' names and ports are checked in every
+    // build. What the relay reads and what the bundle holds are checked for the build under test: for the installed
+    // Octet that is cargo test --release.
     #[test]
     fn a_dev_build_and_the_installed_octet_keep_apart() {
         let dev = cfg!(debug_assertions);
@@ -986,7 +992,8 @@ mod tests {
         assert_eq!(token().as_deref(), if dev { None } else { Some("installed") }, "the installed Octet's file is not a dev build's");
         std::fs::write(dir.join("mcp-dev.json"), r#"{"port":47682,"token":"dev","program":""}"#).unwrap();
         assert_eq!(token().as_deref(), Some(if dev { "dev" } else { "installed" }));
-        assert_eq!(PORT, if dev { 47682 } else { 47681 });
+        assert_eq!((own(false), own(true)), (("mcp.json", 47681), ("mcp-dev.json", 47682)));
+        assert_eq!((INFO, PORT), own(dev));
         let server = String::from_utf8_lossy(&bundle(vec![]).unwrap()).into_owned();
         assert_eq!(server.contains(r#"join(dir, "mcp-dev.json")"#), dev);
         assert_eq!(server.contains(r#"join(dir, "mcp.json")"#), !dev);

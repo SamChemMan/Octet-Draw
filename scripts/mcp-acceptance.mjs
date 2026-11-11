@@ -305,10 +305,12 @@ const CASES = {
     const later = (await c.ask("tools/list")).result?.tools ?? [];
     check(changed && later.length >= 20, "Octet found: the list changed and the tools are there", `${changed} ${later.length}`);
     c.stop();
-    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. As shipped it reads mcp.json, the installed
-    // Octet's file: in this folder that file names the dev build.
-    writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp.json"), JSON.stringify(info));
-    const b = stdio(process.execPath, [fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url))], there);
+    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. A dev build's bundle has mcp-dev.json in
+    // place of mcp.json (bundle in mcp.rs). It runs in the real home, so the folder it works out must be the folder
+    // Octet wrote to.
+    const server = join(home, "index.cjs");
+    writeFileSync(server, readFileSync(fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url)), "utf8").replaceAll("mcp.json", "mcp-dev.json"));
+    const b = stdio(process.execPath, [server]);
     await b.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-bundle", version: "1" } });
     const read = await b.ask("tools/call", { name: "list_drawings", arguments: {} });
     check(!read.result?.isError && read.result?.structuredContent, "the bundle's server reaches Octet", JSON.stringify(read).slice(0, 160));
