@@ -1407,11 +1407,20 @@ Clean Up Reaction now does both jobs and `clean_reaction_augmented` is gone):
   `scripts/headless/host.ts` must turn the products at once (`turnProducts`, then one set), so the call returns the
   finished drawing. Add a check that the reply's drawing is the turned one.
 
-### 17.4 Before any push
+### 17.4 Pushing these branches
 
-`docs/plans/mcp.md` and `docs/decisions/0021-mcp.md` are in this branch's history (from R7). Sam's notes say they
-stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
-they come out.
+`release-1.2-mcp` is on GitHub from 11 November 2026 (Sam: the MCP is 1.2 and all of it goes on the 1.2 branch; never
+`main`, and no `v*` tag, which starts the release). Two files stay private and are in no pushed commit: the first MCP
+plan and decision 0021. They were taken out of the 90 commits that had not been pushed, and they are kept outside the
+repository.
+
+A branch made before that day (`mcp/*`) still has them in its own history. Before it is merged or pushed, give it the
+same history, from a clean worktree:
+
+`git filter-branch --index-filter 'git rm -q --cached --ignore-unmatch docs/plans/mcp.md docs/decisions/0021-mcp.md' -- BRANCH --not --remotes`
+
+The rewrite gives the same commits each time, so a branch done later sits on the pushed history. Then clear the two
+files from that branch's worktree. Never add either file again.
 
 ### 17.5 Several AI sessions at once (found 11 November 2026, to fix with step 8)
 
