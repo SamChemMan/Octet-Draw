@@ -119,9 +119,9 @@ jobs:
           "WINDOWS_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
 
       - name: Windows certificate (Certum SimplySign)
-        # Certum keeps the key in its cloud. The one secret is the SimplySign account's e-mail, a space, and the
+        # Certum keeps the key in its cloud. The one secret is the SimplySign account's email, a space, and the
         # otpauth:// link of its QR code. ssign signs with them: it needs no SimplySign Desktop, and Certum does not
-        # make it. It signs .exe files only, which is all the Windows build makes.
+        # make it. It signs .exe and .dll files but not .msi files, and the Windows build makes no .msi.
         if: runner.os == 'Windows'
         shell: bash
         env:
@@ -129,7 +129,7 @@ jobs:
         run: |
           if [ -z "$WINDOWS_CERTUM" ]; then echo "WINDOWS_CERTUM is not set."; exit 0; fi
           read -r email otp <<< "$WINDOWS_CERTUM"
-          if [ -z "$otp" ]; then echo "::error::WINDOWS_CERTUM must be the e-mail, a space, then the otpauth:// link."; exit 1; fi
+          if [ -z "$otp" ]; then echo "::error::WINDOWS_CERTUM must be the email, a space, then the otpauth:// link."; exit 1; fi
           echo "::add-mask::$email"
           echo "::add-mask::$otp"
           { echo "CERTUM_EMAIL=$email"; echo "CERTUM_OTP=$otp"; } >> "$GITHUB_ENV"

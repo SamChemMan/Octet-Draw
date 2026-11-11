@@ -52,7 +52,7 @@ Since June 2023 a code signing certificate's private key must stay in hardware o
 so most new certificates do not come as a .pfx file.
 
 Octet's certificate is Certum's Open Source Code Signing in the Cloud. Its key stays in Certum's cloud
-(SimplySign). You log in with your e-mail and a one-time code from the SimplySign app. The workflow needs one
+(SimplySign). You log in with your email and a one-time code from the SimplySign app. The workflow needs one
 secret:
 
 1. Activate the certificate. Certum shows a QR code for the SimplySign app.
@@ -60,7 +60,7 @@ secret:
 3. Read the screenshot on the Mac: `brew install zbar`, then `zbarimg -q --raw qr.png`. It gives a link that
    starts with `otpauth://totp/`.
 4. Scan the QR code with the SimplySign app, as Certum tells you.
-5. Add the secret `WINDOWS_CERTUM`: the e-mail of the SimplySign account, a space, then the link. For example
+5. Add the secret `WINDOWS_CERTUM`: the email of the SimplySign account, a space, then the link. For example
    `sam@example.com otpauth://totp/...?secret=...`.
 6. Put the link in a password manager, and delete the screenshot.
 
@@ -71,9 +71,9 @@ is not set, the build log says "No Windows signing secret is set", and the insta
 
 The workflow signs with `ssign` 0.1.11 (MIT, github.com/Le-Syl21/ssign), a small program that talks to Certum's
 cloud. It needs no SimplySign Desktop. Certum does not make or support it, so a change at Certum can stop it. It
-signs .exe files only. The Windows build makes no .msi.
+signs .exe and .dll files but not .msi files. The Windows build makes no .msi.
 
-The link holds the secret of the one-time codes. With your e-mail, it can sign as you until you get a new QR
+The link holds the secret of the one-time codes. With your email, it can sign as you until you get a new QR
 code. If it leaks, get a new QR code, change the secret, and check your signing history at Certum.
 
 Other ways, if Octet ever has a different certificate:

@@ -17,6 +17,7 @@ assert.match(yml, /OCTET_FEEDBACK: \$\{\{ github\.event_name == 'workflow_dispat
 // Windows signing with Certum (REL-6) is one secret, WINDOWS_CERTUM. Its step and the Build settings script run here as
 // the runner runs them, with a stand-in for cargo. Without the secret the build goes on unsigned and the log says so.
 // The updater key gives the updater files with or without Windows signing (REL-10).
+assert.match(yml, /if: runner\.os == 'Windows'\n +shell: bash\n +env:\n +WINDOWS_CERTUM: \$\{\{ secrets\.WINDOWS_CERTUM \}\}\n/);
 const script = (step: string) => {
   const [, indent, body] = yml.slice(yml.indexOf(`- name: ${step}\n`)).match(/\n( +)run: \|\n((?:\1 .*\n|\n)*)/)!;
   return body.replace(new RegExp(`^${indent}  `, "gm"), "");
