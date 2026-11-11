@@ -18,7 +18,8 @@ const headless = process.argv[2] === "--headless" ? process.argv[3] : undefined;
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
 // Octet may still be starting (a CI machine): up to a minute for its file and its server. A dev build keeps
 // mcp-dev.json (mcp.json is the installed Octet's, which may run at the same time).
-const read = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
+// OCTET_MCP_INFO names another server's file: the headless server's (scripts/mcp-evals/headless.ts).
+const read = () => { try { return JSON.parse(readFileSync(process.env.OCTET_MCP_INFO ?? join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
 let info;
 for (const end = Date.now() + 60_000; !headless && Date.now() < end; await new Promise((r) => setTimeout(r, 1000))) {
   info = read();
@@ -329,7 +330,7 @@ const CASES = {
     console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
-    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw_route for a reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
+    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("make ONE draw call with lines"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
     r.send({ jsonrpc: "2.0", method: "notifications/initialized" });
     const tools = (await r.ask("tools/list")).result?.tools ?? [];
     check(tools.length === 6 && JSON.stringify(tools).length < 14000, "the six tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);

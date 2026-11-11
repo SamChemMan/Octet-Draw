@@ -4,10 +4,10 @@
 // drawn as one reaction of three steps, laid out as the window lays it out (4 November 2026: every caption's box
 // within 0.1 bond length of the window's), and comes out as CDXML that Octet reads back as the same scheme.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("headless.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
@@ -219,75 +219,68 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   // so a job that leaves one is not done in these calls).
   type Job = [string, [string, unknown | ((r: any[]) => unknown)][], (e: Read, r: any[]) => boolean, RegExp?, true?];
   const nums = (e: Read) => e.structures.map((s) => s.number ?? "").join(), key = (s: string) => toInchiKey(parseStructure(s));
-  const sOf = (r: any[], k = 0, n = 0) => r[k].made.filter((x: string) => x[0] === "s")[n];
+  // The structures a call made: a draw by lines lists them in compounds ("2 s3 C8H8O2"), a JSON draw in made.
+  const made = (x: any): string[] => [...(x.compounds ?? []).map((c: string) => /\bs\d+\b/.exec(c)![0]), ...x.made];
+  const sOf = (r: any[], k = 0, n = 0) => made(r[k]).filter((x: string) => x[0] === "s")[n];
+  // (Written again from the tool list of plan 19.2: one draw call with lines, and structures for the JSON.)
   const JOBS: Job[] = [
-    // A reaction or scheme is draw_route's (plan 5.4): draw takes one still, but does not list it.
-    ["one reaction from names", [["draw_route", { schemes: [{ start: [{ text: "benzaldehyde" }, { text: "acetophenone" }], steps: [{ reagents: ["NaOH"], solvents: ["EtOH"], temperature: "rt", yield: "88%", products: [{ text: "chalcone", number: "1" }] }] }] }]],
+    ["one reaction from names", [["draw", { lines: "benzaldehyde + acetophenone -> chalcone (1), NaOH, EtOH, rt, 88%" }]],
       (e) => e.structures.map((s) => s.formula).join() === "C7H6O,C8H8O,C15H12O" && e.reactions.length === 1 && e.reactions[0].steps[0].above.join() === "NaOH" && e.reactions[0].steps[0].below.join() === "EtOH, rt,88%"],
-    ["a 5-step scheme", [["draw_route", { schemes: [{ start: [{ text: "benzaldehyde", number: "1" }], steps: [
-      { reagents: ["MeNO2", "NH4OAc"], solvents: ["AcOH"], temperature: "reflux", products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] },
-      { reagents: ["LiAlH4"], solvents: ["THF"], products: [{ text: "2-phenylethylamine", number: "3" }] },
-      { reagents: ["Boc2O", "Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl N-(2-phenylethyl)carbamate", number: "4" }] },
-      { reagents: ["NaH", "MeI"], solvents: ["DMF"], products: [{ text: "CN(CCc1ccccc1)C(=O)OC(C)(C)C", number: "5" }] },
-      { reagents: ["TFA"], solvents: ["CH2Cl2"], products: [{ text: "N-methyl-2-phenylethylamine", number: "6" }] }] }] }]],
+    ["a 5-step scheme", [["draw", { lines: "benzaldehyde (1) -> [O-][N+](=O)/C=C/c1ccccc1 (2), MeNO2, NH4OAc, AcOH, reflux\n-> 2-phenylethylamine (3), LiAlH4, THF\n-> tert-butyl N-(2-phenylethyl)carbamate (4), Boc2O, Et3N, CH2Cl2\n-> CN(CCc1ccccc1)C(=O)OC(C)(C)C (5), NaH, MeI, DMF\n-> N-methyl-2-phenylethylamine (6), TFA, CH2Cl2" }]],
       (e) => nums(e) === "1,2,3,4,5,6" && e.reactions.length === 1 && e.reactions[0].steps.length === 5],
-    ["a grid of 12 numbered structures", [["draw", { kind: "structures", columns: 4, structures: ["benzene", "toluene", "phenol", "aniline", "anisole", "benzoic acid", "benzaldehyde", "acetophenone", "nitrobenzene", "chlorobenzene", "pyridine", "naphthalene"].map((text, k) => ({ text, number: `${k + 1}` })) }]],
+    ["a grid of 12 numbered structures", [["draw", { lines: "benzene (1) | toluene (2) | phenol (3) | aniline (4)\nanisole (5) | benzoic acid (6) | benzaldehyde (7) | acetophenone (8)\nnitrobenzene (9) | chlorobenzene (10) | pyridine (11) | naphthalene (12)" }]],
       (e) => nums(e) === "1,2,3,4,5,6,7,8,9,10,11,12"],
-    // A metal and its ligands as the instructions say ('*[Pd]*' and labels): Pd(PPh3)2 is not a name Octet reads.
-    ["a catalytic cycle", [["draw", { kind: "cycle", centre: "Suzuki coupling", intermediates: [{ text: "*[Pd]*", labels: ["PPh3", "PPh3"] }, { text: "Br[Pd](*)(*)c1ccccc1", labels: ["PPh3", "PPh3"] }, { text: "c1ccc(cc1)[Pd](*)(*)c1ccc(C)cc1", labels: ["PPh3", "PPh3"] }], steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, name: "TM", in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, name: "RE", out: "Ph-Ar" }] }]],
+    // A metal and its ligands as the instructions say ({L}[Pd]{L}): Pd(PPh3)2 is not a name Octet reads.
+    ["a catalytic cycle", [["draw", { lines: "# Suzuki coupling\n{PPh3}[Pd]{PPh3} -> Br[Pd]({PPh3})({PPh3})c1ccccc1, +PhBr, OA -> c1ccc(cc1)[Pd]({PPh3})({PPh3})c1ccc(C)cc1, +ArB(OH)2, -B(OH)3, TM -> {PPh3}[Pd]{PPh3}, -Ph-Ar, RE" }]],
       (e) => e.cycles?.length === 1 && e.structures.length === 3],
-    ["fix one atom", [["draw", { kind: "structures", structures: [{ text: "Cc1ccccc1", number: "1" }] }], ["change", (r) => ({ operations: [{ op: "edit", ids: [`${sOf(r)}.3`], label: "N" }] })]],
+    ["fix one atom", [["draw", { lines: "Cc1ccccc1 (1)" }], ["change", (r) => ({ operations: [{ op: "edit", ids: [`${sOf(r)}.3`], label: "N" }] })]],
       (e) => e.structures[0].inchiKey === key("Cc1ccccn1")],
     // A row of four on A4 that does not fit one column: set_style's check names what no longer fits.
-    ["restyle for a journal and say what did not fit", [["draw", { kind: "structures", columns: 4, structures: ["caffeine", "aspirin", "ibuprofen", "paracetamol"].map((text, k) => ({ text, number: `${k + 1}` })) }], ["advanced", { tool: "set_style", args: { preset: "RSC", page: "ACS1" } }]],
+    ["restyle for a journal and say what did not fit", [["draw", { lines: "caffeine (1) | aspirin (2) | ibuprofen (3) | paracetamol (4)" }], ["advanced", { tool: "set_style", args: { preset: "RSC", page: "ACS1" } }]],
       (e, r) => e.style === "RSC" && r[0].check === "clean" && r[1].check.off_page.includes("s4"), undefined, true],
-    ["read and answer a question", [["draw", { kind: "structures", structures: [{ text: "aspirin", number: "1" }] }], ["read", {}]], (_, r) => r[1].structures[0].formula === "C9H8O4"],
-    ["export a PDF", [["draw", { kind: "structures", structures: [{ text: "caffeine" }] }], ["advanced", { tool: "export", args: { format: "pdf" } }]], (e) => e.structures.length === 1, /cannot open the Export dialog/],
-    ["highlight a group", [["draw", { kind: "structures", structures: [{ text: "Cc1ccc(cc1)[N+](=O)[O-]", number: "1" }] }], ["change", (r) => ({ operations: [{ op: "edit", ids: [8, 9, 10].map((k) => `${sOf(r)}.${k}`), highlight: "#ffe066" }] })]],
+    ["read and answer a question", [["draw", { lines: "aspirin (1)" }], ["read", {}]], (_, r) => r[1].structures[0].formula === "C9H8O4"],
+    ["export a PDF", [["draw", { lines: "caffeine" }], ["advanced", { tool: "export", args: { format: "pdf" } }]], (e) => e.structures.length === 1, /cannot open the Export dialog/],
+    ["highlight a group", [["draw", { lines: "Cc1ccc(cc1)[N+](=O)[O-] (1)" }], ["change", (r) => ({ operations: [{ op: "edit", ids: [8, 9, 10].map((k) => `${sOf(r)}.${k}`), highlight: "#ffe066" }] })]],
       () => d.host.doc().atoms.filter((a) => /ffe066/i.test(JSON.stringify(a))).length === 3],
     // As change's arrow says: the product right_of the last one with room for the arrow, the arrow, its text, then
     // clean_reaction.
-    ["add a step to an existing scheme", [["draw_route", { schemes: [{ start: [{ text: "benzoic acid", number: "1" }], steps: [{ reagents: ["SOCl2"], products: [{ text: "benzoyl chloride", number: "2" }] }] }] }],
-      ["change", (r) => ({ operations: [{ op: "draw", kind: "structures", structures: [{ text: "N,N-diethylbenzamide", number: "3" }], right_of: sOf(r, 0, 1), gap: 5.4 }, { op: "arrow", kind: "reaction", from: sOf(r, 0, 1), to: "$1.s[0]" }, { op: "text", text: "Et2NH, Et3N", arrow: "$2.a[0]", side: "above" }] })],
+    ["add a step to an existing scheme", [["draw", { lines: "benzoic acid (1) -> benzoyl chloride (2), SOCl2" }],
+      ["change", (r) => ({ operations: [{ op: "draw", lines: "N,N-diethylbenzamide (3)", right_of: sOf(r, 0, 1), gap: 5.4 }, { op: "arrow", kind: "reaction", from: sOf(r, 0, 1), to: "$1.s[0]" }, { op: "text", text: "Et2NH, Et3N", arrow: "$2.a[0]", side: "above" }] })],
       ["advanced", { tool: "run_command", args: { command: "clean_reaction" } }]],
       (e) => e.reactions.length === 1 && e.reactions[0].steps.length === 2 && e.reactions[0].steps[1].above.includes("Et2NH, Et3N")],
-    ["renumber", [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "2" }, { text: "phenol", number: "3" }] }],
+    ["renumber", [["draw", { lines: "benzene (1) | toluene (2) | phenol (3)" }],
       ["change", (r) => ({ operations: [0, 1, 2].map((k) => ({ op: "number", structure: sOf(r, 0, k), number: `${k + 2}` })) })]], (e) => nums(e) === "2,3,4"],
-    ["delete one structure", [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "2" }, { text: "phenol", number: "3" }] }], ["change", { operations: [{ op: "delete", ids: ["2"] }] }]], (e) => nums(e) === "1,3"],
+    ["delete one structure", [["draw", { lines: "benzene (1) | toluene (2) | phenol (3)" }], ["change", { operations: [{ op: "delete", ids: ["2"] }] }]], (e) => nums(e) === "1,3"],
     // The second branch below all of the first ('$1.made'), and their product with room for the arrows.
     ["a two-branch convergent synthesis", [["change", { operations: [
-      { op: "draw", kind: "reaction", start: [{ text: "4-bromobenzoic acid", number: "1" }], steps: [{ reagents: ["MeOH", "H2SO4"], products: [{ text: "methyl 4-bromobenzoate", number: "2" }] }] },
-      { op: "draw", kind: "reaction", start: [{ text: "4-methoxyphenylboronic acid", number: "3" }], steps: [{ reagents: ["pinacol"], products: [{ text: "COc1ccc(cc1)B1OC(C)(C)C(C)(C)O1", number: "4" }] }], below: "$1.made", align: "left" },
-      { op: "draw", kind: "structures", structures: [{ text: "methyl 4'-methoxybiphenyl-4-carboxylate", number: "5" }], right_of: "$1.s[1]", gap: 7.4 },
+      { op: "draw", lines: "4-bromobenzoic acid (1) -> methyl 4-bromobenzoate (2), MeOH, H2SO4" },
+      { op: "draw", lines: "4-methoxyphenylboronic acid (3) -> COc1ccc(cc1)B1OC(C)(C)C(C)(C)O1 (4), pinacol", below: "$1.made", align: "left" },
+      { op: "draw", lines: "methyl 4'-methoxybiphenyl-4-carboxylate (5)", right_of: "$1.s[1]", gap: 7.4 },
       { op: "arrow", kind: "reaction", from: "$1.s[1]", to: "$3.s[0]" }, { op: "arrow", kind: "reaction", from: "$2.s[1]", to: "$3.s[0]" },
       { op: "text", text: "Pd(PPh3)4, K2CO3", arrow: "$4.a[0]", side: "above" }] }]],
       (e) => nums(e) === "1,2,3,4,5" && e.arrows.length === 4 && e.structures[2].box[3] < Math.min(e.structures[0].box[1], e.structures[1].box[1])],
-    ["a reagent drawn as a structure over the arrow", [["draw_route", { schemes: [{ start: [{ text: "benzylamine", number: "1" }], steps: [{ above: ["structure: Boc2O"], reagents: ["Et3N"], solvents: ["CH2Cl2"], products: [{ text: "tert-butyl benzylcarbamate", number: "2" }] }] }] }]],
+    ["a reagent drawn as a structure over the arrow", [["draw", { lines: "benzylamine (1) -> tert-butyl benzylcarbamate (2), @Boc2O, Et3N, CH2Cl2" }]],
       (e) => { const [a] = e.arrows, s = e.structures[1].box; return e.structures.length === 3 && s[0] >= a.from[0] && s[2] <= a.to[0] && s[1] > a.from[1]; }],
-    // The footnote below all of the scheme ('$1.made').
-    ["conditions as letters with a footnote", [["change", { operations: [
-      { op: "draw", kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ above: ["a"], products: [{ text: "[O-][N+](=O)/C=C/c1ccccc1", number: "2" }] }, { above: ["b"], products: [{ text: "2-phenylethylamine", number: "3" }] }, { above: ["c"], products: [{ text: "N-(2-phenylethyl)acetamide", number: "4" }] }] },
-      { op: "text", text: "Reagents and conditions: (a) MeNO2, NH4OAc, AcOH, reflux; (b) LiAlH4, THF; (c) Ac2O, Et3N, CH2Cl2.", below: "$1.made" }] }]],
-      (e) => e.captions.find((c) => c.text.startsWith("Reagents"))!.box[3] < Math.min(...e.structures.map((s) => s.box[1]))],
-    ["an equilibrium and a retro arrow", [["change", { operations: [
-      { op: "draw", kind: "reaction", start: [{ text: "acetic acid" }], steps: [{ arrow: "equilibrium", products: [{ text: "acetate" }] }] },
-      { op: "draw", kind: "reaction", start: [{ text: "ibuprofen", number: "1" }], steps: [{ arrow: "retro", products: [{ text: "isobutylbenzene", number: "2" }] }], below: "$1.s[0]" }] }]],
+    // A step's label: letters on the arrows and the footnote under the scheme (a route's legend letters).
+    ["conditions as letters with a footnote", [["draw", { lines: "benzaldehyde (1) -> [O-][N+](=O)/C=C/c1ccccc1 (2), (a), MeNO2, NH4OAc, AcOH, reflux\n-> 2-phenylethylamine (3), (b), LiAlH4, THF\n-> N-(2-phenylethyl)acetamide (4), (c), Ac2O, Et3N, CH2Cl2" }]],
+      (e) => e.captions.find((c) => c.text.startsWith("Reagents"))!.box[3] < Math.min(...e.structures.map((s) => s.box[1])) && e.reactions[0].steps.map((s) => s.above.join()).join() === "a,b,c"],
+    ["an equilibrium and a retro arrow", [["draw", { lines: "acetic acid <=> acetate\nibuprofen (1) => isobutylbenzene (2)" }]],
       (e) => e.arrows.map((a) => a.kind).sort().join() === "equilibrium,retro"],
-    ["a mechanism step with two curly arrows", [["draw", { kind: "structures", structures: [{ text: "[OH-]" }, { text: "CBr" }] }],
+    ["a mechanism step with two curly arrows", [["draw", { lines: "[OH-] | CBr" }],
       ["change", (r) => ({ operations: [{ op: "arrow", kind: "curved", from: `${sOf(r)}.1:pair`, to: `${sOf(r, 0, 1)}.1` }, { op: "arrow", kind: "curved", from: `${sOf(r, 0, 1)}.1-2`, to: `${sOf(r, 0, 1)}.2` }] })]],
       (e) => e.arrows.filter((a) => a.kind === "curved").length === 2],
-    ["a compound from an earlier one with a protecting group swapped", [["draw", { kind: "structures", structures: [{ text: "4-(benzyloxy)benzaldehyde", number: "1" }, { from: "1", changes: [{ swap: { OBn: "OTBS" } }], number: "2" }] }]],
+    ["a compound from an earlier one with a protecting group swapped", [["draw", { lines: "4-(benzyloxy)benzaldehyde (1)\n1[OBn>OTBS] (2)" }]],
       (e) => e.structures[1].inchiKey === key("CC(C)(C)[Si](C)(C)Oc1ccc(C=O)cc1")],
-    ["a substrate scope grid with yields as captions", [["draw", { kind: "structures", columns: 3, structures: ["toluene", "anisole", "chlorobenzene", "fluorobenzene", "benzonitrile", "methyl benzoate"].map((text, k) => ({ text, number: `3${"abcdef"[k]}`, caption: `${90 - 5 * k}%` })) }]],
+    ["a substrate scope grid with yields as captions", [["draw", { lines: "toluene (3a) 90% | anisole (3b) 85% | chlorobenzene (3c) 80%\nfluorobenzene (3d) 75% | benzonitrile (3e) 70% | methyl benzoate (3f) 65%" }]],
       (e) => e.structures.length === 6 && e.captions.filter((c) => c.text.endsWith("%")).length === 6],
-    ["a MOL file given as text", [["draw", { kind: "structures", structures: [{ text: MOL, number: "1" }] }]], (e) => e.structures[0].inchiKey === key("CCO")],
-    ["a file read back as CDXML", [["draw", { kind: "structures", structures: [{ text: "caffeine", number: "1" }] }], ["read", { format: "cdxml" }]], (_, r) => /<CDXML/.test(r[1].text)],
-    ["three structures aligned and distributed", [["draw", { kind: "structures", columns: 3, structures: [{ text: "benzene" }, { text: "toluene" }, { text: "phenol" }] }], ["change", (r) => ({ operations: [{ op: "arrange", ids: r[0].made, how: "middle" }, { op: "arrange", ids: r[0].made, how: "across" }] })]],
+    ["a MOL file given as text", [["draw", { structures: [{ text: MOL, number: "1" }] }]], (e) => e.structures[0].inchiKey === key("CCO")],
+    ["a file read back as CDXML", [["draw", { lines: "caffeine (1)" }], ["read", { format: "cdxml" }]], (_, r) => /<CDXML/.test(r[1].text)],
+    ["three structures aligned and distributed", [["draw", { lines: "benzene | toluene | phenol" }], ["change", (r) => ({ operations: [{ op: "arrange", ids: made(r[0]), how: "middle" }, { op: "arrange", ids: made(r[0]), how: "across" }] })]],
       (e) => e.structures.length === 3, /cannot line them up now/],
-    ["a box round two structures with a title", [["draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] }], ["change", (r) => ({ operations: [{ op: "shape", kind: "box", around: r[0].made }, { op: "text", text: "Aromatic solvents", above: "$1.b[0]" }] })]],
+    ["a box round two structures with a title", [["draw", { lines: "benzene | toluene" }], ["change", (r) => ({ operations: [{ op: "shape", kind: "box", around: made(r[0]) }, { op: "text", text: "Aromatic solvents", above: "$1.b[0]" }] })]],
       (e) => e.shapes?.length === 1 && e.captions.some((c) => c.text === "Aromatic solvents")],
     ["a TLC plate", [["change", { operations: [{ op: "shape", kind: "tlc", box: [0, 0, 4, 6] }] }]], (e) => e.shapes?.[0]?.kind === "tlc"],
-    ["undo of the last call", [["draw", { kind: "structures", structures: [{ text: "benzene" }] }], ["draw", { kind: "structures", structures: [{ text: "toluene" }] }], ["advanced", { tool: "run_command", args: { command: "undo" } }]],
+    ["undo of the last call", [["draw", { lines: "benzene" }], ["draw", { lines: "toluene" }], ["advanced", { tool: "run_command", args: { command: "undo" } }]],
       (e) => e.structures.length === 1 && e.structures[0].inchiKey === key("c1ccccc1")],
   ];
   assert.equal(JOBS.length, 25);
@@ -481,6 +474,84 @@ try {
   assert.deepEqual(scheme.structures.map((s: { inchiKey: string }) => s.inchiKey), ["HUMNYLRZRPPJDN-UHFFFAOYSA-N", "PIAOLBVUVDXHHL-VOTSOKGWSA-N", "BHHGXPLMPWCGHP-UHFFFAOYSA-N", "MODKMHXGCGKTLE-UHFFFAOYSA-N"]);
   assert.equal(JSON.parse(readFileSync(join(dir, "calls.drawn.json"), "utf8")).drawing.structures.length, 2);
   assert.match(readFileSync(join(dir, "scheme.cdxml"), "utf8"), /<scheme[\s\S]*<step[\s\S]*<step[\s\S]*<step/);
+
+  // The evals' cost report (scripts/mcp-evals/cost.mjs): one reply of the model logged as two lines counts once, and a
+  // copy of it (api-request-blob) adds nothing. A job run twice takes its judge lines in the order its logs start (the
+  // later log's file comes first here); a total of what no row has is "-".
+  const reply = (at: string, content: object[], id = "m1") => JSON.stringify({ timestamp: at, message: { role: "assistant", id, model: "any", content, usage: { output_tokens: 300, output_tokens_details: { thinking_tokens: 100 } } } });
+  const use = (job: string) => [{ type: "tool_use", id: `u${job}`, input: { command: `node call.mjs ${job} change '{}'` } }];
+  mkdirSync(join(dir, "logs"));
+  writeFileSync(join(dir, "logs", "agent-1.jsonl"), [reply("2026-11-11T10:00:00Z", [{ type: "thinking" }]), reply("2026-11-11T10:00:20Z", use("say-fix")), JSON.stringify({ type: "api-request-blob", message: { role: "assistant", content: use("say-fix") } })].join("\n"));
+  writeFileSync(join(dir, "logs", "agent-0.jsonl"), reply("2026-11-11T11:00:00Z", use("say-fix"), "m2"));
+  writeFileSync(join(dir, "judged.jsonl"), [{ job: "say-fix", pass: true, calls: 1, refused: 0, sent: 2, read: 40 }, { job: "say-fix", pass: false, calls: 3, refused: 1, sent: 9, read: 90 }].map((j) => JSON.stringify(j)).join("\n"));
+  const costOf = (judged: string) => spawnSync(process.execPath, [new URL("../scripts/mcp-evals/cost.mjs", import.meta.url).pathname, join(dir, "logs"), judged], { encoding: "utf8" });
+  const cost = costOf(join(dir, "judged.jsonl"));
+  assert.match(cost.stdout, /\| say-fix \| yes \| 1 \| 1 \| 0 \| 0 \| 300 \| 100 \| 2 \| 40 \| 20 \|/, cost.stdout + cost.stderr);
+  assert.match(cost.stdout, /\| say-fix #2 \| NO \| 1 \| 3 \| 1 \| 0 \| 300 \| 100 \| 9 \| 90 \| 0 \|/, cost.stdout);
+  writeFileSync(join(dir, "none.jsonl"), "");
+  assert.match(costOf(join(dir, "none.jsonl")).stdout, /\| Total \(2\) \| 0 \| 2 \| 2 \| - \| 0 \| 600 \| 200 \| - \| - \| 20 \|/);
+
+  // The MCP server for evals (scripts/mcp-evals/headless.ts), with the evals' client in a process of its own (here,
+  // fetch reaches no network): two AI apps at once, each in a drawing of its own with its own ids and its own brief (b
+  // gives one and draws two structures; a, with none, is asked for it); a picture asked for
+  // is said to be missing, and only then; a wrong key, a protocol version the app refuses, and a session after DELETE,
+  // are refused. A DELETE during a call answers it, on its event stream when it has one, so no call waits for ever.
+  const env = { ...process.env, OCTET_MCP_INFO: join(dir, "mcp.json") };
+  const server = spawn(process.execPath, [new URL("../scripts/mcp-evals/headless.ts", import.meta.url).pathname], { env, stdio: "ignore" });
+  try {
+    const client = `import { connect } from ${JSON.stringify(new URL("../scripts/mcp-evals/octet.mjs", import.meta.url).href)};
+      const [a, b] = await Promise.all([connect("a"), connect("b")]);
+      const briefed = [!!(await b.call("set_brief", { destination: { kind: "paper" } })).isError, !!(await a.call("draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] })).isError];
+      await Promise.all([a.call("draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }] }), b.call("draw", { kind: "structures", structures: [{ text: "toluene", number: "1" }, { text: "phenol", number: "2" }] })]);
+      const picture = (await a.call("read", { picture: true })).content.map((c) => c.text?.startsWith("No picture") ? "none" : c.type);
+      const [da, db] = await Promise.all([a.read(), b.read()]);
+      const { port, token } = JSON.parse((await import("node:fs")).readFileSync(process.env.OCTET_MCP_INFO, "utf8")), url = "http://127.0.0.1:" + port + "/mcp";
+      const wrong = (await fetch(url, { method: "POST", headers: { authorization: "Bearer " + token.replace(/./, "x"), "content-type": "application/json" }, body: "{}" })).status;
+      const ended = (await fetch(url, { method: "DELETE", headers: { authorization: "Bearer " + token, "mcp-session-id": a.session } })).status;
+      const small = (await b.call("read", { picture_size: "small" })).content.length;
+      const version = (await fetch(url, { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json", "mcp-protocol-version": "1999-01-01" }, body: "{}" })).status;
+      const c = await connect("c"), head = { authorization: "Bearer " + token, "content-type": "application/json", "mcp-session-id": c.session };
+      const slow = (id, _meta) => fetch(url, { method: "POST", headers: head, signal: AbortSignal.timeout(10_000), body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "draw", arguments: { kind: "structures", structures: [{ text: "2-phenylethylamine" }] }, _meta } }) }).then((r) => r.text(), () => "no answer");
+      const calls = Promise.all([slow(1), slow(2, { progressToken: 1 })]);
+      await new Promise((r) => setTimeout(r, 20));
+      await fetch(url, { method: "DELETE", headers: head });
+      const stopped = (await calls).map((t) => /Octet stopped/.test(t) ? (t.startsWith("event:") ? "stream" : "json") : t.slice(0, 80));
+      console.log(JSON.stringify({ briefed, a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError, small, version, stopped }));`;
+    const out = spawnSync(process.execPath, ["--input-type=module", "-e", client], { env, encoding: "utf8", timeout: 60_000 });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(JSON.parse(out.stdout), { briefed: [false, true], a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true, small: 1, version: 400, stopped: ["json", "stream"] });
+  } finally { server.kill(); }
 } finally { rmSync(dir, { recursive: true, force: true }); }
+
+// The speed jobs' checks (scripts/mcp-evals/speed.mjs) take each answer the prompt allows: a salt drawn as its cation
+// with the tosylate beside it (and not without it), the scope's bridged amines with no stereo (their names give none),
+// and the count of stereocentres only where it is said of them.
+{
+  const { SPEED } = await import(new URL("../scripts/mcp-evals/speed.mjs", import.meta.url).href);
+  const key = (s: string) => toInchiKey(parseStructure(s)), loose = (s: string) => key(s).split("-")[0];
+  const failed = async (job: string, answer = "") => SPEED.find((j: { id: string }) => j.id === job).check({ d: (await call("read", { detail: "full" })).structuredContent, answer, key, loose }).filter(([ok]: [boolean]) => !ok).map(([, what]: [boolean, string]) => what);
+  // Each job's setup runs in a new session, with no brief yet, and none of its calls is refused: a setup that draws a
+  // scheme or more than one structure gives its brief first.
+  for (const j of SPEED.filter((j: { setup?: unknown }) => j.setup)) {
+    d = drawing("paper", j.id);
+    for (const [tool, args] of j.setup) assert.ok(!JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }), () => d.host, "1", session("Check", `setup ${j.id}`))).result.isError, `${j.id}: ${tool}`);
+  }
+  const TS = "Cc1ccc(cc1)S(=O)(=O)[O-]", salt = (tosylate: boolean) => ({ kind: "reaction", start: [{ text: "piribedil" }, { text: "Cc1ccc(cc1)S(=O)(=O)OCCC=C", number: "11a" }], steps: [
+    { products: [{ text: "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "12a" }, ...(tosylate ? [{ text: TS }] : [])] },
+    { reagents: ["9-BBN–H"], products: [{ text: "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "13a" }, ...(tosylate ? [{ text: TS }] : [])] },
+    { reagents: ["SPhos·Pd-G3", "t-BuOK"], yield: "47%", products: [{ text: "c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1", number: "14a" }] }] });
+  for (const tosylate of [true, false]) {
+    d = drawing("paper", "A salt as two structures");
+    assert.ok(!(await call("draw", salt(tosylate))).isError);
+    assert.deepEqual(await failed("paper-three-step"), tosylate ? [] : ["a tosylate with each salt drawn as its cation"]);
+  }
+  d = drawing("paper", "A scope from names");
+  const R = "CCCC(CC(c1ccccc1)c1ccccc1)";
+  const scope = { "7a": "N1CCC(CC1)c1ccccc1", "7b": "N1CCC(CC1)C(F)(F)F", "7c": "N1CCN(CC1)C(=O)OC(C)(C)C", "7d": "N1C[C@@H](C)O[C@@H](C)C1", "7e": "N1C[C@H]2C[C@H]2C1", "7f": "N1CC2CC(C1)c1ccccc12", "7g": "N1C2CCC1CC(=O)C2", "7h": "N1CC(OC)C1", "7i": "N(CC)C1CCCCC1", "7j": "N(C)CCOC", "7k": "N(C)C" };
+  assert.ok(!(await call("draw", { kind: "structures", structures: [...Object.entries(scope).map(([n, s]) => ({ text: R + s, number: n })), { text: "CC1(C)CCCC(C)(C)N1CC[C@@H]1N(C(=O)OCc2ccccc2)[C@H](C(C)(C)C)OC1=O", number: "7l" }] })).isError);
+  assert.deepEqual((await failed("paper-scope")).filter((w: string) => w.startsWith("compound")), []);
+  const asked = (answer: string) => SPEED.find((j: { id: string }) => j.id === "say-question").check({ d: { structures: [1, 2] }, answer })[1][0];
+  assert.deepEqual(["C31H46O10Si, with 8 stereocentres.", "Stereocentres: eight.", "C31H46O10Si; 9 stereocentres (8 defined).", "C31H46O10Si (MW 8 hundred), 9 stereocentres."].map(asked), [true, true, false, false]);
+}
 
 console.log("headless.check: ok");

@@ -62,12 +62,13 @@ const listed: Record<string, any> = Object.fromEntries(((await rpc(JSON.stringif
 type Wrap = (a: any) => [string, unknown];
 const values = (s: any) => s.enum as string[], beside = (a: unknown, own: object) => (a && typeof a === "object" && !Array.isArray(a) ? { ...own, ...a } : a);
 const ROUTES: [string, Wrap][] = [
-  ...values(listed.draw.inputSchema.properties.kind).map((k): [string, Wrap] => [k, (a) => ["draw", beside(a, { kind: k })]]),
+  // (draw lists lines and structures, and still takes each kind: plan 19.4.)
+  ...["structures", "cycle", "figure"].map((k): [string, Wrap] => [k, (a) => ["draw", beside(a, { kind: k })]]),
   ...values(listed.change.inputSchema.properties.operations.items.properties.op).filter((o) => o !== "draw").map((o): [string, Wrap] => [o, (a) => ["change", { operations: [beside(a, { op: o })] }]]),
-  ...values(listed.advanced.inputSchema.properties.tool).map((o): [string, Wrap] => [o, (a) => ["advanced", { tool: o, args: a }]]),
+  ...values(listed.advanced.inputSchema.properties.tool).map((o): [string, Wrap] => [o === "draw_route" ? "route" : o, (a) => ["advanced", { tool: o, args: a }]]),
   ...values(listed.drawings.inputSchema.properties.action).map((o): [string, Wrap] => [o, (a) => ["drawings", beside(a, { action: o })]]),
   ["read", (a) => ["read", a]], ["file", (a) => ["read", beside(a, { format: "smiles" })]],
-  // The brief and a route are tools of their own, and one reaction is still a kind of draw, though no longer listed.
+  // The brief is a tool of its own, a route also one that is not listed, and one reaction is still a kind of draw.
   ["brief", (a) => ["set_brief", a]], ["route", (a) => ["draw_route", a]], ["reaction", (a) => ["draw", beside(a, { kind: "reaction" })]],
 ];
 const routes = new Map<string, Wrap>();
@@ -247,6 +248,23 @@ assert.deepEqual(own, [], "the five tools' own arguments");
 // The smallest call R1 found that changed the drawing it said it had not: edit turned the structure, then could not
 // read its new text. Now the drawing goes back as it was, and in the window its step goes (history.check.ts).
 { const o = await one("change", { operations: [{ op: "edit", ids: ["s2"], rotate: 30, structure: "x" }] }); assert.equal(o.outcome, "refused", o.said); }
+// draw's lines and brief are read in its route (fromLines, briefOf), which no operation's schema has: lines made at
+// random from the notation's own pieces (brackets, labels, arrows, titles, grids, changes), some broken and some very
+// long, and briefs of random words, with and without other arguments. Each is done or refused, never crashed or slow.
+{
+  const rnd = random(SEED + 99), at = <T>(a: T[]) => a[Math.floor(rnd() * a.length)], faults: string[] = [];
+  const BITS = ["benzene", "CCO", "NaBH4", "MeOH", "0 °C", "91%", "(1)", "(2 equiv)", "(a)", "(b, c)", "->", "<=>", "-/->", "=>", " + ", ", ", "; ", "|", "^", "_", "@", '"', "'", "[", "]", "(", ")", "{R}", "{", "}", ":", "#", "# Scheme 1", "R=Me", "CORE{R}:", "aspirin[OAc>OH]", "3[OBn>OTES]", "3[7:OTBS]", "3[7+OH]", "3[5=6]", "[C@H:7]", "+x", "-x", "3", "é", "\ud800", "‮", "\t", "  "];
+  const LINE = () => Array.from({ length: 1 + Math.floor(rnd() * 12) }, () => at(BITS)).join(rnd() < 0.5 ? " " : "");
+  const BRIEF = ["quick", "paper", "thesis", "slides", "JACS", "2 columns", "no", "A4", "16:9", "600 x 900 mm", "emphasis:", "layout:", ".", ",", ";", "(", ")", "Bull. Chem. Soc. Jpn.", "nothing", "x"];
+  const lines = [...Array.from({ length: 60 }, (_, k) => k % 4 ? Array.from({ length: 1 + Math.floor(rnd() * 6) }, LINE).join("\n") : "benzene -> phenol (1), NaOH"), "(".repeat(50_000) + ")".repeat(50_000), "[".repeat(100_000), Array(14_000).fill("a -> b").join("\n"), `${"x".repeat(99_000)} -> y`, Array(5_000).fill("(a)").join(", ")];
+  for (const [k, l] of lines.entries()) {
+    const brief = rnd() < 0.5 ? Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => at(BRIEF)).join(at([" ", ", ", ". "])) : undefined;
+    const args = { lines: l, ...(brief !== undefined ? { brief } : {}), ...(k % 3 === 1 ? { at: [0, 0] } : k % 3 === 2 ? { columns: 2, structures: [{ text: "C" }] } : {}) };
+    const t = performance.now(), o = await one("draw", args), ms = performance.now() - t;
+    if (!["refused", "done"].includes(o.outcome) || ms > 2000) faults.push(`${o.outcome} (${Math.round(ms)} ms): seed ${SEED}, draw ${JSON.stringify(args).slice(0, 200)} -> ${o.said.slice(0, 160)}`);
+  }
+  assert.deepEqual(faults, [], "draw's lines and brief");
+}
 
 // ---- R9: text that tries to steer ----
 

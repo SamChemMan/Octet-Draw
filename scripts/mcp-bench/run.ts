@@ -12,18 +12,22 @@
 //   about     one line: what the job is and where it comes from
 //   for       the drawing it starts in (File > New For): paper by default
 //   brief     set_brief's arguments, the user's answers (plan 3.1): the job's first call, counted with the rest. By
-//             default the destination is the drawing's page (a corpus job was drawn on a paper page)
+//             default the destination is the drawing's page (a corpus job was drawn on a paper page). false: the job
+//             gives them in its first draw call (draw's brief, plan 19.2), so there is no call for them
 //   calls     [{ name, arguments }]: arguments may be a function of the results so far, for ids made earlier
 //   expect    { smiles: { number: SMILES or InChIKey } }: each compound number's structure in the finished drawing
 // corpus/PAPER.json holds jobs from one paper (corpus/README.md): each is a case of one call. A name on the command
-// line runs that case, or every job of that paper.
+// line runs that case, or every job of that paper. lines-JOB is the same job as the line notation writes it
+// (lines.json, src/notation.check.ts): one draw call with the brief in it. A run of every case runs them after the rest
+// in a process of their own (lines runs them alone): with every other case in one process they reach the end of
+// Indigo's stack (plan 17.2). One process for all once 1.1.2's fix is merged in.
 // Right counts those; Warnings is Octet's own count for the finished drawing (chemistry and layout). Summary is the
 // characters of the finished drawing's default read (plan section 10: under 5,000 for the taxol figure).
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 type Call = { name: string; arguments?: unknown | ((results: any[]) => unknown) };
-type Case = { about: string; for?: string; brief?: object; calls: Call[]; expect?: { smiles?: Record<string, string> } };
+type Case = { about: string; for?: string; brief?: object | false; calls: Call[]; expect?: { smiles?: Record<string, string> } };
 type Measure = { calls: number; failed: number; coerced: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number; summary?: number };
 
 // As draw.ts: Indigo's wasm as first compiled, so the process ends when the work does.
@@ -36,9 +40,12 @@ const here = new URL("./", import.meta.url), version = JSON.parse(readFileSync(n
 const argv = process.argv.slice(2), write = argv.includes("--write"), named = argv.filter((a) => a !== "--write");
 // Every case by name: cases/NAME.mjs, and each job of corpus/PAPER.json (named PAPER-...).
 const all = new Map<string, () => Promise<Case>>(readdirSync(new URL("cases/", here)).filter((f) => f.endsWith(".mjs")).map((f) => [f.slice(0, -4), async () => (await import(new URL(`cases/${f}`, here).href)).default]));
+const lines: Record<string, string> = JSON.parse(readFileSync(new URL("lines.json", here), "utf8"));
 for (const f of existsSync(new URL("corpus/", here)) ? readdirSync(new URL("corpus/", here)).filter((x) => x.endsWith(".json")) : [])
   for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) {
     all.set(j.id, async () => ({ about: j.prompt, for: j.for, brief: j.brief, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
+    const page = j.for ?? "paper";
+    if (lines[j.id] && named.some((x) => `lines-${j.id}`.startsWith(x))) all.set(`lines-${j.id}`, async () => ({ about: `${j.prompt} (as lines)`, for: j.for, brief: false, calls: [{ name: "draw", arguments: { lines: lines[j.id], brief: j.brief ?? (page === "experiment" ? "notebook" : page) } }], expect: j.expect }));
     // A job of more than one step is a route too (plan 5.4): one draw_route call, its figure as the scheme's title.
     const { kind, start, steps } = j.arguments;
     if (kind === "reaction" && steps.length > 1) all.set(`route-${j.id}`, async () => ({ about: `${j.prompt} (as a route)`, for: j.for, brief: j.brief, calls: [{ name: "draw_route", arguments: { schemes: [{ title: j.figure, start, steps }] } }], expect: j.expect }));
@@ -55,8 +62,8 @@ async function run(c: Case): Promise<Measure> {
   const d = drawing(c.for ?? "paper"), results: any[] = [], m: Measure = { calls: 0, failed: 0, coerced: 0, sent: 0, read: 0, ms: 0, slowest: 0 }, from = `bench-${++runs}`;
   const rpc = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), () => d.host, version, session("Octet bench", from)));
   // Each run is a new session, so it gives its brief first (results holds the job's own calls).
-  const page = c.for ?? "paper", brief: Call = { name: "set_brief", arguments: c.brief ?? { destination: { kind: page === "experiment" ? "notebook" : page } } };
-  for (const call of [brief, ...c.calls]) {
+  const page = c.for ?? "paper", brief: Call = { name: "set_brief", arguments: c.brief || { destination: { kind: page === "experiment" ? "notebook" : page } } };
+  for (const call of [...(c.brief === false ? [] : [brief]), ...c.calls]) {
     const args = typeof call.arguments === "function" ? call.arguments(results) : (call.arguments ?? {}), t = performance.now();
     const r = await rpc("tools/call", { name: call.name, arguments: structuredClone(args) }), ms = performance.now() - t;
     // What the AI app reads: the text and any picture (structuredContent repeats the text's data).
@@ -104,6 +111,9 @@ for (const [name, m] of Object.entries(now.cases)) {
   than(`${name} ms`, m.ms, was?.ms, (v) => v * 1.2 + 50);
   if ((m.right ?? 0) < (was?.right ?? 0)) worse.push(`${name} structures right: ${m.right}, was ${was?.right}`);
 }
-if (write) writeFileSync(file, JSON.stringify(named.length && kept ? { ...now, cases: { ...kept.cases, ...now.cases } } : now, null, 1) + "\n");
+// (A run of every case keeps the lines cases it did not run.)
+if (write) writeFileSync(file, JSON.stringify(kept ? { ...now, cases: { ...Object.fromEntries(Object.entries(kept.cases).filter(([k]) => named.length || k.startsWith("lines-"))), ...now.cases } } : now, null, 1) + "\n");
 else for (const w of worse) console.error(`WORSE ${w}`);
-process.exit(write || !worse.length ? 0 : 1);
+// A run of every case runs the lines cases too, in a process of their own (above), after this one has written.
+const linesRun = named.length ? 0 : spawnSync(process.execPath, [...process.execArgv, process.argv[1], ...(write ? ["--write"] : []), "lines"], { stdio: "inherit" }).status ?? 1;
+process.exit((write || !worse.length) && !linesRun ? 0 : 1);
