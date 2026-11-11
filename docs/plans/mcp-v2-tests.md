@@ -302,7 +302,7 @@ The building session asks Sam for the open items at the start (`mcp-v2.md`, **St
 
 ## 15. Scripting (#89) and the command line (#91)
 
-For `mcp-v2.md` section 18. None of this is built until Sam says yes to that section.
+For `mcp-v2.md` section 18 (decided 11 November 2026: build it as written there).
 
 | ID | Test |
 |---|---|

@@ -948,11 +948,15 @@ first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release
 stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
 they come out.
 
-## 18. Scripting (#89) and batch conversion (#91): a proposal for Sam's yes
+## 18. Scripting (#89) and batch conversion (#91)
 
 Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
 save files and loop over a folder; AI apps still have no file access; batch conversion runs from the command line
-only, with no menu item; it handles everything Octet opens and saves. **Not built until Sam says yes to this section.**
+only, with no menu item; it handles everything Octet opens and saves.
+
+**Decided (Sam, 11 November 2026: "you decide whatever the best option is"): build it as written here.** The command
+is `--convert` on the app's own program. No `octet` command is put on the PATH: that is an installer step on each
+platform for a hidden feature, and a user who wants a short name makes an alias. The scripting page shows how.
 
 ### 18.1 One engine: Octet with no window
 
@@ -1018,6 +1022,3 @@ After step 5 (the tool merge), so scripts are written against the final tool nam
 
 Tests are in `mcp-v2-tests.md`, section 15.
 
-Open for Sam: is the command's name `--convert` on the app's own program right (on Mac that is
-`/Applications/Octet Draw.app/Contents/MacOS/Octet Draw --convert ...`), or does he want a short `octet` command
-installed on the PATH (an installer step on each platform)?
