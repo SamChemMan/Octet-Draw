@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper,
+  TreeStructure, BracketsCurly, Barcode, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -98,6 +98,7 @@ import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
 import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
+import { readSequence, toFasta, toHelm } from "./helm";
 import { NUCLEIC, nucleicProblem } from "./nucleic";
 import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, warmLayout } from "./namepreview";
 import { commonKey } from "./common";
@@ -147,6 +148,8 @@ const LINUX = navigator.platform.startsWith("Linux");
 const MOD = MAC ? "⌘" : "Ctrl+";
 // Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
+// ChemDraw's ⌥⌘E, on the Mac only: Ctrl+Alt+E elsewhere is AltGr+E, which types € on many keyboards.
+const HELM_KEYS = MAC ? "⌥⌘E" : "";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
 // Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has
@@ -2166,6 +2169,15 @@ export default function Editor() {
     openNaming(prefix);
     requestAnimationFrame(() => { const f = nameField.current; f?.setSelectionRange(f.value.length, f.value.length); });
   }
+  // Pasted HELM or FASTA (helm.ts): the field with the sequence in it, as Insert Peptide… opens it (or, pasted into the
+  // field, in place of its text), so its kind and ends can be chosen before Return draws it. HELM that Octet cannot read
+  // says why. False for any other text.
+  function pasteSequence(text: string, field = false): boolean {
+    const read = readSequence(text);
+    if (read && "problem" in read) setNotice(read.problem);
+    else if (read) (field ? setNaming : insertSequence)(read.text);
+    return !!read;
+  }
   // A sequence with Residue labels on is drawn as its residues' labels (sequence.ts residues); anything else, and a
   // sequence whose atoms are not in the order of its SMILES, as it is.
   const asResidues = (text: string, frag: Mol) => (settings.sequenceLabels && isSequence(text) ? residuesOf(text, frag, parseStructure) ?? frag : frag);
@@ -2647,6 +2659,8 @@ export default function Editor() {
     copy_cdxml: () => copyAs("cdxml"),
     copy_mol: () => copyAs("mol"),
     copy_mol_v2000: () => copyAs("mol_v2000"),
+    copy_helm: () => copyAs("helm"),
+    copy_fasta: () => copyAs("fasta"),
     // File > Open Recent: the drawing at that place in the list (the menu lists them in the list's order).
     ...Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`recent_${k}`, () => {
       if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
@@ -6980,7 +6994,7 @@ export default function Editor() {
   const clipCommand = (id: "cut" | "copy" | "paste") => {
     const el = document.activeElement;
     if (!typing()) return void dispatchEvent(new ClipboardEvent(id, { cancelable: true }));
-    if (id === "paste") return void readClipboard().then((c) => { if (c.text) document.execCommand("insertText", false, c.text); }, (err) => setNotice(failure("Octet cannot read the clipboard.", err)));
+    if (id === "paste") return void readClipboard().then((c) => { if (c.text && !(el === nameField.current && pasteSequence(c.text, true))) document.execCommand("insertText", false, c.text); }, (err) => setNotice(failure("Octet cannot read the clipboard.", err)));
     const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el : undefined;
     // A number field has no selection to read: its whole value.
     const text = field ? (field.selectionStart === null ? field.value : field.value.slice(field.selectionStart, field.selectionEnd ?? field.selectionStart)) : getSelection()?.toString() ?? "";
@@ -6988,10 +7002,11 @@ export default function Editor() {
   };
   // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
   // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
-  // 26.1) and MOL V2000 Text (⇧⌥⌘O).
+  // 26.1), MOL V2000 Text (⇧⌥⌘O), and each peptide, RNA or DNA as HELM (⌥⌘E) or FASTA (helm.ts).
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
     mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)],
+    helm: ["HELM", (m) => toHelm(m, toInchi, toSmiles) ?? ""], fasta: ["FASTA", (m) => toFasta(m, toInchi) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;
@@ -7011,7 +7026,7 @@ export default function Editor() {
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
     undo: `${MOD}Z`, redo: `${MOD}Y`, invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, centre_view: `⌥${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
-    copy_cdxml: `${MOD}D`, copy_mol: `⌥${MOD}O`, copy_mol_v2000: `⇧⌥${MOD}O`,
+    copy_cdxml: `${MOD}D`, copy_mol: `⌥${MOD}O`, copy_mol_v2000: `⇧⌥${MOD}O`, copy_helm: HELM_KEYS,
     structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
@@ -7056,6 +7071,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
+    copy_helm: ["Copy as HELM", HELM_KEYS, <BracketsCurly size={18} />], copy_fasta: ["Copy as FASTA", "", <Barcode size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
@@ -7267,7 +7283,7 @@ export default function Editor() {
       return;
     }
 
-    if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000"].includes(command)) return copyAs(command.slice(5));
+    if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000", "copy_helm", "copy_fasta"].includes(command)) return copyAs(command.slice(5));
     if (command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
@@ -8190,6 +8206,7 @@ export default function Editor() {
           if (clip.cdxml && pasteCdxml(clip.cdxml)) return;
           if (clip.cdx && pasteRead(() => readCdx(fromBase64(clip.cdx!)))) return;
           if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return;
+          if (text && pasteSequence(text)) return;
           let why = "Paste a name, a SMILES string or a MOL file.";
           const refused = (reason: string) => { why = reason; };
           for (const source of [clip.molfile, clip.smiles]) {
@@ -8230,6 +8247,7 @@ export default function Editor() {
       const spc = (f: File) => f.arrayBuffer().then((b) => `${SPC}${JSON.stringify({ name: f.name, data: toBase64(new Uint8Array(b)) })}`);
       if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? (/\.spc$/i.test(jdx.name) ? spc(jdx) : jdx.text()) : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
+      if (text && pasteSequence(text)) return e.preventDefault();
       if (!named && !file) return;
       e.preventDefault();
       // A chemical name first, then SMILES or a MOL file, then a picture.
@@ -9443,6 +9461,7 @@ export default function Editor() {
           spellCheck={false}
           value={naming}
           onChange={(e) => { setNaming(e.target.value); setRecent((h) => ({ ...h, at: -1 })); }}
+          onPaste={(e) => { if (pasteSequence(e.clipboardData.getData("text/plain"), true)) e.preventDefault(); }}
           onKeyDown={(e) => {
             if (e.key === "Escape") { e.preventDefault(); setNaming(undefined); }
             if (e.key === "Tab" && suggestion) { e.preventDefault(); setNaming(suggestion); }
