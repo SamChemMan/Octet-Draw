@@ -1208,6 +1208,7 @@ button.variant.add {
   display: grid;
   place-items: center;
   height: var(--size-row);
+  box-sizing: border-box;
   padding: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -1324,6 +1325,7 @@ button.variant.add {
   white-space: nowrap;
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
   height: var(--size-control-sm);
+  box-sizing: border-box;
 }
 .name-options > button {
   border-color: var(--hairline);
@@ -1782,6 +1784,7 @@ button.variant.add {
   align-items: center;
   gap: var(--space-1);
   height: var(--size-tool);
+  box-sizing: border-box;
   padding: 0 var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -1944,6 +1947,7 @@ div.facts {
   align-items: center;
   gap: var(--space-1);
   height: var(--size-control-sm);
+  box-sizing: border-box;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -2181,6 +2185,7 @@ div.facts {
   justify-content: space-between;
   gap: var(--space-2);
   height: var(--size-control);
+  box-sizing: border-box;
   min-width: 112px;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
@@ -2394,6 +2399,7 @@ div.facts {
   align-items: center;
   gap: var(--space-2);
   height: var(--size-control);
+  box-sizing: border-box;
   min-width: 112px;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
@@ -2788,6 +2794,7 @@ div.facts {
 .key-chip > button:first-child {
   min-width: 28px;
   height: var(--size-control-sm);
+  box-sizing: border-box;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-bottom-width: 2px;
@@ -2833,6 +2840,7 @@ div.facts {
   place-items: center;
   width: var(--size-control-sm);
   height: var(--size-control-sm);
+  box-sizing: border-box;
   padding: 0;
   border: 1px dashed var(--hairline);
   border-radius: var(--radius-xs);
@@ -4245,6 +4253,7 @@ div.facts {
   font: 13px/18px var(--font-sans);
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
   height: var(--size-control);
+  box-sizing: border-box;
 }
 .dialog-button.primary {
   border-color: var(--brand);
@@ -4500,6 +4509,7 @@ div.facts {
   color: var(--ink);
   font: 13px/18px var(--font-sans);
   height: var(--size-control);
+  box-sizing: border-box;
 }
 @media (hover: hover) and (pointer: fine) {
   .prop-add:hover:not(:disabled) {
@@ -4754,6 +4764,7 @@ div.facts {
   align-items: center;
   gap: var(--space-1);
   height: var(--size-control);
+  box-sizing: border-box;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -5101,6 +5112,7 @@ div.facts {
   align-items: center;
   gap: var(--space-1);
   height: var(--size-tool);
+  box-sizing: border-box;
   padding: 0 var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -5195,6 +5207,7 @@ div.facts {
   display: flex;
   align-items: center;
   height: var(--size-tool);
+  box-sizing: border-box;
   padding: 0 calc((var(--size-tool) - 18px) / 2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -5455,6 +5468,7 @@ div.facts {
   align-items: center;
   gap: var(--space-1);
   height: var(--size-control);
+  box-sizing: border-box;
   padding: 0 var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -5895,6 +5909,7 @@ div.facts {
   gap: var(--space-1);
   min-width: 0;
   height: var(--size-control-sm);
+  box-sizing: border-box;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -6640,8 +6655,9 @@ div.facts {
   transform-origin: top left;
   animation: paste-offer-in var(--motion-fast) var(--ease-out);
 }
-.paste-offer .segmented { border: 0; background: transparent; }
-.paste-offer .segmented button { font: 500 13px/18px var(--font-sans); }
+/* The offer is a segmented control on its own card: no well and no edge to see, and its segments are the size and
+   the type of every other control's (the edge stays, clear, so the segments keep their height). */
+.paste-offer .segmented { border-color: transparent; background: transparent; }
 @keyframes paste-offer-in {
   from { opacity: 0; transform: translateY(-4px) scale(0.97); }
 }
@@ -6702,6 +6718,7 @@ div.facts {
   font: 11px/16px var(--font-sans);
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
   height: var(--size-control-sm);
+  box-sizing: border-box;
 }
 @media (hover: hover) and (pointer: fine) {
   .notes-tab:hover:not([aria-current]) {
@@ -6918,6 +6935,7 @@ div.facts {
   display: flex;
   align-items: center;
   height: var(--size-control-sm);
+  box-sizing: border-box;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
   background: var(--surface-raised);
