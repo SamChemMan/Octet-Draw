@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import type { Structure } from "./chem.ts";
 import { LIVE_ATTRS, PROPERTY_ATTRS, fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { addCaption, erase } from "./edit.ts";
+import { addCaption, addTemplate, erase } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import { PROPERTY_ROWS, liveValues, propertyReport, propertyRuns, propertyValues } from "./proprows.ts";
 import type { Caption, Mol } from "./render.ts";
@@ -95,6 +95,11 @@ const want = at(m).property;
 assert.deepEqual(at(parse(serialize(m))).property, want);
 const xml = toCdxml(m, DEFAULT_STYLE);
 assert.ok(!xml.includes("chemicalproperty"));
-assert.deepEqual(fromCdxml(xml).mol.captions![0].property, want);
+const read = fromCdxml(xml).mol;
+assert.deepEqual(read.captions![0].property, want);
+// Opened again, its values are up to date: no change, so the drawing is not marked edited.
+assert.equal(liveValues(read, alkane), read);
+// Placed from My templates (kept as Octet's files), it is for the template's atoms, not the drawing's first atoms.
+assert.equal(liveValues(addTemplate(ethane, parse(serialize(m)), { point: [0, 9] }), alkane).captions!.at(-1)!.text, "Formula: C3H8");
 assert.deepEqual(LIVE_ATTRS.filter((k) => PROPERTY_ATTRS.includes(k)), []);
 console.log("proprows.check: ok");
