@@ -85,7 +85,7 @@ import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { inkOn, richSpans } from "./richspans";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
-import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
+import { clearScheme, interpret, mapScheme, rolesOf, turnScheme, type Part, type Role, type RoleStep } from "./interpret";
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
@@ -554,7 +554,7 @@ export default function Editor() {
   const now = useRef(doc);
   now.current = doc;
   // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
-  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; indigo: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
+  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; indigo: boolean; gliding: boolean; turnNow: () => Promise<void> }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
   // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
   // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
   // 7 November 2026, decision 0024).
@@ -3956,29 +3956,18 @@ export default function Editor() {
   // parts now stand and laid out again. A reaction with no map is mapped for this and the map taken off again.
   // Undefined when nothing changes.
   const turnProducts = (pick: (r: Reaction) => boolean): Mol | undefined => {
-    const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : [])), seen = new Set<number>();
-    let m = doc;
-    for (const a of arrows) {
-      if (!straightArrow(a) || seen.has(a.id)) continue;
-      const r = reactionOf(a.id);
-      r?.arrows.forEach((id) => seen.add(id));
-      if (!r || !withStructure(r) || !pick(r)) continue;
-      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
-      const had = r.atoms.some((i) => doc.atoms[i].map), was = m, mapped = had ? m : mapScheme(m, steps, mapReaction, (g) => pickAtoms(was, g));
-      if (!mapped) continue;
-      const out = alignByMap(mapped, steps);
-      m = had ? out : { ...clearScheme(out, new Set(r.atoms)), bonds: out.bonds.map((b, k) => ({ ...b, rxn: was.bonds[k].rxn })) };
-    }
+    const m = turnScheme(doc, arrows, reactionOf, captionBox, pick, mapReaction, pickAtoms);
     const laid = m !== doc && !sameLayout(m, doc) ? cleanReactions(m, pick) : undefined;
     return laid?.count && !sameLayout(laid.mol, doc) ? laid.mol : undefined;
   };
   // Clean Up Reaction's turn, once the layout's glide is over: Indigo's atom map takes about 8 ms a reaction, so the
   // canvas answers the key as quickly as before, and the turn glides as a step of its own (decision 0024). It waits
-  // while a glide runs, as the other work after an edit does. A change before then (an Undo) drops it.
+  // while a glide runs, as the other work after an edit does. A change before then (an Undo) drops it. For an AI app
+  // the call's settle makes it at once (mcpHost turnNow), so the call gives back the finished drawing.
   const turnNext = useRef<(r: Reaction) => boolean>(undefined);
   useEffect(() => {
     const pick = turnNext.current;
-    if (!pick) return;
+    if (!pick || mcpCalling.current) return;
     turnNext.current = undefined;
     let t = 0;
     const go = () => { if (glidingNow.current) { t = window.setTimeout(go, 30); return; } const to = turnProducts(pick); if (to) glideTo(to); };
@@ -7333,7 +7322,10 @@ export default function Editor() {
       const end = Date.now() + 3000, w = mcpWait.current, done = () => (w.mol ? mcpHost.current!.rendered === w.mol : w.after === undefined || mcpRenders.current > w.after);
       while (!done() && Date.now() < end) await tick();
       mcpWait.current = {};
+      if (turnNext.current) await mcpHost.current!.turnNow();
     },
+    // Clean Up Reaction's turn, on its layout as drawn now (turnNext).
+    turnNow: async () => { const pick = turnNext.current!, to = turnProducts(pick); turnNext.current = undefined; if (to) { mcpWait.current = { after: mcpRenders.current }; glideTo(to); await mcpHost.current!.settle(); } },
     cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) { mcpWait.current = { after: mcpRenders.current }; glideTo(spread(doc, c)); } },
     command: (id) => { const run = commands.current[id]; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); return true; },

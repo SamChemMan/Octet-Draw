@@ -18,7 +18,7 @@ import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, s
 import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
 import { experimentPage, newExperiment, newGrids } from "../../src/experiment.ts";
-import { interpret, type Part } from "../../src/interpret.ts";
+import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
@@ -241,7 +241,14 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (!cleanReactions((r) => withStructure(r) && r.atoms.some((i) => touched.has(i)), m)) set(m);
       return true;
     },
-    clean_reaction: () => { const s = selected(); cleanReactions((r) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i))); return true; },
+    // As the editor's: laid out, then each product turned to lie as its starting material and laid out again, at once.
+    clean_reaction: () => {
+      const s = selected(), pick = (r: Reaction) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i));
+      cleanReactions(pick);
+      const d = drawn(doc), m = turnScheme(doc, d.arrows, (id) => findReaction(doc, id, d.arrows, d.ink, d.captionBox), d.captionBox, pick, mapReaction, pickAtoms);
+      if (m !== doc) cleanReactions(pick, m);
+      return true;
+    },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };

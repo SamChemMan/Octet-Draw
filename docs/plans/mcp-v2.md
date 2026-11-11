@@ -1484,6 +1484,9 @@ Clean Up Reaction now does both jobs and `clean_reaction_augmented` is gone):
   `scripts/headless/host.ts` must turn the products at once (`turnProducts`, then one set), so the call returns the
   finished drawing. Add a check that the reply's drawing is the turned one.
 
+Done on 11 November 2026 (branch `mcp/112`): the merge, both points above, and `turnScheme` in `src/interpret.ts`,
+which the editor and the host with no window share.
+
 ### 17.4 Pushing these branches
 
 `release-1.2-mcp` is on GitHub from 11 November 2026 (Sam: the MCP is 1.2 and all of it goes on the 1.2 branch; never

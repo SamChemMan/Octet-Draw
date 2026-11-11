@@ -443,6 +443,8 @@ const refused: [string, unknown, RegExp][] = [
   ["draw", { kind: "structures", structures: Array(201).fill({ text: "water" }) }, /more than 200/],
   ["draw", { kind: "cycle", intermediates: [{ text: "benzene" }] }, /fewer than 2/],
   ["advanced", { tool: "run_command", args: { command: "quit" } }, /no command quit/],
+  // Clean Up Reaction does Augmented Clean Up Reaction's work too, since 1.1.2 (plan mcp-v2, 17.3).
+  ["advanced", { tool: "run_command", args: { command: "clean_reaction_augmented" } }, /no command clean_reaction_augmented/],
   ["advanced", { tool: "set_style", args: { preset: "Comic Sans" } }, /not one of/],
   ["read", [], /not an object/],
   // Through a piece a tool lists once (rich, place), a refusal names the place and the forms as before.
@@ -1366,6 +1368,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(shown, undefined, "nothing made, nothing to show");
   // (The window cannot run here: the editor's host is checked by its text. It pans the view to that box, as a paste does.)
   assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /end: \(made\) => \{[^}]*if \(made\) panTo\(/, "the editor's host brings what a call made into view");
+  // Clean Up Reaction turns the products after its layout's glide (turnNext). In a call the settle turns them at once,
+  // so run_command clean_reaction gives back the finished drawing (plan mcp-v2, 17.3).
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const pick = turnNext\.current;\n\s+if \(!pick \|\| mcpCalling\.current\) return;/, "the turn waits for no timer in a call");
+  assert.match(editor, /mcpWait\.current = \{\};\n\s+if \(turnNext\.current\) await mcpHost\.current!\.turnNow\(\);/, "the call's settle turns the products");
   // Under a shape too (a box drawn round something). Not on an experiment page: its schemes go in its boxes.
   for (experiment of [false, true]) {
     m = EMPTY;

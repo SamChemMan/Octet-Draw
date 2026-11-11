@@ -436,6 +436,19 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.deepEqual([again.text.map((t: { text: string }) => t.text), titles.map((t) => again.captions.find((c: { text: string }) => c.text === t).box)], [titles, titles.map(box)]);
 }
 {
+  // Clean Up Reaction gives back the finished drawing (plan mcp-v2, 17.3): the reaction laid out and, at once, each
+  // product turned to lie as its starting material. A product turned a quarter round lies as it was drawn again.
+  d = drawing("paper", "Turn");
+  assert.ok(!(await call("draw", { lines: "acetophenone (1) -> 1-phenylethanol (2), NaBH4" })).isError);
+  const m = d.host.doc(), p = m.captions!.find((c) => c.bold && c.text === "2")!.under!.filter((i) => m.atoms[i].label !== "H");
+  const shape = (x: typeof m) => p.map((i) => [0, 1].map((k) => x.atoms[i].location[k] - x.atoms[p[0]].location[k]));
+  const c = [0, 1].map((k) => p.reduce((t, i) => t + m.atoms[i].location[k], 0) / p.length);
+  d.host.set({ ...m, atoms: m.atoms.map((a, i) => (p.includes(i) ? { ...a, location: [c[0] - (a.location[1] - c[1]), c[1] + (a.location[0] - c[0]), a.location[2] ?? 0] } : a)) });
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_reaction" } })).isError);
+  const was = shape(m), now = shape(d.host.doc());
+  assert.ok(now.every((v, k) => Math.hypot(v[0] - was[k][0], v[1] - was[k][1]) < 0.05), "the product lies as its starting material again");
+}
+{
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
   d = drawing("paper", "Rows");
   const rows: Wrote = await call("draw_route", { schemes: [{ ...route(7), start: [{ text: biphenyl(GROUPS[6]), number: "7" }] }] }), levels: number[] = [];
