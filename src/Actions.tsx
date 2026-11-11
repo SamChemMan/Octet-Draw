@@ -129,7 +129,7 @@ const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂
 
 // Digits in a formula as subscripts: C8H9NO2 → C₈H₉NO₂.
 const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
-const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
+export const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
 // list), each drawn as itself with its name. Colours are ColourPick's (ColourPicker.tsx), which works the same way.

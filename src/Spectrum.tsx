@@ -13,7 +13,7 @@ import { acsText, countText, detailsTable, isNucleus, multiplicity, NUCLEI, qual
 import { levels, measuredText, nameOf, nucleusText, reversed, type Analysis, type Measured } from "./measured";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
-import { Slider } from "./Actions";
+import { formula, Slider } from "./Actions";
 import { listOpen, Pick } from "./Menu";
 import { useMovable } from "./movable";
 import { holdCursor } from "./cursor";
@@ -293,7 +293,7 @@ function Panel(p: Props) {
           The controls sit in a row of their own under it. */}
       {!expanded && <ResizeEdge sizing={p.sizing} onMinimise={p.onMinimise} />}
       <header onPointerDown={move.onPointerDown}>
-        <h2 onPointerEnter={() => p.onPointTitle(true)} onPointerLeave={() => p.onPointTitle(false)}>{p.title || nameOf(p.spectrumKey)}{m && showM && m.title && <span className="spectrum-title">{m.title}</span>}</h2>
+        <h2 onPointerEnter={() => p.onPointTitle(true)} onPointerLeave={() => p.onPointTitle(false)}>{formula(p.title) || nameOf(p.spectrumKey)}{m && showM && m.title && <span className="spectrum-title">{m.title}</span>}</h2>
       </header>
       <div className="spectrum-controls">
         <Tabs keys={p.keys} value={p.spectrumKey} onKey={p.onKey} onClose={p.onCloseTab}>

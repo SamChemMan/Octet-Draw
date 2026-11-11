@@ -2200,7 +2200,7 @@ div.facts {
   color: var(--link);
 }
 @media (hover: hover) and (pointer: fine) {
-  .segmented button:hover:not([aria-checked="true"]) {
+  .segmented button:hover:not([aria-checked="true"], [aria-selected="true"]) {
     background: var(--surface-sunken);
     color: var(--ink);
   }
@@ -4679,7 +4679,7 @@ div.facts {
   font: 13px var(--font-sans);
   white-space: nowrap;
 }
-.spectrum-button:hover:not(:disabled) {
+.spectrum-button:hover:not(:disabled, [aria-pressed="true"]) {
   background: var(--surface-sunken);
 }
 .spectrum-plot {
