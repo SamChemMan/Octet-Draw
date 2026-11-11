@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { analyse, keptInchi, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -76,8 +76,8 @@ import { createPortal, flushSync } from "react-dom";
 import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { parseAmount, reagentFormula, type Field } from "./stoich";
-import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
+import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
+import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -94,7 +94,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, setRole } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -2612,7 +2612,7 @@ export default function Editor() {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       if (arrow === undefined) return setNotice("Select a reaction first.", "info");
       const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
-      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
+      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {}, roles: {} }] }, true);
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
@@ -3262,7 +3262,7 @@ export default function Editor() {
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "conditions"; arrow: number; page: boolean; values: GridConditions } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
@@ -5969,7 +5969,7 @@ export default function Editor() {
   const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
-    structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
+    structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0], inchi: (atoms) => keptInchi(pickAtoms(m, atoms)),
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, readName, labelSmiles, smilesWeight),
     captionBox,
@@ -5979,8 +5979,14 @@ export default function Editor() {
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
   function tableSpan(v: GridView): number[] {
-    return [v.start, Math.min(...v.cells.map((c) => c.y - v.rh), ...(v.rules ?? []).map((r) => r[2])), Math.max(...v.cells.map((c) => c.x + c.w / 2)), v.top];
+    return [v.start, Math.min(...v.cells.map((c) => c.y - v.rh), ...(v.rules ?? []).map((r) => r[2]), ...(v.block?.lines.map((l) => l.y - v.rh) ?? [])), Math.max(...v.cells.map((c) => c.x + c.w / 2), v.block?.right ?? -Infinity), v.top];
   }
+  // A table's conditions as Copy table and Conditions… give them: on an experiment page's first table, Temperature and
+  // Time are the page's.
+  const conditionsOf = (v: GridView): GridConditions => {
+    const own = doc.grids?.find((g) => g.arrow === v.arrow)?.conditions ?? {}, page = v.page ? detailsOf(doc.annotations) : undefined;
+    return page ? { ...own, temperature: page.temperature, time: page.time } : own;
+  };
   // An edit on an experiment page whose reagent table runs past the bottom of the Reaction scheme box grows the box,
   // and moves what is under it down (growScheme), in the edit's own undo step. A drawing opened is left as it is.
   useEffect(() => {
@@ -6011,13 +6017,22 @@ export default function Editor() {
   type GridCell = Omit<NonNullable<typeof gridEdit>, "value">;
   // A cell takes typing unless it is worked out (Formula, MW, Expected moles, Yield, a reactant's Expected mass), a
   // name, or Limiting? (which a click or Return sets).
-  const gridTypes = (gc: { row: string; product: boolean }) => !["name", "formula", "mw", "expectedMoles", "yield", "limiting"].includes(gc.row) && (gc.row !== "expected" || gc.product);
+  const gridCol = (gc: { arrow: number; key: string }) => gridViews.find((x) => x.arrow === gc.arrow)?.cols.find((x) => x.key === gc.key);
+  const gridTypes = (gc: GridCell) => !["name", "formula", "mw", "expectedMoles", "yield", "limiting", "role"].includes(gc.row) && (gc.row !== "expected" || gc.product) && (gc.row !== "conc" || gridCol(gc)?.role === "solvent");
+  // Limiting? sets the limiting reactant (not a solvent's); Role goes to the next role: Reactant, Catalyst, Solvent.
+  const gridToggle = (gc: GridCell) => {
+    const gcol = gridCol(gc);
+    if (gc.product || !gcol) return;
+    if (gc.row === "limiting" && gcol.role !== "solvent") changeGrid(gc.arrow, () => ({ limiting: gc.key }));
+    if (gc.row === "role") changeGrid(gc.arrow, (g, v) => setRole(g, v, gc.key, ROLES[(ROLES.indexOf(gcol?.role ?? "reactant") + 1) % ROLES.length]));
+  };
   // Type in a cell: what was typed there, or the key that started it (a key over a picked cell types over it, as in a
   // spreadsheet). The cell stays picked, so the keys carry on from it.
   const editGridCell = (gc: GridCell, start?: string) => {
     const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
     setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
-    setGridEdit({ ...gc, value: start ?? (c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "") });
+    const t = gridText(v, c, row);
+    setGridEdit({ ...gc, value: start ?? (t.typed ? t.text : "") });
   };
   // The keys on a picked cell, as Numbers, Excel and Google Sheets have them: the arrows and Tab move, Return types in
   // it (or moves down past a worked-out one), a character types over it, and Delete clears what was typed there. Delete
@@ -6031,7 +6046,7 @@ export default function Editor() {
     const typed = () => { const col = v.cols.find((x) => x.key === c.key), row = GRID_ROWS.find((r) => r.id === c.row); return !!(col && row && gridText(v, col, row).typed); };
     if (arrowKey) move(arrowKey);
     else if (e.key === "Tab") move(e.shiftKey ? "back" : "next");
-    else if (e.key === "Enter" && c.row === "limiting" && !c.product) changeGrid(v.arrow, () => ({ limiting: c.key }));
+    else if (e.key === "Enter" && (c.row === "limiting" || c.row === "role")) gridToggle(gc);
     else if (e.key === "Enter") { if (gridTypes(gc)) editGridCell(gc); else move(e.shiftKey ? "up" : "down"); }
     else if (e.key === "Backspace" || e.key === "Delete") { if (gridTypes(gc) && typed()) commitGridCell("", gc); }
     else if (e.key.length === 1 && e.key.trim() && gridTypes(gc)) editGridCell(gc, e.key);
@@ -6047,7 +6062,7 @@ export default function Editor() {
   const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => {
     const g = doc.grids?.find((x) => x.arrow === arrow), v = gridViews.find((x) => x.arrow === arrow);
     if (!g || !v) return;
-    const now: Grid = { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting };
+    const now = keptGrid(g, v);
     set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...now, ...change(now, v) } : x)) }, true);
   };
   // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
@@ -6060,27 +6075,48 @@ export default function Editor() {
     const w = cell, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
-    const row = GRID_ROWS.find((r) => r.id === w.row)!;
-    if (row.id === "limiting") return w.product ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
+    if (row.id === "limiting") return w.product || role === "solvent" ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    // Concentration: the grid's, for the solvent with no amount; typed here, this solvent's amount goes, so it is that one.
+    if (row.id === "conc") {
+      if (!text.trim()) return changeGrid(w.arrow, () => ({ conc: undefined }));
+      const conc = parseAmount(text, "molarity");
+      if (!conc || conc > 1000) return setNotice("Type a concentration, such as 0.1 M or 100 mM.", "info");
+      return changeGrid(w.arrow, (g) => { const { mass: _m, moles: _n, volume: _v, equiv: _e, ...rest } = g.typed[w.key] ?? {}; return { conc, typed: { ...g.typed, [w.key]: rest } }; });
+    }
     if (!row.field) return;
     const field0 = row.field;
-    changeGrid(w.arrow, (g) => {
+    // A reactant's mass or volume typed is the amount measured out: the column's mark goes to it. Cleared, its mark goes.
+    const marked = (g: Grid, field?: Field): Partial<Grid> => {
+      if (w.product) return {};
+      const { [w.key]: was, ...rest } = g.taken ?? {};
+      if (field === "mass" || field === "volume") return { taken: { ...rest, [w.key]: field } };
+      return field === undefined && was === field0 ? { taken: rest } : {};
+    };
+    changeGrid(w.arrow, (g, v) => {
       const typed = { ...(g.typed[w.key] ?? {}) };
       if (!text.trim()) delete typed[field0];
       else {
         const target = w.product && row.id === "expected", fields: Field[] = target ? ["mass"] : w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
+        // A catalyst's equivalents are in mol%: a bare 5 is 5 mol%.
         const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && !target && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
-        const value = field && parseAmount(text, field, settings.massUnit);
+        const value = field && parseAmount(bare && field === "equiv" && role === "catalyst" ? `${text.trim()} mol%` : text, field, settings.massUnit);
         if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info"); return {}; }
         if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
         typed[field] = value;
         const amount = (fd: string) => ["mass", "moles", "volume"].includes(fd);
+        // A solvent's amount: a concentration typed stays while another solvent has no amount to take it.
+        if (role === "solvent") {
+          const open = v.all.some((c) => c.role === "solvent" && c.key !== w.key && !["mass", "moles", "volume", "equiv"].some((fd) => g.typed[c.key]?.[fd as Field] !== undefined));
+          return { typed: { ...g.typed, [w.key]: typed }, ...(open ? {} : { conc: undefined }), ...marked(g, field) };
+        }
         if (target || (!w.product && amount(field))) {
           const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (k[0] === "p" ? fd !== "mass" : !target || !amount(fd))))]));
-          return { typed: { ...others, [w.key]: typed } };
+          return { typed: { ...others, [w.key]: typed }, ...marked(g, field) };
         }
+        return { typed: { ...g.typed, [w.key]: typed }, ...marked(g, field) };
       }
-      return { typed: { ...g.typed, [w.key]: typed } };
+      return { typed: { ...g.typed, [w.key]: typed }, ...marked(g) };
     });
   }
   const contextOf = (): Context => {
@@ -6161,7 +6197,9 @@ export default function Editor() {
     }
     // A stoichiometry grid's cell picked.
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0 };
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role,
+      ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
+      ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
@@ -7342,9 +7380,16 @@ export default function Editor() {
     if (command.startsWith("grid.") && gridPick) {
       const what = command.slice(5), { arrow, key, row } = gridPick;
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
+      // Mark as measured: the picked Mass or Volume is the amount measured out (one for each column); Clear takes it off.
+      if (what === "taken") return changeGrid(arrow, (g) => ({ taken: { ...g.taken, [key]: row as "mass" | "volume" } }));
+      if (what === "untaken") return changeGrid(arrow, (g) => { const { [key]: _, ...rest } = g.taken ?? {}; return { taken: rest }; });
+      const role = ROLES.find((r) => what === `role.${r}`);
+      if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
       // Copy table: the table as shown, as tab-separated text.
-      if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow); return v && copyPlain(gridTsv(v)); }
+      if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow), c = v && conditionsOf(v); return v && copyPlain(gridTsv(v, CONDITIONS.filter(([k]) => c![k]).map(([k, name]) => [name, c![k]!]))); }
+      // Conditions…: Temperature, Time, Atmosphere and Other, in a dialog.
+      if (what === "conditions") { const v = gridViews.find((x) => x.arrow === arrow); return v && setDialog({ kind: "conditions", arrow, page: v.page, values: conditionsOf(v) }); }
       // Hide empty rows: every row with nothing in the columns shown (as rows, every quantity with nothing in it).
       if (what === "hide.empty") return changeGrid(arrow, (g, v) => ({ hidden: { ...g.hidden, rows: [...(g.hidden?.rows ?? []), ...emptyRows(v)] } }));
       setGridPick(undefined);
@@ -8862,6 +8907,11 @@ export default function Editor() {
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
   // when what it shows changes, so React passes over the rest of the drawing.
   const gridKey = gridViews.length ? gridViews : undefined;
+  // The line under an amount measured out (a cell's text, centred on x, its baseline at y; px).
+  const takenLine = (x: number, y: number, text: string, size: number, bold: boolean, f: number) => {
+    const w = formulaWidth(text, size, bold, false, fontStack(style.captionFont)) / 2;
+    return <line className="taken" x1={x - w} x2={x + w} y1={y + 0.15 * size} y2={y + 0.15 * size} strokeWidth={frame.line * f} />;
+  };
   const under = useMemo(() => (
     <>
       {/* Pictures from ChemDraw files, at the back, in their boxes (turned as ChemDraw turned them). One with no format
@@ -8921,31 +8971,47 @@ export default function Editor() {
       {arrows.some((a) => level(a) && isOrbital(a)) && orbitalsInk(arrows.filter((a) => level(a) && isOrbital(a)))}
       {gridViews.map((v) => {
         // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
+        // The amount measured out is red with a line under it, so it does not rest on colour alone (BRAND.md).
         const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
         const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L, ink = v.colour ? textInk(v.colour) : "var(--ink)";
         // As rows: its rules, its titles and names, then each cell's amount as gridText gives it.
         const baseline = (top: number) => -(top - 0.5 * v.rh) * L + 0.35 * size;
+        // The conditions block: each name, then its value, its counts as subscripts as in conditions over an arrow (N2).
+        const block = v.block?.lines.map((l) => (
+          <Fragment key={`c${l.key}`}>
+            <text x={v.block!.at * L} y={baseline(l.y)}>{l.name}</text>
+            <text x={v.block!.valueAt * L} y={baseline(l.y)}>{formula(l.value, size)}</text>
+          </Fragment>
+        ));
         if (v.texts && v.rules) return (
           <g key={`grid${v.arrow}`} className="stoich" fill={ink} style={{ font }}>
+            {block}
             {v.rules.map(([a, b, h], k) => <line key={`r${k}`} x1={a * L} x2={b * L} y1={-h * L} y2={-h * L} stroke={ink} strokeWidth={frame.line * v.f} />)}
             {v.texts.map((t, k) => <text key={`t${k}`} x={t.x * L} y={baseline(t.y)} textAnchor={t.anchor} fontWeight={t.bold ? 700 : undefined}>{t.formula ? formula(t.text, size) : t.text}</text>)}
             {v.cells.map((cell) => {
               const c = v.cols.find((x) => x.key === cell.key), row = GRID_ROWS.find((x) => x.id === cell.row), t = c && row ? gridText(v, c, row) : undefined;
               return t?.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row) ? (
-                <text key={`${cell.row}${cell.key}`} data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
+                <Fragment key={`${cell.row}${cell.key}`}>
+                  <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
+                  {t.taken && takenLine(cell.x * L, baseline(cell.y), t.text, size, !!t.typed, v.f)}
+                </Fragment>
               ) : null;
             })}
           </g>
         );
         return (
           <g key={`grid${v.arrow}`} className="stoich" fill={v.colour ? textInk(v.colour) : "var(--ink)"} style={{ font }}>
+            {block}
             <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
             <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
             {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
             {v.rows.flatMap((row, k) => v.cols.map((c) => {
               const t = gridText(v, c, row);
               return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
-                <text key={`${row.id}${c.key}`} data-cell={`${v.arrow} ${row.id} ${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                <Fragment key={`${row.id}${c.key}`}>
+                  <text data-cell={`${v.arrow} ${row.id} ${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                  {t.taken && takenLine(c.x * L, y(k), t.text, size, !!t.typed, v.f)}
+                </Fragment>
               ) : null;
             }))}
           </g>
@@ -9095,7 +9161,8 @@ export default function Editor() {
           const t = hit(toDoc(e.clientX, e.clientY));
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
-          if (gc && gc.row === "limiting") { if (!gc.product) changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
+          // Limiting? and Role change at once (gridToggle); the amounts open to type in.
+          if (gc && (gc.row === "limiting" || gc.row === "role")) return gridToggle(gc);
           if (gc && gridTypes(gc)) return editGridCell(gc);
           // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
           const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
@@ -9940,6 +10007,23 @@ export default function Editor() {
         <Dialog title="Experiment details" action="Save" onClose={() => setDialog(undefined)}
           onAction={() => { const next = withDetails(doc.annotations, Object.fromEntries(Object.entries(dialog.values).map(([k, v]) => [k, v && expandEscapes(v, keptText(detailsOf(doc.annotations)[k as keyof Details]))]))); if (JSON.stringify(next) !== JSON.stringify(doc.annotations)) set({ ...doc, annotations: next }, true); setDialog(undefined); }}>
           {DETAILS.map(([k, name]) => (
+            <label key={k} className="dialog-row"><span>{name}</span><span className="unit-field text"><input aria-label={name} value={dialog.values[k] ?? ""} maxLength={200} spellCheck={false} onChange={(e) => setDialog({ ...dialog, values: { ...dialog.values, [k]: e.target.value } })} /></span></label>
+          ))}
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "conditions" && (
+        // A stoichiometry table's conditions (Grid.conditions), drawn right of the table. On an experiment page's first
+        // table, Temperature and Time are the page's details.
+        <Dialog title="Conditions" action="Save" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const g = doc.grids?.find((x) => x.arrow === dialog.arrow), v = gridViews.find((x) => x.arrow === dialog.arrow), was = v ? conditionsOf(v) : {};
+            const value = (k: keyof GridConditions) => oneLine(expandEscapes(dialog.values[k] ?? "", keptText(was[k])));
+            const own = Object.fromEntries(CONDITIONS.filter(([k]) => !(dialog.page && (k === "temperature" || k === "time"))).map(([k]) => [k, value(k)]).filter(([, x]) => x));
+            const annotations = dialog.page ? withDetails(doc.annotations, { ...detailsOf(doc.annotations), temperature: value("temperature"), time: value("time") }) : doc.annotations;
+            if (g && v) set({ ...doc, annotations, grids: doc.grids!.map((x) => (x === g ? { ...keptGrid(g, v), conditions: Object.keys(own).length ? own : undefined } : x)) }, true);
+            setDialog(undefined);
+          }}>
+          {CONDITIONS.map(([k, name]) => (
             <label key={k} className="dialog-row"><span>{name}</span><span className="unit-field text"><input aria-label={name} value={dialog.values[k] ?? ""} maxLength={200} spellCheck={false} onChange={(e) => setDialog({ ...dialog, values: { ...dialog.values, [k]: e.target.value } })} /></span></label>
           ))}
         </Dialog>

@@ -1852,6 +1852,8 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
   }
   return out.length ? out.slice(0, limit) : undefined;
 }
+// A structure's standard InChI, kept by its content as analyse keeps it (the reagent table asks for a known liquid's).
+export const keptInchi = (mol: Mol) => remembered(inchis, contentOf(mol), () => toInchi(mol));
 // Indigo's values for a molecule as one compound: its pieces ("C5 H5; C5 H5; Fe") added together.
 function summed(calc: Record<string, unknown>): { formula: string; weight: number; exact: number; composition: string } {
   const split = (key: string) => String(calc[key]).split(";").map((v) => v.trim());

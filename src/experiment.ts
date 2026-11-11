@@ -20,15 +20,15 @@ export const PROPERTIES = [["title", "Title"], ["author", "Author"], ["keywords"
 export type Properties = Partial<Record<(typeof PROPERTIES)[number][0], string>>;
 type Fields = readonly (readonly [string, string])[];
 export const MAX_VALUE = 200;
-// A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most.
-const clean = (v: string) => v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_VALUE).trim();
+// A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most. A grid's conditions too.
+export const oneLine = (v: string) => v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_VALUE).trim();
 
 // The details in a document's annotations (the first annotation with each keyword). fields: the keywords read
 // (PROPERTIES for the document's properties).
 export function detailsOf<F extends Fields = typeof FIELDS>(annotations?: Annotation[], fields: F = FIELDS as Fields as F): Partial<Record<F[number][0], string>> {
   const out: Record<string, string> = {};
   for (const [k, name] of fields) {
-    const a = annotations?.find((x) => x.keyword === name), v = a && clean(a.content);
+    const a = annotations?.find((x) => x.keyword === name), v = a && oneLine(a.content);
     if (v) out[k] = v;
   }
   return out as Partial<Record<F[number][0], string>>;
@@ -37,7 +37,7 @@ export function detailsOf<F extends Fields = typeof FIELDS>(annotations?: Annota
 // their order. An empty value leaves its keyword out. Undefined when there are none.
 export function withDetails<F extends Fields = typeof FIELDS>(annotations: Annotation[] | undefined, details: Partial<Record<F[number][0], string>>, fields: F = FIELDS as Fields as F): Annotation[] | undefined {
   const names = new Set<string>(fields.map(([, name]) => name)), values: Record<string, string | undefined> = details;
-  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...fields.flatMap(([k, keyword]) => { const v = clean(values[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
+  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...fields.flatMap(([k, keyword]) => { const v = oneLine(values[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
   return out.length ? out : undefined;
 }
 // Today as the Date field takes it: 4 November 2026.
@@ -151,7 +151,7 @@ export const MAX_GRIDS = 100; // file.ts
 export function newGrids(before: Mol, after: Mol): Mol {
   const had = new Set((before.arrows ?? []).map((a) => a.id)), gridded = new Set((after.grids ?? []).map((g) => g.arrow));
   const live = (after.arrows ?? []).filter((a) => gridded.has(a.id)).length;
-  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {} }));
+  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {}, roles: {} }));
   return add.length ? { ...after, grids: [...(after.grids ?? []), ...add] } : after;
 }
 

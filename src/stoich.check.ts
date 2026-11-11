@@ -1,8 +1,9 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
-import { cellText, emptyRows, gridTsv, gridViews, type GridDeps } from "./gridview.ts";
+import { coefficient, conditionItems, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
+import { LIQUIDS } from "./liquids.ts";
+import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -101,6 +102,52 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.deepEqual(back.grids, [{ arrow: back.arrows![0].id, typed: { "r:C7H6O": { mass: 1.06 } }, layout: "rows" }]);
   assert.equal(fromCdxml(toCdxml({ ...m, grids: [{ arrow: 4, typed: {} }] }, DEFAULT_STYLE)).mol.grids?.[0].layout, undefined, "columns stay the default");
 }
+// Listed densities (liquids.ts): a drawn structure by its formula, then its InChI (asked for only then); text by a name
+// the list gives, or Octet's abbreviation. THF drawn and THF written both take THF's; butanone, with THF's formula,
+// takes its own, and butanal none. A typed density wins over the listed one, which shows plain.
+{
+  const THF = "InChI=1S/C4H8O/c1-2-4-5-3-1/h1-4H2", asked: string[] = [];
+  const inchi = (i: string) => () => { asked.push(i); return i; };
+  assert.equal(liquidOf("C4H8O", inchi(THF))?.density, 0.8833);
+  assert.equal(liquidOf("C4H8O", inchi("InChI=1S/C4H8O/c1-3-4(2)5/h3H2,1-2H3"))?.density, 0.7999, "butanone");
+  assert.equal(liquidOf("C4H8O", inchi("InChI=1S/C4H8O/c1-2-3-4-5/h4H,2-3H2,1H3")), undefined, "butanal");
+  asked.length = 0;
+  assert.equal(liquidOf("C7H6O", inchi("x")), undefined);
+  assert.deepEqual(asked, [], "no InChI asked for a formula no liquid has");
+  for (const t of ["THF", "dry THF", "anhydrous THF", "tetrahydrofuran", "THF (5 mL)", "thf"]) assert.equal(liquidNamed(t)?.density, 0.8833, t);
+  for (const [t, d] of [["CH2Cl2", 1.326], ["DCM", 1.326], ["MeOH", 0.791], ["Et3N", 0.728], ["H2O", 0.998], ["PhMe", 0.867], ["py", 0.982]] as const) assert.equal(liquidNamed(t)?.density, d, t);
+  for (const t of ["NaBH4", "K2CO3", "reflux", "toluene/EtOH", "constructor", "__proto__"]) assert.equal(liquidNamed(t), undefined, t);
+  // The list: each name names one liquid, each InChI is one, and every density is a liquid's.
+  const names = LIQUIDS.flatMap((l) => l.names.map((n) => n.toLowerCase()));
+  assert.equal(new Set(names).size, names.length, "a name names one liquid");
+  assert.equal(new Set(LIQUIDS.map((l) => l.inchi)).size, LIQUIDS.length);
+  assert.ok(LIQUIDS.length >= 40 && LIQUIDS.every((l) => l.density > 0.5 && l.density < 3 && /^InChI=1S\//.test(l.inchi)));
+  // 5 mL of THF (72.11) at its listed density is 4.42 g, 61.2 mmol; a density typed wins.
+  const thf = (typed: object) => solve([{ key: "r:A", mw: 100, product: false, typed: { moles: 0.001 } }, { key: "r:T", mw: 72.11, product: false, typed: { volume: 5, ...typed }, density: 0.8833 }])["r:T"];
+  near(thf({}).mass, 5 * 0.8833, "THF's mass from its listed density");
+  near(thf({}).density, 0.8833, "the listed density shows");
+  near(thf({ density: 1 }).mass, 5, "a typed density wins");
+}
+// The fields added after 1.1.2 (roles, taken, conc, conditions, step) are each read alone: a bad one is left out and
+// the grid kept. They go through Octet's file and CDXML, and none is inside typed, where Octet 1.1.1 calls a grid
+// damaged for a field it does not know (1.1.1 reads the rest of the grid and leaves them out).
+{
+  const full = { typed: { "r:A": { mass: 1 } }, roles: { 'r:"THF"': "solvent" as const, "r:B": "catalyst" as const }, taken: { "r:A": "mass" as const }, conc: 0.1, conditions: { temperature: "0 °C", atmosphere: "N2" }, step: true as const };
+  assert.deepEqual(readGrid(full, 3), { arrow: 3, ...full });
+  assert.deepEqual(readGrid({ typed: {}, roles: {} }, 3)?.roles, {}, "a new table's roles, empty, are kept");
+  const many = Object.fromEntries(Array.from({ length: 61 }, (_, k) => [`r${k}`, "reactant"]));
+  for (const [field, bad] of [["roles", { "p:C": "solvent" }], ["roles", { "r:A": "oxidant" }], ["roles", ["solvent"]], ["roles", many], ["roles", { __proto__: "solvent" }], ["taken", { "r:A": "moles" }], ["taken", { "p:C": "mass" }],
+    ["conc", 0], ["conc", -1], ["conc", 1001], ["conc", Infinity], ["conc", "0.1"], ["conditions", { colour: "red" }], ["conditions", { time: 5 }], ["conditions", "2 h"], ["step", 1], ["step", "true"]] as const) {
+    const g = readGrid({ typed: { "r:A": { mass: 1 } }, [field]: field === "roles" && "__proto__" in (bad as object) ? JSON.parse('{"__proto__":"solvent"}') : bad }, 3);
+    assert.ok(g && !(field in g), `${field}: ${JSON.stringify(bad)} left out`);
+    assert.deepEqual(g.typed, { "r:A": { mass: 1 } }, "and the grid kept");
+  }
+  assert.deepEqual(readGrid({ typed: {}, conditions: { other: "x".repeat(5000), time: "2\nh" } }, 3)?.conditions, { other: "x".repeat(200), time: "2 h" }, "each condition one line of 200 at most");
+  const m: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, ...full }] };
+  for (const g of [parse(serialize(m)).grids![0], fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.grids![0]]) { const { arrow: _, ...rest } = g; assert.deepEqual(rest, full); }
+  const saved = JSON.parse(serialize(m)).grids[0] as { typed: Record<string, object> };
+  assert.ok(Object.values(saved.typed).every((t) => Object.keys(t).every((f) => ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"].includes(f))), "typed holds only 1.1.1's fields");
+}
 // The editor lays out a table of rows from the same sums (solve) as the columns, with the reagents and the products in
 // sections of their own, and Hide row hides what shows as a row.
 {
@@ -116,7 +163,20 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   // Hide empty rows (as rows, Hide empty columns): the empty rows join the hidden ones, which Show all brings back.
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Hide empty columns" : "Hide empty rows", "grid\.hide\.empty"/);
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Copy table", "grid\.copy"/);
-  assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\); return v && copyPlain\(gridTsv\(v\)\); \}/);
+  // Each role from the Actions panel and the right-click menu; a double-click on Role goes to the next one.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Set as reactant", "grid\.role\.reactant"[\s\S]*"Set as catalyst", "grid\.role\.catalyst"[\s\S]*"Set as solvent", "grid\.role\.solvent"/);
+  assert.match(editor, /if \(role\) return changeGrid\(arrow, \(g, v\) => setRole\(g, v, key, role\)\);/);
+  assert.match(editor, /ROLES\[\(ROLES\.indexOf\(gcol\?\.role \?\? "reactant"\) \+ 1\) % ROLES\.length\]/);
+  assert.match(editor, /\{ arrow, typed: \{\}, roles: \{\} \}/, "Analyse stoichiometry makes a table with roles");
+  // Typing a reactant's mass or volume marks it (as Reactio Draw does); Mark as measured moves the mark, Clear takes it off.
+  assert.match(editor, /if \(field === "mass" \|\| field === "volume"\) return \{ taken: \{ \.\.\.rest, \[w\.key\]: field \} \};/);
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Mark as measured", "grid\.taken"[\s\S]*"Clear measured mark", "grid\.untaken"/);
+  assert.match(readFileSync(new URL("editor.css", import.meta.url), "utf8"), /\.stoich text\.taken \{\n  fill: var\(--error\);\n\}\n\.stoich line\.taken \{\n  stroke: var\(--error\);\n\}/, "the brand's red, as the page's theme gives it");
+  // Conditions…: a dialog of the four, where an experiment page's first table keeps Temperature and Time in the page's details.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Conditions…", "grid\.conditions"/);
+  assert.match(editor, /<Dialog title="Conditions" action="Save"/);
+  assert.match(editor, /withDetails\(doc\.annotations, \{ \.\.\.detailsOf\(doc\.annotations\), temperature: value\("temperature"\), time: value\("time"\) \}\)/);
+  assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\), c = v && conditionsOf\(v\); return v && copyPlain\(gridTsv\(v, CONDITIONS/, "with the conditions, the page's Temperature and Time too");
   assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
 // A line of conditions splits at commas outside brackets; the atmosphere's gas is not a reagent.
@@ -183,8 +243,8 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
     const deps: GridDeps = {
       reaction: () => ({ steps, arrows: [9], atoms: [], captions: [], carried: [], conditions: new Map() }) as never,
       steps: (r) => [{ arrow: 9, reactants: parts(r.steps.slice(0, at)), products: parts(r.steps.slice(at + 1)), above: conditions, below: [] }] as never,
-      structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2/.test(t) ? { formula: "X", weight: 36 } : undefined),
-      captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
+      structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2|THF/.test(t) ? { formula: "X", weight: 36 } : undefined),
+      captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: (t) => t.length * 0.2, captionSize: 10, perPt: 0.05, experiment: !!(more as { experiment?: boolean }).experiment,
     };
     const v = gridViews(m, deps)[0];
     return { v, keys: v.all.map((c) => c.key), rows: v.rows.map((row) => row.id), at: (key: string) => v.solved[key] };
@@ -234,6 +294,63 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(empty.rows.filter((id) => !emptyRows(empty.v).includes(id)), ["formula", "mw", "limiting", "equiv"]);
   assert.equal(cellText(empty.v, empty.v.cols[1], empty.v.rows.find((row) => row.id === "equiv")!).text, "1.00");
   assert.ok(!emptyRows(liquid.v).includes("volume") && emptyRows(liquid.v).includes("yield"), "a row with a value stays");
+  // Roles. A table Octet makes now (roles set, even empty) starts a known solvent as Solvent; an older one (no roles)
+  // keeps every column a reactant. Role shows once a column is not a reactant, Concentration once one is a solvent.
+  const older = grid([0, "→", 1], { "r:S0": { moles: 0.001 } }, "r:S0", ["THF"]), newer = grid([0, "→", 1], { "r:S0": { moles: 0.001 } }, "r:S0", ["THF"], undefined, { roles: {} });
+  assert.equal(older.v.all.find((c) => c.key === 'r:"THF"')!.role, "reactant");
+  assert.ok(!older.rows.includes("role") && !older.rows.includes("conc"));
+  near(older.at('r:"THF"').moles, 0.001, "an older table's THF is a reactant at 1 eq.");
+  assert.equal(newer.v.all.find((c) => c.key === 'r:"THF"')!.role, "solvent");
+  assert.deepEqual(newer.rows.filter((id) => id === "role" || id === "conc"), ["role", "conc"]);
+  assert.equal(newer.at('r:"THF"').moles, undefined, "a solvent has no equivalents until some are typed");
+  const role = (v: typeof newer.v, key: string) => cellText(v, v.cols.find((c) => c.key === key)!, v.rows.find((r) => r.id === "role")!).text;
+  assert.deepEqual([role(newer.v, "r:S0"), role(newer.v, 'r:"THF"'), role(newer.v, "p:S1")], ["Reactant", "Solvent", "Product"]);
+  // Set as catalyst on an older table: that column changes, and THF stays a reactant.
+  const changed = setRole({ arrow: 9, typed: {} }, older.v, "r:S0", "catalyst");
+  assert.deepEqual(changed.roles, { 'r:"THF"': "reactant", "r:S0": "catalyst" });
+  // A solvent set as limiting is not: the first reactant is.
+  assert.equal(grid([0, "→", 1], {}, 'r:"THF"', ["THF"], undefined, { roles: {} }).v.limiting, "r:S0");
+  // 1 mmol in 5 mL of THF is 0.20 M; 0.1 M typed gives 10 mL; a catalyst's 0.05 eq. is 5.00 mol%.
+  const conc = (more: object, thf: object = {}) => grid([0, "→", 1], { "r:S0": { moles: 0.001 }, 'r:"THF"': thf }, "r:S0", ["THF"], undefined, { roles: {}, ...more });
+  const five = conc({}, { volume: 5 }), thfKey = 'r:"THF"';
+  near(five.at(thfKey).conc, 0.2, "1 mmol in 5 mL");
+  assert.deepEqual(cellText(five.v, five.v.cols.find((c) => c.key === thfKey)!, five.v.rows.find((r) => r.id === "conc")!), { text: "0.20 M", typed: false });
+  const typedConc = conc({ conc: 0.1 });
+  near(typedConc.at(thfKey).volume, 10, "0.1 M gives 10 mL");
+  near(typedConc.at(thfKey).mass, 10 * 0.8833, "and its mass from THF's density");
+  assert.equal(cellText(typedConc.v, typedConc.v.cols.find((c) => c.key === thfKey)!, typedConc.v.rows.find((r) => r.id === "conc")!).typed, true);
+  near(conc({ conc: 0.1 }, { volume: 4 }).at(thfKey).conc, 0.25, "with every solvent's volume typed, the concentration is worked out");
+  const cat = grid([0, "→", 1], { "r:S0": { moles: 0.01 }, 'r:"HCl"': { equiv: 0.05 } }, "r:S0", ["HCl"], undefined, { roles: { 'r:"HCl"': "catalyst" } });
+  assert.deepEqual(cellText(cat.v, cat.v.cols.find((c) => c.key === 'r:"HCl"')!, cat.v.rows.find((r) => r.id === "equiv")!), { text: "5.00 mol%", typed: true });
+  near(cat.at('r:"HCl"').moles, 0.0005, "5 mol% of 10 mmol");
+  assert.equal(formatAmount(0.05, "mol%"), "5.00 mol%");
+  near(parseAmount("5 mol%", "equiv"), 0.05, "mol% typed");
+  // The amount measured out (Grid.taken): a reactant's Mass or Volume, drawn red and underlined (Editor.tsx takenLine).
+  // A change keeps marks and roles only for the columns the grid has, so neither grows past what readGrid reads.
+  const measured = grid([0, "→", 1], { "r:S0": { volume: 2, density: 1 } }, "r:S0", [], undefined, { taken: { "r:S0": "volume", "r:gone": "mass" }, roles: { "r:gone": "solvent" } });
+  const cell = (id: string) => cellText(measured.v, measured.v.cols[0], measured.v.rows.find((r) => r.id === id)!);
+  assert.deepEqual(cell("volume"), { text: "2.00 mL", typed: true, taken: true });
+  assert.deepEqual(cell("mass"), { text: "2.00 g", typed: false });
+  const kept = keptGrid({ arrow: 9, typed: { "r:S0": { volume: 2, density: 1 } }, taken: { "r:S0": "volume", "r:gone": "mass" }, roles: { "r:gone": "solvent" } }, measured.v);
+  assert.deepEqual([kept.taken, kept.roles], [{ "r:S0": "volume" }, {}]);
+  const marked: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, typed: { "r:A": { volume: 2 } }, taken: { "r:A": "volume" } }] };
+  for (const g of [parse(serialize(marked)).grids![0], fromCdxml(toCdxml(marked, DEFAULT_STYLE)).mol.grids![0]]) assert.deepEqual(g.taken, { "r:A": "volume" }, "a mark on Volume is kept");
+  // The conditions block (T3): right of the table, clear of its last column, a line for each condition with a value,
+  // in the order Temperature, Time, Atmosphere, Other. On an experiment page the first table leaves out Temperature and
+  // Time (the page's details show them). Copy table puts the lines after the table.
+  const conditions = { other: "450 nm", temperature: "0 °C", atmosphere: "N2" };
+  const blocked = grid([0, "→", 1], {}, undefined, [], undefined, { conditions }), b = blocked.v.block!;
+  assert.deepEqual(b.lines.map((l) => [l.name, l.value]), [["Temperature", "0 °C"], ["Atmosphere", "N2"], ["Other", "450 nm"]]);
+  assert.ok(b.at > Math.max(...blocked.v.cells.map((c) => c.x + c.w / 2)), "the block sits clear of the last column");
+  assert.ok(b.valueAt > b.at + 0.2 * "Temperature".length && b.right > b.valueAt, "each value after the longest name");
+  assert.deepEqual(b.lines.map((l) => l.y), [0, 1, 2].map((k) => blocked.v.top - k * blocked.v.rh), "a line for each row");
+  assert.deepEqual(gridTsv(blocked.v).split("\n").slice(-4), ["Temperature\t0 °C", "Atmosphere\tN2", "Other\t450 nm", ""]);
+  assert.equal(grid([0, "→", 1], {}).v.block, undefined, "no block with no conditions");
+  const onPage = grid([0, "→", 1], {}, undefined, [], undefined, { conditions, experiment: true });
+  assert.deepEqual(onPage.v.block!.lines.map((l) => l.key), ["atmosphere", "other"], "an experiment page's first table: Temperature shows once, in the page's details");
+  // A listed density (THF over the arrow) shows plain: bold only when typed.
+  const listedGrid = grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", ["THF"]), thfCol = listedGrid.v.cols.find((c) => c.key === 'r:"THF"')!;
+  assert.deepEqual(cellText(listedGrid.v, thfCol, listedGrid.v.rows.find((r) => r.id === "density")!), { text: "0.88 g/mL", typed: false });
   // Copy table: tab-separated, as shown. In columns, a row naming the components, then each row shown; hidden rows
   // are left out; a value a spreadsheet would run as a formula gets an apostrophe; the conditions follow.
   const named = grid(["=HYPERLINK(1)", "+", 0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", [], undefined, { hidden: { rows: ["density", "volume"] } });
