@@ -25,6 +25,11 @@ mod feedback;
 mod home;
 // Octet Drawing objects in Office for Windows (decision 0023). The COM server builds on Windows only (ole_windows.rs).
 mod ole;
+// Object windows on every system: Windows' OLE objects and objects in files (decision 0023).
+mod objects;
+// Edit Picture from Word on the Mac: Apple Events to Word, and the Service "Edit in Octet Draw" (word.rs).
+#[cfg(target_os = "macos")]
+mod word;
 mod open;
 mod pubchem;
 mod quit;
@@ -119,7 +124,7 @@ struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
 // The menu bar goes on the app. On the Mac, Help becomes the system's Help menu, which only works once it is on the app.
-fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
+pub fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
     app.set_menu(bar.clone())?;
     #[cfg(target_os = "macos")]
     if let Some(help) = bar.get("help").and_then(|h| h.as_submenu().cloned()) {
@@ -150,11 +155,9 @@ fn rebuild(app: &AppHandle) -> Result<(), String> {
         }
     }
     keep_ticks(app, &checks);
-    set_bar(app, bar).map_err(|e| e.to_string())?;
+    windows::set_menu(app, None, bar).map_err(|e| e.to_string())?;
     for (label, m) in objects {
-        if let Some(w) = app.get_webview_window(&label) {
-            let _ = w.set_menu(m);
-        }
+        let _ = windows::set_menu(app, Some(&label), m);
     }
     *app.state::<Checks>().0.lock().unwrap() = checks;
     *app.state::<MenuList>().0.lock().unwrap() = list;
@@ -174,7 +177,6 @@ fn keep_ticks(app: &AppHandle, checks: &[CheckMenuItem<Wry>]) {
 
 // The menu bar of an object window (decision 0023): the same menus, with File's Save, Save As and Close for the
 // object in the document `host`. Its ticks join the others, so the page sets them as it sets the rest.
-#[cfg_attr(not(windows), allow(dead_code))]
 pub fn object_menu(app: &AppHandle, host: &str) -> tauri::Result<Menu<Wry>> {
     let names = app.state::<Palette>().0.lock().unwrap().clone();
     let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
@@ -681,6 +683,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if object.is_some() {
         file.remove(&revert)?;
     }
+    // The picture selected in Word, or a new drawing at Word's cursor, in an object window (word.rs). After Insert…
+    #[cfg(target_os = "macos")]
+    file.insert(&item("edit_word", "Edit Picture from Word", "")?, 7)?;
     if more_list.is_none() {
         file.remove(&more)?;
     }
@@ -1136,7 +1141,11 @@ fn main() {
         builder
     } else {
         builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            open::offer(app, open::from_args(args.into_iter().map(std::ffi::OsString::from), Path::new(&cwd)), None)
+            let args: Vec<std::ffi::OsString> = args.into_iter().map(std::ffi::OsString::from).collect();
+            match objects::object_arg(args.clone(), Path::new(&cwd)) {
+                Some((file, host)) => objects::open_file(app, file, host),
+                None => open::offer(app, open::from_args(args, Path::new(&cwd)), None),
+            }
         }))
     };
     builder
@@ -1151,6 +1160,7 @@ fn main() {
         .manage(recent::Experiments::default())
         .manage(home::Home::default())
         .manage(windows::Windows::default())
+        .manage(objects::Files::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
@@ -1159,7 +1169,7 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, export::export_file, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1168,22 +1178,29 @@ fn main() {
             ole::win::start(handle, embedding);
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
             let cwd = std::env::current_dir().unwrap_or_default();
-            if !embedding {
+            let object = objects::object_arg(std::env::args_os(), &cwd);
+            if !embedding && object.is_none() {
                 open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
             }
             crashlog::install(handle);
             #[cfg(feature = "smoke")]
             smoke::start(handle.clone());
             quit::install(handle);
+            #[cfg(target_os = "macos")]
+            word::install(handle);
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
-            set_bar(handle, bar)?;
+            windows::set_menu(handle, None, bar)?;
             #[cfg(windows)]
             if let Some(main) = app.get_webview_window("main") {
                 access_keys::install(&main);
             }
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
+            // An object in a file (--object, objects.rs), once its window can have a menu bar.
+            if let Some((file, host)) = object.filter(|_| !embedding) {
+                objects::open_file(handle, file, host);
+            }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
             // window with unsaved changes (quit.rs).
@@ -1195,6 +1212,12 @@ fn main() {
                 }
                 if id == "recent_clear" {
                     recent::clear(app);
+                }
+                // Works with any window in front, or none.
+                #[cfg(target_os = "macos")]
+                if id == "edit_word" {
+                    word::edit(app);
+                    return;
                 }
                 // Window > a drawing (Windows and Linux): its window comes to the front, and the menu ticks it again.
                 if let Some(label) = id.strip_prefix("window_") {

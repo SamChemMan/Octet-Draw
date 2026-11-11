@@ -2383,6 +2383,9 @@ export default function Editor() {
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
     insert_file: () => void insertFile(),
+    // File > Edit Picture from Word on the Mac (src-tauri/src/word.rs). The menu runs it there; this is for a key or
+    // the command palette.
+    edit_word: () => void invoke("word_edit").catch(() => {}),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
     save_as: () => (officeRef.current ? void saveCopy() : void save(true)),

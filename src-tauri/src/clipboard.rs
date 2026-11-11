@@ -416,7 +416,7 @@ fn bmp_file(dib: &[u8]) -> Option<Vec<u8>> {
 }
 
 #[cfg(target_os = "macos")]
-mod mac {
+pub(crate) mod mac {
     use objc2::rc::{autoreleasepool, Retained};
     use objc2::runtime::ProtocolObject;
     use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
@@ -464,6 +464,48 @@ mod mac {
 
     pub fn general() -> Retained<NSPasteboard> {
         NSPasteboard::generalPasteboard()
+    }
+
+    // The drawing on the clipboard as paste reads it, as CDXML: a picture Word copied for Edit Picture from Word
+    // (word.rs).
+    pub fn drawing(pb: &NSPasteboard) -> Option<String> {
+        read(pb).cdxml
+    }
+
+    // The clipboard as it is, to put back after Octet borrows it (word.rs): each item's types and bytes, 64 MB a type
+    // at most. A type that gives no data (a promise its program no longer keeps) is left out.
+    pub type Saved = Vec<Vec<(String, Vec<u8>)>>;
+
+    pub fn save(pb: &NSPasteboard) -> Saved {
+        autoreleasepool(|_| {
+            let items = pb.pasteboardItems().map(|a| a.to_vec()).unwrap_or_default();
+            items
+                .iter()
+                .map(|item| {
+                    let types = item.types().to_vec();
+                    types.iter().filter_map(|t| item.dataForType(t).filter(|d| d.len() <= super::MAX_TYPE).map(|d| (t.to_string(), d.to_vec()))).collect()
+                })
+                .collect()
+        })
+    }
+
+    pub fn restore(pb: &NSPasteboard, saved: &Saved) {
+        autoreleasepool(|_| {
+            pb.clearContents();
+            let items: Vec<Retained<ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>>> = saved
+                .iter()
+                .map(|types| {
+                    let item = NSPasteboardItem::new();
+                    for (t, bytes) in types {
+                        item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(t));
+                    }
+                    ProtocolObject::from_retained(item)
+                })
+                .collect();
+            if !items.is_empty() {
+                pb.writeObjects(&NSArray::from_retained_slice(&items));
+            }
+        })
     }
 }
 

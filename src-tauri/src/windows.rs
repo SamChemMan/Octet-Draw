@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::{CheckMenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window, Wry};
 
 use crate::MAX_BYTES;
@@ -44,6 +44,10 @@ pub struct Windows {
     starts: Mutex<HashMap<String, serde_json::Value>>,
     open: Mutex<Vec<Info>>,
     hosts: Mutex<HashMap<String, String>>, // each object window's document (decision 0023)
+    // The Mac's menu bars: the app's, and each object window's. Tauri has no menu bar per window on the Mac, so the bar
+    // of the window in front goes on the app (bar).
+    #[cfg(target_os = "macos")]
+    bars: Mutex<(Option<Menu<Wry>>, HashMap<String, Menu<Wry>>)>,
 }
 
 // Octet's own windows: Home, the drawing windows and the windows of objects in Office documents (decision 0023),
@@ -52,11 +56,55 @@ pub fn ours(label: &str) -> bool {
     label == "main" || label.starts_with("draw-") || label.starts_with("object-")
 }
 
-// A window came to the front: the Window menu ticks it.
+// A window came to the front: the Window menu ticks it. On the Mac, its menu bar goes on the app.
 pub fn focused(app: &AppHandle, label: &str) {
     if ours(label) {
         *LAST.lock().unwrap() = label.into();
         menus(app);
+        #[cfg(target_os = "macos")]
+        let _ = bar(app);
+    }
+}
+
+// A menu bar: the app's (label None), or an object window's (decision 0023: File's Update, Save Copy As and Close and
+// Return). On Windows and Linux an object window has a menu bar of its own. On the Mac the app has one, and it shows
+// the bar of the window in front.
+pub fn set_menu(app: &AppHandle, label: Option<&str>, menu: Menu<Wry>) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        {
+            let windows = app.state::<Windows>();
+            let mut bars = windows.bars.lock().unwrap();
+            match label {
+                None => bars.0 = Some(menu),
+                Some(l) => {
+                    bars.1.insert(l.to_string(), menu);
+                }
+            }
+        }
+        bar(app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    match (label, label.and_then(|l| app.get_webview_window(l))) {
+        (None, _) => crate::set_bar(app, menu),
+        (Some(_), Some(w)) => w.set_menu(menu).map(|_| ()),
+        (Some(_), None) => Ok(()),
+    }
+}
+
+// The Mac: the menu bar of the window in front (an object window's, else the app's) goes on the app, if it is not
+// there already.
+#[cfg(target_os = "macos")]
+fn bar(app: &AppHandle) -> tauri::Result<()> {
+    let front = front(app);
+    let windows = app.state::<Windows>();
+    let menu = {
+        let bars = windows.bars.lock().unwrap();
+        front.and_then(|l| bars.1.get(&l).cloned()).or_else(|| bars.0.clone())
+    };
+    match menu {
+        Some(m) if app.menu().is_none_or(|now| now.id() != m.id()) => crate::set_bar(app, m),
+        _ => Ok(()),
     }
 }
 
@@ -158,42 +206,43 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     Ok(())
 }
 
-// The window of an Octet Drawing object in an Office document (decision 0023, ole_windows.rs): a drawing window with
-// the label object-N, a title from Word ("Octet Drawing in Document1") and a File menu of its own (Update Document1,
-// Save Copy As…, Close and Return to Document1). Made from the async runtime, never in a call from Word.
-#[cfg(windows)]
+// The window of an Octet Drawing object in another program's document (decision 0023, objects.rs): a drawing window
+// with the label object-N, a title from the document ("Octet Drawing in Document1") and a File menu of its own
+// (Update Document1, Save Copy As…, Close and Return to Document1). Made from the async runtime, never in a call
+// from Word.
 pub async fn open_object(app: AppHandle, label: String, start: serde_json::Value, host: String) -> Result<(), String> {
     let title = start.get("title").and_then(|t| t.as_str()).unwrap_or("Octet Drawing").to_string();
     app.state::<Windows>().starts.lock().unwrap().insert(label.clone(), start);
     app.state::<Windows>().hosts.lock().unwrap().insert(label.clone(), host.clone());
     let menu = crate::object_menu(&app, &host).map_err(|e| e.to_string())?;
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
         .title(title)
-        .menu(menu)
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 620.0)
-        .center()
-        .build()
-        .map_err(|e| {
-            app.state::<Windows>().starts.lock().unwrap().remove(&label);
-            e.to_string()
-        })?;
+        .center();
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.menu(menu);
+    let window = builder.build().map_err(|e| {
+        app.state::<Windows>().starts.lock().unwrap().remove(&label);
+        e.to_string()
+    })?;
+    #[cfg(target_os = "macos")]
+    let _ = set_menu(&app, Some(&label), menu);
+    #[cfg(windows)]
     crate::access_keys::install(&window);
     let _ = window.set_focus();
     Ok(())
 }
 
-// Word named the document again (Save As in Word): the window's menu says the new name.
-#[cfg(windows)]
+// The document has a new name (Save As in Word): the window's File menu says it.
 pub fn object_host(app: &AppHandle, label: &str, host: &str) {
     app.state::<Windows>().hosts.lock().unwrap().insert(label.to_string(), host.to_string());
-    if let (Some(w), Ok(menu)) = (app.get_webview_window(label), crate::object_menu(app, host)) {
-        let _ = w.set_menu(menu);
+    if let (Some(_), Ok(menu)) = (app.get_webview_window(label), crate::object_menu(app, host)) {
+        let _ = set_menu(app, Some(label), menu);
     }
 }
 
 // The object windows and their documents' names, for building their menus again.
-#[cfg_attr(not(windows), allow(dead_code))]
 pub fn object_hosts(app: &AppHandle) -> Vec<(String, String)> {
     let hosts = app.state::<Windows>().hosts.lock().unwrap().clone();
     hosts.into_iter().filter(|(l, _)| app.get_webview_window(l).is_some()).collect()
@@ -308,13 +357,19 @@ pub fn closed(app: &AppHandle, label: &str) {
     let windows = app.state::<Windows>();
     windows.starts.lock().unwrap().remove(label);
     windows.hosts.lock().unwrap().remove(label);
+    if let Some(id) = crate::objects::id_of(label) {
+        crate::objects::closed(app, id, false);
+        #[cfg(windows)]
+        crate::ole::win::closed(id);
+    }
+    // An Octet that Windows started for Word ends when its last window closes and Word holds no object.
     #[cfg(windows)]
+    crate::ole::win::maybe_exit(app);
+    // The Mac: the next window's menu bar, or the app's.
+    #[cfg(target_os = "macos")]
     {
-        if let Some(id) = crate::ole::win::id_of(label) {
-            crate::ole::win::closed(id);
-        }
-        // An Octet that Windows started for Word ends when its last window closes and Word holds no object.
-        crate::ole::win::maybe_exit(app);
+        windows.bars.lock().unwrap().1.remove(label);
+        let _ = bar(app);
     }
     let before = {
         let mut open = windows.open.lock().unwrap();
