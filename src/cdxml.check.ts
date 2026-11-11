@@ -481,10 +481,12 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   for (const [file, message] of refused) assert.throws(() => fromCdxml(file), (e: Error) => e.message === message, file.slice(0, 60));
   // Entity tricks: declared entities are never expanded, external ones never fetched.
   const laughs = `<?xml version="1.0"?><!DOCTYPE CDXML [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;"><!ENTITY x SYSTEM "file:///etc/passwd">]>
-<CDXML __proto__="x" constructor="y"><page><t p="0 0"><s font="3" size="10">&c;&x;ok</s></t></page></CDXML>`;
+<CDXML __proto__="x" constructor="y"><page><t p="0 0"><s font="3" size="10">&c;&x;&constructor;&toString;&__proto__;ok</s></t></page></CDXML>`;
   const read = fromCdxml(laughs);
   assert.equal(read.mol.captions?.[0].text, "ok");
-  assert.equal(({} as Record<string, unknown>).x, undefined);
+  // Attributes named as an object's own members are kept as attributes, on an object with no prototype.
+  const odd = parseXml('<CDXML __proto__="x" constructor="y"/>').attrs;
+  assert.deepEqual([Object.getPrototypeOf(odd), odd.__proto__, odd.constructor], [null, "x", "y"]);
   // Bad numbers, ids and references: those objects are dropped and counted, the rest read.
   const bad = fromCdxml(`<CDXML><page><fragment><n id="1" p="NaN 0"/><n id="2" p="1e999 0"/><n id="3" p="10 10" Charge="99" Element="999"/><n id="4" p="20 10"/><b B="3" E="7"/><b B="3" E="3"/><b B="3" E="4"/><b B="4" E="3"/></fragment>
 <t p="0 0"><s font="3" size="5000">a\u0001b\tc</s></t><arrow id="9" Head3D="x"/><curve CurvePoints="1 2 3"/><graphic GraphicType="Rectangle" BoundingBox="0 0"/><unknownthing/></page></CDXML>`);

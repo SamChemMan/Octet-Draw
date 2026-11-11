@@ -40,7 +40,7 @@ export const DAMAGED = "This ChemDraw file is damaged.";
 
 export type Xml = { name: string; attrs: Record<string, string>; kids: Xml[]; text: string };
 const MAX_CHARS = 64 * 1024 * 1024, MAX_DEPTH = 64, MAX_ELEMENTS = 1_000_000, MAX_ATTRS = 512;
-const ENTITY: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+const ENTITY: Record<string, string> = Object.assign(Object.create(null), { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" });
 const NAME = /[A-Za-z_:][\w.:-]*/y, SPACE = /\s*/y;
 
 // Character and entity references in text or an attribute value. A bare & or a bad character number fails.
