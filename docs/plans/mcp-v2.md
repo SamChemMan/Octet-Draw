@@ -1733,3 +1733,46 @@ What a model sees and sends was rebuilt so that a drawing job is one call and no
   tools/list 12,209.
 - **Not done:** models on the lab (the main session runs them).
 
+
+### 19.5 Model runs (main session, 11 November 2026)
+
+How: each of the 14 speed jobs is done by a model standing in for an AI app, against the windowless lab server, three
+runs a model on each version. A job passes when the drawing has what the user asked for (`judge.mjs`). Turns, tokens
+and seconds come from the model's own transcript (`cost.mjs`). The lab adds two turns a job that a real app does not
+have (reading its first message, giving its answer), the same on every version. One run of 14 jobs differs from the
+next by one or two passes and by 10% in seconds, so one run proves nothing: compare three with three.
+
+| Version | Model | Pass (of 14) | Turns | Octet calls | Refused | Output tokens | Seconds |
+|---|---|---|---|---|---|---|---|
+| Seven old tools (`f693134`), one run | Opus | 11 | 56 | 28 | 0 | 28,665 | 318 |
+| Seven old tools, one run | Haiku | 8 | 71 | 38 | 3 | 106,738 | 520 |
+| Lines, six tools (`80015d1`) | Opus | 14, 14, 14 | 44, 46, 45 | 16, 19, 17 | 0, 0, 0 | 26,614, 27,607, 25,701 | 314, 337, 301 |
+| Lines, six tools | Haiku | 10, 12, 11 | 54, 50, 50 | 19, 18, 21 | 3, 0, 3 | 115,038, 114,485, 93,701 | 531, 525, 445 |
+| Round 3 (`6482004`) | Opus | 14, 14, 14 | 44, 45, 43 | 16, 17, 15 | 1, 1, 0 | 24,496, 25,120, 23,772 | 273, 275, 264 |
+| Round 3 | Haiku | 11, 11, 9 | 49, 52, 49 | 19, 19, 16 | 1, 3, 1 | 105,093, 92,981, 106,725 | 496, 438, 531 |
+
+(The old-tools rows used an earlier wording of the lab's own prompt, so read them against the rest for calls and
+passes only. Round 3's third Haiku run lost one job to a message that was not the chemist's.)
+
+What the runs say:
+
+- **The tool list is no longer where the time goes.** A plain job is one Octet call on every version since the lines.
+  Opus spends 8 to 20 s on one, nearly all of it writing the call and the answer.
+- **Round 3 took 15% off Opus's time** with no pass lost: shorter answers to the user (the instructions ask for a
+  sentence or two), and no second call for labels Octet's own layout had left on each other (`say-two-schemes` 28 to
+  34 s, then 18 to 19 s).
+- **Haiku did not move.** About 85% of its output tokens are thinking, and its thinking is on things the instructions
+  leave open. Asked to list them before its first call, it named: "a later one is a change to it" read as a rule (it
+  tries to turn SMILES the user gave into changes); no example of lettered steps with two yields on one arrow, of a
+  plain grid, of a cycle with numbered species, or of a route from a lone compound; a scope whose variable part is an
+  amine, written out twelve times by hand. Round 3b builds these.
+- **A cycle on one line is read two ways.** Haiku writes side items before their arrow (`(4), -ketol -> 1`); Octet
+  read the first one that way and the rest as after their product. It then tried `edit` with `at: "4→1"`, the words
+  `read` gives, and no such argument existed. Round 3b: one reading a line, the example one step a line, and `edit`
+  takes `at`.
+- **Models do not use changes** (`3[OBn>OTES]`) when they have the SMILES: copying is cheaper than thinking, and that
+  is right.
+
+Kept for Sam: round 3's clearing step makes the `taxol-v1-job` replay read 170,273 characters against a kept 169,999
+(its later moves are fixed numbers tuned to the old shapes). The kept number is not raised and round 3 stays on
+`mcp/ai3` until he says which: accept the number, or record the replay again.
