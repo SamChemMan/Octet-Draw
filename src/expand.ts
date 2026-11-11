@@ -77,7 +77,11 @@ function fragmentOf(m: Mol, ids: number[]): Fragment {
   return { mol: { atoms: order.map((i) => p.atoms[i]), bonds: p.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })) }, way };
 }
 // The R atom i becomes the fragment, joined where the R label was, its bond to the rest of the structure on its way.
-const joinAt = (m: Mol, i: number, g: Fragment): Mol => expandLabel(m, i, { atoms: g.mol.atoms.map((a) => ({ ...a })), bonds: g.mol.bonds }, g.way);
+// The atom it joins by stays as drawn, with its label (OMe, Ph), where Expand Label would leave only its element.
+function joinAt(m: Mol, i: number, g: Fragment): Mol {
+  const out = expandLabel(m, i, { atoms: g.mol.atoms.map((a) => ({ ...a })), bonds: g.mol.bonds }, g.way);
+  return { ...out, atoms: out.atoms.map((a, k) => (k === i ? { ...g.mol.atoms[0], location: a.location } : a)) };
+}
 // A variable attachment i on atom j: its substituents bond to j instead, moved to point out from the ring there.
 function attachAt(m: Mol, i: number, j: number): Mol {
   const c = m.atoms[i], ring = c.centre!.atoms, at = (k: number): P => [m.atoms[k].location[0], m.atoms[k].location[1]];

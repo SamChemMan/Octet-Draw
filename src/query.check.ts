@@ -166,6 +166,9 @@ console.log("query.check: attachments through edits ok");
     assert.deepEqual(out.map((x) => x.atoms.map((a) => a.label).join("")), ["CCO", "CCC"]);
     assert.deepEqual(out.map((x) => angle(x, 1)), [120, 120], "not a straight line at the joining atom");
   }
+  // A fragment drawn as a label (OMe) joins as that label, not as its element alone.
+  const ome: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0, { text: "R1" }), A("O", 5, 0, { text: "OMe" })], bonds: [b(0, 1)], shapes: [{ id: 1, kind: "box", from: [4, 1], to: [6, -1], rgroup: { name: "R1" } }] };
+  assert.deepEqual(expandGeneric(ome, [0, 1]).mols.map((x) => x.atoms.map((a) => a.text ?? a.label)), [["C", "OMe"]]);
   // A wavy bond stands for a wedge and a hash.
   const wavy = expandGeneric({ atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 1.5, 0.866), A("N", 1.5, -0.866), A("C", 2, 0)], bonds: [b(0, 1), b(1, 2), b(1, 3), b(1, 4, { display: "wavy" })] }, [0]);
   assert.deepEqual(wavy.mols.map((x) => x.bonds[3].stereo), [1, 6]);
