@@ -12,12 +12,12 @@ export const MOST_3D = 500; // ChemDraw's limit: atoms in one structure
 
 type V = [number, number, number];
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const crossV = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const crossV = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dotV = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const lenV = (a: V) => Math.hypot(a[0], a[1], a[2]);
+export const lenV = (a: V) => Math.hypot(a[0], a[1], a[2]);
 
-// Covalent radii (Å), for a bond's real length; a C–C single bond is 1.52 Å.
-const RADIUS: Record<string, number> = { H: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02, Br: 1.2, I: 1.39 };
+// Covalent radii (Å), for a bond's real length (and a ball's size in a 3MF model); a C–C single bond is 1.52 Å.
+export const RADIUS: Record<string, number> = { H: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02, Br: 1.2, I: 1.39 };
 const CC = 1.52;
 
 // ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on

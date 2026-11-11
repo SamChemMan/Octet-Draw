@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, FileImage, CubeFocus,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -28,6 +28,7 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
+import { model3mf } from "./model3mf";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
@@ -1373,13 +1374,25 @@ export default function Editor() {
   }
   // Quick export: the selection, or the whole drawing, straight to the Save dialog in the Quick export format (PNG
   // at first; SVG or EMF for Office, PDF for LaTeX), with the saved settings. A PDF, PNG or EMF carries the CDXML, as
-  // Export's does.
-  async function quickExport() {
-    const part = selectedPart() ?? doc, svg = pictureOf(part), f = filePrefs, format = filePrefs.quick;
+  // Export's does. File > More Formats > Export BMP… is a quick export as BMP.
+  async function quickExport(format = filePrefs.quick) {
+    const part = selectedPart() ?? doc, svg = pictureOf(part), f = filePrefs;
     if (!svg) return setNotice("There is nothing to export.", "info");
     try {
       const pic = pictureAs(svg, { ...f, format }, pageColour(style));
       const path = await exportFile({ name, format, svg: pic.svg, cdxml: CARRY_CDXML.includes(format) ? formatOf(part, "cdxml") : undefined, dpi: f.dpi, transparent: pic.transparent, quality: f.quality });
+      if (path) saved(path);
+    } catch (e) {
+      setNotice(failure("Octet cannot export this drawing.", e));
+    }
+  }
+  // File > More Formats > Export 3MF…: the selection, or the whole drawing, as a ball-and-stick model to 3D print,
+  // straight to the Save dialog.
+  async function exportModel() {
+    try {
+      const model = model3mf(selectedPart() ?? doc);
+      if (!model) return setNotice("There is nothing to export.", "info");
+      const path = await exportFile({ name, format: "3mf", model });
       if (path) saved(path);
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -2175,7 +2188,10 @@ export default function Editor() {
   // File > More Formats (Settings > Pro > More formats): the rare formats, one line each. A line is the command's id
   // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
   // The menu, the palette and Settings' shortcuts take each format from here.
-  const moreFormats: [string, string, React.ReactNode, () => void][] = [];
+  const moreFormats: [string, string, React.ReactNode, () => void][] = [
+    ["more_bmp", "Export BMP…", <FileImage size={18} />, () => checkFirst(() => void quickExport("bmp"))],
+    ["more_3mf", "Export 3MF…", <CubeFocus size={18} />, () => checkFirst(() => void exportModel())],
+  ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {

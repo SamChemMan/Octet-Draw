@@ -1,5 +1,5 @@
 // File > Export… and the picture on the clipboard. The page sends a standalone SVG of the drawing at true size
-// (src/export.ts); this makes a vector PDF, EPS or EMF (vector.rs), or a PNG, TIFF, JPEG or GIF of it. The PDF carries the drawing's CDXML in its catalog
+// (src/export.ts); this makes a vector PDF, EPS or EMF (vector.rs), or a PNG, TIFF, JPEG, GIF or BMP of it. The PDF carries the drawing's CDXML in its catalog
 // /Metadata stream, as ChemDraw's does, so a picture pasted into Word and copied out again pastes back into
 // Octet and ChemDraw as a structure. cdxml_from_pdf reads it back from any PDF, treated as hostile.
 
@@ -247,6 +247,76 @@ fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
     out
 }
 
+// A Windows bitmap (BMP) of the SVG at `dpi`, on white: a file header, then the bitmap as the clipboard holds it (dib).
+pub fn make_bmp(svg: &str, dpi: f32) -> Result<Vec<u8>, String> {
+    let dpi = dpi_of(dpi);
+    let dib = dib(&draw(&tree(svg)?, dpi, false)?, dpi);
+    let mut out = Vec::with_capacity(14 + dib.len());
+    out.extend(b"BM");
+    out.extend(((14 + dib.len()) as u32).to_le_bytes());
+    out.extend([0u8; 4]); // reserved
+    out.extend(54u32.to_le_bytes()); // where the pixels start: after this header and the dib's
+    out.extend(dib);
+    Ok(out)
+}
+
+// A 3MF file (3D Manufacturing Format): a zip of the 3D model the page made (src/model3mf.ts), with the two parts every
+// 3MF package has: its content types, and the relationship that points to the model. Each part is deflated.
+pub fn make_3mf(model: &str) -> Result<Vec<u8>, String> {
+    if model.len() > MAX_SVG {
+        return Err("This drawing is too large to export.".into());
+    }
+    let parts: [(&str, &[u8]); 3] = [
+        ("[Content_Types].xml", br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>
+"#),
+        ("_rels/.rels", br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>
+"#),
+        ("3D/3dmodel.model", model.as_bytes()),
+    ];
+    let (mut out, mut dir) = (Vec::new(), Vec::new());
+    for (name, data) in parts {
+        let packed = miniz_oxide::deflate::compress_to_vec(data, 6);
+        // The fields the local header and the central directory share: version 2.0, no flags, deflated, 1 January 1980,
+        // the CRC-32, both sizes, the name's length and no extra field.
+        let mut common = Vec::new();
+        for v in [20u16, 0, 8, 0, 0x21] {
+            common.extend(v.to_le_bytes());
+        }
+        for v in [crc32(data), packed.len() as u32, data.len() as u32] {
+            common.extend(v.to_le_bytes());
+        }
+        common.extend((name.len() as u16).to_le_bytes());
+        common.extend([0u8; 2]);
+        dir.extend(0x0201_4b50u32.to_le_bytes());
+        dir.extend(20u16.to_le_bytes());
+        dir.extend(&common);
+        dir.extend([0u8; 10]); // no comment, disk 0, no attributes
+        dir.extend((out.len() as u32).to_le_bytes());
+        dir.extend(name.as_bytes());
+        out.extend(0x0403_4b50u32.to_le_bytes());
+        out.extend(&common);
+        out.extend(name.as_bytes());
+        out.extend(packed);
+    }
+    let (at, size) = (out.len() as u32, dir.len() as u32);
+    out.extend(dir);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    for v in [0u16, 0, 3, 3] {
+        out.extend(v.to_le_bytes());
+    }
+    out.extend(size.to_le_bytes());
+    out.extend(at.to_le_bytes());
+    out.extend([0u8; 2]);
+    Ok(out)
+}
+
+// The CRC-32 a zip file keeps for each part (the reflected polynomial 0xEDB88320).
+fn crc32(data: &[u8]) -> u32 {
+    !data.iter().fold(!0u32, |c, &b| (0..8).fold(c ^ u32::from(b), |c, _| if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }))
+}
+
 // A JPEG of the SVG at `dpi`, on white (JPEG has no transparency), at `quality` (1 to 100), with its resolution.
 pub fn make_jpeg(svg: &str, dpi: f32, quality: u8) -> Result<Vec<u8>, String> {
     use image::codecs::jpeg::{JpegEncoder, PixelDensity};
@@ -366,7 +436,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 24] = [
+const FORMATS: [(&str, &str, &[&str]); 26] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -391,6 +461,8 @@ const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("ctp", "ChemDraw Template (CTP)", &["ctp"]),
     ("cts", "ChemDraw Template Style Sheet (CTS)", &["cts"]),
     ("csv", "CSV", &["csv"]),
+    ("bmp", "Windows Bitmap (BMP)", &["bmp"]),
+    ("3mf", "3D Manufacturing Format for Printing (3MF)", &["3mf"]),
 ];
 
 #[derive(serde::Deserialize)]
@@ -406,6 +478,7 @@ pub struct Export {
     smiles: Option<String>,
     inchi: Option<String>,
     csv: Option<String>, // Home's Experiments list
+    model: Option<String>, // a 3MF file's 3D model (src/model3mf.ts)
     dpi: Option<f32>,
     transparent: Option<bool>,
     quality: Option<u8>, // JPEG
@@ -424,13 +497,14 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
-        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" => e.svg.is_some(),
+        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),
         "smi" => e.smiles.is_some(),
         "ctp" | "cts" => e.ctp.is_some(),
         "csv" => e.csv.is_some(),
+        "3mf" => e.model.is_some(),
         _ => e.mdl.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
@@ -463,6 +537,8 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "tif" => make_tiff(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "jpg" => make_jpeg(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.quality.unwrap_or(95))?,
         "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
+        "bmp" => make_bmp(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
+        "3mf" => make_3mf(e.model.as_deref().unwrap_or_default())?,
         "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref()),
         "eps" => crate::vector::make_eps(&tree(e.svg.as_deref().unwrap_or_default())?),
         "oct" => text(&e.oct),
@@ -1134,6 +1210,51 @@ mod tests {
                 px_units(&SVG[..k]);
             }
         }
+    }
+
+    // A BMP is a file header, then the bitmap on white at the resolution, 24 bits a pixel from the bottom row up.
+    #[test]
+    fn bmp_is_true_size_on_white() {
+        let bmp = make_bmp(SVG, 300.0).unwrap();
+        let u32_at = |k: usize| u32::from_le_bytes(bmp[k..k + 4].try_into().unwrap());
+        assert_eq!(&bmp[..2], b"BM");
+        assert_eq!(u32_at(2) as usize, bmp.len());
+        assert_eq!((u32_at(10), u32_at(14), u32_at(18), u32_at(22), u32_at(38)), (54, 40, 359, 271, 11811));
+        assert_eq!(&bmp[26..30], &[1, 0, 24, 0]);
+        // Row 0 of the file is the bottom row of the picture, which is white.
+        assert!(bmp[54..54 + 359 * 3].iter().all(|&c| c == 255));
+        assert_eq!(bmp.len(), 54 + 1080 * 271, "each row padded to 4 bytes");
+    }
+
+    // A 3MF file is a zip of three parts, each deflated with its CRC-32, and the model reads back as it went in.
+    #[test]
+    fn three_mf_is_a_zip_with_the_model() {
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+        let model = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"/>\n";
+        let zip = make_3mf(model).unwrap();
+        let (u16_at, u32_at) = (|k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize, |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize);
+        let end = zip.len() - 22;
+        assert_eq!(u32_at(end), 0x0605_4b50);
+        assert_eq!((u16_at(end + 8), u16_at(end + 10)), (3, 3));
+        let (mut at, mut names) = (u32_at(end + 16), Vec::new());
+        for _ in 0..3 {
+            assert_eq!(u32_at(at), 0x0201_4b50);
+            let (crc, packed, size, name_len, local) = (u32_at(at + 16), u32_at(at + 20), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
+            let name = std::str::from_utf8(&zip[at + 46..at + 46 + name_len]).unwrap().to_string();
+            assert_eq!(u32_at(local), 0x0403_4b50);
+            assert_eq!(zip[local + 4..local + 30], zip[at + 6..at + 32], "the local header agrees with the directory");
+            let start = local + 30 + name_len;
+            let data = miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap();
+            assert_eq!((data.len(), crc32(&data) as usize), (size, crc));
+            if name == "3D/3dmodel.model" {
+                assert_eq!(data, model.as_bytes());
+            }
+            names.push(name);
+            at += 46 + name_len;
+        }
+        assert_eq!(names, ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"]);
+        assert_eq!(at, end, "the directory ends where the end record starts");
+        assert!(make_3mf(&" ".repeat(MAX_SVG + 1)).unwrap_err().contains("too large"));
     }
 
     // A PNG Octet writes carries the drawing in an iTXt chunk before the pixels, and reads back as it went in; the
