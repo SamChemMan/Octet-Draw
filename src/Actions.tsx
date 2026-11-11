@@ -524,7 +524,8 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
 // so the panel is cleaner and still hides nothing). A click on the title, or Return or Space on it, folds or opens it,
 // and Octet keeps that choice for every kind of selection. A folded section opens while the pointer rests on it, and
 // folds again a short time after the pointer leaves it, unless the keyboard focus is in it. A click on its title folds
-// it again at once, and it stays folded until the pointer leaves it and comes back.
+// it again at once, and it stays folded until the pointer leaves it and comes back. A press on the title before the
+// section opens stops it opening, so a quick click, or a tap on a touch screen, opens it.
 // While the pointer is in the panel, the panel keeps its height and a section opens and closes below its title, so
 // nothing above it moves. A section above the pointer stays open until the pointer goes above it or out of the panel,
 // so nothing moves under the pointer either. When the pointer leaves, the panel takes its full height again.
@@ -568,7 +569,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
       onPointerLeave={() => { over.current = false; quiet.current = false; clearTimeout(timer.current); timer.current = window.setTimeout(settle, PEEK_LINGER); }}
       onFocus={(e) => { if (e.target.matches(":focus-visible")) focused.current = true; }}
       onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) { focused.current = false; window.setTimeout(settle, PEEK_LINGER); } }}>
-      <button className="fold-title" aria-expanded={open} aria-controls={body} onClick={toggle}>
+      <button className="fold-title" aria-expanded={open} aria-controls={body} onPointerDown={() => clearTimeout(timer.current)} onClick={toggle}>
         {title}
         <CaretDown size={12} className="fold-caret" aria-hidden />
       </button>

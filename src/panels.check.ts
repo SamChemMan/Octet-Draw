@@ -155,4 +155,5 @@ assert.match(actions, /<button className="fold-title" aria-expanded=\{open\}/);
 assert.match(css, /\.fold-title\[aria-expanded="false"\] \.fold-caret \{\n  transform: rotate\(-90deg\);/, "the caret turns by the open state");
 assert.doesNotMatch(css, /\.fold\[data-folded\]/, "the caret does not turn by the folded setting alone");
 assert.match(actions, /quiet\.current = pointer && open;\n    folds\.peeks\.delete\(id\);\n    setPeek\(false\);\n    if \(!folded \|\| !peek\) onFold\(id, !folded\);/, "a click on a section open on hover closes it and does not pin it open");
+assert.match(actions, /aria-controls=\{body\} onPointerDown=\{\(\) => clearTimeout\(timer\.current\)\} onClick=\{toggle\}>/, "a press before it opens on hover stops it opening, so a tap opens it");
 console.log("panels.check: ok");
