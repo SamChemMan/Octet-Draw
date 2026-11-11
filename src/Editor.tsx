@@ -3016,6 +3016,10 @@ export default function Editor() {
     if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke("set_more_formats", { formats: settings.moreFormats ? moreFormats.map(([id, name]) => [id, name]) : null }))
       .then(() => invoke<[string, string, string, string][]>("menu_items")).then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
   }, [settings.onlineSearch, settings.moreFormats]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Settings > General > Microsoft Word (the Mac): while it is on, Octet watches for a double-click in Word (word.rs).
+  useEffect(() => {
+    if (TAURI && MAC) invoke("set_word_click", { on: settings.wordClick }).catch(() => {});
+  }, [settings.wordClick]);
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -9646,6 +9650,7 @@ export default function Editor() {
           adding={addingColour}
           updates={settings.updates === true}
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
+          wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />

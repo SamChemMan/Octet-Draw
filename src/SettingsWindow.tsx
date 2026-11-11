@@ -107,6 +107,8 @@ type Props = {
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
   updates: boolean; // check for updates when Octet opens (decision 0010)
   onUpdates: (on: boolean) => void;
+  wordClick: boolean; // the Mac: a double-click on a structure in Word opens it in Octet (src-tauri/src/word.rs)
+  onWordClick: (on: boolean) => void;
   onCheckUpdates: () => void;
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
@@ -605,6 +607,11 @@ export function SettingsWindow(p: Props) {
       d("general", "Selection", "Colour", "selection selected highlight colour color tint marquee lasso handles frame blue custom default", (
         <SelectionColour value={p.selectColour} onChange={p.onSelectColour} />
       )),
+      // Word for Mac has no OLE for other programs, so Octet watches for the double-click itself (word.rs). Off for a
+      // new user.
+      ...(MAC ? [d("general", "Microsoft Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
+        <Switch on={p.wordClick} label="Double-click opens a structure in Octet" onChange={p.onWordClick} />
+      ))] : []),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
         <span className="swatches" role="list" aria-label="Octet's colours">
@@ -643,7 +650,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

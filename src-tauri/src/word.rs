@@ -1,6 +1,6 @@
 // Edit Picture from Word on the Mac (plan step 2 and 3, decision 0023's object window). Word for Mac runs no OLE
-// servers, so Octet asks Word through Apple Events, on the user's command only (File > Edit Picture from Word, or the
-// Service "Edit in Octet Draw"):
+// servers, so Octet asks Word through Apple Events, on the user's command only (File > Edit Picture from Word, the
+// Service "Edit in Octet Draw", or a double-click in Word when Settings allows it, below):
 // - The picture selected in Word is copied to the clipboard, and paste's reader takes the CDXML from its PDF. The
 //   user's clipboard is saved first and put back after.
 // - A hidden bookmark marks the picture (or Word's cursor, for a new drawing). The object window opens on the drawing.
@@ -12,10 +12,17 @@
 // The events go only to Word, by its bundle id. The scripts are fixed text; what changes goes in as arguments, never
 // into the script. What Word gives is read as hostile: the PDF through paste's 64 MB limit and export's reader, the
 // document's name through host_name.
+use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock, TryLockError};
+use std::time::{Duration, Instant};
 
+use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
+use objc2_app_kit::{NSEvent, NSEventMask};
 use tauri::AppHandle;
 
 use crate::clipboard::mac as clip;
@@ -202,6 +209,11 @@ fn find() -> Result<Option<Found>, Fail> {
         return Ok(None);
     }
     let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+    read(true)
+}
+
+// The selected picture's drawing, with BUSY held. new: Word's cursor with nothing selected gives a new drawing.
+fn read(new: bool) -> Result<Option<Found>, Fail> {
     let pb = clip::general();
     let (saved, before) = (clip::save(&pb), pb.changeCount());
     let answer = run(EDIT, &[]);
@@ -219,7 +231,7 @@ fn find() -> Result<Option<Found>, Fail> {
             Some(o) => (o, true),
             None => return Ok(None),
         },
-        "new" => (String::new(), false),
+        "new" if new => (String::new(), false),
         "busy" => return Err(Fail::Busy),
         _ => return Ok(None),
     };
@@ -336,6 +348,147 @@ pub fn install(app: &AppHandle) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Double-click in Word (Settings > General > Microsoft Word, on unless the user turns it off). Word for Mac tells no other program
+// about a double-click, so while the setting is on, Octet watches the mouse: a global monitor of left mouse-downs,
+// which macOS gives with no permission (Apple asks for Accessibility only to monitor keys; tried on macOS 27.2). The
+// monitor reads the click count and the bundle id of the program in front. It never reads where a click was, or a
+// key, and sends nothing anywhere.
+// - No Apple Event goes out unless Word is in front and the click is a double-click's second, once a second at most:
+//   a triple-click or a burst of clicks asks Word once.
+// - Octet asks Word whether one inline picture is selected (PICKED, no clipboard). Only then is it read, as Edit
+//   Picture from Word reads it.
+// - A picture with a drawing in it (Octet's or ChemDraw's CDXML) opens in an object window. A picture open in one
+//   already brings that window to the front.
+// - Anything else does nothing: no beep, and the clipboard as it was. Word's own double-click (its Picture Format
+//   tab) goes ahead.
+
+// One inline picture selected: "picture", or "open" and the bookmark (an argument: those of the object windows whose
+// picture is in the document) that holds it. An empty bookmark holds the character after it, as in UPDATE.
+const PICKED: &str = r#"on run argv
+	if not (application id "com.microsoft.Word" is running) then return "none"
+	tell application id "com.microsoft.Word"
+		with timeout of 2 seconds
+			if (count of documents) is 0 then return "none"
+			set s to selection
+			if selection type of s is not selection inline shape then return "none"
+			if (count of inline shapes of s) is not 1 then return "none"
+			set d to document of s
+			repeat with i from 1 to count of argv
+				set b to item i of argv
+				if exists bookmark b of d then
+					set m to bookmark b of d
+					set b0 to start of bookmark of m
+					set b1 to end of bookmark of m
+					if empty of m then set b1 to b0 + 1
+					if b0 ≤ (selection start of s) and b1 ≥ (selection end of s) then return "open" & linefeed & b
+				end if
+			end repeat
+		end timeout
+	end tell
+	return "picture"
+end run"#;
+
+// Word selects the picture and opens its Picture Format tab first.
+const SETTLE: Duration = Duration::from_millis(200);
+// A double-click this soon after the last one taken asks Word nothing.
+const QUIET: Duration = Duration::from_secs(1);
+
+// The click filter: a double-click's second click, with Word in front, and none taken in the last second.
+fn wanted(count: isize, front: Option<&str>, now: Instant, last: &Cell<Option<Instant>>) -> bool {
+    if count != 2 || front != Some(WORD) || last.get().is_some_and(|t| now.duration_since(t) < QUIET) {
+        return false;
+    }
+    last.set(Some(now));
+    true
+}
+
+// The bundle id of the program in front.
+fn front() -> Option<String> {
+    objc2::rc::autoreleasepool(|_| objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?.bundleIdentifier().map(|b| b.to_string()))
+}
+
+thread_local! {
+    // The monitor while the setting is on. AppKit's, so on the main thread only.
+    static MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+}
+
+// The page sends the setting when it opens and when it changes. Off: no monitor.
+#[tauri::command]
+pub fn set_word_click(app: AppHandle, on: bool) {
+    let _ = app.run_on_main_thread(move || watch(on));
+}
+
+fn watch(on: bool) {
+    MONITOR.with_borrow_mut(|monitor| {
+        if on == monitor.is_some() {
+            return;
+        }
+        if let Some(m) = monitor.take() {
+            // SAFETY: `m` is the monitor addGlobalMonitorForEventsMatchingMask gave.
+            return unsafe { NSEvent::removeMonitor(&m) };
+        }
+        let last = Cell::new(None);
+        let block = block2::RcBlock::new(move |e: NonNull<NSEvent>| {
+            // SAFETY: AppKit gives the handler a valid event, on the main thread.
+            let count = unsafe { e.as_ref() }.clickCount();
+            let front = if count == 2 { front() } else { None };
+            if wanted(count, front.as_deref(), Instant::now(), &last) {
+                if let Some(app) = APP.get() {
+                    double_click(app);
+                }
+            }
+        });
+        *monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::LeftMouseDown, &block);
+    });
+}
+
+// What a double-click in Word found: a picture's drawing, or the bookmark of the object window it is open in.
+enum Pick {
+    Open(Found),
+    Front(String),
+}
+
+// On a thread of its own. Octet busy with Word already (Edit Picture from Word, Update): the double-click is dropped.
+fn picked(marks: &[String]) -> Result<Option<Pick>, Fail> {
+    std::thread::sleep(SETTLE);
+    let _one = match BUSY.try_lock() {
+        Ok(one) => one,
+        Err(TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(TryLockError::WouldBlock) => return Ok(None),
+    };
+    let marks: Vec<&str> = marks.iter().map(String::as_str).collect();
+    let answer = run(PICKED, &marks)?;
+    Ok(match answer.split_once('\n') {
+        Some(("open", mark)) => Some(Pick::Front(mark.to_string())),
+        _ if answer == "picture" => read(false)?.map(Pick::Open),
+        _ => None,
+    })
+}
+
+static TOLD: AtomicBool = AtomicBool::new(false);
+// A double-click is in hand until its window is open: one that comes before then is dropped, so it never opens the
+// same picture in a second window.
+static PENDING: AtomicBool = AtomicBool::new(false);
+
+fn double_click(app: &AppHandle) {
+    if PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let marks = crate::objects::word_marks(&app);
+        match tauri::async_runtime::spawn_blocking(move || picked(&marks)).await.unwrap_or(Err(Fail::Failed)) {
+            Ok(Some(Pick::Open(found))) => crate::objects::open_word(&app, found).await,
+            Ok(Some(Pick::Front(mark))) => crate::objects::front_word(&app, &mark).await,
+            // Octet may not control Word: the alert once while Octet runs, as every double-click in Word comes here.
+            Err(f @ Fail::Denied) if !TOLD.swap(true, Ordering::Relaxed) => tell(&app, &f, None),
+            _ => {}
+        }
+        PENDING.store(false, Ordering::Release);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,11 +512,30 @@ mod tests {
     // Apple Events go to Word only, by its bundle id.
     #[test]
     fn scripts_name_only_word() {
-        for s in [EDIT, MARK, UPDATE, BACK] {
+        for s in [EDIT, MARK, UPDATE, BACK, PICKED] {
             assert!(!s.contains("tell application \""), "by bundle id only");
             let apps: Vec<&str> = s.match_indices("application id \"").map(|(k, _)| &s[k + 16..k + 16 + s[k + 16..].find('"').unwrap()]).collect();
             assert!(apps.iter().all(|a| *a == WORD), "{apps:?}");
         }
+    }
+
+    // Only a double-click's second click with Word in front, and one a second at most.
+    #[test]
+    fn the_click_filter() {
+        let (last, t) = (Cell::new(None), Instant::now());
+        let at = |ms: u64| t + Duration::from_millis(ms);
+        assert!(!wanted(1, Some(WORD), at(0), &last), "a single click");
+        assert!(!wanted(2, Some("com.apple.Pages"), at(0), &last), "another program in front");
+        assert!(!wanted(2, Some("com.microsoft.Word.beta"), at(0), &last), "the bundle id exactly");
+        assert!(!wanted(2, None, at(0), &last), "no program in front");
+        assert_eq!(last.get(), None, "a click not taken starts no quiet time");
+        assert!(wanted(2, Some(WORD), at(0), &last));
+        assert!(!wanted(3, Some(WORD), at(100), &last), "a triple-click's third");
+        assert!(!wanted(2, Some(WORD), at(600), &last), "a burst");
+        assert!(!wanted(2, Some(WORD), at(999), &last));
+        assert!(wanted(2, Some(WORD), at(1000), &last), "a second later");
+        assert!(!wanted(2, Some(WORD), at(1500), &last));
+        assert!(wanted(2, Some(WORD), at(2000), &last));
     }
 
     #[test]

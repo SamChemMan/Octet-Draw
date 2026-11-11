@@ -313,6 +313,23 @@ pub async fn open_word(app: &AppHandle, found: crate::word::Found) {
     open(app, f).await;
 }
 
+// The bookmarks of the Word pictures open in object windows, and one's window in front: a double-click in Word
+// (word.rs) on a picture that is open already. A new drawing not updated yet has no picture in the document.
+#[cfg(target_os = "macos")]
+pub fn word_marks(app: &AppHandle) -> Vec<String> {
+    let files = app.state::<Files>();
+    let files = files.0.lock().unwrap();
+    files.values().filter_map(|f| if let To::Word { mark, placed: true } = &f.to { Some(mark.clone()) } else { None }).collect()
+}
+
+#[cfg(target_os = "macos")]
+pub async fn front_word(app: &AppHandle, mark: &str) {
+    let id = app.state::<Files>().0.lock().unwrap().iter().find(|(_, f)| matches!(&f.to, To::Word { mark: m, .. } if m == mark)).map(|(id, _)| *id);
+    if let Some(id) = id {
+        let _ = crate::windows::window_show(app.clone(), label(id)).await;
+    }
+}
+
 async fn open(app: &AppHandle, f: File) {
     let (id, host) = (f.session.id, f.session.host.borrow().clone());
     let start = serde_json::json!({ "object": id, "oct": f.session.oct.borrow().as_str(), "host": host, "title": f.session.title() });
