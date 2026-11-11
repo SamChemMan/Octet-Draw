@@ -31,7 +31,9 @@ const keyOf = (smiles: string) => toInchiKey(parseStructure(smiles));
 
 // ---- Each change kind (C1), with every centre's label (C2) ----
 
-type Row = { what: string; from: string; labels?: string[]; changes: object[]; want: string; says?: RegExp };
+// open: the result has a double bond drawn with no E or Z (a SMILES read by Octet is laid out with one), so only the
+// atoms and bonds of want are compared, and the result has no stereo.
+type Row = { what: string; from: string; labels?: string[]; changes: object[]; want: string; says?: RegExp; open?: true };
 const TABLE: Row[] = [
   // Protecting groups on alcohols and polyols.
   { what: "a silyl ether written as a label, taken off", from: "C[C@H](*)CCO", labels: ["OTBS"], changes: [{ swap: { OTBS: "OH" } }], want: "C[C@H](O)CCO" },
@@ -40,6 +42,8 @@ const TABLE: Row[] = [
   { what: "two hydroxyls by their atoms' numbers", from: "C[C@H:2](O)C[C@H:4](O)CC", changes: [{ at: "2", set: "OTBS" }, { at: "4", set: "OBn" }], want: "C[C@H](O[Si](C)(C)C(C)(C)C)C[C@H](OCc1ccccc1)CC" },
   { what: "a sugar's primary hydroxyl", from: "CO[C@H]1O[C@H]([CH2:6]O)[C@@H](O)[C@H](O)[C@H]1O", changes: [{ at: "C6", set: "OTr" }], want: "CO[C@H]1O[C@H](COC(c2ccccc2)(c2ccccc2)c2ccccc2)[C@@H](O)[C@H](O)[C@H]1O" },
   { what: "a label named as the place", from: "*[C@H]1CC[C@@H](*)CC1", labels: ["OTBS", "OBn"], changes: [{ at: "OBn", set: "OH" }], want: "O[C@H]1CC[C@@H](O[Si](C)(C)C(C)(C)C)CC1" },
+  { what: "one of an atom's two groups, by swap with at", from: "C[C@H:2](O)[C:1](=O)OC", changes: [{ at: "1", swap: { OMe: "OH" } }], want: "C[C@H](O)C(=O)O" },
+  { what: "the hydroxyl on one of two atoms alike, by swap with at", from: "C[C:1](C)(O)C[C:2](C)(O)C", changes: [{ at: "2", swap: { OH: "OAc" } }], want: "CC(C)(O)CC(C)(C)OC(C)=O" },
   // Amines.
   { what: "an amine protected", from: "N[C@@H](Cc1ccccc1)C(=O)OC", changes: [{ swap: { NH2: "NHBoc" } }], want: "CC(C)(C)OC(=O)N[C@@H](Cc1ccccc1)C(=O)OC" },
   { what: "a carbamate off a ring nitrogen", from: "CC(C)(C)OC(=O)[N:1]1CCC[C@H]1C(=O)O", changes: [{ at: "1", remove: true }], want: "N1CCC[C@H]1C(=O)O" },
@@ -57,9 +61,11 @@ const TABLE: Row[] = [
   { what: "an aldehyde to its acid", from: "O=[CH:1]c1ccccc1", changes: [{ at: "1", add: "OH" }], want: "OC(=O)c1ccccc1" },
   { what: "an alcohol to its bromide", from: "C[C@@H:1](O)c1ccccc1", changes: [{ at: "1", set: "Br" }], want: "C[C@@H](Br)c1ccccc1", says: /Atom 1 keeps its configuration/ },
   { what: "a nitro group reduced", from: "[O-][N+](=O)c1ccc(C)cc1", changes: [{ swap: { NO2: "NH2" } }], want: "Nc1ccc(C)cc1" },
+  { what: "a halide on an atom with no other bond", from: "[CH3:1]Br", changes: [{ at: "1", set: "OH" }], want: "CO" },
   { what: "a nitrile reduced", from: "N#Cc1ccccc1", changes: [{ swap: { CN: "CH2NH2" } }], want: "NCc1ccccc1" },
   // Groups added and removed: rings, chains, stereocentres.
   { what: "a group added to an aromatic ring", from: "Cc1cc[cH:4]cc1", changes: [{ at: "4", add: "Br" }], want: "Cc1ccc(Br)cc1" },
+  { what: "a group swapped for a hydrogen, with no word on it", from: "Cc1ccc(Br)cc1", changes: [{ swap: { Br: "H" } }], want: "Cc1ccccc1", says: /\(2\)\. One undo step/ },
   { what: "a group removed from an aromatic ring", from: "Cc1cc[c:4](Br)cc1", changes: [{ at: "4", remove: true }], want: "Cc1ccccc1" },
   { what: "a group added at a chain's end", from: "CCCC[CH3:1]", changes: [{ at: "1", add: "Br" }], want: "CCCCCBr" },
   { what: "a group removed from a chain", from: "CC(C)[CH:1](O)CC", changes: [{ at: "1", remove: true }], want: "CC(C)CCC" },
@@ -76,7 +82,13 @@ const TABLE: Row[] = [
   { what: "an alkyne to an alkene", from: "C[C:1]#[CH:2]", changes: [{ bond: "1-2", to: "double" }], want: "CC=C" },
   { what: "an alkene to an alkyne", from: "c1ccccc1[CH:1]=[CH2:2]", changes: [{ bond: "1-2", to: "triple" }], want: "c1ccccc1C#C" },
   { what: "a ring alkene made, a Z alkene kept", from: "C/C=C\\[C@H]1CC[CH2:1][CH2:2]C1=O", changes: [{ bond: "1-2", to: "double" }], want: "C/C=C\\[C@H]1CCC=CC1=O" },
+  { what: "a ketone to an alkene that can be E or Z", from: "C[C:1](=O)CC", changes: [{ at: "1", set: "=CHCH3" }], want: "CC(CC)=CC", open: true, says: /The new double bond from atom 1 to CHCH3 is drawn with no E or Z: to set one, give the compound as text/ },
+  { what: "a ketone to an alkene that cannot", from: "C[C:1](=O)C", changes: [{ at: "1", set: "=CHCH3" }], want: "CC(C)=CC", says: /2-methylbut-2-ene \(2\)\./ },
+  { what: "a ring ketone to an alkene that cannot", from: "C1CCCC[C:1]1=O", changes: [{ at: "1", set: "=CHPh" }], want: "C1CCCCC1=Cc1ccccc1", says: /\(2\)\./ },
+  { what: "an aldehyde to its oxime", from: "CC[CH:1]=O", changes: [{ at: "1", set: "=NOH" }], want: "CCC=NO", open: true, says: /to NOH is drawn with no E or Z/ },
   // Charged compounds and metals.
+  { what: "an N-oxide to its amine, with no charge left", from: "C[N+:1](C)(C)[O-]", changes: [{ at: "1", remove: true }], want: "CN(C)C" },
+  { what: "a sulfoxide to its sulfide", from: "C[S+:1]([O-])c1ccccc1", changes: [{ at: "1", remove: true }], want: "CSc1ccccc1" },
   { what: "an ammonium ion", from: "C[N+](C)(C)CCO", changes: [{ swap: { OH: "OAc" } }], want: "C[N+](C)(C)CCOC(C)=O" },
   { what: "a pyridinium ion", from: "C[n+]1ccc(cc1)[CH2:1]O", changes: [{ at: "1", set: "=O" }], want: "C[n+]1ccc(cc1)C=O" },
   { what: "one chloride of a palladium complex", from: "Cl[Pd](Cl)([P](c1ccccc1)(c1ccccc1)c1ccccc1)[P](c1ccccc1)(c1ccccc1)c1ccccc1", changes: [{ swap: { Cl: "OAc" }, occurrence: 1 }], want: "CC(=O)O[Pd](Cl)([P](c1ccccc1)(c1ccccc1)c1ccccc1)[P](c1ccccc1)(c1ccccc1)c1ccccc1" },
@@ -90,8 +102,8 @@ for (const row of TABLE) {
   const r = await call("draw_structures", { structures: [{ text: row.from, ...(row.labels ? { labels: row.labels } : {}), number: "1" }, { from: "1", changes: row.changes, number: "2" }] });
   assert.ok(!r.isError, `${row.what}: ${said(r)}`);
   const got = (await reading()).structures.find((s: { number: string }) => s.number === "2");
-  assert.equal(got.inchiKey, keyOf(row.want), `${row.what}: drew ${got.smiles}, not ${row.want}`);
-  assert.equal(cip(numbered("2")), cip(parseStructure(row.want)), `${row.what}: the CIP labels of ${row.want}`);
+  assert.equal(got.inchiKey, row.open ? `${keyOf(row.want).slice(0, 14)}-UHFFFAOYSA-N` : keyOf(row.want), `${row.what}: drew ${got.smiles}, not ${row.want}`);
+  assert.equal(cip(numbered("2")), row.open ? "" : cip(parseStructure(row.want)), `${row.what}: the CIP labels of ${row.want}`);
   if (row.says) assert.match(said(r), row.says, row.what);
 }
 
@@ -125,6 +137,32 @@ for (const row of TABLE) {
   assert.notEqual(cip(numbered("2")), cip(numbered("1")));
   assert.equal((await reading()).structures[1].inchiKey, keyOf("OC[C@H](C)CC"));
 }
+// Every tool's reply says it (C3): edit with changes says what replace_structure says, with the new structure's id.
+{
+  d = drawing();
+  assert.ok(!(await call("draw_structures", { structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
+  assert.match(said(await call("edit", { ids: ["s1"], changes: [{ at: "7", set: "=O" }] })), /^Changed s1: changes\. Replaced s1 with butan-2-one \[Atom 7 is no longer a stereocentre\.\], now s2, numbered 1\. One undo step\./);
+  d = drawing();
+  assert.ok(!(await call("draw_structures", { structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
+  assert.match(said(await call("replace_structure", { structure: "s1", changes: [{ at: "7", set: "OH" }] })), /^Replaced s1 with \(2S\)-butan-2-ol \[Atom 7 keeps its configuration \(S\)\.\], now s2, numbered 1\./);
+}
+// A new group Octet cannot read is drawn as a label with no structure, as a chemist's own label is, and the reply says
+// so: it may be a slip (C12). A generic group (R) is one on purpose, and a group Octet reads needs no word.
+{
+  d = drawing();
+  const r = await call("draw_structures", { structures: [{ text: "CCO", number: "1" }, { from: "1", changes: [{ swap: { OH: "OTBDSP" } }], number: "2" }, { from: "1", changes: [{ swap: { OH: "R" } }], number: "3" }, { from: "1", changes: [{ swap: { OH: "OTBDPS" } }], number: "4" }] });
+  assert.ok(!r.isError, said(r));
+  assert.match(said(r), /\(2\) \[Octet cannot read OTBDSP as a group: it is drawn as a label with no structure\.\]/);
+  assert.ok(!/\((3|4)\) \[/.test(said(r)), said(r));
+}
+// A numbered atom written with no hydrogens ([C:7]) is a radical in SMILES: the reply says so. One with its hydrogens,
+// or with all its bonds, is as it was meant.
+{
+  d = drawing();
+  const r = await call("draw_structures", { structures: [{ text: "CC[C:7]O", number: "1" }, { text: "CC[CH2:7]O", number: "2" }, { text: "C[C:7](C)(C)O", number: "3" }] });
+  assert.match(said(r), /\(1\) \[As written, atom 7 is a radical: a numbered atom needs its hydrogens \(\[CH2:7\]\)\.\]/);
+  assert.ok(!/\((2|3)\) \[/.test(said(r)), said(r));
+}
 // A group removed from a stereocentre whose only wedge was the group's bond: a hydrogen stays there with the wedge,
 // so the centre keeps its configuration. (The same alcohol, redrawn with its wedge on the C-O bond.)
 {
@@ -149,6 +187,11 @@ for (const row of TABLE) {
   const out = change(tagged(parseStructure("CC[C:1]#[CH:2]")), [{ bond: "1-2", to: "double" }]) as { mol: Mol };
   const [p, c, q] = [1, 2, 3].map((i) => out.mol.atoms[i].location), angle = (Math.atan2(p[1] - c[1], p[0] - c[0]) - Math.atan2(q[1] - c[1], q[0] - c[0])) * 180 / Math.PI;
   assert.ok(Math.abs(Math.abs(((angle + 540) % 360) - 180) - 120) < 1, `the angle at the alkene is ${angle}`);
+  // A mark placed by hand on an atom that turns, turns with it (edit.ts bend, as the bond tool's own turn).
+  const marked = tagged(parseStructure("CC[C:1]#[CH:2]"));
+  marked.atoms[3] = { ...marked.atoms[3], angles: { charge: 10 } };
+  const turned = (change(marked, [{ bond: "1-2", to: "double" }]) as { mol: Mol }).mol.atoms[3];
+  assert.ok(Math.hypot(turned.location[0] - out.mol.atoms[3].location[0], turned.location[1] - out.mol.atoms[3].location[1]) < 1e-9 && Math.abs(Math.abs(turned.angles!.charge - 10) - 60) < 1e-6, JSON.stringify(turned));
 }
 // An azide's label is N3, not atom 3; C7 is atom 7.
 {
@@ -206,6 +249,11 @@ for (const row of TABLE) {
   await refuse({ text: "C[CH2:1]C1CCCCC1" }, [{ at: "1", set: "OH" }], /atom 1 carries 2 groups/);
   await refuse({ text: "C1CC[CH2:1]CC1" }, [{ at: "1", set: "OH" }], /atom 1 carries no group: add puts a new one on it/);
   await refuse({ text: "CC[OH:1]" }, [{ at: "1", remove: true }], /atom 1 carries no group/);
+  // The part on an atom that is larger than the part that stays may not be the group the AI app means (the phenyl of
+  // anisole on its methyl's carbon, the benzoate on an ethyl's): both sides are named.
+  await refuse({ text: "[CH3:1]Oc1ccccc1" }, [{ at: "1", set: "OH" }], /the part on atom 1 \(OC1C=CC=CC=1\) is larger than the part that stays \(C\), so it may not be the group you mean: name the group to change with swap/);
+  await refuse({ text: "C[CH2:1]OC(=O)c1ccccc1" }, [{ at: "1", set: "OH" }], /the part on atom 1 \(OC\(C1C=CC=CC=1\)=O\) is larger than the part that stays \(CC\)/);
+  await refuse({ text: "C[CH2:1]OC(=O)c1ccccc1" }, [{ at: "1", remove: true }], /is larger than the part that stays \(CC\)/);
   // A label that is there twice, or not there: the places are listed.
   await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OTBS"] }, [{ swap: { OTBS: "OH" } }], /there are 2 OTBS \(on atom #1, atom #4\): say which with occurrence \(1 to 2/);
   await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OTBS"] }, [{ swap: { OTBS: "OH" }, occurrence: 3 }], /there are 2 OTBS, so no occurrence 3/);
@@ -223,6 +271,17 @@ for (const row of TABLE) {
   await refuse({ text: "C[CH2:1][CH2:2]C" }, [{ bond: "1-2", to: "double" }], /The new double bond between atom 1 and atom 2 can be E or Z, and a change cannot say which: give the compound as text/);
   await refuse({ text: "C[C:1]#[C:2]C" }, [{ bond: "1-2", to: "double" }], /can be E or Z/);
   await refuse({ text: "C[CH2:1]C[CH2:2]O" }, [{ bond: "1-2", to: "double" }], /atom 1 and atom 2 are not bonded\. A change cannot make or break a ring or a chain/);
+  // A label on a double bond that Octet reads as on a single bond, with another structure (no C=O).
+  await refuse({ text: "CC[CH:1]=O" }, [{ at: "1", set: "=CHCO2Et" }], /Octet cannot read CHCO2Et on a double bond: give the compound as text/);
+  await refuse({ text: "CC[CH:1]=O" }, [{ at: "1", set: "=CHCN" }], /Octet cannot read CHCN on a double bond/);
+  // A numbered atom with no hydrogens written is a radical, so a group more breaks its valence: the refusal says why.
+  await refuse({ text: "C1CC[N:1]CC1" }, [{ at: "1", add: "Ac" }], /The changes break valence: .*A numbered atom needs its hydrogens in the SMILES/);
+  // A key that does not go with the change.
+  await refuse(lactate, [{ at: "2", set: "Br", occurrence: 2 }], /occurrence goes with a label that is there more than once, not with an atom's number/);
+  await refuse(lactate, [{ at: "2", set: "Br", to: "double" }], /changes\[0\]: to does not go with set/);
+  await refuse(lactate, [{ bond: "1-2", to: "single", at: "1" }], /at does not go with bond/);
+  await refuse(lactate, [{ at: "OMe", swap: { OMe: "OH" } }], /with swap, at is the number of the atom the group is on/);
+  await refuse(lactate, [{ at: "2", swap: { OMe: "OH" } }], /there is no OMe on atom 2\. This compound has the atom numbers 1, 2/);
   // A change that is no change Octet knows, and a group that is none.
   await refuse(lactate, [{ at: "2" }], /changes\[0\]: give one of swap, set, add, remove: true, or bond with to/);
   await refuse(lactate, [{ at: "2", set: "OH", remove: true }], /give one of swap/);
@@ -239,6 +298,19 @@ for (const row of TABLE) {
   await refuse(lactate, [], /Compound 2: from: there is no compound 8 earlier in this call or in the drawing/, { from: "8" });
   await refuse(lactate, [], /Give a compound as text, as a molecule, or as from with changes: one of them/, { text: "CCO" });
   await refuse(lactate, [{ at: "2", set: "OH" }], /changes: give from too/, { from: undefined });
+  // Two compounds of one call with one number. One compound drawn twice with its number is one.
+  d = drawing();
+  const both = await call("draw_structures", { structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }, { from: "5", number: "6" }] });
+  assert.ok(both.isError && !d.host.doc().atoms.length);
+  assert.match(said(both), /Compound 6: from: 2 compounds of this call have the number 5, and they are not one compound: give each its own number/);
+  const twice = await call("draw_structures", { structures: [{ text: "CC[CH2:1]O", number: "5" }, { from: "5", number: "5" }, { text: "CC[CH2:1]O", number: "5" }, { from: "5", changes: [{ at: "1", set: "=O" }], number: "6" }] });
+  assert.ok(!twice.isError, said(twice));
+  assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "6").inchiKey, keyOf("CCC=O"));
+  // changes with no from in a figure, and a structure to replace with nothing to replace it with.
+  d = drawing();
+  assert.match(said(await call("draw_figure", { panels: [{ rows: [[{ structure: "CCO", number: "1" }, { changes: [{ swap: { OH: "OAc" } }] }]] }] })), /Octet drew nothing\. Compound 2: changes: give from too/);
+  assert.ok(!(await call("draw_structures", { structures: [{ text: "CCO", number: "1" }] })).isError);
+  assert.match(said(await call("replace_structure", { structure: "s1" })), /Give each compound text \(a name or SMILES\), a molecule, or from with changes/);
   d = drawing();
   assert.ok(!(await call("draw_structures", { structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }] })).isError);
   const two = await call("draw_structures", { structures: [{ from: "5", number: "6" }] });
@@ -280,6 +352,12 @@ for (const row of TABLE) {
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "1").inchiKey, keyOf("O=Cc1ccccc1"));
   assert.match(said(await call("replace_structure", { structure: id("3"), changes: [{ swap: { OBn: "OH" } }] })), /Octet changed nothing\. Compound 1: changes\[0\]: there is no OBn/);
   assert.match(said(await call("edit", { ids: [`t${d.host.doc().captions!.find((c) => c.bold)!.id}`], changes: [{ swap: { OH: "OMe" } }] })), /takes no changes/);
+  // A salt by its number, from an earlier call: both ions (its number is under each).
+  d = drawing();
+  assert.ok(!(await call("draw_structures", { structures: [{ text: "OCC(=O)[O-].[Na+]", number: "1" }] })).isError);
+  r = await call("draw_structures", { structures: [{ from: "1", changes: [{ swap: { OH: "OBn" } }], number: "2" }] });
+  assert.ok(!r.isError, said(r));
+  assert.deepEqual((await reading()).structures.filter((s: { number: string }) => s.number === "2").map((s: { inchiKey: string }) => s.inchiKey).sort(), ["[Na+]", "[O-]C(=O)COCc1ccccc1"].map(keyOf).sort());
   // draw_cycle and draw_figure.
   d = drawing();
   r = await call("draw_cycle", { intermediates: [{ text: "Cl[Pd](Cl)(*)*", labels: ["L", "L"], number: "1" }, { from: "1", changes: [{ swap: { Cl: "Ph" }, occurrence: 1 }], number: "2" }, { from: "previous", changes: [{ swap: { Cl: "OAc" } }], number: "3" }] });
@@ -308,6 +386,16 @@ for (const row of TABLE) {
   // Every carbon of compound 2 is where it was in compound 1, seen from atom 1; compound 3 has lost only its acetyl's.
   assert.equal(ring(two), ring(one), "no carbon moved");
   assert.ok(ring(three).split(",").every((p) => ring(one).split(",").includes(p)));
+  // Changes made on a structure itself (edit, replace_structure) leave every other atom where it is: the structure is
+  // not put back by its middle, which moves when a group grows.
+  const places = () => d.host.doc().atoms.flatMap((a) => (a.tag === 1 || a.tag === 3 ? [[a.key, a.tag, ...a.location.slice(0, 2).map((v) => v.toFixed(3))].join(" ")] : [])).sort();
+  const at = (number: string) => places().filter((p) => p.startsWith(`${numbered(number).atoms[0].key} `)).map((p) => p.replace(/^\d+ /, ""));
+  const [was1, was3] = [at("1"), at("3")];
+  assert.equal(was1.length, 2);
+  assert.match(said(await call("edit", { ids: ["1"], changes: [{ at: "3", set: "OTBDPS" }] })), /^Changed 1: changes\. Replaced 1 with /);
+  assert.deepEqual(at("1"), was1);
+  assert.ok(!(await call("replace_structure", { structure: "3", from: "3", changes: [{ swap: { CO2H: "CO2CH2CH2SiMe3" } }] })).isError);
+  assert.deepEqual(at("3"), was3);
   // from with no changes is the same compound again, drawn the same way round.
   assert.ok(!(await call("draw_structures", { structures: [{ from: "2", number: "2b" }] })).isError);
   assert.equal(ring(numbered("2b")), ring(two));

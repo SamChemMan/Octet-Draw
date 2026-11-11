@@ -5,13 +5,14 @@
 // is that group) or by a map number the AI app wrote on an atom in a SMILES ([C@H:7]). Octet keeps the number on the
 // atom (Atom.tag), never draws it and writes it to no file. A change with more than one reading is refused with the
 // places Octet found: it never guesses.
-import { bondedTo, bondTo, deleteAtoms, pickAtoms, scaleAt, setBondSpec, setLabel, sprout } from "./edit.ts";
-import { GROUPS, labelSmiles } from "./labels.ts";
-import { parseStructure, stereoFacts, stereoLabels, toInchiKey, toSmiles } from "./chem.ts";
+import { bend, bondedTo, bondIndex, bondTo, deleteAtoms, pickAtoms, reach, scaleAt, setBondSpec, setLabel, sprout } from "./edit.ts";
+import { GROUPS, isElement, isGeneric, labelSmiles } from "./labels.ts";
+import { classes, expandWithOrigins, parseStructure, stereoFacts, stereoLabels, toInchiKey, toSmiles } from "./chem.ts";
 import { problems } from "./check.ts";
 import type { Mol } from "./render.ts";
 
-// One change: a group for a group ({ swap: { OBn: "OTES" } }, with occurrence when the group is there more than once);
+// One change: a group for a group ({ swap: { OBn: "OTES" } }, with occurrence when the group is there more than once,
+// or at for the one on that atom);
 // the group at a place set, a group added there or the group there removed ({ at, set }, { at, add }, { at, remove });
 // or a bond's order ({ bond: "5-6", to }).
 export type Change = { swap?: Record<string, unknown>; occurrence?: number; at?: string; set?: string; add?: string; remove?: boolean; bond?: string; to?: "single" | "double" | "triple" };
@@ -24,14 +25,8 @@ export const tagged = (m: Mol): Mol => (m.atoms.some((a) => a.map) ? { ...m, ato
 // The atoms on first's side of the bond from on to first. Undefined when the bond is in a ring (the side comes back to
 // on), or when the side has more than `most` atoms.
 function side(near: number[][], on: number, first: number, most = Infinity): number[] | undefined {
-  const seen = new Set([first]), todo = [first];
-  while (todo.length) {
-    const i = todo.pop()!;
-    for (const j of near[i]) {
-      if (j === on) { if (i !== first) return undefined; } else if (!seen.has(j)) { if (seen.size >= most) return undefined; seen.add(j); todo.push(j); }
-    }
-  }
-  return [...seen];
+  const atoms = reach(near, first, on, most);
+  return atoms.size > most || near[on].some((j) => j !== first && atoms.has(j)) ? undefined : [...atoms];
 }
 // A group as an AI app writes it: a label as a chemist types one on an atom (OTBS, CH2OH, Br), after = or # when it is
 // on a double or triple bond (=O).
@@ -47,8 +42,8 @@ const written = (m: Mol, i: number, label: string): Mol => (GROUPS[label] ? { ..
 const CAP = { label: "C", isotope: 9 };
 const elements = (atoms: Mol["atoms"]) => atoms.map((a) => a.label).sort().join(" ");
 const keyOf = (m: Mol): string | undefined => { try { return toInchiKey(m); } catch { return undefined; } };
-// A label's group so, its number of atoms, its first atom's element and all its elements in order (none for a label
-// Octet cannot read). Kept by label: each is read once.
+// A label's group as that key, its number of atoms, its first atom's element and all its elements in order (none for a
+// label Octet cannot read). Kept by label: each is read once.
 type Label = { key?: string; atoms: number; first?: string; elements?: string };
 const labelKeys = new Map<string, Label>();
 function labelKey(label: string, order = 1): Label {
@@ -69,11 +64,13 @@ function labelKey(label: string, order = 1): Label {
 export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[] } | string {
   if (!changes.length) return { mol: from, notes: [] };
   let m: Mol = { atoms: from.atoms, bonds: from.bonds };
-  // For each atom now: the atom of `from` it was (-1 for a new one), and whether a change was made at it.
-  let was = from.atoms.map((_, i) => i), hit = from.atoms.map(() => false);
-  const doubled: [number, number][] = []; // bonds a change made double, by their atoms in `from`
+  // For each atom now: the atom of `from` it was (below 0 for a new one, each its own), and whether a change was made
+  // at it.
+  let was = from.atoms.map((_, i) => i), hit = from.atoms.map(() => false), added = 0;
+  const doubled: [number, number][] = []; // double bonds a change made, or put a new group on, by their atoms in `from`
+  const notes: string[] = [], note = (t: string) => { if (!notes.includes(t)) notes.push(t); };
   const who = (i: number) => (m.atoms[i].tag ? `atom ${m.atoms[i].tag}` : `atom #${i}`);
-  const bondOf = (i: number, j: number) => m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
+  const bondOf = (i: number, j: number) => bondIndex(m, i, j);
   const labelOf = (i: number) => stereoLabels(m)?.atoms[i];
   // What the compound has to name a place by, for a refusal.
   const places = () => {
@@ -81,10 +78,10 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
     return `This compound has ${tags.length ? `the atom numbers ${tags.join(", ")}` : "no atom numbers"}${labels.length ? ` and the labels ${labels.join(", ")}` : ""}`;
   };
   // A group as a refusal names it: its label, or its atoms as SMILES.
+  const smilesOf = (atoms: number[]) => { try { return toSmiles(pickAtoms(m, atoms)); } catch { return m.atoms[atoms[0]].label; } };
   const say = (p: Part) => {
-    const a = m.atoms[p.first], sign = ["", "", "=", "#"][m.bonds[bondOf(p.on, p.first)].type] ?? "";
-    if (p.atoms.length === 1 && a.text) return a.text;
-    try { return sign + toSmiles(pickAtoms(m, p.atoms)); } catch { return sign + a.label; }
+    const a = m.atoms[p.first];
+    return p.atoms.length === 1 && a.text ? a.text : (["", "", "=", "#"][m.bonds[bondOf(p.on, p.first)].type] ?? "") + smilesOf(p.atoms);
   };
   // Atoms taken away. False when more went than these: the last carbon of the compound, left with no bonds.
   const drop = (gone: number[]) => {
@@ -132,20 +129,29 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
   };
   // The group an atom carries: its one part through an atom that is not carbon (OH, OTBS, =O, Br), which is the
   // functional group a chemist means; with none, its one carbon part, when the atom has other bonds to stay on (an
-  // atom's only bond leads to the rest of the compound, not to a group).
+  // atom's only bond leads to the rest of the compound, not to a group). A group is the smaller side of its bond: a
+  // part with more atoms than stay (the benzoate on an ethyl's carbon) may be what the AI app means to keep.
   const carried = (on: number): Part | string => {
     const near = bondedTo(m), heavy = near[on].filter((j) => m.atoms[j].label !== "H" || m.atoms[j].text);
     const parts = heavy.flatMap((first) => { const atoms = side(near, on, first); return atoms ? [{ on, first, atoms }] : []; });
     const hetero = parts.filter((p) => { const a = m.atoms[p.first]; return (a.text ? labelKey(a.text).first : a.label) !== "C"; });
     const found = hetero.length ? hetero : heavy.length > 1 ? parts : [];
-    if (found.length === 1) return found[0];
-    return found.length ? `${who(on)} carries ${found.length} groups (${found.map(say).join(", ")}): name the one to change with swap` : `${who(on)} carries no group: add puts a new one on it`;
+    if (found.length !== 1) return found.length ? `${who(on)} carries ${found.length} groups (${found.map(say).join(", ")}): name the one to change with swap (with at too, the one on this atom)` : `${who(on)} carries no group: add puts a new one on it`;
+    const stay = reach(near, on, found[0].first);
+    return found[0].atoms.length > stay.size ? `the part on ${who(on)} (${say(found[0])}) is larger than the part that stays (${smilesOf([...stay])}), so it may not be the group you mean: name the group to change with swap` : found[0];
   };
   // A group taken off its atom, which takes a hydrogen. Where the atom is a stereocentre, the hydrogen is drawn in the
   // group's place when the centre reads another way without it.
   const take = (p: Part): string | undefined => {
     const centre = !!labelOf(p.on), rest = p.atoms.filter((i) => i !== p.first), at = (i: number) => i - rest.filter((j) => j < i).length;
     hit[p.on] = true;
+    // A group with the opposite charge to its atom's (an N-oxide's O−, an ylide's C−) goes with both charges, and the
+    // atom takes no hydrogen: the amine, not its ammonium ion.
+    const charge = m.atoms[p.on].charge ?? 0, sign = Math.sign(m.atoms[p.first].charge ?? 0);
+    if (charge * sign < 0) {
+      m = { ...m, atoms: m.atoms.map((a, i) => (i === p.on ? { ...a, charge: charge + sign || undefined } : a)) };
+      return drop(p.atoms) ? undefined : NOTHING;
+    }
     m = { ...m, atoms: m.atoms.map((a, i) => (i === p.first ? { label: "H", location: a.location, ...(a.scale ? { scale: a.scale } : {}) } : a)) };
     if (!drop(rest)) return NOTHING;
     const on = at(p.on), first = at(p.first), withH = centre ? labelOf(on) : undefined, kept = [m, was, hit] as const;
@@ -153,13 +159,27 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
     if (withH && labelOf(on - (first < on ? 1 : 0)) !== withH) [m, was, hit] = kept;
     return undefined;
   };
+  // A new group, as text. Octet reads a label as it is on a single bond (labels.ts), which is wrong for some labels on
+  // a double or triple bond (=CHCO2Et comes out with no C=O): such a label is taken only when it reads the same with
+  // the hydrogens a single bond gives its first atom (CH2CO2Et). A label Octet cannot read, and that is no element
+  // or generic group (R, X), is drawn as text with no structure, as a chemist's own label is: the reply says so, as it may be a
+  // slip (OTBDSP).
+  const fresh = (text: unknown): { order: number; label: string } | string => {
+    const g = groupOf(text);
+    if (!g) return `${String(text).slice(0, 40)} is not a group: give a label (OTBS, CH2OH, =O)`;
+    const x = g.order > 1 ? /^([A-Z][a-z]?)(?:H(\d*))?(.*)$/.exec(g.label) : null, h = x ? (x[2] === undefined ? 0 : Number(x[2] || 1)) + g.order - 1 : 0;
+    if (x && labelKey(g.label).key !== labelKey(`${x[1]}H${h > 1 ? h : ""}${x[3]}`).key) return `Octet cannot read ${g.label} on a ${g.order === 2 ? "double" : "triple"} bond: give the compound as text`;
+    if (!isElement(g.label) && !labelKey(g.label).atoms && !isGeneric(g.label)) note(`Octet cannot read ${g.label} as a group: it is drawn as a label with no structure.`);
+    return g;
+  };
   // A group put in a part's place: the part's first atom becomes the group's label where it is, on the same bond (with
   // its wedge when the wedge is the carrying atom's), and the rest of the part goes.
   const put = (p: Part, text: unknown): string | undefined => {
-    const g = groupOf(text);
-    if (!g) return `${String(text).slice(0, 40)} is not a group: give a label (OTBS, CH2OH, =O)`;
+    const g = fresh(text);
+    if (typeof g === "string") return g;
     if (g.label === "H") return g.order === 1 ? take(p) : "a hydrogen has one bond";
     const k = bondOf(p.on, p.first), b = m.bonds[k];
+    if (g.order === 2) doubled.push([was[p.on], was[p.first]]);
     m = setBondSpec(m, k, { type: g.order, ...(g.order === 1 && b.stereo && b.atoms[0] === p.on ? { stereo: b.stereo } : {}) });
     m = written({ ...m, atoms: m.atoms.map((a, i) => (i === p.first ? { label: "C", location: a.location, ...(a.scale ? { scale: a.scale } : {}), ...(a.tag ? { tag: a.tag } : {}) } : a)) }, p.first, g.label);
     hit[p.on] = true;
@@ -169,8 +189,8 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
   // a stereocentre with no hydrogen drawn, the new bond goes in a gap between the atom's bonds (the widest first),
   // plain, hashed or wedged: the first that reads as the centre read with its hydrogen.
   const grow = (on: number, text: unknown): string | undefined => {
-    const g = groupOf(text);
-    if (!g || g.label === "H") return `${String(text).slice(0, 40)} is not a group to add: give a label (OTBS, CH2OH, =O)`;
+    const g = fresh(text);
+    if (typeof g === "string" || g.label === "H") return typeof g === "string" ? g : "H is not a group to add: give a label (OTBS, CH2OH, =O)";
     const near = bondedTo(m), h = near[on].find((j) => m.atoms[j].label === "H" && !m.atoms[j].text && near[j].length === 1);
     if (h !== undefined) return put({ on, first: h, atoms: [h] }, text);
     const before = g.order === 1 ? labelOf(on) : undefined, base = m, n = base.atoms.length, [x, y] = base.atoms[on].location;
@@ -181,12 +201,13 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
       const spec = { type: g.order, ...(stereo ? { stereo } : {}) }, grown = way === undefined ? sprout(base, on, spec) : bondTo(base, on, [x + Math.cos(way) * scaleAt(base, on), y + Math.sin(way) * scaleAt(base, on)], spec);
       if (grown.atoms.length === n) continue; // the new bond met an atom already there
       if (before && stereoLabels(setLabel(grown, n, "H"))?.atoms[on] !== before) continue;
-      m = written(grown, n, g.label); was = [...was, -1]; hit = [...hit, false];
+      m = written(grown, n, g.label); was = [...was, -++added]; hit = [...hit, false];
+      if (g.order === 2) doubled.push([was[on], was[n]]);
       return undefined;
     }
     return `Octet cannot put a new group on ${who(on)} and keep what is drawn: give the compound as text`;
   };
-  // A bond's order. A bond that was triple had its atoms in a line: each side turns 60° to the angle of a chain.
+  // A bond's order. A bond that was triple had its atoms in a line: they turn to the angle of a chain (edit.ts bend).
   const order = (name: string, to: Change["to"]): string | undefined => {
     const ends = name.split("-").map(atomAt), bad = ends.find((e): e is string => typeof e === "string"), type = ({ single: 1, double: 2, triple: 3 } as Record<string, number>)[String(to)];
     if (ends.length !== 2 || bad || !type) return bad ?? "give bond as two atom numbers ('5-6') and to (single, double or triple)";
@@ -196,34 +217,36 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
     m = setBondSpec(m, k, { type });
     hit[a] = hit[b] = true;
     if (type === 2 && old !== 2) doubled.push([was[a], was[b]]);
-    if (old === 3 && type < 3) for (const [e, o] of [[a, b], [b, a]]) {
-      const near = bondedTo(m), others = near[e].filter((j) => j !== o), part = others.length === 1 ? side(near, e, others[0]) : undefined;
-      if (!part) continue;
-      const turn = new Set(part), [x0, y0] = m.atoms[e].location, cos = Math.cos(Math.PI / 3), sin = Math.sin(Math.PI / 3);
-      m = { ...m, atoms: m.atoms.map((p, i) => { if (!turn.has(i)) return p; const x = p.location[0] - x0, y = p.location[1] - y0; return { ...p, location: [x0 + x * cos - y * sin, y0 + x * sin + y * cos, p.location[2] ?? 0] as [number, number, number] }; }) };
-    }
+    if (old === 3 && type < 3) m = bend(m, k);
     return undefined;
   };
   const make = (c: Change): string | undefined => {
     const kinds = (["swap", "set", "add", "remove", "bond"] as const).filter((k) => c[k] !== undefined && c[k] !== false), odd = Object.keys(c).find((k) => !["swap", "occurrence", "at", "set", "add", "remove", "bond", "to"].includes(k));
     if (odd !== undefined) return `${odd.slice(0, 40)} is not part of a change (swap, occurrence, at, set, add, remove, bond, to)`;
     if (kinds.length !== 1) return "give one of swap, set, add, remove: true, or bond with to";
+    // A key that does not go with the change is refused, not passed over: it says the AI app meant something else.
+    const kind = kinds[0], extra = Object.keys(c).find((k) => !(kind === "bond" ? ["bond", "to"] : [kind, "at", "occurrence"]).includes(k) && c[k as keyof Change] !== false);
+    if (extra) return `${extra} does not go with ${kind}`;
     if (c.occurrence !== undefined && !(Number.isInteger(c.occurrence) && c.occurrence >= 1)) return "occurrence counts from 1";
     if (c.bond !== undefined) return typeof c.bond === "string" ? order(c.bond, c.to) : "give bond as two atom numbers ('5-6')";
+    if (c.at !== undefined && (typeof c.at !== "string" || !c.at.trim())) return "at is an atom's number, or a group's label";
+    // A number is an atom's. An element with a number (C7) is an atom's when an atom has that number: else N3 is a label.
+    const at = c.at?.trim(), lettered = at && /^[A-Z][a-z]?(\d+)$/.exec(at), on = at && (/^\d+$/.test(at) || (lettered && m.atoms.some((a) => a.tag === Number(lettered[1])))) ? atomAt(at) : undefined;
+    if (typeof on === "string") return on;
     if (c.swap !== undefined) {
       if (!c.swap || typeof c.swap !== "object" || !Object.keys(c.swap).length) return "swap takes {group: new group}, as { OBn: 'OTES' }";
+      if (at && on === undefined) return "with swap, at is the number of the atom the group is on";
       for (const [old, to] of Object.entries(c.swap)) {
-        const p = one(named(old), old, c.occurrence), wrong = typeof p === "string" ? p : put(p, to);
+        // With at, the group of that name on that atom.
+        const all = named(old), p = one(typeof all === "string" || on === undefined ? all : all.filter((x) => x.on === on), on === undefined ? old : `${old} on ${who(on)}`, c.occurrence), wrong = typeof p === "string" ? p : put(p, to);
         if (wrong) return wrong;
       }
       return undefined;
     }
-    if (typeof c.at !== "string" || !c.at.trim()) return "say where with at: an atom's number, or a group's label";
-    // A number is an atom's. An element with a number (C7) is an atom's when an atom has that number: else N3 is a label.
-    const lettered = /^[A-Z][a-z]?(\d+)$/.exec(c.at.trim()), on = /^\d+$/.test(c.at.trim()) || (lettered && m.atoms.some((a) => a.tag === Number(lettered[1]))) ? atomAt(c.at) : undefined;
-    if (typeof on === "string") return on;
+    if (!at) return "say where with at: an atom's number, or a group's label";
+    if (on !== undefined && c.occurrence !== undefined) return "occurrence goes with a label that is there more than once, not with an atom's number";
     if (c.add !== undefined) return on === undefined ? "add takes an atom's number in at: the atom the new group goes on" : grow(on, c.add);
-    const p = on === undefined ? one(named(c.at), c.at.trim(), c.occurrence) : carried(on);
+    const p = on === undefined ? one(named(at), at, c.occurrence) : carried(on);
     return typeof p === "string" ? p : c.remove ? take(p) : put(p, c.set);
   };
   for (const [n, c] of changes.entries()) {
@@ -233,12 +256,13 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
   if (!m.atoms.length) return `${NOTHING}.`;
   // Valence: a change that leaves an atom with bonds it cannot have is refused.
   const valence = (x: Mol) => problems(x).filter((p) => p.type === "valence").map((p) => p.message), had = valence(from), has = valence(m);
-  if (has.length > had.length) return `The changes break valence: ${has.find((t) => !had.includes(t)) ?? has[0]}`;
+  if (has.length > had.length) return `The changes break valence: ${has.find((t) => !had.includes(t)) ?? has[0]}${m.atoms.some((a, j) => hit[j] && a.tag && a.radical) ? " (A numbered atom needs its hydrogens in the SMILES, [CH2:7]: with none it is a radical.)" : ""}`;
   // Stereo, by CIP label before and after. A centre that is still one keeps its wedges, so its configuration: its
   // label can change with its groups' priorities, which the reply says of a centre a change was made at. One that is
-  // no longer a centre loses its wedges (when no other centre reads them). A new double bond with E or Z has two
-  // readings, which a change cannot tell apart.
-  const then = stereoLabels(from), facts = stereoFacts(m), notes: string[] = [], gone = new Set<number>();
+  // no longer a centre loses its wedges (when no other centre reads them). A new double bond that is drawn E or Z
+  // has two readings, which a change cannot tell apart; one to a label is drawn neither way, and when it can be E or
+  // Z (each end has one other group, or two that differ, with labels read as their atoms) the reply says so.
+  const then = stereoLabels(from), facts = stereoFacts(m), gone = new Set<number>();
   let now = stereoLabels(m), unsetThen: Set<number> | undefined; // the centres of `from` with no configuration: read when one is found now
   for (let j = 0; j < m.atoms.length; j++) {
     const label = now?.atoms[j], old = was[j] >= 0 ? then?.atoms[was[j]] : undefined, name = who(j).replace(/^a/, "A");
@@ -255,8 +279,14 @@ export function change(from: Mol, changes: Change[]): { mol: Mol; notes: string[
     if (JSON.stringify(labels?.atoms) === JSON.stringify(now?.atoms)) [m, now] = [plain, labels];
   }
   for (const [k, b] of m.bonds.entries()) {
-    const [p, q] = [was[b.atoms[0]], was[b.atoms[1]]], label = now?.bonds[k];
-    if (label && doubled.some(([x, y]) => (x === p && y === q) || (x === q && y === p))) return `The new double bond between ${who(b.atoms[0])} and ${who(b.atoms[1])} can be E or Z, and a change cannot say which: give the compound as text.`;
+    const [p, q] = [was[b.atoms[0]], was[b.atoms[1]]];
+    if (b.type !== 2 || !doubled.some(([x, y]) => (x === p && y === q) || (x === q && y === p))) continue;
+    if (now?.bonds[k]) return `The new double bond between ${who(b.atoms[0])} and ${who(b.atoms[1])} can be E or Z, and a change cannot say which: give the compound as text.`;
+    const [on, group] = m.atoms[b.atoms[0]].text ? [b.atoms[1], b.atoms[0]] : b.atoms, text = m.atoms[group].text;
+    if (!text || labelKey(text).atoms < 2) continue; // =O, =CH2: one atom, so no E or Z
+    const { mol: x, from: of } = expandWithOrigins(m), near = bondedTo(x), cls = classes(x), i = of.indexOf(on), j = near[i].find((n) => of[n] === group);
+    if (j !== undefined && [[i, j], [j, i]].every(([e, o]) => { const rest = near[e].filter((n) => n !== o).map((n) => cls[n]); return rest.length === 1 || (rest.length === 2 && rest[0] !== rest[1]); }))
+      notes.push(`The new double bond from ${who(on)} to ${text} is drawn with no E or Z: to set one, give the compound as text.`);
   }
   return { mol: m, notes };
 }

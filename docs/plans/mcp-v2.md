@@ -266,23 +266,44 @@ The AI needs to name a place without atom ids. Three ways, in this order:
 - **`at` is a map number** (`"7"`, or `"C7"`) and names **the atom that carries the group. That atom stays.** Its group
   is its one group through an atom that is not carbon (OH, OTBS, =O, Br: the functional group); with none, its one
   carbon group. `set` puts the new group where the old one was, `remove` leaves a hydrogen, `add` takes the place of a
-  hydrogen. An atom with two such groups is refused with both named (`swap` then says which). `at` can also be a label,
-  which is then the group itself.
+  hydrogen. An atom with two such groups is refused with both named. `swap` with `at` then says which: the group of
+  that name on that atom. `at` can also be a label, which is then the group itself.
+- **A group is the smaller side of its bond.** When the part on the atom has more atoms than the part that stays
+  (the benzoate on an ethyl's carbon, the phenoxy on a methyl's), Octet refuses and names both sides: the AI app may
+  mean to keep the larger part. `swap` by label is then the way (`{ swap: { OEt: "OH" } }`). A protecting group drawn
+  atom by atom on a substrate smaller than it is refused the same way.
+- A group with the opposite charge to its atom's (an N-oxide's O, a sulfoxide's drawn S+ and O−) is removed with both
+  charges, and the atom takes no hydrogen.
 - **Nothing else moves.** The new group is a label on the old group's first atom, on the same bond with its wedge, so
   each stereocentre keeps its configuration (retention at the atom a change is made at, and the reply says so). A
   group added at a stereocentre goes where the hydrogen was: Octet tries each gap, plain, hashed and wedged, and
   keeps the one that reads as the centre did.
 - **Refused, never guessed:** a group that is there twice with no `occurrence`; a label or number that is not there
-  (the reply lists the compound's numbers and labels); a change that breaks valence; a new double bond that could be
-  E or Z; a bond between atoms that are not bonded (a ring or chain made or broken); `from` that names nothing, or two
-  structures with one number.
+  (the reply lists the compound's numbers and labels); a change that breaks valence; a new double bond drawn atom to
+  atom that could be E or Z; a bond between atoms that are not bonded (a ring or chain made or broken); `from` that
+  names nothing, two structures of the drawing with one number, or two compounds of the call with one number that
+  are not one compound; a key that does not go with the change (`to` with `set`, `occurrence` with an atom's number);
+  a label on a double or triple bond that Octet's label reader gets wrong (`=CHCO2Et`, `=CHCN`: it reads a label as on
+  a single bond, and these come out with no C=O or C≡N. Fixing the reader is work for `labels.ts`, not for 3a).
+- **Said in the reply, not refused:** a new group Octet cannot read and that is no generic group (`OTBDSP`: it is
+  drawn as a label with no structure, as `L` or `EWG` is on purpose); a new double bond to a label that can be E or Z
+  (a label is drawn neither way); a numbered atom written with no hydrogens (`[C:7]` is a radical in SMILES).
+- `from` by a number is every part under that number (both ions of a salt). Changes made on a structure itself
+  (`edit`, `replace_structure` with changes alone) leave it where its atoms are. `edit`'s reply has what
+  `replace_structure` says: the new name, what happened at each stereocentre, and the new id.
 - **Not in 3a:** a new stereocentre or E/Z bond with a set configuration, and rings made or opened (acetonides,
   epoxides, carbonates, lactones). These are the named transformations of 4.3. Until then such a compound is written
   in full.
 - Map numbers are kept on the atoms in memory (`Atom.tag`), through every change and from call to call. They are not
   drawn, and no file has them. A drawing saved and opened again has lost them.
 - The compound is listed once in each tool (`$defs.compound`), and `changes` is listed as a list of objects that
-  `compound.ts` checks itself, so `tools/list` did not grow.
+  `compound.ts` checks itself, so `tools/list` did not grow with the feature. Its descriptions then added 286
+  characters (the review of 11 November).
+- **Left for step 5:** the change forms typed in the schema (they are in `draw_structures`' description only: typing
+  them is about 1,500 characters over the 52,000 that `mcp.check.ts` allows, and 132 are left); the evals, which
+  have not been run on `from` and `changes`; and the idempotent hint of `replace_structure` and `edit`, which is
+  wrong for changes alone on a structure named by its number (a second call makes the change again, as `edit`'s
+  `rotate` does). Merge this branch before others that add to a description.
 
 ### 4.3 Named transformations (phase 2)
 
@@ -305,8 +326,8 @@ name:
 ### 4.4 What the taxol route looks like in v2 (target)
 
 ```
-{ number: "3",  from: "2",  changes: [{ at: "7", set: "OTBS" }, { at: "4", set: "OTBS" }, { at: "9", set: "CH2OH" }] }
-{ number: "4",  from: "3",  changes: [{ at: "7", set: "OBn" }, { at: "9", set: "CH2OTBDPS" }] }
+{ number: "3",  from: "2",  changes: [{ at: "7", set: "OTBS" }, { at: "4", set: "OTBS" }, { swap: { "CO2Et": "CH2OH" } }] }
+{ number: "4",  from: "3",  changes: [{ at: "7", set: "OBn" }, { swap: { "CH2OH": "CH2OTBDPS" } }] }
 ...
 { number: "17", from: "16", changes: [{ swap: { "OBn": "OTES" } }, { at: "20", set: "OH" }] }
 ```
@@ -511,13 +532,13 @@ this plan and `scripts/mcp-bench/`). **Ask Sam** before rebasing, committing or 
 | 0 | Benchmark runner: replay the taxol job, count calls, characters sent, failed calls, time | 0.5 | Baseline numbers written in section 15 |
 | 1 | Lenient arguments (6) and short replies (10) | 1 | Taxol replay has no failed calls; replies under the limits |
 | 2 | The brief (3): `set_brief`, the refusal, per-session storage, the style from a file, advice on fit | 1 to 2 | Drawing with no brief is refused with the three questions; Quick start by default |
-| 3a | Compounds `from` with `swap`, `set`, `add`, `remove`, map numbers (4.1, 4.2) | 2 to 3 | Taxol route written in v2 form at under a fifth of today's characters, same InChIKeys as `structures.json` |
+| 3a | Compounds `from` with `swap`, `set`, `add`, `remove`, map numbers (4.1, 4.2) | 2 to 3 | Taxol route written in v2 form with the same InChIKeys as `structures.json` (done, 19 of 19). The fifth of today's characters was the target here and is not reached: 88% measured (15.1). **For Sam:** take 3a so and move the fifth to 3b and step 4, or hold 3a |
 | 4 | `draw_route` (5.4) | 3 to 5 | Taxol in one call, check clean, no moves |
 | 5 | Tool merge (5.1 to 5.3), `$defs`, instructions (11) | 1 to 2 | `tools/list` under 4,000 tokens; evals pass at least as well as v1 |
 | 6 | Overlay animation (9) | 0.5 to 1 | Sam likes it; `motion.check.ts` passes |
 | 7 | Elicitation (3.1, 7.3) | 1 to 2 | A test client gets the form and the brief is stored |
 | 8 | Background jobs (8) | 2 to 4 | A 40-compound route returns at once; progress in the overlay |
-| 3b | Named transformations (4.3) | 3 to 5 | Only after measuring 3a and 4. Each transformation has stereo tests |
+| 3b | Named transformations (4.3) | 3 to 5 | Only after measuring 3a and 4. Each transformation has stereo tests. With step 4's letters for conditions, the taxol route at under a fifth of today's characters (moved from 3a, if Sam agrees) |
 
 First release candidate: steps 0 to 6 (about 9 to 14 days). Then 7 and 8. Then decide on 3b.
 
@@ -547,8 +568,8 @@ benchmark runner should time only the MCP part.
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0: v1 with R7 (11 Nov) | 63,348 (18,100), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,599 | 18 of 19 | 44 |
 | | | | taxol-v1-job | 33 | 6 | 15,365 | 282,623 | 3,649 | 18 of 19 | 17 |
-| 3a: compounds from earlier ones (11 Nov) | 63,319 (18,100), 26 tools | 2,460 | taxol-chained | 3 | 0 | 3,887 | 15,367 | 2,135 | 19 of 19 | 42 |
-| | | | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,689 | 18 of 19 | 44 |
+| 3a: compounds from earlier ones (11 Nov) | 63,605 (18,200), 26 tools | 2,457 | taxol-chained | 3 | 0 | 3,887 | 15,367 | 2,192 | 19 of 19 | 42 |
+| | | | taxol-schemes | 3 | 0 | 4,436 | 15,836 | 2,569 | 18 of 19 | 44 |
 
 - `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
   4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
@@ -556,7 +577,10 @@ benchmark runner should time only the MCP part.
   with a set configuration) and the conditions (1,640 characters) are written as before. Section 4.4's fifth is not
   reached by 3a alone: it needs the named transformations (3b) and `draw_route`'s letters for conditions (5.4).
   Octet makes a compound from another in 4 ms where reading it from SMILES takes 11 ms (the seven with changes:
-  29 ms against 76 ms).
+  30 ms against 80 ms).
+- The 3a row is as `results.json` has it. `taxol-chained`'s time was written by `run.ts --write taxol-chained` while
+  other work ran on the Mac (2,170 to 2,340 ms over eight runs), and `taxol-schemes` keeps step 0's time, which 3a
+  does not move. Run `--write` again on a quiet Mac before 1.2.
 - `taxol-schemes` is the three final `draw_reaction` calls only. `taxol-v1-job` is the whole job rebuilt from section
   0's notes (no record of the chat's calls was kept): the six refusals, the check grid, the style changes, the titles,
   the reads and the row moves. It has no pictures (there is no picture with no window), so the 465 KB read is not in
@@ -583,6 +607,16 @@ branch does not have. Put them back when `release-1.1.2` is merged in:
 
 All the open questions, and Sam's answers so far, are in **Start here** at the top. The session asks him the rest
 first.
+
+Open since step 3a (11 November 2026):
+
+- **3a did not reach its fifth.** The taxol route's arguments are 3,887 characters against 4,436 (88%), and the nine
+  compounds written `from` another are 610 against 1,166 (52%). The other twelve each make or open a ring, join two
+  fragments or set a new centre, which `swap`, `set`, `add`, `remove` and `bond` cannot write. Take 3a as it is, with
+  the fifth moved to 3b and step 4 (section 14 is written so), or hold 3a?
+- **What `at` takes when the part on the atom is the larger side** (4.2.1): refused today, so `{ at, set: "OH" }`
+  on a small alcohol under a silyl group drawn atom by atom needs `swap` by label. Keep that, or take a known
+  protecting group as the group whatever its size?
 
 ## 17. Known issues to fix along the way (from the taxol run)
 

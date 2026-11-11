@@ -142,7 +142,7 @@ const MOLECULE = obj({
   atoms: list(obj({ label: str(40), runs: RUNS, x: num(-1000, 1000), y: num(-1000, 1000), charge: int(-8, 8), colour: str(7) }, ["x", "y"]), 500, 1),
   bonds: list(obj({ from: int(0, 499), to: int(0, 499), kind: str(20), colour: str(7) }, ["from", "to"]), 600),
 }, ["atoms"]);
-const FROM_NOTE = "Write a compound that is an earlier one with a change as from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES ([C@H:7]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. Give text when a ring or chain is made or broken, or a new stereocentre or E/Z bond is set";
+const FROM_NOTE = "When a compound is an earlier one with a change, give from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second, or at for the one on that atom); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7], [CH2:9]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. Give text when a ring or chain is made or broken, or a new stereocentre or E/Z bond is set";
 const MOLECULE_NOTE = "atoms (from 0) with x, y (bond lengths, y up) and label (none is carbon; a label such as OSiPh3 reads out from the atom, and Octet turns it round on the left), and bonds from, to and kind (as edit's bond; a wedge is narrow at from). Bonds to a metal look best about 1.5 long";
 // Orientation hints (R2): a structure from a SMILES or a name, turned as a picture shows it, so an AI app need give no
 // coordinates. Each geometry's places for the centre's ligands, in SMILES order: the angle (degrees, anticlockwise
@@ -163,7 +163,7 @@ const compound = obj({
   text: structureText,
   molecule: MOLECULE,
   labels: { ...list(str(40), 20), description: "One for each *, in order" },
-  from: str(40), changes: CHANGES,
+  from: str(40, "With changes: draw_structures says how"), changes: CHANGES,
   number: str(12),
   ...ORIENT,
 });
@@ -284,7 +284,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_reaction", title: "Draw a reaction or scheme", hints: ADD, outputSchema: CHANGE, done: "drew a reaction",
-    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'; 'structure:' before a name draws it over the arrow). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, number and the hints draw_structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
+    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'; 'structure:' before a name draws it over the arrow). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, number, from with changes and the hints draw_structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
     inputSchema: obj({
       start: list(COMPOUND, 6, 1),
       steps: list(obj({
@@ -300,7 +300,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_cycle", title: "Draw a catalytic cycle", hints: ADD, outputSchema: CHANGE, done: "drew a catalytic cycle",
-    description: "Draws a catalytic cycle: the intermediates round a circle joined by arc arrows, centre text in the middle, and side arrows for what goes in and out. Step k (from 0) runs from intermediate k to k+1, the last back to the first. For a ligand L, give '*[Pd]*' with labels ['L', 'L']. Keep step names short (OA, TM, RE) on a small cycle; \n starts a second line. After changing an intermediate, select the cycle and run clean_up. Each compound takes the hints draw_structures lists." + PLACE_NOTE,
+    description: "Draws a catalytic cycle: the intermediates round a circle joined by arc arrows, centre text in the middle, and side arrows for what goes in and out. Step k (from 0) runs from intermediate k to k+1, the last back to the first. For a ligand L, give '*[Pd]*' with labels ['L', 'L']. Keep step names short (OA, TM, RE) on a small cycle; \n starts a second line. After changing an intermediate, select the cycle and run clean_up. Each compound takes from with changes and the hints draw_structures lists." + PLACE_NOTE,
     inputSchema: obj({
       intermediates: list(COMPOUND, 12, 2),
       centre: str(MAX_TEXT),
@@ -443,7 +443,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_figure", title: "Draw a figure", hints: ADD, outputSchema: CHANGE, done: "drew a figure",
-    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. The result gives each part's id by place, and its box. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
+    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule; or from with changes) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. The result gives each part's id by place, and its box. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
     inputSchema: obj({ panels: list(PANEL, 8, 1), number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true, description: "{O: '#C42B2B', OSiPh3: '#E0352B'}" }, width: num(5, 300, "Bond lengths; by default the page inside its margins (about 35 on A4 in ACS style)"), ...placing("at") }, ["panels"]),
     run: drawFigure, place: true,
   },
@@ -459,7 +459,7 @@ for (const t of TOOLS) if (!t.hints.readOnly && t.inputSchema.type === "object")
 
 const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in the user's open drawing with Octet's own commands, and read it back.
 - Work in few calls: each call costs the user a wait. Plan the whole drawing first, then draw it in one call: draw_reaction for a scheme, draw_cycle for a catalytic cycle, draw_structures for a list, draw_figure for a figure of panels, and batch for anything else or for several changes at once.
-- Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. Write a compound that is an earlier one with a change as from and changes (draw_structures says how). To match a picture, add hints to the SMILES instead of writing coordinates: a label for each * (labels), up, down, left or right (an atom that points that way), rotate, flip, geometry for a metal centre, and colours. Example, an octahedral complex: {structure: '*(*)(*)(N#CC)(N#CC)(*)*', labels: ['MIV', 'OSiPh3', 'OSiPh3', 'OSiPh3', 'OSiPh3'], geometry: 'octahedral'}. Give a molecule with coordinates only for what the hints cannot draw, such as a ring through a metal (a chelate) or a cage.
+- Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. When a compound is an earlier one with a change, give from and changes (draw_structures says how). To match a picture, add hints to the SMILES instead of writing coordinates: a label for each * (labels), up, down, left or right (an atom that points that way), rotate, flip, geometry for a metal centre, and colours. Example, an octahedral complex: {structure: '*(*)(*)(N#CC)(N#CC)(*)*', labels: ['MIV', 'OSiPh3', 'OSiPh3', 'OSiPh3', 'OSiPh3'], geometry: 'octahedral'}. Give a molecule with coordinates only for what the hints cannot draw, such as a ring through a metal (a chelate) or a cage.
 - Every write result gives the ids of what it made and changed, the boxes of the top-level ones (a number, conditions and a cycle's text move with what they belong to), and Octet's new warnings. Use them to place the next thing (right_of, below, at), with no read in between.
 - Every write result has check: "clean" when nothing in the drawing overlaps, runs off the page, lies on a bond or across a shape's edge, and no two labels meet; else the ids (an atom s3.2 is the second atom as you gave it; move, edit and delete take atom ids). Fix every id it names: none is a near miss to leave. Clean means no boxes meet. It does not mean the drawing reads well, so for a figure look at it before you say it is done: read_drawing with picture and the ids of each part (a whole page in one picture is too small to show a crowded label), then make every fix in one batch.
 - To highlight an atom, a bond, a group or a structure, use edit with highlight (Octet's Highlight: a pale disc behind the label, a band behind the bond), or ring_fill for a ring. Never draw an oval, box or dot for a highlight: a shape is a frame or a panel, not a highlight.
@@ -539,9 +539,16 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     // or a structure of the drawing by its id, number or name. It lies as that one does.
     if (it.from !== undefined || it.changes) {
       const name = clean(it.from ?? ""), doc = host.doc(), numbered = (doc.captions ?? []).filter((c) => c.bold && c.under?.length && c.text.trim() === name);
-      const here = name === "previous" ? before : [...ok].reverse().find((r) => r.number === name), atoms = here || numbered.length > 1 || name === "previous" ? undefined : structureOf(doc, name, host);
+      // Of this call: the last with that number. Two compounds of the call with one number are two readings (one
+      // compound drawn twice is not).
+      const mine = name === "previous" ? [] : ok.filter((r) => r.number === name), here = name === "previous" ? before : mine[mine.length - 1];
+      const two = mine.some((r) => r.mol !== here!.mol && about(host, r.mol).key !== about(host, here!.mol).key);
+      const one = here || numbered.length > 1 || name === "previous" ? undefined : structureOf(doc, name, host);
+      // A compound's number is under every part of it (a salt's ions): from by number is all of them.
+      const under = one && numbered.length ? new Set(numbered[0].under) : undefined, atoms = under ? structuresOf(doc).filter((s) => s.atoms.some((i) => under.has(i))).flatMap((s) => s.atoms) : one;
       const made = it.text !== undefined || it.molecule || it.labels?.length ? "Give a compound as text, as a molecule, or as from with changes: one of them."
         : it.from === undefined ? "changes: give from too, the compound they change (its number, its id, or previous)."
+        : two ? `from: ${mine.length} compounds of this call have the number ${name}, and they are not one compound: give each its own number.`
         : here ? change(here.mol, it.changes ?? [])
         : numbered.length > 1 ? `from: ${numbered.length} structures have the number ${name} (${numbered.map((c) => sid(doc, c.under!)).join(", ")}): give the id of one.`
         : atoms ? change(pickAtoms(doc, atoms), it.changes ?? [])
@@ -556,7 +563,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
       if (typeof turned === "string") wrong.push(typeof mol === "string" ? turned : `molecule: ${turned}.`); else add({ mol: asLike(turned), text: "a molecule given atom by atom", number }, it);
       continue;
     }
-    if (it.text === undefined) { wrong.push("Give each compound text (a name or SMILES) or a molecule."); continue; }
+    if (it.text === undefined) { wrong.push("Give each compound text (a name or SMILES), a molecule, or from with changes."); continue; }
     // A SMILES's map numbers name its atoms for later changes: they are kept as tags, and not drawn.
     const text = clean(it.text, true), got = host.structure(text), read = got && tagged(got);
     let mol = read && crowded(read) ? host.tidy(read) : read;
@@ -574,7 +581,9 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
       if (typeof turned === "string") { wrong.push(`"${text.slice(0, 60)}": ${turned}.`); continue; }
       mol = turned;
     }
-    add({ mol: asLike(mol), text, number, named: host.named(text) }, it);
+    // A numbered atom written with no hydrogens ([C:7]) is read as SMILES has it, a radical: the reply says so.
+    const bare = mol.atoms.flatMap((x) => (x.tag && x.radical ? [x.tag] : []));
+    add({ mol: asLike(mol), text, number, named: host.named(text), ...(bare.length ? { note: `As written, ${bare.map((t) => `atom ${t}`).join(" and ")} ${bare.length > 1 ? "are radicals" : "is a radical"}: a numbered atom needs its hydrogens ([CH2:${bare[0]}]).` } : {}) }, it);
   }
   return { ok, failed, wrong };
 }
@@ -937,15 +946,17 @@ function structureOf(m: Mol, id: string, host?: Host): number[] | undefined {
 async function replaceStructure(host: Host, a: { structure: string; text?: string; from?: string; changes?: Change[] }): Promise<Result> {
   const m = host.doc(), atoms = structureOf(m, a.structure, host);
   if (!atoms) return { text: `There is no structure ${a.structure}. Call read_drawing for the ids.`, error: true };
-  // Changes alone are made on the structure itself.
-  const { ok, failed, wrong } = await read(host, [{ text: a.text, from: a.from ?? (a.changes ? a.structure : undefined), changes: a.changes }]);
+  // Changes alone are made on the structure itself (as is from that names it): the new one is put where its own atoms
+  // are, so no atom the changes leave moves. Any other is put with its middle where the old one's was.
+  const own = a.text === undefined && (a.from === undefined ? !!a.changes : structureOf(m, a.from, host) === atoms);
+  const { ok, failed, wrong } = await read(host, [{ text: a.text, from: own ? sid(m, atoms) : a.from, changes: a.changes }]);
   if (!ok.length) return { text: `Octet changed nothing.${failedNote(failed, wrong)}`, error: true };
   const old = host.ink(atoms)!, number = (m.captions ?? []).find((c) => c.bold && c.under?.some((i) => atoms.includes(i)));
   const kept = erase(m, new Set(m.bonds.flatMap((b, k) => (atoms.includes(b.atoms[0]) ? [k] : []))), new Set(atoms));
-  const b = boxOf(ok[0].mol), r = place(kept, { ...ok[0], number: number?.text }, (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, (old[1] + old[3]) / 2);
+  const b = boxOf(ok[0].mol), r = place(kept, { ...ok[0], number: number?.text }, own ? b[0] : (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, own ? (b[1] + b[3]) / 2 : (old[1] + old[3]) / 2);
   host.set(r.mol);
   await host.settle();
-  return { text: `Replaced ${a.structure} with ${label(host, ok[0])}${number ? `, numbered ${number.text}` : ""}.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Replaced ${a.structure} with ${label(host, ok[0])}, now ${sid(host.doc(), r.atoms)}${number ? `, numbered ${number.text}` : ""}.${UNDO}`, data: { names: names(host, ok) } };
 }
 
 async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
@@ -1339,7 +1350,7 @@ function shapeChange(a: ShapeIn, was: Partial<Shape>, kind: ShapeKind): Partial<
 // did not fit.
 async function edit(host: Host, a: Edit): Promise<Result> {
   let m = host.doc();
-  const unfit: string[] = [], done: string[] = [], props = Object.keys(a).filter((k) => k !== "ids");
+  const unfit: string[] = [], done: string[] = [], replaced: string[] = [], props = Object.keys(a).filter((k) => k !== "ids");
   if (!props.length) return { text: "Give a property to change (charge, bond, colour, highlight, text, kind and the rest).", error: true };
   for (const k of ["colour", "highlight", "ring_fill"] as const) if (a[k] !== undefined && a[k] !== "none" && !COLOUR.test(a[k]!)) return { text: `${k}: give #rrggbb or none, not ${a[k]}.`, error: true };
   const runs = a.runs && runsOf(a.runs);
@@ -1414,7 +1425,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("scale")) structure.forEach((i) => scaled.atoms.add(i));
       if (use.includes("ring_fill")) structure.forEach((i) => filled.add(i));
       if (use.includes("number")) { m = host.set(m); await setNumber(host, { structure: id, number: a.number! }); m = host.doc(); }
-      if (use.includes("structure") || use.includes("changes")) { m = host.set(m); const r = await replaceStructure(host, { structure: id, text: a.structure, changes: a.changes }); if (r.error) return r; m = host.doc(); }
+      if (use.includes("structure") || use.includes("changes")) { m = host.set(m); const r = await replaceStructure(host, { structure: id, text: a.structure, changes: a.changes }); if (r.error) return r; replaced.push(r.text.slice(0, -UNDO.length)); m = host.doc(); }
     } else if (caption) {
       const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...STYLE]);
       const change: Partial<Caption> = textOf(use);
@@ -1476,7 +1487,8 @@ async function edit(host: Host, a: Edit): Promise<Result> {
     await host.settle();
   }
   if (scaled.atoms.size || scaled.items.size || filled.size) { host.select([], []); await host.settle(); }
-  return { text: `Changed ${done.join(", ")}: ${props.join(", ")}.${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${UNDO}` };
+  // A structure replaced (structure, changes): what it is now, and what its changes did to its stereocentres.
+  return { text: `Changed ${done.join(", ")}: ${props.join(", ")}.${replaced.map((t) => ` ${t}`).join("")}${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${UNDO}` };
 }
 const ARROW_KINDS_IN = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
 const SHAPE_KINDS_IN = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"];
@@ -1744,7 +1756,7 @@ function richOf(t: Rich): { text: string; runs?: TextRun[] } | string {
 }
 const PANEL_PAD = 0.8, ROW_GAP = 1.2, PANEL_GAP = 1, TITLE_GAP = 0.6, UNDER_GAP = 0.3, BRACKET_PAD = 0.3;
 async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_caption?: boolean; colour_by_element?: boolean; element_colours?: Record<string, unknown>; width?: number }, ctx: Ctx): Promise<Result> {
-  const items = a.panels.flatMap((p) => p.rows.flat()), isStructure = (i: ItemIn) => i.structure !== undefined || !!i.molecule || i.from !== undefined;
+  const items = a.panels.flatMap((p) => p.rows.flat()), isStructure = (i: ItemIn) => i.structure !== undefined || !!i.molecule || i.from !== undefined || !!i.changes;
   if (items.some((i) => isStructure(i) === (i.text !== undefined))) return { text: "Octet drew nothing. Each item takes a structure (or a molecule), or text, not both.", error: true };
   if (items.filter(isStructure).length > 60) return { text: "Octet drew nothing. A figure takes at most 60 structures: draw the rest with another call.", error: true };
   const colours = Object.entries(a.element_colours ?? {});

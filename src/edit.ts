@@ -35,7 +35,7 @@ export function bondedTo(m: Mol): number[][] {
 // the plain loops take about 0.4 ms, at 200 atoms 1.5 ms and at 1000 atoms 45 ms (they grow with the square of the
 // size); the list and the grid take 0.06, 0.12 and 1.2 ms.
 export const LARGE = 100;
-const bondIndex = (m: Mol, i: number, j: number) =>
+export const bondIndex = (m: Mol, i: number, j: number) =>
   m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
 
 // Hit testing, in bond lengths.
@@ -490,16 +490,19 @@ const respec = (m: Mol, i: number, spec: BondSpec): Mol => {
 };
 // A triple bond's atoms are sp, so linear (Sam, 2 November 2026). When bond k becomes triple, an atom of it with one
 // other bond has that bond swung into line, opposite the triple bond, and everything beyond it with it. The smaller
-// side moves. An atom in a ring, or with more bonds, is left as it is.
-function straighten(m: Mol, k: number): Mol {
+// side moves. An atom in a ring, or with more bonds, is left as it is. With bent, the reverse, for a bond that was
+// triple (bend): a bond in line is swung 60° to a chain's angle, the same way round at each end, so the chain zigzags.
+function straighten(m: Mol, k: number, bent = false): Mol {
+  const at = bondedTo(m);
   for (const end of [0, 1]) {
-    const a = m.bonds[k].atoms[end], b = m.bonds[k].atoms[1 - end], others = neighbours(m, a).filter((j) => j !== b);
+    const a = m.bonds[k].atoms[end], b = m.bonds[k].atoms[1 - end], others = at[a].filter((j) => j !== b);
     if (others.length !== 1) continue;
-    const n = others[0], beyond = reach(m, n, a), near = reach(m, b, a);
+    const n = others[0], beyond = reach(at, n, a), near = reach(at, b, a);
     if (beyond.has(b)) continue; // a ring
     const here = pos(m, a), want = sub(here, pos(m, b)), now = sub(pos(m, n), here);
     let turn = Math.atan2(cross(now, want), dot(now, want));
-    if (Math.abs(turn) < 1e-6) continue;
+    if (bent ? Math.abs(turn) > 0.02 : Math.abs(turn) < 1e-6) continue;
+    if (bent) turn = 60 * deg;
     const move = beyond.size <= near.size ? beyond : near;
     if (move === near) turn = -turn;
     m = { ...m, atoms: m.atoms.map((x, i) => {
@@ -510,10 +513,14 @@ function straighten(m: Mol, k: number): Mol {
   }
   return m;
 }
-// The atoms bonded, step by step, to atom i without passing through atom not.
-function reach(m: Mol, i: number, not: number): Set<number> {
+/** Bond k was triple and is no longer: its atoms are no longer in a line (the reverse of what the bond tool does
+ * when a bond becomes triple). For a change an AI app makes to a compound (compound.ts). */
+export const bend = (m: Mol, k: number) => straighten(m, k, true);
+// The atoms bonded, step by step, to atom i without passing through atom not (at: bondedTo). No more are looked for
+// once there are more than most.
+export function reach(at: number[][], i: number, not: number, most = Infinity): Set<number> {
   const seen = new Set([i]), todo = [i];
-  while (todo.length) for (const j of neighbours(m, todo.pop()!)) if (j !== not && !seen.has(j)) { seen.add(j); todo.push(j); }
+  while (todo.length && seen.size <= most) for (const j of at[todo.pop()!]) if (j !== not && !seen.has(j)) { seen.add(j); todo.push(j); }
   return seen;
 }
 export const cycleBond = (m: Mol, i: number) => {
