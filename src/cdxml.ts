@@ -659,7 +659,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
-      Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a) }),
+      Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
     }, (inner ? nested(i, inner, !!known) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
@@ -1489,7 +1489,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const p = priv(n);
     if (p?.hmark === "dot" || p?.hmark === "dash") a.hmark = p.hmark;
     if (p?.partial === "+" || p?.partial === "-") a.partial = p.partial;
-    if (yes(n.attrs.ShowPerspective)) a.shade = true;
+    if (yes(n.attrs.ShowPerspective)) a.shade = isNum(p?.opacity, 0.01, 0.99) ? (p!.opacity as number) : true; // with any opacity set by hand
     if (Number.isInteger(p?.map) && isNum(p!.map, 1, 9999)) a.map = p!.map as number;
     if (p?.circle === true) a.circle = true;
     // Marks moved round the atom by hand, in Octet's own files (a ChemDraw file's symbols keep their places below).

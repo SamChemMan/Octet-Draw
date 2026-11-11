@@ -166,9 +166,9 @@ const MOST_NAMED = 120;
 const OPEN_ZOOM = 1.25;
 const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
-// The menu commands and panel actions Edit > Repeat can run again: turns, flips, scaling, arrangement, frames, colours
-// and text styles.
-const REPEATS = /^(flip_[hv]|mirror_[hv]|flatten|arrange_\w+|frame_\w+|colour_\d+|colour_user_\d+|highlight_\d+|ringfill_\d+|text_\w+|size_\d+|font_\d+|align_\w+|curves_\w+|bring_front|send_back|rotate\.\w+|colour\.#\w+|halo\.#?\w+|ringfill\.#?\w+|caption\.(bold|italic|underline|plain|sub|super|formula|size\.\d+|font\..+)|arrow\.(style|start|end|head|size|fill)\.\w+)$/;
+// The menu commands and panel actions Edit > Repeat can run again: turns, flips, scaling, arrangement, frames, colours,
+// text styles and the opacity of atoms in 3D.
+const REPEATS = /^(flip_[hv]|mirror_[hv]|flatten|arrange_\w+|frame_\w+|colour_\d+|colour_user_\d+|highlight_\d+|ringfill_\d+|text_\w+|size_\d+|font_\d+|align_\w+|curves_\w+|bring_front|send_back|rotate\.\w+|opacity\.\d+|colour\.#\w+|halo\.#?\w+|ringfill\.#?\w+|caption\.(bold|italic|underline|plain|sub|super|formula|size\.\d+|font\..+)|arrow\.(style|start|end|head|size|fill)\.\w+)$/;
 const DOUBLE_MS = 500; // two clicks this close together (ms) are a double-click
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
 // The page's paper: its background, with the system's light or dark for "system", and a colour of the user's own as
@@ -325,6 +325,16 @@ function fillRings(m: Mol, atoms: Set<number>): number[][] {
 function fillOf(m: Mol, atoms: Set<number>): string | undefined {
   const keys = new Set(fillRings(m, atoms).map(ringKey)), on = (m.fills ?? []).filter((f) => keys.has(ringKey(f.atoms)));
   return on.length === keys.size && on.every((f) => f.colour === on[0].colour) ? on[0]?.colour : undefined;
+}
+// The atoms the Actions panel's Opacity sets: those picked that have depth shading, in structures that are in 3D.
+function fadable(m: Mol, atoms: Set<number>): number[] {
+  if (![...atoms].some((i) => m.atoms[i]?.shade)) return [];
+  return fragments(m).flatMap((g) => (g.some((i) => Math.abs(m.atoms[i].location[2] ?? 0) > 1e-3) ? g.filter((i) => atoms.has(i) && m.atoms[i].shade) : []));
+}
+// Their opacity set by hand, for the panel's slider: the first one's (1 when it has none), or undefined when none.
+function opacityOf(m: Mol, atoms: Set<number>): number | undefined {
+  const s = m.atoms[fadable(m, atoms)[0]]?.shade;
+  return s === true ? 1 : s;
 }
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
@@ -2291,8 +2301,8 @@ export default function Editor() {
       setPicked(new Set([frameId]));
     }])),
     // Structure Perspective (⌥⌘S), as ChemDraw's: depth shading on or off for the selected structures (or every one).
-    // With it on, a 3D structure's further bonds and labels are fainter. Flatten (Object menu): the selected atoms lose
-    // their depth and keep where they are drawn.
+    // With it on, a 3D structure's further bonds and labels are fainter; off takes away any opacity set by hand too.
+    // Flatten (Object menu): the selected atoms lose their depth and keep where they are drawn.
     structure_perspective: () => {
       const atoms = new Set(selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i));
       const on = [...atoms].some((i) => doc.atoms[i].shade);
@@ -5948,7 +5958,7 @@ export default function Editor() {
       // A 3D structure (Structure Perspective): depth shading on or off.
       const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
       return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
-        ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
+        ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), opacity: opacityOf(doc, selection), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
         // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
         circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
         // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
@@ -5961,12 +5971,12 @@ export default function Editor() {
       // Its structure's and and or groups, and the lowest new one of each, for the stereo flag buttons.
       const centre = stereocentres(doc).includes(ids[0]), structure = centre ? fragments(doc).find((g) => g.includes(ids[0])) ?? [] : [];
       const groups = (kind: "&" | "or") => [...new Set([...structure.flatMap((i) => { const g = /^(&|or)(\d+)$/.exec(doc.atoms[i].enhanced ?? ""); return g && g[1] === kind ? [Number(g[2])] : []; }), nextGroup(doc, structure, kind)])].sort((p, q) => p - q);
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current, molecule };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current, opacity: opacityOf(doc, selection), molecule };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
       const b = doc.bonds[bi], style = bondKindOf(b);
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), molecule };
+      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), opacity: opacityOf(doc, selection), molecule };
     }
     return molecule ?? structureOf();
   };
@@ -7082,6 +7092,13 @@ export default function Editor() {
       const targets = fillRings(doc, atoms), keys = new Set(targets.map(ringKey)), rest = (doc.fills ?? []).filter((f) => !keys.has(ringKey(f.atoms)));
       const fills = [...rest, ...(c ? targets.map((r) => ({ atoms: r, colour: c })) : [])];
       return set({ ...doc, fills: fills.length ? fills : undefined }, true, merge);
+    }
+    // The Actions panel's Opacity (in hundredths; 100 is none set by hand), on the selected atoms with depth shading in
+    // structures in 3D. A drag is one step to undo (merge).
+    if (command.startsWith("opacity.")) {
+      const v = Number(command.slice(8)) / 100, on = new Set(fadable(doc, selection));
+      if (on.size) set({ ...doc, atoms: doc.atoms.map((a, i) => (on.has(i) ? { ...a, shade: v < 1 ? v : true } : a)) }, true, `opacity-${[...on].join()}`);
+      return;
     }
 
     if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000"].includes(command)) return copyAs(command.slice(5));

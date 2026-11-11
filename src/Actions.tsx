@@ -62,7 +62,7 @@ export type Context =
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures)
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean }
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
@@ -88,9 +88,10 @@ export type Context =
   // of the grid's rows or columns are hidden.
   | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
-  // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions.
-  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; molecule?: Extract<Context, { kind: "structure" }> }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; molecule?: Extract<Context, { kind: "structure" }> }
+  // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
+  // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
@@ -1027,6 +1028,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         <div className="sliders" role="group" aria-label="Lines">
           <Slider name="Line width" value={context.kind === "shape" ? context.weight : context.width!} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`lines.weight.${Math.round(v * 100)}`)} />
           {context.kind === "cycle" && <Slider name="Gap" value={context.gap} min={0} max={24} step={0.5} show={(v) => `${v.toFixed(1)} pt`} onChange={(v) => run(`cycle.gap.${Math.round(v * 10)}`)} />}
+        </div>
+      )}
+      {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && context.opacity !== undefined && (
+        // The opacity of the selected atoms in a structure in 3D with depth shading, with their labels and bonds.
+        <div className="sliders" role="group" aria-label="Depth shading">
+          <Slider name="Opacity" value={context.opacity} min={0.2} max={1} step={0.1} show={(v) => `${Math.round(v * 100)}%`} onChange={(v) => run(`opacity.${Math.round(v * 100)}`)} />
         </div>
       )}
       {scale !== undefined && <ScaleField scale={scale} run={run} />}

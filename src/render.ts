@@ -38,8 +38,10 @@ export type Atom = {
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
   // location[2] is the atom's depth (z, in bond lengths; nearer the viewer is larger), from a turn in 3D (Structure
   // Perspective), 3D Clean Up or a file. shade: depth shading is on for the atom's structure (ChemDraw's Structure >
-  // Structure Perspective, ShowPerspective in CDXML): further bonds and labels are drawn fainter.
-  shade?: true;
+  // Structure Perspective, ShowPerspective in CDXML): further bonds and labels are drawn fainter. A number is also an
+  // opacity set by hand (the Actions panel's Opacity, 0.2 to 0.9): the atom, its label and its bonds are drawn that
+  // much fainter again. Turning depth shading off or Flatten takes it away.
+  shade?: true | number;
   // The label's text style (ChemDraw's Text menu on a selected label). Unset uses the document's label font and size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   // A written label's characters that are bold, italic, underlined or in a colour where the rest are not (styled as it
@@ -1527,9 +1529,12 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   // vanishing point), every bond style as it is, at the document's widths. Its depth (z) decides which bond is in
   // front where two cross. Depth shading (ChemDraw's Structure Perspective, on after 3D Clean Up or Structure >
   // Structure Perspective) also draws objects further back paler: ChemDraw fades their colour towards the paper, as
-  // an alpha over the paper does.
-  const range = zRange === undefined ? depthRange(mol) : zRange;
-  const fade = (...atoms: number[]) => (range && atoms.some((x) => mol.atoms[x].shade) ? shadeAt(atoms.reduce((t, x) => t + (mol.atoms[x].location[2] ?? 0), 0) / atoms.length, range) : 1);
+  // an alpha over the paper does. An opacity set by hand on an atom (shade) fades it further, and a bond by the fainter
+  // of its two atoms.
+  const range = zRange === undefined ? depthRange(mol) : zRange, hand = mol.atoms.some((a) => typeof a.shade === "number");
+  const own = (x: number) => { const s = mol.atoms[x].shade; return typeof s === "number" ? s : 1; };
+  const fade = (...atoms: number[]) => ((range || hand) && atoms.some((x) => mol.atoms[x].shade)
+    ? (range ? shadeAt(atoms.reduce((t, x) => t + (mol.atoms[x].location[2] ?? 0), 0) / atoms.length, range) : 1) * (hand ? atoms.reduce((m, x) => Math.min(m, own(x)), 1) : 1) : 1);
   // Crossing bonds (ChemDraw's Bond Crossing): a section of the bond behind is cut out round the bond in front. As
   // ChemDraw decides, the bond whose middle is nearer is in front, so Bring to Front does nothing where bonds have
   // depth; at the same depth (a flat drawing) the bond drawn later is (Bring to Front and the f key move a bond to the
