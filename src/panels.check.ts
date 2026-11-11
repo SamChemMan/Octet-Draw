@@ -147,4 +147,12 @@ for (const id of ["predict_19f", "predict_31p"]) {
   assert.ok(actions.includes(`"${id}"`) && menu.includes(`item("${id}"`), id);
 }
 assert.match(actions, /context\.nuclei\?\.includes\("19F"\)/);
+
+// The Actions panel's titled sections (Fold): the caret turns by the open state, on hover too, so a section open on
+// hover shows as open. One click on its title closes it and keeps it folded until the pointer leaves and comes back.
+assert.match(actions, /const open = !folded \|\| peek;/);
+assert.match(actions, /<button className="fold-title" aria-expanded=\{open\}/);
+assert.match(css, /\.fold-title\[aria-expanded="false"\] \.fold-caret \{\n  transform: rotate\(-90deg\);/, "the caret turns by the open state");
+assert.doesNotMatch(css, /\.fold\[data-folded\]/, "the caret does not turn by the folded setting alone");
+assert.match(actions, /quiet\.current = pointer && open;\n    folds\.peeks\.delete\(id\);\n    setPeek\(false\);\n    if \(!folded \|\| !peek\) onFold\(id, !folded\);/, "a click on a section open on hover closes it and does not pin it open");
 console.log("panels.check: ok");

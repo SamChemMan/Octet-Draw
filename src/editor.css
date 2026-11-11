@@ -1421,8 +1421,8 @@ button.variant.add {
   padding: 0 var(--space-2);
 }
 /* A titled section folds to its title row (Fold in Actions.tsx). The title is a button with a caret that always shows,
-   so every section reads as one that folds: it points right when the section is folded, and down when it is open. The
-   section opens and folds with its height and opacity. */
+   so every section reads as one that folds: it points right when the section is closed, and down when it is open, on
+   hover too. The section opens and folds with its height and opacity. */
 .fold-title {
   display: flex;
   align-items: center;
@@ -1443,7 +1443,7 @@ button.variant.add {
   color: var(--ink-faint);
   transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
 }
-.fold[data-folded] .fold-caret {
+.fold-title[aria-expanded="false"] .fold-caret {
   transform: rotate(-90deg);
 }
 @media (hover: hover) and (pointer: fine) {
