@@ -194,7 +194,9 @@ function c60() {
 // beside it whose corner is not bonded to its own, so every ring is a pentagon or a hexagon. Relaxed (hosts.mjs) so
 // every bond is one bond length, every pentagon regular and every hexagon flat. The double bonds are the Kekulé
 // structure with the fewest in a pentagon: five, as a belt carbon takes the double bond of one of its two open corners
-// only, so ten open corners have theirs in a pentagon.
+// only, so ten open corners have theirs in a pentagon. Seen turned 5° and tilted 18°: the view near C60's with its
+// front and back carbons furthest apart on the page (0.28 bond lengths). A template's atoms that land within 0.1 bond
+// lengths of each other join as it is placed (addTemplate), so a view with a back carbon behind a front one loses it.
 function c70() {
   const { ps, edges } = c60Cage(), [five] = rings(neighbours(60, edges), 5), dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const unit = (v) => v.map((x) => x / Math.hypot(...v)), cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -215,11 +217,13 @@ function c70() {
   const orders = matching(70, m.bonds, (a, b) => (inPentagon(a, b) ? 1 : 0));
   if (!orders) throw new Error("C70: no Kekulé structure");
   m.bonds.forEach((b, k) => { b[2] = orders[k]; });
-  return entry("C70", "fullerene, rugby ball", m.drawing(12, 18));
+  return entry("C70", "fullerene, rugby ball", m.drawing(5, 18));
 }
 // A nanotube segment: graphene (bond length 1) rolled so the chiral vector (n, m) goes round it, `cells` translation
-// periods long, seen along a tilted axis so its front and back walls do not lie on each other.
-function nanotube(n, m, cells, name, also) {
+// periods long, seen along a tilted axis (turned `turn` degrees) so its front and back walls do not lie on each other.
+// The turn is one that leaves no back carbon within 0.15 bond lengths of a front one on the page: within 0.1 the two
+// join as the template is placed (addTemplate). The (5,5) tube has ten such pairs at 14°, and none at 19°.
+function nanotube(n, m, cells, name, also, turn = 14) {
   const a1 = [Math.sqrt(3), 0], a2 = [Math.sqrt(3) / 2, 1.5], add = (p, q) => [p[0] + q[0], p[1] + q[1]], mul = (p, s) => [p[0] * s, p[1] * s];
   const C = add(mul(a1, n), mul(a2, m)), Cl = Math.hypot(...C), R = Cl / (2 * Math.PI);
   const g = (x, y) => (y ? g(y, x % y) : x), dR = g(2 * m + n, 2 * n + m), T = add(mul(a1, (2 * m + n) / dR), mul(a2, -(2 * n + m) / dR)), Tl = Math.hypot(...T);
@@ -242,7 +246,7 @@ function nanotube(n, m, cells, name, also) {
   const orders = kekule(keep.length, kept);
   if (orders.filter((o) => o === 2).length * 2 !== keep.length) throw new Error(`${name}: no Kekulé structure`);
   const d = new Drawing();
-  const at = keep.map((i) => { const [u, v] = pts[i], t = (2 * Math.PI * u) / Cl; return d.atom("C", rotX(rotY([v - (cells * Tl) / 2, R * Math.cos(t + 0.2), R * Math.sin(t + 0.2)], 14 * deg), 6 * deg)); });
+  const at = keep.map((i) => { const [u, v] = pts[i], t = (2 * Math.PI * u) / Cl; return d.atom("C", rotX(rotY([v - (cells * Tl) / 2, R * Math.cos(t + 0.2), R * Math.sin(t + 0.2)], turn * deg), 6 * deg)); });
   kept.forEach(([a, b], k) => d.bond(at[a], at[b], orders[k]));
   return entry(name, also, d.done());
 }
@@ -265,5 +269,5 @@ function flake(rings, name, also) {
 }
 
 export const POLYHEDRA = [...GEOMETRIES.map(geometry), ...frames(), ...cages()];
-export const CARBON = [c60(), c70(), nanotube(5, 5, 6, "(5,5) Nanotube", "armchair, carbon nanotube, CNT"), nanotube(9, 0, 4, "(9,0) Nanotube", "zigzag, carbon nanotube, CNT"),
+export const CARBON = [c60(), c70(), nanotube(5, 5, 6, "(5,5) Nanotube", "armchair, carbon nanotube, CNT", 19), nanotube(9, 0, 4, "(9,0) Nanotube", "zigzag, carbon nanotube, CNT"),
   flake(2, "Circumcoronene", "graphene, C54H18, nanographene")];

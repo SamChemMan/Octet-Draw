@@ -37,10 +37,11 @@ ChemDraw 26.1 ships 29 template sets (30 files with the blank New Templates shee
 
 Octet's own sets ChemDraw has no set for: Sugars, Nucleobases, Heterocycles, Ligands and Paddlewheels.
 
-For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 45
+For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 47
 items, and DNA and RNA, Side chains, Peptides, Supramolecules, Polyhedra, Carbon, Lab equipment, Biomolecules, Cells,
-BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 525 templates in 30 sets (issue 97 added 14
-polyhedra and C70). See "1.2 sets" below.
+BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 550 templates in 31 sets (issue 97 added 14
+polyhedra and C70, issue 98 six lab templates, issue 95 Curved membrane and Cell membrane, and issue 43 the
+Photochemistry set of 17). See "1.2 sets" below.
 
 What each ChemDraw set holds, and how it draws a Newman projection or a Cp ring, needs ChemDraw running
 (`~/octet-research/notes/chemdraw-checks-pending.md` item 22).
@@ -113,7 +114,7 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   segments, each atom at its place in 3D (kept as depth), and circumcoronene, a graphene flake. Double bonds: C60's 30
   bonds between two hexagons; the others a perfect matching of their atoms (C70's found by search, with the fewest in
   a pentagon: five).
-- Lab (29 more), Lab equipment (22), Biomolecules (15), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
+- Lab (31 more), Lab equipment (26), Biomolecules (15), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
   (8) and Symbols (18): drawings in the Lab group's line style, written as SVG path data in
   `tools/library/glassware.mjs`, `equipment.mjs`, `bio.mjs`, `life.mjs` and `symbols.mjs` and turned into Octet's pen
   curves and lines by `tools/library/art.mjs`. Symbols has what ChemDraw's Shapes set has and the Shape tool does not
@@ -133,9 +134,11 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   and Cell membrane are an open and a closed pen curve, and Receptor and Ion channel have a membrane line each side
   of the protein, outside the protein's group, so a drag on its outer end makes it longer. The heads are filled with
   the light tint (the membrane's colour when it has one). CDXML (and so CDX and .oct): an integral group ChemDraw
-  shows, each lipid's head as a filled circle and its outline and its tails as curves, marked as Octet's drawing
-  only, with the line, arc or curve in the group's Octet data. ChemDraw's own BioDraw membrane object (bioshape) is
-  not written: how it stores its shape is not known.
+  shows, each lipid's head as a filled circle and its outline and its tails as curves, with the line, arc or curve in
+  the group's Octet data. Octet reads the group's data and never the curves. The curves are not marked as Octet's
+  drawing only, so Octet 1.1.1 and older, which do not know the group's kind and skip marked objects, show the lipids
+  as pen curves in one group, as ChemDraw does. ChemDraw's own BioDraw membrane object (bioshape) is not written: how
+  it stores its shape is not known.
 - `node tools/library/build.mjs --keep-shipped` builds the new sets and keeps the sets released in 1.1 as
   `src/library.json` has them. Built again from scratch, the hexose chairs, the chair conformers and the Cp and arene
   sets come out a little different from 1.1 (later changes to the chair and to Clean Up); they are not rebuilt.
@@ -214,5 +217,5 @@ conditions on their arrows; absorption, fluorescence, phosphorescence, intersyst
 `src/templates.check.ts`: every built-in template (both files) parses back from Octet's file text, has a name of its
 own, has clear labels (every template with atoms, none let off), has the CIP labels and InChI of its reference compound
 (the dashed cages let off), gets a name from Structure to Name that reads back to its structure, and survives Clean
-Up. `src/lab.check.ts` covers the 145 drawings of the Lab group and the eight drawn sets,
+Up. `src/lab.check.ts` covers the 153 drawings of the Lab group and the eight drawn sets,
 `src/photochem.check.ts` the Photochemistry set, and `src/perspective.check.ts` the Newman circle.

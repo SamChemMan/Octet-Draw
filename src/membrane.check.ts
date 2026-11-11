@@ -6,9 +6,9 @@ import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { transformParts } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
-import { arrowTrace } from "./hit.ts";
+import { arrowTrace, nearTrace } from "./hit.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
-import { arrowPicks, arrowShapes, headMenu, membrane, sweepBend, type Arrow, type Mol } from "./render.ts";
+import { arrowPath, arrowPicks, arrowShapes, headMenu, membrane, sweepBend, type Arrow, type Mol } from "./render.ts";
 
 const near = (a: number, b: number, d = 1e-6) => Math.abs(a - b) <= d;
 const line: Arrow = { id: 1, kind: "line", from: [0, 0], to: [2, 0], style: "membrane" };
@@ -46,14 +46,20 @@ const radii = round.map((h) => Math.hypot(h.at[0], h.at[1]));
 assert.ok(radii.every((r) => near(r, 2.565, 0.02) || near(r, 1.435, 0.02)), "each head on its side's circle");
 assert.equal(radii.filter((r) => r > 2).length, Math.round((2 * Math.PI * 2.565) / 0.25));
 
-// Drawn: tails as bars, each head a ring (its outer edge one way round and its inner edge the other, so it has a hole).
+// Drawn: each tail one outline (five points a side, mitred where it turns, so no turn has an open wedge), each head a
+// ring (its outer edge one way round and its inner edge the other, so it has a hole).
 const ink = arrowShapes(line, { bond: 20, line: 0.8, bold: 2.7, spacing: 3.6, hash: 3.6, margin: 2.2, size: 13 }, 20);
 const area = (p: number[][]) => p.reduce((s, q, i) => s + q[0] * p[(i + 1) % p.length][1] - p[(i + 1) % p.length][0] * q[1], 0) / 2;
-assert.equal(ink.length, 36 * 4 + 18 * 2);
+assert.equal(ink.length, 36 + 18 * 2);
+assert.ok(ink.slice(0, 36).every((p) => p.length === 10), "a tail is one outline");
 const rings = ink.slice(-36);
 assert.ok(rings.every((p, i) => (i % 2 ? area(p) > 0 : area(p) < 0) && area(ink[0]) < 0), "rings wound against each other");
-// Its box and a click take in its heads, not just the line it is drawn along.
+// Its box and a click take in its heads, not just the line it is drawn along, which stays the trace's first path.
 assert.deepEqual(arrowTrace(line, 20).box.map((v) => Math.round(v * 100) / 100), [-2.1, -13.4, 42.1, 13.4]);
+assert.deepEqual(arrowTrace(line, 20).paths[0], arrowPath(line, 20));
+// A click on a tail picks the membrane at any zoom. At 400% a click reaches 2.85 px (5 / 4 px and two line widths), and
+// the middle of a tail is further than that from the line and from its head.
+assert.ok(nearTrace(membrane(line, 19.2).tails[6][2], arrowTrace(line, 19.2), 5 / 4 + 0.8 * 2), "a tail takes a click at 400%");
 
 // Offered as a line style for lines, arcs and pen curves, never for an arrow; a membrane has no heads to choose.
 const picks = (c: object) => arrowPicks({ kind: "arrow", ratio: 1, heads: true, shaped: true, curved: false, fillable: false, style: "plain", start: "none", end: "none", head: "solid", fill: "none", ...c } as { kind: string });
@@ -92,4 +98,13 @@ same(parse(serialize(mol)), "Octet's own text");
 const foreign = fromCdxml(xml.replace(/ Octet="[^"]*"/g, ""));
 assert.equal(foreign.mol.arrows?.length, 4 * lipids);
 assert.equal(foreign.mol.groups?.length, 3);
+// An Octet from before membranes does not know the group's kind and skips every object marked as Octet's own drawing
+// of another. The lipid curves carry no such mark, so it reads them as ChemDraw does (here, a kind this Octet does not know).
+assert.ok(!/<curve[^>]*Octet=/.test(xml), "no mark on a lipid's curves");
+const older = fromCdxml(xml.replaceAll("&quot;kind&quot;:&quot;membrane&quot;", "&quot;kind&quot;:&quot;later&quot;"));
+assert.deepEqual([older.mol.arrows?.length, older.mol.groups?.length], [4 * lipids, 3], "an older Octet shows the lipids");
+// A membrane with no length has no lipids: its box in the file is its own point, and it comes back.
+const dot = toCdxml({ atoms: [], bonds: [], arrows: [{ ...line, to: [0, 0] }] }, DEFAULT_STYLE);
+assert.ok(/<group[^>]* BoundingBox="[-\d. ]+"/.test(dot) && !/<group[^>]*Infinity/.test(dot), "a finite box");
+assert.equal(fromCdxml(dot).mol.arrows?.[0].style, "membrane");
 console.log(`membrane: lipids keep their size as a membrane stretches, bends or closes, and ${lipids} lipids' membranes round-trip through CDXML, CDX, .oct and Octet's text ok`);

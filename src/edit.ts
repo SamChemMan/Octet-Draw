@@ -2356,7 +2356,8 @@ export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = ne
 // added or taken away widens or narrows the plate on its right by one lane, so every lane keeps its width, and spots
 // stay in their lanes. at: where the new lane goes (0 is first); copy: the lane whose spots it takes (Duplicate).
 // A gel's lane names go with their lanes; a new lane is named by the number of lanes before it, a copy as its lane.
-const TLC_LANES = 40;
+// A plate has 40 lanes at most, the most Octet's file reads.
+export const TLC_LANES = 40;
 const widen = (sh: Shape, d: number): Shape => (sh.to[0] >= sh.from[0] ? { ...sh, to: [sh.to[0] + d, sh.to[1]] } : { ...sh, from: [sh.from[0] + d, sh.from[1]] });
 export function addLane(sh: Shape, at: number, copy?: number): Shape {
   const tlc = sh.tlc ?? { lanes: 1, spots: [] };
@@ -2381,9 +2382,10 @@ export function moveLane(sh: Shape, from: number, to: number): Shape {
   order.splice(to, 0, from);
   return { ...sh, tlc: { ...tlc, spots: tlc.spots.map((x) => ({ ...x, lane: order.indexOf(x.lane) })), ...(tlc.names ? { names: order.map((k) => tlc.names![k] ?? "") } : {}) } };
 }
-// A new gel, as wide as its lanes allow: its first lane named M with the unit's ladder in it, the others numbered.
+// A new gel, as wide as its lanes allow (40 lanes at most, so a wider gel has wider lanes): its first lane named M
+// with the unit's ladder in it, the others numbered.
 export function newGel(from: [number, number], to: [number, number], unit: "kDa" | "bp" = "kDa"): Omit<Shape, "id"> {
-  const lanes = Math.max(2, Math.round(Math.abs(to[0] - from[0]) / 1.2)), tlc: Tlc = { lanes, spots: [], unit, names: ["M", ...Array.from({ length: lanes - 1 }, (_, k) => String(k + 1))] };
+  const lanes = Math.min(TLC_LANES, Math.max(2, Math.round(Math.abs(to[0] - from[0]) / 1.2))), tlc: Tlc = { lanes, spots: [], unit, names: ["M", ...Array.from({ length: lanes - 1 }, (_, k) => String(k + 1))] };
   return { kind: "gel", from, to, tlc: { ...tlc, spots: GEL[unit].ladder.map((n) => ({ lane: 0, rf: bandRf(tlc, n) })) } };
 }
 // Bands added to a gel's lane at sizes (kDa or bp, as ChemDraw's Add Bands), the gel's range changed with its bands
@@ -2598,10 +2600,15 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   // How much f grows the template. One drawn in perspective (a chair, a Newman projection) keeps its depth, grown as
   // much; mirrored, it turns over in 3D, so its depth changes sign and its stereochemistry is kept.
   const kz =(target.bond !== undefined && edge ? len(sub(f([1, 0]), f([0, 0]))) : scale) * (mirrored ? -1 : 1);
+  // A template atom joins an atom that was drawn before, never another atom of the template, and no drawn atom twice:
+  // a Newman projection's front and back carbon are at one place on the page.
+  const drawn = m;
   for (const [k, p] of at0.map(f).entries()) {
     const before = m.atoms.length;
     let id: number;
-    [m, id] = atomOrNew(m, p, scale);
+    const on = atomAt(drawn, p, 0.1 * Math.min(1, scale));
+    if (on === undefined || ids.includes(on)) [m, id] = withAtom(m, p, "C", scale);
+    else id = on;
     if (id >= before) {
       // A new atom takes the template atom's label, marks and look; its place and size are the drawing's.
       const { location: [, , z = 0], scale: __, order: ___, ...own } = t.atoms[k];

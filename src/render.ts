@@ -2049,10 +2049,11 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   const hw = s.line / 2, H = size.length * s.line * fit, C = size.centre * s.line * fit, W = size.width * s.line * fit;
   const out: P[][] = [];
   const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
-  // A membrane: its tails, and each head a ring (wound against the bars' way inside, so its middle stays clear).
+  // A membrane: each tail as one outline, so it has no open wedge where it turns, and each head a ring (its inner edge
+  // wound against its outer edge and the tails, so its middle stays clear).
   if (a.style === "membrane") {
     const { heads, tails } = membrane(a, k), ring = (c: P, r: number, way: number) => Array.from({ length: 24 }, (_, i): P => add(c, mul([Math.cos((way * Math.PI * i) / 12), Math.sin((way * Math.PI * i) / 12)], r)));
-    for (const t of tails) for (let i = 0; i + 1 < t.length; i++) bar(t[i], t[i + 1]);
+    for (const t of tails) out.push(...strokeOutline(t, hw));
     for (const h of heads) out.push(ring(h.at, h.r + hw, -1), ring(h.at, Math.max(0, h.r - hw), 1));
     return out;
   }
@@ -2487,7 +2488,8 @@ export const sizeText = (n: number) => String(Number(n.toPrecision(4)));
 export function gelScale(sh: Shape, gap: number): number[] {
   const t = sh.tlc, [lo, hi] = gelRange(t), ladder = (t?.spots ?? []).filter((x) => x.lane === 0 && x.rf >= 0 && x.rf <= 1).map((x) => bandSize(t, x.rf)), all: number[] = [];
   if (ladder.length) all.push(...[...new Set(ladder.map((n) => Number(n.toPrecision(4))))].sort((a, b) => b - a));
-  else for (let p = 10 ** Math.ceil(Math.log10(hi)); p >= lo / 10 && all.length < 40; p /= 10) for (const m of [5, 2, 1]) if (m * p >= lo && m * p <= hi) all.push(m * p);
+  // p > 0: a size so small that a tenth of it is 0 would never end the loop.
+  else for (let p = 10 ** Math.ceil(Math.log10(hi)); p > 0 && p >= lo / 10 && all.length < 40; p /= 10) for (const m of [5, 2, 1]) if (m * p >= lo && m * p <= hi) all.push(m * p);
   const at = tlcLayout(sh).at, out: number[] = [];
   for (const n of all) if (!out.length || at(bandRf(t, out[out.length - 1])) - at(bandRf(t, n)) >= gap) out.push(n);
   return out;

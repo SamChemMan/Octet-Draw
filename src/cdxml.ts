@@ -537,10 +537,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ kind: a.kind === "cut" ? "cut" : undefined, fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a), role: a.role }) }), 4, boxOf(qs), a.id);
   };
   // A membrane: a group ChemDraw shows (each lipid's head as a filled circle and its outline, and its two tails), with
-  // the line, arc or pen curve it is drawn along in Octet's data.
+  // the line, arc or pen curve it is drawn along in Octet's data. This Octet reads the group's data and never its curves
+  // (readMembrane). The curves do not carry the DERIVED mark, so an Octet from before membranes, which does not know
+  // the group's kind, reads them as pen curves in one group, as ChemDraw does, and the lipids still show.
   const membraneOut = (a: Arrow) => {
     const { heads, tails } = membrane(a, 1), page = (q: P) => at([q[0], -q[1]]), c = colour(a.colour), lines = ownLines(scaleOf(a), a.width), k = 0.5523;
-    const curve = (qs: P[], more: Record<string, string | number | undefined>) => el("curve", { id: fresh(), Z: Z(), ...more, CurvePoints: qs.map(pt).join(" "), Octet: DERIVED });
+    const curve = (qs: P[], more: Record<string, string | number | undefined>) => el("curve", { id: fresh(), Z: Z(), ...more, CurvePoints: qs.map(pt).join(" ") });
     const rings = heads.map(({ at: h, r }) => ({ o: page(h), R: r * B }));
     const kids = [
       ...rings.flatMap(({ o, R }) => {
@@ -549,7 +551,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       }),
       ...tails.map((t) => curve(t.map(page).flatMap((q) => [q, q, q]), { color: c, ...lines })),
     ];
-    const box = boxOf([...rings.flatMap(({ o, R }): P[] => [[o[0] - R, o[1] - R], [o[0] + R, o[1] + R]]), ...tails.flat().map(page)]);
+    // The line's own ends are in the box too: a membrane with no length has no lipids, and its box is then that point.
+    const box = boxOf([at(a.from), at(a.to), ...rings.flatMap(({ o, R }): P[] => [[o[0] - R, o[1] - R], [o[0] + R, o[1] + R]]), ...tails.flat().map(page)]);
     put(el("group", { id: idOf.get(a.id)!, BoundingBox: boxText(box), Z: Z(), color: c, Integral: "yes", Octet: priv({ kind: "membrane", line: a.kind === "arc" ? "arc" : undefined, bend: a.kind === "arc" ? a.bend : undefined,
       ends: a.curve ? undefined : `${pt(at(a.from))} ${pt(at(a.to))}`, points: a.curve?.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map((q) => pt(at(q))).join(" "), closed: a.curve?.closed, width: a.width, scale: ownScale(a) }) }, kids.join("")), 4, box, a.id);
   };
@@ -1244,12 +1247,13 @@ function fontOf(name?: string): { font?: string; bold?: true; italic?: true } {
 }
 
 // A TLC plate's or gel's lanes and spots, if they are sound. A gel's band may lie outside its range (rf outside 0 to
-// 1, up to 100); its lane names are up to 40 characters, and its range runs up from above 0 to at most 10⁹.
+// 1, up to 100); its lane names are up to 40 characters, and its range runs up from 0.001 at least (the least the Set
+// the range dialog takes) to at most 10⁹.
 export function readPlate(v: unknown, gel = false): Tlc | undefined {
   const t = v as { lanes?: unknown; spots?: unknown; rf?: unknown; origin?: unknown; front?: unknown; hide?: unknown; ticks?: unknown; transparent?: unknown; names?: unknown; unit?: unknown; range?: unknown };
   const frac = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 0.9), len = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 5);
   const rf = (n: unknown) => typeof n === "number" && (gel ? Math.abs(n) <= 100 : n >= 0 && n <= 1);
-  const size = (n: unknown) => typeof n === "number" && n > 0 && n <= 1e9, range = t?.range as unknown[];
+  const size = (n: unknown) => typeof n === "number" && n >= 0.001 && n <= 1e9, range = t?.range as unknown[];
   if (typeof t !== "object" || !t || !Number.isInteger(t.lanes) || (t.lanes as number) < 1 || (t.lanes as number) > 40 || !Array.isArray(t.spots) || t.spots.length > 400
     || !frac(t.origin) || !frac(t.front) || (t.hide !== undefined && !(Array.isArray(t.hide) && t.hide.every((h) => ["origin", "front", "border", "names", "scale"].includes(h))))
     || (t.names !== undefined && !(gel && Array.isArray(t.names) && t.names.length <= 40 && t.names.every((n) => typeof n === "string" && n.length <= 40 && !/[\u0000-\u001f]/.test(n))))

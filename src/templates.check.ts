@@ -677,6 +677,29 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
   assert.ok(c70.bonds.every((b) => { const [p, q] = b.atoms.map((i) => c70.atoms[i].location); return Math.abs(Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) - 1) < 0.02; }), "C70: every bond one bond length");
   const span = (k: number) => Math.max(...c70.atoms.map((a) => a.location[k])) - Math.min(...c70.atoms.map((a) => a.location[k]));
   assert.ok(span(0) > span(1) * 1.05, "C70: longer than it is wide, along the page");
+  // A click on an empty page places a template with addTemplate, which joins atoms that land within 0.1 bond lengths
+  // of each other, so a back carbon drawn behind a front one would go. Placed so, each Polyhedra and Carbon template
+  // keeps every atom and bond and shows no warning, and no two of its atoms are within 0.15 on the page.
+  const { addTemplate } = await import("./edit.ts");
+  const placed70 = addTemplate({ atoms: [], bonds: [] }, c70, { point: [0, 0] });
+  assert.deepEqual([placed70.atoms.length, placed70.bonds.length, placed70.bonds.filter((b) => b.type === 2).length], [70, 105, 35], "C70 placed: 70 carbons, 105 bonds, 35 double");
+  for (const t of [...set("Polyhedra"), ...set("Carbon")]) {
+    const placed = addTemplate({ atoms: [], bonds: [] }, t.mol, { point: [3, -2] });
+    assert.deepEqual([placed.atoms.length, placed.bonds.length], [t.mol.atoms.length, t.mol.bonds.length], `${t.name}: placed, it keeps its atoms and bonds`);
+    assert.deepEqual(problems(placed, chem.stereoFacts(placed)), [], `${t.name}: placed, it shows no warning`);
+    assert.ok(t.mol.atoms.every((a, i) => t.mol.atoms.every((b, j) => j <= i || Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) >= 0.15)), `${t.name}: no two atoms within 0.15 bond lengths on the page`);
+  }
+  // Every structure template keeps its atoms and bonds when placed: two atoms of one template never join, so a Newman
+  // projection keeps its back carbon. Placed on an atom, its first atom is that atom and the rest are new.
+  for (const c of LIBRARY) for (const t of c.items.filter((x) => x.mol.atoms.length)) {
+    const placed = addTemplate({ atoms: [], bonds: [] }, t.mol, { point: [0, 0] });
+    assert.deepEqual([placed.atoms.length, placed.bonds.length], [t.mol.atoms.length, t.mol.bonds.length], `${c.name}, ${t.name}: placed, it keeps its atoms and bonds`);
+  }
+  {
+    const newman = LIBRARY.flatMap((c) => c.items).find((t) => t.name === "Newman projection, staggered")!.mol;
+    const methane: Mol = { atoms: [{ id: 1, label: "C", location: [0, 0] }], bonds: [] };
+    assert.equal(addTemplate(methane, newman, { atom: 0 }).atoms.length, newman.atoms.length, "a Newman projection on an atom: that atom and seven new ones");
+  }
   // Each comes back from CDXML, CDX and .oct with its depths, dashed edges, double bonds and warnings off, and from MOL
   // (which has no dashed bond or warnings flag) with its bonds and depths.
   const { fromCdxml } = await import("./cdxml.ts"), { readOct, writeOct } = await import("./oct.ts");

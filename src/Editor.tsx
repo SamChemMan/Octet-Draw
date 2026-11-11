@@ -24,7 +24,7 @@ import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, probl
 import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
-  addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
+  addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
@@ -824,8 +824,8 @@ export default function Editor() {
   };
   // The shape a drag from one point to another makes with the tool in hand. A circle grows out from where it starts.
   const shapeFrom = (from: P, to: P): Omit<Shape, "id"> | undefined => {
-    // A TLC plate gets a lane for about every 1.6 bond lengths of its width.
-    if (tool === "tlc") return { kind: "tlc", from, to, tlc: { lanes: Math.max(1, Math.round(Math.abs(to[0] - from[0]) / 1.6)), spots: [] } };
+    // A TLC plate gets a lane for about every 1.6 bond lengths of its width, up to the most a plate has.
+    if (tool === "tlc") return { kind: "tlc", from, to, tlc: { lanes: Math.min(TLC_LANES, Math.max(1, Math.round(Math.abs(to[0] - from[0]) / 1.6))), spots: [] } };
     // A gel gets a lane for about every 1.2 bond lengths, its first a ladder; a plasmid map 5000 base pairs.
     if (tool === "gel") return newGel(from, to);
     if (tool === "plasmid") return { kind: "plasmid", from, to, plasmid: { bp: 5000, regions: [], markers: [] } };
@@ -7643,8 +7643,9 @@ export default function Editor() {
       const each = (f: (x: Shape) => Partial<Shape>) => set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...f(x) } : x)) }, true);
       if (what === "kind") {
         setSettings((s) => ({ ...s, variants: { ...s.variants, shape: arg } }));
-        // A colour made for a highlight's fill (or an outline) does not carry over between the two.
-        return each((x) => ({ kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) }));
+        // A colour made for a highlight's fill (or an outline) does not carry over between the two. A plate, plasmid
+        // map, table or picture picked with the shape keeps its kind: its data is no box's or oval's.
+        return each((x) => (turns(x) ? { kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) } : {}));
       }
       if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
       // A shadow's depth, softness and opacity (in hundredths), from the Actions sliders: a drag is one undo step.
@@ -7654,16 +7655,18 @@ export default function Editor() {
       }
       // TLC plates, as ChemDraw's Add Lane, Duplicate Lane and Delete Lane: at the lane last pressed or right-clicked
       // (a new lane goes after it), or at the last lane. The plate grows or shrinks by a lane. Rf values on or off.
-      if (what === "lanes") return each((x) => {
+      // A shape picked with a plate that is not one is left as it is.
+      const plates = (f: (x: Shape) => Partial<Shape>) => each((x) => (isPlate(x) ? f(x) : {}));
+      if (what === "lanes") return plates((x) => {
         const n = x.tlc?.lanes ?? 1, k = lanePick?.plate === x.id ? Math.min(n - 1, lanePick.lane) : n - 1;
         if (arg !== "-1") setLanePick({ plate: x.id, lane: k + 1 });
         return arg === "-1" ? deleteLane(x, k) : addLane(x, k + 1, arg === "copy" ? k : undefined);
       });
-      if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
+      if (what === "rf") return plates((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
       // Show Side Ticks and Transparent, as ChemDraw's plate menu.
-      if (what === "ticks" || what === "transparent") return each((x) => ({ tlc: { ...x.tlc!, [what]: !x.tlc?.[what] || undefined } }));
+      if (what === "ticks" || what === "transparent") return plates((x) => ({ tlc: { ...x.tlc!, [what]: !x.tlc?.[what] || undefined } }));
       // A plate's origin, front or border shown or hidden, and one style for all its spots.
-      if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as NonNullable<Tlc["hide"]>[number]; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
+      if (what === "hide") return plates((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as NonNullable<Tlc["hide"]>[number]; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
       // A gel's bands typed in at the lane last pressed (or its last lane), its range, and its first lane given the other
       // unit's ladder. A plasmid map's regions and markers added, and its name and length.
       const gel = doc.shapes?.find((x) => ids.has(x.id) && x.kind === "gel"), map = doc.shapes?.find((x) => ids.has(x.id) && x.kind === "plasmid");
@@ -7672,7 +7675,7 @@ export default function Editor() {
       if (what === "ladder") return each((x) => (x.kind === "gel" ? { tlc: withLadder(x.tlc ?? { lanes: 1, spots: [] }, x.tlc?.unit === "bp" ? "kDa" : "bp") } : {}));
       if ((what === "region" || what === "marker" || what === "plasmid") && map) return openPart(map, what === "plasmid" ? { centre: true } : { [what]: -1 });
       // Every spot's style at once (a toggle goes on unless every spot has it already).
-      if (what === "spots") return each((x) => {
+      if (what === "spots") return plates((x) => {
         const spots = x.tlc?.spots ?? [], on = !spots.every((y) => (arg === "dashed" || arg === "bold" || arg === "doubled") && y[arg]);
         return { tlc: { ...x.tlc!, spots: spots.map((y) => restyleSpot(y, arg, on)) } };
       });
@@ -9356,11 +9359,13 @@ export default function Editor() {
             if (k >= 0) return setRf(plate.id, k);
           }
           // Double-click a gel's lane name to type it, a plasmid map's region or marker to change it, or its middle for
-          // its name and length.
-          const named = tool !== "erase" ? laneNameAt(toDoc(e.clientX, e.clientY)) : undefined;
+          // its name and length. A caption, atom or bond there takes the double-click itself, and so does whatever
+          // lies in the rest of a map's box.
+          const bare = t.caption === undefined && t.atom === undefined && t.bond === undefined;
+          const named = tool !== "erase" && bare ? laneNameAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (named) return setDialog({ kind: "lane", plate: named.plate.id, lane: named.lane, value: named.plate.tlc?.names?.[named.lane] ?? "" });
-          const map = tool !== "erase" ? plasmidAt(toDoc(e.clientX, e.clientY)) : undefined;
-          if (map) return openPart(map, plasmidPart(map, toDoc(e.clientX, e.clientY)));
+          const map = tool !== "erase" && bare ? plasmidAt(toDoc(e.clientX, e.clientY)) : undefined, part = map ? plasmidPart(map, toDoc(e.clientX, e.clientY)) : {};
+          if (map && (part.region !== undefined || part.marker !== undefined || part.centre)) return openPart(map, part);
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (table) return openCell(table, toDoc(e.clientX, e.clientY));
@@ -10223,7 +10228,7 @@ export default function Editor() {
       })()}</Exit>
       <Exit>{dialog?.kind === "lane" && (
         <Dialog title="Lane name" action="Set" onClose={() => setDialog(undefined)}
-          onAction={() => { const gel = doc.shapes?.find((x) => x.id === dialog.plate); if (gel?.tlc) set(updateShape(doc, gel.id, { tlc: { ...gel.tlc, names: Array.from({ length: gel.tlc.lanes }, (_, k) => (k === dialog.lane ? dialog.value.trim() : gel.tlc!.names?.[k] ?? "")) } }), true); setDialog(undefined); }}>
+          onAction={() => { const gel = doc.shapes?.find((x) => x.id === dialog.plate); if (gel?.tlc) set(updateShape(doc, gel.id, { tlc: { ...gel.tlc, names: Array.from({ length: gel.tlc.lanes }, (_, k) => (k === dialog.lane ? oneLine(dialog.value) : gel.tlc!.names?.[k] ?? "")) } }), true); setDialog(undefined); }}>
           <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.value} maxLength={40} spellCheck={false} onChange={(e) => setDialog({ ...dialog, value: e.target.value })} /></span></label>
         </Dialog>
       )}</Exit>
@@ -10234,7 +10239,7 @@ export default function Editor() {
           <Dialog title="Plasmid map" action="Apply" disabled={!ok} onClose={() => setDialog(undefined)}
             onAction={() => {
               const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid;
-              if (ok && pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, bp, name: dialog.name.trim() || undefined, regions: pl.regions.filter((r) => r.start <= bp).map((r) => ({ ...r, end: Math.min(bp, r.end) })), markers: pl.markers.filter((m) => m.at <= bp) } }), true);
+              if (ok && pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, bp, name: oneLine(dialog.name) || undefined, regions: pl.regions.filter((r) => r.start <= bp).map((r) => ({ ...r, end: Math.min(bp, r.end) })), markers: pl.markers.filter((m) => m.at <= bp) } }), true);
               setDialog(undefined);
             }}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
@@ -10247,7 +10252,7 @@ export default function Editor() {
         const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid, start = Math.round(Number(dialog.start)), end = Math.round(Number(dialog.end));
         const ok = !!pl && start >= 1 && end >= 1 && start <= pl.bp && end <= pl.bp && (dialog.index !== undefined || pl.regions.length < 200), edit = dialog.index !== undefined;
         const put = (regions: Region[]) => { if (pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, regions } }), true); setDialog(undefined); };
-        const region: Region = { start, end, ...(dialog.name.trim() ? { name: dialog.name.trim() } : {}), ...(dialog.dir ? { dir: dialog.dir } : {}), ...(edit && pl?.regions[dialog.index!]?.colour ? { colour: pl.regions[dialog.index!].colour } : {}) };
+        const name = oneLine(dialog.name), region: Region = { start, end, ...(name ? { name } : {}), ...(dialog.dir ? { dir: dialog.dir } : {}), ...(edit && pl?.regions[dialog.index!]?.colour ? { colour: pl.regions[dialog.index!].colour } : {}) };
         return (
           <Dialog title={edit ? "Region" : "Add a region"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
             alt={edit && pl ? { label: "Delete", onClick: () => { setFeaturePick(undefined); put(pl.regions.filter((_, k) => k !== dialog.index)); } } : undefined}
@@ -10262,9 +10267,9 @@ export default function Editor() {
       <Exit>{dialog?.kind === "marker" && (() => {
         // A marker, as ChemDraw's Markers: its name and base pair.
         const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid, at = Math.round(Number(dialog.at)), edit = dialog.index !== undefined;
-        const ok = !!pl && !!dialog.name.trim() && at >= 1 && at <= pl.bp && (edit || pl.markers.length < 200);
+        const name = oneLine(dialog.name), ok = !!pl && !!name && at >= 1 && at <= pl.bp && (edit || pl.markers.length < 200);
         const put = (markers: Marker[]) => { if (pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, markers } }), true); setDialog(undefined); };
-        const marker: Marker = { at, name: dialog.name.trim(), ...(edit && pl?.markers[dialog.index!]?.colour ? { colour: pl.markers[dialog.index!].colour } : {}) };
+        const marker: Marker = { at, name, ...(edit && pl?.markers[dialog.index!]?.colour ? { colour: pl.markers[dialog.index!].colour } : {}) };
         return (
           <Dialog title={edit ? "Marker" : "Add a marker"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
             alt={edit && pl ? { label: "Delete", onClick: () => { setFeaturePick(undefined); put(pl.markers.filter((_, k) => k !== dialog.index)); } } : undefined}

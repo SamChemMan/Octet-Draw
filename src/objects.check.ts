@@ -146,6 +146,61 @@ import { bandRf, bandSize, gelScale, namesTurn, plasmidLayout, tlcLayout } from 
   console.log("objects.check: gels and plasmid maps ok");
 }
 
+// A gel or plasmid map Octet saves, Octet opens again, whatever was typed, dragged or picked with it; and a file with
+// a range no dialog gives is refused, not drawn for ever.
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { oneLine } from "./experiment.ts";
+import { readOct, writeOct } from "./oct.ts";
+import { isPlate, turns } from "./render.ts";
+{
+  const gel = { id: 3, ...newGel([0, 0], [6, -6]) } as Shape, t = gel.tlc!;
+  const map: Shape = { id: 4, kind: "plasmid", from: [0, 0], to: [8, -8], plasmid: { bp: 4000, regions: [], markers: [] } };
+  const opened = (shapes: Shape[]) => { const back = readOct(writeOct({ atoms: [], bonds: [], shapes }, DEFAULT_STYLE), true); return [back.foreign, back.lost, back.mol.shapes?.map((x) => x.kind)]; };
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  // A range whose sizes are so small that a tenth of one is 0: the file is damaged, and the scale of such a gel
+  // (run apart, with a time limit) ends at once.
+  const tiny: Shape = { ...gel, tlc: { ...t, spots: [], range: [5e-324, 1e-323] } };
+  assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [tiny] })), /damaged/, "a range below the dialog's least is refused");
+  assert.doesNotThrow(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...gel, tlc: { ...t, range: [0.001, 1e9] } }] })), "the dialog's widest range is read");
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", `import { gelScale } from ${JSON.stringify(new URL("render.ts", import.meta.url).href)}; gelScale(${JSON.stringify(tiny)}, 0.2);`], { timeout: 20_000, encoding: "utf8" });
+  assert.equal(run.status, 0, `a gel's scale ends for any range: ${run.error?.message ?? run.stderr}`);
+  // A name pasted with a tab in it is one line where the dialogs apply it, so the gel and the map are still there
+  // when the file is opened again. (A control character in a name is a damaged file.)
+  const tab = "WT\tKO", named = (name: string): Shape[] => [{ ...gel, tlc: { ...t, names: t.names!.map((n, k) => (k === 1 ? name : n)) } }, { ...map, plasmid: { bp: 4000, name, regions: [{ start: 1, end: 900, name }], markers: [{ at: 1000, name }] } }];
+  assert.equal(oneLine(tab), "WT KO");
+  assert.deepEqual(opened(named(oneLine(tab))), [undefined, {}, ["gel", "plasmid"]]);
+  assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: named(tab) })), /damaged/);
+  assert.match(editor, /\(k === dialog\.lane \? oneLine\(dialog\.value\) : /, "the lane name");
+  assert.match(editor, /plasmid: \{ \.\.\.pl, bp, name: oneLine\(dialog\.name\) \|\| undefined,/, "the plasmid's name");
+  assert.match(editor, / region: Region = \{ start, end, \.\.\.\(name \? \{ name \} : \{\}\),/, "a region's name");
+  assert.match(editor, /const marker: Marker = \{ at, name, /, "a marker's name");
+  assert.equal(editor.match(/name = oneLine\(dialog\.name\)/g)?.length, 2, "the region and marker dialogs clean the name once each");
+  // A gel dragged wider than 40 lanes' worth has 40 lanes, the most a file holds; the TLC plate tool stops there too.
+  const wide = { id: 5, ...newGel([0, 0], [50, -6]) } as Shape;
+  assert.deepEqual([wide.tlc!.lanes, wide.tlc!.names!.length], [40, 40]);
+  assert.deepEqual(opened([wide]), [undefined, {}, ["gel"]]);
+  assert.match(editor, /kind: "tlc", from, to, tlc: \{ lanes: Math\.min\(TLC_LANES, Math\.max\(1, /);
+  // The shape chips (Box, Oval…) change only shapes that take a kind: a gel or map picked with a box keeps its kind,
+  // because an oval that holds gel data is a damaged file. Boxes, ovals, highlights and brackets all take one.
+  assert.deepEqual((["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "gel", "plasmid", "table", "picture"] as const).filter((kind) => !turns({ kind })), ["tlc", "gel", "plasmid", "table", "picture"]);
+  assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...gel, kind: "oval" }] })), /damaged/);
+  assert.match(editor, /return each\(\(x\) => \(turns\(x\) \? \{ kind: arg as ShapeKind, [^\n]* : \{\}\)\);/);
+  // The plate actions change plates only: a plasmid map or box picked with a gel is given no lanes or spots.
+  assert.deepEqual([isPlate(gel), isPlate({ kind: "tlc" }), isPlate(map), isPlate({ kind: "box" })], [true, true, false, false]);
+  assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...map, tlc: { rf: true } as never }] })), /damaged/);
+  assert.match(editor, /const plates = \(f: \(x: Shape\) => Partial<Shape>\) => each\(\(x\) => \(isPlate\(x\) \? f\(x\) : \{\}\)\);/);
+  for (const what of ["lanes", "rf", "hide", "spots"]) assert.match(editor, new RegExp(`if \\(what === "${what}"\\) return plates\\(`), what);
+  assert.match(editor, /if \(what === "ticks" \|\| what === "transparent"\) return plates\(/);
+  // A double-click on a caption, atom or bond goes to it, also over a gel's lane names or in a plasmid map's box; a
+  // map takes the double-click only on a region, a marker or its middle.
+  assert.match(editor, /const named = tool !== "erase" && bare \? laneNameAt\(/);
+  assert.match(editor, /const map = tool !== "erase" && bare \? plasmidAt\(/);
+  assert.match(editor, /const bare = t\.caption === undefined && t\.atom === undefined && t\.bond === undefined;/);
+  assert.match(editor, /if \(map && \(part\.region !== undefined \|\| part\.marker !== undefined \|\| part\.centre\)\) return openPart\(map, part\);/);
+  console.log("objects.check: gels and plasmid maps stay readable ok");
+}
+
 // CD-33: a template keeps the whole selection (its text, arrows, shapes and look) and goes where it is placed.
 import { addTemplate, extractSelection, normalise } from "./edit.ts";
 import { loadTemplates, newTemplate } from "./templates.ts";
