@@ -5816,7 +5816,8 @@ export default function Editor() {
   // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
   // others (they are four ways to say how much); a product's equivalents are its coefficient. Limiting? sets the
   // limiting reactant. A product's Expected mass is the mass wanted, kept as its mass (issue 136). One value sets the
-  // scale: the mass wanted clears the reactants' amounts, and a reactant's amount clears it.
+  // scale: the mass wanted clears the reactants' amounts and another product's mass wanted, and a reactant's amount
+  // clears it.
   function commitGridCell(typed: string) {
     const w = gridEdit, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
@@ -5837,7 +5838,7 @@ export default function Editor() {
         typed[field] = value;
         const amount = (fd: string) => ["mass", "moles", "volume"].includes(fd);
         if (target || (!w.product && amount(field))) {
-          const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (target ? k[0] !== "r" || !amount(fd) : k[0] !== "p" || fd !== "mass")))]));
+          const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (k[0] === "p" ? fd !== "mass" : !target || !amount(fd))))]));
           return { typed: { ...others, [w.key]: typed } };
         }
       }

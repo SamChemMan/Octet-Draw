@@ -141,6 +141,12 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   }
   for (const text of ["+", "2+", "-", "e-"]) assert.equal(read(text), undefined, text);
   assert.equal(read("K2CO3")?.formula, "K2CO3", "a formula with no charge is as written");
+  assert.equal(read("SO4^2-")?.formula, "SO4²⁻");
+  // Text in a file is hostile: "constructor" is a word like any other, and long text reads in time linear in its length.
+  for (const text of ["constructor", "__proto__"]) assert.equal(reagentFormula(text, (t) => t.trim() && undefined, none, none), undefined, text);
+  const t0 = performance.now();
+  for (const text of [`a${" ".repeat(1998)}x+`, `a${"1".repeat(1998)}x+`, "1".repeat(2000)]) { read(text); reagentEquiv(text); }
+  assert.ok(performance.now() - t0 < 150, `long text read in ${performance.now() - t0} ms`);
 }
 // Issue 133: a coefficient in the scheme sets equivalents, relative to the limiting reactant's coefficient, products
 // too; a number on its own before a structure has no column; a value typed wins; over the arrow "2 HCl" is 2 eq.
@@ -240,5 +246,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /if \(row\.id === "expected"\) return \{ text: formatAmount\(s\?\.expectedMass, "mass"\), typed: c\.typed\.mass !== undefined \};/, "shown bold when typed");
   assert.match(editor, /\(gc\.row !== "expected" \|\| gc\.product\)/, "a product's Expected mass can be typed in");
+  // One value sets the scale: a mass wanted clears the reactants' amounts and every other product's mass wanted.
+  assert.match(editor, /filter\(\(\[fd\]\) => \(k\[0\] === "p" \? fd !== "mass" : !target \|\| !amount\(fd\)\)\)/, "one value sets the scale");
 }
 console.log("stoich.check: ok");

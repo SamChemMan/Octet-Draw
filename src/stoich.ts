@@ -122,7 +122,7 @@ export function coefficient(text: string): [string, number | undefined] {
 }
 // The equivalents a reagent's text gives: "K2CO3 (2 eq.)", "1.5 equiv NaBH4", "Pd(PPh3)4 (5 mol%)". Undefined if none.
 export function reagentEquiv(text: string): number | undefined {
-  const m = /(\d+(?:\.\d+)?)\s*(eq(?:uiv)?\.?|mol\s?%)/i.exec(text);
+  const m = /\b(\d+(?:\.\d+)?)\s*(eq(?:uiv)?\.?|mol\s?%)/i.exec(text);
   return m ? Number(m[1]) * (m[2].endsWith("%") ? 0.01 : 1) : undefined;
 }
 // A line of conditions as its items: split at commas, semicolons and line breaks outside brackets, so
@@ -148,14 +148,15 @@ const GROUPS: [RegExp, string][] = [
 // Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
 let abbreviated: Map<string, string> | undefined;
 const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
-// Words for what a formula says (issue 132).
-const WORDS: Record<string, string> = { proton: "H+", hydroxide: "OH−", hydronium: "H3O+", hydride: "H−", water: "H2O" };
+// Words for what a formula says (issue 132). A Map, so "constructor" is not one.
+const WORDS = new Map([["proton", "H+"], ["hydroxide", "OH−"], ["hydronium", "H3O+"], ["hydride", "H−"], ["water", "H2O"]]);
 // A formula and the charge at its end, raised: H+ is H and ⁺, OH− is OH and ⁻, SO4 2− and SO42− are SO4 and ²⁻, Fe³⁺
 // is Fe and ³⁺ (issue 132). Digits before the sign are the charge's when set apart or raised, after one element (Cu2+)
-// or after another digit (SO42−), else the formula's (NH4+, H3O+). With no charge, the text and "".
+// or after another digit (SO42−), else the formula's (NH4+, H3O+). With no charge, the text and "". The gap and the
+// digits are short, so long text takes no longer than its length.
 const RAISED: Record<string, string> = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "−": "⁻" };
 function charged(text: string): [string, string] {
-  const m = /^(.+?)(\s*\^?)(\d*|[⁰¹²³⁴⁵⁶⁷⁸⁹]*)([+\-−⁺⁻])$/.exec(text);
+  const m = /^(.+?)(\s?\^?)(\d{0,3}|[⁰¹²³⁴⁵⁶⁷⁸⁹]{0,3})([+\-−⁺⁻])$/.exec(text);
   if (!m) return [text, ""];
   const [, base, gap, n, sign] = m, own = !gap && /^\d+$/.test(n) && !/^[A-Z][a-z]?$/.test(base) ? n.slice(0, n.length > 1 ? -1 : undefined) : "";
   return [base + own, [...n.slice(own.length) + sign].map((ch) => RAISED[ch] ?? ch).join("")];
@@ -167,7 +168,7 @@ function charged(text: string): [string, string] {
 // hydride and water read as their formulas. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI
 // to its formula and weight. Undefined when none reads it.
 export function reagentFormula(text: string, read: (name: string) => string | undefined, label: (text: string) => string | undefined, weigh: (smiles: string) => { formula: string; weight: number } | undefined): { formula: string; weight: number } | undefined {
-  const said = coefficient(reagentName(text))[0], plain = WORDS[said.toLowerCase()] ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
+  const said = coefficient(reagentName(text))[0], plain = WORDS.get(said.toLowerCase()) ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
   // A mixture (toluene/EtOH/H2O) is not one compound: it has no formula of its own.
   if (/[\w)]\s*\/\s*[\w(]/.test(plain)) return undefined;
   if (/^[A-Z]{2,6}$/.test(plain)) { const n = named(); if (n) return n; }

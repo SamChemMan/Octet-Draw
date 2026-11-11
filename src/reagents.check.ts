@@ -64,5 +64,6 @@ for (const reagent of ["H2", "O2", "CO", "NH3"]) assert.ok(!inert(reagent), reag
   assert.equal(labelSmiles("THF"), "[T]F", "a drawn label THF still reads T as tritium");
   assert.equal(labelSmiles("CT3"), "C([T])([T])([T])");
   assert.equal(smilesWeight(labelSmiles("AcOH")!)?.formula, "C2H4O2", "a drawn AcOH label");
+  assert.equal(smilesWeight(labelSmiles("MeO2CCH2")!)?.formula, "C3H6O2", "a label that ends in CH2 reads as before");
 }
 console.log(`reagents.check: ${REAGENTS.length} reagents read right`);
