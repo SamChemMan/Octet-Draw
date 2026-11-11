@@ -1,4 +1,6 @@
-import { defineConfig } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite";
+// @ts-expect-error type error without @types/node package
+import { realpathSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
@@ -32,6 +34,9 @@ export default defineConfig(() => ({
           port: 1421,
         }
       : undefined,
+    // A worktree may link node_modules to another worktree's; the dev server may serve from there too (Indigo's .wasm
+    // and the fonts).
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), realpathSync("node_modules")] },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],

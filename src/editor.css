@@ -1029,6 +1029,175 @@ button.variant.add {
   }
 }
 
+/* An AI app at work in this window (McpMagic.tsx). The window goes soft under a light blur; a glow in Octet's colours
+   (the brand blue and the metal, iodine and phosphorus atom colours) sways round its edge, a thin bright line with a
+   bloom inside it that breathes; a glass pill at the bottom says who is drawing. While a call runs the window takes
+   no clicks and the blur is a little stronger; between calls ("thinking") it is lighter and the glow dims. It comes in
+   with motion-slow and leaves with motion-fast. The loops are the slow, even pulses the brand allows while something
+   waits, with no spin and no overshoot. Reduced motion: the glow and the pill stay still, and only fade. */
+.mcp-magic {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  animation: fade-in var(--motion-slow) var(--ease-out);
+}
+.mcp-magic.leaving {
+  animation: notice-out var(--motion-fast) var(--ease-out) forwards;
+}
+.mcp-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--canvas) 8%, transparent);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
+  transition: background var(--motion-slow) var(--ease-out), backdrop-filter var(--motion-slow) var(--ease-out), -webkit-backdrop-filter var(--motion-slow) var(--ease-out);
+}
+.mcp-magic.calling .mcp-scrim {
+  pointer-events: auto;
+  cursor: progress;
+  background: color-mix(in oklab, var(--canvas) 20%, transparent);
+  -webkit-backdrop-filter: blur(3px) saturate(1.15);
+  backdrop-filter: blur(3px) saturate(1.15);
+}
+.mcp-glows {
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+  transition: opacity var(--motion-slow) var(--ease-out);
+}
+.mcp-magic.calling .mcp-glows {
+  opacity: 1;
+}
+/* The edge only: the turning colours, cut to a frame by a mask (the mask's colour is not drawn). */
+.mcp-glow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 2px;
+  -webkit-mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(white 0 0) content-box exclude, linear-gradient(white 0 0);
+}
+.mcp-glow.wide {
+  padding: 18px;
+}
+.mcp-bloom {
+  position: absolute;
+  inset: 0;
+  filter: blur(22px);
+  opacity: 0.7;
+  animation: mcp-breathe 2.8s ease-in-out infinite;
+}
+.mcp-glow-turn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  margin: -75vmax 0 0 -75vmax;
+  background: conic-gradient(from 0deg, var(--brand-bright), var(--atom-metal), var(--atom-i), var(--atom-p), var(--brand-bright), var(--atom-metal), var(--brand-bright));
+  animation: mcp-sway 7s ease-in-out infinite alternate;
+}
+@keyframes mcp-sway {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+@keyframes mcp-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.mcp-pill {
+  position: absolute;
+  bottom: calc(var(--space-6) + var(--dock, 0px));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 560px;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  min-height: 36px;
+  transform: translateX(-50%);
+  background: color-mix(in oklab, var(--surface-raised) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  pointer-events: auto;
+  white-space: nowrap;
+  animation: mcp-pill-in var(--motion-slow) var(--ease-out);
+}
+.mcp-magic:not(.calling) .mcp-pill {
+  padding-right: var(--space-3);
+}
+@keyframes mcp-pill-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.98);
+  }
+}
+.mcp-sparkle {
+  flex: none;
+  color: var(--brand-bright);
+  animation: mcp-twinkle 1.6s ease-in-out infinite;
+}
+@keyframes mcp-twinkle {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.8) rotate(45deg);
+  }
+}
+/* A light runs along the words, left to right, then starts again out of sight. */
+.mcp-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(90deg, var(--ink) 0 42%, var(--brand-bright) 50%, var(--ink) 58% 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: mcp-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes mcp-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.mcp-steps {
+  flex: none;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.mcp-pill .text-button {
+  flex: none;
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mcp-glow-turn,
+  .mcp-bloom,
+  .mcp-sparkle {
+    animation: none;
+  }
+  .mcp-text {
+    animation: none;
+    background: none;
+    color: var(--ink);
+  }
+  .mcp-pill {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .indicator {
     transition: none;

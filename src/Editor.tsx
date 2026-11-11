@@ -133,6 +133,7 @@ import { history, type History } from "./history";
 import { GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
 import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
+import { McpMagic, type Magic } from "./McpMagic";
 import "./editor.css";
 
 
@@ -532,6 +533,16 @@ export default function Editor() {
   const noMotion = () => reduced() || mcpCalling.current;
   const mcpWorking = useRef<number>(undefined);
   mcpRenders.current++;
+  // An AI app at work in this window (McpMagic.tsx): shown from its first call that changes the drawing until a moment
+  // after its last, so a run of calls reads as one piece of work.
+  const [magic, setMagic] = useState<Magic>();
+  // A call ended: the window takes clicks again at once, and the magic goes if no call comes in the next 1.5 s (an AI
+  // app thinks between calls for about that long).
+  const mcpRest = () => {
+    clearTimeout(mcpWorking.current);
+    setMagic((was) => was && { ...was, calling: false, stop: undefined });
+    mcpWorking.current = window.setTimeout(() => setMagic(undefined), 1500);
+  };
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
   const [spring, setSpring] = useState<Tool>();
@@ -1225,7 +1236,9 @@ export default function Editor() {
   }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? file.name ?? "Untitled";
-  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet Draw" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
+  // A build started with VITE_OCTET_BETA=1 (the octet-mcp-beta preview) says so in every window's title.
+  const beta = import.meta.env.VITE_OCTET_BETA === "1" ? " — MCP Beta" : "";
+  useEffect(() => { if (TAURI) getCurrentWindow().setTitle((home ? "Octet Draw" : dirty ? `${name} (edited)` : name) + beta); }, [name, dirty, home, beta]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
   // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws. crop: only this
@@ -6549,12 +6562,12 @@ export default function Editor() {
     centre: () => toDoc(innerWidth / 2, innerHeight / 2),
     restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
     experiment: () => expPage,
-    said: (text) => { clearTimeout(mcpWorking.current); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
-    // Shown only for a call that takes a while, so a quick one does not flash it.
+    said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
+    // The window shows the AI app at work (McpMagic) while each call runs, and for a moment after.
     working: (text, stop) => {
       clearTimeout(mcpWorking.current);
-      if (text) mcpWorking.current = window.setTimeout(() => setNotice(text, "info", { label: "Stop", run: () => stop?.() }, true), 400);
-      else showNotice((was) => (was?.stays ? undefined : was));
+      if (text) setMagic((was) => ({ text, stop, calling: true, steps: (was?.steps ?? 0) + 1 }));
+      else mcpRest();
     },
     selection: () => ({ atoms: [...selection], items: [...picked] }),
     select: (atoms, items) => { mcpWait.current = { after: mcpRenders.current }; setSelection(new Set(atoms)); setPicked(new Set(items)); },
@@ -9776,6 +9789,7 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
+      <Exit>{magic && <McpMagic magic={magic} />}</Exit>
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />
     </div>

@@ -27,6 +27,15 @@
         "OCTET_MCP=1 npm run tauri dev -- --config '{\"build\":{\"devUrl\":\"http://localhost:1431\",\"beforeDevCommand\":\"npx vite --port 1431 --strictPort\"}}'"
       ],
       "port": 1431
+    },
+    {
+      "name": "octet-mcp-beta",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-lc",
+        "OCTET_MCP=1 VITE_OCTET_BETA=1 npm run tauri dev -- --config '{\"app\":{\"windows\":[{\"title\":\"Octet Draw — MCP Beta\",\"width\":1200,\"height\":800,\"minWidth\":800,\"minHeight\":620}]},\"build\":{\"devUrl\":\"http://localhost:1431\",\"beforeDevCommand\":\"npx vite --port 1431 --strictPort\"}}'"
+      ],
+      "port": 1431
     }
   ]
 }
