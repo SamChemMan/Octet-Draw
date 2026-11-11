@@ -224,7 +224,6 @@ type Assembly = { rings: [number[], number[]]; junction: [number, number] };
 // A parent: a chain or ring (or ring assembly), a hydrazine or diazene (hetero), or a chain whose carboxylic groups hang
 // on it as "carbo…" suffixes (attached: propane-1,2,3-tricarboxylic acid).
 type Parent = { atoms: number[]; ring: boolean; assembly?: Assembly; hetero?: string; attached?: boolean };
-const HYDRO = [...MULT, "undeca", "dodeca", "trideca", "tetradeca"];
 
 // Retained names used in preferred IUPAC names (P-65, P-66, P-63): parent ring or chain, principal group, name.
 const RETAINED: Record<string, string> = {
@@ -1469,7 +1468,7 @@ class Namer {
     else if (fused) {
       // Hydro prefixes, then indicated hydrogen, in front of the parent (P-31.1.4.2.4): 2,3-dihydro-1H-indole.
       const { hydro } = sat(num), x = xs(sat(num));
-      const h = !hydro.length ? "" : `${hydro.length === fused.cn.length && !fused.tpl.bridges ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
+      const h = !hydro.length ? "" : `${hydro.length === fused.cn.length && !fused.tpl.bridges ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${MULT[hydro.length]}hydro`;
       const dh = fused.dehydro?.flat().map((a) => label(num, a)).sort(locOrder) ?? [];
       // Bridges of a bridged fused system go in front of the parent: 4,7-methanoindene. λ-atoms follow indicated
       // hydrogen (lambdaName): 10H-10λ⁵-dibenzo[b,e][1,4]oxarsinine, 1λ⁶,2-benzothiazine.
@@ -1584,7 +1583,7 @@ class Namer {
     if (ring) return at === "1" && !unsaturated && !info?.bridged ? parent.replace(/ane$/, "yl") : `${parent.replace(/e$/, "")}-${at}-yl`;
     if (!unsaturated && at === "1") return parent.replace(/ane$/, "yl");
     if (size === 2 && at === "1") return parent.replace(/e$/, "yl"); // ethenyl, ethynyl
-    return `${parent.replace(/e$/, "")}-${at}-yl`.replace(/an-(\d+)-yl$/, "an-$1-yl");
+    return `${parent.replace(/e$/, "")}-${at}-yl`;
   }
 
   // ——— Substituent prefixes ———
@@ -1701,9 +1700,8 @@ class Namer {
       return { text: `${inner}carbamoyl`, compound: true };
     }
     if (kind === "ester") {
-      const o = this.esterO.get(x)!, r = this.adj[o].find((j) => j !== x)!;
+      const o = this.esterO.get(x)!;
       const alkoxy = this.substituent(o, x); // named from the oxygen
-      void r;
       return { text: `${enclose(alkoxy)}carbonyl`, compound: true }; // methoxycarbonyl, [(benzyloxy)carbonyl]
     }
     if (this.carbonylO[x] >= 0) return this.acylName(x, from);
@@ -1775,7 +1773,7 @@ class Namer {
   paths(start: number, from: number, fromStart: boolean, nitrile = false, avoid?: Set<number>): number[][] {
     const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && (nitrile || !this.isNitrileC(j)) && !avoid?.has(j) && !this.opaque.has(j) && !this.het.has(j);
     const walk = (a: number, seen: Set<number>): number[][] => {
-      const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
+      const next = this.adj[a].filter((j) => ok(j) && !seen.has(j));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
       return ends.length ? ends : [[]];
     };
@@ -2814,5 +2812,5 @@ function nameOf(g: Graph): string | undefined {
 }
 
 // For namer-hetero.ts, which names groups built on N, O, S, P and the halogens.
-export { Namer, enclose, substituted, assemblePrefixes, alphaKey, alkylWords, times, joinPrefixes, MULT, MULT_COMPLEX, HALO, SENIORITY, CARBON_GROUP, chainStem, citedLabels };
+export { Namer, enclose, substituted, assemblePrefixes, alphaKey, alkylWords, times, joinPrefixes, MULT, MULT_COMPLEX, HALO, SENIORITY, CARBON_GROUP, chainStem, citedLabels, compare, locantsOf };
 export type { Name, Kind };

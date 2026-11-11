@@ -4,12 +4,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { deleteAtoms, extractSelection, fragments, insertMol, merge, subset } from "./edit.ts";
+import { deleteAtoms, extractSelection, fragments, insertMol, merge, placeCentres, subset } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
 import { expandGeneric, layoutGrid } from "./expand.ts";
 import {
-  altGroup, atomIndicator, bondIndicator, stepSubstituents, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, placeAttachments, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
+  altGroup, atomIndicator, bondIndicator, stepSubstituents, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
 } from "./query.ts";
 import { labelSmiles } from "./labels.ts";
 import { messy, problems } from "./check.ts";
@@ -121,12 +121,12 @@ assert.deepEqual(copy.atoms[6].centre!.atoms, [0, 1, 2]);
 assert.deepEqual(merge(drawing, copy, [0, 0]).atoms[drawing.atoms.length + 6].centre!.atoms, [34, 35, 36]);
 assert.deepEqual(insertMol(drawing, copy, [5, 5]).mol.atoms[drawing.atoms.length + 6].centre!.atoms, [34, 35, 36]);
 assert.deepEqual(subset(drawing, new Set([12, 13])).atoms.map((a) => a.label), ["Br"], "an attachment without its atoms is not copied");
-const moved = placeAttachments({ ...drawing, atoms: drawing.atoms.map((a, i) => (i >= 14 && i <= 18 ? { ...a, location: [a.location[0] + 1, a.location[1], 0] } : a)) });
+const moved = placeCentres({ ...drawing, atoms: drawing.atoms.map((a, i) => (i >= 14 && i <= 18 ? { ...a, location: [a.location[0] + 1, a.location[1], 0] } : a)) });
 assert.deepEqual(moved.atoms[24].location.slice(0, 2).map((v) => +v.toFixed(6)), [9, 1.5]);
 // Warnings: an attachment sits among its atoms and its bonds cross its ring by design, an R-group fragment's
 // attachment mark is not a carbon, and Abnormal Valence allowed turns the valence warning off.
 {
-  const placed = placeAttachments(drawing);
+  const placed = placeCentres(drawing);
   assert.equal(messy(placed), false);
   const found = problems(placed);
   assert.ok(!found.some((p) => p.atom !== undefined && placed.atoms[p.atom].centre), "no warning on an attachment");

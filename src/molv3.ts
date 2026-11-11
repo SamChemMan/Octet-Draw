@@ -319,7 +319,7 @@ export function readV3000(text: string): Mol {
       if (i === undefined || !(l[0] >= 1 && l[1] >= l[0] && l[1] <= 99)) continue;
       const a = mol.atoms[base + i], used = t.bonds.reduce((s, b) => s + (b.atoms.includes(i) ? orderOf(b.type) : 0), 0);
       const h = a.text ? 0 : hydrogens(a.label, a.charge ?? 0, used), inner = a.text ?? `${a.label}${h ? `H${h > 1 ? h : ""}` : ""}`;
-      mol.atoms[base + i] = { ...a, label: a.text ? a.label : a.label, text: `[${inner}]${l[0]}-${l[1]}` };
+      mol.atoms[base + i] = { ...a, text: `[${inner}]${l[0]}-${l[1]}` };
     }
     // Valences: hydrogens set by hand where they leave fewer than usual (withValence).
     if (t.vals.size) {

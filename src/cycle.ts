@@ -46,7 +46,6 @@ export type OldText = CycleText & { through?: boolean; meet?: number; tail?: [nu
 export const sideAt = (t: CycleText) => t.at ?? 0.5;
 // A reagent or product (with an arrow); one of those or a step's name (placed along a step).
 export const isSide = (t?: CycleText) => t?.side === "in" || t?.side === "out";
-export const onStep = (t?: CycleText) => isSide(t) || t?.side === "name";
 // Where a branch meets its step, unset: half way with both ends, before the middle for a reagent alone, after it for a
 // product alone.
 export const meetOf = (b: CycleBranch) => b.meet ?? (b.in && b.out ? 0.5 : b.in ? 0.4 : 0.6);
@@ -289,8 +288,6 @@ export function orderAround(centre: P, items: { atoms: number[]; middle: P }[]):
   const angle = (p: P) => { const a = Math.atan2(-(p[1] - centre[1]), p[0] - centre[0]); return (a + Math.PI / 2 + 4 * Math.PI) % (2 * Math.PI); };
   return [...items].sort((a, b) => angle(a.middle) - angle(b.middle)).map((x) => x.atoms);
 }
-
-export const isCycleText = (c: Caption) => !!c.cycle;
 
 // The Cycle tool. A structure's atoms' box and its middle (drawing units).
 const boxOf = (m: Mol, atoms: number[]): Box | undefined => {
