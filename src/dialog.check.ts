@@ -1,5 +1,5 @@
 // Run: node src/dialog.check.ts. Return in a dialog (Dialog.tsx): on a button that is not a field (Cancel, Don't
-// Save, About's links), Return presses that button, not the action (issue #129). On a field (a text box, a list or a
+// Save, About's links), Return presses that button, not the action (issue 129). On a field (a text box, a list or a
 // choice) Return does the action, and only a field has the focus when the dialog opens.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

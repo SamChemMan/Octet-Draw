@@ -87,7 +87,7 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, disa
       if (!top() || listOpen()) return; // only the top modal; an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends. Return on a button in the dialog that is
-      // not a field presses that button, so Return on Cancel cancels (issue #129).
+      // not a field presses that button, so Return on Cancel cancels (issue 129).
       if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) {
         e.preventDefault(); e.stopPropagation();
         const t = e.target;
