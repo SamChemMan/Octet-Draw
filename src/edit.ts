@@ -2228,6 +2228,8 @@ export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "ca
     arrows: m.arrows?.map((a) => pointsOf(a, k)),
     shapes: m.shapes?.map((x) => pointsOf(x, k)),
     cycles: m.cycles?.map((c) => pointsOf(c, k)),
+    // A page figure's record keeps its text at the size it was pasted at, so a resize or Edit data lays it out the same.
+    ...(m.groups?.some((g) => g.plot) ? { groups: m.groups.map((g) => (g.plot ? { ...g, plot: { ...g.plot, text: g.plot.text * ((from.captionSize * k) / to.captionSize) } } : g)) } : {}),
   };
 }
 // ChemDraw's Object Settings (Settings > Pro > Selection): the bond length, line and bold widths, and label and caption

@@ -9,6 +9,7 @@ import { ARROWS, BONDS, SHAPES } from "./kinds.ts";
 import { atomAt, bondAt, fragments, pos, type BondSpec } from "./edit.ts";
 import { HBOND, curved, hydrogens, isBracket, orderOf, straightArrow, type Arrow, type Atom, type Bond, type Box, type Group, type Mol, type Shape } from "./render.ts";
 import { plotName } from "./pageplot.ts";
+import { isChart } from "./charts.ts";
 import { ELEMENTS } from "./metals.ts";
 import { rings } from "./rings.ts";
 import { USAGES, polymerLabel } from "./query.ts";
@@ -214,7 +215,7 @@ export function describe(m: Mol, s: Sources): Item[] {
     if (g.atoms.some((i) => atomsTaken.has(i)) || g.items.some((i) => itemsTaken.has(i))) continue;
     g.atoms.forEach((i) => atomsTaken.add(i));
     g.items.forEach((i) => itemsTaken.add(i));
-    add({ key: `g${g.id}`, ...(g.plot ? { role: "spectrum", name: g.plot.title } : groupText(m, g.atoms, g.items, s)), atoms: g.atoms, items: g.items });
+    add({ key: `g${g.id}`, ...(g.plot ? { role: isChart(g.plot) ? "chart" : "spectrum", name: g.plot.title } : groupText(m, g.atoms, g.items, s)), atoms: g.atoms, items: g.items });
   }
   const owner = new Map<number, string>(), frags = fragments(m), piece = new Map<number, number>(), bonds: Mol["bonds"][] = frags.map(() => []);
   frags.forEach((f, k) => f.forEach((i) => piece.set(i, k)));

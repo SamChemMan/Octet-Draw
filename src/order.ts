@@ -55,9 +55,15 @@ export function onTop(prev: Mol, next: Mol, structures: (m: Mol) => number[][]):
     const kept = g.find((i) => i < prev.atoms.length), o = kept === undefined ? top && top + 1 : next.atoms[kept].order;
     if (o) for (const i of g) if (i >= prev.atoms.length && next.atoms[i].order !== o) atomOrder.set(i, o);
   }
-  const added = top > 0 && kinds.some((k) => list(next, k).some((x) => !ids.get(k)!.has(x.id)));
+  // A part of a page figure that was there before and is built again (a resize, Edit Data) is not a thing added: it
+  // keeps the order pageplot.ts gave it.
+  // The list is made only when a new id is met, so an edit that adds nothing pays nothing.
+  let rebuilt: Set<number> | undefined;
+  const built = () => { const figures = new Set((prev.groups ?? []).filter((g) => g.plot).map((g) => g.id)); return new Set((next.groups ?? []).filter((g) => g.plot && figures.has(g.id)).flatMap((g) => g.items)); };
+  const fresh = (k: (typeof kinds)[number], x: { id: number }) => !ids.get(k)!.has(x.id) && !(rebuilt ??= built()).has(x.id);
+  const added = top > 0 && kinds.some((k) => list(next, k).some((x) => fresh(k, x)));
   if (!atomOrder.size && !added) return next;
-  const lift = <T extends { id: number; order?: number }>(k: (typeof kinds)[number], xs?: T[]) => (added ? xs?.map((x) => (ids.get(k)!.has(x.id) ? x : { ...x, order: top + 1 })) : xs);
+  const lift = <T extends { id: number; order?: number }>(k: (typeof kinds)[number], xs?: T[]) => (added ? xs?.map((x) => (fresh(k, x) ? { ...x, order: top + 1 } : x)) : xs);
   return {
     ...next,
     atoms: atomOrder.size ? next.atoms.map((a, i) => (atomOrder.has(i) ? { ...a, order: atomOrder.get(i) } : a)) : next.atoms,

@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
-  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
+  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ChartPolar, ChartLineUp, GridNine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
@@ -52,7 +52,9 @@ import { nmrReady, predict, type Nucleus } from "./nmr";
 import { placeFigure, withNotice } from "./spectrumplot";
 import { numbered, placeBeside } from "./beside";
 import { centreIn, dropClear, panInto, roomOf, type Span } from "./reveal";
-import { followLeaders, labelLines, lonePlot, placePlot, plotFigure, plotsIn, plotTop, reframe, rescale, signalKeys, traceOf, type Plot, type PlotEnv } from "./pageplot";
+import { followCharts, followLeaders, labelLines, lonePlot, placePlot, plotFigure, plotName, plotShift, plotsIn, plotTop, reframe, replot, rescale, signalKeys, traceOf, type PlotEnv, type Replot, type SpectrumPlot } from "./pageplot";
+import { figureBox, isChart, NEW_ENERGY, NEW_RADAR, soundScale, type Chart } from "./charts";
+import { ChartDialog, type ChartData } from "./ChartDialog";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
@@ -1033,9 +1035,10 @@ export default function Editor() {
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true) => {
-    // A page spectrum's label moved takes its leader with it (followLeaders), in the same step. Hydrogens set by hand
+    // A page spectrum's label moved takes its leader with it (followLeaders), and a number or a name typed over a
+    // chart's is the chart's data (followCharts), in the same step. Hydrogens set by hand
     // that are no longer fewer than usual go (settleHydrogens).
-    mol = settleHydrogens(followLeaders(doc, mol));
+    mol = settleHydrogens(followCharts(doc, followLeaders(doc, mol), plotEnv()));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once, and
     // the compound numbers follow the compounds' order (numbering.ts).
@@ -2607,6 +2610,16 @@ export default function Editor() {
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i), true),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
+    // Object > Add Chart: the chart's data in a dialog, then the chart on the page. Edit Data: the picked chart's.
+    chart_energy: () => setDialog({ kind: "chart", chart: NEW_ENERGY }),
+    chart_radar: () => setDialog({ kind: "chart", chart: NEW_RADAR }),
+    chart_edit: () => {
+      const g = pickedChart();
+      if (g) return setDialog({ kind: "chart", chart: g.plot as Chart, group: g.id });
+      // A chart that was rotated, flipped, or had most of its parts moved one by one is no longer where its record says
+      // (pageplot.ts plotShift).
+      setNotice(pickedChart(true) ? "Octet cannot edit this chart's data, because it was rotated, flipped or taken apart." : "Select a chart first.", "info");
+    },
     // Analyse Stoichiometry: a grid under the picked reaction, or off again.
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
@@ -3262,6 +3275,7 @@ export default function Editor() {
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
+    | { kind: "chart"; chart: ChartData; group?: number }
     | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
@@ -6067,7 +6081,14 @@ export default function Editor() {
       return { typed: { ...g.typed, [w.key]: typed } };
     });
   }
+  // What is picked, for the Actions panel. A chart picked whole, or one of its captions or lines, also has Edit data.
   const contextOf = (): Context => {
+    const c = contextBase(), g = (c.kind === "caption" && c.mode === "picked") || c.kind === "arrow" || c.kind === "selection" ? pickedChart() : undefined, p = g?.plot as Chart | undefined;
+    if (!g || !p) return c;
+    const whole = g.items.every((id) => picked.has(id));
+    return { ...c, chart: p.kind === "energy" ? { kind: "energy", whole, join: p.join, axis: p.axis, key: p.key, paths: p.paths.map((x) => ({ name: x.name, colour: x.colour ?? style.colour })) } : { kind: "radar", whole, zones: p.zones, min: p.min, max: p.max, step: p.step } } as Context;
+  };
+  const contextBase = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
       const st = { ...(writing.id !== undefined ? doc.captions?.find((c) => c.id === writing.id) : undefined), ...writing.style };
@@ -6997,7 +7018,7 @@ export default function Editor() {
     // The record of what is plotted (pageplot.ts), from which a resize builds it again. Its labels are spaced by their
     // widths in the caption font, as they are drawn.
     const keys = p ? signalKeys(p.signals) : [], env = plotEnv();
-    const plot: Plot = {
+    const plot: SpectrumPlot = {
       kind: ms ? "measured" : "predicted", nucleus: ms ? ms.nucleus ?? "" : p!.nucleus, mhz: ms ? ms.mhz ?? 0 : settings.nmrMhz, solvent: nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, frame: [W, H], origin: [0, 0],
       scale: f, text: 1, labels: settings.nmrLabels, title, notice: !!p, roles: [],
       ...(ms ? { trace: traceOf(ms, spectrumAnalysis!, range, linkColour) }
@@ -7016,6 +7037,34 @@ export default function Editor() {
     setSelection(new Set());
     setPicked(new Set(items));
     say("Spectrum added");
+  }
+  // The chart every picked object is part of (a chart picked whole, or one of its parts).
+  // turned: also one whose record is no longer in use, because it was rotated or flipped.
+  function pickedChart(turned = false) {
+    if (selection.size || !picked.size) return undefined;
+    // Whether the pick is in the chart is tested first, so only that chart pays for plotShift.
+    return (doc.groups ?? []).find((g) => { if (!g.plot || !isChart(g.plot)) return false; const items = new Set(g.items); return [...picked].every((id) => items.has(id)) && (turned || !!plotShift(doc, g)); });
+  }
+  // A chart's data from its dialog. A new chart goes where a new structure would (landing), picked and in view. Edit
+  // Data draws the chart again, and each part keeps what the user changed (pageplot.ts replot).
+  function applyChart(change: Partial<Chart>, group?: number, how?: Replot) {
+    const env = plotEnv();
+    if (group !== undefined) {
+      // Apply with nothing changed is no step to undo. The chart stays picked as it was: whole, or the parts still there.
+      const was = doc.groups?.find((x) => x.id === group);
+      if (!was?.plot || JSON.stringify({ ...was.plot, ...change }) === JSON.stringify(was.plot)) return;
+      const whole = was.items.every((id) => picked.has(id)), g = set(replot(doc, group, change, env, how), true).groups?.find((x) => x.id === group);
+      if (g) { const left = [...picked].filter((id) => g.items.includes(id)); setPicked(new Set(whole || !left.length ? g.items : left)); }
+      return;
+    }
+    const frame: P = change.kind === "radar" ? [10, 10] : [Math.max(10, 3.4 * ((change as Chart & { kind: "energy" }).states?.length ?? 3) + 1), 12];
+    const record = { ...change, frame, origin: [0, 0], scale: 1, text: 1, roles: [] } as Chart, fig = plotFigure(record, env);
+    const [m, items] = placePlot(doc, { ...record, origin: landing({ atoms: [], bonds: [] }, undefined, figureBox(fig, style.captionSize / style.bond, env.measure)) }, env, fig);
+    set(m);
+    revealNext.current = true;
+    setSelection(new Set());
+    setPicked(new Set(items));
+    say(`${plotName(record)} added`);
   }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts. One for a
   // whole structure is live: its values follow the structure as it changes, with these decimals (liveValues).
@@ -7194,6 +7243,7 @@ export default function Editor() {
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
+    chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
     arrange_left: ["Align left edges", `⌥⇧${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⌥⇧${MOD}C`, <AlignCenterHorizontal size={18} />],
@@ -7231,7 +7281,7 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -7316,6 +7366,30 @@ export default function Editor() {
     if (command.startsWith("scale.")) {
       const m = scaledTo(Number(command.slice(6)) / 100);
       return m && set(m, true);
+    }
+    // A picked chart's look, from the Actions panel: its joins, its axis, key or zones hidden or shown (Show also brings
+    // back one deleted on the page), a sensitivity screen's scale (one that would not hold every value is not taken),
+    // and a path's colour. Each draws the chart again and keeps what the user changed on the page.
+    if (command.startsWith("chart.")) {
+      const g = pickedChart(), c = g?.plot as Chart | undefined, [, what, a, b, drag] = command.split(".");
+      if (!g || !c) return;
+      const redraw = (change: Partial<Chart>, revive?: RegExp, merge?: string) => {
+        const whole = g.items.every((id) => picked.has(id)), now = set(replot(doc, g.id, change, plotEnv(), revive ? { revive: (r) => revive.test(r) } : {}), true, merge).groups?.find((x) => x.id === g.id);
+        if (now) { const left = [...picked].filter((id) => now.items.includes(id)); setPicked(new Set(whole || !left.length ? now.items : left)); }
+      };
+      if (c.kind === "energy") {
+        if (what === "join" && (a === "line" || a === "dashed" || a === "curve")) return redraw({ join: a });
+        if (what === "axis") return redraw({ axis: !c.axis }, c.axis ? undefined : /^(axis|tick:|axis-title)/);
+        if (what === "key") return redraw({ key: !c.key }, c.key ? undefined : /^key/);
+        if (what === "colour" && c.paths[+a] && /^#[0-9a-f]{6}$/i.test(b)) return redraw({ paths: c.paths.map((x, i) => (i === +a ? { ...x, colour: b } : x)) }, undefined, drag ? "chart" : undefined);
+        return;
+      }
+      if (what === "zones") return redraw({ zones: !c.zones }, c.zones ? undefined : /^zone:/);
+      if (what === "scale" && (a === "min" || a === "max" || a === "step")) {
+        const next = { ...c, [a]: Number(command.split(".").slice(3).join(".")) };
+        return soundScale(next) ? redraw({ min: next.min, max: next.max, step: next.step }) : setNotice("The scale must hold every value.", "info");
+      }
+      return;
     }
     const context = contextOf();
     // Colour, for everything selected, as ChemDraw's Color menu: atoms (their labels and marks), the bonds between
@@ -8224,6 +8298,11 @@ export default function Editor() {
         setSelection(new Set());
         if (hot !== undefined) keyHot({ atom: hot });
         return;
+      }
+      // Enter on a chart picked whole opens its data.
+      if (e.key === "Enter" && !selection.size && picked.size > 1 && hovers.get().atom === undefined) {
+        const g = pickedChart();
+        if (g && g.items.every((id) => picked.has(id))) { e.preventDefault(); return commands.current.chart_edit(); }
       }
       // Enter on a picked caption types into it, as Enter on an atom types its label. On a picked peak label (both its
       // lines), into the line under the pointer, else its top line.
@@ -9888,6 +9967,9 @@ export default function Editor() {
             <NumberField label="Rf" min={0} max={1} step={0.01} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
           </label>
         </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "chart" && (
+        <ChartDialog chart={dialog.chart} adding={dialog.group === undefined} onClose={() => setDialog(undefined)} onDone={(change, rename) => { applyChart(dialog.group === undefined ? { ...dialog.chart, ...change } as Partial<Chart> : change, dialog.group, { rename }); setDialog(undefined); }} />
       )}</Exit>
       <Exit>{dialog?.kind === "details" && (
         // An experiment's details (experiment.ts), kept as the document's annotations.

@@ -4161,6 +4161,28 @@ div.facts {
   gap: var(--space-2);
   min-height: 32px;
 }
+/* A chart's data (ChartDialog.tsx): a grid of text fields, a column for each path. The dialog is wider for it, and a
+   long table scrolls inside it. */
+.dialog:has(.chart-table) {
+  width: min(560px, calc(100vw - 32px));
+}
+.chart-table {
+  display: grid;
+  gap: var(--space-1);
+  align-items: center;
+  justify-self: stretch;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 2px;
+}
+.chart-table .unit-field.text {
+  width: auto;
+  min-width: 0;
+}
+/* An energy diagram's joins in the Actions panel: three chips. */
+.chips.joins {
+  grid-template-columns: repeat(3, 1fr);
+}
 /* A field's name, when it leads the row, takes one width so the fields line up (wide enough for the longest,
    Enhanced stereo). */
 .dialog-row > span:first-child {

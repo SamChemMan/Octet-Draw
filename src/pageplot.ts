@@ -6,8 +6,9 @@
 // out again on open or on render: the file holds every part where it was drawn. Octet 1.1.0 drops the record and the
 // roles, and reads the same group.
 import type { Arrow, Caption, CurvePoint, Group, Mol } from "./render.ts";
-import { addArrow, addCaption, groupSelection } from "./edit.ts";
-import { addTitle, GREY, spectrumFigure, traceColumns, type Figure, type LabelTurn } from "./spectrumplot.ts";
+import { groupSelection } from "./edit.ts";
+import { addTitle, GREY, SMALL, spectrumFigure, traceColumns, type Figure, type LabelTurn } from "./spectrumplot.ts";
+import { chartFigure, chartName, isChart, readChart, retyped, type Chart } from "./charts.ts";
 import { keyOf, levels, measuredFigure, nameOf, xAt, type Analysed, type Analysis, type Measured } from "./measured.ts";
 import type { Kind } from "./jcamp.ts";
 import { frequency, isNucleus, NUCLEI, type Nucleus, type Signal } from "./nmr.ts";
@@ -26,7 +27,9 @@ export type PlotTrace = { kind: Kind; nucleus?: string; xUnit: string; yUnit: st
 // The record. frame: the plot's width and the tallest peak's height (bond lengths); origin: where the axis starts as
 // Octet placed it (the parts' offsets carry any move since); scale: the structure's scale it was drawn at; text: how
 // much its text and lines were scaled; labels: the Labels choice; roles: every role Octet placed last.
-export type Plot = {
+// A page figure's record is a spectrum's or a chart's (charts.ts: an energy diagram, a sensitivity screen).
+export type Plot = SpectrumPlot | Chart;
+export type SpectrumPlot = {
   kind: "predicted" | "measured"; nucleus: string; mhz: number; solvent: string; solventPeaks: boolean; range: P; frame: P; origin: P;
   scale: number; text: number; labels: LabelTurn; title: string; notice: boolean; signals?: PlotSignal[]; trace?: PlotTrace; roles: string[];
 };
@@ -38,6 +41,7 @@ const MIN_W = 3, MIN_H = 0.5;
 
 // A page spectrum's name as one object: "¹H NMR spectrum", "¹³C NMR spectrum", "IR spectrum", "Mass spectrum".
 export function plotName(p: Plot): string {
+  if (isChart(p)) return chartName(p);
   const key = p.trace ? keyOf({ kind: p.trace.kind, nucleus: p.trace.nucleus ?? (p.nucleus || undefined) }) : p.nucleus;
   return key === "ms" ? "Mass spectrum" : key === "other" ? "Spectrum" : `${nameOf(key)} spectrum`;
 }
@@ -63,6 +67,7 @@ export function traceOf(m: Measured, a: Analysis, range: P, colour: (id: number)
 }
 // The figure a record gives at its frame, with its title and notice.
 export function plotFigure(p: Plot, env: PlotEnv): Figure {
+  if (isChart(p)) return chartFigure(p, (env.captionSize * p.text) / env.bond);
   const [W, H] = p.frame, em = (env.captionSize * p.text) / env.bond, sizes = { width: W, height: H, em, pt: p.scale / env.bond, labels: p.labels, measure: env.measure };
   let fig: Figure;
   if (p.trace) {
@@ -77,7 +82,7 @@ export function plotFigure(p: Plot, env: PlotEnv): Figure {
   return fig;
 }
 // The figure's top above its axis (for placing it under a structure).
-export const plotTop = (fig: Figure, p: Plot, env: PlotEnv) => (fig.top ?? p.frame[1]) + 0.6 * ((env.captionSize * p.text) / env.bond);
+export const plotTop = (fig: Figure, p: SpectrumPlot, env: PlotEnv) => (fig.top ?? p.frame[1]) + 0.6 * ((env.captionSize * p.text) / env.bond);
 
 type Made = { role: string; caption?: Omit<Caption, "id">; arrow?: Omit<Arrow, "id"> };
 // The figure's parts at origin, each with its role. Text scaled by the record's text gets that size, and lines that
@@ -86,22 +91,28 @@ function madeOf(fig: Figure, at: P, text: number, captionSize: number): Made[] {
   const to = (q: P): P => [at[0] + q[0], at[1] + q[1]], seen = new Map<string, number>(), out: Made[] = [];
   const named = (r = "part") => { const n = seen.get(r) ?? 0; seen.set(r, n + 1); return n ? `${r}~${n}` : r; };
   const paint = (x: { colour?: string; grey?: true }) => (x.colour || x.grey ? { colour: x.colour ?? GREY } : {});
-  const scaled = text !== 1 ? { scale: text } : {}, size = text !== 1 ? { size: Math.round(captionSize * text * 10) / 10 } : {};
-  for (const l of fig.lines) { const role = named(l.role), from = to(l.from); out.push({ role, arrow: { kind: "line", from, to: to(l.to), ...paint(l), ...scaled, role: { role, at: from } } }); }
-  for (const c of fig.curves) {
+  const scaled = text !== 1 ? { scale: text } : {}, sized = (k: number) => (k !== 1 ? { size: Math.round(captionSize * k * 10) / 10 } : {});
+  const curve = (c: Figure["curves"][number]) => {
     const role = named(c.role), pts: CurvePoint[] = c.points.map((q) => ({ at: to(q.at), ...(q.c1 ? { c1: to(q.c1) } : {}), ...(q.c2 ? { c2: to(q.c2) } : {}) }));
-    out.push({ role, arrow: { kind: "curve", from: pts[0].at, to: pts[pts.length - 1].at, curve: { points: pts, ...(c.fill ? { closed: true } : {}) }, ...(c.fill ? { fill: "solid" as const, colour: c.fill } : paint(c)), ...scaled, role: { role, at: pts[0].at } } });
-  }
+    out.push({ role, arrow: { kind: "curve", from: pts[0].at, to: pts[pts.length - 1].at, curve: { points: pts, ...(c.fill || c.closed ? { closed: true } : {}) }, ...(c.fill ? { fill: "solid" as const, colour: c.fill } : paint(c)), ...(c.style ? { style: c.style } : {}), ...scaled, role: { role, at: pts[0].at } } });
+  };
+  // A chart's zones go behind its lines.
+  for (const c of fig.curves) if (c.back) curve(c);
+  for (const l of fig.lines) { const role = named(l.role), from = to(l.from); out.push({ role, arrow: { kind: "line", from, to: to(l.to), ...paint(l), ...(l.style ? { style: l.style } : {}), ...scaled, role: { role, at: from } } }); }
+  for (const c of fig.curves) if (!c.back) curve(c);
   for (const t of fig.texts) {
     const role = named(t.role), q = to(t.at);
-    out.push({ role, caption: { text: t.text, x: q[0], y: q[1], align: t.align, ...paint(t), ...(t.angle ? { angle: t.angle } : {}), ...(t.width ? { width: t.width } : {}), ...size, role: { role, at: q } } });
+    out.push({ role, caption: { text: t.text, x: q[0], y: q[1], align: t.align, ...paint(t), ...(t.runs ? { runs: t.runs } : {}), ...(t.chemical === false ? { chemical: false as const } : {}), ...(t.angle ? { angle: t.angle } : {}), ...(t.width ? { width: t.width } : {}), ...sized(text * (t.small ? SMALL : 1)), role: { role, at: q } } });
   }
   return out;
 }
 // A record's figure on the page in one plain group with the record. The new drawing, and its parts' ids.
 export function placePlot(m: Mol, p: Plot, env: PlotEnv, fig = plotFigure(p, env)): [Mol, number[]] {
-  const made = madeOf(fig, p.origin, p.text, env.captionSize), items: number[] = [];
-  for (const x of made) { const [next, id] = x.caption ? addCaption(m, x.caption) : addArrow(m, x.arrow!); m = next; items.push(id); }
+  // The next id is taken once and the parts added in one step: a large chart has thousands of parts.
+  const made = madeOf(fig, p.origin, p.text, env.captionSize), items: number[] = [], captions: Caption[] = [], arrows: Arrow[] = [];
+  let id = Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
+  for (const x of made) { if (x.caption) captions.push({ ...x.caption, id }); else arrows.push({ ...x.arrow!, id }); items.push(id++); }
+  if (items.length) m = { ...m, ...(captions.length ? { captions: [...(m.captions ?? []), ...captions] } : {}), ...(arrows.length ? { arrows: [...(m.arrows ?? []), ...arrows] } : {}) };
   const grouped = groupSelection(m, new Set(), new Set(items));
   if (!grouped) return [m, items];
   const plot = { ...p, roles: made.map((x) => x.role) };
@@ -229,23 +240,49 @@ function rejoin(old: Map<string, Leader>, captions: Caption[], arrows: Arrow[], 
 const CAPTION_KEEP = ["colour", "font", "bold", "italic", "underline", "text", "runs", "angle", "align", "lineHeight", "chemical", "order"] as const;
 const TWIN_KEEP = ["colour", "font", "bold", "italic", "underline", "order"] as const;
 const ARROW_KEEP = ["colour", "style", "width", "start", "end", "head", "headSize", "fill", "order"] as const;
-function keep<T extends object>(made: T, old: object, keys: readonly string[]): T {
-  const out = { ...made } as Record<string, unknown>, o = old as Record<string, unknown>;
-  for (const k of keys) { if (o[k] === undefined) delete out[k]; else out[k] = o[k]; }
+// wrote: the part as Octet made it last, when the record's data changed: a prop the user left as Octet made it takes
+// the new record's (a value typed in Edit Data shows), and one the user changed stays.
+// A caption's text and its runs are one prop: text the user left takes the new text and runs; text the user changed
+// stays with its runs; runs the user restyled stay only while the text is the same. Values are compared whatever the
+// order of their keys (a file gives a run's keys in its own order).
+const alike = (a: unknown, b: unknown): boolean => a === b || (!!a && !!b && typeof a === "object" && typeof b === "object" && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => alike((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])));
+function keep<T extends object>(made: T, old: object, keys: readonly string[], wrote?: object): T {
+  const out = { ...made } as Record<string, unknown>, o = old as Record<string, unknown>, w = wrote as Record<string, unknown> | undefined;
+  const fresh = !!w && keys.includes("text") && o.text === w.text && (alike(o.runs, w.runs) || out.text !== o.text);
+  for (const k of keys) {
+    // A centred caption read from a file has no align: that is the same as "centre".
+    if (k === "text" || k === "runs" ? fresh : w && (k === "align" ? (o[k] ?? "centre") === (w[k] ?? "centre") : alike(o[k], w[k]))) continue;
+    if (o[k] === undefined) delete out[k]; else out[k] = o[k];
+  }
   return out as T;
 }
-// A page spectrum built again with its record changed (a new frame, origin or text scale). Each part whose role is
-// still there keeps its id, what the user changed and its offset from where Octet put it; a new part takes the
-// group's move. Text keeps its size, times the change in the record's text scale.
-export function replot(m: Mol, gid: number, change: Partial<Pick<Plot, "frame" | "origin" | "text">>, env: PlotEnv): Mol {
+// A page spectrum built again with its record changed (a new frame, origin or text scale; for a chart, new data too).
+// Each part whose role is still there keeps its id, what the user changed and its offset from where Octet put it; a
+// new part takes the group's move. Text keeps its size, times the change in the record's text scale.
+// how.rename: a part's role before the change as its role after it, or undefined when what it showed is gone (a state
+// or a path taken out in Edit Data), so each part's changes stay with what it shows. how.revive: roles that come back
+// though the user deleted them (Show the axis). how.retyped: captions (by role) whose text is the record's again,
+// because what the user typed there became data (followCharts).
+export type Replot = { rename?: (role: string) => string | undefined; revive?: (role: string) => boolean; retyped?: Set<string> };
+export function replot(m: Mol, gid: number, change: Partial<Plot>, env: PlotEnv, how: Replot = {}): Mol {
+  const rename = how.rename ?? ((r: string) => r);
   const g = m.groups?.find((x) => x.id === gid), was = g?.plot, shift = g && plotShift(m, g);
   if (!g || !was || !shift) return m;
-  const ids = new Set(g.items), now = new Map<string, Caption | Arrow>();
-  for (const x of [...(m.captions ?? []), ...(m.arrows ?? [])]) if (ids.has(x.id) && x.role) now.set(x.role.role, x);
-  const p: Plot = { ...was, ...change }, ratio = p.text / was.text, made = madeOf(plotFigure(p, env), p.origin, p.text, env.captionSize);
+  const ids = new Set(g.items), now = new Map<string, Caption | Arrow>(), parts = [...(m.captions ?? []), ...(m.arrows ?? [])].filter((x) => ids.has(x.id) && x.role), there = new Set(parts.map((x) => x.role!.role));
+  for (const x of parts) { const r = rename(x.role!.role); if (r !== undefined) now.set(r, x); }
+  const p = { ...was, ...change } as Plot, ratio = p.text / was.text, made = madeOf(plotFigure(p, env), p.origin, p.text, env.captionSize);
+  // With new data, the parts as Octet made them last, by role.
+  const wrote = Object.keys(change).some((k) => k !== "frame" && k !== "origin" && k !== "text") ? new Map(madeOf(plotFigure(was, env), was.origin, was.text, env.captionSize).flatMap((x) => { const r = rename(x.role); return r === undefined ? [] : [[r, x.caption ?? x.arrow!] as const]; })) : undefined;
   // Deleted: a role Octet placed that is gone, and a role whose every part is gone (a whole leader).
-  const base = (r: string) => r.split(/[/~]/)[0], gone = new Set(was.roles.filter((r) => !now.has(r)));
-  const goneBase = new Set(was.roles.map(base).filter((b) => was.roles.every((r) => base(r) !== b || gone.has(r))));
+  const base = (r: string) => r.split(/[/~]/)[0], placed = was.roles.flatMap((r) => { const to = rename(r); return to === undefined ? [] : [[to, there.has(r)] as const]; });
+  const gone = new Set(placed.filter(([r, here]) => !here && !how.revive?.(r)).map(([r]) => r)), live = new Set(placed.filter(([, here]) => here).map(([r]) => base(r))), goneBase = new Set(placed.map(([r]) => base(r)).filter((b) => !live.has(b) && !how.revive?.(b)));
+  // A new part takes the draw order of the kept part nearest after it in the figure (else nearest before it), so new
+  // zones stay behind the chart's lines and nothing new is lifted over them (order.ts).
+  const kept = made.map((x) => now.get(x.role)), orderAt = (k: number): number | undefined => {
+    for (let j = k + 1; j < made.length; j++) if (kept[j]) return kept[j]!.order;
+    for (let j = k - 1; j >= 0; j--) if (kept[j]) return kept[j]!.order;
+    return undefined;
+  };
   let next = Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
   // A label that turns (Auto) or turns back takes the colour, font, size and move of the label it was: a turned label's
   // role is "peak:k" and its two lines across are "peak:k/0" and "peak:k/1".
@@ -256,42 +293,84 @@ export function replot(m: Mol, gid: number, change: Partial<Pick<Plot, "frame" |
     return c === undefined ? undefined : (now.get(c) as Caption);
   };
   const captions: Caption[] = [], arrows: Arrow[] = [];
-  for (const x of made) {
+  for (const [k, x] of made.entries()) {
     if (gone.has(x.role) || goneBase.has(base(x.role))) continue;
+    const order = kept[k] ? undefined : orderAt(k);
     const old = now.get(x.role), prior = old ?? (x.caption ? twin(x.role) : undefined);
     const d: P = prior ? ("from" in prior ? [prior.from[0] - prior.role!.at[0], prior.from[1] - prior.role!.at[1]] : [prior.x - prior.role!.at[0], prior.y - prior.role!.at[1]]) : shift;
     const id = old?.id ?? next++, by = (q: P): P => [q[0] + d[0], q[1] + d[1]];
     if (x.caption) {
       const o = prior && !("from" in prior) ? prior : undefined, c: Caption = { ...x.caption, id, x: x.caption.x + d[0], y: x.caption.y + d[1] };
-      captions.push(o ? { ...keep(c, o, old ? CAPTION_KEEP : TWIN_KEEP), ...(o.size !== undefined ? { size: Math.round(o.size * ratio * 10) / 10 } : {}) } : c);
+      captions.push(o ? { ...keep(c, o, old ? CAPTION_KEEP : TWIN_KEEP, old ? wrote?.get(x.role) : undefined), ...(how.retyped?.has(x.role) ? { text: c.text, runs: c.runs } : {}), ...(o.size !== undefined ? { size: Math.round(o.size * ratio * 10) / 10 } : {}) } : order === undefined ? c : { ...c, order });
     } else {
       const a0 = x.arrow!, o = old && "from" in old ? old : undefined;
       const a: Arrow = { ...a0, id, from: by(a0.from), to: by(a0.to), ...(a0.curve ? { curve: { ...a0.curve, points: a0.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) };
-      arrows.push(o ? { ...keep(a, o, ARROW_KEEP), ...(o.scale !== undefined ? { scale: o.scale * ratio } : {}) } : a);
+      arrows.push(o ? { ...keep(a, o, ARROW_KEEP, wrote?.get(x.role)), ...(o.scale !== undefined ? { scale: o.scale * ratio } : {}) } : order === undefined ? a : { ...a, order });
     }
   }
   // The new parts go where the old ones were in the drawing order.
-  const swap = <T extends { id: number; role?: PlotPart }>(list: T[] | undefined, fresh: T[]): T[] => {
-    const all = list ?? [], first = all.findIndex((x) => ids.has(x.id) && x.role), rest = all.filter((x) => !(ids.has(x.id) && x.role));
-    const at = first < 0 ? rest.length : all.slice(0, first).filter((x) => !(ids.has(x.id) && x.role)).length;
-    return [...rest.slice(0, at), ...fresh, ...rest.slice(at)];
+  // A file read as CDXML lists every filled curve before the lines, so a chart's zones can be far from its lines in
+  // the list: the new filled curves go where the old ones were, and the other parts where the old other parts were.
+  const swap = <T extends { id: number; role?: PlotPart; fill?: unknown }>(list: T[] | undefined, fresh: T[]): T[] => {
+    const all = list ?? [], mine = (x: T) => ids.has(x.id) && !!x.role, rest = all.filter((x) => !mine(x));
+    const place = (filled: boolean) => { const first = all.findIndex((x) => mine(x) && !!x.fill === filled); return first < 0 ? -1 : all.slice(0, first).filter((x) => !mine(x)).length; };
+    const fills = fresh.filter((x) => x.fill), others = fresh.filter((x) => !x.fill), a = place(true), b = place(false);
+    if (a < 0 || b < 0 || a === b || !fills.length) { const at = Math.max(a, b) < 0 ? rest.length : a < 0 ? b : b < 0 ? a : Math.min(a, b); return [...rest.slice(0, at), ...fresh, ...rest.slice(at)]; }
+    const [lo, hi, low, high] = a < b ? [a, b, fills, others] : [b, a, others, fills];
+    return [...rest.slice(0, lo), ...low, ...rest.slice(lo, hi), ...high, ...rest.slice(hi)];
   };
-  const removed = new Set([...now.values()].map((x) => x.id)), newIds = [...captions.map((c) => c.id), ...arrows.map((a) => a.id)];
-  const plot: Plot = { ...p, roles: made.map((x) => x.role) }, rejoined = rejoin(leadersOf(m, g), captions, arrows, shift);
+  const removed = new Set(parts.map((x) => x.id)), newIds = [...captions.map((c) => c.id), ...arrows.map((a) => a.id)];
+  const plot = { ...p, roles: made.map((x) => x.role) } as Plot, rejoined = rejoin(leadersOf(m, g), captions, arrows, shift);
   // The spectrum's group, and any group it is in (which lists everything in it too), lose the parts gone and gain the
   // new ones.
   const holds = (x: Group) => x.id === gid || g.items.every((id) => x.items.includes(id));
   return { ...m, captions: swap(m.captions, captions), arrows: swap(m.arrows, rejoined),
     groups: m.groups!.map((x) => (holds(x) ? { ...x, items: [...x.items.filter((id) => !removed.has(id)), ...newIds], ...(x.id === gid ? { plot } : {}) } : x)) };
 }
+// Text typed over a chart's caption on the page becomes the chart's data (charts.ts retyped): a number typed over a
+// level's value moves the level, and a name typed over a state's, a path's or a condition's name is its name in Edit
+// data too. Text that is no number over a value stays a label and changes no data. A chart whose record this edit
+// changed itself (Edit data, a resize) is left as it is. was: the drawing before the edit.
+export function followCharts(was: Mol, now: Mol, env: PlotEnv): Mol {
+  if (was === now || was.captions === now.captions || !now.groups?.some((g) => g.plot && isChart(g.plot))) return now;
+  const before = new Map((was.captions ?? []).map((c) => [c.id, c]));
+  let out = now;
+  for (const g of now.groups) {
+    const chart = g.plot && isChart(g.plot) ? g.plot : undefined;
+    if (!chart || was.groups?.find((x) => x.id === g.id)?.plot !== chart) continue;
+    const ids = new Set(g.items), redraw = new Set<string>();
+    let record: Chart = chart;
+    for (const c of now.captions ?? []) {
+      const o = c.role && ids.has(c.id) ? before.get(c.id) : undefined;
+      if (!o?.role || o.role.role !== c.role!.role || o.text === c.text) continue;
+      const change = retyped(record, c.role!.role, c.text);
+      if (!change) continue;
+      record = change.chart;
+      if (change.redraw) redraw.add(c.role!.role);
+    }
+    if (record === chart) continue;
+    const { kind: _, title: __, frame: ___, origin: ____, scale: _____, text: ______, roles: _______, ...data } = record;
+    const drawn = redraw.size ? replot(out, g.id, data as Partial<Plot>, env, { retyped: redraw }) : out;
+    // A chart that cannot be drawn again (it was turned or flipped) keeps its record: its numbers are its captions'.
+    if (redraw.size && drawn === out) continue;
+    out = redraw.size ? drawn : { ...out, groups: out.groups!.map((x) => (x.id === g.id ? { ...x, plot: record } : x)) };
+  }
+  return out;
+}
 // A page spectrum whose frame on the page (box, bond lengths: left, bottom, right, top) is dragged from `from` to
 // `to` by a resize handle: the plot grows by what the frame grows, and the side not dragged stays where it is.
 export function reframe(m: Mol, gid: number, from: [number, number, number, number], to: [number, number, number, number], env: PlotEnv): Mol {
   const p = m.groups?.find((x) => x.id === gid)?.plot;
   if (!p) return m;
-  const W = Math.max(MIN_W, p.frame[0] + (to[2] - to[0]) - (from[2] - from[0])), H = Math.max(MIN_H, p.frame[1] + (to[3] - to[1]) - (from[3] - from[1]));
+  const dw = to[2] - to[0] - (from[2] - from[0]), dh = to[3] - to[1] - (from[3] - from[1]);
   const moved = (a: number, b: number) => Math.abs(a - b) > 1e-9, share = (lo: boolean, hi: boolean) => (lo ? (hi ? 0.5 : 1) : 0);
   const sx = share(moved(to[0], from[0]), moved(to[2], from[2])), sy = share(moved(to[1], from[1]), moved(to[3], from[3]));
+  // A sensitivity screen stays round: its frame grows by the larger change, about its middle on a side not dragged.
+  if (p.kind === "radar") {
+    const was = Math.min(...p.frame), S = Math.max(MIN_W, was + (Math.abs(dw) >= Math.abs(dh) ? dw : dh)), across = moved(to[0], from[0]) || moved(to[2], from[2]), up = moved(to[1], from[1]) || moved(to[3], from[3]);
+    return S === was ? m : replot(m, gid, { frame: [S, S], origin: [p.origin[0] - (across ? sx : 0.5) * (S - was), p.origin[1] - (up ? sy : 0.5) * (S - was)] }, env);
+  }
+  const W = Math.max(MIN_W, p.frame[0] + dw), H = Math.max(MIN_H, p.frame[1] + dh);
   return replot(m, gid, { frame: [W, H], origin: [p.origin[0] - sx * (W - p.frame[0]), p.origin[1] - sy * (H - p.frame[1])] }, env);
 }
 // A page spectrum scaled by size (across, up) as f moves points (Scale…, and the handles on a wider selection): its
@@ -300,7 +379,8 @@ export function rescale(m: Mol, gid: number, f: (q: P) => P, size: P, text: numb
   const g = m.groups?.find((x) => x.id === gid), p = g?.plot, shift = g && plotShift(m, g);
   if (!p || !shift) return m;
   const q = f([p.origin[0] + shift[0], p.origin[1] + shift[1]]);
-  return replot(m, gid, { frame: [Math.max(MIN_W, p.frame[0] * Math.abs(size[0])), Math.max(MIN_H, p.frame[1] * Math.abs(size[1]))], origin: [q[0] - shift[0], q[1] - shift[1]], text: p.text * text }, env);
+  const side = Math.max(MIN_W, Math.min(p.frame[0] * Math.abs(size[0]), p.frame[1] * Math.abs(size[1])));
+  return replot(m, gid, { frame: p.kind === "radar" ? [side, side] : [Math.max(MIN_W, p.frame[0] * Math.abs(size[0])), Math.max(MIN_H, p.frame[1] * Math.abs(size[1]))], origin: [q[0] - shift[0], q[1] - shift[1]], text: p.text * text }, env);
 }
 
 // --- Reading ------------------------------------------------------------------------------------------------------
@@ -316,11 +396,12 @@ export function readPart(v: unknown): PlotPart | undefined {
 }
 export function readPlot(v: unknown): Plot | undefined {
   const o = v as Record<string, unknown> | undefined;
+  if (o && (o.kind === "energy" || o.kind === "radar")) return readChart(o);
   if (!o || (o.kind !== "predicted" && o.kind !== "measured") || !str(o.nucleus, 20) || !num(o.mhz, 0, 1e4) || !str(o.solvent, 40) || typeof o.solventPeaks !== "boolean"
     || !pair(o.range) || o.range[0] >= o.range[1] || !pair(o.frame, 0.01, 1000) || !pair(o.origin) || !num(o.scale, 0.01, 100) || !num(o.text, 0.01, 100)
     || !["auto", "horizontal", "vertical"].includes(o.labels as string) || !str(o.title, 400) || typeof o.notice !== "boolean"
     || !Array.isArray(o.roles) || o.roles.length > 20000 || !o.roles.every((r) => str(r, 120))) return undefined;
-  const out: Plot = { kind: o.kind, nucleus: o.nucleus as string, mhz: o.mhz as number, solvent: o.solvent as string, solventPeaks: o.solventPeaks, range: o.range, frame: o.frame, origin: o.origin,
+  const out: SpectrumPlot = { kind: o.kind, nucleus: o.nucleus as string, mhz: o.mhz as number, solvent: o.solvent as string, solventPeaks: o.solventPeaks, range: o.range, frame: o.frame, origin: o.origin,
     scale: o.scale as number, text: o.text as number, labels: o.labels as LabelTurn, title: o.title as string, notice: o.notice, roles: o.roles as string[] };
   if (o.signals !== undefined) {
     const ss = o.signals as Record<string, unknown>[];

@@ -881,6 +881,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("frame_box_shadow", "Rectangle with Shadow", "")?,
         &item("frame_rounded_shadow", "Rounded Rectangle with Shadow", "")?,
     ])?;
+    // Charts on the page (src/charts.ts), each from a dialog with its data.
+    section.replace("Object › Add Chart".into());
+    let chart = Submenu::with_items(app, "Add Chart", true, &[
+        &item("chart_energy", "Energy Diagram…", "")?,
+        &item("chart_radar", "Sensitivity Screen…", "")?,
+        &sep()?,
+        &item("chart_edit", "Edit Data…", "")?,
+    ])?;
     section.replace("Object".into());
     // ChemDraw's Fixed Lengths (⌘L) and Fixed Angles (⌘E): ticked, a dragged bond is one bond length long and at a
     // 15° step.
@@ -908,6 +916,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
         &sep()?,
         &frame,
+        &chart,
         &sep()?,
         // ChemDraw's Flip (a mirror image, no key) and Rotate 180° (stereo kept, ⇧⌘H and ⇧⌘V).
         &item("flatten", "Flatten", "")?,
