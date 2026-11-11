@@ -1681,6 +1681,27 @@ Tests are in `mcp-v2-tests.md`, section 15.
   journal's name through `set_brief` (ACS, Angewandte), says "There is no such file or folder." for a style file
   that is not there, and a picture of an empty drawing says Export's "There is nothing to export.".
 
+### 18.6 As built (step 11, 11 November 2026, branch `mcp/script`)
+
+- `docs/scripting.md` is the page; `scripts/examples` holds the client (`octet.py`, `octet.mjs`) and the four
+  examples in each language. mcp.check fails when the page's table of tools is not tools/list's, when its change and
+  advanced rows leave out an operation or tool, or when a file it shows is not the file in `scripts/examples`.
+  headless.check runs the JavaScript examples (and the Python ones, where there is a `python3`) against the Node host
+  on standard input and output (`scripts/headless/stdio.ts`), which says what the window says for a file it cannot
+  read.
+- The client is 35 lines in Python and 36 in JavaScript, not 20: a line each for the reply's error, the binary
+  formats and closing. The longest example is 31 lines. Lines are at most 120 characters, so the page does not scroll
+  sideways.
+- Ran on the Mac only, against `--headless --mcp` from a release build: each example in both languages. Windows and
+  Linux were not run, so step 11 is not done there. The page's Windows path (`%LOCALAPPDATA%\Octet Draw\octet.exe`) is
+  the one platforms.yml installs to; `/usr/bin/octet` and the AppImage come from tauri.conf.json, not from an
+  install. Before the page goes on the website, run the four examples in both languages on a Windows and a Linux
+  install.
+- For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
+  given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
+  gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the
+  column must be asked, set_brief would have to ask for only the missing parts of a destination: Sam's choice.
+
 ## 19. Speed for the AI model (Sam, 11 November 2026)
 
 Sam: "Octet-side speed seems to be the fastest bit by a mile. Optimise for AI models. Change the way they communicate

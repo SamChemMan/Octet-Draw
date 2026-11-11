@@ -2992,6 +2992,11 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 // The prompts (D13): what a chemist asks for most, each a user message that names the tools to use. Each that draws a
 // scheme starts with the brief (plan 11).
 const ASK = "First ask me the three questions in Octet's instructions, unless I have answered them, and give my answers as draw's brief. Then ";
+// A prompt for an AI app that takes elicitation says what its instructions say (instructionsFor): Octet asks the user
+// itself, so the AI app only calls, and gives as the brief what the user has already said. The prompt's own answers
+// count: fill_experiment's notebook, and journal_figure's journal (with no column unless the user gave one, as Octet's
+// form would ask for all of it again).
+const promptFor = (text: string, elicit: boolean) => (elicit ? text.replace(ASK, "Do not ask me Octet's questions: Octet asks me itself when it needs to. Give draw's brief only for answers I have already given. Just ").replace("(the destination is notebook)", "(give draw's brief notebook: the destination is notebook)").replace(/Ask me whether it goes in one column or two, and the other questions in Octet's instructions, then call set_brief with destination paper and journal ([\s\S]*?)\. (?=Then read with picture)/, "Call set_brief with destination paper and journal $1, and columns 1 or 2 only if I have said which. ") : text);
 type PromptArg = { name: string; description: string; required?: boolean };
 const PROMPTS: { name: string; title: string; description: string; arguments: PromptArg[]; text: (a: Record<string, string>) => string }[] = [
   { name: "draw_scheme", title: "Draw a scheme from text", description: "Draws the reactions in a procedure or a paragraph as one scheme", arguments: [{ name: "text", description: "The procedure or paragraph", required: true }],
@@ -3009,6 +3014,8 @@ const PROMPTS: { name: string; title: string; description: string; arguments: Pr
 type Message = { jsonrpc?: string; id?: string | number | null; method?: string; params?: any };
 let steps = 0;
 let queue: Promise<unknown> = Promise.resolve();
+// The calls waiting for the user's answer in this window (from elicitation), each by what shows its notice again.
+let waits: (() => void)[] = [];
 // session: the MCP session the request came in (none for an older client); lost: the drawing the session used, now
 // closed; client: the AI app's name.
 // progress: sends a progress notification (JSON) on the call's event stream; cancelled: the call was cancelled.
@@ -3100,7 +3107,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         if (a.required && !v?.trim()) return reply(id, undefined, { code: -32602, message: `The prompt ${p.name} needs ${a.name}.` });
         if (v) args[a.name] = v;
       }
-      return reply(id, { description: p.description, messages: [{ role: "user", content: { type: "text", text: p.text(args) } }] });
+      return reply(id, { description: p.description, messages: [{ role: "user", content: { type: "text", text: promptFor(p.text(args), !!from.elicit) } }] });
     }
     // The drawings as resources (D12): octet://drawings lists them; octet://drawing/{id} reads one (JSON as
     // a read gives it, /cdxml, /png). mcp.rs sends a read to the window it names.
@@ -3148,10 +3155,13 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (asks && !unfit) {
         // Octet's window says it waits for the user, with Stop, which ends the wait at once (as a cancel does): the
         // notice opens first, then says how far the call is, as progress does.
-        h.working(busy, stop);
-        h.working(busy, stop, `Waiting for your answer in ${from.client && from.client !== "An AI app" ? from.client : "the AI app"}`);
+        const wait = () => { h.working(busy, stop); h.working(busy, stop, `Waiting for your answer in ${from.client && from.client !== "An AI app" ? from.client : "the AI app"}`); };
+        waits.push(wait);
+        wait();
         const said = await Promise.race([from.elicit!(ASK_BRIEF).catch(() => undefined), new Promise<undefined>((r) => { halt = () => r(undefined); })]);
+        waits = waits.filter((w) => w !== wait);
         h.working();
+        waits[waits.length - 1]?.();
         if (stopped || (await from.cancelled?.())) return reply(id, { content: [{ type: "text", text: `${named.name} was cancelled, and the drawing is as it was before the call.` }], isError: true });
         const got = answered(said);
         if (typeof got === "string") return reply(id, { content: [{ type: "text", text: got }], isError: true });
@@ -3264,7 +3274,8 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         if (e instanceof Cancelled) { told = true; h.said(`${ctx.client} stopped. The drawing is as it was.`); return reply(id, { content: [{ type: "text", text: `${named.name} was cancelled, and the drawing is as it was before the call.` }], isError: true }); }
         return reply(id, { content: [{ type: "text", text: `${named.name} did not finish, and the drawing is as it was before the call: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500) }], isError: true });
       } finally {
-        if (changes) { h.end(shown); if (!told) h.working(); }
+        // Another session's call may still wait for its user (above): its notice, which this call's took over, comes back.
+        if (changes) { h.end(shown); if (!told) h.working(); waits[waits.length - 1]?.(); }
       }
     }
     default: return reply(id, undefined, { code: -32601, message: `Octet does not take ${msg.method.slice(0, 40)}.` });

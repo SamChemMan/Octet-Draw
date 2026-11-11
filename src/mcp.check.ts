@@ -109,6 +109,18 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // The list is read at the start of every chat (test plan P4, A5): under 14,000 characters, about 4,000 tokens. The
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
+// The scripting page (docs/scripting.md, plan 18.2) cannot drift: its table of tools is the tools tools/list gives, and
+// each file it shows (### name, then its code) is the file in scripts/examples as it is.
+{
+  const page = readFileSync(new URL("../docs/scripting.md", import.meta.url), "utf8");
+  assert.deepEqual([...page.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]), tools.map((t) => t.name), "the scripting page's table of tools");
+  // Its rows for change and advanced name each operation and tool those take.
+  const ops = { change: tools[1].inputSchema.properties.operations.items.properties.op.enum, advanced: tools[4].inputSchema.properties.tool.enum } as Record<string, string[]>;
+  for (const [name, list] of Object.entries(ops)) { const row = page.match(new RegExp(`^\\| \`${name}\` \\|.*$`, "m"))![0]; for (const op of list) assert.ok(row.includes(`\`${op}\``), `the scripting page's ${name} row names ${op}`); }
+  const shown = [...page.matchAll(/^### (\S+)\n\n```\w+\n([\s\S]*?)```$/gm)];
+  assert.equal(shown.length, 10, "the client and four examples, in Python and JavaScript");
+  for (const [, file, code] of shown) assert.equal(code, readFileSync(new URL(`../scripts/examples/${file}`, import.meta.url), "utf8"), `docs/scripting.md shows scripts/examples/${file} as it is`);
+}
 // draw's JSON compound says what its text takes, and what a change's at names, as the JSON form needs them.
 {
   const c = (tools[0].inputSchema as any).$defs.compound.properties;
@@ -332,6 +344,17 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     assert.equal(await Promise.race([call("read", {}, "e-11").then(() => "read"), new Promise((d) => setTimeout(() => d("waited"), 3000))]), "read");
     reply(JSON.stringify({ action: "decline" }));
     assert.ok(!(await later).isError && steps.length === 1);
+    // A second session's call that draws in the window while the form is open takes the notice over; when it ends,
+    // the first session's notice comes back, with its Stop, as it still waits.
+    fresh();
+    answer = () => new Promise((r) => { reply = r; });
+    const held = ask("draw", { lines: "ethanol -> water" }, "e-12");
+    await new Promise((d) => setTimeout(d, 10));
+    assert.ok(!(await call("draw", { lines: "ethanol -> water", brief: "quick" }, "e-13")).isError);
+    assert.deepEqual(far.at(-1), ["Test is drawing.", true, "Waiting for your answer in Test"], JSON.stringify(far.slice(-3)));
+    notice!.stop!();
+    assert.match(text(await held), /^draw was cancelled/);
+    reply("");
     // An AI app without elicitation is asked nothing, and gets the three questions as before.
     const before = asked.length;
     assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "e-5")), QUESTIONS);
@@ -352,6 +375,29 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     const [plain, form2] = [await ins(false), await ins(true)];
     assert.deepEqual([form2.length, form2.filter((l, k) => l !== plain[k]).length], [plain.length, 1]);
     assert.equal(form2[1], "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.");
+    // The prompts say the same: for an AI app that takes elicitation they only call, and give a brief only for answers
+    // the user has given, the prompt's own among them (fill_experiment's notebook, journal_figure's journal), so Octet's
+    // form does not ask for them again. Other AI apps get them as before.
+    const prompt = async (name: string, elicit: boolean) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "prompts/get", params: { name, arguments: { text: "x", procedure: "x", journal: "JACS" } } }), () => host, "1.2.0", { ...as("s-1"), ...(elicit ? { elicit: async () => "" } : {}) })).result.messages[0].content.text as string;
+    const ASKED = "First ask me the three questions in Octet's instructions, unless I have answered them, and give my answers as draw's brief. Then ";
+    assert.equal(await prompt("draw_scheme", false), `${ASKED}draw the reactions in this text as one scheme in Octet: one draw call with lines. Give each compound its number from the text. When the check is clean, tell me what Octet drew; else fix the ids it names in one change.\n\nx`);
+    for (const name of ["draw_scheme", "redraw_picture", "fill_experiment"]) {
+      const [plain, elicited] = [await prompt(name, false), await prompt(name, true)];
+      assert.ok(plain.startsWith(ASKED), plain);
+      assert.equal(elicited, `Do not ask me Octet's questions: Octet asks me itself when it needs to. Give draw's brief only for answers I have already given. Just ${plain.slice(ASKED.length).replace("(the destination is notebook)", "(give draw's brief notebook: the destination is notebook)")}`);
+    }
+    assert.ok((await prompt("fill_experiment", false)).includes("procedure (the destination is notebook). If"));
+    const [journal, journalAsks] = [await prompt("journal_figure", false), await prompt("journal_figure", true)];
+    assert.ok(journal.includes("Ask me whether it goes in one column or two, and the other questions in Octet's instructions, then call set_brief with destination paper and journal JACS. Then read"), journal);
+    assert.equal(journalAsks, "Make my open drawing ready as a figure for JACS. Call set_brief with destination paper and journal JACS, and columns 1 or 2 only if I have said which. Then read with picture: true, and fix what Octet warns about with change (move or arrange). When it is ready, call advanced with tool export so I can save it.");
+    // As the prompts say, those calls go on with no form: set_brief with the journal and no column, and draw with the
+    // brief notebook.
+    fresh();
+    const forms = asked.length;
+    assert.ok(!(await ask("set_brief", { destination: { kind: "paper", journal: "JACS" } }, "e-14")).isError);
+    assert.ok(!(await ask("draw", { lines: "ethanol -> water", brief: "notebook" }, "e-15")).isError);
+    assert.deepEqual([asked.length, JSON.parse(briefs.get("e-14")!).destination, JSON.parse(briefs.get("e-15")!).destination], [forms, { kind: "paper", journal: "ACS Document 1996" }, { kind: "notebook" }]);
+    assert.equal(await prompt("check_drawing", true), await prompt("check_drawing", false));
   }
   // The answers in one line, each part read one way; or set_brief's object.
   for (const [line, brief] of [
