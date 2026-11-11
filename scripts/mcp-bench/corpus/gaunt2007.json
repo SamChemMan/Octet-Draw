@@ -1,0 +1,524 @@
+{
+ "source": {
+  "citation": "Gaunt, Johansson, McNally and Vo, Enantioselective organocatalysis, Drug Discovery Today 2007",
+  "doi": "10.1016/j.drudis.2006.11.004",
+  "licence": "All rights reserved (Elsevier): structures and conditions only, written by us"
+ },
+ "jobs": [
+  {
+   "id": "gaunt2007-fig1",
+   "kind": "S11",
+   "figure": "Fig. 1 (top)",
+   "prompt": "Draw the Hajos–Parrish cyclisation at the top of Fig. 1 of the attached review: the triketone, proline drawn as a structure over the arrow with the conditions under it, and the bicyclic ketol with its wedges. The paper gives no compound numbers: number the triketone 1 and the ketol 2.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "2-methyl-2-(3-oxobutyl)cyclopentane-1,3-dione",
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: L-proline"
+      ],
+      "below": [
+       "20 mol% catalyst",
+       "CHCl3, r.t.",
+       "99% ee"
+      ],
+      "products": [
+       {
+        "text": "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O",
+        "number": "2"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "CC(=O)CCC1(C)C(=O)CCC1=O",
+     "2": "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig1-cycle",
+   "kind": "S13",
+   "figure": "Fig. 1 (mechanism)",
+   "prompt": "Draw the catalytic cycle proposed in Fig. 1 of the attached review, clockwise from proline: the iminium carboxylate of the triketone, the enamine (the figure draws it as the hydrogen-bonded transition state: draw the enamine acid), then the iminium carboxylate of the ketol. Show the triketone going in at the first step and the ketol coming out at the last. Number the four species 1 to 4.",
+   "tool": "draw_cycle",
+   "arguments": {
+    "intermediates": [
+     {
+      "text": "L-proline",
+      "number": "1"
+     },
+     {
+      "text": "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O",
+      "number": "2"
+     },
+     {
+      "text": "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O",
+      "number": "3"
+     },
+     {
+      "text": "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O",
+      "number": "4"
+     }
+    ],
+    "steps": [
+     {
+      "step": 0,
+      "in": "triketone"
+     },
+     {
+      "step": 3,
+      "out": "ketol"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "OC(=O)[C@@H]1CCCN1",
+     "2": "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O",
+     "3": "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O",
+     "4": "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig3",
+   "kind": "S2",
+   "figure": "Fig. 3",
+   "prompt": "Draw the route to the protected glucose in Fig. 3 of the attached review as one scheme (the middle branch): two molecules of the TIPS-protected glycolaldehyde, the proline aldol to the anti dimer, then the Mukaiyama aldol with the enol silane (drawn over the arrow) and MgBr2 in Et2O to the protected glucose. Write the silyl and acetyl groups as OTIPS and OAc, as the paper does. Number the aldehyde 1, the dimer 2 and the glucose 3.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "O=CC*",
+      "labels": [
+       "OTIPS"
+      ],
+      "number": "1"
+     },
+     {
+      "text": "O=CC*",
+      "labels": [
+       "OTIPS"
+      ]
+     }
+    ],
+    "steps": [
+     {
+      "catalysts": [
+       "L-proline (20 mol%)"
+      ],
+      "solvents": [
+       "DMF"
+      ],
+      "temperature": "4 °C",
+      "yield": "92%",
+      "below": [
+       "4:1 anti:syn, 95% ee"
+      ],
+      "products": [
+       {
+        "text": "O=C[C@@H](*)[C@@H](O)C*",
+        "labels": [
+         "OTIPS",
+         "OTIPS"
+        ],
+        "number": "2"
+       }
+      ]
+     },
+     {
+      "above": [
+       "structure: (Z)-2-(trimethylsilyloxy)vinyl acetate"
+      ],
+      "reagents": [
+       "MgBr2"
+      ],
+      "solvents": [
+       "Et2O"
+      ],
+      "products": [
+       {
+        "text": "*C[C@@H]1OC(O)[C@@H](*)[C@H](O)[C@H]1*",
+        "labels": [
+         "TIPSO",
+         "OAc",
+         "OTIPS"
+        ],
+        "number": "3"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "O=CCO[Si](C(C)C)(C(C)C)C(C)C",
+     "2": "O=C[C@@H](O[Si](C(C)C)(C(C)C)C(C)C)[C@@H](O)CO[Si](C(C)C)(C(C)C)C(C)C",
+     "3": "CC(C)[Si](C(C)C)(C(C)C)OC[C@@H]1OC(O)[C@@H](OC(C)=O)[C@H](O)[C@H]1O[Si](C(C)C)(C(C)C)C(C)C"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig8",
+   "kind": "S9",
+   "figure": "Fig. 8",
+   "prompt": "Draw Fig. 8 of the attached review: the N-alkylphenanthridinium iodide with its aldehyde chain, the dibenzylpyrrolidine catalyst drawn over the arrow, the conditions under it with the one-pot reduction as a 'then' line, and the cyclised amino alcohol with its two stereocentres. Number the salt 1 and the product 2.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "O=CCCCC[n+]1cc2ccccc2c2ccccc12.[I-]",
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (2S,5S)-2,5-dibenzylpyrrolidine"
+      ],
+      "below": [
+       "10 mol% catalyst",
+       "CH2Cl2, Et3N, −40 °C",
+       "then NaBH4, EtOH",
+       "49–96% ee"
+      ],
+      "yield": "18–73%",
+      "products": [
+       {
+        "text": "OC[C@H]1CCCN2c3ccccc3-c3ccccc3[C@H]12",
+        "number": "2"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "O=CCCCC[n+]1cc2ccccc2c2ccccc12.[I-]",
+     "2": "OC[C@H]1CCCN2c3ccccc3-c3ccccc3[C@H]12"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig9",
+   "kind": "S1",
+   "figure": "Fig. 9",
+   "prompt": "Draw the ring-closing α-alkylation of Fig. 9 of the attached review: the iodo aldehyde, the α-methylproline catalyst over the arrow, the conditions, yield and ee under it, and the cyclopentane aldehyde. Write the esters as EtO2C and CO2Et, as the paper does. Number the substrate 1 and the product 2.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "*C(*)(CCCI)CC=O",
+      "labels": [
+       "EtO2C",
+       "CO2Et"
+      ],
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (S)-2-methylproline"
+      ],
+      "below": [
+       "10 mol% catalyst",
+       "Et3N, CHCl3, −30 °C",
+       "95% ee"
+      ],
+      "yield": "92%",
+      "products": [
+       {
+        "text": "*C1(*)CCC[C@H]1C=O",
+        "labels": [
+         "EtO2C",
+         "EtO2C"
+        ],
+        "number": "2"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "CCOC(=O)C(CCCI)(CC=O)C(=O)OCC",
+     "2": "CCOC(=O)C1(C(=O)OCC)CCC[C@H]1C=O"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig11d",
+   "kind": "S2",
+   "figure": "Fig. 11d",
+   "prompt": "Draw Fig. 11d of the attached review as a two-arrow scheme: the trienal, the imidazolidinone catalyst drawn over the first arrow with the conditions, yield, dr and ee under it, the trans-decalin aldehyde with its four stereocentres, then 'five steps' to solanapyrone D. Number the three compounds 1 to 3.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "(2E,8E,10E)-dodeca-2,8,10-trienal",
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (5S)-5-benzyl-2,2,3-trimethylimidazolidin-4-one"
+      ],
+      "below": [
+       "20 mol% catalyst·TfOH",
+       "MeCN, 50 °C",
+       ">20:1 dr, 90% ee"
+      ],
+      "yield": "71%",
+      "products": [
+       {
+        "text": "C[C@@H]1C=C[C@@H]2CCCC[C@H]2[C@@H]1C=O",
+        "number": "2"
+       }
+      ]
+     },
+     {
+      "above": [
+       "five steps"
+      ],
+      "products": [
+       {
+        "text": "C[C@@H]1C=C[C@@H]2CCCC[C@H]2[C@@H]1c1cc(OC)c(C=O)c(=O)o1",
+        "number": "3"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "C/C=C/C=C/CCCC/C=C/C=O",
+     "2": "C[C@@H]1C=C[C@@H]2CCCC[C@H]2[C@@H]1C=O",
+     "3": "C[C@@H]1C=C[C@@H]2CCCC[C@H]2[C@@H]1c1cc(OC)c(C=O)c(=O)o1"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig13",
+   "kind": "S9",
+   "figure": "Fig. 13 (COX-2 inhibitor)",
+   "prompt": "Draw the COX-2 inhibitor synthesis in the middle of Fig. 13 of the attached review: crotonaldehyde and the N-(4-bromobenzyl)indole, the imidazolidinone catalyst drawn over the arrow, the catalyst loading and the 'then AgNO3, NaOH' oxidation under it with the yield and ee, and the acid with its stereocentre. Number the compounds 1 to 3.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "crotonaldehyde",
+      "number": "1"
+     },
+     {
+      "text": "1-(4-bromobenzyl)-5-methoxy-2-methyl-1H-indole",
+      "number": "2"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (2S,5S)-5-benzyl-2-tert-butyl-3-methylimidazolidin-4-one"
+      ],
+      "below": [
+       "20 mol% catalyst·HO2CCF3",
+       "then AgNO3, NaOH",
+       "87% ee"
+      ],
+      "yield": "82%",
+      "products": [
+       {
+        "text": "C[C@H](CC(O)=O)c1c(C)n(Cc2ccc(Br)cc2)c2ccc(OC)cc12",
+        "number": "3"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "C/C=C/C=O",
+     "2": "COc1ccc2n(Cc3ccc(Br)cc3)c(C)cc2c1",
+     "3": "C[C@H](CC(O)=O)c1c(C)n(Cc2ccc(Br)cc2)c2ccc(OC)cc12"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig14",
+   "kind": "S20",
+   "figure": "Fig. 14",
+   "prompt": "Draw the cascade to the pyrroloindoline in Fig. 14 of the attached review: the N-allyl tryptamine carbamate and the enal ester, the imidazolidinone catalyst drawn over the arrow, the conditions, yield, ee and dr under it, and the product with its three stereocentres. Write NHBoc, Boc, Allyl and CO2Me as labels, as the paper does. Leave out the iminium intermediate. Number the compounds 1 to 3.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "C=CCn1cc(CC*)c2ccccc12",
+      "labels": [
+       "NHBoc"
+      ],
+      "number": "1"
+     },
+     {
+      "text": "methyl (E)-4-oxobut-2-enoate",
+      "number": "2"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (2S,5S)-5-benzyl-2-tert-butyl-3-methylimidazolidin-4-one"
+      ],
+      "below": [
+       "20 mol% catalyst·HO2CCF3",
+       "CH2Cl2",
+       "91% ee, 44:1 dr"
+      ],
+      "yield": "93%",
+      "products": [
+       {
+        "text": "O=CC[C@@H](*)[C@@]12CCN(*)[C@@H]1N(*)c1ccccc12",
+        "labels": [
+         "CO2Me",
+         "Boc",
+         "Allyl"
+        ],
+        "number": "3"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "C=CCn1cc(CCNC(=O)OC(C)(C)C)c2ccccc12",
+     "2": "COC(=O)/C=C/C=O",
+     "3": "O=CC[C@@H](C(=O)OC)[C@@]12CCN(C(=O)OC(C)(C)C)[C@@H]1N(CC=C)c1ccccc12"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-fig17",
+   "kind": "S11",
+   "figure": "Fig. 17 (bottom)",
+   "prompt": "Draw the reduction then fluorination cascade at the bottom of Fig. 17 of the attached review: β-methylcinnamaldehyde, over the arrow the first imidazolidinone catalyst and the Hantzsch ester as structures, under it the first loading and solvent, 'then', the second catalyst and NFSI as structures and the second loading and solvent, with the yield, dr and ee, and the fluoro aldehyde with both stereocentres. Number the enal 1 and the product 2.",
+   "tool": "draw_reaction",
+   "arguments": {
+    "start": [
+     {
+      "text": "(E)-3-phenylbut-2-enal",
+      "number": "1"
+     }
+    ],
+    "steps": [
+     {
+      "above": [
+       "structure: (R)-2-tert-butyl-3-methylimidazolidin-4-one",
+       "structure: Hantzsch ester"
+      ],
+      "below": [
+       "7.5 mol%, CHCl3",
+       "then",
+       "structure: (2R,5R)-5-benzyl-2-tert-butyl-3-methylimidazolidin-4-one",
+       "structure: NFSI",
+       "30 mol% catalyst, THF–iPrOH",
+       ">16:1 dr, 99% ee"
+      ],
+      "yield": "81%",
+      "products": [
+       {
+        "text": "C[C@H](c1ccccc1)[C@H](F)C=O",
+        "number": "2"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "C/C(=C\\C=O)c1ccccc1",
+     "2": "C[C@H](c1ccccc1)[C@H](F)C=O"
+    }
+   }
+  },
+  {
+   "id": "gaunt2007-catalysts",
+   "kind": "F1",
+   "figure": "Figs 1, 7, 8, 9, 11, 13, 16 and 32 (the catalysts)",
+   "prompt": "The attached review has no substrate table. Draw its organocatalysts as a numbered grid instead, one of each, with the stereochemistry the figures show: proline (Fig. 1), α-methylproline (Fig. 9), the dibenzylpyrrolidine (Fig. 8), indoline-2-carboxylic acid (Fig. 16a), the diphenylprolinol TMS ether (Fig. 7a) and methyl ether (Fig. 7b), the three imidazolidinones (Figs 11a, 13 and 11b), the thiazolidine amide (Fig. 7d) and the indanol thiourea (Fig. 32b). Number them 1 to 11 in that order.",
+   "tool": "draw_structures",
+   "arguments": {
+    "structures": [
+     {
+      "text": "L-proline",
+      "number": "1"
+     },
+     {
+      "text": "(S)-2-methylproline",
+      "number": "2"
+     },
+     {
+      "text": "(2S,5S)-2,5-dibenzylpyrrolidine",
+      "number": "3"
+     },
+     {
+      "text": "(S)-indoline-2-carboxylic acid",
+      "number": "4"
+     },
+     {
+      "text": "(S)-diphenylprolinol trimethylsilyl ether",
+      "number": "5"
+     },
+     {
+      "text": "(S)-2-[methoxy(diphenyl)methyl]pyrrolidine",
+      "number": "6"
+     },
+     {
+      "text": "(5S)-5-benzyl-2,2,3-trimethylimidazolidin-4-one",
+      "number": "7"
+     },
+     {
+      "text": "(2S,5S)-5-benzyl-2-tert-butyl-3-methylimidazolidin-4-one",
+      "number": "8"
+     },
+     {
+      "text": "(2S,5S)-5-benzyl-3-methyl-2-(5-methylfuran-2-yl)imidazolidin-4-one",
+      "number": "9"
+     },
+     {
+      "text": "(4R)-2,2-dimethyl-N-(naphthalen-1-yl)-1,3-thiazolidine-4-carboxamide",
+      "number": "10"
+     },
+     {
+      "text": "O[C@H]1Cc2ccccc2[C@H]1NC(=S)Nc1cc(cc(c1)C(F)(F)F)C(F)(F)F",
+      "number": "11"
+     }
+    ]
+   },
+   "expect": {
+    "smiles": {
+     "1": "OC(=O)[C@@H]1CCCN1",
+     "2": "C[C@]1(CCCN1)C(O)=O",
+     "3": "C(c1ccccc1)[C@@H]1CC[C@@H](Cc2ccccc2)N1",
+     "4": "OC(=O)[C@@H]1Cc2ccccc2N1",
+     "5": "C[Si](C)(C)OC(c1ccccc1)(c1ccccc1)[C@@H]1CCCN1",
+     "6": "COC(c1ccccc1)(c1ccccc1)[C@@H]1CCCN1",
+     "7": "CN1C(=O)[C@H](Cc2ccccc2)NC1(C)C",
+     "8": "CN1C(=O)[C@H](Cc2ccccc2)N[C@@H]1C(C)(C)C",
+     "9": "CN1C(=O)[C@H](Cc2ccccc2)N[C@@H]1c1ccc(C)o1",
+     "10": "CC1(C)N[C@@H](CS1)C(=O)Nc1cccc2ccccc12",
+     "11": "O[C@H]1Cc2ccccc2[C@H]1NC(=S)Nc1cc(cc(c1)C(F)(F)F)C(F)(F)F"
+    }
+   }
+  }
+ ]
+}
