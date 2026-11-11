@@ -37,7 +37,8 @@ function fromHelm(helm: string): { text: string } | { problem: string } | undefi
     return bad ? odd(bad) : { text: sequenceText({ kind: "peptide", codes: codes.join(""), start, end }).text };
   }
   const start = units[0] === "P", body = units.slice(start ? 1 : 0), read = body.map((u) => /^(R|\[dR\])\(([ACGTU])\)(P?)$/.exec(u));
-  const bad = body.find((_, k) => !read[k] || (!read[k]![3] && k < body.length - 1));
+  // R(T) and [dR](U) are other nucleosides (ribothymidine, deoxyuridine): the Sequence tool would draw rU and dT.
+  const bad = body.find((_, k) => !read[k] || read[k]![2] === (read[k]![1] === "R" ? "T" : "U") || (!read[k]![3] && k < body.length - 1));
   if (bad) return odd(bad);
   const dna = read.every((r) => r![1] === "[dR]");
   if (!dna && read.some((r) => r![1] === "[dR]")) return { problem: "Octet reads HELM of RNA or DNA, not both in one chain." };

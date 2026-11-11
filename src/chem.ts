@@ -292,13 +292,15 @@ export const fullMol = (smiles: string, ions = true): Mol => straightened(ions ?
 export function quickMol(smiles: string): Mol | undefined {
   try { const m = straightened(sandwich(parseStructure(smiles, false))); return m.atoms.length ? m : undefined; } catch { return undefined; }
 }
+// The centre of points: their mean x and y.
+const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
 // Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was. Anything else as it is.
 function straightened(m: Mol): Mol {
   const atoms = [...m.atoms];
   for (const frag of fragments(m)) {
-    const laid = chainLayout(m, frag), mid = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
+    const laid = chainLayout(m, frag);
     if (!laid) continue;
-    const [ox, oy] = mid(frag.map((i) => m.atoms[i].location)), [cx, cy] = mid([...laid.values()]);
+    const [ox, oy] = centre(frag.map((i) => m.atoms[i].location)), [cx, cy] = centre([...laid.values()]);
     for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + x - cx, oy + y - cy, 0] };
   }
   return atoms.every((a, i) => a === m.atoms[i]) ? m : keptHands(m, { ...m, atoms });
@@ -1605,7 +1607,6 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
   const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre || mol.atoms[i].location[2] || pi.has(i)));
   let chains = false;
   for (const frag of groups) {
-    const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
     const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location));
     // A peptide or oligonucleotide: as residue labels, in rows (sequence.ts); drawn out, cleaned and then along a
     // straight backbone (chain.ts), each residue as cleaned.

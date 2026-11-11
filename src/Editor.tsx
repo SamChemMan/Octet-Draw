@@ -144,7 +144,7 @@ const MOD = MAC ? "⌘" : "Ctrl+";
 // Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // ChemDraw's ⌥⌘E, on the Mac only: Ctrl+Alt+E elsewhere is AltGr+E, which types € on many keyboards.
-const HELM_KEYS = navigator.platform.startsWith("Mac") ? "⌥⌘E" : "";
+const HELM_KEYS = MAC ? "⌥⌘E" : "";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
 // Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has

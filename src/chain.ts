@@ -146,10 +146,12 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
   const now = (i: number) => placed.get(i)!;
   // A group bonded by one atom (a, to the placed atom from, going out at dir): a chain as a zigzag that goes on from
   // the backbone's, so a side chain's first step is toward the end of the backbone (away from the C=O before it). At a
-  // branch the larger part goes on along the zigzag, and a lone C=O oxygen goes to the other side. A double bond keeps
-  // its side (E or Z). A ring, with all beyond it, moves whole, its bond to from on the zigzag. turn: the side of the
-  // next step (1 anticlockwise), or for a ring, the side its middle lies on, so each ring of a kind (an indole, a
-  // purine) faces the same way.
+  // branch the larger part goes on along the zigzag, and a lone C=O oxygen goes to the other side; two parts alike (a
+  // threonine's OH and CH3) keep their sides, so Clean Up again changes nothing. A double bond keeps its side (E or Z).
+  // A ring, with all beyond it, moves whole, its bond to from on the zigzag. turn: the side of the next step (1
+  // anticlockwise), or for a ring, the side its middle lies on, each atom other than carbon counted twice, so each ring
+  // of a kind (an indole, a purine, a thymine, near symmetrical as it is) faces the same way every time. A ring whose
+  // middle lies on its bond (a phenyl) keeps its side.
   const rings = ringBonds(m), ringed = new Set(m.bonds.flatMap((b, k) => (rings[k] ? b.atoms : [])));
   const grow = (a: number, from: number, dir: number, group: Set<number>, turn: number) => {
     const to: P = [now(from)[0] + Math.cos(dir), now(from)[1] + Math.sin(dir)];
@@ -158,8 +160,9 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
       for (let q = 0; q < whole.length; q++) for (const j of at[whole[q]]) if (j !== from && group.has(j) && !into.has(j)) { into.add(j); whole.push(j); }
       const was = angle(old(from), old(a));
       move(whole, old(a), to, dir - was);
-      const mid = [0, 1].map((d) => whole.reduce((sum, j) => sum + now(j)[d], 0) / whole.length);
-      if (turn && Math.sign(Math.cos(dir) * (mid[1] - to[1]) - Math.sin(dir) * (mid[0] - to[0])) === -turn) move(whole, old(a), to, dir - was, was);
+      const weight = (j: number) => (m.atoms[j].label === "C" ? 1 : 2), total = whole.reduce((sum, j) => sum + weight(j), 0);
+      const mid = [0, 1].map((d) => whole.reduce((sum, j) => sum + weight(j) * now(j)[d], 0) / total);
+      if (turn * (Math.cos(dir) * (mid[1] - to[1]) - Math.sin(dir) * (mid[0] - to[0])) < -0.05) move(whole, old(a), to, dir - was, was);
       return;
     }
     placed.set(a, to);
@@ -168,7 +171,7 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
     const size = (c: number) => { const part = [c]; for (let q = 0; q < part.length; q++) for (const j of at[part[q]]) if (j !== a && group.has(j) && !part.includes(j)) part.push(j); return part.length; };
     if (kids.length === 2) {
       const rank = (c: number) => 2 * size(c) + (order(a, c) >= 2 ? 0 : 1);
-      kids.sort((p, q) => rank(q) - rank(p));
+      kids.sort((p, q) => rank(q) - rank(p) || turn * (rel(q) - rel(p)));
       kids.forEach((c, s) => grow(c, a, dir + (s ? -turn : turn) * (Math.PI / 3), group, s ? turn : -turn));
       return;
     }
@@ -210,8 +213,8 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
   for (const [k, i] of path.entries()) {
     const own = groups.filter((g) => g.ends.length === 1 && g.ends[0] === k);
     if (!own.length) continue;
-    // The directions free at this atom: between its backbone bonds on the open side, or at an end, the next step of
-    // the zigzag and then straight out.
+    // The directions free at this atom: the widest gap between the bonds placed at it (the backbone's, and a ring's
+    // fused onto it, as at an α-methylproline), or at an end, the next step of the zigzag and then straight out.
     const bonds = [k - 1, k + 1].filter((j) => j >= 0 && j < path.length).map((j) => angle(xy[k], xy[j]));
     let slots: number[];
     if (bonds.length === 1) {
@@ -220,8 +223,9 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
       const double = (g: (typeof own)[number]) => (g.via.length === 1 && order(g.via[0], i) >= 2 ? 1 : 0);
       if (own.length <= 2) own.sort((p, q) => double(p) - double(q) || q.atoms.length - p.atoms.length);
     } else {
-      const gap = (((bonds[1] - bonds[0]) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), mid = gap > Math.PI ? bonds[0] + gap / 2 : bonds[1] + (2 * Math.PI - gap) / 2;
-      slots = own.map((_, s) => mid + (s - (own.length - 1) / 2) * (Math.PI / 3));
+      const taken = at[i].filter((j) => placed.has(j)).map((j) => angle(xy[k], now(j))).sort((p, q) => p - q);
+      const [from, gap] = taken.map((t, s) => [t, (taken[s + 1] ?? taken[0] + 2 * Math.PI) - t]).reduce((p, q) => (q[1] > p[1] ? q : p));
+      slots = own.map((_, s) => from + gap / 2 + (s - (own.length - 1) / 2) * (Math.PI / 3));
     }
     // The zigzag goes on: the next step turns back the other way from this one.
     const into = angle(xy[k > 0 ? k - 1 : 1], xy[k]);
@@ -239,5 +243,9 @@ export function chainLayout(m: Mol, frag: number[]): Map<number, P> | undefined 
     const [u, v] = b.atoms, nu = at[u].find((j) => j !== v), nv = at[v].find((j) => j !== u);
     if (b.type === 2 && placed.has(u) && nu !== undefined && nv !== undefined && side(old, u, v, nu) * side(old, u, v, nv) * side(now, u, v, nu) * side(now, u, v, nv) < 0) return undefined;
   }
+  // Nor is one that puts an atom on another (a side chain on the next residue's N, an N-methyl on a phenyl before it),
+  // as the drawing would read as another compound.
+  const xs = [...placed.values()].sort((p, q) => p[0] - q[0]);
+  for (let k = 0; k < xs.length; k++) for (let j = k + 1; j < xs.length && xs[j][0] - xs[k][0] < 0.3; j++) if (Math.hypot(xs[j][0] - xs[k][0], xs[j][1] - xs[k][1]) < 0.3) return undefined;
   return placed;
 }

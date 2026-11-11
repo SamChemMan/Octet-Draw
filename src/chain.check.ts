@@ -67,6 +67,24 @@ for (const text of ["rna: pACGU", "dna: GATTACAp"]) for (const m of [drawn(text)
   assert.ok(c1.every((i) => p.every((j) => y(m, i) > y(m, j))), `${text}: the bases above the backbone`);
   assert.equal(chem.toInchi(m), chem.toInchi(smilesOf(text)), `${text}: the same compound`);
 }
+// Clean Up again leaves the chain as it is: a threonine's OH and CH3, a histidine's ring and a thymine's ring keep their
+// sides.
+for (const text of ["peptide: Ac-TVLHWKT-NH2", "dna: GATTACAp"]) {
+  const once = chem.cleanUp(drawn(text)), twice = chem.cleanUp(once);
+  assert.ok(once.atoms.every((a, i) => Math.hypot(a.location[0] - twice.atoms[i].location[0], a.location[1] - twice.atoms[i].location[1]) < 0.2), `${text}: Clean Up again`);
+}
+// No atom goes on another: an α-benzylproline's benzyl keeps clear of its ring, and a layout that would put an N-methyl
+// on the phenyl before it is not used. Each is the same compound, drawn and cleaned up.
+for (const smiles of ["C[C@H]([C@@H](C(=O)N1CCC[C@H]1C(=O)N2CCC[C@@]2(Cc3ccccc3)C(=O)N[C@@H]([C@@H](C)O)C(=O)N)N)O", "C[C@H](C(=O)NCC(=O)N[C@@H](Cc1ccccc1)C(=O)N(C)[C@@H](CCSC)C(=O)N)NC(=O)[C@H](Cc1ccc(O)cc1)N"]) {
+  for (const m of [chem.fullMol(smiles), chem.cleanUp(chem.parseStructure(smiles, false))]) {
+    assert.ok(m.atoms.every((a, i) => m.atoms.every((b, j) => j <= i || Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) > 0.3)), `${smiles}: no atom on another`);
+    assert.equal(chem.toInchi(m), chem.toInchi(smiles), `${smiles}: the same compound`);
+  }
+}
+{
+  const m = chem.parseStructure("CC(=O)N1CCC[C@@]1(Cc1ccccc1)C(=O)N[C@@H](C)C(=O)N[C@@H](C)C(=O)N", false);
+  assert.ok(chainLayout(m, fragments(m)[0]), "an α-benzylproline along a straight backbone");
+}
 // Left to the usual clean-up: a dipeptide, two cysteines joined by a disulfide, a cyclic peptide, and any other
 // structure.
 for (const smiles of ["N[C@@H](C)C(=O)N[C@@H](C)C(=O)O", "N[C@@H](CS1)C(=O)NCC(=O)N[C@@H](CS1)C(=O)O", "O=C1CNC(=O)CNC(=O)CNC(=O)CN1", "Cn1cnc2c1c(=O)n(C)c(=O)n2C"]) {
@@ -90,6 +108,8 @@ assert.deepEqual(readSequence("RNA1{[dR](A)P.[dR](T)P}$$$$V2.0"), { text: "dna: 
 assert.deepEqual(readSequence("PEPTIDE1{A.[Aib].C}$$$$"), { problem: "Octet does not know the HELM monomer [Aib]." });
 assert.ok("problem" in readSequence("PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$")!, "a disulfide");
 assert.ok("problem" in readSequence("RNA1{R(A)P.[dR](T)}$$$$")!, "RNA and DNA in one chain");
+assert.deepEqual(readSequence("RNA1{R(A)P.R(T)}$$$$"), { problem: "Octet does not know the HELM monomer R(T)." }, "ribothymidine is not rU");
+assert.deepEqual(readSequence("RNA1{[dR](U)P.[dR](A)}$$$$"), { problem: "Octet does not know the HELM monomer [dR](U)P." }, "deoxyuridine is not dT");
 assert.deepEqual(readSequence(">sp|P01308|INS_HUMAN Insulin\nMALWMRLLPL\nLALLALWGPD\n"), { text: "peptide: MALWMRLLPLLALLALWGPD" });
 assert.deepEqual(readSequence(">a DNA\nacgttgca\n>another\nAAA"), { text: "dna: ACGTTGCA" }, "the first record");
 assert.deepEqual(readSequence(">an RNA\nACGUU"), { text: "rna: ACGUU" });
