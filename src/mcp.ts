@@ -2623,6 +2623,8 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         const was = reports ? index(before) : undefined, warned = changes ? new Set(wantFull || tool.name === "batch" ? warningTexts(h, before) : shownProblems(h).map((p) => p.message)) : undefined;
         keepIdsAbove(highest(before));
         const out = await runOp(tool, h, args, ctx);
+        // A tool that refuses part way (edit's structure, after a rotate) leaves nothing behind, as a throw does.
+        if (out.error && changes && h.doc() !== before) h.set(before);
         // Stop, or a cancel, while the tool ran: what it did goes too.
         if (changes) await ctx.check();
         await h.settle();
