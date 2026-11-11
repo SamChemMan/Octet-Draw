@@ -1233,3 +1233,44 @@ After step 5 (the tool merge), so scripts are written against the final tool nam
 
 Tests are in `mcp-v2-tests.md`, section 15.
 
+## 19. Speed for the AI model (Sam, 11 November 2026)
+
+Sam: "Octet-side speed seems to be the fastest bit by a mile. Optimise for AI models. Change the way they communicate
+with Octet. Build whatever it takes on the Octet side to make this really good."
+
+### 19.1 What a job costs the model (measured)
+
+`scripts/mcp-evals/aicost.py` reads the eval agents' logs. The 21 train cases on the five tools, agents on Opus 5.5:
+
+| | A job, median | All 21 |
+|---|---|---|
+| Model turns | 10 | 239 |
+| Output tokens | 3,363 | 85,267 |
+| Seconds | 28 | 684 |
+| Octet's own time | under 1 s | 15.7 s |
+
+A one-reaction job is about 3,000 output tokens, and its tool arguments are about 70 of them. So the model's cost
+is its turns and its thinking, not the characters it sends, except on a long route. About half the turns in that run
+were the eval harness itself (printing the tools, setting the case up, writing the answer to a file).
+
+### 19.2 What to change, in order of what it should save
+
+1. **One call a job, and no need to look again.** Each extra call is a model turn. So: the brief can be given inside
+   the first drawing call; the reply says enough to answer the user (what was drawn, how each compound was read, the
+   check), and the instructions say not to read back or ask for a picture when the check is clean.
+2. **Nothing to decide.** The eval agents' notes are a list of decisions the tools make them take: reagent or
+   reactant, where amounts go, which field each condition is, over or under the arrow. A line notation takes them
+   away: one reaction a line as a chemist types it, with the conditions as one free list that Octet sorts
+   (`src/notation.ts`, in build).
+3. **Say a structure once.** Compounds from earlier ones (built), a scope as one core and its variations, a compound
+   from a name in Octet's dictionary with changes.
+4. **Nothing refused that has one meaning** (built: section 6), and a refusal that names the nearest right form.
+5. **A small first read** (built: the tool list is about 4,000 tokens).
+
+### 19.3 How it is measured
+
+A lab with no window (`scripts/mcp-evals/`, in build): a headless server that speaks the app's protocol, a lean
+harness in which the model's turns are the job's own, speed jobs with exact checks, and a cost report (turns, tool
+calls, output tokens, characters sent and read, seconds) kept and compared like `scripts/mcp-bench/results.json`.
+Each change above is kept only if a small, a middle and a large model each do the jobs in fewer turns and tokens with
+no fewer passes.
