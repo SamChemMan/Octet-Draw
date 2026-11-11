@@ -11,7 +11,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, StarFour, TextTSlash,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -417,8 +417,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         // As rows, the quantities are the columns.
         ...(context.empty ? [it(<FunnelSimple size={18} />, context.rows ? "Hide empty columns" : "Hide empty rows", "grid.hide.empty")] : []),
         ...(context.hidden ? [it(<Eye size={18} />, "Show all rows and columns", "grid.show")] : []),
-        // A reagent on each row and the products under them, or a column for each (issue 34).
-        it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
+        // The table as tab-separated text; then a reagent on each row and the products under them, or a column for
+        // each (issue 34).
+        it(<Clipboard size={18} />, "Copy table", "grid.copy"), it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
       break;
     case "cycle":
       if (context.side) {

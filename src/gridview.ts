@@ -4,6 +4,7 @@
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Box, type Grid, type Mol } from "./render.ts";
+import { sheetSafe } from "./experiment.ts";
 import { coefficient, conditionItems, formatAmount, inert, keyColumns, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
@@ -103,12 +104,12 @@ export function gridViews(m: Mol, d: GridDeps) {
     // the names of its columns; the first column names each component by its compound number or its text.
     type Cell = { key: string; row: string; x: number; y: number; w: number; product: boolean };
     type Text = { text: string; x: number; y: number; anchor: "start" | "middle"; bold?: true; formula?: true };
-    let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined;
+    let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined, sections: { title: string; fields: GridRow[]; comps: typeof cols }[] | undefined;
     if (g.layout === "rows") {
       const wide = (t: string, bold = false) => d.nameWidth(t, size, bold);
       // A product's row: what it is, its expected mass, the mass measured and the yield; its equivalents only when typed.
       const ownEquiv = cols.some((c) => c.product && c.typed.equiv !== undefined), fits = (row: (typeof rows)[number], product: boolean) => row.product !== !product && !(product && (row.id === "expectedMoles" || (row.id === "equiv" && !ownEquiv)));
-      const sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
+      sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
       const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(c.label ?? ""))])) + 0.4 * f;
       let y = top;
       texts = []; rules = [];
@@ -128,7 +129,7 @@ export function gridViews(m: Mol, d: GridDeps) {
         y -= 0.5 * rh;
       }
     } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
-    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules }];
+    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
   });
 }
 
@@ -146,6 +147,18 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
   if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
   if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
   return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
+}
+// Copy table: the table as shown, as tab-separated text for a spreadsheet or a document. In columns, a row naming the
+// components (compound number, text or formula), then a row for each row shown; as rows, each section's title and
+// quantities, then a row for each component. Then the conditions, a line each (lines: name and value). Hidden rows and
+// columns are left out. Each value is one line, sheetSafe.
+export function gridTsv(v: GridView, lines: [string, string][] = []): string {
+  const name = (c: GridView["cols"][number]) => c.label ?? c.formula;
+  const table = v.sections
+    ? v.sections.flatMap((sec, k) => [...(k ? [[]] : []), [sec.title, ...sec.fields.map((row) => row.name)], ...sec.comps.map((c) => [name(c), ...sec.fields.map((row) => cellText(v, c, row).text)])])
+    : [["", ...v.cols.map(name)], ...v.rows.map((row) => [row.name, ...v.cols.map((c) => cellText(v, c, row).text)])];
+  const all: string[][] = [...table, ...(lines.length ? [[], ...lines] : [])];
+  return all.map((r) => r.map((x) => sheetSafe(x.replace(/[\t\r\n]+/g, " "))).join("\t")).join("\n") + "\n";
 }
 // Hide empty rows: the rows shown with no value in any column shown.
 export const emptyRows = (v: GridView) => v.rows.filter((row) => !v.cols.some((c) => cellText(v, c, row).text)).map((row) => row.id);

@@ -302,12 +302,14 @@ export function experimentRows(list: ExperimentEntry[], search: string, sort: Ex
   const order = (a: ExperimentEntry, b: ExperimentEntry) => key(a).localeCompare(key(b), "en-GB", { numeric: true, sensitivity: "base" }) || a.at - b.at;
   return list.filter((e) => words.every((w) => text(e).includes(w))).sort((a, b) => (sort.down ? order(b, a) : order(a, b)));
 }
-// The list as CSV: a row of names, then a row for each experiment (its details, Yield in %, and the file). A value a
-// spreadsheet would run as a formula starts with an apostrophe, as these come from files anyone can make; a minus with
-// a number ("-78 °C") stays as it is.
+// A value a spreadsheet would run as a formula, with an apostrophe in front; a minus with a number ("-78 °C") stays as
+// it is. For text from files anyone can make, pasted or saved into a spreadsheet (the CSV below, Copy table).
+export const sheetSafe = (v: string) => (/^[=+@\t\r]/.test(v) || (v.startsWith("-") && !/^-[\d.]+[\s°%A-Za-zµ]*$/.test(v)) ? `'${v}` : v);
+// The list as CSV: a row of names, then a row for each experiment (its details, Yield in %, and the file), each value
+// sheetSafe.
 export function experimentsCsv(list: ExperimentEntry[]): string {
   const cell = (v: string) => {
-    const s = /^[=+@\t\r]/.test(v) || (v.startsWith("-") && !/^-[\d.]+[\s°%A-Za-zµ]*$/.test(v)) ? `'${v}` : v;
+    const s = sheetSafe(v);
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = [[...FIELDS.map(([, name]) => name), "Yield (%)", "File"], ...list.map((e) => [...FIELDS.map(([k]) => e.details[k] ?? ""), e.yield == null ? "" : (e.yield * 100).toFixed(1), e.path])];

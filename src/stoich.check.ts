@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
-import { cellText, emptyRows, gridViews, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -115,6 +115,8 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Show as columns" : "Show as rows", "grid\.layout"/);
   // Hide empty rows (as rows, Hide empty columns): the empty rows join the hidden ones, which Show all brings back.
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Hide empty columns" : "Hide empty rows", "grid\.hide\.empty"/);
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Copy table", "grid\.copy"/);
+  assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\); return v && copyPlain\(gridTsv\(v\)\); \}/);
   assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
 // A line of conditions splits at commas outside brackets; the atmosphere's gas is not a reagent.
@@ -163,7 +165,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(coefficient("1/0 O2"), ["O2", undefined], "no number");
   // A row: text and structures (atoms 0, 1, 2...), plus signs and one arrow (id 9); each structure is "S" and its atom.
   type Item = string | number | "+" | "→";
-  const grid = (row: Item[], typed: object, limiting?: string, above: string[] = [], carried?: { atom: number; box: number[] }) => {
+  const grid = (row: Item[], typed: object, limiting?: string, above: string[] = [], carried?: { atom: number; box: number[] }, more: object = {}) => {
     const captions: { id: number; text: string; x: number; y: number }[] = [];
     let x = 0;
     const steps = row.map((it) => {
@@ -177,7 +179,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
     const conditions = above.map((text, k) => { captions.push({ id: 200 + k, text, x: 0, y: 0 }); return { kind: "text", id: 200 + k, box: [5, 1, 6, 2] }; });
     if (carried) captions.push({ id: 50, text: "2", x: 0, y: 0 });
     const at = steps.findIndex((s) => s.kind === "arrow"), parts = (l: typeof steps) => l.filter((s) => s.kind === "structure" || s.kind === "text");
-    const m = { atoms: [], bonds: [], captions, arrows: [{ id: 9, kind: "reaction", from: [0, 0], to: [1, 0] }], grids: [{ arrow: 9, typed, limiting }] } as unknown as Mol;
+    const m = { atoms: [], bonds: [], captions, arrows: [{ id: 9, kind: "reaction", from: [0, 0], to: [1, 0] }], grids: [{ arrow: 9, typed, limiting, ...more }] } as unknown as Mol;
     const deps: GridDeps = {
       reaction: () => ({ steps, arrows: [9], atoms: [], captions: [], carried: [], conditions: new Map() }) as never,
       steps: (r) => [{ arrow: 9, reactants: parts(r.steps.slice(0, at)), products: parts(r.steps.slice(at + 1)), above: conditions, below: [] }] as never,
@@ -232,6 +234,20 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(empty.rows.filter((id) => !emptyRows(empty.v).includes(id)), ["formula", "mw", "limiting", "equiv"]);
   assert.equal(cellText(empty.v, empty.v.cols[1], empty.v.rows.find((row) => row.id === "equiv")!).text, "1.00");
   assert.ok(!emptyRows(liquid.v).includes("volume") && emptyRows(liquid.v).includes("yield"), "a row with a value stays");
+  // Copy table: tab-separated, as shown. In columns, a row naming the components, then each row shown; hidden rows
+  // are left out; a value a spreadsheet would run as a formula gets an apostrophe; the conditions follow.
+  const named = grid(["=HYPERLINK(1)", "+", 0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", [], undefined, { hidden: { rows: ["density", "volume"] } });
+  const tsv = gridTsv(named.v, [["Temperature", "-78 °C"], ["Other", "=1+1"]]).split("\n");
+  assert.equal(tsv[0], "\t'=HYPERLINK(1)\tS0\tS1");
+  assert.equal(tsv[1], "Formula\t\tS0\tS1");
+  assert.equal(tsv.find((l) => l.startsWith("Moles")), "Moles\t10.0 mmol\t10.0 mmol\t");
+  assert.ok(!tsv.some((l) => /^(Density|Volume)\t/.test(l)), "hidden rows are left out");
+  assert.deepEqual(tsv.slice(-4), ["", "Temperature\t-78 °C", "Other\t'=1+1", ""]);
+  // As rows: each section's title and quantities, then a row for each component.
+  const rowsTsv = gridTsv(grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", [], undefined, { layout: "rows" }).v).split("\n");
+  assert.match(rowsTsv[0], /^Reagents\tFormula\tMW\tLimiting\?\tEquivalents\tMass\tMoles/);
+  assert.match(rowsTsv[1], /^S0\tS0\t100\.00\tYes\t1\.00\t1\.00 g\t10\.0 mmol/);
+  assert.ok(rowsTsv.includes("") && rowsTsv.some((l) => l.startsWith("Products\t")), "the products in a section of their own");
 }
 // Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
 // Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.

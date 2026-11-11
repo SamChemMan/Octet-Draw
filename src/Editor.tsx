@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -7314,6 +7314,8 @@ export default function Editor() {
       const what = command.slice(5), { arrow, key, row } = gridPick;
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
+      // Copy table: the table as shown, as tab-separated text.
+      if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow); return v && copyPlain(gridTsv(v)); }
       // Hide empty rows: every row with nothing in the columns shown (as rows, every quantity with nothing in it).
       if (what === "hide.empty") return changeGrid(arrow, (g, v) => ({ hidden: { ...g.hidden, rows: [...(g.hidden?.rows ?? []), ...emptyRows(v)] } }));
       setGridPick(undefined);
