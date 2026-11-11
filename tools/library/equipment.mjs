@@ -159,7 +159,8 @@ function notebook() {
 }
 
 // Rotary evaporator: a lift on a stand, the drive with a coil condenser above it and the receiving flask below, and
-// the vapour duct down to the evaporating flask, which turns in a heating bath.
+// the vapour duct down to the evaporating flask, which turns in a heating bath. The bath's water stops at the
+// flask's wall.
 function rotaryEvaporator() {
   // The duct's axis, from the evaporating flask's centre (R 20) up to the drive; t across it (positive below).
   const D = [-58, 50], len = Math.hypot(68, -46), u = [68 / len, -46 / len], n = [-u[1], u[0]], R = 20, w = 6;
@@ -174,7 +175,7 @@ function rotaryEvaporator() {
     coil += `C${p[0] + (a[0] * h) / 3} ${p[1] + (a[1] * h) / 3} ${q[0] - (b[0] * h) / 3} ${q[1] - (b[1] * h) / 3} ${q[0]} ${q[1]}`;
   }
   return art("Rotary evaporator", "rotavap, rotovap, Büchi, evaporation, solvent removal", PER, [
-    fill(`M-94 50L-16 50L-16 78Q-16 84 -22 84L-88 84Q-94 84 -94 78Z`, "light"), fill(`M-76.33 58A20 20 0 0 0 -39.67 58Z`), fill(`M11.67 54A20 20 0 0 0 48.33 54Z`),
+    fill(`M-94 50L-78 50A20 20 0 0 0 -38 50L-16 50L-16 78Q-16 84 -22 84L-88 84Q-94 84 -94 78Z`, "light"), fill(`M-76.33 58A20 20 0 0 0 -39.67 58Z`), fill(`M11.67 54A20 20 0 0 0 48.33 54Z`),
     ink(rect(64, -64, 14, 140, 3)), ink(rect(44, 76, 54, 8, 3)), ink(`M64 -10L14 -10Q10 -10 10 -6L10 10Q10 14 14 14L64 14`), fine(ink(circle(52, 2, 4))),
     ink(`M19 -10L19 -86Q19 -96 30 -96Q41 -96 41 -86L41 -10`), fine(ink(coil)), ink(nozzle(41, -82, 1)), ink(nozzle(41, -66, 1)),
     ink(`M26 14L26 26.4A20 20 0 1 0 34 26.4L34 14`),
