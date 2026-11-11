@@ -12,7 +12,7 @@ import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
 import { complexName } from "../../src/complexes.ts";
-import { dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle, textOn, type Cycle } from "../../src/cycle.ts";
+import { centreText, dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle, textOn, type Cycle } from "../../src/cycle.ts";
 import { loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
@@ -83,7 +83,9 @@ function layOut(m: Mol) {
   const inkPx = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
   const nodeText = (m.captions ?? []).filter((c) => c.cycle?.side === "node");
   const texts = nodeText.length ? placeCaptions({ ...m, captions: nodeText }, drawing, width, arrows, pt, style.captionSize, new Map(), run, extent) : [];
-  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box);
+  // A step's name is placed where it is clear of the rest, as the window places it (each place measured as drawn).
+  const named = (id: number, anchor: "start" | "middle" | "end", wrap?: number) => { const c = m.captions?.find((x) => x.id === id); return c && placeCaptions({ ...m, captions: [c] }, drawing, width, arrows, pt, style.captionSize, new Map([[id, { x: 0, y: 0, anchor, wrap }]]), run, extent)[0]?.box; };
+  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box, named);
   const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize, cycles.anchors, run, extent);
   const ink = (atoms: number[]) => { const b = inkPx(atoms); return b && toDoc(b); };
   const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };
@@ -97,9 +99,10 @@ const warnOn = (t: string) => WARNING_TYPES.find((w) => w.id === t)!.on;
 const STEREO = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
 
 // Each AI app session's brief (set_brief), kept as Octet's window keeps it (src-tauri/src/mcp.rs): a new session has
-// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts).
+// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts). elicit: the user's
+// answer to a question Octet asks through the AI app (plan 7.3), for an AI app that takes elicitation.
 const briefs = new Map<string, string>();
-export const session = (client: string, id: string): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b) });
+export const session = (client: string, id: string, elicit?: From["elicit"]): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b), ...(elicit ? { elicit } : {}) });
 
 /** A new drawing for a purpose (File > New For: paper, thesis, slides, poster, experiment, quick), as a Host with
  * Undo and Redo. Its ids start again from the first (mcp.ts resetIds), so the same calls give the same drawing. */
@@ -166,7 +169,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
   const spread = (m: Mol, c: Cycle): Mol => {
     if (!c.nodes.some((n, i) => n.length || textOn(m, c, i))) return m;
     const d = drawn(m), ink = (atoms: number[], i: number) => { const t = atoms.length ? undefined : textOn(m, c, i); return t ? d.placed.find((x) => x.id === t.id)?.box : d.inkPx(atoms); };
-    const { shifts, radius } = spreadCycle(c, L, ink), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
+    const mid = centreText(m, c), { shifts, radius } = spreadCycle(c, L, ink, mid && d.placed.find((x) => x.id === mid.id)?.box), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
     let out = followArcs(m, c, even, radius);
     c.nodes.forEach((n, i) => {
       out = moveAtoms(out, new Set(n), shifts[i]);
@@ -230,7 +233,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
     // As the editor's clean_up: the structures, then each reaction they are in laid out again, measured after the
     // clean-up, so they keep their sides.
     clean_up: () => {
-      const s = selected(), ids = s && new Set(s.atoms), m = cleanUp(doc, ids);
+      const s = selected(), ids = s && new Set(s.atoms);
+      let m = cleanUp(doc, ids);
+      // A catalytic cycle picked (every one, with nothing selected) is tidied too, as the editor's Clean Up does.
+      for (const c of (doc.cycles ?? []).filter((x) => !s || s.items.includes(x.id))) m = spread(m, m.cycles!.find((x) => x.id === c.id)!);
       const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
       if (!cleanReactions((r) => withStructure(r) && r.atoms.some((i) => touched.has(i)), m)) set(m);
       return true;

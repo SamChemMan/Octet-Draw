@@ -203,6 +203,42 @@ preset on its own.
   free text for the rest. When it does not, the refusal above is the fallback. This reverses plan section 8, decision
   4. That decision was about confirmations, which stay unused. Transport work is in section 7.3.
 - `docs/decisions/0021-mcp.md` and `docs/plans/mcp.md` section 8 change to say so.
+- **As built (step 7, 11 November 2026, branch `mcp/elicit`).** Read against MCP 2025-11-25 (Elicitation), the newest
+  version in `VERSIONS`. An AI app takes elicitation when its initialize gives `capabilities.elicitation` as `{}` or
+  with `form` (url mode alone does not count): `elicits` in `mcp.rs`, kept on its `Session` and sent with each
+  request, initialize too, as `From.elicit`. The page reads only that, for the instructions as for the form.
+  - **Where a call would get the refusal** (a scheme with no brief, `needsBrief`), and for `set_brief` with no
+    destination, Octet asks with `elicitation/create` (`ASK_BRIEF`): "Where is this drawing going, and in what
+    style?", with destination (one choice, named Quick look, no page; Paper; Thesis; Slides; Poster; Notebook, the
+    only field required), journal_or_size ("JACS, 2 columns", "A4", "85 x 60 mm"), emphasis and layout, all text. The
+    choice is `enum` with `enumNames`: 2025-06-18 takes no other choice with names, and 2025-11-25 still takes it
+    (as legacy). The page does not know which version the AI app agreed, so it sends the form both take. A tool
+    call's own arguments are checked first, so a wrong call asks nothing; `set_brief`'s are checked with a stand-in
+    destination.
+  - **accept:** the destination and journal_or_size are made into one line ("paper, JACS, 2 columns") and read by
+    `briefOf`, as draw's brief is; emphasis and layout are kept as the user typed them, so text in one field never
+    reads as another field. The call then goes on as if it had that brief: set first in the same undo step, said in the first
+    line of the reply, kept for the session when the call does its work. The reply is the one the call gives with that
+    brief (a check proves it). `set_brief` takes the answers as its arguments; what it was given wins.
+  - **decline:** the user has no preference, so the brief is quick.
+  - **cancel, no answer in 5 minutes, or an answer that is not one** (a destination not one of the six, an action not
+    of the three): the call ends with "Octet changed nothing. The user closed Octet's questions without answering. Ask
+    them in the chat, then call again with brief:" and the three questions. Nothing is kept: the old path still works.
+    A journal Octet has no preset for gets draw's own refusal for it, which says to ask the user.
+  - **Stop and cancel:** Stop in Octet's window, or notifications/cancelled, ends the wait at once, and the call is
+    cancelled as any call is. While it waits, Octet's notice shows, with Stop, and says "Waiting for your answer in"
+    the AI app's name.
+  - **The wait is outside the page's queue:** a call from such an AI app takes its turn in the queue only once it has
+    the brief, so while the user fills in the form every other request to the window (other sessions, reads) goes on.
+    A call from an AI app without elicitation is queued as before.
+  - **The instructions** for such an AI app have one line changed: the bullet with the three questions becomes "For a
+    scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis
+    itself when it needs to. Give brief only for answers the user has already given in the chat." (`instructionsFor`,
+    over `INSTRUCTIONS`, which is not changed). Other AI apps get the instructions as before, word for word.
+  - **Not built:** the prompts (draw_scheme and the rest) still say to ask the three questions, for every AI app; the
+    form has no field for the user's own style file (a form takes text, not a file), so that stays `set_brief`'s
+    from_file; a draw that fails after the user answered keeps no brief (as draw's brief), so the next call asks
+    again.
 
 ### 3.2 Advice on fit (question 2)
 
@@ -826,6 +862,32 @@ The server needs to send a request to the client mid-call and wait for the answe
 4. The page carries on with the answer, or treats "decline" and "cancel" as no brief.
 
 Test it with a small client in `scripts/` that answers elicitation, as `mcp-evals/octet.mjs` is for calls.
+
+**As built (step 7, 11 November 2026, branch `mcp/elicit`):**
+
+- `From` has `elicit`, a function, present only when the session's AI app takes elicitation: mcp.rs sends `elicit` with
+  each request, and the window (`Editor.tsx`) makes it a call of the command `mcp_elicit(id, body)`; the Node host
+  (`scripts/headless/host.ts`, `session(client, id, elicit)`) takes it from the caller, so a check gives the answer.
+- **The stream.** The choice is made late: a tool call without a progress token is answered with plain JSON, as before,
+  unless the page asks; the first question writes the event stream's headers, then the question, then the reply comes
+  as an event (`opened` and `event` in `serve`). A call with a progress token is a stream from the start, as before. So
+  a call that asks nothing is answered byte for byte as before, for every AI app.
+- **mcp_elicit** writes `elicitation/create` with an id of its own (`octet-ask-N`) on the call's stream (`Msg::Ask`),
+  one at a time per call, and waits up to `ASK` (5 minutes). The call's own wait (`WAIT`) grows by `ASK` when it asks.
+- **The answer** is a POST of a JSON-RPC response (no method). `answered` gives it to the call of the same session that
+  waits on that id; any other is ignored. It is checked (`checked`): at most 16 KB, action accept, decline or cancel,
+  and only the form's own fields that are text or a number. Anything else is no answer.
+- **The wait ends at once** when the call ends (its `Pending` goes: the page answered, Stop, the window closed),
+  when notifications/cancelled names it, or when the answer is not one; else after `ASK`. The page reads each as no
+  answer. Each time it ends with no answer (all but the last), Octet sends notifications/cancelled for its own
+  `octet-ask-N` on the call's stream before the reply (`Pending::unask`), so the AI app closes its form.
+- **`--headless --mcp`:** the question goes out as a line, and the answer comes in as a line (`stdio`).
+- **The relay (`--mcp`, Claude Desktop):** the question comes on the call's stream and goes out as a line; the answer
+  line goes to Octet as a POST, as a notification does. An AI app that takes elicitation has its calls wait `ASK` more
+  in the relay.
+- Checked by Rust tests in `mcp.rs` (the capability, the question on the stream, the answer by id, an unknown id, an
+  answer that is not one, the time running out, a cancel, the relay both ways), `src/mcp.check.ts` and
+  `src/headless.check.ts`, and acceptance case 22 (to run on a build).
 
 ## 8. Background jobs (R7)
 
@@ -1785,3 +1847,59 @@ What the runs say:
 Kept for Sam: round 3's clearing step makes the `taxol-v1-job` replay read 170,273 characters against a kept 169,999
 (its later moves are fixed numbers tuned to the old shapes). The kept number is not raised and round 3 stays on
 `mcp/ai3` until he says which: accept the number, or record the replay again.
+
+### 19.6 As built (round 3b, 11 November 2026, branch `mcp/ai3`)
+
+What Haiku's transcripts showed still cost it thinking, calls and passes.
+
+- **Instructions:** "Write each compound as the name or SMILES you have (copy the user's); only with neither, as a
+  change to an earlier one (3[OBn>OTES]), which keeps stereocentres." Haiku had read "write each compound once ... a
+  later one is a change to it" as a rule and said sorry for full SMILES. 2,157 characters from 2,160: "{R} in a SMILES"
+  is "{R} ({L}[Pd]{L})" and "Octet places each as papers do" goes (Do not sort says it). The highlight line still
+  names a group, and a metal ligand is still a metal ligand.
+- **NOTATION's examples** (764 characters from 549, 18 lines from 11; tools/list 12,428 from 12,206): a route from a
+  lone numbered compound, a second scheme from it by its number with lettered parts and a yield each on one arrow, a
+  scope with `R=morpholin-4-yl`, a grid with numbers and yields, and a cycle one step a line with numbered species,
+  each step's name and +in/-out on its own line and the last back to 1. One line says that `|` splits a row and a new
+  line is a new row, and that `(a), (b) and then` are kept as written. The examples are numbered 2 to 6 with no gap. The
+  36 replayed answers still score 35.
+- **Side items before an arrow.** A chain line with conditions between its first compound and its first arrow puts
+  each step's before its arrow: `... (4), -ketol -> 1` puts the ketol on 4→1. A yield stays with the product it
+  follows (`B (2), 90% -> C` is 90% of B). A line with nothing there reads as before.
+- **A cycle's side text and step names can be moved:** `edit` takes `at` (the step as read gives it, `4→1`) on side
+  text and step names, and `side` (in, out) on side text. The text leaves its side arrow (which goes when it has no
+  other end) for one on the new step, as the Side arrow tool puts it. Where the new step has that text already, the two
+  join in one (`ketol, triketone`), as draw writes two at one step, so there is no second side arrow on the first. A
+  moved text that lies on an intermediate goes out from the circle as draw puts it (`clearSides`).
+- **No page, no page advice:** a figure drawn with no page (Quick start) says nothing about a page.
+- **Labels after a draw:** Clean Up cleared the labels of Opus's triol 5 (paper-five-step), and turning it back by 29
+  degrees put them on each other again. A structure whose labels meet once turned back now lies as Clean Up left it.
+- **A scope's R=** takes a label (OMe), a SMILES joined by its first atom, a substituent name joined where its lithium
+  compound has the lithium (`morpholin-4-yl`, `morpholino`, `cyclopropyl`, `methyl`), and a compound name joined at its
+  one N–H (`4-phenylpiperidine`). A SMILES with ring digits is read as SMILES first (`N1CCOCC1` had read as the label
+  NCCOCC, a chain, and `C1CC1` as propyl). Two N–H (`piperazine`) and a word Octet cannot join (`cyclopropy`) are
+  refused with their line. A short label Octet does not know (L, Nu, Ar') and a compound name with no N–H (dppf, a
+  ligand) stay labels. Only a scope by lines does this: a label in JSON and `{Allyl}` in a SMILES stay labels.
+
+### 19.7 As built (round 3c, 11 November 2026, branch `mcp/ai3`)
+
+Round 3b lost the second starting material of the lab's two three-step jobs: Opus and Haiku failed them in 10 of 12
+tries ("compound 11a is drawn", "an arrow from 11a to 12a"), where round 3 passed 6 of 6.
+
+- **A start line with a +.** Compounds joined by ` + ` on a line with no arrow, when the next line starts with an
+  arrow, are that scheme's starting materials, each with its own number, as `A + B -> C` has them. Haiku's
+  `piribedil + but-3-en-1-yl tosylate (11a)` had read as one compound 11a (C27H32N4O5S). A lone compound, a grid row,
+  a scope, a + line with no arrow after it, and a salt (one SMILES with a dot, or one name) read as before.
+- **A compound among the conditions.** One with a compound number (`(12a), Cc1ccc(cc1)S(=O)(=O)OCCC=C (11a)`, or the
+  name) is the scheme's: at the first step a starting material beside the first with a +, at a later step a structure
+  over the arrow, as an added reactant is; it is listed in the reply's compounds. A number is told from an amount as a
+  compound's own is ((1.5 equiv), (5 mol%) and (4M) stay conditions). Only a reagent takes a number this way, and only
+  one no compound has yet that is no amount in units: `NaH (2eq)`, `H2 (1atm)`, `rt (16h)`, `CH2Cl2 (16h)` and
+  `Pd2(dba)3 (2)` after product 2 stay conditions. A SMILES with no number and a double or triple bond or an aromatic
+  ring closed is drawn over its arrow, never as its text; a formula or an abbreviation that looks like a SMILES (NBS,
+  SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2) stays text.
+- **Left for Sam.** A SMILES with no number and no `=`, `#` or aromatic ring (CCO, C1CCCCC1, CC(C)O) still shows as
+  text over its arrow: NBS, CO and PCC are valid SMILES too, so Octet cannot tell these from an abbreviation.
+- **NOTATION's route** starts `4-bromoanisole (2) + PhB(OH)2` and then `-> 4-methoxybiphenyl (3), Pd(PPh3)4 ...`:
+  the second reactant is a starting material (models had copied it into the conditions). 765
+  characters; tools/list 12,429. The 36 replayed answers still score 35.

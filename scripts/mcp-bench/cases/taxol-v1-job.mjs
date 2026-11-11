@@ -5,6 +5,8 @@
 // It is the same job, call for call, written with the five tools of v2 (plan 5.1): the v1 names are gone.
 // Since Octet reads arguments leniently (plan section 6), the six calls go through, each marked "v1 refused" below, and
 // the call after each one, which was the AI app's second try, does the same thing again.
+// The row moves below are fixed distances, not fitted to any layout, so what its reads list after them changes when
+// Octet's layout does (a draw that clears its own labels, plan 19.5: 169,999 characters read became 170,273).
 import { readFileSync } from "node:fs";
 const json = (f) => JSON.parse(readFileSync(new URL(`../taxol/${f}.json`, import.meta.url), "utf8"));
 const structures = json("structures"), schemes = ["scheme1", "scheme2", "scheme3"].map(json);

@@ -80,7 +80,7 @@ import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, rea
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
-import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
+import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
@@ -2744,7 +2744,8 @@ export default function Editor() {
     if (!TAURI) return;
     // brief: the session's brief (set_brief), which the server keeps for it (mcp_brief keeps a new one). unset: the
     // session has no drawing yet. sent: when the server sent it, in a dev build that times calls (mcp.rs, plan 17.5).
-    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null; unset: boolean; sent: number | null }>("mcp", (e) => {
+    // elicit: the AI app takes elicitation/create, so the call may ask the user through it (mcp_elicit, plan 7.3).
+    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null; unset: boolean; elicit?: boolean; sent: number | null }>("mcp", (e) => {
       const p = e.payload;
       if (mcpTaken.has(p.id)) return;
       mcpTaken.add(p.id);
@@ -2756,6 +2757,7 @@ export default function Editor() {
         client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief, unset: p.unset,
         ...(p.sent ? { timed: { sent: p.sent, got: Date.now(), visibility: document.visibilityState, focus: document.hasFocus() } } : {}),
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
+        ...(p.elicit ? { elicit: (params: object) => invoke<string>("mcp_elicit", { id: p.id, body: JSON.stringify(params) }) } : {}),
       }).then((body) => { if (!lost || !HEADLESS || asked.params?.name !== "read") return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body })).finally(() => window.setTimeout(() => mcpTaken.delete(p.id), 15_000));
     });
     const listener = ++mcpListener;
@@ -3948,7 +3950,7 @@ export default function Editor() {
   const spread = (m: Mol, c: Cycle, d: Pick<typeof drawing, "ink"> = drawing) => {
     if (!c.nodes.some((n, i) => n.length || textOn(m, c, i))) return m;
     const ink = (atoms: number[], i: number) => { const t = atoms.length ? undefined : textOn(m, c, i); return t ? placed.find((x) => x.id === t.id)?.box : union(atoms.filter((k) => d.ink[k]).map((k) => d.ink[k])); };
-    const { shifts, radius } = spreadCycle(c, L, ink), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
+    const mid = centreText(m, c), { shifts, radius } = spreadCycle(c, L, ink, mid && placed.find((x) => x.id === mid.id)?.box), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
     m = followArcs(m, c, even, radius);
     c.nodes.forEach((n, i) => {
       m = moveAtoms(m, new Set(n), shifts[i]);
