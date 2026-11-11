@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
+import { AROMATIC, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -2088,6 +2088,11 @@ const pointsOf = <T extends Arrow | Shape | Cycle>(x: T, k: number): T => ({
   ...x, ...(x.width ? { width: Math.round(x.width * k * 1e4) / 1e4 } : {}), ...("size" in x && x.size ? { size: points(x.size * k) } : {}),
   ...("table" in x && x.table?.weight ? { table: { ...x.table, weight: Math.round(x.table.weight * k * 1e4) / 1e4 } } : {}),
 });
+// A bond's own line and bold widths times k.
+const bondPoints = (b: Bond, k: number): Bond => (b.line || b.bold ? { ...b, ...(b.line ? { line: times(b.line, k) } : {}), ...(b.bold ? { bold: times(b.bold, k) } : {}) } : b);
+// The line width an arrow, shape or cycle is drawn with, at its scale: its own, a table's rules', or the document's
+// line (a filled pen curve's outline is a hairline unless set; curveFill).
+export const lineWidth = (x: Arrow | Shape | Cycle, line: number) => (("table" in x && x.table ? x.table.weight : x.width) ?? ("curve" in x && x.curve?.closed && x.fill ? 0.05 : line)) * scaleOf(x);
 // Scale… with Labels and lines on: the chosen atoms', arrows', shapes' and cycles' scales times k, and the sizes of
 // the chosen captions and of the captions that go with them (under those atoms, on those arrows, in those cycles).
 // captionSize: the document's caption size, for captions that have none of their own. Positions move elsewhere.
@@ -2111,6 +2116,7 @@ export function scaleSizes(m: Mol, r: number): Mol {
   return {
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * r) } : a)),
+    bonds: m.bonds.map((b) => bondPoints(b, r)),
     captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) || typeof c.lineHeight === "number" ? caption(c, r) : c)),
     arrows: m.arrows?.map((a) => pointsOf(a, r)),
     shapes: m.shapes?.map((x) => pointsOf(x, r)),
@@ -2181,10 +2187,50 @@ export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "ca
   return {
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * label) } : a)),
+    bonds: m.bonds.map((b) => bondPoints(b, k)),
     captions: m.captions?.map(fitted),
     arrows: m.arrows?.map((a) => pointsOf(a, k)),
     shapes: m.shapes?.map((x) => pointsOf(x, k)),
     cycles: m.cycles?.map((c) => pointsOf(c, k)),
+  };
+}
+// ChemDraw's Object Settings (Settings > Pro > Selection): the bond length, line and bold widths, and label and caption
+// fonts and sizes of some atoms and objects, as drawn (points). Each is the first chosen thing's that has one; unset
+// when nothing chosen has one. The bond length is the document's times the scale.
+export type ObjectSettings = { bond?: number; line?: number; bold?: number; labelFont?: string; labelSize?: number; captionFont?: string; captionSize?: number };
+export function objectSettings(m: Mol, s: DocStyle, atoms: Set<number>, items: Set<number>): ObjectSettings {
+  const a = m.atoms[atoms.values().next().value ?? -1], b = m.bonds.find((x) => atoms.has(x.atoms[0]) && atoms.has(x.atoms[1]));
+  const x = [...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].find((y) => items.has(y.id)), c = m.captions?.find((y) => items.has(y.id));
+  const f = b ? (scaleAt(m, b.atoms[0]) + scaleAt(m, b.atoms[1])) / 2 : 1, round = (v: number) => Math.round(v * 1e4) / 1e4;
+  return {
+    ...(a || x ? { bond: round(s.bond * scaleOf(a ?? x!)) } : {}),
+    ...(b ? { line: round((b.line ?? s.line) * f), bold: round((b.bold ?? s.bold) * f) } : x ? { line: round(lineWidth(x, s.line)) } : {}),
+    ...(a ? { labelFont: a.font ?? s.labelFont, labelSize: round((a.size ?? s.labelSize) * scaleOf(a)) } : {}),
+    ...(c ? { captionFont: c.font ?? s.captionFont, captionSize: c.size ?? s.captionSize } : {}),
+  };
+}
+// The chosen atoms and objects given these settings: widths on the bonds between chosen atoms (and a line width on
+// chosen arrows, shapes and cycles; a table's rules 0.1 pt at least), a label font and size on chosen atoms, and a
+// caption font and size on chosen captions. Each keeps a size over its scale, and has none of its own where it is the
+// document's. The bond length is a scale, made elsewhere, as positions move with it.
+export function withObjectSettings(m: Mol, s: DocStyle, atoms: Set<number>, items: Set<number>, o: ObjectSettings): Mol {
+  const own = (v: number | undefined, f: number, doc: number, was?: number) => { if (v === undefined) return was; const w = Math.round((v / f) * 1e4) / 1e4; return Math.abs(w - doc) < 1e-4 ? undefined : w; };
+  const font = (v: string | undefined, doc: string, was?: string) => (v === undefined ? was : v === doc ? undefined : v);
+  // A line width on an arrow, shape or cycle: none of its own where it is the one it has without (lineWidth).
+  const lined = <T extends Arrow | Shape | Cycle>(x: T): T => (o.line === undefined || !items.has(x.id) ? x
+    : "table" in x && x.table ? { ...x, table: { ...x.table, weight: Math.max(0.1, o.line) / scaleOf(x) } } : { ...x, width: own(o.line, scaleOf(x), lineWidth({ ...x, width: undefined, scale: 1 }, s.line)) });
+  const labels = o.labelFont !== undefined || o.labelSize !== undefined, widths = o.line !== undefined || o.bold !== undefined, text = o.captionFont !== undefined || o.captionSize !== undefined;
+  const lines = o.line !== undefined;
+  return {
+    ...m,
+    atoms: !labels ? m.atoms : m.atoms.map((a, i) => (atoms.has(i) ? { ...a, font: font(o.labelFont, s.labelFont, a.font), size: own(o.labelSize, scaleOf(a), s.labelSize, a.size) } : a)),
+    bonds: !widths ? m.bonds : m.bonds.map((b) => {
+      if (!atoms.has(b.atoms[0]) || !atoms.has(b.atoms[1])) return b;
+      const f = (scaleAt(m, b.atoms[0]) + scaleAt(m, b.atoms[1])) / 2;
+      return { ...b, line: own(o.line, f, s.line, b.line), bold: own(o.bold, f, s.bold, b.bold) };
+    }),
+    arrows: lines ? m.arrows?.map(lined) : m.arrows, shapes: lines ? m.shapes?.map(lined) : m.shapes, cycles: lines ? m.cycles?.map(lined) : m.cycles,
+    captions: !text ? m.captions : m.captions?.map((c) => (items.has(c.id) ? { ...c, font: font(o.captionFont, s.captionFont, c.font), size: own(o.captionSize, 1, s.captionSize, c.size) } : c)),
   };
 }
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the

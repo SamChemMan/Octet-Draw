@@ -15,7 +15,8 @@ import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
 import { EXPORT_FORMATS, PICTURES, type ExportFormat } from "./export";
 import { BACKDROPS, DpiField } from "./ExportDialog";
-import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, LIMITS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
+import type { ObjectSettings } from "./edit";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
 
@@ -73,6 +74,9 @@ type Props = {
   onOnlineSearch: (on: boolean) => void;
   moreFormats: boolean; // File > More Formats is in the File menu
   onMoreFormats: (on: boolean) => void;
+  // The selection's own settings (Pro > Selection, ChemDraw's Object Settings), while something is selected: a change
+  // gives it to the selection, Copy settings keeps them, and Paste settings gives the kept ones to the selection.
+  selection?: { settings: ObjectSettings; onChange: (o: ObjectSettings) => void; onCopy: () => void; onPaste?: () => void };
   rulerUnit: RulerUnit; // View > Show Rulers: the rulers' unit, for every drawing
   onRulerUnit: (unit: RulerUnit) => void;
   selectColour: string; // the selection's colour, #RRGGBB, in every window
@@ -480,6 +484,12 @@ export function SettingsWindow(p: Props) {
     const d = (module: ModuleId, section: string, label: string, keywords: string, control: React.ReactNode, wide?: boolean): Def => ({ module, section, label, keywords, control, wide });
     const num = (k: keyof DocStyle, label: string, unit: string, words: string, section = "Style") =>
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
+    // The selection's own settings: a row for each one something selected has, to 0.01 pt (typed values count on Return).
+    const own = p.selection?.settings ?? {}, put = (o: ObjectSettings) => p.selection?.onChange(o), words = "selection selected object objects own settings";
+    const ownPt = (k: "bond" | "line" | "bold" | "labelSize" | "captionSize", label: string, keywords: string, [min, max]: [number, number]) => (own[k] === undefined ? []
+      : [d("pro", "Selection", label, `${words} ${keywords}`, <NumberField label={label} unit="pt" lazy min={min} max={max} value={Math.round(own[k]! * 100) / 100} onChange={(n) => put({ [k]: n })} />)]);
+    const ownFont = (k: "labelFont" | "captionFont", label: string, keywords: string) => (own[k] === undefined ? []
+      : [d("pro", "Selection", label, `${words} ${keywords}`, <FontPick label={label} font={own[k]!} fonts={FONTS} onPick={(v) => put({ [k]: v })} className="select-field" />)]);
     return [
       // What the drawing is for (IDEA-SIZE-8): a purpose sets the style, its scale and the page in one step.
       { ...d("document", "For", "For", "template for paper thesis slides poster experiment notebook talk presentation new size page", (
@@ -610,12 +620,18 @@ export function SettingsWindow(p: Props) {
       d("general", "Check Structure", "Check when copying or exporting", "check structure copy export clipboard warnings", <Switch on={p.checkCopy} label="Check when copying or exporting" onChange={p.onCheckCopy} />),
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
+      // ChemDraw's Object Settings: the selection's own bond length, widths and text. Each row shows the first selected
+      // thing's value and sets it on every selected thing it fits. A row shows when something selected has it.
+      ...ownPt("bond", "Bond length", "bond length fixed size scale", LIMITS.bond), ...ownPt("line", "Line width", "line width bonds arrows weight lighter", LIMITS.line),
+      ...ownPt("bold", "Bold width", "bold width wedge", LIMITS.bold), ...ownFont("labelFont", "Atom labels", "atom label font typeface"),
+      ...ownPt("labelSize", "Label size", "atom label font size", LIMITS.labelSize), ...ownFont("captionFont", "Captions", "caption text font typeface"),
+      ...ownPt("captionSize", "Caption size", "caption text font size", LIMITS.captionSize),
       // On shows File > More Formats, with the rare formats to import and export.
       d("pro", "File menu", "More formats", "more formats rare file import export open save menu submenu extra", <Switch on={p.moreFormats} label="More formats" onChange={p.onMoreFormats} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -653,6 +669,13 @@ export function SettingsWindow(p: Props) {
     return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
       aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : s === "Names" && !query ? (
         <span className="section-buttons"><button className="text-button" onClick={p.onImportNames}>Import…</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
+      ) : s === "Selection" && !query && p.selection ? (
+        // Reset to document: the selection takes the document's settings (ChemDraw's Apply Object Settings from > Current Document).
+        <span className="section-buttons">
+          <button className="text-button" onClick={p.selection.onCopy}>Copy settings</button>
+          <button className="text-button" onClick={p.selection.onPaste} disabled={!p.selection.onPaste}>Paste settings</button>
+          <button className="text-button" onClick={() => p.selection!.onChange({ bond: style.bond, line: style.line, bold: style.bold, labelFont: style.labelFont, labelSize: style.labelSize, captionFont: style.captionFont, captionSize: style.captionSize })}>Reset to document</button>
+        </span>
       ) : undefined} />)}</>;
   };
 

@@ -47,7 +47,7 @@ export function serialize(mol: Mol): string {
     ...(a.query ? { query: a.query } : {}), ...(a.peaks?.length ? { peaks: a.peaks } : {}), ...(a.inner?.atoms.length ? { inner: innerOut(a.inner) } : {}), ...scaled(a) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.ignoreWarnings ? { ignoreWarnings: true } : {}),
     ...(b.query ? { query: b.query } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}),
-    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}), ...(b.peaks?.length ? { peaks: b.peaks } : {}), ...(b.ports ? { ports: b.ports } : {}) }));
+    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.line ? { line: b.line } : {}), ...(b.bold ? { bold: b.bold } : {}), ...(b.own ? { own: b.own } : {}), ...(b.peaks?.length ? { peaks: b.peaks } : {}), ...(b.ports ? { ports: b.ports } : {}) }));
   // Captions are saved in id order and arrows in their drawing order; ids are not saved. Conditions name their arrow
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
@@ -258,10 +258,12 @@ export function parse(text: string): Mol {
   for (const b of bonds as Record<string, unknown>[]) {
     const ends = b?.atoms as unknown[];
     if (!Array.isArray(ends) || ends.length !== 2 || !ends.every((i) => int(i, 0, out.atoms.length - 1)) || ends[0] === ends[1] || !(int(b.type, 1, 4) || b.type === HBOND || b.type === QUADRUPLE) || (b.stereo !== undefined && b.stereo !== 1 && b.stereo !== 6) || (b.display !== undefined && !DISPLAYS.includes(b.display as Display)) || (b.position !== undefined && !["left", "centre", "right"].includes(b.position as string)) || badColour(b.colour) || badColour(b.halo)
-      || (b.spacing !== undefined && !(num(b.spacing) && (b.spacing as number) >= 0 && (b.spacing as number) <= 100)) || (b.own !== undefined && !ownSettings(b.own))) throw new Error("This drawing is damaged.");
+      || (b.spacing !== undefined && !(num(b.spacing) && (b.spacing as number) >= 0 && (b.spacing as number) <= 100)) || badWidth(b.line) || badWidth(b.bold) || (b.own !== undefined && !ownSettings(b.own))) throw new Error("This drawing is damaged.");
     const bond: Bond = { type: b.type as number, atoms: [ends[0] as number, ends[1] as number] };
     if (b.halo) bond.halo = b.halo as string;
     if (b.spacing !== undefined) bond.spacing = b.spacing as number;
+    if (b.line) bond.line = b.line as number;
+    if (b.bold) bond.bold = b.bold as number;
     if (b.own) bond.own = b.own as Record<string, string>;
     if (b.stereo) bond.stereo = b.stereo as number;
     if (b.display) bond.display = b.display as Display;
