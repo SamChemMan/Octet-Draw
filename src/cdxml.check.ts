@@ -1396,5 +1396,9 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   const chemdraw = (attrs: string, text: string) => fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1"><n id="2" p="100 100" ${attrs}><t p="100 100"><s font="3" size="10" face="96">${text}</s></t></n><n id="3" p="114.4 100"/><b id="4" B="2" E="3"/></fragment></page></CDXML>`).mol.atoms[0];
   assert.deepEqual([chemdraw('Element="8" NumHydrogens="0"', "O").implicitHCount, chemdraw('Element="8" NumHydrogens="0"', "O").text], [0, undefined], "ChemDraw's bare O");
   for (const attrs of ['Element="8" NumHydrogens="1"', 'Element="8" NumHydrogens="-1"', 'Element="8"']) assert.equal(chemdraw(attrs, "O").implicitHCount, undefined, attrs);
+  // A pyridine's N (NumHydrogens 0) in ChemDraw's delocalised ring has its usual none once the ring is made Kekulé.
+  const ring = [0, 1, 2, 3, 4, 5].map((k) => [100 + 14.4 * Math.cos((k * Math.PI) / 3), 100 + 14.4 * Math.sin((k * Math.PI) / 3)].map((v) => v.toFixed(2)).join(" "));
+  const pyridine = fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1">${ring.map((p, k) => `<n id="${k + 2}" p="${p}"${k ? "/>" : ` Element="7" NumHydrogens="0"><t p="${p}"><s font="3" size="10" face="96">N</s></t></n>`}`).join("")}${ring.map((_, k) => `<b id="${k + 10}" B="${k + 2}" E="${((k + 1) % 6) + 2}" Order="1.5"/>`).join("")}</fragment></page></CDXML>`).mol;
+  assert.deepEqual([pyridine.atoms[0].implicitHCount, pyridine.bonds.filter((x) => x.type === 2).length], [undefined, 3], "a pyridine's N");
   console.log("cdxml.check: hydrogens set by hand ok");
 }

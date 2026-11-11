@@ -19,7 +19,7 @@ import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, for
 import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
-import { fragments, groupParents, oldLigands, renumberCentre, tidyGroups } from "./edit.ts";
+import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
@@ -2485,6 +2485,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (kept.length) mol.groups = kept;
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));
   if (octet && top!.guides !== undefined) mol.guides = readGuides(top!.guides);
-  // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them.
-  return { mol: tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol)), style, lost };
+  // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
+  // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
+  return { mol: settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, lost };
 }

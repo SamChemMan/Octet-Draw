@@ -7355,8 +7355,7 @@ export default function Editor() {
     if (command === "pairs") return set(toggleLonePairs(doc, [...selection], settings.pairBars), true);
     if (context.kind === "atom") {
       const i = ids[0], [kind, arg] = command.split(".");
-      // An element chip does what its key does (keyElement): on its own element, one hydrogen fewer.
-      if (kind === "element") return set(keyElement(doc, i, arg), true);
+      if (kind === "element") return set(setElement(doc, i, arg), true);
       if (command.startsWith("label:")) return set(setLabel(doc, i, command.slice(6)), true);
       if (kind === "group") return set(addGroup(doc, i, arg as Group));
       if (command === "atom.label") return editLabel(i);
