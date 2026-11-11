@@ -7,7 +7,7 @@
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
 import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
-import { change, tagged, type Change } from "./compound.ts";
+import { change, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
 import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
@@ -192,7 +192,7 @@ const MOLECULE = obj({
   atoms: list(obj({ label: str(40), runs: RUNS, x: num(-1000, 1000), y: num(-1000, 1000), charge: int(-8, 8), colour: str(7) }, ["x", "y"]), 500, 1),
   bonds: list(obj({ from: int(0, 499), to: int(0, 499), kind: str(20), colour: str(7) }, ["from", "to"]), 600),
 }, ["atoms"]);
-const FROM_NOTE = "When a compound is an earlier one with a change, give from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second, or at for the one on that atom); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7], [CH2:9]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. {do: 'reduce', at: '7', config: 'R'} is a named transformation (a refusal lists them), also for rings and joins";
+const FROM_NOTE = "When a compound is an earlier one with a change, give from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second, or at for the one on that atom); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7], [CH2:9]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. {do: 'reduce', at: '7', config: 'R'} is a named transformation (advanced help of transformations lists them), also for rings and joins";
 const MOLECULE_NOTE = "atoms (from 0) with x, y (bond lengths, y up) and label (none is carbon; a label such as OSiPh3 reads out from the atom, and Octet turns it round on the left), and bonds from, to and kind (as edit's bond; a wedge is narrow at from). Bonds to a metal look best about 1.5 long";
 // Orientation hints (R2): a structure from a SMILES or a name, turned as a picture shows it, so an AI app need give no
 // coordinates. Each geometry's places for the centre's ligands, in SMILES order: the angle (degrees, anticlockwise
@@ -353,7 +353,7 @@ const OPS: Op[] = [
   },
   {
     name: "reaction", title: "Draw a reaction or scheme", hints: ADD, outputSchema: CHANGE, done: "drew a reaction",
-    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'), or a compound drawn at the arrow ('structure:' before a name does too). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, from with changes, number, caption and the hints structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
+    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'), or a compound drawn at the arrow ('structure:' before a name does too). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short: a list over 30 characters goes on more lines between its items, and a free line after a comma or semicolon. read gives the compounds at an arrow after its text lines. Each compound takes labels, from with changes, number, caption and the hints structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
     inputSchema: obj({
       start: list(COMPOUND, 6, 1),
       steps: list(obj({
@@ -524,7 +524,9 @@ const OPS: Op[] = [
     inputSchema: obj({ of: str(40) }),
     run: async (_, a) => {
       const of = clean(a.of ?? "").toLowerCase(), t = HELP.includes(of) ? opOf(of) : undefined;
-      if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}) or a tool of advanced (${ADVANCED.join(", ")}).`, ...(of ? { error: true as const } : {}) };
+      // The named transformations a compound's change takes as do (compound.ts), which draw names in one example.
+      if (of === "transformations") { const data = { of, call: "a compound's changes: {do, at, with, to, config}", description: TRANSFORMATIONS }; return { text: JSON.stringify(data), data }; }
+      if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}), a tool of advanced (${ADVANCED.join(", ")}) or transformations (a compound's changes with do).`, ...(of ? { error: true as const } : {}) };
       const call = KINDS.includes(of as never) ? `draw with kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
       const data = { of, call, does: t.title, description: t.description, arguments: whole(t.inputSchema) };
       return { text: JSON.stringify(data), data };
@@ -562,7 +564,7 @@ const stray = (a: object, listed: ObjSchema, op: string, what: string) => { cons
 const LISTED_COMPOUND: Schema = { ...obj({
   text: structureText, labels: LABELS,
   from: str(40, "The earlier compound this one is, with changes: its number, its id, or previous (the one before in this call)"),
-  changes: { ...list(obj({ swap: { type: "object", properties: {}, additionalProperties: true }, occurrence: int(1, 99), at: str(40), set: str(40), add: str(40), remove: yes(), bond: str(40), to: pick(["single", "double", "triple"]) }), 20), description: "Made in order on from's drawing: it lies the same way and keeps its stereocentres. Each is one of: {swap: {OBn: 'OTES'}}, a group for a group (occurrence: 2 for the second such group); {at: '7', set: 'OTBS'}, a new group for the one on an atom; {at, add: 'OH'}; {at, remove: true}; {bond: '5-6', to: 'double'}. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7]); {do: 'reduce', at: '7', config: 'R'}, a named transformation (a refusal lists them), also for rings and joins" },
+  changes: { ...list(obj({ swap: { type: "object", properties: {}, additionalProperties: true }, occurrence: int(1, 99), at: str(40), set: str(40), add: str(40), remove: yes(), bond: str(40), to: pick(["single", "double", "triple"]) }), 20), description: "Made in order on from's drawing: it lies the same way and keeps its stereocentres. Each is one of: {swap: {OBn: 'OTES'}}, a group for a group (occurrence: 2 for the second such group); {at: '7', set: 'OTBS'}, a new group for the one on an atom; {at, add: 'OH'}; {at, remove: true}; {bond: '5-6', to: 'double'}. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7]); {do: 'reduce', at: '7', config: 'R'}, a named transformation (advanced help of transformations lists them), also for rings and joins" },
   number: numeral(12), caption: str(MAX_TEXT),
 }), description: "text, or from with changes. number is bold under it, caption under the number" };
 const COMPOUNDS = list({ $ref: "#/$defs/compound" }, MOST_STRUCTURES), TEXTS = list(str(MAX_TEXT), 10);
@@ -595,7 +597,7 @@ const TOOLS: Tool[] = [
       steps: { ...list(obj({
         products: COMPOUNDS, arrow: pick(ARROWS), reagents: TEXTS, catalysts: TEXTS, solvents: TEXTS, temperature: str(60), time: str(60), atmosphere: str(40), yield: str(40), above: TEXTS, below: TEXTS,
         step: int(0, 11), name: str(MAX_TEXT), in: str(MAX_TEXT), out: str(MAX_TEXT),
-      }), 20), description: "A reaction's steps: each has products, and its conditions as data (reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield; above and below add one free line each). A cycle's steps: step k (from 0) runs from intermediate k to k+1, the last back to the first, and takes a short name (OA, TM, RE), in and out" },
+      }), 20), description: "A reaction's steps: each has products, and its conditions as data (reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield; above and below add one free line or compound each). A cycle's steps: step k (from 0) runs from intermediate k to k+1, the last back to the first, and takes a short name (OA, TM, RE), in and out" },
       keep_orientation: yes("A reaction: false stops Octet turning each product to lie as its starting material"),
       intermediates: COMPOUNDS, centre: str(MAX_TEXT), anticlockwise: yes(),
       panels: { ...list(obj({ frame: pick(["none", "line", "fill"]), rows: list(list({ type: "object", properties: {}, additionalProperties: true }, 8), 6) }), 8), description: "A figure's panels, each with title, subtitle and rows of items. An item is a compound with structure in place of text (and brackets, mark, colour), or text alone" },

@@ -14,6 +14,7 @@ const { analyse, analyseCompound, expandLabels, mapReaction, parseStructure, rea
 const { problems } = await import("./check.ts");
 const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
+const { TRANSFORMATIONS } = await import("./compound.ts");
 const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
 const { handle, MAX_TEXT, resetIds, TOOL_NAMES, TOOL_TABLE, OP_TABLE } = await import("./mcp.ts");
@@ -1065,6 +1066,17 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // With no name, or one Octet does not have, it says what it is of. batch and help are no names to ask of.
   assert.match(text(await call("advanced", { tool: "help" })), /^Give of: a kind of draw \(structures, reaction, cycle, figure\), an operation of change \(edit, /);
   for (const name of ["batch", "help", "read_drawing"]) { const h = await call("advanced", { tool: "help", args: { of: name } }); assert.ok(h.isError && /^Octet has nothing named /.test(text(h)), name); }
+  // The named transformations a compound's change takes as do (compound.ts) are in help: draw's list of changes names
+  // do in one example and says where the rest are.
+  {
+    const h = await call("advanced", { tool: "help", args: { of: "transformations" } });
+    assert.deepEqual([h.isError, h.structuredContent.of, h.structuredContent.description], [undefined, "transformations", TRANSFORMATIONS]);
+    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\) or transformations \(a compound's changes with do\)\.$/);
+    assert.match((tools[0].inputSchema as any).$defs.compound.properties.changes.description, /\{do: 'reduce', at: '7', config: 'R'\}, a named transformation \(advanced help of transformations lists them\)/);
+  }
+  // A reaction's help says what its lines over and under an arrow take and how they read back; draw says it in a word.
+  assert.match(OP_TABLE.find((o) => o.name === "reaction")!.description, /or a compound drawn at the arrow .*a list over 30 characters goes on more lines between its items, and a free line after a comma or semicolon\. read gives the compounds at an arrow after its text lines\./);
+  assert.match(tools[0].inputSchema.properties.steps.description, /above and below add one free line or compound each/);
   // The pieces a tool lists once are whole in help: the compound with its hints and molecule (once in structures and
   // a cycle; four times in a reaction: its starting materials, each step's products, and a line over or under an
   // arrow, which is text or a compound drawn there), text that can be runs (four places in a figure), an arrow's end (two).
