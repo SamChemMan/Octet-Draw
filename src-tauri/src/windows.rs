@@ -82,7 +82,8 @@ fn changed(app: &AppHandle) {
 // on the main thread) deadlocks, and the app hangs with a white window.
 #[tauri::command]
 // Gives the new window's label, so an AI app's drawings new goes to the window it opened (two at once each get their own).
-pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<String, String> {
+// session: the AI app's session (drawings new), whose drawing it is from now on.
+pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value, session: Option<String>) -> Result<String, String> {
     if start.to_string().len() as u64 > MAX_BYTES + 4096 {
         return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());
     }
@@ -104,8 +105,14 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     if crate::mcp::on(&app) {
         builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     }
+    // The session's before the window exists (the system may put it in front while it is made): another session with
+    // no drawing never takes it (mcp.rs route). If no window is made, the session has its drawing from before again.
+    let was = session.as_deref().and_then(|s| crate::mcp::give(&app, s, Some(label.clone())));
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
+        if let (Some(s), Some(was)) = (session.as_deref(), was) {
+            crate::mcp::give(&app, s, was);
+        }
         e.to_string()
     })?;
     #[cfg(windows)]
@@ -209,7 +216,8 @@ pub fn window_empty(app: AppHandle, window: Window) {
     }
 }
 
-#[tauri::command]
+// Off the main thread (async), where it waited behind window making (plan 17.5): it only takes a lock.
+#[tauri::command(async)]
 pub fn window_list(windows: State<'_, Windows>) -> Vec<Info> {
     windows.open.lock().unwrap().clone()
 }
