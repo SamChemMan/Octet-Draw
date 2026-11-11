@@ -2037,20 +2037,17 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   };
   // A shaft along points, stopping `trim` short of the end, drawn in the arrow's style: dashes of 0.15 bond lengths
   // with gaps of 0.1, a wave 0.06 bond lengths high every 0.2, the bold width, or two lines 0.1 bond lengths apart.
-  const line = (pts: P[], trim: number) => {
+  // A closed pen curve (no heads) is one loop, with no ends.
+  const line = (pts: P[], trim: number, closed = false) => {
     const path = cut(pts, trim);
     if (a.style === "doubled") {
       const g = 0.05 * s.bond;
-      for (const side of [-1, 1]) { const o = offsetPath(path, side * g); for (let i = 0; i + 1 < o.length; i++) if (len(sub(o[i + 1], o[i])) > 1e-9) bar(o[i], o[i + 1]); }
+      for (const side of [-1, 1]) out.push(...strokeOutline(offsetPath(path, side * g), hw, closed));
       return;
     }
     if (a.style === "dashed" || a.kind === "cut") return dashes(path, 0.15 * s.bond, 0.1 * s.bond).forEach(([p, q]) => bar(p, q));
-    if (a.style === "wavy") {
-      const wave = waveAlong(path, 0.06 * s.bond, 0.2 * s.bond);
-      for (let i = 0; i + 1 < wave.length; i++) bar(wave[i], wave[i + 1]);
-      return;
-    }
-    for (let i = 0; i + 1 < path.length; i++) if (len(sub(path[i + 1], path[i])) > 1e-9) bar(path[i], path[i + 1], a.style === "bold" ? s.bold / 2 : hw);
+    if (a.style === "wavy") return void out.push(...strokeOutline(waveAlong(path, 0.06 * s.bond, 0.2 * s.bond), hw));
+    out.push(...strokeOutline(path, a.style === "bold" ? s.bold / 2 : hw, closed));
   };
   // A head at the end of pts: full, or half (the barb on the left side looking along the arrow, or the right),
   // solid, hollow (its outline) or angled (open barbs). It is laid along its shaft: a point x back from the tip and y
@@ -2092,7 +2089,7 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       e.push(at(x, y));
       return e;
     };
-    const bars = (e: P[]) => { for (let i = 0; i + 1 < e.length; i++) if (len(sub(e[i + 1], e[i])) > 1e-9) bar(e[i], e[i + 1]); };
+    const bars = (e: P[]) => out.push(...strokeOutline(e, hw));
     const barbs = half ? [half === "left" ? -1 : 1] : [1, -1];
     if (shape === "angled") { for (const side of barbs) bars(edge(H, side * W, true)); return; }
     if (shape === "hollow") {
@@ -2115,7 +2112,7 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   if (takesHeads(a)) {
     // One shaft, and a head at either end as set (the Curves menu) or as the kind has them.
     const { start, end } = headsOf(a);
-    line(cut(cut(path, takes(end)).reverse(), takes(start)).reverse(), 0);
+    line(cut(cut(path, takes(end)).reverse(), takes(start)).reverse(), 0, !!a.curve?.closed && start === "none" && end === "none");
     if (end !== "none") head(path, end === "full" ? undefined : end);
     if (start !== "none") head([...path].reverse(), start === "full" ? undefined : start);
     // ChemDraw's marks, d (twice the head's half-width) each way: on the middle of the shaft a cross, or two
@@ -2185,6 +2182,37 @@ export function blockOutline(a: Arrow, s: Style, k: number): P[] {
   const t = C > 0 ? Math.min(1, Math.max(0, 1 - o / C)) : 1, back = H - t * (H - C);
   const at = (along: number, across: number): P => add(add(T, mul(u, -along)), mul(n, across));
   return [add(S, mul(n, o)), at(back, o), at(H, C), T, at(H, -C), at(back, -o), add(S, mul(n, -o))];
+}
+
+// A line along points (px) at half-width w, as one outline that winds the way a bar does: its left side out and its
+// right side back, its ends square across it. Where it turns, the outside is mitred (rounded past a turn of 120°, so a
+// sharp turn has no spike) and the inside cuts across, or goes through the turning point where the cut would reach past
+// a step. Filled nonzero, it is the line's whole width with no seams at any zoom, where a bar for each step left a wedge
+// outside every turn. A closed line is two loops: its left side, and its right side back.
+export function strokeOutline(pts: P[], w: number, closed = false): P[][] {
+  const ps: P[] = [], apart = (p: P, q: P) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 > 1e-18;
+  for (const p of pts) if (!ps.length || apart(p, ps[ps.length - 1])) ps.push(p);
+  if (closed && ps.length > 1 && !apart(ps[0], ps[ps.length - 1])) ps.pop();
+  const n = ps.length, ring = closed && n > 2, m = ring ? n : n - 1;
+  if (m < 1) return [];
+  // Each step's direction (ux, uy) and length; its normal is (-uy, ux), the left side.
+  const ux = new Float64Array(m), uy = new Float64Array(m), d = new Float64Array(m), left: P[] = [], right: P[] = [];
+  for (let i = 0; i < m; i++) { const p = ps[i], q = ps[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], l = Math.sqrt(dx * dx + dy * dy); ux[i] = dx / l; uy[i] = dy / l; d[i] = l; }
+  const across = (side: P[], p: P, i: number, k: number) => side.push([p[0] - uy[i] * k, p[1] + ux[i] * k]);
+  // At point p, from step a to step b: c is the cosine of the turn and s the side it turns to (1 the left).
+  const join = (p: P, a: number, b: number) => {
+    const c = ux[a] * ux[b] + uy[a] * uy[b], x = ux[a] * uy[b] - uy[a] * ux[b], s = x > 0 ? 1 : -1, sin = Math.abs(x);
+    const [inside, outside] = s > 0 ? [left, right] : [right, left], f = w / (1 + c), mx = -(uy[a] + uy[b]) * f, my = (ux[a] + ux[b]) * f;
+    if (1 + c > 1e-9 && w * Math.max(sin / (1 + c), sin) <= Math.min(d[a], d[b])) inside.push([p[0] + s * mx, p[1] + s * my]);
+    else { across(inside, p, a, s * w); inside.push(p); across(inside, p, b, s * w); }
+    if (c >= -0.5) { outside.push([p[0] - s * mx, p[1] - s * my]); return; }
+    const t = s * Math.acos(Math.max(-1, c)), steps = Math.ceil(Math.abs(t) / (Math.PI / 16)), vx = s * uy[a] * w, vy = -s * ux[a] * w;
+    for (let j = 0; j <= steps; j++) { const r = (t * j) / steps, cs = Math.cos(r), sn = Math.sin(r); outside.push([p[0] + vx * cs - vy * sn, p[1] + vx * sn + vy * cs]); }
+  };
+  if (!ring) { across(left, ps[0], 0, w); across(right, ps[0], 0, -w); }
+  for (let i = ring ? 0 : 1; i < (ring ? n : n - 1); i++) join(ps[i], (i + m - 1) % m, i);
+  if (!ring) { across(left, ps[n - 1], m - 1, w); across(right, ps[n - 1], m - 1, -w); }
+  return ring ? [left, right.reverse()] : [[...left, ...right.reverse()]];
 }
 
 // A path moved sideways by d (px) at every point, along the path's own normal there.
