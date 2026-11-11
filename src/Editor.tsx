@@ -25,7 +25,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
+  addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -3209,6 +3209,7 @@ export default function Editor() {
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
+  const [copiedSettings, setCopiedSettings] = useState<ObjectSettings>(); // Settings > Pro > Selection's Copy settings
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
   // What's new in this version (releases.ts): once after an update, in Home's window, for someone who has used Octet
@@ -4386,6 +4387,25 @@ export default function Editor() {
     const xs = [...[...selection].map((i) => doc.atoms[i]), ...[...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => picked.has(x.id))].filter(Boolean).map(scaleOf);
     return !xs.length ? undefined : xs.every((x) => Math.abs(x - xs[0]) < 1e-4) ? xs[0] : null;
   };
+  // The drawing with the selection at scale v (the Actions panel's Scale field, and a bond length in Settings > Pro):
+  // with its labels and lines, about its middle; when its parts differ, each structure, group and object takes it
+  // about its own middle. Undefined when nothing selected has a scale.
+  const scaledTo = (v: number): Mol | undefined => {
+    const now = selectionScale(), middles = captionMiddles();
+    if (!(v > 0) || now === undefined) return;
+    if (now !== null) return scaledParts(doc, selection, picked, [v / now, v / now], selectionMiddle(), true, middles);
+    let m = doc;
+    for (const t of things()) {
+      const own = [...t.atoms.map((i) => doc.atoms[i]), ...[...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => t.items.includes(x.id))].map(scaleOf).sort((a, b) => a - b);
+      if (!own.length) continue;
+      const k = v / own[Math.floor(own.length / 2)];
+      m = scaledParts(m, new Set(t.atoms), new Set(t.items), [k, k], [(t.box[0] + t.box[2]) / 2, (t.box[1] + t.box[3]) / 2], true, middles);
+    }
+    return m;
+  };
+  // Settings > Pro > Selection (ChemDraw's Object Settings): the selection takes these settings in one undo step, its
+  // bond length first (as a scale), so the widths and sizes given are the ones drawn at its new scale.
+  const settingsTo = (o: ObjectSettings) => set(withObjectSettings((o.bond !== undefined && scaledTo(o.bond / style.bond)) || doc, style, selection, picked, o), true);
   // The middle of what is chosen, in drawing units: every turn, flip and scale goes about it. Atoms count by their
   // positions and objects as drawn. Text that follows a structure, arrow or cycle is placed again after the move, so it
   // does not count: a structure with its number under it flips in place.
@@ -5910,9 +5930,8 @@ export default function Editor() {
   const insideOf = (b: CycleBranch) => { const e = [b.in, b.out].find((x) => x && !x.atoms?.length); return e && (e.reach ?? 1.1) < 0; };
   const sideOf = (b: CycleBranch, c: Cycle) => ({ ends: b.in && b.out ? "both" as const : b.in ? "in" as const : "out" as const, inside: insideOf(b),
     moved: b.meet !== undefined || [b.in, b.out].some((e) => e?.along !== undefined || e?.reach !== undefined), start: branchHeads(b)[0], end: branchHeads(b)[1], head: c.head ?? "solid", size: c.arrowSize ?? "small" });
-  // The line width an arrow, shape or cycle is drawn with, at its scale: its own, a table's rules', or the document's
-  // (a filled pen curve's outline is a hairline unless set; curveFill).
-  const widthOf = (x: Arrow | Shape | Cycle) => (("table" in x && x.table ? x.table.weight : x.width) ?? ("curve" in x && x.curve?.closed && x.fill ? 0.05 : style.line)) * scaleOf(x);
+  // The line width an arrow, shape or cycle is drawn with, at its scale (lineWidth).
+  const widthOf = (x: Arrow | Shape | Cycle) => lineWidth(x, style.line);
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
   // Arrows and lines with a head at either end (or heads of their own kind), which the head size acts on.
@@ -7265,20 +7284,10 @@ export default function Editor() {
     const used = /^(?:colour|halo|ringfill)\.(#[0-9a-f]{6})(\.drag)?$/i.exec(command);
     if (used?.[2]) passing.current.add(used[1].toLowerCase());
     else if (used) rememberColour(used[1]);
-    // The Actions panel's Scale field: the selection takes that scale with its labels and lines, about its middle; when
-    // its parts differ, each structure, group and object takes it about its own middle.
+    // The Actions panel's Scale field: the selection takes that scale (scaledTo).
     if (command.startsWith("scale.")) {
-      const v = Number(command.slice(6)) / 100, now = selectionScale(), middles = captionMiddles();
-      if (!(v > 0) || now === undefined) return;
-      if (now !== null) return set(scaledParts(doc, selection, picked, [v / now, v / now], selectionMiddle(), true, middles), true);
-      let m = doc;
-      for (const t of things()) {
-        const own = [...t.atoms.map((i) => doc.atoms[i]), ...[...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => t.items.includes(x.id))].map(scaleOf).sort((a, b) => a - b);
-        if (!own.length) continue;
-        const k = v / own[Math.floor(own.length / 2)];
-        m = scaledParts(m, new Set(t.atoms), new Set(t.items), [k, k], [(t.box[0] + t.box[2]) / 2, (t.box[1] + t.box[3]) / 2], true, middles);
-      }
-      return set(m, true);
+      const m = scaledTo(Number(command.slice(6)) / 100);
+      return m && set(m, true);
     }
     const context = contextOf();
     // Colour, for everything selected, as ChemDraw's Color menu: atoms (their labels and marks), the bonds between
@@ -9588,6 +9597,8 @@ export default function Editor() {
           onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
           moreFormats={settings.moreFormats}
           onMoreFormats={(moreFormats) => setSettings((s) => ({ ...s, moreFormats }))}
+          selection={!madeTemplate && (selection.size || picked.size) ? { settings: objectSettings(doc, style, selection, picked), onChange: settingsTo,
+            onCopy: () => setCopiedSettings(objectSettings(doc, style, selection, picked)), onPaste: copiedSettings && (() => settingsTo(copiedSettings)) } : undefined}
           rulerUnit={settings.rulerUnit}
           onRulerUnit={(rulerUnit) => setSettings((s) => ({ ...s, rulerUnit }))}
           selectColour={settings.selectColour}

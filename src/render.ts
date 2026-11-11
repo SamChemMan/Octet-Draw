@@ -118,6 +118,9 @@ export type Bond = {
   type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; ignoreWarnings?: true;
   query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
   spacing?: number; // a double bond's own spacing (% of the bond length, as ChemDraw's BondSpacing); unset is the document's
+  // The bond's own line and bold widths in points (Settings > Pro > Selection, ChemDraw's Object Settings); unset uses
+  // the document's. The scale multiplies them.
+  line?: number; bold?: number;
   own?: Record<string, string>; // ChemDraw's own settings on the bond that Octet does not turn into a scale, written back as they came
   peaks?: number[]; // the measured multiplets the user linked this bond to, as an atom's (an IR band to its C=O)
   // At each end that is a label keeping its atoms (inner), the atom of that group the bond joins; -1 is none. A residue
@@ -786,6 +789,14 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     return z;
   };
   const atomZ = mol.atoms.map((a) => zOf(scaleOf(a)));
+  // A bond's lengths with its own settings: its double-bond spacing (% of the bond), and its line and bold widths
+  // (points; drawn when the style gives its points, as an atom's own label size is).
+  const ptPx = s.labelPt ? s.size / s.labelPt : 0;
+  const ownZ = (b: Bond, z: Z): Z => (b.spacing === undefined && !(ptPx && (b.line || b.bold)) ? z : {
+    ...z, ...(b.spacing !== undefined ? { spacing: (b.spacing / 100) * z.L } : {}),
+    ...(ptPx && b.line ? { hw: (b.line * ptPx * z.L) / s.bond / 2 } : {}),
+    ...(ptPx && b.bold ? { bold: (b.bold * ptPx * z.L) / s.bond, wide: (0.75 * b.bold * ptPx * z.L) / s.bond } : {}),
+  });
   const deg = (i: number) => nbrs[i].length;
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
@@ -1228,8 +1239,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const plans: Plan[] = mol.bonds.map((bond) => {
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
     const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
-    // A bond with its own double-bond spacing (from ChemDraw) keeps it.
-    const z0 = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), z = bond.spacing === undefined ? z0 : { ...z0, spacing: (bond.spacing / 100) * z0.L }, { L, hw } = z;
+    const z = ownZ(bond, zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2)), { L, hw } = z;
     const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z, ...(mol.atoms[a].hidden || mol.atoms[b].hidden ? { hidden: true } : {}) };
     if (endOn.has(bond)) return { ...plan, u: [1, 0] as P, n: [0, 1] as P, hidden: true };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
@@ -1582,9 +1592,10 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     const c = mul(r.reduce<P>((m, i) => add(m, pts[i]), [0, 0]), 1 / r.length);
     const edge = Math.min(...r.map((x, k) => len(sub(pts[r[(k + 1) % r.length]], pts[x]))));
     const radius = ringCircleRadius(r.length, edge, s.spacing / s.bond), steps = 72, before = polygons.length;
+    const first = bondAt.get(key(r[0], r[1])), hw = (first ? ownZ(first, atomZ[r[0]]) : atomZ[r[0]]).hw; // the ring's own line width
     for (let k = 0; k < steps; k++) {
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
-      bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw);
+      bar(S, E, perp(unit(sub(E, S))), hw);
     }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); owners.push(-1 - ring); for (const q of poly) grow(r[0], q); }
   });
@@ -1595,7 +1606,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     if (r.length < 3 || !r.every((x) => r.filter((y) => bondAt.get(key(x, y))?.type === 4).length === 2)) return;
     const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
     const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
-    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw); }
+    const hw = ownZ(r.map((y) => bondAt.get(key(r[0], y))).find((b) => b?.type === 4)!, atomZ[r[0]]).hw; // the ring's own line width, as an aromatic circle's
+    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), hw); }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); owners.push(-100000 - i); for (const q of poly) grow(r[0], q); }
   });
   // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with

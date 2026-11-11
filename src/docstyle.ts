@@ -94,7 +94,7 @@ export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4"
 export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
 // The values readStyle keeps for each of them (pt); anything else falls back to the default. Lengths reach 10 times
 // the old limits each way, so a scale of 10% to 1000% keeps every preset in proportion.
-const LIMITS: Record<(typeof SCALED)[number], [number, number]> = {
+export const LIMITS: Record<(typeof SCALED)[number], [number, number]> = {
   bond: [0.4, 720], line: [0.01, 60], bold: [0.02, 120], margin: [0, 100], hash: [0.05, 100], labelSize: [0.1, 999], captionSize: [0.1, 999],
 };
 const round = (n: number) => Math.round(n * 1e4) / 1e4;

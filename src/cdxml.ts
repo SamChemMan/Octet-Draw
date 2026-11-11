@@ -325,11 +325,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return kept.length ? JSON.stringify(Object.fromEntries(kept)) : undefined;
   };
   // An object at a scale other than 1 carries its own drawing settings, so ChemDraw draws it as Octet does
-  // (decision 0007): a graphic its line and bold widths, a bond also its length, hash spacing and margin.
+  // (decision 0007): a graphic its line and bold widths, a bond also its length, hash spacing and margin. So does a
+  // bond with widths of its own: all of them, so that no reader takes its widths for a scale.
   // An object's own lines: its line width (its own, or the document's) and bold width times its scale, when either is
   // its own.
   const ownLines = (f: number, w?: number) => (f === 1 && w === undefined ? {} : { LineWidth: fmt((w ?? line) * f), ...(f === 1 ? {} : { BoldWidth: fmt(style.bold * f) }) });
-  const ownBond = (f: number) => (f === 1 ? {} : { BondLength: fmt(B * f), ...ownLines(f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
+  const ownBond = (f: number, b: Bond) => (f === 1 && !b.line && !b.bold ? {} : { BondLength: fmt(B * f), LineWidth: fmt((b.line ?? line) * f), BoldWidth: fmt((b.bold ?? style.bold) * f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
   const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
   const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour, layout: g.layout }; };
@@ -836,10 +837,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       id: bondId[k], Z: Z(), Visible: mol.atoms[i].hidden || mol.atoms[j].hidden ? "no" : undefined, B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: b.query ? BOND_QUERY[b.query] : ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : b.type === QUADRUPLE ? "4" : undefined,
       Topology: b.topology && TOPOLOGY[b.topology], RxnParticipation: b.rxn && RXN[b.rxn],
-      Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : b.type === HBOND ? "DottedHydrogen" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : b.query ? priv({ type: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
+      Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : b.type === HBOND ? "DottedHydrogen" : display, Display2: dashed ? "Dash" : undefined, Octet: priv({ order: ring ? b.type : undefined, type: !ring && b.query ? b.type : undefined, line: b.line, bold: b.bold }), DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), highlightColor: colour(b.halo), ShowPerspective: mol.atoms[i].shade || mol.atoms[j].shade ? "yes" : undefined, ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular, IgnoreWarnings: b.ignoreWarnings ? "yes" : undefined,
       // Its own settings: from its scale, else as they came from ChemDraw; and its own double-bond spacing.
-      ...(f === 1 ? b.own : undefined), ...ownBond(f), BondSpacing: b.spacing !== undefined ? num6(b.spacing) : undefined,
+      ...(f === 1 ? b.own : undefined), ...ownBond(f, b), BondSpacing: b.spacing !== undefined ? num6(b.spacing) : undefined,
       ...(ported.size && (ported.has(i) || ported.has(j)) ? { BeginExternalNum: ported.has(i) ? bondsAt[i].indexOf(k) + 1 : undefined, EndExternalNum: ported.has(j) ? bondsAt[j].indexOf(k) + 1 : undefined } : {}),
     }, assignTags(b.peaks));
   }
@@ -1678,7 +1679,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       }
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
-      bondSettings.push({ line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing), attrs: b.attrs });
+      // Widths of its own, in Octet's file: its settings are Octet's, not a scale or settings to keep as they came.
+      const own = priv(b), line = isNum(own?.line, 0.005, 200) ? own.line : undefined, bold = isNum(own?.bold, 0.005, 200) ? own.bold : undefined;
+      if (line) bond.line = line;
+      if (bold) bond.bold = bold;
+      bondSettings.push(line || bold ? { spacing: real(b.attrs.BondSpacing), attrs: {} } : { line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing), attrs: b.attrs });
     }
   }
 
