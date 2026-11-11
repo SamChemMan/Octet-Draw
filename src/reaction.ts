@@ -573,7 +573,8 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
         // (A piece with no break inside it stays whole, however wide: the rest still wraps.)
         const w = widthOf(from, end);
         if (w > o.width && k && ends[k - 1] > from) continue;
-        const alone = parts.slice(from, end).filter((p) => p.step.kind === "structure").length < 2, was = best.get(end);
+        // (Only the last line can be a product alone: before it, the narrowest widest line leaves the most choice.)
+        const alone = end === parts.length && parts.slice(from, end).filter((p) => p.step.kind === "structure").length < 2, was = best.get(end);
         const next = { lines: b.lines + 1, over: b.over + Number(w > o.width + 1e-9), alone, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] };
         if (!was || next.lines < was.lines || (next.lines === was.lines && (was.alone && !alone || (was.alone === alone && next.widest < was.widest - 1e-9)))) best.set(end, next);
       }

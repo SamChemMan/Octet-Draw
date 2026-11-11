@@ -152,6 +152,10 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
     }
   assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment"]);
   assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "help"]);
+  // draw_route lists what each scheme and step must have; keep_orientation (true unless set false) is in its help.
+  const scheme = listed("draw_route").properties.schemes.items;
+  assert.deepEqual([scheme.required, scheme.properties.steps.items.required, "keep_orientation" in listed("draw_route").properties], [["start", "steps"], ["products"], false]);
+  assert.ok("keep_orientation" in (await call("advanced", { tool: "help", args: { of: "draw_route" } })).structuredContent.arguments.properties);
 }
 assert.ok(tools.find((t) => t.name === "read")!.annotations.readOnlyHint && !tools.find((t) => t.name === "draw")!.annotations.readOnlyHint);
 // The tool table (D11): names of 64 characters at most from A-Z a-z 0-9 _ - ., a title, a closed input schema, an
@@ -491,6 +495,12 @@ assert.deepEqual([steps.length, said, fragments(m).length], [1, ["Test drew a ro
   assert.ok(!note.on && !note.under && note.y < Math.min(...m.atoms.map((a) => a.location[1])), "the note is free text under the scheme");
   d = await read();
   assert.equal(d.structures.length, 6, "water is drawn at its arrow");
+  // A label of other letters (roman numerals) is the step's own: the letters go on from where they were.
+  fresh();
+  out = await call("draw_route", { legend: "letters", schemes: [{ start: [{ text: "benzene" }], steps: [
+    { reagents: ["HNO3"], products: [{ text: "O=[N+]([O-])c1ccccc1" }] }, { label: "i", reagents: ["Fe", "HCl"], products: [{ text: "Nc1ccccc1" }] }, { reagents: ["Ac2O"], products: [{ text: "CC(=O)Nc1ccccc1" }] },
+  ] }] });
+  assert.equal(m.captions?.find((c) => c.text.startsWith("Reagents"))?.text, "Reagents and conditions: (a) HNO3; (i) Fe, HCl; (b) Ac2O.", text(out));
 }
 
 // Control characters are taken out of text.
@@ -886,6 +896,9 @@ assert.deepEqual(prompts.map((p) => p.name), ["draw_scheme", "redraw_picture", "
 r = await send("prompts/get", { name: "draw_scheme", arguments: { text: "Benzaldehyde (1) was reduced with NaBH4." } });
 assert.equal(r.result.messages[0].role, "user");
 assert.match(r.result.messages[0].content.text, /one draw_route call[\s\S]*Benzaldehyde \(1\)/);
+// (draw lists no reaction kind: a strict client refuses one, so the prompts send reactions to draw_route.)
+assert.match((await send("prompts/get", { name: "redraw_picture", arguments: {} })).result.messages[0].content.text, /with draw_route for reactions, and draw: kind structures for structures, cycle for a catalytic cycle\./);
+assert.match(text(await call("advanced", { tool: "help", args: { of: "arrow" } })), /For a reaction, use draw_route\./);
 assert.equal((await send("prompts/get", { name: "nope" })).error.code, -32602);
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: {} })).error.code, -32602, "a missing argument");
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: { text: "x".repeat(20_001) } })).error.code, -32602, "too long");
@@ -1193,7 +1206,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   {
     const h = await call("advanced", { tool: "help", args: { of: "transformations" } });
     assert.deepEqual([h.isError, h.structuredContent.of, h.structuredContent.description], [undefined, "transformations", TRANSFORMATIONS]);
-    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\) or transformations \(a compound's changes with do\)\.$/);
+    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\), draw_route or transformations \(a compound's changes with do\)\.$/);
     assert.match((tools[0].inputSchema as any).$defs.compound.properties.changes.description, /\{do: 'reduce', at: '7', config: 'R'\}, a named transformation \(advanced help of transformations lists them\)/);
   }
   // A reaction's help says what its lines over and under an arrow take and how they read back; draw_route says it in a
@@ -1942,10 +1955,19 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(o), /A row of 3 is [\d.]+ bond lengths wide \(the page has 5\.9\): give columns: 1, or a larger page \(set_brief\)\./);
   // D9: a journal or page Octet has no preset for is said, with the nearest it has, and nothing changes.
   const was = m;
-  for (const [journal, nearest] of [["Org. Lett.", "ACS Document 1996"], ["Nature Chemistry", "Nature"], ["Chem. Commun.", "RSC"], ["Angew. Chem.", "Wiley (Angewandte)"], ["New", "ACS Document 1996"]]) {
+  for (const [journal, nearest] of [["Org. Lett.", "ACS Document 1996"], ["JACS", "ACS Document 1996"], ["Nature Chemistry", "Nature"], ["Chem. Commun.", "RSC"], ["Angew. Chem.", "Wiley (Angewandte)"], ["New", "ACS Document 1996"]]) {
     o = await call("set_brief", { destination: { kind: "paper", journal } }, "s-2");
-    assert.ok(o.isError && text(o).includes(`Octet has no preset for ${journal}. The nearest it has is ${nearest}. Ask the user whether to use it (journal: '${nearest}')`), text(o));
+    assert.ok(o.isError && text(o).includes(`Octet has no preset for ${journal.replace(/\.$/, "")}. The nearest it has is ${nearest}. Ask the user whether to use it (journal: '${nearest}')`), text(o));
+    assert.equal(m, was);
   }
+  assert.equal(text(await call("set_brief", { destination: { kind: "paper", journal: " " } }, "s-2")), "journal is empty. Give the journal's name, or leave journal out.");
+  // A journal named in a preset's brackets is that preset, and the reply names it.
+  for (const [journal, preset] of [["Angewandte", "Wiley (Angewandte)"], ["Synthesis", "Thieme (Synthesis, Synlett)"], ["synlett", "Thieme (Synthesis, Synlett)"]]) {
+    m = was;
+    o = await call("set_brief", { destination: { kind: "paper", journal } }, "s-5");
+    assert.ok(!o.isError && o.structuredContent.brief.destination.journal === preset && m.style!.preset === preset && text(o).includes(`now uses ${preset} on`), text(o));
+  }
+  m = was;
   assert.match(text(await call("set_brief", { destination: { kind: "paper", journal: "Wiley", columns: 2 } }, "s-2")), / Octet has no 2-column page for Wiley \(Angewandte\): give size_mm\./);
   assert.match(text(await call("set_brief", { destination: { kind: "poster" } }, "s-2")), /^Octet changed the brief's destination\. The drawing now uses ACS Document 1996 on A0, with 30 pt labels/);
   assert.match(text(await call("set_brief", { destination: { kind: "notebook" } }, "s-2")), / For an experiment page with a reagent table, call drawings with action new, for experiment\./);
@@ -1969,6 +1991,16 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     assert.deepEqual([m.style!.page, m.style!.purpose, b.sc.brief.style], ["A4", "thesis", "from_file"]);
   }
   assert.ok(!JSON.stringify([...briefs.values()]).includes("CDXML"), "the file is not kept");
+  // With a journal too, the file's style is used and the reply says so; the journal gives its column's page.
+  fresh();
+  b = await brief({ style: { from_file: toCdxml(EMPTY, mine) }, destination: { kind: "paper", journal: "RSC", columns: 1 } }, "s-6");
+  assert.ok(m.style!.bond === 17 && m.style!.custom[0] === 83 && b.said.includes(" The style is the user's own, in place of RSC's."), b.said);
+  // Quick start has no page, so a page size with it is refused, and nothing changes.
+  fresh();
+  for (const destination of [{ kind: "quick", size_mm: [100, 100] }, { kind: "quick", columns: 2 }]) {
+    o = await call("set_brief", { destination }, "s-7");
+    assert.ok(o.isError && text(o).startsWith("Quick start has no page, so columns and size_mm do not go with it."), text(o));
+  }
   fresh();
   for (const [file, why] of [
     ['<?xml version="1.0"?><CDXML><page id="1"/></CDXML>', /^from_file has no document style\. Ask the user for a drawing in their style, or give style none\.$/],

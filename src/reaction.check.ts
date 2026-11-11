@@ -222,6 +222,19 @@ for (const id of [first, second]) {
   const lines = [...new Set(levels)].map((y) => levels.filter((v) => v === y).length);
   assert.deepEqual(lines, [2, 1, 2, 2], `structures on each line: ${lines}`);
 }
+// That rule is for the last line only. A → B → C → D → E, D and E wide, ends with E alone however it breaks, so the
+// lines are the most even: A → B → C, → D, → E, not A → B, → C → D (wider), → E.
+{
+  let t: Mol = EMPTY;
+  const ids: number[] = [];
+  [3, 3, 3, 12, 12].forEach((n, k) => {
+    t = addRing(t, n, false, { point: [8 * k, 0] });
+    if (k < 4) { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [8 * k + 3, 0], to: [8 * k + 5, 0] }); ids.push(id); }
+  });
+  const done = clean(t, find(t, ids[0]), 13), levels = fragments(done).map((g) => Math.round(middle(ink(done)(g))[1] * 100) / 100);
+  const lines = [...new Set(levels)].map((y) => levels.filter((v) => v === y).length);
+  assert.deepEqual(lines, [3, 1, 1], `structures on each line: ${lines}`);
+}
 // A line breaks before a plus sign only when that makes the widest line narrower. In A + B → C → D + E → F the first
 // line is too wide whatever is done, so the rest breaks before its arrows (→ D + E, then → F), not before a plus sign.
 {

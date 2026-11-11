@@ -6,7 +6,7 @@
 //   for        the drawing the case starts in: "paper" (the default) or "experiment"
 //   setup      calls made before the AI app starts (a drawing to read or fix), by the user's own session
 //   brief      the simulated user's answers to Octet's three questions (test plan 13.2), given to the AI app when it
-//              asks: ANSWERS (no preference) unless the case says
+//              asks: ANSWERS (a paper, as the case starts in a paper drawing) unless the case says
 //   picture    a structure or scheme Octet draws first, given to the AI app as a PNG (see run.mjs pictures)
 //   want       SMILES Octet turns into InChIKeys before the run, so checks compare structures, not strings
 //   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read (detail full) at
@@ -89,9 +89,10 @@ const LANTHANIDE = JSON.parse(readFileSync(new URL("./lanthanide.json", import.m
 // The figure's five compound numbers, with or without spaces (S-1, S - 1), and its five structures.
 const figureParts = (d) => [[d.structures.length >= 5, "five structures", String(d.structures.length)], ...["S-1", "S-2", "S-3", "I-1", "I-2"].map((n) => [[...d.structures.map((s) => s.number ?? ""), words(d)].join(" ").replace(/\s/g, "").includes(n.toLowerCase()) || d.structures.some((s) => s.number?.replace(/\s/g, "") === n), `${n} is there`])];
 
-// What the simulated user answers when the AI app asks Octet's three questions (plan 3.1) and the case says nothing:
-// no preference, so Octet's default, Quick start.
-export const ANSWERS = "1. No, I have no style of my own. 2. Nowhere in particular: a quick look, no page. 3. Nothing to emphasise, and no layout to follow.";
+// What the simulated user answers when the AI app asks Octet's three questions (plan 3.1) and the case says nothing.
+// A case starts in a paper drawing, so the answer is a paper (as the benchmark's default): Quick start would take the
+// page away, and with it the off-page checks of layout, so results would not compare with earlier runs.
+export const ANSWERS = "1. No, I have no style of my own. 2. A paper, no particular journal. 3. Nothing to emphasise, and no layout to follow.";
 
 export const CASES = [
   // ---- J1: schemes from procedures ----

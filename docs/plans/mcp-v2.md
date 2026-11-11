@@ -230,9 +230,12 @@ Before drawing, Octet works out whether the job fits the destination:
   drawn in all. The text is exactly 3.1's, with nothing before it.
 - **Destination.** quick is `QUICK_STYLE` (page edges off, no purpose). paper, thesis, slides and poster are their
   purposes (`purposeStyle`). notebook is the experiment purpose when the drawing is an experiment page, else paper's,
-  and the reply says how to open an experiment page. journal is the one preset whose name starts with what is given
-  (case, spaces and stops aside), so `ACS`, `Wiley` and `Thieme` are presets; else it is refused with the nearest
-  preset (by publisher, else ACS Document 1996) and nothing changes (D9). columns is the journal's column
+  and the reply says how to open an experiment page. journal is the one preset whose name, or a journal named in its
+  brackets, starts with what is given (case, spaces and stops aside), so `ACS`, `Wiley`, `Thieme`, `Angewandte` and
+  `Synthesis` are presets; else it is refused with the nearest preset (by publisher, else ACS Document 1996) and
+  nothing changes (D9: so `JACS`, `Org. Lett.` and `Chem. Commun.` are asked about, as test plan D9 says). An empty
+  journal is refused. With a style from a file or the drawing, a journal gives only its column, and the reply says
+  the style is the user's own in place of the journal's. quick with columns or size_mm is refused (it has no page). columns is the journal's column
   (`COLUMNS` in `docstyle.ts`: ACS1 and ACS2, Nature 89 and 183 mm, RSC 83 mm); a journal with none says to give
   size_mm. size_mm is a page of that size (a named page when it is one).
 - **A style from a file** (`readOct`: CDXML, `.oct`, or an old `.octet` file) gives every value of its document style,
@@ -265,6 +268,11 @@ Before drawing, Octet works out whether the job fits the destination:
   - `draw`: "Give a compound's name when you know it, else a SMILES" (the instructions say it); the reaction and cycle
     kinds say less, as steps' own description says each part.
   - "Add a PNG of what changed" on draw, change and advanced (the instructions say it). drawings' wording is shorter.
+- **Open for Sam** (review of 11 November): (1) quick on a drawing that already has work or a preset replaces its
+  style and page with Quick start (undo brings them back). Should quick keep an open drawing's style and page, or
+  should the instructions say to give from_drawing to keep them? (2) add_file never needs a brief, even for a file
+  that is a whole scheme (3.1 exempts one structure from add_file). Should a file of more than one structure or a
+  reaction wait for the brief?
 - **Not built:** asking the user through MCP elicitation (step 7); carrying out emphasis and layout (kept with the
   brief and said back: the AI app does them with draw and change).
 - **Benchmark.** Each case gives its brief first, counted as a call: its own (`brief` in the case), else the page it
@@ -479,7 +487,8 @@ Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. Wh
 ### 5.4.1 As built (step 4, 11 November 2026, branch `mcp/brief`)
 
 - **`draw_route`** is the seventh tool (last in `tools/list`), the operation `route` (`drawRoute` in `src/mcp.ts`), with
-  the arguments of 5.4 and `keep_orientation`. Each scheme is drawn by the reaction drawing that was there
+  the arguments of 5.4 and `keep_orientation` (left out of the listing: true unless set false, and `advanced` help of
+  draw_route gives it; the listing says each scheme needs start and steps and each step products). Each scheme is drawn by the reaction drawing that was there
   (`drawReaction`: Clean Up Reaction's wrap, `across`, the page-fit sentence), one under another, with its title
   before it and its note after it. One undo step: when a scheme cannot be drawn, nothing of the route is kept, and the
   reply says which scheme. A route needs the brief, as a scheme does.
@@ -511,13 +520,15 @@ Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. Wh
   text does.
 - **Wrapping and balance (L2, L4).** Clean Up Reaction's wrap now puts no product alone on the last line where a line
   before can be the short one (reaction.ts: the fewest lines, then a last line of more than one structure, then the
-  narrowest widest line), for the user's Clean Up Reaction too. Found on the way: a scheme whose products the
+  narrowest widest line), for the user's Clean Up Reaction too. Only the last line is judged so: a line before it is
+  chosen by width alone, so a row that ends with a product alone whatever is done breaks as evenly as before. Found on the way: a scheme whose products the
   orientation turn stood upright (alkyl chains) left gaps wider than a reaction's between them, so Clean Up Reaction
   read it as two reactions, did not wrap it and it ran off the page. After the turn each product keeps its left edge
   and what comes after it moves as far as it grew or shrank (`respaced`). This fixed grocott2025-fig4e (7 warnings to
   0) and changed nothing else in the benchmark.
 - **legend: letters (S8).** Each step with conditions gets its label, else the next letter after those used (a, b, c;
-  a label 'b, c' goes on to d), on its arrow, and its conditions as text, in order, in a note under the scheme:
+  a label 'b, c' goes on to d; a label whose letters do not go on from the last, such as 'i', is the step's own and the
+  next is still the next letter), on its arrow, and its conditions as text, in order, in a note under the scheme:
   "Reagents and conditions: (a) ...; (b) ...". A structure at an arrow stays there.
 - **Fit (plan 3.2).** The reply says the first scheme wider than the page (a line that cannot break: a larger page or
   landscape, or a starting material in above) and the first that runs past the bottom (draw the schemes from it on in
