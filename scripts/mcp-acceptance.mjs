@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
 // Octet may still be starting (a CI machine): up to a minute for its file and its server. A dev build keeps
 // mcp-dev.json (mcp.json is the installed Octet's, which may run at the same time).
-const read = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
+// OCTET_MCP_INFO names another server's file: the headless server's (scripts/mcp-evals/headless.ts).
+const read = () => { try { return JSON.parse(readFileSync(process.env.OCTET_MCP_INFO ?? join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
 let info;
 for (const end = Date.now() + 60_000; Date.now() < end; await new Promise((r) => setTimeout(r, 1000))) {
   info = read();

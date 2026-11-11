@@ -15,17 +15,17 @@
 
 import { readFileSync } from "node:fs";
 
-// ---- Helpers for checks ----
+// ---- Helpers for checks (speed.mjs uses them too) ----
 
-const sub = (t) => t.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));
+export const sub = (t) => t.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));
 // A structure by InChIKey (the full key, or the first block when stereo does not matter).
-const find = (d, k) => d.structures.find((s) => s.inchiKey === k || s.inchiKey?.split("-")[0] === k);
+export const find = (d, k) => d.structures.find((s) => s.inchiKey === k || s.inchiKey?.split("-")[0] === k);
 // Every structure id in a reaction's steps, and its products.
 const inReaction = (d, id) => d.reactions.some((r) => r.products.includes(id) || r.steps.some((s) => s.before.includes(id) || s.above.includes(id) || s.below.includes(id)));
 const product = (d, id) => d.reactions.some((r) => r.products.includes(id) || r.steps.slice(1).some((s) => s.before.includes(id)));
 // All the words in the drawing: captions, conditions, free text and cycle text.
-const words = (d) => sub([...(d.captions ?? []).map((c) => c.text), ...d.reactions.flatMap((r) => r.steps.flatMap((s) => [...s.above, ...s.below].filter((x) => typeof x === "string")))].join(" \n ")).toLowerCase();
-const says = (d, ...any) => any.some((w) => words(d).includes(w.toLowerCase()));
+export const words = (d) => sub([...(d.captions ?? []).map((c) => c.text), ...d.reactions.flatMap((r) => r.steps.flatMap((s) => [...s.above, ...s.below].filter((x) => typeof x === "string")))].join(" \n ")).toLowerCase();
+export const says = (d, ...any) => any.some((w) => words(d).includes(w.toLowerCase()));
 const steps = (d) => Math.max(0, ...d.reactions.map((r) => r.steps.length));
 
 // Layout, as the acceptance script checks it: boxes that overlap (text and what it belongs to apart) and boxes off the page.
@@ -36,15 +36,15 @@ const boxes = (d) => [
   ...(d.reagentTables ?? []).filter((t) => t.box).map((t) => [`table:${t.arrow}`, t.box, t.arrow]),
   ...d.arrows.filter((a) => !["curved", "fishhook", "arc", "line"].includes(a.kind)).map((a) => [a.id, [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]) - 0.05, Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1]) + 0.05]]),
 ];
-const layout = (d) => {
+export const layout = (d) => {
   const b = boxes(d), over = [];
   b.forEach(([p, x, ofP], k) => b.slice(k + 1).forEach(([q, y, ofQ]) => { if (ofP !== q && ofQ !== p && meets(x, y)) over.push(`${p}/${q}`); }));
   const pg = d.pageBox, off = pg ? b.filter(([, x]) => x && (x[0] < pg[0] - 1e-6 || x[1] < pg[1] - 1e-6 || x[2] > pg[2] + 1e-6 || x[3] > pg[3] + 1e-6)).map(([p]) => p) : [];
   return [[!over.length, "nothing overlaps", over.slice(0, 6).join(", ")], [!off.length, "everything is on the page", off.join(", ")]];
 };
-const clean = (d) => [!d.warnings.length, "no warnings", d.warnings.map((w) => w.message).join("; ")];
+export const clean = (d) => [!d.warnings.length, "no warnings", d.warnings.map((w) => w.message).join("; ")];
 // A structure that must be there, in a reaction (as a product when asked), with a number when asked.
-const is = (d, k, what, { as, number } = {}) => {
+export const is = (d, k, what, { as, number } = {}) => {
   const s = find(d, k), out = [[!!s, `${what} is drawn`, d.structures.map((x) => x.name ?? x.formula).join(", ")]];
   if (s && as === "product") out.push([product(d, s.id), `${what} is a product`]);
   if (s && as === "reactant") out.push([inReaction(d, s.id) && !product(d, s.id), `${what} is a starting material`]);
