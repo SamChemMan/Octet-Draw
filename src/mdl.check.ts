@@ -136,4 +136,15 @@ for (const [smiles, doubles] of [["Cn1cnc2c1c(=O)n(C)c(=O)n2C", 4], ["O=c1cc[nH]
   assert.equal(k.bonds.filter((x) => x.type === 2).length, doubles, `${smiles}: ${doubles} double bonds`);
   assert.equal(toSmiles(k) !== undefined, true);
 }
+// Hydrogens set by hand (issue 125) go out as the atom's valence (VAL) and come back: a bare O and a CH2 at chain
+// ends, V3000 and V2000, and, in a query molfile (Octet's own), a lone Br+ with none. A valence that leaves the usual
+// hydrogens (PPh3 on Pd) sets nothing.
+const fewH: Mol = { atoms: [A("C", 0, 0), A("O", 1, 0, { implicitHCount: 0 }), A("C", 3, 0, { shown: true, implicitHCount: 2 }), A("C", 4, 0), A("Br", 6, 0, { charge: 1, implicitHCount: 0 })],
+  bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }] };
+const handH = (x: Mol) => x.atoms.map((a) => [a.label, a.implicitHCount, a.shown]);
+assert.match(toMolfile(fewH), /O [-\d. ]+ 0 VAL=1\n[^]*CHG=1 VAL=-1/);
+for (const v2 of [false, true]) assert.deepEqual(handH(importStructure(toMolfile(fewH, v2))).slice(0, 4), handH(fewH).slice(0, 4), `MOL ${v2 ? "V2000" : "V3000"}`);
+const queried: Mol = { ...fewH, atoms: [...fewH.atoms, A("C", 9, 0, { text: "R1" })] };
+for (const v2 of [false, true]) assert.deepEqual(handH(importStructure(toMolfile(queried, v2))), handH(queried), `query MOL ${v2 ? "V2000" : "V3000"}`);
+assert.equal(importStructure(toMolfile(parseStructure("P(c1ccccc1)(c1ccccc1)(c1ccccc1)[Pd]"))).atoms.some((a) => a.implicitHCount !== undefined), false);
 console.log("mdl ok");

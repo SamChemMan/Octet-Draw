@@ -1342,7 +1342,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // Each label: its node, text, node type and isotope, Interpret Chemically off, and its text's justification, stacking and turn.
   // runs: the label's <s> runs as bold, italic and underline (face bits), for a written label whose characters differ.
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
-  const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
+  const numH = new Map<number, number | undefined>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   // Formula runs read back as plain text (issue 31), kept in case the text is not drawn as a formula after all.
   const asFormula = new Map<Caption, TextRun[]>();
@@ -1526,7 +1526,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (type === "MultiAttachment" || type === "VariableAttachment") centres.push({ i, ids: idList(n.attrs.Attachments).slice(0, 64), variable: type === "VariableAttachment" });
     if (n.attrs.Geometry === "Tetrahedral" && n.attrs.BondOrdering) tetra.push({ i, order: idList(n.attrs.BondOrdering).slice(0, 4) });
     nodeIds.push(int(n.attrs.id) ?? 0);
-    numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
+    numH.set(i, int(n.attrs.NumHydrogens));
     const lw = real(n.attrs.LineWidth);
     if (lw !== undefined) nodeLines.set(i, lw);
     atomOf.set(int(n.attrs.id) ?? -1, i);
@@ -1823,11 +1823,15 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
       if (type === "Element" && !plain && (!isotope || a.label === "D" || a.label === "T" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
-        const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
+        const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text), usual = hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1, hFirst = h > 0 ? m![1] !== undefined : undefined;
-        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) { keep(l, hFirst); continue; }
+        // Fewer hydrogens than usual (a bare O, Br+): the node's NumHydrogens, as its text shows them (none under Hide
+        // Implicit Hydrogens), set by hand as edit.ts keyElement sets them.
+        const n = numH.get(i), fewer = !!m && n !== undefined && n >= 0 && n < usual && (h === n || style.hideH);
+        if (fewer) a.implicitHCount = n;
+        if (m && (h === usual || fewer) && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels))) { keep(l, hFirst); continue; }
         // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
-        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; keep(l, hFirst); continue; }
+        if (m && a.label === "C" && (h === usual || fewer)) { a.shown = true; keep(l, hFirst); continue; }
       } else if (isotope) lose("isotope");
       if (lined.includes("\n")) text = lined;
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }

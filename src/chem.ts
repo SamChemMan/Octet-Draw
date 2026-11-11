@@ -4,7 +4,7 @@ import { AROMATIC, HBOND, hydrogens, labelInk, NONMETAL, orderOf, QUADRUPLE, sca
 import { arialInk } from "./cdxml.ts";
 import { fontStack } from "./docstyle.ts";
 import { chemicalText, labelSmiles, writtenOxidation } from "./labels.ts";
-import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn, perspectiveBonds, pickAtoms, renumberCentre, sandwich, subset } from "./edit.ts";
+import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn, perspectiveBonds, pickAtoms, renumberCentre, sandwich, subset, withValence } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { kekulise } from "./rings.ts";
@@ -104,7 +104,7 @@ function engine() {
 
 // A KET atom as Octet's: KET radicals 2 and 3 are one and two unpaired electrons. A map number and an enhanced
 // stereo flag (abs, &n, orn) are kept.
-type KetAtom = { label: string; location: [number, number, number]; charge?: number; radical?: number; isotope?: number; mapping?: number; stereoLabel?: string; alias?: string; implicitHCount?: number };
+type KetAtom = { label: string; location: [number, number, number]; charge?: number; radical?: number; isotope?: number; mapping?: number; stereoLabel?: string; alias?: string; implicitHCount?: number; explicitValence?: number };
 // A MOL file's alias ("A  n" and the label on the next line) is the atom's label, as Octet writes it, kept to 40
 // characters of plain text as the CDXML reader keeps a label.
 const aliasOf = (a: KetAtom) => { const t = typeof a.alias === "string" ? a.alias.replace(/[\u0000-\u001f\u007f<>]/g, "").trim().slice(0, 40) : ""; return t && t !== a.label ? { text: t } : {}; };
@@ -203,6 +203,12 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
       const rxnOf = (b: { center?: number }) => Object.keys(RXCTR).find((k) => RXCTR[k] === b.center) as Mol["bonds"][number]["rxn"];
       const orders = kekuleLeft(frag.atoms, frag.bonds);
       mol.bonds.push(...frag.bonds.map((b, k) => { const rxn = rxnOf(b as { center?: number }); return { type: orders[k], atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], stereo: b.stereo, ...(rxn ? { rxn } : {}) }; }));
+      // A molfile's valences (VAL): hydrogens set by hand where they leave fewer than usual (withValence).
+      if (frag.atoms.some((a) => a.explicitValence !== undefined)) {
+        const used = frag.atoms.map(() => 0);
+        frag.bonds.forEach((b, k) => b.atoms.forEach((i) => (used[i] += orderOf(orders[k]))));
+        frag.atoms.forEach((a, i) => { if (a.explicitValence !== undefined) mol.atoms[base + i] = withValence(mol.atoms[base + i], a.explicitValence, used[i]); });
+      }
     } else if (node.type === "plus" && Array.isArray(node.location)) {
       const [x, y] = (node.location as number[]).map(Number);
       if (Number.isFinite(x) && Number.isFinite(y)) captions.push({ id: id++, text: "+", x, y, align: "centre" });

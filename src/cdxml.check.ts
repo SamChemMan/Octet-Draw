@@ -1384,3 +1384,17 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   assert.deepEqual([turned.on, turned.runs], [undefined, [{ text: "H" }, { text: "2", script: "sub" }, { text: "O" }]], "turned conditions keep their subscripts");
   console.log("cdxml.check: formula text written as drawn, read back as typed ok");
 }
+
+// Hydrogens set by hand (issue 125): a bare O and a CH2 at chain ends and a lone Br+ go out as NumHydrogens and come
+// back, through CDXML (with Hide Implicit Hydrogens too), CDX, .oct and Octet's .cdx. ChemDraw's bare O (NumHydrogens
+// 0) opens as one; a text that shows fewer H than NumHydrogens says (the file's Hide Implicit Hydrogens) and a hostile
+// count do not change the atom.
+{
+  const few: Mol = { atoms: [A("C", 0, 0), A("O", 0.866, 0.5, { implicitHCount: 0 }), A("C", 3, 0, { shown: true, implicitHCount: 2 }), A("C", 3.866, 0.5), A("Br", 6, 0, { charge: 1, implicitHCount: 0 })], bonds: [b(0, 1), b(2, 3)] };
+  const hs = (m: Mol) => m.atoms.map((a) => [a.label, a.text, a.implicitHCount, a.shown]), xml = toCdxml(few, DEFAULT_STYLE);
+  for (const back of [fromCdxml(xml), fromCdxml(toCdxml(few, { ...DEFAULT_STYLE, hideH: true })), fromCdxml(cdxToXml(xmlToCdx(parseXml(xml)))), readOct(writeOct(few, DEFAULT_STYLE)), readCdx(writeCdx(few, DEFAULT_STYLE))]) assert.deepEqual(hs(back.mol), hs(few));
+  const chemdraw = (attrs: string, text: string) => fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1"><n id="2" p="100 100" ${attrs}><t p="100 100"><s font="3" size="10" face="96">${text}</s></t></n><n id="3" p="114.4 100"/><b id="4" B="2" E="3"/></fragment></page></CDXML>`).mol.atoms[0];
+  assert.deepEqual([chemdraw('Element="8" NumHydrogens="0"', "O").implicitHCount, chemdraw('Element="8" NumHydrogens="0"', "O").text], [0, undefined], "ChemDraw's bare O");
+  for (const attrs of ['Element="8" NumHydrogens="1"', 'Element="8" NumHydrogens="-1"', 'Element="8"']) assert.equal(chemdraw(attrs, "O").implicitHCount, undefined, attrs);
+  console.log("cdxml.check: hydrogens set by hand ok");
+}
