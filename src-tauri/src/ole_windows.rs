@@ -830,7 +830,7 @@ impl Drawing {
             tauri::async_runtime::spawn(async move { let _ = crate::windows::window_show(app, label).await; });
             return;
         }
-        let start = serde_json::json!({ "object": this.id, "oct": this.oct.borrow().as_str(), "host": this.host.borrow().as_str(), "title": this.title() });
+        let start = serde_json::json!({ "object": this.id, "oct": this.oct.borrow().as_str(), "host": this.host.borrow().as_str(), "title": this.title(), "app": this.app.borrow().as_str() });
         let host = this.host.borrow().clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = crate::windows::open_object(app.clone(), label, start, host).await {
@@ -992,18 +992,22 @@ impl IOleObject_Impl for Drawing_Impl {
     fn GetClientSite(&self) -> Result<IOleClientSite> {
         self.site.borrow().clone().ok_or_else(|| fail(E_FAIL))
     }
-    // The container's name and the document's: the window's title says the document.
+    // The container's name and the document's: the window's title says the document, and its Update button the
+    // container ("Microsoft Word" gives Update in Word).
     // https://learn.microsoft.com/windows/win32/api/oleidl/nf-oleidl-ioleobject-sethostnames
-    fn SetHostNames(&self, _app: &PCWSTR, doc: &PCWSTR) -> Result<()> {
+    fn SetHostNames(&self, program: &PCWSTR, doc: &PCWSTR) -> Result<()> {
         // SAFETY: the container's NUL-terminated strings, read during the call (null is allowed).
-        let doc = if doc.is_null() { String::new() } else { unsafe { doc.to_string() }.unwrap_or_default() };
-        let doc = super::host_name(&doc);
-        if *self.host.borrow() != doc {
+        let read = |s: &PCWSTR| if s.is_null() { String::new() } else { unsafe { s.to_string() }.unwrap_or_default() };
+        let program = read(program);
+        let program = if program.trim().is_empty() { program } else { super::host_name(&program) };
+        let doc = super::host_name(&read(doc));
+        if *self.host.borrow() != doc || *self.app.borrow() != program {
             *self.host.borrow_mut() = doc.clone();
+            *self.app.borrow_mut() = program.clone();
             if self.shown.get() {
                 if let Some(a) = app().cloned() {
                     let l = label(self.id);
-                    let _ = a.emit_to(l.clone(), "ole-host", (doc.clone(), self.title()));
+                    let _ = a.emit_to(l.clone(), "ole-host", (doc.clone(), self.title(), program));
                     tauri::async_runtime::spawn(async move { crate::windows::object_host(&a, &l, &doc) });
                 }
             }

@@ -33,6 +33,7 @@ pub fn id_of(label: &str) -> Option<u64> {
 pub struct Session {
     pub id: u64,
     pub host: RefCell<String>, // the document's name, for the window's title and File menu
+    pub app: RefCell<String>,  // the program that has the document (Word, PowerPoint), for Update in Word; or empty
     pub oct: RefCell<String>,  // the drawing the document has, as a .oct file; empty for a new object
     // The window's newest drawing and picture, not sent to the document yet. The page keeps it up to date while the
     // user draws, so Close and Quit send it at once and never wait for the page.
@@ -59,6 +60,7 @@ impl Session {
         Session {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
             host: RefCell::new(host.into()),
+            app: RefCell::default(),
             oct: RefCell::new(oct),
             latest: RefCell::new(None),
             seq: Cell::new(0),
@@ -267,7 +269,8 @@ fn took(app: &AppHandle, id: u64, oct: String, seq: Option<u64>, name: Option<St
     };
     if let Some((name, title)) = renamed {
         crate::windows::object_host(app, &label(id), &name);
-        let _ = app.emit_to(label(id), "ole-host", (name, title));
+        let program = app.state::<Files>().0.lock().unwrap().get(&id).map(|f| f.session.app.borrow().clone()).unwrap_or_default();
+        let _ = app.emit_to(label(id), "ole-host", (name, title, program));
     }
 }
 
@@ -310,6 +313,7 @@ pub fn open_file(app: &AppHandle, path: PathBuf, host: String) {
 #[cfg(target_os = "macos")]
 pub async fn open_word(app: &AppHandle, found: crate::word::Found) {
     let f = File { session: Session::new(&found.host, found.oct), kind: Kind::Pdf, to: To::Word { mark: found.mark, placed: found.placed } };
+    *f.session.app.borrow_mut() = "Word".into();
     open(app, f).await;
 }
 
@@ -332,7 +336,7 @@ pub async fn front_word(app: &AppHandle, mark: &str) {
 
 async fn open(app: &AppHandle, f: File) {
     let (id, host) = (f.session.id, f.session.host.borrow().clone());
-    let start = serde_json::json!({ "object": id, "oct": f.session.oct.borrow().as_str(), "host": host, "title": f.session.title() });
+    let start = serde_json::json!({ "object": id, "oct": f.session.oct.borrow().as_str(), "host": host, "title": f.session.title(), "app": f.session.app.borrow().as_str() });
     app.state::<Files>().0.lock().unwrap().insert(id, f);
     if crate::windows::open_object(app.clone(), label(id), start, host).await.is_err() {
         app.state::<Files>().0.lock().unwrap().remove(&id);

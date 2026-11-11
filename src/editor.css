@@ -4986,12 +4986,23 @@ div.facts {
   background: var(--canvas);
 }
 
-/* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. */
+/* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. In an
+   object window, Update in Word comes first: the brand's primary action once there is a change, a quiet pill before. */
 .export {
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
   z-index: 2;
+  display: flex;
+  gap: var(--space-2);
+}
+.export-button.primary:not(:disabled) {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
+}
+.export-button:disabled {
+  color: var(--ink-faint);
 }
 .export-button {
   display: flex;
@@ -5008,11 +5019,15 @@ div.facts {
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
-  .export-button:hover {
+  .export-button:hover:not(:disabled) {
     background: var(--surface-sunken);
   }
+  .export-button.primary:hover:not(:disabled) {
+    border-color: var(--brand-hover);
+    background: var(--brand-hover);
+  }
 }
-.export-button:active {
+.export-button:active:not(:disabled) {
   transform: scale(0.97);
 }
 .export-button:focus-visible {

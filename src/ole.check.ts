@@ -18,4 +18,16 @@ assert.ok(start.indexOf("WAITING.store(embedding, SeqCst);") > start.indexOf("Co
 assert.match(body("    fn new() -> Self {"), /LIVE\.fetch_add\(1, SeqCst\);\n\s*WAITING\.store\(false, SeqCst\);/, "an object ends the wait");
 assert.match(start, /if first \{\n\s*WAITING\.store\(false, SeqCst\);\n\s*maybe_exit\(&a\);/, "a minute with no object ends the wait");
 
+// An object window has a button named for the program that has the drawing (Update in Word, Update in PowerPoint), as
+// ⌘S does: only in a window opened from a document, only while the document is open, lit once there is a change.
+// Windows names the program in SetHostNames; the Mac's Word bridge says Word.
+const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+const objects = readFileSync(new URL("../src-tauri/src/objects.rs", import.meta.url), "utf8");
+assert.match(editor, /<ExportButton lead=\{office && !office\.gone && \(/, "the button is there only in an open object's window");
+assert.match(editor, /disabled=\{!mainDirty\}/);
+assert.match(editor, /office\.app \? `Update in \$\{office\.app\.replace\(\/\^Microsoft \/, ""\)\}` : `Update \$\{office\.host\}`/);
+assert.match(rs, /\*self\.app\.borrow_mut\(\) = program\.clone\(\);/, "Windows keeps the container's name");
+assert.match(objects, /\*f\.session\.app\.borrow_mut\(\) = "Word"\.into\(\);/, "the Mac's Word bridge says Word");
+assert.match(objects, /"app": f\.session\.app\.borrow\(\)\.as_str\(\)/);
+
 console.log("ole: ok");
