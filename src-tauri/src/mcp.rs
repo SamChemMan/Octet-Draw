@@ -53,6 +53,7 @@ struct Shared {
     sessions: Mutex<HashMap<String, Session>>,
     ready: Mutex<HashMap<String, String>>, // each window's page that listens, by the page's own id
     open: Mutex<Option<(f64, Instant)>>,   // the rate limit for initialize and for requests with no session, all apps together
+    loose: Mutex<Option<String>>,          // the brief of the requests with no session (an older client), all of them together
 }
 
 // A drawing resource's URI as Octet gives it (octet://drawing/{window}, /cdxml or /png), and the window it names.
@@ -103,10 +104,12 @@ enum Msg {
 // called. A session with no drawing takes the window in front at its first call; a window coming to the front later
 // does not move it.
 // stream: its event stream for notifications (GET); subs: the drawing URIs it subscribed to; bucket: its calls left this
-// second (D16), and when it was last filled; waiting: its calls under way.
+// second (D16), and when it was last filled; waiting: its calls under way. brief: the user's answers to set_brief's
+// three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief.
 struct Session {
     client: String,
     drawing: Option<String>,
+    brief: Option<String>,
     last: Instant,
     stream: Option<(u64, mpsc::Sender<String>)>, // the stream's own number, and where its notifications go
     subs: HashSet<String>,
@@ -157,6 +160,7 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
         stop.store(u64::MAX, Ordering::SeqCst);
         let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, was.port)); // wakes the accept loop
         mcp.shared.sessions.lock().unwrap().clear();
+        *mcp.shared.loose.lock().unwrap() = None;
     }
     if !on {
         return Ok(None);
@@ -212,6 +216,22 @@ pub fn mcp_target(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing:
         None => return Err("There is no such session.".into()),
     }
     Ok(())
+}
+
+// The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
+// request that has none. Kept in memory only: a new session starts with none.
+#[tauri::command]
+pub fn mcp_brief(mcp: State<'_, Mcp>, session: Option<String>, brief: String) -> Result<(), String> {
+    if brief.len() > 16 * 1024 {
+        return Err("The brief is too long.".into());
+    }
+    match session {
+        Some(s) => mcp.shared.sessions.lock().unwrap().get_mut(&s).map(|x| x.brief = Some(brief)).ok_or_else(|| "There is no such session.".to_string()),
+        None => {
+            *mcp.shared.loose.lock().unwrap() = Some(brief);
+            Ok(())
+        }
+    }
 }
 
 // A page listens for requests now. A new page in a window (reloaded) has lost the requests the old one had: they end
@@ -495,7 +515,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     // client) acts on the window in front.
     let mut new_session = None;
     let front = crate::windows::front(app);
-    let (client, session, window, lost) = {
+    let (client, session, window, lost, brief) = {
         let mut sessions = shared.sessions.lock().unwrap();
         sessions.retain(|_, s| s.last.elapsed() < IDLE);
         if method == "initialize" || sid.is_none() {
@@ -517,9 +537,9 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
                 sessions.remove(&oldest);
             }
             let (name, new) = (client_name(&message), random_hex(16).unwrap_or_default());
-            sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
+            sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
             new_session = Some(new.clone());
-            (name, Some(new), front, None)
+            (name, Some(new), front, None, None)
         } else if let Some(s) = sid.as_ref() {
             let Some(session) = sessions.get_mut(s) else {
                 drop(sessions);
@@ -555,9 +575,9 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
             }
             let named = drawing_uri(app, uri).filter(|_| method == "resources/read").map(String::from);
             session.waiting += 1;
-            (session.client.clone(), Some(s.clone()), named.or(open).or(front), lost)
+            (session.client.clone(), Some(s.clone()), named.or(open).or(front), lost, session.brief.clone())
         } else {
-            ("An AI app".into(), None, front, None)
+            ("An AI app".into(), None, front, None, shared.loose.lock().unwrap().clone())
         }
     };
     let done = |shared: &Shared| { if let Some(s) = session.as_ref().and_then(|s| shared.sessions.lock().unwrap().get_mut(s).map(|x| { x.waiting = x.waiting.saturating_sub(1); })) { s } };
@@ -573,7 +593,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::channel();
     shared.pending.lock().unwrap().insert(n, Pending { window: window.clone(), rid: id.clone(), session: session.clone(), tx, cancelled: false });
-    let sent = app.emit_to(window.as_str(), "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost }));
+    let sent = app.emit_to(window.as_str(), "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost, "brief": brief }));
     let timeout = || error_reply(Some(id), -32603, "Octet did not answer in time.");
     // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
     if message.pointer("/params/_meta/progressToken").is_some() && sent.is_ok() {

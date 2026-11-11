@@ -13,6 +13,8 @@ const made = (k, kind = "s") => (r) => r[k].made.filter((id) => id.startsWith(ki
 const TITLES = ["Scheme 1. The C-ring aldehyde 7", "Scheme 2. The ABC ring system 13", "Scheme 3. Taxol (1) from 13"];
 export default {
   about: "Nicolaou's taxol synthesis as v1 was used for it: about 35 calls, 6 refused, most of the rest checking and fixing (rebuilt from the plan's notes)",
+  // The brief: a paper, as v1 drew it (A4, ACS Document 1996), so its page warnings compare.
+  brief: { destination: { kind: "paper" } },
   calls: [
     { name: "drawings", arguments: { action: "new" } }, // v1 refused: for is missing
     { name: "drawings", arguments: { action: "new", for: "paper" } },

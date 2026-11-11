@@ -2718,11 +2718,12 @@ export default function Editor() {
   // Each request the app's MCP server sends to this window, answered by mcp.ts.
   useEffect(() => {
     if (!TAURI) return;
-    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null }>("mcp", (e) => {
+    // brief: the session's brief (set_brief), which the server keeps for it (mcp_brief keeps a new one).
+    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null }>("mcp", (e) => {
       const p = e.payload;
       void handleMcp(p.body, () => mcpHost.current!, version, {
-        client: p.client, session: p.session ?? undefined, lost: p.lost,
-        progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }),
+        client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief,
+        progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
       }).then((body) => invoke("mcp_reply", { id: p.id, body }));
     });
     void off.then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });

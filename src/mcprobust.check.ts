@@ -21,7 +21,7 @@ for (const k of ["instantiate", "instantiateStreaming"] as const) {
 }
 setFlagsFromString("--expose-gc");
 const gc = runInNewContext("gc") as () => void;
-const { load, drawing } = await import("../scripts/headless/host.ts");
+const { load, drawing, session: aiSession } = await import("../scripts/headless/host.ts");
 const { handle, OP_TABLE } = await import("./mcp.ts");
 await load();
 const glue = readFileSync(new URL("../node_modules/indigo-ketcher/indigo-ketcher-separate-wasm-norender.js", import.meta.url), "utf8");
@@ -32,7 +32,8 @@ const STACK_LIMIT = 1266 * 48;
 
 type Reply = { result?: { content: { type: string; text?: string; data?: string }[]; isError?: boolean; structuredContent?: any }; error?: { code: number; message: string } };
 let d = drawing("paper", "Robust"), n = 0;
-const rpc = async (body: string): Promise<Reply> => JSON.parse(await handle(body, () => d.host, "1", { client: "Check" }));
+// One AI app session, with its brief (a scheme, a grid or a cycle is refused without one).
+const rpc = async (body: string): Promise<Reply> => JSON.parse(await handle(body, () => d.host, "1", aiSession("Check", "robust")));
 const call = (name: string, args: unknown) => rpc(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }));
 const text = (r: Reply) => r.result?.content[0]?.text ?? r.error?.message ?? "";
 const failed = (r: Reply) => !!(r.error || r.result?.isError);
@@ -66,6 +67,8 @@ const ROUTES: [string, Wrap][] = [
   ...values(listed.advanced.inputSchema.properties.tool).map((o): [string, Wrap] => [o, (a) => ["advanced", { tool: o, args: a }]]),
   ...values(listed.drawings.inputSchema.properties.action).map((o): [string, Wrap] => [o, (a) => ["drawings", beside(a, { action: o })]]),
   ["read", (a) => ["read", a]], ["file", (a) => ["read", beside(a, { format: "smiles" })]],
+  // The brief and a route are tools of their own, and one reaction is still a kind of draw, though no longer listed.
+  ["brief", (a) => ["set_brief", a]], ["route", (a) => ["draw_route", a]], ["reaction", (a) => ["draw", beside(a, { kind: "reaction" })]],
 ];
 const routes = new Map<string, Wrap>();
 for (const [op, wrap] of ROUTES) if (!routes.has(op)) routes.set(op, wrap);
@@ -140,9 +143,11 @@ const KNOWN: Record<string, object> = {
   figure: { panels: [{ title: "A", rows: [[{ structure: "CCO", number: "4" }, { text: "and" }]] }] },
   replace: { structure: "s1", text: "CCC" }, arrow: { kind: "reaction", from: [0, -40], to: [5, -40] },
   run_command: { command: "clean_up", ids: ["s1"] }, use: { drawing: "headless" },
+  brief: { destination: { kind: "paper" } }, route: { schemes: [{ title: "Scheme 1", start: [{ text: "CC=O" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "CCO" }] }] }] },
 };
 async function base() {
   d = drawing("paper", "Robust");
+  assert.ok(!failed(await call("set_brief", { destination: { kind: "paper" } })), "the brief");
   for (const op of Object.keys(KNOWN).slice(0, 5)) assert.ok(!failed(await call(...routes.get(op)!(KNOWN[op]) as [string, unknown])), `the drawing to start from: ${op}`);
 }
 
