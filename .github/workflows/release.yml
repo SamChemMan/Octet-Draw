@@ -118,6 +118,23 @@ jobs:
           Remove-Item $pfx
           "WINDOWS_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
 
+      - name: Windows certificate (Certum SimplySign)
+        # Certum keeps the key in its cloud. The one secret is the SimplySign account's e-mail, a space, and the
+        # otpauth:// link of its QR code. ssign signs with them: it needs no SimplySign Desktop, and Certum does not
+        # make it. It signs .exe files only, which is all the Windows build makes.
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERTUM: ${{ secrets.WINDOWS_CERTUM }}
+        run: |
+          if [ -z "$WINDOWS_CERTUM" ]; then echo "WINDOWS_CERTUM is not set."; exit 0; fi
+          read -r email otp <<< "$WINDOWS_CERTUM"
+          if [ -z "$otp" ]; then echo "::error::WINDOWS_CERTUM must be the e-mail, a space, then the otpauth:// link."; exit 1; fi
+          echo "::add-mask::$email"
+          echo "::add-mask::$otp"
+          { echo "CERTUM_EMAIL=$email"; echo "CERTUM_OTP=$otp"; } >> "$GITHUB_ENV"
+          cargo install ssign --version 0.1.11 --locked
+
       - name: Windows signing tool (Azure Trusted Signing)
         if: runner.os == 'Windows' && startsWith(env.WINDOWS_SIGN_COMMAND, 'trusted-signing-cli')
         run: cargo install trusted-signing-cli --locked
@@ -125,13 +142,16 @@ jobs:
       - name: Build settings
         shell: bash
         run: |
-          # Updater files only with the updater key; Windows signing only with a certificate or a sign command. The
-          # second file is the Windows installer that needs no internet (REL-21): it carries the WebView2 runtime.
+          # Updater files only with the updater key; Windows signing only with a certificate, Certum or a sign command.
+          # ssign gets the name that signtool gets from Tauri (/d), for the UAC prompt. The second file is the Windows
+          # installer that needs no internet (REL-21): it carries the WebView2 runtime.
           node -e '
             const fs = require("fs"), env = process.env, bundle = {};
             if (env.TAURI_SIGNING_PRIVATE_KEY) bundle.createUpdaterArtifacts = true;
             if (env.WINDOWS_THUMBPRINT) bundle.windows = { certificateThumbprint: env.WINDOWS_THUMBPRINT };
+            else if (env.CERTUM_EMAIL) bundle.windows = { signCommand: { cmd: "ssign", args: ["-n", "Octet Draw", "%1"] } };
             else if (env.WINDOWS_SIGN_COMMAND) bundle.windows = { signCommand: env.WINDOWS_SIGN_COMMAND };
+            else if (env.RUNNER_OS === "Windows") console.log("::notice::No Windows signing secret is set, so the Windows installers are not signed.");
             fs.writeFileSync("ci-build.conf.json", JSON.stringify({ bundle }));
             fs.writeFileSync("ci-offline.conf.json", JSON.stringify({ bundle: { createUpdaterArtifacts: false, windows: { webviewInstallMode: { type: "offlineInstaller", silent: true } } } }));
           '
