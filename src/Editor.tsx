@@ -76,8 +76,8 @@ import { createPortal, flushSync } from "react-dom";
 import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
-import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
+import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
+import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -94,7 +94,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -3262,7 +3262,7 @@ export default function Editor() {
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "conditions"; arrow: number; page: boolean; values: GridConditions } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
@@ -5981,8 +5981,14 @@ export default function Editor() {
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
   function tableSpan(v: GridView): number[] {
-    return [v.start, Math.min(...v.cells.map((c) => c.y - v.rh), ...(v.rules ?? []).map((r) => r[2])), Math.max(...v.cells.map((c) => c.x + c.w / 2)), v.top];
+    return [v.start, Math.min(...v.cells.map((c) => c.y - v.rh), ...(v.rules ?? []).map((r) => r[2]), ...(v.block?.lines.map((l) => l.y - v.rh) ?? [])), Math.max(...v.cells.map((c) => c.x + c.w / 2), v.block?.right ?? -Infinity), v.top];
   }
+  // A table's conditions as Copy table and Conditions… give them: on an experiment page's first table, Temperature and
+  // Time are the page's.
+  const conditionsOf = (v: GridView): GridConditions => {
+    const own = doc.grids?.find((g) => g.arrow === v.arrow)?.conditions ?? {}, page = v.page ? detailsOf(doc.annotations) : undefined;
+    return page ? { ...own, temperature: page.temperature, time: page.time } : own;
+  };
   // An edit on an experiment page whose reagent table runs past the bottom of the Reaction scheme box grows the box,
   // and moves what is under it down (growScheme), in the edit's own undo step. A drawing opened is left as it is.
   useEffect(() => {
@@ -7343,7 +7349,9 @@ export default function Editor() {
       if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
       // Copy table: the table as shown, as tab-separated text.
-      if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow); return v && copyPlain(gridTsv(v)); }
+      if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow), c = v && conditionsOf(v); return v && copyPlain(gridTsv(v, CONDITIONS.filter(([k]) => c![k]).map(([k, name]) => [name, c![k]!]))); }
+      // Conditions…: Temperature, Time, Atmosphere and Other, in a dialog.
+      if (what === "conditions") { const v = gridViews.find((x) => x.arrow === arrow); return v && setDialog({ kind: "conditions", arrow, page: v.page, values: conditionsOf(v) }); }
       // Hide empty rows: every row with nothing in the columns shown (as rows, every quantity with nothing in it).
       if (what === "hide.empty") return changeGrid(arrow, (g, v) => ({ hidden: { ...g.hidden, rows: [...(g.hidden?.rows ?? []), ...emptyRows(v)] } }));
       setGridPick(undefined);
@@ -8915,8 +8923,16 @@ export default function Editor() {
         const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L, ink = v.colour ? textInk(v.colour) : "var(--ink)";
         // As rows: its rules, its titles and names, then each cell's amount as gridText gives it.
         const baseline = (top: number) => -(top - 0.5 * v.rh) * L + 0.35 * size;
+        // The conditions block: each name, then its value, its counts as subscripts as in conditions over an arrow (N2).
+        const block = v.block?.lines.map((l) => (
+          <Fragment key={`c${l.key}`}>
+            <text x={v.block!.at * L} y={baseline(l.y)}>{l.name}</text>
+            <text x={v.block!.valueAt * L} y={baseline(l.y)}>{formula(l.value, size)}</text>
+          </Fragment>
+        ));
         if (v.texts && v.rules) return (
           <g key={`grid${v.arrow}`} className="stoich" fill={ink} style={{ font }}>
+            {block}
             {v.rules.map(([a, b, h], k) => <line key={`r${k}`} x1={a * L} x2={b * L} y1={-h * L} y2={-h * L} stroke={ink} strokeWidth={frame.line * v.f} />)}
             {v.texts.map((t, k) => <text key={`t${k}`} x={t.x * L} y={baseline(t.y)} textAnchor={t.anchor} fontWeight={t.bold ? 700 : undefined}>{t.formula ? formula(t.text, size) : t.text}</text>)}
             {v.cells.map((cell) => {
@@ -8932,6 +8948,7 @@ export default function Editor() {
         );
         return (
           <g key={`grid${v.arrow}`} className="stoich" fill={v.colour ? textInk(v.colour) : "var(--ink)"} style={{ font }}>
+            {block}
             <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
             <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
             {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
@@ -9929,6 +9946,23 @@ export default function Editor() {
         <Dialog title="Experiment details" action="Save" onClose={() => setDialog(undefined)}
           onAction={() => { const next = withDetails(doc.annotations, Object.fromEntries(Object.entries(dialog.values).map(([k, v]) => [k, v && expandEscapes(v, keptText(detailsOf(doc.annotations)[k as keyof Details]))]))); if (JSON.stringify(next) !== JSON.stringify(doc.annotations)) set({ ...doc, annotations: next }, true); setDialog(undefined); }}>
           {DETAILS.map(([k, name]) => (
+            <label key={k} className="dialog-row"><span>{name}</span><span className="unit-field text"><input aria-label={name} value={dialog.values[k] ?? ""} maxLength={200} spellCheck={false} onChange={(e) => setDialog({ ...dialog, values: { ...dialog.values, [k]: e.target.value } })} /></span></label>
+          ))}
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "conditions" && (
+        // A stoichiometry table's conditions (Grid.conditions), drawn right of the table. On an experiment page's first
+        // table, Temperature and Time are the page's details.
+        <Dialog title="Conditions" action="Save" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const g = doc.grids?.find((x) => x.arrow === dialog.arrow), v = gridViews.find((x) => x.arrow === dialog.arrow), was = v ? conditionsOf(v) : {};
+            const value = (k: keyof GridConditions) => oneLine(expandEscapes(dialog.values[k] ?? "", keptText(was[k])));
+            const own = Object.fromEntries(CONDITIONS.filter(([k]) => !(dialog.page && (k === "temperature" || k === "time"))).map(([k]) => [k, value(k)]).filter(([, x]) => x));
+            const annotations = dialog.page ? withDetails(doc.annotations, { ...detailsOf(doc.annotations), temperature: value("temperature"), time: value("time") }) : doc.annotations;
+            if (g && v) set({ ...doc, annotations, grids: doc.grids!.map((x) => (x === g ? { ...keptGrid(g, v), conditions: Object.keys(own).length ? own : undefined } : x)) }, true);
+            setDialog(undefined);
+          }}>
+          {CONDITIONS.map(([k, name]) => (
             <label key={k} className="dialog-row"><span>{name}</span><span className="unit-field text"><input aria-label={name} value={dialog.values[k] ?? ""} maxLength={200} spellCheck={false} onChange={(e) => setDialog({ ...dialog, values: { ...dialog.values, [k]: e.target.value } })} /></span></label>
           ))}
         </Dialog>

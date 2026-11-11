@@ -11,7 +11,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, StarFour, TextTSlash,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -426,7 +426,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         ...(context.hidden ? [it(<Eye size={18} />, "Show all rows and columns", "grid.show")] : []),
         // The table as tab-separated text; then a reagent on each row and the products under them, or a column for
         // each (issue 34).
-        it(<Clipboard size={18} />, "Copy table", "grid.copy"), it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
+        it(<Thermometer size={18} />, "Conditions…", "grid.conditions"), it(<Clipboard size={18} />, "Copy table", "grid.copy"), it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
       break;
     case "cycle":
       if (context.side) {

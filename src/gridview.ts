@@ -5,7 +5,7 @@
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Box, type Grid, type GridRole, type Mol } from "./render.ts";
 import { sheetSafe } from "./experiment.ts";
-import { coefficient, conditionItems, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
+import { coefficient, conditionItems, CONDITIONS, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 import type { Liquid } from "./liquids.ts";
@@ -56,6 +56,7 @@ function readItem(item: string) {
 // One grid for each reaction (an experiment page gives each new arrow one), laid out under it.
 export function gridViews(m: Mol, d: GridDeps) {
   const seen = new Set<number>();
+  let laid = 0;
   return (m.grids ?? []).flatMap((g: Grid) => {
     const r = d.reaction(g.arrow);
     if (!r || seen.has(r.arrows[0])) return [];
@@ -154,7 +155,14 @@ export function gridViews(m: Mol, d: GridDeps) {
         y -= 0.5 * rh;
       }
     } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
-    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
+    // The conditions block, right of the table: a line for each condition with a value (Temperature, Time, Atmosphere,
+    // Other), its name and then its value. On an experiment page the first table's Temperature and Time are the page's
+    // own (its details block), so they show once, there.
+    const page = d.experiment && laid++ === 0, right = rules ? Math.max(...rules.map((r) => r[1])) : Math.max(...cols.map((c) => c.x)) + width / 2;
+    const lines = CONDITIONS.filter(([k]) => g.conditions?.[k] && !(page && (k === "temperature" || k === "time"))).map(([k, name], j) => ({ key: k, name, value: g.conditions![k]!, y: top - j * rh }));
+    const at = right + 0.6 * f, valueAt = at + Math.max(0, ...lines.map((l) => d.nameWidth(l.name, size))) + 0.4 * f;
+    const block = lines.length ? { lines, at, valueAt, right: valueAt + Math.max(...lines.map((l) => d.nameWidth(l.value, size))) } : undefined;
+    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, block, page, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
   });
 }
 
@@ -197,7 +205,7 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
 // components (compound number, text or formula), then a row for each row shown; as rows, each section's title and
 // quantities, then a row for each component. Then the conditions, a line each (lines: name and value). Hidden rows and
 // columns are left out. Each value is one line, sheetSafe.
-export function gridTsv(v: GridView, lines: [string, string][] = []): string {
+export function gridTsv(v: GridView, lines: [string, string][] = v.block?.lines.map((l) => [l.name, l.value]) ?? []): string {
   const name = (c: GridView["cols"][number]) => c.label ?? c.formula;
   const table = v.sections
     ? v.sections.flatMap((sec, k) => [...(k ? [[]] : []), [sec.title, ...sec.fields.map((row) => row.name)], ...sec.comps.map((c) => [name(c), ...sec.fields.map((row) => cellText(v, c, row).text)])])

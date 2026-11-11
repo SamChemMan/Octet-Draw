@@ -172,7 +172,11 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.match(editor, /if \(field === "mass" \|\| field === "volume"\) return \{ taken: \{ \.\.\.rest, \[w\.key\]: field \} \};/);
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Mark as measured", "grid\.taken"[\s\S]*"Clear measured mark", "grid\.untaken"/);
   assert.match(readFileSync(new URL("editor.css", import.meta.url), "utf8"), /\.stoich text\.taken \{\n  fill: var\(--error\);\n\}\n\.stoich line\.taken \{\n  stroke: var\(--error\);\n\}/, "the brand's red, as the page's theme gives it");
-  assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\); return v && copyPlain\(gridTsv\(v\)\); \}/);
+  // Conditions…: a dialog of the four, where an experiment page's first table keeps Temperature and Time in the page's details.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Conditions…", "grid\.conditions"/);
+  assert.match(editor, /<Dialog title="Conditions" action="Save"/);
+  assert.match(editor, /withDetails\(doc\.annotations, \{ \.\.\.detailsOf\(doc\.annotations\), temperature: value\("temperature"\), time: value\("time"\) \}\)/);
+  assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\), c = v && conditionsOf\(v\); return v && copyPlain\(gridTsv\(v, CONDITIONS/, "with the conditions, the page's Temperature and Time too");
   assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
 // A line of conditions splits at commas outside brackets; the atmosphere's gas is not a reagent.
@@ -240,7 +244,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
       reaction: () => ({ steps, arrows: [9], atoms: [], captions: [], carried: [], conditions: new Map() }) as never,
       steps: (r) => [{ arrow: 9, reactants: parts(r.steps.slice(0, at)), products: parts(r.steps.slice(at + 1)), above: conditions, below: [] }] as never,
       structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2|THF/.test(t) ? { formula: "X", weight: 36 } : undefined),
-      captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
+      captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: (t) => t.length * 0.2, captionSize: 10, perPt: 0.05, experiment: !!(more as { experiment?: boolean }).experiment,
     };
     const v = gridViews(m, deps)[0];
     return { v, keys: v.all.map((c) => c.key), rows: v.rows.map((row) => row.id), at: (key: string) => v.solved[key] };
@@ -331,6 +335,19 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual([kept.taken, kept.roles], [{ "r:S0": "volume" }, {}]);
   const marked: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, typed: { "r:A": { volume: 2 } }, taken: { "r:A": "volume" } }] };
   for (const g of [parse(serialize(marked)).grids![0], fromCdxml(toCdxml(marked, DEFAULT_STYLE)).mol.grids![0]]) assert.deepEqual(g.taken, { "r:A": "volume" }, "a mark on Volume is kept");
+  // The conditions block (T3): right of the table, clear of its last column, a line for each condition with a value,
+  // in the order Temperature, Time, Atmosphere, Other. On an experiment page the first table leaves out Temperature and
+  // Time (the page's details show them). Copy table puts the lines after the table.
+  const conditions = { other: "450 nm", temperature: "0 °C", atmosphere: "N2" };
+  const blocked = grid([0, "→", 1], {}, undefined, [], undefined, { conditions }), b = blocked.v.block!;
+  assert.deepEqual(b.lines.map((l) => [l.name, l.value]), [["Temperature", "0 °C"], ["Atmosphere", "N2"], ["Other", "450 nm"]]);
+  assert.ok(b.at > Math.max(...blocked.v.cells.map((c) => c.x + c.w / 2)), "the block sits clear of the last column");
+  assert.ok(b.valueAt > b.at + 0.2 * "Temperature".length && b.right > b.valueAt, "each value after the longest name");
+  assert.deepEqual(b.lines.map((l) => l.y), [0, 1, 2].map((k) => blocked.v.top - k * blocked.v.rh), "a line for each row");
+  assert.deepEqual(gridTsv(blocked.v).split("\n").slice(-4), ["Temperature\t0 °C", "Atmosphere\tN2", "Other\t450 nm", ""]);
+  assert.equal(grid([0, "→", 1], {}).v.block, undefined, "no block with no conditions");
+  const onPage = grid([0, "→", 1], {}, undefined, [], undefined, { conditions, experiment: true });
+  assert.deepEqual(onPage.v.block!.lines.map((l) => l.key), ["atmosphere", "other"], "an experiment page's first table: Temperature shows once, in the page's details");
   // A listed density (THF over the arrow) shows plain: bold only when typed.
   const listedGrid = grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", ["THF"]), thfCol = listedGrid.v.cols.find((c) => c.key === 'r:"THF"')!;
   assert.deepEqual(cellText(listedGrid.v, thfCol, listedGrid.v.rows.find((r) => r.id === "density")!), { text: "0.88 g/mL", typed: false });
