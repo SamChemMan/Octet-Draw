@@ -39,7 +39,7 @@ import { OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
-import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
+import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, type Calculated, type PropertyValues } from "./proprows";
@@ -6357,7 +6357,7 @@ export default function Editor() {
   const titleOf = (x: Session | undefined) => {
     const g = x && sessionMols.get(x.id);
     const a = g && loaded ? analyse(subset(doc, new Set(g)), 1, namesLoaded ? abbreviationOf : undefined)?.[0] : undefined;
-    return a ? a.abbreviation ?? a.formula : "";
+    return a ? a.abbreviation ?? subscripts(a.formula) : ""; // a formula with its subscripts; an abbreviation as it is (2-MeTHF)
   };
   // A session comes into the strip (Predict, a new tab, its pill): the session there goes to its pill, so does Mass
   // spec, and an open Actions panel becomes its pill. From a pill the strip opens out of it; with another session in

@@ -109,8 +109,8 @@ assert.match(spectrum, /<Pick label="Add spectrum" value="" className="tab-add"/
 // The tab shown and a button that is on keep their tint under the pointer, as a segmented control's choice does.
 assert.match(read("editor.css"), /\.segmented button:hover:not\(\[aria-checked="true"\], \[aria-selected="true"\]\)/);
 assert.match(read("editor.css"), /\.spectrum-button:hover:not\(:disabled, \[aria-pressed="true"\]\)/);
-// The header's formula has its subscripts, as the Actions panel's has.
-assert.match(spectrum, /\{formula\(p\.title\) \|\| nameOf\(p\.spectrumKey\)\}/);
+// The header's formula has its subscripts, as the Actions panel's has; an abbreviation keeps its digits (2-MeTHF).
+assert.match(editor, /return a \? a\.abbreviation \?\? subscripts\(a\.formula\) : "";/);
 assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
 assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
 assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");
