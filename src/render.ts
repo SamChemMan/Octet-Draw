@@ -140,7 +140,9 @@ export type Caption = {
   angle?: number; // turned anticlockwise about its anchor (the start, middle or end of its first baseline), in degrees (ChemDraw's RotationAngle)
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
-  property?: Kept; // ChemDraw's live property text (its name, formula or mass) for these atoms, kept and written back
+  // A live property text for these atoms: ChemDraw's (its name, formula or mass), kept and written back, or Octet's own
+  // (attrs.rows: the Properties rows it shows, worked out again as the structure changes; proprows.ts liveValues).
+  property?: Kept;
   order?: number; // draw order (order.ts)
   width?: number; // the caption's width (bond lengths): its lines wrap to it, and justified lines fill it
   // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's

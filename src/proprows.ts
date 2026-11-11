@@ -2,8 +2,11 @@
 // and the report (ChemDraw's Report…) with each value's method and source.
 import type { Structure } from "./chem.ts";
 import type { Graph } from "./naming.ts";
+import type { Mol } from "./render.ts";
+import { fragments } from "./edit.ts";
 import { elementalAnalysis, isotopePattern } from "./mass.ts";
 import { massText } from "./query.ts";
+import { common, normalise, plainOf, runsOf, styled, type TextRun } from "./richtext.ts";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -59,6 +62,46 @@ export function propertyValues(structures: Structure[], calc?: (s: Structure, g:
   return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k], places)) })).filter((r) => r.values.some((v) => v !== undefined)));
 }
 export type PropertyValues = ReturnType<typeof propertyValues>;
+
+// The text Add to drawing writes for the rows with these keys: each row's name and value on a line, the formula's
+// counts as subscripts. k: one structure's values; unset, every structure's, separated by semicolons as in the panel.
+export function propertyRuns(values: PropertyValues, keys: string[], k?: number): TextRun[] {
+  const runs: TextRun[] = [];
+  for (const r of values.flat()) {
+    const v = !keys.includes(r.key) ? undefined : k === undefined ? r.values.filter((x) => x !== undefined).join("; ") || undefined : r.values[k];
+    if (v === undefined) continue;
+    if (runs.length) runs.push({ text: "\n" });
+    runs.push({ text: `${rowLabel(r)}: ` });
+    if (r.key === "formula") for (const [, letters, digits] of v.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
+    else runs.push({ text: v });
+  }
+  return runs;
+}
+
+// Live values (Add to drawing): each caption with rows of its own (property.attrs.rows) worked out again for its
+// structure as it is now, with the decimals it was added with (property.attrs.places). Its structure is every atom
+// joined to the atoms it is for, so an atom drawn on counts. A style on all of its text stays. values: the rows' values
+// for those atoms, undefined when there are none (Indigo loading, or a structure it cannot read). Returns the drawing
+// itself when nothing changes.
+export function liveValues(m: Mol, values: (atoms: number[], places?: number) => PropertyValues | undefined): Mol {
+  if (!m.captions?.some((c) => c.property?.attrs.rows)) return m;
+  const of = new Map<number, number[]>();
+  for (const g of fragments(m)) for (const i of g) of.set(i, g);
+  let changed = false;
+  const captions = m.captions.map((c) => {
+    const p = c.property, rows = p?.attrs.rows;
+    if (!p || !rows) return c;
+    const atoms = [...new Set(p.atoms.flatMap((i) => of.get(i) ?? []))].sort((a, b) => a - b);
+    const v = atoms.length ? values(atoms, /^[0-8]$/.test(p.attrs.places ?? "") ? Number(p.attrs.places) : undefined) : undefined, built = v ? propertyRuns(v, rows.split(" ")) : [];
+    if (!built.length) return c;
+    const { script: _, ...all } = common(runsOf(c), 0, c.text.length), runs = normalise(built.map((r) => ({ ...all, ...r }))), text = plainOf(runs);
+    if (text === c.text && String(atoms) === String([...p.atoms].sort((a, b) => a - b))) return c;
+    changed = true;
+    const { runs: _r, ...rest } = c;
+    return { ...rest, text, ...(styled(runs) ? { runs } : {}), property: { ...p, atoms } };
+  });
+  return changed ? { ...m, captions } : m;
+}
 
 // The report (ChemDraw's Report…): each structure's values, then each value's method and source, as text that also
 // pastes into a spreadsheet (a tab between a name and its value).
