@@ -449,6 +449,17 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(now.every((v, k) => Math.hypot(v[0] - was[k][0], v[1] - was[k][1]) < 0.05), "the product lies as its starting material again");
 }
 {
+  // File > More Formats' text formats through read with a format (1.1.2): CML, a connection table, SLN, and a peptide
+  // as HELM and FASTA, as the editor writes them.
+  d = drawing("paper", "Formats");
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "peptide: GPG" }] })).isError);
+  const as = async (format: string) => (await call("read", { format })).structuredContent?.text;
+  assert.deepEqual([await as("helm"), await as("fasta")], ["PEPTIDE1{G.P.G}$$$$V2.0", "GPG"]);
+  assert.match(await as("cml"), /<cml>[\s\S]*<molecule>/);
+  assert.match(await as("ct"), /^Formats\n/);
+  assert.ok((await as("sln")).length > 5, "SLN");
+}
+{
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
   d = drawing("paper", "Rows");
   const rows: Wrote = await call("draw_route", { schemes: [{ ...route(7), start: [{ text: biphenyl(GROUPS[6]), number: "7" }] }] }), levels: number[] = [];

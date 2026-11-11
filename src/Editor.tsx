@@ -301,7 +301,7 @@ type View = { x: number; y: number; zoom: number; pinch?: boolean };
 // What Export and Copy make from the drawing for other programs (pictures aside).
 // molfile: V2000, as ChemDraw puts it on the clipboard; mol, sdf, rxn and rdf: V3000 (or V2000 with 2000), as ChemDraw
 // 26.1 saves them.
-type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "cml" | "ct";
+type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "cml" | "ct" | "sln" | "helm" | "fasta";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step && a.branch === b.branch && a.part === b.part && a.key === b.key && a.mark === b.mark;
 const nothing = (t: Hover) => t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
@@ -1350,6 +1350,9 @@ export default function Editor() {
     if (f === "inchi") return toInchi(part);
     if (f === "cml") return toCml(part);
     if (f === "ct") return toCt(part, name);
+    if (f === "sln") return toSln(part);
+    if (f === "helm") return toHelm(part, toInchi, toSmiles);
+    if (f === "fasta") return toFasta(part, toInchi);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
     if (kind === "sdf") return toSdf(part, v2000);
     const steps = stepsIn(part);

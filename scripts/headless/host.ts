@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, analyseCompound, keptInchi, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -28,6 +28,8 @@ import { onTop } from "../../src/order.ts";
 import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
+import { toCt, toSln } from "../../src/textformats.ts";
+import { toFasta, toHelm } from "../../src/helm.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
@@ -219,6 +221,12 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "inchi") return toInchi(chem) || undefined;
       if (format === "mol" || format === "mol2000") return toMolfile(chem, format === "mol2000");
       if (format === "sdf") return toSdf(chem);
+      // File > More Formats' text formats, as the editor's chemistryOf writes them.
+      if (format === "cml") return toCml(chem);
+      if (format === "ct") return toCt(chem, title);
+      if (format === "sln") return toSln(chem);
+      if (format === "helm") return toHelm(chem, toInchi, toSmiles);
+      if (format === "fasta") return toFasta(chem, toInchi);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
       // (No pictures and no .oct here: a picture needs the app's renderer.)

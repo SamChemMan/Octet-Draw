@@ -1491,6 +1491,10 @@ Clean Up Reaction now does both jobs and `clean_reaction_augmented` is gone):
 
 Done on 11 November 2026 (branch `mcp/112`): the merge, both points above, and `turnScheme` in `src/interpret.ts`,
 which the editor and the host with no window share.
+Then what else 1.1.2 added, for full parity (same branch): the spectrum, SDF and Insert commands, opacity, the later
+template sets in place_template, gels, plasmid maps, membrane lines, a bond's own widths, the drawing's properties,
+the reagent table's roles, measured amounts, concentration and conditions, and CML, CT, SLN, HELM and FASTA in read
+with a format.
 
 ### 17.4 Pushing these branches
 
