@@ -1,6 +1,8 @@
-// The Properties panel's rows (ChemDraw's Analysis and Chemical Properties windows), their values for each structure,
-// and the report (ChemDraw's Report…) with each value's method and source.
+// The Properties panel's rows (ChemDraw's Analysis and Chemical Properties windows, and the GHS hazards Find hazards
+// gets from PubChem), their values for each structure, and the report (ChemDraw's Report…) with each value's method
+// and source.
 import type { Structure } from "./chem.ts";
+import { PICTOGRAMS, type Ghs } from "./ghs.ts";
 import type { Graph } from "./naming.ts";
 import type { Mol } from "./render.ts";
 import { fragments } from "./edit.ts";
@@ -16,8 +18,9 @@ export type Calculated = {
 };
 // method: how the value is found, and the source, for the report. places: the decimals set for the masses (unset:
 // 4 for the exact mass, 2 for the molecular weight and m/z). predicted: a model's estimate of a measured property,
-// which the panel, Add to drawing, Copy and the report all mark (rowLabel).
-export type Row = { key: string; name: string; method: string; predicted?: true; value: (s: Structure, c?: Calculated, places?: number) => string | undefined };
+// which the panel, Add to drawing, Copy and the report all mark (rowLabel). g: the structure's hazards from PubChem,
+// once found (null: PubChem has none).
+export type Row = { key: string; name: string; method: string; predicted?: true; value: (s: Structure, c?: Calculated, places?: number, g?: Ghs | null) => string | undefined };
 export const rowLabel = (r: { name: string; predicted?: true }) => (r.predicted ? `${r.name} (predicted)` : r.name);
 
 const sign = (x: number, places: number) => x.toFixed(places).replace("-", "−");
@@ -25,10 +28,11 @@ const celsius = (k?: number) => (k === undefined ? undefined : `${sign(k - 273.1
 const unit = (x: number | undefined, places: number, u: string) => (x === undefined || !Number.isFinite(x) ? undefined : `${sign(x, places)} ${u}`);
 const JOBACK = "Joback group contributions (Joback and Reid, Chem. Eng. Commun. 1987, 57, 233).";
 const CRIPPEN = "Wildman–Crippen atom contributions (Wildman and Crippen, J. Chem. Inf. Comput. Sci. 1999, 39, 868), calculated by Indigo.";
+const GHS = "GHS classification from PubChem (pubchem.ncbi.nlm.nih.gov), found by the structure's standard InChIKey: the first source PubChem shows for the compound.";
 
 // The rows, in ChemDraw's two windows' order: analysis and tPSA (calculated from the structure), then the predicted
-// physical properties, then the predicted medicinal chemist's. The CAS number (in neither window) goes after the
-// formula.
+// physical properties, then the predicted medicinal chemist's; then the GHS hazards, once found. The CAS number (in
+// neither window) goes after the formula.
 export const PROPERTY_ROWS: Row[][] = [
   [
     { key: "formula", name: "Formula", method: "Molecular formula of the drawn structure, with its implicit hydrogens (Indigo).", value: (s) => s.formula },
@@ -57,12 +61,21 @@ export const PROPERTY_ROWS: Row[][] = [
     { key: "logs", name: "logS", predicted: true, method: "Aqueous solubility, log10 of mol/L, by ESOL (Delaney, J. Chem. Inf. Comput. Sci. 2004, 44, 1000), with coefficients refitted for Crippen logP (P. Walters).", value: (_, c) => (c?.logS === undefined ? undefined : sign(c.logS, 2)) },
     { key: "pka", name: "pKa", predicted: true, method: "Typical pKa of each ionisable group (for a base, of its conjugate acid), from the Dimorphite-DL site table (Ropp et al., J. Cheminform. 2019, 11, 14).", value: (_, c) => (c?.pka.length ? c.pka.map((p) => `${p.pka.toFixed(1)} (${p.kind})`).join(", ") : undefined) },
   ],
+  [
+    { key: "ghs", name: "Pictograms", method: GHS, value: (_, __, ___, g) => g?.pictograms.map((p) => `${PICTOGRAMS[p].name} (${p})`).join(", ") || undefined },
+    { key: "signal", name: "Signal word", method: GHS, value: (_, __, ___, g) => g?.signal },
+    { key: "hazards", name: "Hazard statements", method: GHS, value: (_, __, ___, g) => (g === null ? "No GHS data in PubChem" : g?.hazards.join(", ") || undefined) },
+    { key: "precautions", name: "Precautionary statements", method: GHS, value: (_, __, ___, g) => g?.precautions.join(", ") || undefined },
+    { key: "ghs-source", name: "Source", method: GHS, value: (_, __, ___, g) => g?.source },
+    { key: "cid", name: "PubChem CID", method: "The compound's record in PubChem, found by the structure's standard InChIKey.", value: (_, __, ___, g) => g?.cid.toString() },
+  ],
 ];
 
-// Each row's values, one per structure, for the rows that have any. places: the decimals set for the masses.
-export function propertyValues(structures: Structure[], calc?: (s: Structure, g: Graph) => Calculated | undefined, places?: number) {
+// Each row's values, one per structure, for the rows that have any. places: the decimals set for the masses. ghs:
+// each structure's hazards, as far as they are found.
+export function propertyValues(structures: Structure[], calc?: (s: Structure, g: Graph) => Calculated | undefined, places?: number, ghs: (Ghs | null | undefined)[] = []) {
   const calculated = structures.map((s) => (s.graph && calc ? calc(s, s.graph) : undefined));
-  return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k], places)) })).filter((r) => r.values.some((v) => v !== undefined)));
+  return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k], places, ghs[k])) })).filter((r) => r.values.some((v) => v !== undefined)));
 }
 export type PropertyValues = ReturnType<typeof propertyValues>;
 // The values with each structure's CAS number in the CAS row, in its place. No row when no structure has a number.

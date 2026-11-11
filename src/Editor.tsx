@@ -40,6 +40,7 @@ import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context 
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, type Calculated, type PropertyValues } from "./proprows";
+import { ghsOf, type Ghs } from "./ghs";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -6106,7 +6107,15 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [sweep, selection]);
   const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
-  const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[] }>(undefined);
+  // Find hazards (with Online search on): each structure's standard InChIKey, worked out when the user presses it, and
+  // PubChem's GHS hazards for each key, kept while the window is open (null: PubChem has none). Octet asks PubChem
+  // only on that press (decision 0008), one key at a time. A structure shows the hazards of the key worked out for it
+  // while it keeps its content and its atoms. After a change, once the drawing is still for a moment, the keys are
+  // worked out again: a structure found before shows its hazards again, and one moved into another stereoisomer shows
+  // that one's.
+  const ghsFound = useRef(new Map<string, Ghs | null>()), ghsAsking = useRef(Promise.resolve());
+  const [ghsKeys, setGhsKeys] = useState<{ structures: Structure[]; atoms: string[]; keys: (string | undefined)[] }>();
+  const lastProperties = useRef<{ atoms: number[][]; structures: Structure[]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[] }>(undefined);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
@@ -6116,9 +6125,11 @@ export default function Editor() {
     const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ g, atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
+    const shown = kept.map((x) => x.s!), atoms = kept.map((x) => x.atoms);
+    const ghs = shown.map((s, k) => (settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join() ? ghsFound.current.get(ghsKeys.keys[k] ?? "") : undefined));
     // base and each structure's atoms in it, for the CAS row (a polymer has no CAS number).
-    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)) };
-  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { atoms, structures: shown, values: propertyValues(shown, calc, settings.decimals, ghs), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)) };
+  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
   // The CAS row: each structure's number by its InChIKey, from the dictionary once the names engine has loaded it. It
   // is looked up after the panel has drawn, 8 ms at a time with the window free between (and not while a glide runs),
@@ -6173,6 +6184,22 @@ export default function Editor() {
     }, 250);
     return () => clearTimeout(t);
   }, [doc, loaded, gliding, drag, writing, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keysOf = (p: { atoms: number[][]; structures: Structure[] }) => ({ structures: p.structures, atoms: p.atoms.map((a) => a.join()),
+    keys: p.atoms.map((a) => { try { return toInchiKey(subset(chem.mol, new Set(a))) || undefined; } catch { return undefined; } }) });
+  function findHazards() {
+    if (!properties || !TAURI) return;
+    const found = keysOf(properties);
+    setGhsKeys(found);
+    for (const key of found.keys) if (key) ghsAsking.current = ghsAsking.current.then(() => (ghsFound.current.has(key) ? undefined : invoke<string | null>("pubchem_hazards", { key }).then((json) => {
+      const g = json === null ? null : ghsOf(json);
+      if (g !== undefined) { ghsFound.current.set(key, g); setGhsKeys((x) => x && { ...x }); }
+    }).catch(() => undefined)));
+  }
+  useEffect(() => {
+    if (!ghsKeys || !properties || !settings.onlineSearch) return;
+    const t = setTimeout(() => setGhsKeys(keysOf(properties)), 300);
+    return () => clearTimeout(t);
+  }, [loaded, settings.properties, doc, chem, propertySelection, picked, settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
   const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
@@ -9667,6 +9694,9 @@ export default function Editor() {
           stacked={spectrum && !panelHidden("nmr") ? "nmr" : msAtoms && !panelHidden("ms") ? "ms" : undefined}
           decimals={settings.decimals}
           onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
+          online={settings.onlineSearch}
+          onHazards={findHazards}
+          onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
         />
       )}</Live>}</Exit>
       <Live store={carets}>{() => {

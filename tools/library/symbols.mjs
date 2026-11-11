@@ -2,6 +2,7 @@
 // the sex symbols, a target) and safety signs (warning triangles, the radiation trefoil and GHS hazard diamonds), in
 // the Lab group's line style (art.mjs path data, 40 units to a bond length, y down). Each is worked out here from
 // simple geometry.
+import { PICTOGRAMS } from "../../src/ghs.ts";
 import { art, circle, fine, ink, solid } from "./art.mjs";
 
 const PER = { per: 40 };
@@ -32,18 +33,13 @@ function radiation() {
   const r0 = 8, r1 = 14, r2 = 40, blade = (a) => `M${pt(r1, a - 30)}L${pt(r2, a - 30)}A${r2} ${r2} 0 0 1 ${pt(r2, a + 30)}L${pt(r1, a + 30)}A${r1} ${r1} 0 0 0 ${pt(r1, a - 30)}Z`;
   return art("Radiation symbol", "trefoil, radioactive, ionising radiation, hazard", PER, [solid(circle(0, 0, r0)), ...[-90, 30, 150].map((a) => solid(blade(a))), ink(circle(0, 0, 46))]);
 }
-// GHS hazard diamonds (a square on its point) and their pictograms.
-const diamond = (inner) => [ink(`M0 -46L46 0L0 46L-46 0Z`), ...inner];
-// A flame: an outline that leans and licks up to its tip, and a smaller one inside it, filled. (x, y) is its middle.
-const flame = (x, y, s) => {
-  const p = (px, py) => `${f(x + px * s)} ${f(y + py * s)}`;
-  return [ink(`M${p(0, -26)}C${p(8, -15)} ${p(17, -9)} ${p(15, 6)}C${p(14, 15)} ${p(8, 20)} ${p(0, 20)}C${p(-9, 20)} ${p(-16, 14)} ${p(-15, 4)}C${p(-14, -4)} ${p(-8, -7)} ${p(-6, -15)}C${p(-2, -9)} ${p(0, -11)} ${p(0, -26)}Z`),
-    solid(`M${p(0, -4)}C${p(4, 2)} ${p(8, 6)} ${p(7, 12)}C${p(6, 17)} ${p(3, 18)} ${p(0, 18)}C${p(-4, 18)} ${p(-8, 15)} ${p(-7, 10)}C${p(-6, 5)} ${p(-2, 3)} ${p(0, -4)}Z`)];
-};
-const ghsFlame = () => art("Flammable (GHS02)", "flame, flammable, GHS, hazard pictogram", PER, diamond([...flame(0, -4, 1), solid(`M-14 22L14 22L14 26L-14 26Z`)]));
-const ghsOxidiser = () => art("Oxidising (GHS03)", "flame over circle, oxidiser, oxidizer, GHS, hazard pictogram", PER, diamond([...flame(0, -12, 0.75), ink(circle(0, 12, 8)), solid(`M-12 25L12 25L12 28L-12 28Z`)]));
-const ghsGas = () => art("Gas under pressure (GHS04)", "gas cylinder, compressed gas, GHS, hazard pictogram", PER, diamond([ink(`M-24 6L16 6Q24 6 24 12Q24 18 16 18L-24 18Z`), ink(`M24 10L30 10L30 14L24 14`)]));
-const ghsHarmful = () => art("Harmful (GHS07)", "exclamation mark, irritant, harmful, GHS, hazard pictogram", PER, diamond([solid(`M-4 -24L4 -24L2 10L-2 10Z`), solid(circle(0, 20, 4))]));
+// GHS hazard diamonds (a square on its point) and their pictograms, which the Properties panel draws too (src/ghs.ts).
+const ghs = (code, also) => art(`${PICTOGRAMS[code].name} (${code})`, `${also}, GHS, hazard pictogram`, PER,
+  [ink(`M0 -46L46 0L0 46L-46 0Z`), ...PICTOGRAMS[code].parts.map(([kind, d]) => (kind === "ink" ? ink(d) : solid(d)))]);
+const ghsFlame = () => ghs("GHS02", "flame, flammable");
+const ghsOxidiser = () => ghs("GHS03", "flame over circle, oxidiser, oxidizer");
+const ghsGas = () => ghs("GHS04", "gas cylinder, compressed gas");
+const ghsHarmful = () => ghs("GHS07", "exclamation mark, irritant, harmful");
 
 export const SYMBOLS = [star(), pentagon(), hexagon(), octagon(), burst(), tick(), cross(), bolt(), male(), female(), target(), warning(), highVoltage(), radiation(),
   ghsFlame(), ghsOxidiser(), ghsGas(), ghsHarmful()];
