@@ -226,13 +226,16 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
                 put(Kind::Bitmap, b);
             }
         } else {
-            // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.2.
+            // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.2. A PDF
+            // Octet cannot make (a font it cannot embed) leaves the PNG and the SVG, as in 1.1.2.
             let (png, pdf) = std::thread::scope(|t| {
                 let pdf = t.spawn(|| crate::export::make_pdf(svg, cdxml, None));
-                (crate::export::clipboard_pictures(svg, false, dpi, cdxml), pdf.join().unwrap_or_else(|_| Err("Octet cannot copy this.".into())))
+                (crate::export::clipboard_pictures(svg, false, dpi, cdxml), pdf.join().ok().and_then(Result::ok))
             });
             put(Kind::Png, png?.0);
-            put(Kind::Pdf, pdf?);
+            if let Some(pdf) = pdf {
+                put(Kind::Pdf, pdf);
+            }
             // The SVG in px user units, so Inkscape pastes it at true size (issue 47).
             put(Kind::Svg, crate::export::px_units(svg).into_bytes());
         }

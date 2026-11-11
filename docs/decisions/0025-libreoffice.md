@@ -13,7 +13,8 @@ and Update puts it back.
 - Copy on Linux puts, in this order: the PNG (with the CDXML in a chunk), `application/pdf` (the Mac's PDF, with the
   CDXML in its `/Metadata`), the SVG, then the chemistry as before. Octet makes the PDF on a second thread while it
   draws the PNG, so Copy takes no longer than in 1.1.2 (`linux_copy_takes_no_longer`; 7.3 ms against 7.3 ms in the
-  VM's release build).
+  VM's release build). If Octet cannot make the PDF (a font it cannot embed), Copy puts the PNG and the SVG, as in
+  1.1.2.
 - Writer, Impress and Draw paste the PDF, and keep it in `.odt`, `.odp` and `.odg`. LibreOffice saves a PDF newer
   than 1.6 again at 1.6 through pdfium, which takes the `/Filter` off the `/Metadata` stream and leaves it deflated.
   Octet now reads zlib data with no filter as well (`export.rs`, `cdxml_of`).
@@ -41,7 +42,9 @@ LibreOffice's Extension Manager asks the user to confirm.
   LibreOffice does nothing more. Every other picture keeps LibreOffice's own double-click.
 - The context menu of such a picture starts with Edit in Octet Draw. Insert > Octet Drawing (after Insert > Image)
   opens an empty object window, and the first Update inserts the drawing: in Writer in line at the cursor, in Impress
-  and Draw through LibreOffice's own Insert Image.
+  and Draw through LibreOffice's own Insert Image. Insert Image reads a private copy (`mkstemp`) of the PDF the
+  extension read and checked. Octet's file can be gone by then: Close and Return writes the drawing and `closed`
+  together, and the folder goes.
 - A picture that is open already brings Octet's window to the front.
 
 ## Between the extension and Octet

@@ -252,7 +252,7 @@ class Session:
             if self.shape is None:
                 undo.enterUndoContext("Octet Drawing")
                 try:
-                    self.shape = self.insert(graphic, size)
+                    self.shape = self.insert(graphic, size, data)
                 finally:
                     undo.leaveUndoContext()
                 return
@@ -268,17 +268,24 @@ class Session:
             self.went()  # the picture or its document is gone
 
     # A new drawing. In Writer, in line at the cursor (Writer's Insert > Image would put it over a picture that is
-    # selected). In Impress and Draw, LibreOffice's own Insert > Image with the file, for its usual place and size: a
-    # picture they add through the API has no undo step.
-    def insert(self, graphic, size):
+    # selected). In Impress and Draw, LibreOffice's own Insert > Image, for its usual place and size: a picture they add
+    # through the API has no undo step. Insert > Image reads a private copy of the PDF checked above. Octet's file can
+    # be gone by now (its window closed), or be a link.
+    def insert(self, graphic, size, data):
         if self.at is not None:
             shape = self.doc.createInstance("com.sun.star.text.TextGraphicObject")
             shape.AnchorType = uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER")
             swap(shape, graphic, size)
             self.at.getText().insertTextContent(self.at, shape, False)
             return shape
-        url = uno.systemPathToFileUrl(self.path)
-        service(self.ctx, "com.sun.star.frame.DispatchHelper").executeDispatch(self.controller.getFrame(), ".uno:InsertGraphic", "", 0, (prop("FileName", url), prop("AsLink", False)))
+        fd, name = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            url = uno.systemPathToFileUrl(name)
+            service(self.ctx, "com.sun.star.frame.DispatchHelper").executeDispatch(self.controller.getFrame(), ".uno:InsertGraphic", "", 0, (prop("FileName", url), prop("AsLink", False)))
+        finally:
+            os.unlink(name)
         return selected_picture(self.controller)
 
     # The document closed, or the picture is gone: Octet's window says so and keeps the drawing for Save Copy As.

@@ -22,7 +22,7 @@ const jobs = read(dir + "Jobs.xcu"), addons = read(dir + "Addons.xcu");
 // and LibreOffice's own copy of a picture (SVXB), which holds the PDF as it was pasted in.
 const linux = clipboard.match(/System::Linux => match k \{([\s\S]*?)\n {8}\},/)?.[1] ?? "";
 assert.ok(/Png => &\["image\/png"\]/.test(linux) && /Pdf => &\["application\/pdf"\]/.test(linux) && /Svg => &\["image\/svg\+xml"\]/.test(linux) && /Svxb => &\[SVXB\]/.test(linux), "Linux's clipboard names");
-assert.ok(/put\(Kind::Png, png\?\.0\);\s*put\(Kind::Pdf, pdf\?\);\s*(\/\/.*\s*)*put\(Kind::Svg,/.test(clipboard), "Copy puts the PNG, the PDF and the SVG, in that order");
+assert.ok(/put\(Kind::Png, png\?\.0\);\s*if let Some\(pdf\) = pdf \{\s*put\(Kind::Pdf, pdf\);\s*\}\s*(\/\/.*\s*)*put\(Kind::Svg,/.test(clipboard), "Copy puts the PNG, the PDF and the SVG, in that order");
 assert.ok(/const PICTURE = .*LINUX \? "PDF, PNG and SVG"/.test(settings), "Settings names Linux's pictures");
 assert.ok(/\[Octet, Object, Cdxml, Cdx, Molfile, Smiles, Pdf, Svxb,/.test(clipboard), "paste reads the PDF and LibreOffice's copy");
 
@@ -65,6 +65,8 @@ const octet = py.match(/\ndef octet\(\):\n([\s\S]*?)\n\n/)?.[1] ?? "";
 assert.deepEqual([...octet.matchAll(/return (.+)$/gm)].map((m) => m[1]), ['["/usr/bin/octet"]', '[flatpak, "run", APP_ID]', "[found] if found else None"], "the programs it runs: Octet, or Flatpak's Octet");
 assert.ok(/after\("--object"\)/.test(objects) && /after\("--host"\)/.test(objects), "Octet reads those arguments");
 assert.ok(py.includes("O_EXCL | os.O_NOFOLLOW, 0o600") && py.includes('tempfile.mkdtemp(prefix="libreoffice-", dir=base)'), "a private folder and new files");
+// Impress and Draw insert a new drawing from a private copy of the PDF checked: Octet's file can be gone by then.
+assert.ok(py.includes('tempfile.mkstemp(suffix=".pdf")') && !py.includes("systemPathToFileUrl(self.path)"), "Insert reads a private copy");
 
 // Python parses it, and the extension's test for a drawing in a PDF answers as Octet would: Octet's PDF, the PDF as
 // LibreOffice keeps it (deflated with no /Filter), ChemDraw's plain CDXML, and a PDF with no drawing.
