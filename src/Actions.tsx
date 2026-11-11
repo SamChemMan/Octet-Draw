@@ -87,9 +87,10 @@ export type Context =
   // A stoichiometry grid's cell picked: its column a product or a reactant (the limiting one or not), and whether any
   // of the grid's rows or columns are hidden.
   | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean }
-  // groups: the and and or group numbers its structure uses, and the lowest new one of each.
-  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean }
+  // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
+  // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions.
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; molecule?: Extract<Context, { kind: "structure" }> }
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
@@ -382,12 +383,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, whole, inWindow, keep, dict, del);
+        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, del);
       break;
     case "bond":
       if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, whole, inWindow, keep, dict, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -473,6 +474,11 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, keep, del);
       }
       break;
+  }
+  // A lone atom or bond that is a whole molecule (ethane, H2O) gets every action its structure gets, after its own.
+  if ((context.kind === "atom" || context.kind === "bond") && context.molecule) {
+    const own = new Set(items.map((i) => i.command));
+    items.push(...actionItems(context.molecule, messy, hiddenWarnings, warned, online).filter((i) => !own.has(i.command)));
   }
   return items;
 }
@@ -670,8 +676,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
     line: "Line",
   }[context.kind];
-  // The formula and mass rows: structures, and captions that count as chemistry (the editor gives none for others).
-  const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked");
+  // The formula and mass rows: structures (a lone atom or bond that is a whole molecule too), and captions that count
+  // as chemistry (the editor gives none for others).
+  const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked") || ((context.kind === "atom" || context.kind === "bond") && !!context.molecule);
 
   const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
 

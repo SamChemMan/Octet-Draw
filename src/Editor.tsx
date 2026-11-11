@@ -24,7 +24,7 @@ import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
-  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup,
+  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup, wholeMolecule,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
@@ -5921,35 +5921,41 @@ export default function Editor() {
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (!ids.length) return { kind: "drawing", nameable };
+    // The selection as a structure. A lone atom or bond that is a whole molecule (ethane, H2O) is one too: it keeps its
+    // own actions and gets the structure's as well (molecule).
+    const structureOf = (): Extract<Context, { kind: "structure" }> => {
+      // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
+      const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
+      const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i, used[i])) ? "shown" as const : "hidden" as const;
+      // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
+      const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
+      const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
+      // A 3D structure (Structure Perspective): depth shading on or off.
+      const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
+      return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
+        ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
+        // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
+        circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
+        // ¹⁹F and ³¹P show for a structure with F or P, as an atom or in a label (CF3, PPh3, PF6).
+        nuclei: (() => { const t = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().map((i) => doc.atoms[i].text ?? doc.atoms[i].label).join(" "); return [...(/F(?![a-z])/.test(t) ? ["19F"] : []), ...(/P(?![a-z])/.test(t) ? ["31P"] : [])]; })(),
+        // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
+        halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection),
+        properties: settings.properties }; // so the Properties action names what it does next, as the palette does
+    };
+    const molecule = ids.length <= 2 && wholeMolecule(doc, ids) ? structureOf() : undefined;
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
       // Its structure's and and or groups, and the lowest new one of each, for the stereo flag buttons.
       const centre = stereocentres(doc).includes(ids[0]), structure = centre ? fragments(doc).find((g) => g.includes(ids[0])) ?? [] : [];
       const groups = (kind: "&" | "or") => [...new Set([...structure.flatMap((i) => { const g = /^(&|or)(\d+)$/.exec(doc.atoms[i].enhanced ?? ""); return g && g[1] === kind ? [Number(g[2])] : []; }), nextGroup(doc, structure, kind)])].sort((p, q) => p - q);
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current, molecule };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
       const b = doc.bonds[bi], style = bondKindOf(b);
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])) };
+      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), molecule };
     }
-    // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
-    const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
-    const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i, used[i])) ? "shown" as const : "hidden" as const;
-    // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
-    const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
-    const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
-    // A 3D structure (Structure Perspective): depth shading on or off.
-    const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
-      ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
-      // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
-      circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
-      // ¹⁹F and ³¹P show for a structure with F or P, as an atom or in a label (CF3, PPh3, PF6).
-      nuclei: (() => { const t = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().map((i) => doc.atoms[i].text ?? doc.atoms[i].label).join(" "); return [...(/F(?![a-z])/.test(t) ? ["19F"] : []), ...(/P(?![a-z])/.test(t) ? ["31P"] : [])]; })(),
-      // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
-      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection),
-      properties: settings.properties }; // so the Properties action names what it does next, as the palette does
+    return molecule ?? structureOf();
   };
   // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
   // the Pen (the drawing and the captions' places change then, and the context follows them when what is shown is the
@@ -5977,7 +5983,7 @@ export default function Editor() {
   // The formula and mass the panel shows (of the selection, the picked captions that count as chemistry, or everything
   // with those captions): only while it is open and shows them, and only for the first three structures, as it shows
   // no more.
-  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure" || (panelContext?.kind === "caption" && panelContext.mode === "picked"));
+  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure" || (panelContext?.kind === "caption" && panelContext.mode === "picked") || ((panelContext?.kind === "atom" || panelContext?.kind === "bond") && !!panelContext.molecule));
   const analysis = useMemo(() => {
     if (!loaded || !facts) return undefined;
     const own = selection.size ? undefined : pickedChem(picked);
