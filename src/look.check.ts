@@ -98,7 +98,7 @@ assert.match(css, /^\.glyph-text \{[^}]*\n  font-size: 11px;/m);
 assert.match(css, /^\.glyph-text \{[^}]*\n  font-family: var\(--font-sans\);/m);
 // Every search field (Settings, Templates, Home's Experiments) has one look and the same clear button once it has text,
 // and never the platform's own.
-assert.match(css, /^\.settings-search,\n\.library-search \{[^}]*\n  height: 28px;/m);
+assert.match(css, /^\.settings-search,\n\.library-search \{[^}]*\n  height: var\(--size-control\);/m);
 assert.match(css, /^\.settings-search input::-webkit-search-cancel-button,\n\.library-search input::-webkit-search-cancel-button \{\n  display: none;/m);
 assert.equal(css.match(/(?<!,\n)^\.(settings|library)-search \{[^}]*\n  height:/gm), null, "no second search field size");
 for (const [file, label, value] of [["SettingsWindow.tsx", "settings-search", "query"], ["TemplateLibrary.tsx", "library-search", "query"], ["Home.tsx", "library-search home-search", "search"]]) {

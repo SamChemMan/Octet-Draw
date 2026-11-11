@@ -106,12 +106,14 @@ assert.match(spectrum, /\{closable && <CloseX name=\{keyName\(k\)\} onClose=\{\(
 assert.match(controls, /<CloseX name=\{p\.name\} onClose=\{p\.onClose\} \/>/);
 assert.match(controls, /className="close-x" tabIndex=\{-1\} aria-label=\{`Close \$\{name\}`\} data-tip="Close" onClick=\{\(\) => onClose\(\)\}><X size=\{12\} \/><\/button>/);
 assert.doesNotMatch(css + controls + spectrum, /pill-close|tab-close/, "no second close X");
-assert.match(css, /\n\.close-x,\n\.segmented button\.close-x \{\n  display: none;\n  place-items: center;\n  width: 18px;\n  min-width: 0;\n  height: 18px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);\n  background: transparent;\n  color: var\(--ink-muted\);\n  transform: none;\n  transition: none;\n\}/);
+assert.match(css, /\n\.close-x,\n\.segmented button\.close-x \{\n  display: none;\n  place-items: center;\n  width: var\(--size-action\);\n  min-width: 0;\n  height: var\(--size-action\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);\n  background: transparent;\n  color: var\(--ink-muted\);\n\}/);
 for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-x[^{}]*)\{([^}]*)\}/g)) {
   if (/\b(width|height|background|border-radius|color):/.test(m[2])) assert.ok(/^\.close-x,\n\.segmented button\.close-x $|close-x:hover/.test(m[1].trim() + " "), `one look for the close X: ${m[1].trim()}`);
 }
 {
-  const room = Number(/\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: (\d+)px;/.exec(css)?.[1]);
+  // The tab's room is the X (--size-action, 18 px), the 4 px clear of the name (--space-1) and the X's own 2 px from the edge.
+  const calc = /\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: calc\(var\(--size-action\) \+ var\(--space-1\) \+ (\d+)px\);/.exec(css);
+  const room = 18 + 4 + Number(calc?.[1]);
   const right = Number(/\.spectrum-tab \.close-x \{\n  position: absolute;\n  top: 0;\n  bottom: 0;\n  right: (\d+)px;\n  margin: auto 0;\n\}/.exec(css)?.[1]);
   assert.equal(room - right - 18, 4, "the tab's X is 4 px clear of the name");
 }
@@ -123,7 +125,7 @@ for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-
   assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close"), "a pill's or tab's X has the panel controls' corners");
   assert.match(read("./NoticeBar.tsx"), /<button className="actions-close" aria-label="Close" data-tip="Close" onClick=\{onGone\}><X size=\{12\} \/><\/button>/);
   assert.match(read("./TemplateLibrary.tsx"), /<button className="actions-close" aria-label=\{`Close \$\{palette\.set\}`\} data-tip="Close" onClick=\{onClose\}>/);
-  assert.match(css, /\n\.floating-size \{[^}]*\n  width: 24px;\n  height: 24px;\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
+  assert.match(css, /\n\.floating-size \{[^}]*\n  width: var\(--size-control-sm\);\n  height: var\(--size-control-sm\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
   assert.doesNotMatch(css + read("./NoticeBar.tsx") + read("./TemplateLibrary.tsx"), /notice-close|floating-close/, "no second panel X");
 }
 // The + that adds a spectrum is a small action at the brand's 12 px, as the X beside it.

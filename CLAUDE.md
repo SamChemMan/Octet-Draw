@@ -136,6 +136,10 @@ Security is a top priority.
   then the design skills, then ponytail on code size.
 - These skills are installed on Sam's Mac only. Cloud sessions follow
   `brand/`.
+- Controls look the same everywhere. Read "Controls" in `brand/BRAND.md` before you add or change a
+  button, field, menu, tab or panel. Use the size, state and layer tokens. Run the app and measure the
+  new control against the controls beside it before you show it. `npm test` runs `src/ui.check.ts`,
+  which fails on a size, corner, space, colour, shadow or press scale typed by hand.
 - Record significant technical decisions in `docs/decisions/`.
 - Check every feature against ChemDraw side by side (same input, compare
   the output, the speed and the number of steps) so Octet is never worse.

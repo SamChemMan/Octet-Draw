@@ -12,7 +12,7 @@ assert.match(settings, /onlineSearch: true, moreFormats: false,/);
 assert.match(settings, /moreFormats: saved\.moreFormats === true,/);
 
 // Settings > Pro holds the switch.
-assert.match(window, /\{ id: "pro", name: "Pro", icon: <Toolbox size=\{16\} \/>/);
+assert.match(window, /\{ id: "pro", name: "Pro", icon: <Toolbox size=\{18\} \/>/);
 assert.match(window, /d\("pro", "File menu", "More formats", "[^"]*", <Switch on=\{p\.moreFormats\} label="More formats" onChange=\{p\.onMoreFormats\} \/>\)/);
 assert.match(window, /p\.onlineSearch, p\.moreFormats,/, "the switch shows its change");
 assert.match(editor, /moreFormats=\{settings\.moreFormats\}\s+onMoreFormats=\{\(moreFormats\) => setSettings\(\(s\) => \(\{ \.\.\.s, moreFormats \}\)\)\}/);

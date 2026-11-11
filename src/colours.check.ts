@@ -75,7 +75,7 @@ assert.doesNotMatch(read("./editor.css"), /\.pick-swatch\.none \{[^}]*border/);
 // In a menu a swatch stands in an icon's room, so its name lines up with Pick from screen and Add colour…; and the
 // name of one of the user's colours keeps clear of its remove button.
 assert.match(read("./editor.css"), /\.variant > \.pick-swatch \{\n  margin: 0 2px;/);
-assert.match(read("./editor.css"), /\.strip\.list \.variant-cell:has\(> \.variant-action\) > \.variant \{\n  padding-right: 28px;/);
+assert.match(read("./editor.css"), /\.strip\.list \.variant-cell:has\(> \.variant-action\) > \.variant \{\n  padding-right: calc\(var\(--size-action\) \+ var\(--space-2\)\);/);
 assert.match(home, /colourItems\(colourOptions\(COLOURS/);
 assert.ok(!/className="swatches small"|"\\u0000custom"|Custom colour…/.test(actions + home), "no colour row or Custom colour… of its own");
 assert.match(picker, /aria-label="Pick from screen"[^\n]+pickColour\(\)/, "the picker's eyedropper");
