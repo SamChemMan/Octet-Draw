@@ -303,7 +303,7 @@ const CASES = {
     writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp-dev.json"), JSON.stringify(info));
     const changed = await until(() => c.notes.some((m) => m.method === "notifications/tools/list_changed"), 6000);
     const later = (await c.ask("tools/list")).result?.tools ?? [];
-    check(changed && later.length >= 20, "Octet found: the list changed and the tools are there", `${changed} ${later.length}`);
+    check(changed && ["draw", "change", "read"].every((n) => later.some((t) => t.name === n)), "Octet found: the list changed and the tools are there", `${changed} ${later.map((t) => t.name)}`);
     c.stop();
     // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. A dev build's bundle has mcp-dev.json in
     // place of mcp.json (bundle in mcp.rs). It runs in the real home, so the folder it works out must be the folder
