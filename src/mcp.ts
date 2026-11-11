@@ -366,6 +366,8 @@ const READING = { type: "object", required: ["drawing", "structures", "reactions
 // or grid is drawn, and set_brief's arguments, their answers in the same order.
 const QUESTIONS = "1. Do you have a preferred working style? If so, ask them for a drawing in it. 2. Where is this going, and how big does it need to be? 3. Is there anything to emphasise, or a layout to follow?";
 const BRIEF_FIRST = `Octet needs the brief first. Ask the user these three questions, then call set_brief: ${QUESTIONS}`;
+// For a call that takes brief itself (draw, change), which the user may have answered already.
+const BRIEF_HERE = `Octet needs the brief first. If the user has not answered these three questions, ask them, then call again with their answers as brief: ${QUESTIONS}`;
 // An AI app that takes elicitation/create (plan 3.1, 7.3) has Octet ask the user itself, in the AI app's own form: a
 // flat object of text and one choice. The choice is an enum with enumNames, which both versions with elicitation take
 // (MCP 2025-06-18 and 2025-11-25, Elicitation, Requested Schema); the page does not know which one the AI app agreed.
@@ -626,7 +628,7 @@ for (const t of OPS) {
 // route's brief: the user's answers given with the call (draw's brief), set as set_brief sets them before it draws;
 // lines: the call was the line notation, so its reply is the one that ends a job (answer); where: the line of each of
 // its names (fromLines).
-type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes) => { op: string; args: any; at?: string; brief?: unknown; lines?: true; where?: Map<string, number> } | string };
+type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes, reads?: (t: string) => boolean) => { op: string; args: any; at?: string; brief?: unknown; lines?: true; where?: Map<string, number> } | string };
 const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
 const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "set_brief", "file", "new"];
 // The values an operation's argument takes, for a tool's description to list.
@@ -659,7 +661,7 @@ text: text, with bold, italic, size, colour. Place it as move does (below: 's3')
 arrow: kind (reaction, equilibrium, curved, fishhook, line and more), from and to (each an id or [x, y]). help of arrow says how to add a step to a scheme.
 shape: kind (${values("shape", "kind")}), around (ids) or box [x0, y0, x1, y1].
 select: ids, for advanced run_command.
-draw: lines of one drawing, or kind (structures, cycle, figure, reaction) and its JSON (advanced help of the kind).` }, ...REPLY }, ["operations"]);
+draw: lines of one drawing, or kind (structures, cycle, figure, reaction) and its JSON (advanced help of the kind).` }, brief: str(2000, "As draw's"), ...REPLY }, ["operations"]);
 const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
 const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
@@ -669,24 +671,28 @@ const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { defa
 const BRIEF_NOTE = "The user's answers to the three questions, when this call draws more than one structure and the session has none: quick (no preference: Quick start, no page), or where it goes (paper, thesis, slides, poster, notebook) with a journal, 1 or 2 columns, or a size in mm, then emphasis: and layout: in the user's words. Octet keeps it for the session. For the style of the user's own file, call set_brief.";
 // The answers come as the user typed them ("No, I have no preferred style. A paper, no particular journal.", "a JACS
 // paper", "thesis, A4"), so each part (split at commas, semicolons and full stops) gives the destination, columns,
-// size and page wherever they are in it; the words left are the journal, unless they say no or nothing.
+// size and page wherever they are in it; the words left are the journal, unless they say no or nothing, or are only
+// filler and the question's own words ("Where it goes: on screen only"). A quick look, on screen, no page or nowhere in
+// particular is Quick start, unless a part names where the drawing goes ("a quick look for a JACS paper" is a paper).
 const PAGE_WORD = /\b(a[0-4]|(?:us\s+)?letter|legal|tabloid)\b|(16:9|4:3)/i;
+const QUICK = /\b(?:quick(?:\s+(?:start|look))?|(?:on\s+)?screen|glance|no\s+page|nowhere(?:\s+in\s+particular)?|no\s+preference|none)\b/gi;
+const FILLER = "a|an|the|my|for|in|on|at|as|with|to|of|just|only|it|is|this|where|goes|going|and|how|big|does|need|needs|be|now", LEAD = new RegExp(`^(?:(?:${FILLER})\\b[\\s:]*)+`, "i"), FILL = new RegExp(`\\b(?:${FILLER})\\b`, "gi");
 function briefOf(b: unknown): unknown {
   if (typeof b !== "string") return b;
   const [head, ...said] = b.split(/\b(emphasis|layout)\s*:\s*/i), d: Record<string, unknown> = {}, out: Record<string, unknown> = {}, journal: string[] = [];
   for (let k = 0; k < said.length; k += 2) out[said[k].toLowerCase()] = clean(said[k + 1]).replace(/[\s,;.]+$/, "");
-  let page: PageName | undefined, none = false, m: RegExpExecArray | null;
+  let page: PageName | undefined, none = false, quick = false, m: RegExpExecArray | null;
   for (let part of head.split(/[,;]\s*|(?<=\.)\s+/).map((x) => clean(x)).filter(Boolean)) {
-    if (/^(?:quick(?: start| look)?|no preference|none|no page|screen)\.?$/i.test(part)) { d.kind = "quick"; continue; }
     if ((m = /\b(paper|thesis|slides?|poster|notebook)\b/i.exec(part))) { d.kind = m[1].toLowerCase().replace(/^slide$/, "slides"); part = part.replace(m[0], " "); }
     if ((m = /\b(1|2|one|two|single|double)[\s-]*col(?:umn)?s?\b/i.exec(part))) { d.columns = /^(?:1|one|single)$/i.test(m[1]) ? 1 : 2; part = part.replace(m[0], " "); }
     if ((m = /(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*mm\b/i.exec(part))) { d.size_mm = [Number(m[1]), Number(m[2])]; part = part.replace(m[0], " "); }
     if ((m = PAGE_WORD.exec(part))) { page = m[2] ? (m[2] === "16:9" ? "Slide169" : "Slide43") : /letter/i.test(m[1]) ? "Letter" : (m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()) as PageName; part = part.replace(m[0], " "); }
-    const left = clean(part.replace(/[()[\]]/g, " ")).replace(/^(?:(?:a|an|the|my|for|in|on|as|with|to)\b\s*)+/i, "");
+    const left = clean(part.replace(QUICK, () => ((quick = true), " ")).replace(/[()[\]]/g, " ")).replace(LEAD, "");
     if (/\b(?:no|not|nothing|none|any)\b/i.test(left)) none ||= /prefer|style/i.test(left);
-    else if (/[a-z0-9]/i.test(left)) journal.push(left);
+    else if (/[a-z0-9]/i.test(left.replace(FILL, ""))) journal.push(left);
   }
   if (journal.length) d.journal = journal.join(" ");
+  if (d.kind === undefined && quick) d.kind = "quick";
   // A page is a size, unless it is the destination's own page (a thesis on A4, slides at 16:9).
   const own = purposeStyle((d.kind === "quick" || d.kind === "notebook" || d.kind === undefined ? "paper" : d.kind) as PurposeKind);
   if (page && page !== "Custom" && page !== own.page && !d.size_mm) d.size_mm = page.startsWith("Slide") ? [...PAGES[page]].reverse() : PAGES[page];
@@ -705,8 +711,8 @@ const TOOLS: Tool[] = [
     }),
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
-    route: (a, notes) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+    route: (a, notes, reads) => {
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
       return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: true as const, where } : {}) };
     },
   },
@@ -714,14 +720,15 @@ const TOOLS: Tool[] = [
     name: "change", title: "Change the drawing", ops: [...BATCHABLE, "batch"],
     description: `Changes the drawing with a list of operations, done in order as one undo step. If one fails, none is kept. Ids come from results and from read: a structure is s3 or its compound number, an atom s3.2 (the second atom as you gave it), a bond s3.1-2, text t5, an arrow a7, a shape b2, a cycle c1. An operation can name what an earlier one made: '$1.s[0]' is the first structure of operation 1 ('$1.t[0]' its first text, and so on; '$1.made' all it made). advanced help of an op gives all its arguments.`,
     inputSchema: OPERATIONS,
-    route: (a, notes) => {
-      const wrong = wrongWith(OPERATIONS, a, notes);
-      if (wrong) return wrong;
-      // A draw is its kind's operation. One operation is run as itself, so its result is as its own call's.
+    route: ({ brief, ...a }, notes, reads) => {
+      const wrong = wrongWith(OPERATIONS, a, notes), given = brief === undefined ? undefined : briefOf(brief);
+      if (wrong || typeof given === "string") return wrong ?? (given as string);
+      // A draw is its kind's operation. One operation is run as itself, so its result is as its own call's. brief is
+      // draw's, read the same way.
       const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [], where = new Map<string, number>();
       for (const [k, { op, ...args }] of (operations as any[]).entries()) {
         // Lines of one drawing are its kind (lines that make several go in a draw call of their own).
-        const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l), where) : undefined;
+        const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l), where, reads) : undefined;
         if (typeof lined === "string") return `operations[${k}]: ${lined}`;
         if (lined && (lined.op === "batch" || lined.op === "route")) return `operations[${k}]: these lines make several drawings: draw them with draw, then change them`;
         const no = op === "draw" && !lined ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
@@ -729,7 +736,7 @@ const TOOLS: Tool[] = [
         const { kind, ...rest } = args;
         steps.push(lined ? { tool: lined.op, args: lined.args } : op === "draw" ? { tool: kind, args: rest } : { tool: op, args });
       }
-      return { ...(steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" }), ...(where.size ? { where } : {}) };
+      return { ...(steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" }), ...(where.size ? { where } : {}), ...(given !== undefined ? { brief: given } : {}) };
     },
   },
   {
@@ -754,7 +761,8 @@ const TOOLS: Tool[] = [
     name: "set_brief", title: "Set the brief", ops: ["brief"],
     description: "The user's answers to the three questions in the instructions. A scheme, route, figure, cycle or grid waits for it. Octet sets the style and page, keeps it for the session and says what will not fit. No preference: kind quick. Call again to change it.",
     inputSchema: BRIEF_IN,
-    route: (a) => ({ op: "brief", args: a }),
+    // (A destination given as words is read as draw's brief is.)
+    route: (a) => { const d = typeof a.destination === "string" ? briefOf(a.destination) : undefined; return typeof d === "string" ? d : { op: "brief", args: { ...a, ...(d as object) } }; },
   },
   {
     // Not listed: lines draw a route, and advanced takes it as JSON. Scripts and checks call it by name.
@@ -1673,7 +1681,8 @@ async function setBrief(host: Host, a: BriefIn, ctx: Ctx): Promise<Result> {
     if (!read.style || (/<CDXML[\s>/]/.test(head) && !/<CDXML\s[^>]*\b(?:BondLength|LineWidth|LabelSize)=/.test(head))) return why("from_file has no document style. Ask the user for a drawing in their style, or give style none.");
     own = read.style;
   } else if (a.style?.from_drawing !== undefined) {
-    if (![w.id, w.name].includes(clean(a.style.from_drawing))) return why(`Octet reads the style of this session's drawing (${w.id}) only. For another drawing: drawings use it, read with format cdxml, and give that text as from_file.`);
+    // (This drawing by its id or title, or as the user says it: current, this, open, the current drawing.)
+    if (![w.id, w.name].includes(clean(a.style.from_drawing)) && !/^(?:the\s+)?(?:current|open|active|this)(?:\s+(?:drawing|document|one))?$/i.test(clean(a.style.from_drawing))) return why(`Octet reads the style of this session's drawing (${w.id}) only. For another drawing: drawings use it, read with format cdxml, and give that text as from_file.`);
     own = s;
   }
   // Question 2: the destination's purpose (its page, and its sizes at its scale), with a journal's preset and column.
@@ -3137,21 +3146,25 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
       // The operation the call is, and its arguments, which are checked against that operation's own schema. A
       // refusal there names where the whole schema is: the tool lists the arguments most calls give.
-      const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes) : "arguments: not an object";
+      // Lines are read with Name to Structure's reading (a first line of words that is no structure), so it is loaded
+      // first, as drawing them loads it.
+      if (typeof given?.lines === "string" || (Array.isArray(given?.operations) && given.operations.some((o: any) => typeof o?.lines === "string"))) await host().ready();
+      const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes, (t) => !!host().structure(t)) : "arguments: not an object";
       if (typeof routed === "string") return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${routed}.` }], isError: true });
       // A scheme, route, figure, cycle or grid waits for the brief (plan 3.1): the AI app asks the user first, and gives
       // the answers with the call (draw's brief) or before it (set_brief). An AI app that takes elicitation has Octet
       // ask the user (plan 7.3), and so does set_brief with no destination: the same call then goes on with the answers.
       let brief = routed.brief;
       const asks = !!from.elicit && !from.lost && (routed.op === "brief" ? routed.args.destination === undefined : !from.brief && brief === undefined && needsBrief(routed.op, routed.args));
-      if (!asks && !from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: BRIEF_FIRST }], isError: true });
+      if (!asks && !from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: named.inputSchema.properties.brief ? BRIEF_HERE : BRIEF_FIRST }], isError: true });
       // set_brief's other arguments are checked before it asks, with a destination standing in for the answer.
       const tool = opOf(routed.op), own = asks && tool.name === "brief";
       let args = routed.args, unfit = wrongWith(tool.inputSchema, own ? { destination: { kind: "quick" }, ...args } : args, notes, routed.at);
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
       let stopped = false, halt = () => {};
-      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; halt(); };
+      // (A brief given with an operation that only reads, as change's select, still sets the style in an undo step.)
+      const changes = !free && (!tool.hints.readOnly || brief !== undefined), busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; halt(); };
       if (asks && !unfit) {
         // Octet's window says it waits for the user, with Stop, which ends the wait at once (as a cancel does): the
         // notice opens first, then says how far the call is, as progress does.

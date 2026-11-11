@@ -378,8 +378,8 @@ const head = (l: string) => /^(#+)\s*(.*)$/.exec(l)!;
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
- * line it is on. */
-export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>): { op: string; args: any } | string {
+ * line it is on; reads: Octet reads the text as a structure (Name to Structure's reading). */
+export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>, reads?: (t: string) => boolean): { op: string; args: any } | string {
   if (typeof text !== "string") return "lines is text: one reaction a line";
   if (text.length > MOST) return `The lines are ${text.length} characters, over ${MOST}: draw them in parts`;
   // Characters no model means: control characters, and half a surrogate pair.
@@ -391,6 +391,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   for (const [k, raw] of text.replace(/\r\n?/g, "\n").replace(/^\s*```[\w-]*\n|\n```\s*$/g, "\n").split("\n").entries()) {
     const l = raw.replace(/[\t ]/g, " ").replace(/[“”„]/g, '"').replace(/[‘’]/g, "'").replace(/[º˚](?=\s*C\b)/g, "°").replace(/\s+/g, " ").trim(), prev = all[all.length - 1];
     if (!l) continue;
+    // A line that starts with // is a comment, as in code.
+    if (l.startsWith("//")) { said?.("comment", `Octet left out line ${k + 1}, a comment.`); continue; }
     if (prev && (/[,;]$/.test(prev.line) || l[0] === ",")) prev.line = `${prev.line}${l[0] === "," ? "" : " "}${l}`;
     else all.push({ line: l, at: k + 1 });
   }
@@ -399,6 +401,14 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (/[^.]\.$/.test(x.line) && !/(?:\b\w\.\w\.|\b(?:cat|conc|equiv|eq|aq|sat|anhyd|abs|approx|xs|steps?)\.)$/i.test(x.line)) x.line = x.line.slice(0, -1).trim();
     const no = unclosed(x.line);
     if (no) return `Line ${x.at}: ${no}`;
+  }
+  // A first line of words that is not a compound (no number, no arrow, no | or +, and Octet cannot read it as a
+  // structure) says what follows: before a blank line or a # title it is left out ("the ketol"), and before a compound
+  // and an arrow line it is the scheme's title, as with #.
+  const [w0, w1, w2] = all, plain = (x: { line: string }) => x.line[0] !== "#" && !quoted(x.line) && ((r) => typeof r !== "string" && !r.arrows.length)(arrowsOf(x.line));
+  if (reads && w1 && plain(w0) && / /.test(w0.line) && !/\||\s\+\s/.test(w0.line) && ((c) => typeof c !== "string" && !c.number && c.from === undefined)(compound(w0.line, new Set())) && !reads(w0.line)) {
+    if (w1.at > w0.at + 1 || w1.line[0] === "#") { said?.("words", `Octet left out line ${w0.at}, "${w0.line.slice(0, 40)}": it is not a structure.`); all.shift(); }
+    else if (w2 && plain(w1) && arrowAt(w2.line, 0)) { said?.("words", `Octet read line ${w0.at} as the scheme's title.`); w0.line = `# ${w0.line}`; }
   }
   const known = new Set<string>(), ops: Op[] = [];
   let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound[] | undefined;
@@ -490,6 +500,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       // across as the longest line has.
       const g = grid;
       grid = undefined;
+      // A title with nothing under it before a scheme is that scheme's.
+      if (!g[g.length - 1].rows.length) heads.push(...g.pop()!.heads);
       if (g.some((p) => p.heads.length) || g.some((p) => p.rows.flat().some((x) => "note" in x))) ops.push({ tool: "figure", args: { panels: g.map((p) => {
         const title = p.heads.find((h) => head(h)[1] === "#"), subtitle = p.heads.find((h) => head(h)[1] !== "#");
         return { ...(title && head(title)[2] ? { title: head(title)[2] } : {}), ...(subtitle ? { subtitle: head(subtitle)[2] } : {}), rows: p.rows.map((row) => row.map((x) => ("note" in x ? { text: x.note } : (({ text: structure, ...c }: Compound) => (structure === undefined ? c : { structure, ...c }))(x)))) };
