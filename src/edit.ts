@@ -459,6 +459,9 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false, bars
     case "bead": return setAtom(m, i, { bead: !a.bead || undefined });
   }
 }
+// A charge key (charge.<arg>) on an atom: + and - add to the charge as it is drawn; the circled pair do what the
+// Symbols tool's circled marks do.
+export const keyCharge = (m: Mol, i: number, arg: string) => (arg.startsWith("circled") ? addSymbol(m, i, arg as SymbolKind) : addCharge(m, i, arg === "plus" ? 1 : -1));
 const SINGLETS = new Set(["C", "Si", "N", "P", "As"]);
 // The mark (a charge, radical or lone pair, by its Atom.angles key) at p: within r bond lengths of where it is drawn
 // (electrons, px at L px per bond length) and nearer it than its atom, so a press on the atom still takes the atom. A

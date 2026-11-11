@@ -33,6 +33,9 @@ export const ACTIONS: Action[] = [
   { id: "atom.nickname", name: "Choose a nickname for the atom", group: "Atoms", place: "atom" },
   { id: "charge.plus", name: "Add a positive charge", group: "Atoms", place: "atom" },
   { id: "charge.minus", name: "Add a negative charge", group: "Atoms", place: "atom" },
+  // The Symbols tool's circled charges (issue 60). No key by default: ChemDraw's CHARGE command has only + and -.
+  { id: "charge.circledPlus", name: "Add a circled positive charge", group: "Atoms", place: "atom" },
+  { id: "charge.circledMinus", name: "Add a circled negative charge", group: "Atoms", place: "atom" },
   group("chain", "Add a bond (zig-zag)"), group("other", "Add a bond the other way"), group("acetyl", "Add an acetyl, or make C=O"),
   group("phenyl", "Add a phenyl"), group("wedgeMe", "Add a wedged methyl"), group("hashMe", "Add a hashed methyl"),
   group("cyclohexyl", "Add a cyclohexyl"), group("cyclopentyl", "Add a cyclopentyl"), group("cyclobutyl", "Add a cyclobutyl"),
