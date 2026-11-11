@@ -324,6 +324,24 @@ name:
   found. It never guesses.
 - This is the hard part (stereochemistry). Build 4.1 and 4.2 first, measure, then decide.
 
+### 4.3.1 As built (step 3b, 11 November 2026): `src/compound.ts`
+
+- One more change: `{ do, at?, with?, to?, config? }`. The names and their arguments are `TRANSFORMATIONS` in
+  `compound.ts`, for the tool-merge step to publish under advanced help. A tool's own description names `do` in one
+  line, and a refused `do` lists the names. Protect and deprotect take `with` (the 13 groups, `acetonide`,
+  `carbonate`); also `acetylate`, `benzoylate`, `form_carbonate`, `esterify`, `hydrolyse`, `oxidise`, `reduce`,
+  `hydrogenate`, `epoxidise`, `dihydroxylate`, `hydroborate`, `open_epoxide`, `lactonise`, `close`, `open` and
+  `join` (a bond to an atom of another earlier compound, named by `with`).
+- **A stereo choice is a CIP label**, `config: { "9": "S" }` or `{ "5-6": "E" }` (on any change), so it has one
+  reading for any structure: alpha and beta (above) need a drawing's convention. With none, a new centre is drawn
+  with no configuration and the reply says how to give one.
+- Each transformation finds every place it fits and is made at the one `at` names, or the only one; with none or
+  more, the refusal names the places. They are made on the atoms as drawn (Indigo's WASM build has no reaction
+  templates). New atoms go where the bond tool puts them; a new small ring is a regular ring.
+- **Not as specified:** a ring closed between atoms far apart (McMurry, 13; an oxetane), or new atoms with no room,
+  have the whole compound laid out again by Indigo, turned (or mirrored, with its wedges) to lie as it did, and the
+  reply says the atoms moved. Cleaning up the new ring only is left to do.
+
 ### 4.4 What the taxol route looks like in v2 (target)
 
 ```
@@ -713,6 +731,13 @@ benchmark runner should time only the MCP part.
 | | | | taxol-schemes | 3 | 0 | 4,436 | 2,090 | 2,569 | 19 of 19 | 40 |
 | | | | taxol-v1-job | 33 | 0 | 15,490 | 169,663 | 3,867 | 19 of 19 | 9 |
 
+- 3b (named transformations): `taxol-chained` has 18 of its 21 structures written `from` another; only 2 and 8 (each
+  scheme's new skeleton) and taxol 1 (its side chain is a reagent, not an earlier compound) are text. The 18 take
+  1,581 characters where they took 2,399 (66%); the job sends 3,645 where `taxol-schemes` sends 4,436 (82%), and
+  reads 2,656 (was 2,411: the notes of the new compounds). `corpus-chained` writes three corpus jobs (gaunt2007-fig13,
+  zu2025-fig3a, grocott2025-fig4e) chained, 7 of 7 right; it sends 1,337 where the three jobs send 1,161, as a
+  name (crotonaldehyde) is shorter than a SMILES with map numbers. The 16 compounds of the route with changes take
+  186 ms against 192 ms from SMILES; the 5 of them laid out again take 116 ms against 55 ms.
 - `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
   4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
   job's arguments fall by 12% only, as the other twelve compounds (new skeletons, rings made and opened, a new centre

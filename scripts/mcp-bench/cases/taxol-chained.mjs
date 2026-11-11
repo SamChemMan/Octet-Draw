@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 const json = (f) => JSON.parse(readFileSync(new URL(`../taxol/${f}.json`, import.meta.url), "utf8"));
 export default {
-  about: "Nicolaou's taxol synthesis with compounds written as changes to earlier ones: 9 of its 21 structures are from another",
+  about: "Nicolaou's taxol synthesis with compounds written as changes to earlier ones and named transformations: 18 of its 21 structures are from another",
   calls: json("route").schemes.map(({ start, steps }) => ({ name: "draw_reaction", arguments: { start, steps } })),
   // Compound 20 (the β-lactam) is a reagent over the last arrow, not a structure in the schemes.
   expect: { smiles: Object.fromEntries(Object.entries(json("structures")).filter(([n]) => n !== "20")) },

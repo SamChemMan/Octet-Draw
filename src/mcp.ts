@@ -184,7 +184,7 @@ const MOLECULE = obj({
   atoms: list(obj({ label: str(40), runs: RUNS, x: num(-1000, 1000), y: num(-1000, 1000), charge: int(-8, 8), colour: str(7) }, ["x", "y"]), 500, 1),
   bonds: list(obj({ from: int(0, 499), to: int(0, 499), kind: str(20), colour: str(7) }, ["from", "to"]), 600),
 }, ["atoms"]);
-const FROM_NOTE = "When a compound is an earlier one with a change, give from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second, or at for the one on that atom); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7], [CH2:9]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. Give text when a ring or chain is made or broken, or a new stereocentre or E/Z bond is set";
+const FROM_NOTE = "When a compound is an earlier one with a change, give from (its number or id, or previous for the one before in this call) and changes, made in order on its drawing, so it lies the same way and keeps its stereocentres: {swap: {OBn: 'OTES'}} is a group for a group (occurrence: 2 for the second, or at for the one on that atom); {at: '7', set: 'OTBS'} changes the group on an atom, {at, remove: true} takes it off, {at, add: 'OH'} adds one; {bond: '5-6', to: 'double'} is a bond's order. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7], [CH2:9]; Octet keeps it and never shows it): the atom stays, and its group is its one part through an atom that is not carbon (OH, OTBS, =O, Br), else its one carbon part. Octet refuses a change with two readings. {do: 'oxidise', at: '7'} is a named transformation (a refusal lists them), also for rings, joins and new stereocentres";
 const MOLECULE_NOTE = "atoms (from 0) with x, y (bond lengths, y up) and label (none is carbon; a label such as OSiPh3 reads out from the atom, and Octet turns it round on the left), and bonds from, to and kind (as edit's bond; a wedge is narrow at from). Bonds to a metal look best about 1.5 long";
 // Orientation hints (R2): a structure from a SMILES or a name, turned as a picture shows it, so an AI app need give no
 // coordinates. Each geometry's places for the centre's ligands, in SMILES order: the angle (degrees, anticlockwise
@@ -586,21 +586,25 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     // An earlier compound with changes (compound.ts): the one before it in this call, one of this call by its number,
     // or a structure of the drawing by its id, number or name. It lies as that one does.
     if (it.from !== undefined || it.changes) {
-      const name = clean(it.from ?? ""), doc = host.doc(), numbered = (doc.captions ?? []).filter((c) => c.bold && c.under?.length && c.text.trim() === name);
-      // Of this call: the last with that number. Two compounds of the call with one number are two readings (one
-      // compound drawn twice is not).
-      const mine = name === "previous" ? [] : ok.filter((r) => r.number === name), here = name === "previous" ? before : mine[mine.length - 1];
-      const two = mine.some((r) => r.mol !== here!.mol && about(host, r.mol).key !== about(host, here!.mol).key);
-      const one = here || numbered.length > 1 || name === "previous" ? undefined : structureOf(doc, name, host);
-      // A compound's number is under every part of it (a salt's ions): from by number is all of them.
-      const under = one && numbered.length ? new Set(numbered[0].under) : undefined, atoms = under ? structuresOf(doc).filter((s) => s.atoms.some((i) => under.has(i))).flatMap((s) => s.atoms) : one;
-      const made = it.text !== undefined || it.molecule || it.labels?.length ? "Give a compound as text, as a molecule, or as from with changes: one of them."
-        : it.from === undefined ? "changes: give from too, the compound they change (its number, its id, or previous)."
-        : two ? `from: ${mine.length} compounds of this call have the number ${name}, and they are not one compound: give each its own number.`
-        : here ? change(here.mol, it.changes ?? [])
-        : numbered.length > 1 ? `from: ${numbered.length} structures have the number ${name} (${numbered.map((c) => sid(doc, c.under!)).join(", ")}): give the id of one.`
-        : atoms ? change(pickAtoms(doc, atoms), it.changes ?? [])
-        : name === "previous" ? "from: there is no compound before this one in the call that Octet can read." : `from: there is no compound ${name.slice(0, 40)} earlier in this call or in the drawing.`;
+      // An earlier compound by its name, for from and for a join's with (key says which, in a refusal).
+      const earlier = (name: string, key: string): Mol | string => {
+        const doc = host.doc(), numbered = (doc.captions ?? []).filter((c) => c.bold && c.under?.length && c.text.trim() === name);
+        // Of this call: the last with that number. Two compounds of the call with one number are two readings (one
+        // compound drawn twice is not).
+        const mine = name === "previous" ? [] : ok.filter((r) => r.number === name), here = name === "previous" ? before : mine[mine.length - 1];
+        const two = mine.some((r) => r.mol !== here!.mol && about(host, r.mol).key !== about(host, here!.mol).key);
+        const one = here || numbered.length > 1 || name === "previous" ? undefined : structureOf(doc, name, host);
+        // A compound's number is under every part of it (a salt's ions): from by number is all of them.
+        const under = one && numbered.length ? new Set(numbered[0].under) : undefined, atoms = under ? structuresOf(doc).filter((s) => s.atoms.some((i) => under.has(i))).flatMap((s) => s.atoms) : one;
+        return two ? `${key}: ${mine.length} compounds of this call have the number ${name}, and they are not one compound: give each its own number.`
+          : here ? here.mol
+          : numbered.length > 1 ? `${key}: ${numbered.length} structures have the number ${name} (${numbered.map((c) => sid(doc, c.under!)).join(", ")}): give the id of one.`
+          : atoms ? pickAtoms(doc, atoms)
+          : name === "previous" ? `${key}: there is no compound before this one in the call that Octet can read.` : `${key}: there is no compound ${name.slice(0, 40)} earlier in this call or in the drawing.`;
+      };
+      const name = clean(it.from ?? ""), source = it.text !== undefined || it.molecule || it.labels?.length ? "Give a compound as text, as a molecule, or as from with changes: one of them."
+        : it.from === undefined ? "changes: give from too, the compound they change (its number, its id, or previous)." : earlier(name, "from");
+      const made = typeof source === "string" ? source : change(source, it.changes ?? [], (with_) => earlier(clean(with_), "with"));
       const turned = typeof made === "string" || !hinted(it) ? made : orient(made.mol, it);
       if (typeof made === "string" || typeof turned === "string") wrong.push(`Compound ${number ?? k + 1}: ${typeof made === "string" ? made : `${turned}.`}`);
       else add({ mol: asLike("mol" in turned ? turned.mol : turned), text: `from ${name}`, number, caption, ...(made.notes.length ? { note: made.notes.join(" ") } : {}) }, it);

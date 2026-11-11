@@ -130,7 +130,7 @@ for (const row of TABLE) {
     assert.ok(out.notes.every((t) => /^Atom (17|3) /.test(t)), out.notes.join(" "));
   }
   // The new centre at C3 has no configuration, and the reply says how to give one.
-  assert.match((change(from, [{ at: "3", set: "OH" }]) as { notes: string[] }).notes.join(" "), /Atom 3 is now a stereocentre with no configuration: to set one, give the compound as text/);
+  assert.match((change(from, [{ at: "3", set: "OH" }]) as { notes: string[] }).notes.join(" "), /Atom 3 is now a stereocentre with no configuration: to set one, give config \(\{'3': 'R'\}\)/);
 }
 // A centre away from a change keeps its wedges, so nothing is said of it, though its label changes with its groups'
 // priorities (CH2Br is before CH2OH, and CH2CH3 after it).
@@ -272,7 +272,7 @@ for (const row of TABLE) {
   await refuse({ text: "C[C:1](C)(C)O" }, [{ at: "1", set: "=O" }], /The changes break valence/);
   await refuse({ text: "C[C:1](C)=[CH:2]C" }, [{ bond: "1-2", to: "triple" }], /The changes break valence/);
   // A new double bond that could be E or Z, and a bond that is not there.
-  await refuse({ text: "C[CH2:1][CH2:2]C" }, [{ bond: "1-2", to: "double" }], /The new double bond between atom 1 and atom 2 can be E or Z, and a change cannot say which: give the compound as text/);
+  await refuse({ text: "C[CH2:1][CH2:2]C" }, [{ bond: "1-2", to: "double" }], /The new double bond between atom 1 and atom 2 can be E or Z: say which with config \(\{'1-2': 'E'\} or 'Z'\)/);
   await refuse({ text: "C[C:1]#[C:2]C" }, [{ bond: "1-2", to: "double" }], /can be E or Z/);
   await refuse({ text: "C[CH2:1]C[CH2:2]O" }, [{ bond: "1-2", to: "double" }], /atom 1 and atom 2 are not bonded\. A change cannot make or break a ring or a chain/);
   // A label on a double bond that Octet reads as on a single bond, with another structure (no C=O).
@@ -287,12 +287,12 @@ for (const row of TABLE) {
   await refuse(lactate, [{ at: "OMe", swap: { OMe: "OH" } }], /with swap, at is the number of the atom the group is on/);
   await refuse(lactate, [{ at: "2", swap: { OMe: "OH" } }], /there is no OMe on atom 2\. This compound has the atom numbers 1, 2/);
   // A change that is no change Octet knows, and a group that is none.
-  await refuse(lactate, [{ at: "2" }], /changes\[0\]: give one of swap, set, add, remove: true, or bond with to/);
+  await refuse(lactate, [{ at: "2" }], /changes\[0\]: give one of swap, set, add, remove: true, bond with to, or do/);
   await refuse(lactate, [{ at: "2", set: "OH", remove: true }], /give one of swap/);
   await refuse(lactate, [{ swap: { OH: 5 } }], /5 is not a group/);
   await refuse(lactate, [{ at: "2", set: "O H" }], /O H is not a group/);
   await refuse(lactate, [{ set: "OH" }], /say where with at/);
-  await refuse(lactate, [{ swap: { OH: "OAc" }, occurence: 1 }], /occurence is not part of a change \(swap, occurrence, at, set, add, remove, bond, to\)/);
+  await refuse(lactate, [{ swap: { OH: "OAc" }, occurence: 1 }], /occurence is not part of a change \(swap, occurrence, at, set, add, remove, bond, to, do, with, config\)/);
   await refuse({ text: "C[CH:1]=[CH2:2]" }, [{ bond: "1-2", to: "quadruple" }], /give bond as two atom numbers \('5-6'\) and to \(single, double or triple\)/);
   await refuse({ text: "C[CH:1]=[CH2:2]" }, [{ bond: "1", to: "single" }], /give bond as two atom numbers/);
   await refuse(lactate, [{ at: "OH", add: "Br" }], /add takes an atom's number in at/);
@@ -421,6 +421,319 @@ for (const row of TABLE) {
   assert.equal(ring(numbered("2b")), ring(two));
 }
 
+// ---- Named transformations (C5; plan section 4.3): each on substrates of different kinds ----
+
+// A row: the substrate, the changes, and the product as a SMILES written by hand from the substrate's own (each atom
+// in its place, so a centre the change leaves has the neighbours in the order it had). The product drawn must have
+// that InChIKey and those CIP labels. Where config asks for a label, the product's SMILES has the same number on that
+// atom, and the label is first read from that SMILES itself: the row is then right whatever compound.ts does.
+// other: the compound a join takes, numbered 9.
+type Made = [what: string, from: string, changes: { do?: string; config?: unknown }[], want: string, more?: { labels?: string[]; other?: string }];
+const MADE: Made[] = [
+  // protect: each group, on alcohols, a phenol, amines and diols.
+  ["TBS on one of two alcohols", "C[C@H:2](O)CCO", [{ do: "protect", with: "TBS", at: "2" }], "C[C@H](O[Si](C)(C)C(C)(C)C)CCO"],
+  ["TBDPS on a primary alcohol", "OC[C@@H](C)c1ccccc1", [{ do: "protect", with: "TBDPS" }], "CC(C)(C)[Si](c1ccccc1)(c1ccccc1)OC[C@@H](C)c1ccccc1"],
+  ["TES on a phenol", "Oc1ccc(C)cc1", [{ do: "protect", with: "TES" }], "CC[Si](CC)(CC)Oc1ccc(C)cc1"],
+  ["TMS on a tertiary alcohol", "CC(C)(O)C#C", [{ do: "protect", with: "TMS" }], "CC(C)(O[Si](C)(C)C)C#C"],
+  ["TIPS on a propargyl alcohol", "OCC#C", [{ do: "protect", with: "TIPS" }], "CC(C)[Si](C(C)C)(C(C)C)OCC#C"],
+  ["Bn on a ring alcohol beside two centres", "C[C@@H]1O[C@H](OC)C[C@H:3]1O", [{ do: "protect", with: "Bn", at: "3" }], "C[C@@H]1O[C@H](OC)C[C@H]1OCc1ccccc1"],
+  ["PMB on an alcohol with a tertiary amine", "OCCN1CCCC1", [{ do: "protect", with: "PMB" }], "COc1ccc(COCCN2CCCC2)cc1"],
+  ["MOM on a benzylic alcohol", "O[C@H](C)c1ccccc1", [{ do: "protect", with: "MOM" }], "COCO[C@H](C)c1ccccc1"],
+  ["Ac on an amino ester", "N[C@@H](C)C(=O)OC", [{ do: "protect", with: "Ac" }], "CC(=O)N[C@@H](C)C(=O)OC"],
+  ["Bz on cyclohexanol", "OC1CCCCC1", [{ do: "protect", with: "Bz" }], "O=C(OC1CCCCC1)c1ccccc1"],
+  ["Boc on a ring nitrogen, by its number", "OC(=O)[C@@H]1CCC[NH:1]1", [{ do: "protect", with: "Boc", at: "1" }], "OC(=O)[C@@H]1CCCN1C(=O)OC(C)(C)C"],
+  ["Cbz on a primary amine", "NCCc1ccccc1", [{ do: "protect", with: "Cbz" }], "O=C(OCc1ccccc1)NCCc1ccccc1"],
+  ["Fmoc on an amino ester", "N[C@@H](CC(C)C)C(=O)OC", [{ do: "protect", with: "Fmoc" }], "O=C(OCC1c2ccccc2-c2ccccc21)N[C@@H](CC(C)C)C(=O)OC"],
+  ["an acetonide on a ring's cis diol", "O[C@H:1]1CCCC[C@H:2]1O", [{ do: "protect", with: "acetonide", at: "1-2" }], "CC1(C)O[C@H]2CCCC[C@H]2O1"],
+  ["an acetonide on a 1,3-diol", "O[CH2:1]C(C)(C)[CH2:3]O", [{ do: "protect", with: "acetonide", at: "1-3" }], "CC1(C)OCC(C)(C)CO1"],
+  ["an acetonide on a chain's diol with a centre", "O[CH2:1][C@H:2](O)c1ccccc1", [{ do: "protect", with: "acetonide", at: "1-2" }], "CC1(C)OC[C@H](O1)c1ccccc1"],
+  ["a carbonate on a chain's diol", "O[CH2:1][C@H:2](O)CC", [{ do: "protect", with: "carbonate", at: "1-2" }], "O=C1OC[C@H](O1)CC"],
+  // deprotect: each group, written as a label or drawn atom by atom.
+  ["TBS off, written as a label", "C[C@H](*)CCO", [{ do: "deprotect", with: "TBS" }], "C[C@H](O)CCO", { labels: ["OTBS"] }],
+  ["TBS off, drawn atom by atom", "C[C@@H](O)CO[Si](C)(C)C(C)(C)C", [{ do: "deprotect", with: "TBS" }], "C[C@@H](O)CO"],
+  ["one of two TBS off, by its atom", "CC(C)(C)[Si](C)(C)O[CH2:1]C[CH2:3]O[Si](C)(C)C(C)(C)C", [{ do: "deprotect", with: "TBS", at: "1" }], "OCCCO[Si](C)(C)C(C)(C)C"],
+  ["TBDPS off", "CC(C)(C)[Si](c1ccccc1)(c1ccccc1)OCC=C", [{ do: "deprotect", with: "TBDPS" }], "OCC=C"],
+  ["TES off", "CC[Si](CC)(CC)OC1CCCCC1", [{ do: "deprotect", with: "TES" }], "OC1CCCCC1"],
+  ["TMS off", "C[Si](C)(C)OC(C)(C)C#C", [{ do: "deprotect", with: "TMS" }], "OC(C)(C)C#C"],
+  ["TIPS off a phenol", "CC(C)[Si](C(C)C)(C(C)C)Oc1ccccc1", [{ do: "deprotect", with: "TIPS" }], "Oc1ccccc1"],
+  ["Bn off a lactate", "C[C@@H](OCc1ccccc1)C(=O)OC", [{ do: "deprotect", with: "Bn" }], "C[C@@H](O)C(=O)OC"],
+  ["PMB off", "COc1ccc(COCCCC)cc1", [{ do: "deprotect", with: "PMB" }], "OCCCC"],
+  ["MOM off", "COCO[C@H](C)c1ccccc1", [{ do: "deprotect", with: "MOM" }], "O[C@H](C)c1ccccc1"],
+  ["Ac off a nitrogen", "CC(=O)Nc1ccccc1", [{ do: "deprotect", with: "Ac" }], "Nc1ccccc1"],
+  ["Ac off, written as a label in CH2OAc", "*c1ccccc1", [{ do: "deprotect", with: "Ac" }], "OCc1ccccc1", { labels: ["CH2OAc"] }],
+  ["Bz off", "O=C(O[C@@H](C)CC)c1ccccc1", [{ do: "deprotect", with: "Bz" }], "O[C@@H](C)CC"],
+  ["Boc off a proline ester", "CC(C)(C)OC(=O)N1CCC[C@H]1C(=O)OC", [{ do: "deprotect", with: "Boc" }], "N1CCC[C@H]1C(=O)OC"],
+  ["Boc off, written as a label", "*[C@@H](C)C(=O)OC", [{ do: "deprotect", with: "Boc" }], "N[C@@H](C)C(=O)OC", { labels: ["NHBoc"] }],
+  ["Cbz off an amino acid", "O=C(OCc1ccccc1)N[C@@H](C)C(=O)O", [{ do: "deprotect", with: "Cbz" }], "N[C@@H](C)C(=O)O"],
+  ["Fmoc off glycine", "O=C(OCC1c2ccccc2-c2ccccc21)NCC(=O)O", [{ do: "deprotect", with: "Fmoc" }], "NCC(=O)O"],
+  ["an acetonide off", "CC1(C)OC[C@H](O1)c1ccccc1", [{ do: "deprotect", with: "acetonide" }], "OC[C@H](O)c1ccccc1"],
+  ["a carbonate off", "O=C1OC[C@H](O1)CC", [{ do: "deprotect", with: "carbonate" }], "OC[C@H](O)CC"],
+  // acetylate, benzoylate, form_carbonate.
+  ["an alcohol acetylated", "O[C@H](C)CC", [{ do: "acetylate" }], "CC(=O)O[C@H](C)CC"],
+  ["an aniline acetylated", "Nc1ccccc1", [{ do: "acetylate" }], "CC(=O)Nc1ccccc1"],
+  ["one alcohol of a diol acetylated", "O[CH2:1]C(C)(C)O", [{ do: "acetylate", at: "1" }], "CC(=O)OCC(C)(C)O"],
+  ["an alcohol benzoylated", "OCC1CCCCC1", [{ do: "benzoylate" }], "O=C(OCC1CCCCC1)c1ccccc1"],
+  ["an amine benzoylated", "C[C@H](N)c1ccccc1", [{ do: "benzoylate" }], "C[C@H](NC(=O)c1ccccc1)c1ccccc1"],
+  ["a ring's cis diol to its carbonate", "O[C@H:1]1CCCC[C@H:2]1O", [{ do: "form_carbonate", at: "1-2" }], "O=C1O[C@H]2CCCC[C@H]2O1"],
+  // esterify.
+  ["an acid to its methyl ester", "OC(=O)[C@@H](C)c1ccccc1", [{ do: "esterify", with: "Me" }], "COC(=O)[C@@H](C)c1ccccc1"],
+  ["the acid of a hydroxy acid, with no at", "OCC[C@H](C)CC(=O)O", [{ do: "esterify", with: "Et" }], "OCC[C@H](C)CC(=O)OCC"],
+  ["an acid to its benzyl ester", "OC(=O)CCC", [{ do: "esterify", with: "Bn" }], "O=C(CCC)OCc1ccccc1"],
+  ["an acid written as a label", "*c1ccccc1", [{ do: "esterify", with: "Me" }], "COC(=O)c1ccccc1", { labels: ["CO2H"] }],
+  ["an alcohol, by its atom, with an acyl group", "O[CH2:1]CC", [{ do: "esterify", with: "Ac", at: "1" }], "CC(=O)OCCC"],
+  // hydrolyse.
+  ["a methyl ester to its acid", "COC(=O)CCc1ccccc1", [{ do: "hydrolyse" }], "OC(=O)CCc1ccccc1"],
+  ["an acetate to its alcohol", "CC(=O)O[C@H](C)CCc1ccccc1", [{ do: "hydrolyse" }], "O[C@H](C)CCc1ccccc1"],
+  ["a lactone to its hydroxy acid", "O=C1CC[C@H](C)CO1", [{ do: "hydrolyse" }], "OC(=O)CC[C@H](C)CO"],
+  ["a carbonate to its diol", "O=C1O[C@H]2CCCC[C@H]2O1", [{ do: "hydrolyse" }], "O[C@H]1CCCC[C@H]1O"],
+  ["a silyl ether", "C[Si](C)(C)OCCC=C", [{ do: "hydrolyse" }], "OCCC=C"],
+  ["an ester written as a label", "*CCc1ccccc1", [{ do: "hydrolyse" }], "OC(=O)CCc1ccccc1", { labels: ["CO2Et"] }],
+  ["an acetate written as a label", "C[C@H](*)CC", [{ do: "hydrolyse" }], "C[C@H](O)CC", { labels: ["OAc"] }],
+  ["an acetonide", "CC1(C)OCC(C)(C)CO1", [{ do: "hydrolyse" }], "OCC(C)(C)CO"],
+  ["one ester of two, by its carbon", "COC(=O)CC[C:1](=O)OCC", [{ do: "hydrolyse", at: "1" }], "COC(=O)CCC(=O)O"],
+  ["the alcohol of a small ester, by its atom", "CC(=O)O[CH2:1]C", [{ do: "hydrolyse", at: "1" }], "OCC"],
+  // oxidise.
+  ["a primary alcohol to its aldehyde", "OCCc1ccccc1", [{ do: "oxidise" }], "O=CCc1ccccc1"],
+  ["a ring's secondary alcohol, with two centres left", "C[C@H]1CC[CH:4](O)C[C@@H]1C", [{ do: "oxidise" }], "C[C@H]1CCC(=O)C[C@@H]1C"],
+  ["an aldehyde to its acid", "O=CCCC", [{ do: "oxidise" }], "OC(=O)CCC"],
+  ["an alcohol to its acid, in two", "OCCCC", [{ do: "oxidise" }, { do: "oxidise" }], "OC(=O)CCC"],
+  ["CH2OH written as a label", "*[C@H](C)c1ccccc1", [{ do: "oxidise" }], "O=C[C@H](C)c1ccccc1", { labels: ["CH2OH"] }],
+  ["CHO written as a label", "*c1ccccc1", [{ do: "oxidise" }], "OC(=O)c1ccccc1", { labels: ["CHO"] }],
+  ["one alcohol of two, by its atom", "O[CH2:1]CC[C@H:4](O)C", [{ do: "oxidise", at: "4" }], "OCCCC(=O)C"],
+  // reduce.
+  ["a ketone to its alcohol, with no configuration", "CC(=O)c1ccccc1", [{ do: "reduce" }], "CC(O)c1ccccc1"],
+  ["a ketone to one alcohol", "C[C:2](=O)CCC(=O)OC", [{ do: "reduce", at: "2", config: "S" }], "C[C@H:2](O)CCC(=O)OC"],
+  ["a ketone to the other alcohol", "C[C:2](=O)CCC(=O)OC", [{ do: "reduce", at: "2", config: "R" }], "C[C@@H:2](O)CCC(=O)OC"],
+  ["an ester to its alcohol", "COC(=O)[C@@H](C)c1ccccc1", [{ do: "reduce" }], "OC[C@@H](C)c1ccccc1"],
+  ["a lactone to its diol", "O=C1CC[C@H](C)CO1", [{ do: "reduce" }], "OCCC[C@H](C)CO"],
+  ["an acid to its alcohol", "OC(=O)CCc1ccccc1", [{ do: "reduce" }], "OCCCc1ccccc1"],
+  ["an aldehyde to its alcohol", "O=CCc1ccccc1", [{ do: "reduce" }], "OCCc1ccccc1"],
+  ["an ester written as a label", "*[C@@]1(C)CCCC[C@H]1O", [{ do: "reduce" }], "OC[C@@]1(C)CCCC[C@H]1O", { labels: ["CO2Et"] }],
+  ["an acetate reduced off its alcohol", "CC(=O)OCCCCc1ccccc1", [{ do: "reduce" }], "OCCCCc1ccccc1"],
+  // hydrogenate.
+  ["an alkene", "C=CCO", [{ do: "hydrogenate" }], "CCCO"],
+  ["an alkyne", "CC#CCO", [{ do: "hydrogenate" }], "CCCCO"],
+  ["a styrene's alkene, not its ring", "C=Cc1ccccc1", [{ do: "hydrogenate" }], "CCc1ccccc1"],
+  ["an allyl group, not the indole it is on", "C=CCn1ccc2ccccc12", [{ do: "hydrogenate" }], "CCCn1ccc2ccccc12"],
+  ["one alkene of a diene, by its atoms", "C=C[CH:3]=[CH:4]C", [{ do: "hydrogenate", at: "3-4" }], "C=CCCC"],
+  // epoxidise.
+  ["cyclohexene to its oxide", "C1CC=CCC1", [{ do: "epoxidise" }], "C1CC2OC2CC1"],
+  ["a ring alkene to one epoxide", "C[C@@H]1C[CH:3]=[CH:4]CC1", [{ do: "epoxidise", config: { 3: "R", 4: "S" } }], "C[C@@H]1C[C@H:3]2O[C@H:4]2CC1"],
+  ["the same alkene to the other epoxide", "C[C@@H]1C[CH:3]=[CH:4]CC1", [{ do: "epoxidise", config: { 3: "S", 4: "R" } }], "C[C@@H]1C[C@@H:3]2O[C@@H:4]2CC1"],
+  ["a styrene", "C=Cc1ccccc1", [{ do: "epoxidise" }], "C1OC1c1ccccc1"],
+  ["an enone's alkene", "CC(=O)C=C(C)C", [{ do: "epoxidise" }], "CC(=O)C1OC1(C)C"],
+  // dihydroxylate.
+  ["a terminal alkene", "C=CCc1ccccc1", [{ do: "dihydroxylate" }], "OCC(O)Cc1ccccc1"],
+  ["a ring alkene to one diol", "C[C@@H]1C[CH:3]=[CH:4]CC1", [{ do: "dihydroxylate", config: { 3: "R", 4: "S" } }], "C[C@@H]1C[C@@H:3](O)[C@@H:4](O)CC1"],
+  ["a trisubstituted alkene", "CC=C(C)C", [{ do: "dihydroxylate" }], "CC(O)C(C)(C)O"],
+  // hydroborate.
+  ["a terminal alkene, the OH on its end", "[CH2:1]=CCc1ccccc1", [{ do: "hydroborate", at: "1" }], "OCCCc1ccccc1"],
+  ["a ring alkene to one alcohol", "C[C@@H]1C[CH:3]=[CH:4]CC1", [{ do: "hydroborate", at: "3", config: "S" }], "C[C@@H]1C[C@@H:3](O)CCC1"],
+  ["the same to the other alcohol", "C[C@@H]1C[CH:3]=[CH:4]CC1", [{ do: "hydroborate", at: "3", config: "R" }], "C[C@@H]1C[C@H:3](O)CCC1"],
+  ["a trisubstituted alkene, with another group", "CC(C)=[CH:1]C", [{ do: "hydroborate", at: "1", with: "Br" }], "CC(C)C(Br)C"],
+  // open_epoxide.
+  ["an epoxide opened to its alcohol", "C[C@H]1O[C@@H:3]1CC", [{ do: "open_epoxide", at: "3" }], "C[C@@H](O)CCC"],
+  ["an epoxide opened with azide", "C[C@H]1O[C@@H:3]1CC", [{ do: "open_epoxide", at: "3", with: "N3", config: "R" }], "C[C@@H](O)[C@H:3](N=[N+]=[N-])CC"],
+  ["cyclohexene oxide opened with methoxide", "C1CC[CH:1]2OC2C1", [{ do: "open_epoxide", at: "1", with: "OMe" }], "COC1CCCCC1O"],
+  // lactonise.
+  ["a hydroxy acid to its lactone", "O[C:1](=O)CCC[C@H:5](C)O", [{ do: "lactonise", at: "1-5" }], "O=C1CCC[C@H](C)O1"],
+  ["a hydroxy ester to its lactone", "CO[C:1](=O)CC[CH2:4]O", [{ do: "lactonise", at: "1-4" }], "O=C1CCCO1"],
+  ["a phthalide", "O[C:1](=O)c1ccccc1[CH2:2]O", [{ do: "lactonise", at: "1-2" }], "O=C1OCc2ccccc12"],
+  // close and open.
+  ["a ring closed in a chain", "C[CH2:1]CCC[CH2:6]C", [{ do: "close", at: "1-6" }], "CC1CCCC1C"],
+  ["a ring closed with a double bond", "[CH3:1]CCCC[CH3:2]", [{ do: "close", at: "1-2", to: "double" }], "C1=CCCCC1"],
+  ["a cyclic ether", "[OH:1]CCC[CH2:2]Br", [{ at: "2", remove: true }, { do: "close", at: "1-2" }], "C1CCOC1"],
+  ["a ring opened at its alkene, to a dialdehyde", "C1CC[CH:1]=[CH:2]C1", [{ do: "open", at: "1-2" }, { at: "1", add: "=O" }, { at: "2", add: "=O" }], "O=CCCCCC=O"],
+  ["a ring opened at a single bond", "C1CC[CH2:1][CH2:2]C1", [{ do: "open", at: "1-2" }], "CCCCCC"],
+  // join, and config on a change that is no transformation.
+  ["an aryl group joined to an aldehyde's carbon", "CC[CH:1]=O", [{ at: "1", set: "OH" }, { do: "join", at: "1-8", with: "9", config: { 1: "S" } }], "CC[C@H:1](O)c1ccccc1", { other: "[cH:8]1ccccc1" }],
+  ["the other alcohol", "CC[CH:1]=O", [{ at: "1", set: "OH" }, { do: "join", at: "1-8", with: "9", config: { 1: "R" } }], "CC[C@@H:1](O)c1ccccc1", { other: "[cH:8]1ccccc1" }],
+  ["an alkene made E from two compounds", "CC[CH:2]=O", [{ at: "2", remove: true }, { do: "join", at: "2-8", with: "9", to: "double", config: { "2-8": "E" } }], "CC/C=C/C(=O)OC", { other: "[CH3:8]C(=O)OC" }],
+  ["the same alkene made Z", "CC[CH:2]=O", [{ at: "2", remove: true }, { do: "join", at: "2-8", with: "9", to: "double", config: { "2-8": "Z" } }], "CC/C=C\\C(=O)OC", { other: "[CH3:8]C(=O)OC" }],
+  ["an amide from an acid and an amine", "CC[C:1](=O)O", [{ at: "1", swap: { OH: "H" } }, { do: "join", at: "1-8", with: "9" }], "CCC(=O)NCc1ccccc1", { other: "[NH2:8]Cc1ccccc1" }],
+  ["a new centre set on add", "CC[CH2:3]C", [{ at: "3", add: "OH", config: "R" }], "CC[C@H:3](O)C"],
+  ["a new double bond set Z", "CC[CH2:1][CH2:2]CC", [{ bond: "1-2", to: "double", config: { "1-2": "Z" } }], "CC/C=C\\CC"],
+  ["a new double bond set E", "CC[CH2:1][CH2:2]CC", [{ bond: "1-2", to: "double", config: { "1-2": "E" } }], "CC/C=C/CC"],
+];
+// More substrates for each transformation, so each has 20 or more (C5). Their products are written from the
+// substrates as SMILES text, which does not depend on compound.ts: a group's SMILES put before a substrate written
+// from its O-H or N-H, the same taken off, a C=C written as an epoxide or a diol, a diol's carbonate with CC1(C) for
+// O=C1 as its acetonide, and so on.
+{
+  const rows = (d: string, extra: object, pairs: string[][]): Made[] => pairs.map(([from, want, at]) => [`${d} ${from}`, from, [{ do: d, ...extra, ...(at ? { at } : {}) }], want]);
+  // Alcohols, amines and a thiol written from the atom that carries the H, each with one O-H, N-H or S-H.
+  const OH = ["OCCCCC", "OC1CCCC1", "Oc1ccccc1", "OC[C@@H](C)CC", "OCC#N", "OCCCl", "OC(C)(C)CC", "O[C@@H](C)c1ccccc1", "OCCOC", "OCc1ccncc1", "OC1CCOCC1", "OCC1CC1", "OCC=C", "Oc1ccc(C)cc1", "OC[C@H]1CCCO1", "OCCCC(C)=O", "OCCSC", "OCC(F)(F)F", "OCCc1ccc(Br)cc1"];
+  const NH = ["N1CCCCC1", "N(C)CC", "Nc1ccc(Cl)cc1", "NCc1ccco1", "N1CCOCC1", "NCCC", "N[C@@H](C)c1ccccc1"];
+  // Each group as the start of a SMILES that goes on before the O or N.
+  const PG: Record<string, string> = { TBS: "CC(C)(C)[Si](C)(C)", TBDPS: "CC(C)(C)[Si](c1ccccc1)(c1ccccc1)", TES: "CC[Si](CC)(CC)", TMS: "C[Si](C)(C)", TIPS: "CC(C)[Si](C(C)C)(C(C)C)", Bn: "c1ccccc1C", PMB: "COc1ccc(cc1)C", MOM: "COC", Ac: "CC(=O)", Bz: "O=C(c1ccccc1)", Boc: "CC(C)(C)OC(=O)", Cbz: "O=C(OCc1ccccc1)", Fmoc: "O=C(OCC1c2ccccc2-c2ccccc21)" };
+  const on = (g: string) => (["Ac", "Bz", "Boc", "Cbz", "Fmoc"].includes(g) ? [OH[0], OH[7], NH[0], NH[6]] : [OH[1], OH[3]]);
+  // Diols, with their carbonates: an acetonide is the same ring with CC1(C) for O=C1.
+  const DIOLS = [
+    ["O[CH2:1][CH2:2]O", "O=C1OCCO1", "1-2"], ["O[CH2:1][CH:2](O)C", "O=C1OCC(C)O1", "1-2"], ["O[CH2:1]C[CH2:3]O", "O=C1OCCCO1", "1-3"],
+    ["O[CH2:1]C(C)(C)[CH2:3]O", "O=C1OCC(C)(C)CO1", "1-3"], ["O[CH:1]1CCCC[CH:2]1O", "O=C1OC2CCCCC2O1", "1-2"], ["O[CH:1]1CCC[CH:2]1O", "O=C1OC2CCCC2O1", "1-2"],
+    ["O[CH2:1][C:2](O)(C)C", "O=C1OCC(C)(C)O1", "1-2"], ["O[CH2:1][CH:2](O)c1ccccc1", "O=C1OCC(c2ccccc2)O1", "1-2"], ["O[CH2:1][CH:2](O)COC", "O=C1OCC(COC)O1", "1-2"],
+    ["O[CH2:1][CH:2](O)CCCC", "O=C1OCC(CCCC)O1", "1-2"], ["O[CH2:1][C@@H:2](O)c1ccccc1", "O=C1OC[C@@H](O1)c1ccccc1", "1-2"], ["O[CH2:1][C@H:2](O)CCC=C", "O=C1OC[C@H](O1)CCC=C", "1-2"],
+    ["O[CH2:1][C@@H:2](O)C1CC1", "O=C1OC[C@@H](O1)C1CC1", "1-2"], ["O[CH2:1][C@H:2](O)CCOC", "O=C1OC[C@H](O1)CCOC", "1-2"], ["O[CH2:1][C@@H:2](O)CC(C)C", "O=C1OC[C@@H](O1)CC(C)C", "1-2"],
+    ["O[CH2:1][C@H:2](O)CCc1ccccc1", "O=C1OC[C@H](O1)CCc1ccccc1", "1-2"], ["O[CH2:1][CH:2](C)[CH2:3]O", "O=C1OCC(C)CO1", "1-3"], ["O[CH2:1]c1ccccc1[CH2:2]O", "O=C1OCc2ccccc2CO1", "1-2"],
+    ["O[c:1]1cccc[c:2]1O", "O=C1Oc2ccccc2O1", "1-2"], ["O[CH2:1][CH2:2]O", "O=C1OCCO1", "2-1"],
+  ];
+  const acetonide = (s: string) => s.replace(/^O=C1/, "CC1(C)");
+  // Acids and their esters, written from the acid's O-H; aldehydes and ketones from their =O.
+  const ACIDS = ["OC(=O)CCC", "OC(=O)c1ccccc1", "OC(=O)C1CCCCC1", "OC(=O)[C@@H](C)CC", "OC(=O)CC=C", "OC(=O)Cc1ccccc1", "OC(=O)CCCCl", "OC(=O)C(C)(C)C", "OC(=O)c1ccncc1", "OC(=O)CCOC", "OC(=O)C1CC1", "OC(=O)CC#C", "OC(=O)[C@H](C)c1ccccc1", "OC(=O)CCc1ccc(F)cc1", "OC(=O)CCCCCC", "OC(=O)c1ccco1"];
+  const CARBONYLS = ["O=CCCC", "O=C(C)CCc1ccccc1", "O=C1CCCCC1", "O=Cc1ccccc1", "O=C(C)C", "O=C1CCC[C@H]1C", "O=CC[C@@H](C)CC", "O=C(c1ccccc1)c1ccccc1", "O=C1CCOCC1", "O=CCOC", "O=C(C)C1CC1", "O=C1CCCC1"];
+  // Alkenes with one C=C written so (no other = or #), and one alkyne.
+  const ALKENES = ["CCC=CCC", "C1CC=CCC1", "C=C(C)C", "C=CCCCC", "C1CCC=C1", "CC=C(C)C", "C=CC1CCCCC1", "OCCC=C", "C1CC=CC1", "CC(C)C=CC", "C=CCc1ccccc1", "C[C@@H](O)CC=C", "C=CCOC", "C1CCCC=CC1", "C=C(C)CCCl", "ClCCCC=C"];
+  const DIOX = ALKENES.filter((s) => !s.includes("O") && !/C=C\d/.test(s));
+  MADE.push(
+    ...Object.entries(PG).flatMap(([g, pre]) => on(g).map((s): Made => [`${g} on ${s}`, s, [{ do: "protect", with: g }], pre + s])),
+    ...Object.entries(PG).flatMap(([g, pre]) => on(g).map((s): Made => [`${g} off ${s}`, pre + s, [{ do: "deprotect", with: g }], s])),
+    ...DIOLS.slice(0, 10).map(([s, c, at]): Made => [`an acetonide on ${s}`, s, [{ do: "protect", with: "acetonide", at }], acetonide(c)]),
+    ...DIOLS.slice(10, 16).map(([s, c, at]): Made => [`a carbonate on ${s}`, s, [{ do: "protect", with: "carbonate", at }], c]),
+    ...DIOLS.slice(0, 8).map(([s, c]): Made => [`an acetonide off ${s}`, acetonide(c), [{ do: "deprotect", with: "acetonide" }], s]),
+    ...DIOLS.slice(8, 16).map(([s, c]): Made => [`a carbonate off ${s}`, c, [{ do: "deprotect", with: "carbonate" }], s]),
+    ...rows("acetylate", {}, [...OH, ...NH].slice(0, 20).map((s) => [s, "CC(=O)" + s])),
+    ...rows("benzoylate", {}, [...OH, ...NH].slice(2, 22).map((s) => [s, "O=C(c1ccccc1)" + s])),
+    ...rows("form_carbonate", {}, DIOLS.map(([s, c, at]) => [s, c, at])),
+    ...rows("esterify", { with: "Me" }, ACIDS.slice(0, 8).map((s) => [s, "C" + s])),
+    ...rows("esterify", { with: "Et" }, ACIDS.slice(8, 16).map((s) => [s, "CC" + s])),
+    ...rows("hydrolyse", {}, [...OH.filter((s) => s.length > 6).slice(0, 8).map((s) => ["CC(=O)" + s, s]), ...ACIDS.slice(0, 8).map((s) => ["C" + s, s]), ...DIOLS.slice(0, 4).map(([s, c]) => [c, s])]),
+    ...rows("oxidise", {}, [["OCCCCC", "O=CCCCC"], ["OC1CCCC1", "O=C1CCCC1"], ["OC[C@@H](C)CC", "O=C[C@@H](C)CC"], ["OCC#N", "O=CC#N"], ["OCCCl", "O=CCCl"], ["O[C@@H](C)c1ccccc1", "O=C(C)c1ccccc1"], ["OCCOC", "O=CCOC"], ["OCc1ccncc1", "O=Cc1ccncc1"], ["OC1CCOCC1", "O=C1CCOCC1"], ["OCC1CC1", "O=CC1CC1"], ["OCC=C", "O=CC=C"], ["OCC(F)(F)F", "O=CC(F)(F)F"], ["O=CCCC", "OC(=O)CCC"], ["O=Cc1ccccc1", "OC(=O)c1ccccc1"], ["O=CC[C@@H](C)CC", "OC(=O)C[C@@H](C)CC"]]),
+    ...rows("reduce", {}, [...CARBONYLS.map((s) => [s, s.replace(/^O=C/, "OC")]), ...ACIDS.slice(0, 6).map((s) => [s, s.replace(/^OC\(=O\)/, "OC")]), ...ACIDS.slice(6, 12).map((s) => ["C" + s, s.replace(/^OC\(=O\)/, "OC")])]),
+    ...rows("hydrogenate", {}, [...ALKENES.map((s) => [s, s.replace("=", "")]), ["CC#CC", "CCCC"], ["C#CCO", "CCCO"], ["C#Cc1ccccc1", "CCc1ccccc1"]]),
+    ...rows("epoxidise", {}, ALKENES.map((s) => [s, s.replace("C=C", "C9OC9")])),
+    ...rows("dihydroxylate", {}, DIOX.map((s) => [s, s.replace("C=C", "C(O)C(O)")])),
+  );
+  const join = (pairs: string[][]): Made[] => pairs.map(([from, other, want, to, config]) => [`join ${from} to ${other}`, from, [{ do: "join", at: "1-8", with: "9", ...(to ? { to } : {}), ...(config ? { config: JSON.parse(config) } : {}) }], want, { other }]);
+  MADE.push(
+    ...rows("dihydroxylate", {}, [["C=Cc1ccccc1", "OCC(O)c1ccccc1"], ["C=CC#N", "OCC(O)C#N"], ["C=CCCl", "OCC(O)CCl"], ["CC(C)=C(C)C", "CC(C)(O)C(C)(O)C"], ["C=CC(=O)OC", "OCC(O)C(=O)OC"], ["C=CCOC", "OCC(O)COC"]]),
+    ...rows("hydroborate", {}, [["[CH2:1]=CCCCC", "OCCCCCC", "1"], ["[CH2:1]=C(C)C", "OCC(C)C", "1"], ["C1CC[CH:1]=CC1", "OC1CCCCC1", "1"], ["[CH2:1]=Cc1ccccc1", "OCCc1ccccc1", "1"], ["CC(C)=[CH:1]C", "CC(C)C(O)C", "1"], ["C[C:1](C)=CC", "CC(C)(O)CC", "1"], ["[CH2:1]=CC1CCCCC1", "OCCC1CCCCC1", "1"], ["[CH2:1]=CCOC", "OCCCOC", "1"], ["C1C[CH:1]=CC1", "OC1CCCC1", "1"], ["[CH2:1]=CCCCl", "OCCCCCl", "1"], ["[CH2:1]=C(C)CCC", "OCC(C)CCC", "1"], ["CC[CH:1]=CCC", "CCC(O)CCC", "1"], ["[CH2:1]=CC[C@@H](C)O", "OCCC[C@@H](C)O", "1"], ["[CH2:1]=CCc1ccc(OC)cc1", "OCCCc1ccc(OC)cc1", "1"]]),
+    ["hydroborate with another group", "[CH2:1]=CCCC", [{ do: "hydroborate", at: "1", with: "Br" }], "BrCCCCC"],
+    ["hydroborate of a methylcyclohexene, both centres set", "C[C:2]1=[CH:1]CCCC1", [{ do: "hydroborate", at: "1", config: { 1: "R", 2: "R" } }], "C[C@@H:2]1CCCC[C@H:1]1O"],
+    ...rows("open_epoxide", {}, [["[CH2:1]1OC1CC", "CC(O)CC", "1"], ["CC1O[CH:1]1C", "CCC(O)C", "1"], ["C1CCC2O[CH:1]2C1", "OC1CCCCC1", "1"], ["[CH2:1]1OC1c1ccccc1", "CC(O)c1ccccc1", "1"], ["C[C:1]1(C)OC1", "CC(C)CO", "1"], ["[CH2:1]1OC1(C)C", "CC(C)(C)O", "1"], ["[CH2:1]1OC1C1CCCCC1", "CC(O)C1CCCCC1", "1"], ["[CH2:1]1O[C@@H]1CC", "O[C@@H](C)CC", "1"]]),
+    ...([["[CH2:1]1OC1CC", "OMe", "COCC(O)CC"], ["C1CC[CH:1]2OC2C1", "N3", "[N-]=[N+]=NC1CCCCC1O"], ["[CH2:1]1OC1c1ccccc1", "CN", "N#CCC(O)c1ccccc1"], ["[CH2:1]1OC1CCCl", "Br", "BrCC(O)CCCl"], ["[CH2:1]1OC1COC", "OH", "OCC(O)COC"], ["[CH2:1]1OC1CC=C", "SMe", "CSCC(O)CC=C"], ["C1C[CH:1]2OC2C1", "OMe", "COC1CCCC1O"], ["[CH2:1]1OC1CC(C)C", "Ph", "c1ccccc1CC(O)CC(C)C"], ["[CH2:1]1OC1CCc1ccccc1", "NHBn", "c1ccccc1CNCC(O)CCc1ccccc1"]].map(([from, w, want]): Made => [`open_epoxide ${from} with ${w}`, from, [{ do: "open_epoxide", at: "1", with: w }], want])),
+    ...rows("lactonise", {}, [["O[C:1](=O)CC[CH:4](C)O", "O=C1CCC(C)O1", "1-4"], ["CO[C:1](=O)CCC[CH2:5]O", "O=C1CCCCO1", "1-5"], ["O[C:1](=O)CCCC[CH2:6]O", "O=C1CCCCCO1", "1-6"], ["O[C:1](=O)c1ccccc1C[CH2:3]O", "O=C1OCCc2ccccc12", "1-3"], ["O[C:1](=O)C(C)(C)C[CH2:4]O", "O=C1OCCC1(C)C", "1-4"], ["O[C:1](=O)CC[C:4](C)(C)O", "O=C1CCC(C)(C)O1", "1-4"], ["O[C:1](=O)CC[C@H:4](C)O", "O=C1CC[C@H](C)O1", "1-4"], ["O[C:1](=O)CCC[C@@H:5](CC)O", "O=C1CCC[C@@H](CC)O1", "1-5"], ["CCO[C:1](=O)CC[CH2:4]O", "O=C1CCCO1", "1-4"], ["O[C:1](=O)C[CH2:3]O", "O=C1CCO1", "1-3"], ["O[C:1](=O)CC[CH:4](O)c1ccccc1", "O=C1CCC(c2ccccc2)O1", "1-4"], ["O[C:1](=O)CCC(C)(C)[CH2:6]O", "O=C1CCC(C)(C)CO1", "1-6"], ["O[C:1](=O)Cc1ccccc1[CH2:3]O", "O=C1Cc2ccccc2CO1", "1-3"], ["O[C:1](=O)CCOC[CH2:6]O", "O=C1CCOCCO1", "1-6"], ["O[C:1](=O)CCCCCCCCC[CH2:11]O", "O=C1CCCCCCCCCCO1", "1-11"], ["O[C:1](=O)CCC[CH2:5]O", "O=C1CCCCO1", "5-1"], ["O[C:1](=O)CC[CH2:4][OH:9]", "O=C1CCCO1", "1-9"]]),
+    ...rows("close", {}, [["[CH3:1]CCC[CH3:2]", "C1CCCC1", "1-2"], ["[CH3:1]C[CH3:2]", "C1CC1", "1-2"], ["[CH3:1]CC[CH3:2]", "C1CCC1", "1-2"], ["[CH3:1]CCCCC[CH3:2]", "C1CCCCCC1", "1-2"], ["[NH2:1]CCCC[CH3:2]", "N1CCCCC1", "1-2"], ["[OH:1]CCC[CH3:2]", "C1CCOC1", "1-2"], ["c1ccccc1C[CH2:1]C[CH3:2]", "c1ccccc1CC1CC1", "1-2"], ["[CH3:1]c1ccccc1[CH3:2]", "C1c2ccccc2C1", "1-2"], ["[CH3:1]Cc1ccccc1[CH3:2]", "C1Cc2ccccc2C1", "1-2"], ["[CH2:1]=CCC[CH3:2]", "C1=CCCC1", "1-2"], ["[CH3:1]CC(C)(C)C[CH3:2]", "C1CC(C)(C)CC1", "1-2"], ["C[CH2:1]C(=O)C[CH3:2]", "CC1C(=O)CC1", "1-2"], ["[CH3:1]CCCC(C)(C)[CH3:2]", "C1CCCC(C)(C)C1", "1-2"], ["[SH:1]CCC[CH3:2]", "C1CCSC1", "1-2"], ["O=C([CH3:1])CC[CH3:2]", "O=C1CCCC1", "1-2"], ["[NH2:1]CCC[CH3:2]", "C1CCNC1", "1-2"]]),
+    ["close with a double bond", "[CH3:1]CCC[CH3:2]", [{ do: "close", at: "1-2", to: "double" }], "C1=CCCC1"],
+    ...rows("open", {}, [["C1CCC[CH2:1][CH2:2]1", "CCCCCC", "1-2"], ["C1C[CH2:1][CH2:2]1", "CCCC", "1-2"], ["C1[CH2:1][CH2:2]1", "CCC", "1-2"], ["C1C[CH2:1][CH2:2]C1", "CCCCC", "1-2"], ["C1CC[O:1][CH2:2]C1", "OCCCCC", "1-2"], ["C1C[O:1][CH2:2]C1", "OCCCC", "1-2"], ["C1CC[NH:1][CH2:2]C1", "NCCCCC", "1-2"], ["O=C1CCC[CH2:1][O:2]1", "OC(=O)CCCC", "1-2"], ["c1ccc2c(c1)[CH2:1][CH2:2]C2", "Cc1ccccc1CC", "1-2"], ["C1CCC2CCCC[CH:1]2[CH2:2]1", "CCCCC1CCCCC1", "1-2"], ["C1CCCC[CH2:1][CH2:2]1", "CCCCCCC", "1-2"], ["O=C1CC[CH2:1][CH2:2]C1", "CCC(=O)CCC", "1-2"], ["CC1CC[CH2:1][CH2:2]1", "CC(C)CCC", "1-2"], ["C1CC[CH2:1][N:2]1C", "CNCCCC", "1-2"], ["c1ccc2c(c1)C[CH2:1][CH2:2]C2", "CCc1ccccc1CC", "1-2"], ["C1CCC[CH2:1][S:2]1", "SCCCCC", "1-2"], ["C1[O:1][CH:2]1C", "OCCC", "1-2"], ["C1CCCCC[CH2:1][CH2:2]1", "CCCCCCCC", "1-2"]]),
+    ...join([["[CH3:1]C", "[cH:8]1ccccc1", "CCc1ccccc1"], ["[cH:1]1ccccc1", "[cH:8]1ccccc1", "c1ccc(cc1)-c1ccccc1"], ["[cH:1]1ccncc1", "[cH:8]1ccccc1", "c1ccc(cc1)-c1ccncc1"], ["[NH2:1]CC", "[CH3:8]C(=O)C", "CCNCC(=O)C"], ["[OH:1]C", "[CH3:8]CC", "COCCC"], ["CC[CH2:1]O", "[CH3:8]c1ccccc1", "CCC(O)Cc1ccccc1"], ["[CH3:1]C(=O)OC", "[CH3:8]C(=O)OC", "COC(=O)CCC(=O)OC"], ["c1ccc2c(c1)cc[nH:1]2", "[CH4:8]", "Cn1ccc2ccccc21"], ["[SH:1]C", "[CH3:8]c1ccccc1", "CSCc1ccccc1"], ["[CH3:1]C#N", "[CH3:8]Cl", "ClCCC#N"], ["C1CC[NH:1]CC1", "[cH:8]1ccccc1", "c1ccc(cc1)N1CCCCC1"], ["[CH3:1]c1ccccc1", "[CH3:8]c1ccccc1", "c1ccc(cc1)CCc1ccccc1"], ["[CH3:1]C", "[CH3:8]C", "C/C=C/C", "double", '{"1-8":"E"}'], ["[CH3:1]CC", "[CH3:8]C", "CC/C=C\\C", "double", '{"1-8":"Z"}'], ["C[CH2:1]O", "[cH:8]1ccccc1", "C[C@H:1](O)c1ccccc1", "", '{"1":"S"}']]),
+  );
+}
+{
+  const { TRANSFORMATIONS } = await import("./compound.ts");
+  const names = new Map<string, number>();
+  for (const [what, from, changes, want, more] of MADE) {
+    d = drawing();
+    const r = await call("draw_structures", { structures: [{ text: from, ...(more?.labels ? { labels: more.labels } : {}), number: "1" }, ...(more?.other ? [{ text: more.other, number: "9" }] : []), { from: "1", changes, number: "2" }] });
+    assert.ok(!r.isError, `${what}: ${said(r)}`);
+    const got = (await reading()).structures.find((s: { number: string }) => s.number === "2"), expected = tagged(parseStructure(want)), labels = stereoLabels(expected);
+    assert.equal(got.inchiKey, toInchiKey(expected), `${what}: drew ${got.smiles}, not ${want}`);
+    assert.equal(cip(numbered("2")), cip(expected), `${what}: the CIP labels of ${want}`);
+    for (const c of changes) {
+      if (c.do) names.set(c.do, (names.get(c.do) ?? 0) + 1);
+      // The label config asks for is the label of that atom in the product as it is written here.
+      for (const [name, label] of Object.entries(typeof c.config === "string" ? { [(c as { at: string }).at]: c.config } : (c.config ?? {}))) if (!name.includes("-")) assert.equal(labels?.atoms[expected.atoms.findIndex((a) => a.tag === Number(name))], label, `${what}: atom ${name} of ${want}`);
+    }
+    // A centre with no label asked for has none, and the reply says how to give one.
+    if (what === "a ketone to its alcohol, with no configuration") assert.equal(cip(numbered("2")), "");
+  }
+  // Every transformation is in the table, and in the list an AI app can ask for.
+  const listed = /They are: ([a-z_, ]+)\.$/.exec(change(parseStructure("CCO"), [{ do: "nothing" }]) as string)![1].split(", ");
+  assert.deepEqual([...names.keys()].sort(), [...listed].sort());
+  for (const [name, count] of names) assert.ok(count >= 20, `${name} is made on ${count} substrates, not 20 or more`);
+  for (const name of listed) assert.ok(new RegExp(`(^|[ ,])${name}[:,]`, "m").test(TRANSFORMATIONS), `${name} is in TRANSFORMATIONS`);
+}
+
+// Refused, with the places Octet found (C5): a transformation that fits two places, or none, and one that is not
+// said in full. Nothing is guessed, and nothing is drawn.
+{
+  const refuse = async (text: string, changes: unknown, why: RegExp, other?: string) => {
+    d = drawing();
+    const r = await call("draw_structures", { structures: [{ text, number: "1" }, ...(other ? [{ text: other, number: "9" }] : []), { from: "1", changes, number: "2" }] });
+    assert.ok(r.isError, `${JSON.stringify(changes)} is refused`);
+    assert.match(said(r), why);
+    assert.equal(d.host.doc().atoms.length, 0, "a refused call draws nothing");
+  };
+  // Two places: both are named, by the numbers the AI app gave.
+  await refuse("C[C@H:2](O)CC[CH2:5]O", [{ do: "protect", with: "TBS" }], /protect fits 2 places \(O-H on atom 2; O-H on atom 5\): say which with at, an atom's number\./);
+  await refuse("CC(C)(C)[Si](C)(C)O[CH2:1]C[CH2:3]O[Si](C)(C)C(C)(C)C", [{ do: "deprotect", with: "TBS" }], /deprotect fits 2 places \(TBS on the O of atom 1; TBS on the O of atom 3\)/);
+  await refuse("O[CH2:1]CC[C@H:4](O)C", [{ do: "oxidise" }], /oxidise fits 2 places \(the O-H on atom 1; the O-H on atom 4\)/);
+  await refuse("C[C:2](=O)CC[C:5](=O)OC", [{ do: "reduce" }], /reduce fits 2 places \(the C=O at atom 2; the ester at atom 5\)/);
+  await refuse("[CH2:1]=[CH:2][CH:3]=[CH:4]C", [{ do: "hydrogenate" }], /hydrogenate fits 2 places \(the C=C of atom 1 and atom 2; the C=C of atom 3 and atom 4\)/);
+  await refuse("[CH2:1]=[CH:2]C[CH:4]=[CH2:5]", [{ do: "epoxidise" }], /epoxidise fits 2 places \(the C=C of atom 1 and atom 2; the C=C of atom 4 and atom 5\)/);
+  await refuse("[CH2:1]=[CH:2]C[CH:4]=[CH2:5]", [{ do: "dihydroxylate" }], /dihydroxylate fits 2 places/);
+  await refuse("CO[C:1](=O)CC[C:4](=O)OCC", [{ do: "hydrolyse" }], /hydrolyse fits 2 places \(the ester at atom 1; the ester at atom 4\)/);
+  await refuse("O[C:1](=O)CC[C:4](=O)O", [{ do: "esterify", with: "Me" }], /esterify fits 2 places \(O-H on atom 1; O-H on atom 4\)/);
+  await refuse("O[CH2:1]CC[CH2:4]O", [{ do: "benzoylate" }], /benzoylate fits 2 places \(O-H on atom 1; O-H on atom 4\)/);
+  await refuse("CC1(C)O[CH2:1][CH:2](O1)CC[CH:5]2[CH2:6]OC(C)(C)O2", [{ do: "deprotect", with: "acetonide" }], /deprotect fits 2 places \(the acetonide on atom [12] and atom [12]; the acetonide on atom [56] and atom [56]\)/);
+  // With no numbers to name the places by, the reply says how to give them.
+  await refuse("OCCCO", [{ do: "acetylate" }], /acetylate fits 2 places .* \(number an atom in the compound's SMILES to name it, as \[CH2:7\]\)/);
+  // An ester's two parts of one size: Octet does not choose the one that stays.
+  await refuse("CCOC(C)=O", [{ do: "hydrolyse" }], /the two parts of the ester at atom #3 are of one size: name an atom of the part that stays with at/);
+  // No place.
+  await refuse("CC(C)(C)O", [{ do: "oxidise" }], /oxidise fits no place in this compound\. This compound has no atom numbers/);
+  await refuse("CCCO", [{ do: "deprotect", with: "Bn" }], /deprotect fits no place in this compound/);
+  await refuse("c1ccccc1", [{ do: "hydrogenate" }], /hydrogenate fits no place in this compound/);
+  await refuse("C[CH2:1]C=C", [{ do: "epoxidise", at: "1" }], /epoxidise fits no place at atom 1\. This compound has the atom numbers 1/);
+  await refuse("CCCC", [{ do: "reduce" }], /reduce fits no place in this compound/);
+  await refuse("CCO", [{ do: "dihydroxylate" }], /dihydroxylate fits no place in this compound/);
+  await refuse("CCOC", [{ do: "acetylate" }], /acetylate fits no place in this compound/);
+  await refuse("[CH3:1]CC", [{ do: "hydroborate", at: "1" }], /hydroborate fits no place at atom 1/);
+  await refuse("CCCC", [{ do: "hydrolyse" }], /hydrolyse fits no place in this compound/);
+  await refuse("CC[CH2:1]OCC", [{ do: "open_epoxide", at: "1" }], /open_epoxide fits no place at atom 1/);
+  await refuse("O[CH2:1][CH2:2]C", [{ do: "protect", with: "acetonide", at: "1-2" }], /atom 2 carries no O-H: acetonide takes at, the two atoms that carry a diol's hydroxyls/);
+  // Not said in full, or with a key that does not go with it. A name that is no transformation gets the list.
+  await refuse("CCO", [{ do: "methylate" }], /methylate is not a transformation\. They are: protect, deprotect, acetylate, benzoylate, form_carbonate, esterify, hydrolyse, oxidise, reduce, hydrogenate, epoxidise, dihydroxylate, hydroborate, open_epoxide, lactonise, close, open, join\./);
+  await refuse("CCO", [{ do: "protect", with: "Tr" }], /protect takes with: TBS, TBDPS, TES, TMS, TIPS, Bn, PMB, MOM, Ac, Bz, Boc, Cbz, Fmoc, acetonide, carbonate/);
+  await refuse("CCO", [{ do: "oxidise", to: "double" }], /to does not go with oxidise/);
+  await refuse("CCO", [{ do: "oxidise", with: "PCC" }], /with does not go with oxidise/);
+  await refuse("CCC(=O)O", [{ do: "esterify", with: "tBu" }], /Octet cannot read OtBu as a group/);
+  await refuse("C=CC", [{ do: "hydroborate" }], /hydroborate takes at: the carbon of the C=C that takes the OH/);
+  await refuse("C[CH:1]1O[CH:2]1C", [{ do: "open_epoxide" }], /open_epoxide takes at: the carbon that loses the oxygen/);
+  await refuse("OC(=O)CCCO", [{ do: "lactonise" }], /lactonise takes at: an acid's or ester's carbon and the atom that carries the O-H/);
+  await refuse("C[CH2:1][CH2:2]C", [{ do: "close", at: "1-2" }], /atom 1 and atom 2 are bonded: bond changes a bond's order/);
+  await refuse("C[CH2:1][CH2:2]C", [{ do: "open", at: "1-2" }], /the bond between atom 1 and atom 2 is not in a ring: a change cannot make two compounds of one/);
+  // join: the other compound must be there, each atom in its own compound, each number once in the two.
+  await refuse("CC[CH:1]=O", [{ do: "join", at: "1-8", with: "7" }], /with: there is no compound 7 earlier in this call or in the drawing\./);
+  await refuse("C[CH2:1][CH2:2]C", [{ do: "join", at: "1-2", with: "9" }], /join takes at: an atom of this compound and an atom of the other/, "[cH:8]1ccccc1");
+  await refuse("CC[CH3:8]", [{ do: "join", at: "8-8", with: "9" }], /the two compounds each have an atom numbered 8: give each atom its own number/, "[cH:8]1ccccc1");
+  // config: a label that is none, and a label for an atom that is no stereocentre.
+  await refuse("C[C:2](=O)CC", [{ do: "reduce", config: "Q" }], /config takes \{atom's number: 'R' or 'S'\} or \{bond: 'E' or 'Z'\}/);
+  await refuse("C[C:2](=O)C", [{ do: "reduce", at: "2", config: "R" }], /config: Octet cannot draw atom 2 as R: it may not be a stereocentre in this compound/);
+  // A new centre with no label asked for is drawn with none, and the reply says how to give one.
+  d = drawing();
+  const r = await call("draw_structures", { structures: [{ text: "C[C@H](O)C[C:2](=O)CC", number: "1" }, { from: "1", changes: [{ do: "reduce", at: "2" }], number: "2" }] });
+  assert.match(said(r), /\(2\) \[Atom 2 is now a stereocentre with no configuration: to set one, give config \(\{'2': 'R'\}\)\.\]/);
+  assert.equal((await reading()).structures[1].inchiKey, keyOf("C[C@H](O)CC(O)CC"));
+}
+// The layout (L5). An atom a transformation does not change stays where it is. A new small ring is regular. A ring
+// closed between atoms far apart, and a new atom with no room, have the compound drawn again, and the reply says so.
+{
+  const at = (m: Mol) => new Set(m.atoms.map((a) => a.location.slice(0, 2).map((v) => v.toFixed(3)).join(" ")));
+  const still = (from: Mol, to: Mol) => { const there = at(to); return [...at(from)].filter((p) => there.has(p)).length; };
+  const steroid = tagged(parseStructure("C[C@]12CC[C@H]3[C@@H](CCC4=C[C:3](=O)CC[C@]34C)[C@@H]1CC[C@@H:17]2O"));
+  for (const [changes, gone] of [[[{ do: "oxidise", at: "17" }], 0], [[{ do: "protect", with: "TBS" }], 0], [[{ do: "reduce", at: "3" }], 0], [[{ do: "hydrogenate" }], 0], [[{ do: "epoxidise" }], 0]] as const) {
+    const out = change(steroid, [...changes]);
+    assert.ok(typeof out !== "string", String(out));
+    assert.equal(still(steroid, out.mol), steroid.atoms.length - gone, `${JSON.stringify(changes)} moves no atom`);
+  }
+  // An acetonide: the ring's carbons stay, and the five bonds of the new ring are one bond long.
+  const diol = tagged(parseStructure("O[C@H:1]1CCCC[C@H:2]1O")), ketal = change(diol, [{ do: "protect", with: "acetonide", at: "1-2" }]);
+  assert.ok(typeof ketal !== "string" && still(diol, ketal.mol) === 6 && !ketal.notes.some((t) => /drew the compound again/.test(t)), String(ketal));
+  const long = (m: Mol, b: Mol["bonds"][number]) => Math.hypot(m.atoms[b.atoms[0]].location[0] - m.atoms[b.atoms[1]].location[0], m.atoms[b.atoms[0]].location[1] - m.atoms[b.atoms[1]].location[1]);
+  assert.ok(ketal.mol.bonds.every((b) => Math.abs(long(ketal.mol, b) - 1) < 0.02), "each bond of the acetonide is one bond long");
+  // A joined compound: the compound it is joined to does not move, and the new bond is one bond long.
+  const aldehyde = tagged(parseStructure("C[C@H](Cc1ccccc1)C[CH:1]=O")), joined = change(aldehyde, [{ at: "1", set: "OH" }, { do: "join", at: "1-8", with: "9" }], () => tagged(parseStructure("[cH:8]1ccccc1")));
+  assert.ok(typeof joined !== "string" && still(aldehyde, joined.mol) === aldehyde.atoms.length, String(joined));
+  assert.ok(Math.abs(long(joined.mol, joined.mol.bonds[joined.mol.bonds.length - 1]) - 1) < 0.02);
+  // A ring closed between the two ends of a chain: the compound is drawn again, and the reply says so.
+  const ring = change(tagged(parseStructure("C[CH2:1]CCC[CH2:6]C")), [{ do: "close", at: "1-6" }]);
+  assert.ok(typeof ring !== "string" && ring.notes.includes("Octet drew the compound again: its atoms moved.") && ring.mol.bonds.every((b) => Math.abs(long(ring.mol, b) - 1) < 0.1), String(ring));
+  // Drawn again, it is turned to lie as the compound did: the same chain turned a quarter turn gives the same ring
+  // turned so.
+  const chain = tagged(parseStructure("C[CH2:1]CCC[CH2:6]C")), quarter = change({ ...chain, atoms: chain.atoms.map((a) => ({ ...a, location: [-a.location[1], a.location[0], 0] as [number, number, number] })) }, [{ do: "close", at: "1-6" }]);
+  assert.ok(typeof quarter !== "string" && quarter.mol.atoms.every((a, i) => Math.hypot(a.location[0] + ring.mol.atoms[i].location[1], a.location[1] - ring.mol.atoms[i].location[0]) < 0.01), "turned as the chain was");
+}
+
 // ---- Nicolaou's taxol route in the new form: every compound is the one the paper has ----
 
 const bench = (f: string) => JSON.parse(readFileSync(new URL(`../scripts/mcp-bench/taxol/${f}.json`, import.meta.url), "utf8"));
@@ -433,7 +746,7 @@ const route = bench("route"), FULL: Record<string, string> = bench("structures")
     const r = await call("draw_reaction", { start, steps });
     assert.ok(!r.isError, said(r));
   }
-  assert.deepEqual([chained, all], [9, 21]);
+  assert.deepEqual([chained, all], [18, 21]);
   const drawn = (await reading()).structures as { number?: string; inchiKey: string }[];
   for (const [number, smiles] of Object.entries(FULL)) {
     if (number === "20") continue; // the β-lactam is a reagent over the last arrow
@@ -451,20 +764,23 @@ const route = bench("route"), FULL: Record<string, string> = bench("structures")
   // Each round has the source a little larger, so no stereo reading is kept from the round before: both ways do all
   // their work each time. The whole of each way, the best of three rounds.
   const h = d.host, chained = route.schemes.flatMap(({ start, steps }: { start: object[]; steps: { products: object[] }[] }) => [...start, ...steps.flatMap((s) => s.products)]).filter((c: { changes?: object[] }) => c.changes) as { from: string; changes: never; number: string }[];
-  let fromSmiles = Infinity, fromChanges = Infinity;
+  // (again: the compounds a named transformation laid out again, timed alone.)
+  let fromSmiles = Infinity, fromChanges = Infinity, again = [Infinity, Infinity, 0];
   for (let round = 1; round <= 3; round++) {
     const grown = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] * (1 + round / 500), a.location[1] * (1 + round / 500), 0] as [number, number, number] })) });
-    let a = 0, b = 0;
+    let a = 0, b = 0, x = 0, y = 0, n = 0;
     for (const c of chained) {
-      const source = grown(numbered(c.from)), t0 = performance.now(), out = change(source, c.changes), t1 = performance.now();
+      const source = grown(numbered(c.from)), t0 = performance.now(), out = change(source, c.changes, (name) => grown(numbered(name))), t1 = performance.now();
       assert.ok(typeof out !== "string" && toInchiKey(expandLabels(out.mol)) === keyOf(FULL[c.number]), `compound ${c.number}`);
       const t2 = performance.now();
       assert.ok(h.structure(FULL[c.number]));
       a += t1 - t0; b += performance.now() - t2;
+      if (typeof out !== "string" && out.notes.some((t) => /drew the compound again/.test(t))) { x += t1 - t0; y += performance.now() - t2; n++; }
     }
     fromChanges = Math.min(fromChanges, a); fromSmiles = Math.min(fromSmiles, b);
+    again = [Math.min(again[0], x), Math.min(again[1], y), n];
   }
   assert.ok(fromChanges <= fromSmiles, `from changes ${fromChanges.toFixed(1)} ms, from SMILES ${fromSmiles.toFixed(1)} ms`);
-  if (process.argv.includes("--time")) console.log(`compound.check: the route's ${chained.length} compounds with changes: from the compound before ${fromChanges.toFixed(1)} ms, from SMILES ${fromSmiles.toFixed(1)} ms`);
+  if (process.argv.includes("--time")) console.log(`compound.check: the route's ${chained.length} compounds with changes: from the compound before ${fromChanges.toFixed(1)} ms, from SMILES ${fromSmiles.toFixed(1)} ms. The ${again[2]} of them that are drawn again: ${again[0].toFixed(1)} ms, from SMILES ${again[1].toFixed(1)} ms`);
 }
 console.log("compound.check: ok");
