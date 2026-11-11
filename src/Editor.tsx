@@ -41,7 +41,7 @@ import { propertyValues, PROPERTY_ROWS, rowLabel, type Calculated, type Property
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
-import { acsText, countText, hasNucleus, isNucleus, multiplicity, NUCLEI, NUCLEUS_LIST, quality, shiftText } from "./nmr";
+import { acsText, countText, isNucleus, multiplicity, NUCLEI, NUCLEUS_LIST, quality, shiftText } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { placeFigure, withNotice } from "./spectrumplot";
 import { numbered, placeBeside } from "./beside";
@@ -5945,8 +5945,6 @@ export default function Editor() {
       ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
-      // ¹⁹F and ³¹P show for a structure with F or P, as an atom or in a label (CF3, PPh3, PF6).
-      nuclei: (() => { const t = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().map((i) => doc.atoms[i].text ?? doc.atoms[i].label).join(" "); return [...(/F(?![a-z])/.test(t) ? ["19F"] : []), ...(/P(?![a-z])/.test(t) ? ["31P"] : [])]; })(),
       // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection),
       properties: settings.properties }; // so the Properties action names what it does next, as the palette does
@@ -6204,10 +6202,6 @@ export default function Editor() {
   // session gets the tab, or a new session opens with it (B1.8: a kind already open shows that tab).
   function openSpectrum(key: string, atoms?: number[], from = doc) {
     const groups = fragments(from), pick = atoms ?? (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
-    // ¹⁹F and ³¹P only for a structure with that element (B3.10).
-    const word = isNucleus(key) ? ({ F: "fluorine", P: "phosphorus" } as Record<string, string>)[NUCLEI[key].el] : undefined;
-    const graph = word && pick ? graphOf(expandWithOrigins(subset(from, new Set(pick)), true).mol) : undefined;
-    if (word && graph && !hasNucleus(graph, key as Nucleus)) return setNotice(`This structure has no ${word}.`, "info");
     const had = pick && from === doc && sessions.find((x) => x.view !== "closed" && sessionMols.get(x.id)?.some((i) => pick.includes(i)));
     if (had) {
       editSession(had.id, (x) => ({ ...x, keys: x.keys.includes(key) ? x.keys : [...x.keys, key], key }));
@@ -6310,11 +6304,6 @@ export default function Editor() {
     const ids = [...nmrTarget].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(nmrDoc, new Set(ids)), true), g = graphOf(mol);
     return { prediction: g && nmrTables ? predict(g, nucleusOpen, nmrSolvent, settings.nmrDecouple?.[nucleusOpen]) : undefined, toDoc: from.map((i) => ids[i]) };
   }, [nucleusOpen, loaded, nmrDoc, nmrTarget, nmrTables, nmrSolvent, settings.nmrDecouple]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The nuclei the shown structure has: the + menu offers ¹⁹F and ³¹P only for a structure with F or P (B3.10).
-  const nucleiHere = useMemo(() => {
-    const g = nmrTarget?.length && loaded ? graphOf(expandWithOrigins(subset(nmrDoc, new Set(nmrTarget)), true).mol) : undefined;
-    return NUCLEUS_LIST.filter((n) => !g || hasNucleus(g, n));
-  }, [nmrDoc, nmrTarget, loaded]);
   // The session marks on the atoms (B1.12), kept up to date with no undo step of their own: each session's structure
   // carries its id, and no other atom does. A drawing saved as it is stays saved. Sessions whose structures were
   // joined become one, with all their tabs.
@@ -9397,8 +9386,9 @@ export default function Editor() {
         <SpectrumPanel
           hidden={panelHidden("nmr") || lost(x)} sizing={sizing} title={titleOf(x)} noStructure={x.at.length > 0 && !nmrTarget}
           onPointTitle={(on) => setPillLit(on ? sessionMols.get(x.id) : undefined)}
-          addable={[...new Set([...nucleiHere, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
+          addable={[...new Set([...PREDICTED, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
           onAddKey={(k) => openSpectrum(k, sessionMols.get(x.id))} onCloseTab={closeTab}
+          decoupled={!!nucleusOpen && (settings.nmrDecouple?.[nucleusOpen] ?? NUCLEI[nucleusOpen].decouple)}
           onDecouple={(on) => nucleusOpen && setSettings((y) => ({ ...y, nmrDecouple: { ...y.nmrDecouple, [nucleusOpen]: on } }))} expanded={nmrFull} onExpanded={setNmrFull} onMinimise={(keyboard) => minimisePanel("nmr", keyboard)} label={panelName("nmr")}
           spectrumKey={x.key}
           keys={x.keys}

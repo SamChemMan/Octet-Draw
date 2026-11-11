@@ -71,7 +71,7 @@ assert.match(controls, /timing\(way === "in" \? "--motion" : "--motion-slow"\)/)
 // Mass spec analysis next to the NMR predictions and Properties (Sam, 7 November 2026), in the Actions panel's
 // Analysis set, the Structure menu under the NMR items, the command palette and the MCP. The tool stays.
 assert.match(actions, /predict_31p: "analysis", mass_spec: "analysis"/);
-assert.match(actions, /"Predict ³¹P-NMR shifts", "predict_31p"\)\)\] : \[\]\), small\(it\(<MassSpecGlyph \/>, "Mass spec analysis", "mass_spec"\)\)/, "Mass spec comes after the NMR predictions");
+assert.match(actions, /"Predict ³¹P-NMR shifts", "predict_31p"\)\), small\(it\(<MassSpecGlyph \/>, "Mass spec analysis", "mass_spec"\)\)/, "Mass spec comes after the NMR predictions");
 {
   const gap = menu.slice(menu.indexOf('item("predict_13c"'), menu.indexOf('&item("mass_spec", "Show Mass Spec Analysis", "")'));
   assert.ok(gap.length > 0 && gap.split("\n").slice(1).every((line) => /^\s*(\/\/.*|&item\("predict_\w+", "Predict [^"]+", ""\)\?,)?$/.test(line)), "Mass spec comes right after the NMR predictions");
@@ -98,7 +98,7 @@ const spectrum = read("./Spectrum.tsx");
 assert.match(spectrum, /role="tablist" aria-label="Spectra"/);
 assert.match(spectrum, /if \(e\.key === "Delete" \|\| e\.key === "Backspace"\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); onClose\(k\); \}/);
 assert.match(spectrum, /<Pick label="Add spectrum"/);
-assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.nucleiHere, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
+assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
 assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
 assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");
 
@@ -131,20 +131,24 @@ assert.match(editor, /free = \[innerWidth - 160, innerHeight - 120 - below\]/);
 assert.match(editor, /say\("Spectrum added"\);/);
 
 // ¹⁹F and ³¹P in the UI (plan B3, 8 November 2026): drawn by kind (trace or sticks) with no test of one nucleus,
-// offered only for a structure with F or P, with Decouple ¹H, in the Actions panel, the palette and the MCP.
+// with Decouple ¹H, in the Actions panel, the palette and the MCP. Offered for every structure, as ¹H and ¹³C are
+// (Sam, 11 November 2026): one with no F or P opens the panel on an empty spectrum, with no notice.
 assert.match(spectrum, /const nucleus: Nucleus \| undefined = isNucleus\(p\.spectrumKey\) \? p\.spectrumKey : undefined;/);
 assert.match(spectrum, /const traced = !!nucleus && NUCLEI\[nucleus\]\.trace;/);
 assert.doesNotMatch(spectrum, /nucleus === "1H"/, "no ¹H-only branches in the panel");
 assert.match(spectrum, /split\.map\(\(ls, k\) => shown\(signals\[k\]\) && ls\.map\(\(l, i\) => <line/, "one stick for each line of a split signal");
+assert.match(spectrum, /aria-pressed=\{p\.decoupled\} onClick=\{\(\) => p\.onDecouple\(!p\.decoupled\)\}/, "Decouple ¹H shows its setting with no prediction too");
 assert.match(spectrum, />Decouple ¹H<\/button>/);
+assert.match(editor, /decoupled=\{!!nucleusOpen && \(settings\.nmrDecouple\?\.\[nucleusOpen\] \?\? NUCLEI\[nucleusOpen\]\.decouple\)\}/);
 assert.match(spectrum, /\{v\.toFixed\(places\)\.replace\("-", "−"\)\}/, "a minus sign on the axis");
 assert.match(editor, /const PREDICTED: string\[\] = NUCLEUS_LIST;/);
-assert.match(editor, /if \(word && graph && !hasNucleus\(graph, key as Nucleus\)\) return setNotice\(`This structure has no \$\{word\}\.`, "info"\);/);
+assert.doesNotMatch(editor, /hasNucleus|has no \$\{word\}/, "Predict refuses no nucleus");
 assert.match(editor, /predict\(g, nucleusOpen, nmrSolvent, settings\.nmrDecouple\?\.\[nucleusOpen\]\)/);
 assert.match(editor, /const mhz = first\.mhz \/ NUCLEI\[key\]\.ratio/);
 for (const id of ["predict_19f", "predict_31p"]) {
   assert.match(editor, new RegExp(`\\n    ${id}: \\(\\) => openSpectrum\\("${id === "predict_19f" ? "19F" : "31P"}"\\),`));
   assert.ok(actions.includes(`"${id}"`) && menu.includes(`item("${id}"`), id);
 }
-assert.match(actions, /context\.nuclei\?\.includes\("19F"\)/);
+assert.match(actions, /"predict_13c"\)\), small\(it\(<span className="glyph-text">¹⁹F<\/span>, "Predict ¹⁹F-NMR shifts", "predict_19f"\)\), small\(it\(<span className="glyph-text">³¹P<\/span>, "Predict ³¹P-NMR shifts", "predict_31p"\)\)/, "the Actions panel offers ¹⁹F and ³¹P for every structure");
+assert.doesNotMatch(actions, /nuclei\?/);
 console.log("panels.check: ok");

@@ -24,7 +24,6 @@ export const NUCLEUS_LIST = Object.keys(NUCLEI) as Nucleus[];
 export const isNucleus = (x: unknown): x is Nucleus => typeof x === "string" && x in NUCLEI;
 // A nucleus's frequency (MHz) on a magnet where ¹H is at `mhz`, as spectrometers round it (101, 376, 162 at 400).
 export const frequency = (nucleus: Nucleus, mhz: number) => mhz * NUCLEI[nucleus].ratio;
-// Whether a structure (labels expanded) has an atom of the nucleus's element: Octet offers ¹⁹F and ³¹P only then.
 // A spectrometer's ¹H frequencies (MHz), to tell from a file's observe frequency which nucleus it measured.
 const MAGNETS = [43, 60, 80, 90, 100, 200, 250, 270, 300, 360, 400, 500, 600, 700, 750, 800, 850, 900, 950, 1000, 1100, 1200];
 // The nucleus an NMR file measured when it does not say: the one whose frequency at a usual magnet is the observe
@@ -40,7 +39,6 @@ export function guessNucleus(first: number, last: number, mhz?: number): Nucleus
   }
   return Math.abs(last - first) > 40 ? "13C" : "1H";
 }
-export const hasNucleus = (g: Graph, nucleus: Nucleus) => nucleus === "1H" ? g.atoms.some((a) => a.el === "H" || a.h > 0) : g.atoms.some((a) => a.el === NUCLEI[nucleus].el);
 // One signal: the atoms it belongs to (graph indices; for ¹H, the heavy atoms whose hydrogens these are), its shift
 // (ppm), how many nuclei it counts (¹H: hydrogens; ¹³C: carbons), its couplings to neighbouring hydrogens (¹H: each
 // coupling constant in Hz with the number of equivalent hydrogens it couples to), whether it is broad (OH, NH), and
