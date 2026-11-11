@@ -6778,6 +6778,21 @@ div.facts {
   margin-top: var(--space-3) !important;
   color: var(--ink-muted);
 }
+/* Under the thank-you line: Octet Draw is free, and a donation is only for those who want to help. */
+.notes-donate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3) !important;
+  color: var(--ink-muted);
+}
+.notes-donate .dialog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .notes-highlights li { animation: fade-in var(--motion-fast) var(--ease-out) both; }
   .notes-tab { transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }

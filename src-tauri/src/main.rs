@@ -454,6 +454,8 @@ async fn open_link(app: tauri::AppHandle, name: String) -> Result<(), String> {
         "issues" => "https://github.com/SamChemMan/Octet-Draw/issues/new".to_string(),
         // What's new > All versions: every version's notes.
         "releases" => "https://github.com/SamChemMan/Octet-Draw/releases".to_string(),
+        // What's new > Donate: Sam's Buy Me a Coffee page, the link at the foot of octet.software.
+        "donate" => "https://buymeacoffee.com/chemmansam".to_string(),
         // The Feedback button: a new mail to Sam, with the version and system filled in.
         "feedback" => format!(
             "mailto:{FEEDBACK_TO}?subject=Octet%20Draw%20feedback&body=%0A%0A--%0AOctet%20Draw%20{}%20on%20{}",
