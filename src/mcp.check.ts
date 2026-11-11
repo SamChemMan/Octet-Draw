@@ -424,9 +424,9 @@ host.cleanReactions = (ids) => ids.size;
   assert.ok(!res.result.isError, res.result.content[0].text);
   assert.deepEqual(notes.map((x) => [x.progress, x.total]), [[0, 3], [1, 3], [2, 3]]);
   assert.equal(notes[1].message, "Step 2 of 3");
-  // The window is told too, for the user (McpMagic's pill): the call once with Stop, then how far it is each time
-  // (no new call, still with Stop), and that it ended (said, as the reaction is drawn).
-  assert.deepEqual(shown, [["Test is drawing.", true, undefined], ["Test is drawing.", true, "0 of 3"], ["Test is drawing.", true, "1 of 3"], ["Test is drawing.", true, "2 of 3"]]);
+  // The window is told too, for the user (McpMagic's pill): the call once with Stop, then how far it is each time, in
+  // the tool's words (no new call, still with Stop).
+  assert.deepEqual(shown, [["Test is drawing.", true, undefined], ["Test is drawing.", true, "Step 1 of 3"], ["Test is drawing.", true, "Step 2 of 3"], ["Test is drawing.", true, "Step 3 of 3"]]);
   // A call that only reads shows nothing.
   shown = [];
   await call("read_drawing", {});
@@ -547,6 +547,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(!out.isError, text(out));
   assert.equal(steps.length, 1, "one undo step");
   assert.match(text(out), /Did 4 steps as one undo step:\n1\. Drew 2 structures/);
+  // The window's pill shows how far the call is without the tool's name, which is for the AI app.
+  assert.deepEqual(shown.map((x) => x[2]), [undefined, "Step 1 of 4", "Step 2 of 4", "Step 3 of 4", "Step 4 of 4"]);
   const sc = (out as unknown as { structuredContent: { steps: { step: number; s?: string[]; t?: string[]; b?: string[] }[]; made: string[] } }).structuredContent;
   assert.equal(sc.steps[0].s!.length, 2);
   assert.equal(m.captions!.find((c) => `t${c.id}` === sc.steps[1].t![0])!.bold, true);

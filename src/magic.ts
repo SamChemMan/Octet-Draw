@@ -4,13 +4,13 @@
 // The overlay stays this long (ms) after an AI app's last call that changes the drawing. An AI app thinks between
 // calls, often for some seconds, so a run of calls reads as one piece of work.
 export const LINGER = 8000;
-// The window stays soft, with the molecule in its middle, this long (ms) after a call: calls that come close together
-// read as one, and the way there always ends before the way back starts. Then the drawing is clear again.
+// The window stays soft this long (ms) after a call: calls that come close together read as one, and the fade in
+// always ends before the fade out starts. Then the drawing is clear again, but for the molecule.
 export const HOLD = 1000;
 
 // A molecule to build: its atoms in bond lengths (y down), and its bonds in the order they are drawn. A bond to an
 // atom that is not there yet brings the atom; one to an atom that is there closes a ring. 1 or -1 makes a double bond,
-// its second line on the right (1) or the left (-1) of from → to.
+// its second line on the right (1) or the left (-1) of from → to. A double bond to an end atom (a C=O) is centred.
 export type Sketch = { atoms: [number, number][]; bonds: [from: number, to: number, double?: 1 | -1][] };
 
 // A regular ring with bonds of length 1, its first atom at the top (turned by `turn`), and its bonds with every second
@@ -44,8 +44,10 @@ export const LEAD = 2, BUILD = 10;
 
 // A sketch as McpMagic draws it, about its middle (px): a line for each bond, from its first atom, with its turn
 // (degrees) and length, then the second line of each double bond (shorter, and to one side by the page's own bond
-// spacing, 18%), and a dot for each atom. `at`: the step its motion starts. An atom pops as the bond to it arrives;
-// the second lines come last, one after another. `end`: the step the last motion starts.
+// spacing, 18%), and a dot for each atom. A double bond to an atom with no other bond is drawn as the page draws it
+// (render.ts): two whole lines, half the spacing each side of the atoms. `at`: the step its motion starts. An atom
+// pops as the bond to it arrives; the second lines come last, one after another. `end`: the step the last motion
+// starts.
 export function parts(s: Sketch) {
   const xs = s.atoms.map((p) => p[0]), ys = s.atoms.map((p) => p[1]);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
@@ -55,12 +57,17 @@ export function parts(s: Sketch) {
   const doubles = s.bonds.flatMap(([from, to, side], k) => (side ? [{ from, to, side, k }] : []));
   const last = s.bonds.length + doubles.length / 2, pace = Math.min(1, BUILD / last), at = (t: number) => LEAD + t * pace;
   for (const [i, d] of dots.entries()) d.at = at(pops.get(i)!);
-  const line = (from: number, to: number, when: number, side = 0) => {
-    const a = dots[from], b = dots[to], length = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / length, uy = (b.y - a.y) / length, inset = side && 0.15 * BOND, gap = side * 0.18 * BOND;
+  const bondsAt = s.atoms.map((_, i) => s.bonds.filter(([from, to]) => from === i || to === i).length), centred = (from: number, to: number) => bondsAt[from] === 1 || bondsAt[to] === 1;
+  // off: where the line is, in bond spacings to the right of from → to. inset: what is cut from each end (px).
+  const line = (from: number, to: number, when: number, off = 0, inset = 0) => {
+    const a = dots[from], b = dots[to], length = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / length, uy = (b.y - a.y) / length, gap = off * 0.18 * BOND;
     return { x: a.x + ux * inset - uy * gap, y: a.y + uy * inset + ux * gap, turn: (Math.atan2(uy, ux) * 180) / Math.PI, length: length - 2 * inset, at: at(when) };
   };
   return {
-    lines: [...s.bonds.map(([from, to], k) => line(from, to, k + 0.4)), ...doubles.map((d, n) => line(d.from, d.to, s.bonds.length + (n + 1) / 2, d.side))],
+    lines: [
+      ...s.bonds.map(([from, to, side], k) => line(from, to, k + 0.4, side && centred(from, to) ? -0.5 : 0)),
+      ...doubles.map((d, n) => { const c = centred(d.from, d.to); return line(d.from, d.to, s.bonds.length + (n + 1) / 2, c ? 0.5 : d.side, c ? 0 : 0.15 * BOND); }),
+    ],
     dots,
     end: at(last),
   };

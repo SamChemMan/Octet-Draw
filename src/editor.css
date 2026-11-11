@@ -959,7 +959,13 @@ button.variant.add {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   color: var(--ink);
+  transition: translate var(--motion) var(--ease-out);
   animation: notice-in var(--motion-fast) var(--ease-out);
+}
+/* While an AI app's pill shows (.mcp-pill, below) a notice sits above it, a small space between them: the pill is in
+   the notice's place, and would cover its Undo and Close. 46px: the pill's height. */
+.mcp-magic ~ .notice {
+  translate: 0 calc(-46px - var(--space-2) - var(--dock, 0px));
 }
 .notice.leaving {
   animation: notice-out var(--motion-fast) var(--ease-out) forwards;
@@ -1019,6 +1025,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .notice {
+    transition: none;
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
@@ -1032,11 +1039,11 @@ button.variant.add {
 /* An AI app at work in this window (McpMagic.tsx). A molecule is built in the middle of the window, in Octet's blue:
    each atom pops in with a small overshoot (the second place Octet bounces: brand/BRAND.md, Motion), the bonds draw
    between them, and the whole turns slowly, clears and gives way to the next (mcp-life: one turn of it is one
-   molecule; it is clear for its first 5%, while the next molecule is put in). A glass pill at the bottom says who is
-   drawing. While a call runs the window is soft and takes no clicks; a moment after the call (held, magic.ts HOLD)
-   the drawing is clear again and the molecule goes down to the pill, where it goes on while the AI app thinks. It
-   comes in with motion-slow and leaves with motion-fast. Every motion here is a transform or an opacity, so none
-   makes the browser lay the window out again. Reduced motion: one molecule, still, by the pill, and only fades. */
+   molecule). It stays in the middle until the overlay goes, the time the AI app thinks included. A glass pill at the
+   bottom says who is drawing. While a call runs the window is soft and takes no clicks; a moment after the call
+   (held, magic.ts HOLD) the drawing is clear again, but for the molecule. It comes in with motion-slow and leaves
+   with motion-fast. Every motion here is a transform or an opacity, so none makes the browser lay the window out
+   again. Reduced motion: one molecule, still, and only fades. */
 .mcp-magic {
   position: fixed;
   inset: 0;
@@ -1048,10 +1055,7 @@ button.variant.add {
   animation: notice-out var(--motion-fast) var(--ease-out) forwards;
 }
 /* The soft window of a call. It and the molecule lie on the page, so they take its colours (McpMagic sets the page's
-   theme and its own colour on them); engineering paper's is set here, as it is for the canvas. */
-.mcp-magic .paper-blueprint {
-  --canvas: #1D4B86;
-}
+   theme and its own colour on them; engineering paper's is set with the canvas's, .canvas.paper-blueprint). */
 .mcp-scrim {
   position: absolute;
   inset: 0;
@@ -1070,8 +1074,8 @@ button.variant.add {
   pointer-events: auto;
   cursor: progress;
 }
-/* The molecule's ground: the canvas colour with a soft edge, so the molecule reads over a drawing. It rests small, on
-   the pill, and a call brings it to the middle of the window. */
+/* The molecule's ground, in the middle of the window: the canvas colour with a soft edge, so the molecule reads over a
+   drawing. */
 .mcp-stage {
   position: absolute;
   top: 50%;
@@ -1082,15 +1086,9 @@ button.variant.add {
   border-radius: 50%;
   background: color-mix(in oklab, var(--canvas) 82%, transparent);
   box-shadow: 0 0 var(--space-6) var(--space-4) color-mix(in oklab, var(--canvas) 82%, transparent);
-  transform: translateY(calc(50vh - 116px - var(--dock, 0px))) scale(0.5);
-  transition: transform var(--motion-slow) var(--ease-out);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .mcp-magic.held .mcp-stage {
-    transform: none;
-  }
-}
-/* The molecule, about the middle of its ground. One turn of mcp-life is one molecule. */
+/* The molecule, about the middle of its ground. One turn of mcp-life is one molecule: as the turn ends, McpMagic puts
+   the next molecule in, in a new element. */
 .mcp-mol {
   position: absolute;
   top: 50%;
@@ -1114,7 +1112,21 @@ button.variant.add {
     transform: rotate(26deg) scale(1.03);
   }
 }
-/* --i: the step (of --motion) at which a part of the molecule comes; --turn: the way a bond points (magic.ts). */
+/* The molecule's parts. mcp-gone clears them for good as the molecule's turn ends (39 steps of --motion: 7.02 s, when
+   mcp-life has cleared the molecule), so a page too busy to put the next molecule in on time leaves the ground empty
+   and never shows this one again. It has its own element: with both on .mcp-mol, Chrome ran the two on the page's
+   thread, every frame. */
+.mcp-parts {
+  animation: mcp-gone var(--motion-fast) var(--ease-out) calc(39 * var(--motion)) forwards;
+}
+@keyframes mcp-gone {
+  to {
+    opacity: 0;
+  }
+}
+/* --i: the step (of --motion) at which a part of the molecule comes; --turn: the way a bond points (magic.ts). A bond
+   draws from its first atom: both ends of mcp-draw list the same transforms, so every engine goes from one to the
+   other part by part. */
 .mcp-bond {
   position: absolute;
   height: 2px;
@@ -1122,7 +1134,7 @@ button.variant.add {
   border-radius: 1px;
   background: var(--brand);
   transform-origin: 0 50%;
-  transform: rotate(var(--turn));
+  transform: rotate(var(--turn)) scaleX(1);
   animation: mcp-draw var(--motion) var(--ease-out) both;
   animation-delay: calc(var(--i) * var(--motion));
 }
@@ -1191,6 +1203,13 @@ button.variant.add {
     transform: scale(0.8) rotate(45deg);
   }
 }
+/* What a screen reader reads out as it changes: who draws, and the steps (McpMagic). */
+.mcp-said {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .mcp-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1206,6 +1225,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .mcp-mol,
+  .mcp-parts,
   .mcp-bond,
   .mcp-atom,
   .mcp-sparkle {
@@ -3833,9 +3853,13 @@ button.variant.add {
   background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
 }
 .canvas.paper-blueprint,
-.style-preview.paper-blueprint {
+.style-preview.paper-blueprint,
+.mcp-magic .paper-blueprint {
   --canvas: #1D4B86;
-  background-color: #1D4B86;
+}
+.canvas.paper-blueprint,
+.style-preview.paper-blueprint {
+  background-color: var(--canvas);
 }
 /* The background choices in Settings: each a small page of itself. */
 .paper-choices {

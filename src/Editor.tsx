@@ -536,7 +536,8 @@ export default function Editor() {
   mcpRenders.current++;
   // An AI app at work in this window (McpMagic.tsx): shown from its first call that changes the drawing until some
   // seconds after its last, so a run of calls, with the time the AI app thinks between them, reads as one piece of work.
-  // How far a long call is ("9 of 17") is a store: it can change many times in a call, and only the pill draws again.
+  // How far a long call is ("Step 9 of 17") is a store: it can change many times in a call, and only the pill draws
+  // again.
   const [magic, setMagic] = useState<Magic>(), [mcpFar] = useState(() => store<string | undefined>(undefined));
   // A call ended: the window takes clicks again at once, and the magic goes if no call comes in the next 8 s (LINGER).
   const mcpRest = () => {
