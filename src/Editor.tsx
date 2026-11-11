@@ -71,6 +71,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
+import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { formatAmount, parseAmount, reagentFormula, type Field } from "./stoich";
@@ -1445,6 +1446,18 @@ export default function Editor() {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
+  // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code (chemfig.ts) in a
+  // .tex file. chemfig draws structures only, so the notice says when the rest was left out.
+  async function exportChemfig() {
+    const part = selectedPart() ?? doc, tex = toChemfig(part, frame, measure);
+    if (!tex) return setNotice("There is nothing to export.", "info");
+    try {
+      const path = await exportFile({ name, format: "tex", tex });
+      if (path) saved(path, part.captions?.length || part.arrows?.length || part.shapes?.length || part.cycles?.length ? `Saved ${fileName(path)}. The file has only the structures.` : undefined);
+    } catch (e) {
+      setNotice(failure("Octet cannot export this drawing.", e));
+    }
+  }
   // A file written where the user chose (an export, or a save to a new place): its name (or `text`), and a button that
   // shows it in the system's file manager.
   function saved(path: string, text = `Saved ${fileName(path)}.`) {
@@ -2305,6 +2318,7 @@ export default function Editor() {
   const moreFormats: [string, string, React.ReactNode, () => void][] = [
     ["more_bmp", "Export BMP…", <FileImage size={18} />, () => checkFirst(() => void quickExport("bmp"))],
     ["more_3mf", "Export 3MF…", <CubeFocus size={18} />, () => checkFirst(() => void exportModel())],
+    ["more_chemfig", "Export LaTeX (chemfig)…", <BracketsCurly size={18} />, () => checkFirst(() => void exportChemfig())],
   ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});

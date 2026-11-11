@@ -436,7 +436,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 27] = [
+const FORMATS: [(&str, &str, &[&str]); 28] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -458,6 +458,7 @@ const FORMATS: [(&str, &str, &[&str]); 27] = [
     ("rdf2000", "MDL RDfile V2000", &["rdf", "rd"]),
     ("smi", "SMILES", &["smi", "smiles"]),
     ("inchi", "InChI", &["inchi", "txt"]),
+    ("tex", "LaTeX (chemfig)", &["tex"]),
     ("ctp", "ChemDraw Template (CTP)", &["ctp"]),
     ("cts", "ChemDraw Template Style Sheet (CTS)", &["cts"]),
     ("cds", "ChemDraw Style Sheet (CDS)", &["cds"]),
@@ -479,6 +480,7 @@ pub struct Export {
     mdl: Option<String>, // the text of the MDL format asked for
     smiles: Option<String>,
     inchi: Option<String>,
+    tex: Option<String>, // chemfig code (File > More Formats)
     csv: Option<String>, // Home's Experiments list
     model: Option<String>, // a 3MF file's 3D model (src/model3mf.ts)
     dpi: Option<f32>,
@@ -504,6 +506,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),
         "smi" => e.smiles.is_some(),
+        "tex" => e.tex.is_some(),
         "ctp" | "cts" => e.ctp.is_some(),
         "cds" => e.cds.is_some(),
         "csv" => e.csv.is_some(),
@@ -551,6 +554,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "cds" => base64::engine::general_purpose::STANDARD.decode(e.cds.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this style sheet.".to_string())?,
         "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
         "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        "tex" => format!("{}\n", e.tex.as_deref().unwrap_or_default().trim()).into_bytes(),
         "csv" => text(&e.csv),
         _ => text(&e.mdl),
     };
