@@ -95,6 +95,15 @@ export function clearScheme(m: Mol, atoms: Set<number>): Mol {
   };
 }
 
+/** The turn (radians, anticlockwise) that best lays points ps on their partners qs (least squares), and what is left. */
+export function bestTurn(ps: P[], qs: P[]): { t: number; error: number } {
+  const mid = (xs: P[]): P => [xs.reduce((t, x) => t + x[0], 0) / xs.length, xs.reduce((t, x) => t + x[1], 0) / xs.length], cp = mid(ps), cq = mid(qs);
+  let sin = 0, cos = 0;
+  ps.forEach((p, k) => { const a = [p[0] - cp[0], p[1] - cp[1]], b = [qs[k][0] - cq[0], qs[k][1] - cq[1]]; sin += a[0] * b[1] - a[1] * b[0]; cos += a[0] * b[0] + a[1] * b[1]; });
+  const t = Math.atan2(sin, cos), c = Math.cos(t), si = Math.sin(t);
+  const error = ps.reduce((e, p, k) => { const a = [p[0] - cp[0], p[1] - cp[1]], x = a[0] * c - a[1] * si - (qs[k][0] - cq[0]), y = a[0] * si + a[1] * c - (qs[k][1] - cq[1]); return e + x * x + y * y; }, 0);
+  return { t, error };
+}
 // Augmented Clean Up Reaction, before the reaction is laid out (as ChemDraw 26.1's, which maps the reaction for it
 // when it has no map): each structure of the scheme drawn at its bond length, then each product turned to lie as the
 // reactant it shares most mapped atoms with, or turned over (in 3D, so its stereo is kept) when that matches better,
@@ -118,15 +127,7 @@ export function alignByMap(m: Mol, steps: { reactants: number[][]; products: num
       const pairs = s.reactants.map(pairsWith).sort((p, q) => q.length - p.length)[0] ?? [];
       if (pairs.length < 2) continue;
       // The best turn of the product's mapped atoms onto their partners (least squares), as it is drawn or turned over.
-      const fit = (flip: boolean) => {
-        const ps = pairs.map(([i]) => [out.atoms[i].location[0], (flip ? -1 : 1) * out.atoms[i].location[1]] as P), qs = pairs.map(([, j]) => [out.atoms[j].location[0], out.atoms[j].location[1]] as P);
-        const mid = (xs: P[]): P => [xs.reduce((t, x) => t + x[0], 0) / xs.length, xs.reduce((t, x) => t + x[1], 0) / xs.length], cp = mid(ps), cq = mid(qs);
-        let sin = 0, cos = 0;
-        ps.forEach((p, k) => { const a = [p[0] - cp[0], p[1] - cp[1]], b = [qs[k][0] - cq[0], qs[k][1] - cq[1]]; sin += a[0] * b[1] - a[1] * b[0]; cos += a[0] * b[0] + a[1] * b[1]; });
-        const t = Math.atan2(sin, cos), c = Math.cos(t), si = Math.sin(t);
-        const error = ps.reduce((e, p, k) => { const a = [p[0] - cp[0], p[1] - cp[1]], x = a[0] * c - a[1] * si - (qs[k][0] - cq[0]), y = a[0] * si + a[1] * c - (qs[k][1] - cq[1]); return e + x * x + y * y; }, 0);
-        return { t, error };
-      };
+      const fit = (flip: boolean) => bestTurn(pairs.map(([i]) => [out.atoms[i].location[0], (flip ? -1 : 1) * out.atoms[i].location[1]] as P), pairs.map(([, j]) => [out.atoms[j].location[0], out.atoms[j].location[1]] as P));
       const plain = fit(false), over = fit(true), set = new Set(g), before = box(out, g);
       if (over.error < plain.error - 1e-6) out = flipAtoms(out, set, "vertical", false, before[1]);
       out = rotateAtoms(out, set, ((over.error < plain.error - 1e-6 ? over.t : plain.t) * 180) / Math.PI);

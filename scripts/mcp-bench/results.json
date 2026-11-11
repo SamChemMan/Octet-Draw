@@ -1,6 +1,6 @@
 {
  "tools": 6,
- "toolsList": 12209,
+ "toolsList": 12206,
  "instructions": 2162,
  "cases": {
   "corpus-chained": {
@@ -8,13 +8,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 1813,
-   "read": 1463,
-   "ms": 105,
-   "slowest": 53,
+   "read": 1424,
+   "ms": 131,
+   "slowest": 57,
    "right": 6,
    "of": 6,
    "warnings": 2,
-   "summary": 1383
+   "summary": 1344
   },
   "gaunt2007-catalysts": {
    "calls": 2,
@@ -695,65 +695,65 @@
    "failed": 0,
    "coerced": 0,
    "sent": 3731,
-   "read": 3050,
-   "ms": 1776,
-   "slowest": 856,
+   "read": 2964,
+   "ms": 1908,
+   "slowest": 958,
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2440
+   "summary": 2402
   },
   "taxol-route": {
    "calls": 3,
    "failed": 0,
    "coerced": 0,
    "sent": 3606,
-   "read": 5051,
-   "ms": 1788,
-   "slowest": 1776,
+   "read": 4989,
+   "ms": 2083,
+   "slowest": 2067,
    "right": 19,
    "of": 19,
    "warnings": 0,
-   "summary": 2475
+   "summary": 2443
   },
   "taxol-route-paper": {
    "calls": 3,
    "failed": 0,
    "coerced": 0,
    "sent": 3606,
-   "read": 5527,
-   "ms": 1804,
-   "slowest": 1792,
+   "read": 5453,
+   "ms": 2000,
+   "slowest": 1986,
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2607
+   "summary": 2569
   },
   "taxol-schemes": {
    "calls": 4,
    "failed": 0,
    "coerced": 1,
    "sent": 4522,
-   "read": 2439,
-   "ms": 2481,
-   "slowest": 1533,
+   "read": 2295,
+   "ms": 2726,
+   "slowest": 1628,
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2532
+   "summary": 2458
   },
   "taxol-v1-job": {
    "calls": 34,
    "failed": 0,
    "coerced": 5,
    "sent": 16042,
-   "read": 169999,
-   "ms": 3713,
-   "slowest": 1545,
+   "read": 170273,
+   "ms": 4093,
+   "slowest": 1640,
    "right": 19,
    "of": 19,
    "warnings": 9,
-   "summary": 2964
+   "summary": 2926
   },
   "trowbridge2018-fig2a": {
    "calls": 2,
@@ -1855,13 +1855,39 @@
    "failed": 0,
    "coerced": 0,
    "sent": 1780,
-   "read": 1083,
-   "ms": 1851,
-   "slowest": 1851,
+   "read": 1051,
+   "ms": 1975,
+   "slowest": 1975,
    "right": 19,
    "of": 19,
    "warnings": 0,
-   "summary": 2475
+   "summary": 2443
+  },
+  "paper-cycle": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 314,
+   "read": 355,
+   "ms": 26,
+   "slowest": 26,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 765
+  },
+  "say-two-schemes": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 918,
+   "read": 398,
+   "ms": 914,
+   "slowest": 914,
+   "right": 5,
+   "of": 5,
+   "warnings": 0,
+   "summary": 832
   }
  }
 }

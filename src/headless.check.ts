@@ -554,4 +554,26 @@ try {
   assert.deepEqual(["C31H46O10Si, with 8 stereocentres.", "Stereocentres: eight.", "C31H46O10Si; 9 stereocentres (8 defined).", "C31H46O10Si (MW 8 hundred), 9 stereocentres."].map(asked), [true, true, false, false]);
 }
 
+// Octet clears what its own check would name after a draw (plan 19, round 3): the taxol schemes of say-two-schemes
+// (15 and 16 laid out with labels on each other: s3.22 on s3.27, s4.22 on s4.27, s5.22 on s5.30), a structure turned
+// by a hint (kept turned), and the Hajos–Parrish cycle whose title met intermediate 2, each check clean in one call.
+{
+  const T = JSON.parse(readFileSync(new URL("../scripts/mcp-bench/taxol/structures.json", import.meta.url), "utf8"));
+  const { bestTurn } = await import("./interpret.ts");
+  const lines = async (text: string, page = "paper") => { d = drawing(page, "Round 3"); return (await call("draw", { lines: text, brief: "quick" })).structuredContent; };
+  const two = await lines(`# Scheme 1. The C2 alcohol 15\n${T[13]} (13) -> ${T[14]} (14), a) Ac2O, DMAP; b) TPAP, NMO; 95%, 93%\n-> ${T[15]} (15), c) BH3·THF, then H2O2; d) HCl, MeOH; 55%, 80%\n\n# Scheme 2. The TES ether 17\n15 -> ${T[16]} (16), Ac2O, DMAP, CH2Cl2, 95%\n-> ${T[17]} (17), f) H2, Pd(OH)2/C; g) TESCl, pyridine; h) K2CO3, MeOH; 97%, 85%, 95%`);
+  assert.equal(two.check, "clean", JSON.stringify(two.check));
+  assert.ok(!/clean_up|Clean Up/.test(two.done), two.done);
+  const turned = async (rotate: number) => { d = drawing("paper", "Turned"); const r = (await call("draw", { kind: "structures", structures: [{ text: T[1], rotate }], brief: "quick" })).structuredContent; return [r.check, d.host.doc().atoms.map((a) => [a.location[0], a.location[1]] as [number, number])] as const; };
+  const [flat, a0] = await turned(0), [check, a60] = await turned(60);
+  assert.equal(flat, "clean");
+  assert.equal(check, "clean", JSON.stringify(check));
+  assert.ok(Math.abs((bestTurn(a0, a60).t * 180) / Math.PI - 60) < 5, `turned by ${(bestTurn(a0, a60).t * 180) / Math.PI}`);
+  const cycle = await lines("# Hajos–Parrish proline cycle\nOC(=O)[C@@H]1CCCN1 (1) -> CC(=[N+]1CCC[C@H]1C(=O)[O-])CCC1(C)C(=O)CCC1=O (2), +triketone, -H2O -> C=C(CCC1(C)C(=O)CCC1=O)N1CCC[C@H]1C(=O)O (3), tautomerisation -> CC12C(=O)CCC1(O)CC(=[N+]3CCC[C@H]3C(=O)[O-])CC2 (4), intramolecular aldol -> 1, +H2O, -ketol");
+  assert.equal(cycle.check, "clean", JSON.stringify(cycle.check));
+  // A cycle's centre text cannot be moved: the refusal names the call that gives it room.
+  const mid = d.host.doc().captions!.find((c) => c.cycle?.side === "centre")!, c5 = `c${mid.cycle!.cycle}`;
+  assert.match((await call("change", { operations: [{ op: "move", ids: [`t${mid.id}`], dx: 1, dy: 0 }] })).content[0].text, new RegExp(`run_command clean_up on ${c5}\\.`));
+}
+
 console.log("headless.check: ok");

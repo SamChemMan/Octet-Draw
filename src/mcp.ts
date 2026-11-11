@@ -10,10 +10,10 @@ import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragmen
 import { change, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
-import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
+import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide, isSide, textOn, type Cycle } from "./cycle.ts";
+import { addSide, centreText, isSide, textOn, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
@@ -1785,7 +1785,9 @@ async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } &
   if (by === placed(a)) return { text: by ? "Give dx and dy, or a place (to, right_of, left_of, below or above), not both." : "Give dx and dy, or a place: to [x, y], or right_of, left_of, below or above an id.", error: true };
   // Text Octet places itself (a number, a reaction's conditions, a cycle's text) goes with what it belongs to.
   const own = a.ids.filter((id) => { const c = /^t\d+$/.test(id) ? m.captions?.find((x) => x.id === Number(id.slice(1))) : undefined; return !!(c && (c.on || c.under || c.cycle)); });
-  const tied = own.length ? ` Octet places ${own.join(", ")} itself, with the structure, arrow or cycle ${own.length > 1 ? "they belong" : "it belongs"} to: move that instead.` : "";
+  // A cycle's centre text that meets an intermediate: Clean Up on the cycle makes its circle wide enough (spreadCycle).
+  const mids = [...new Set(own.flatMap((id) => { const c = m.captions!.find((x) => x.id === Number(id.slice(1)))!.cycle; return c?.side === "centre" ? [`c${c.cycle}`] : []; }))];
+  const tied = own.length ? ` Octet places ${own.join(", ")} itself, with the structure, arrow or cycle ${own.length > 1 ? "they belong" : "it belongs"} to: move that instead.${mids.length ? ` To give a cycle's centre text room, run_command clean_up on ${mids.join(", ")}.` : ""}` : "";
   if (own.length === a.ids.length) return { text: `Octet moved nothing.${tied}`, error: true };
   const wrong = by ? undefined : placeProblem(host, m, a);
   if (wrong) return { text: `Octet moved nothing. ${wrong}`, error: true };
@@ -2652,6 +2654,35 @@ function layoutCheck(host: Host, m: Mol): Check {
   if (!overlaps.length && !off.length && !on.length && !clash.length && !edges.length) return "clean";
   return { ...(overlaps.length ? { overlaps: overlaps.slice(0, 20) } : {}), ...(off.length ? { off_page: off.slice(0, 20) } : {}), ...(on.length ? { text_on_bonds: on } : {}), ...(clash.length ? { labels_overlap: clash } : {}), ...(edges.length ? { on_shape_edges: edges } : {}) };
 }
+// The calls that lay structures out themselves: what Octet's layout leaves for check to name there, Octet clears.
+const LAYS_OUT = new Set(["structures", "reaction", "route", "cycle", "figure", "replace", "edit", "batch"]);
+// Atom labels on each other in a structure this call made or changed (Indigo's layout, then Clean Up Reaction turning
+// a product to its reactant, leaves some: s3.22 on s3.27 in a taxol intermediate): Clean Up on those structures, as
+// run_command clean_up does, which an AI app otherwise finds after 1 to 4 more calls. Clean Up never turns a structure
+// over but may turn it (by up to 30 degrees), so each is turned back to lie as it did (a hint's up or a product turned
+// to its reactant holds), and its reaction is laid out again. Kept only when their labels are clear, each keeps its
+// InChIKey and check names nothing new; else the drawing goes back. Once, never in a loop.
+async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
+  if (check === "clean" || !check.labels_overlap) return check;
+  const was = index(before), m = h.doc(), now = index(m), ours = new Set(check.labels_overlap.flat().map((x) => x.replace(/\..*$/, "")).filter((s) => was.get(s) !== now.get(s)));
+  const gs = structuresOf(m).filter((g) => ours.has(g.id)), all = new Set(gs.flatMap((g) => g.atoms));
+  if (!gs.length) return check;
+  const key = (mol: Mol, atoms: number[]) => h.inchi(pickPart(mol, atoms)).key, keys = gs.map((g) => key(m, g.atoms)), picked = h.selection();
+  const arrows = new Set((m.arrows ?? []).filter((a) => straightArrow(a) && h.reaction(a.id)?.atoms.some((i) => all.has(i))).map((a) => a.id));
+  h.select([...all], []); await h.settle();
+  h.command("clean_up"); await h.settle();
+  h.select(picked.atoms, picked.items);
+  // (Clean Up keeps each atom's place in the list, so atom i before is atom i after.)
+  let c = h.doc();
+  for (const g of gs) c = rotateAtoms(c, new Set(g.atoms), (bestTurn(g.atoms.map((i) => c.atoms[i].location.slice(0, 2) as P), g.atoms.map((i) => m.atoms[i].location.slice(0, 2) as P)).t * 180) / Math.PI);
+  h.set(c); await h.settle();
+  if (arrows.size) { h.cleanReactions(arrows); await h.settle(); }
+  const n = h.doc(), after = layoutCheck(h, n), seen = new Set(Object.values(check).flat().map((e) => JSON.stringify(e)));
+  const ok = after === "clean" || (!after.labels_overlap?.some((p) => p.some((x) => ours.has(x.replace(/\..*$/, "")))) && Object.entries(after).every(([k, l]) => k === "labels_overlap" || (l as unknown[]).every((e) => seen.has(JSON.stringify(e)))));
+  if (ok && gs.every((g, k) => key(n, g.atoms) === keys[k])) return after;
+  h.set(m); await h.settle();
+  return check;
+}
 // Every warning's text: Octet's chemical warnings, then the layout's.
 // (A problem on an object with Display Warnings off is hidden in the window, so it is not a warning here either.)
 const shownProblems = (host: Host) => host.problems().filter((p) => !p.hidden);
@@ -2757,7 +2788,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   }).filter((r) => !want || r.steps.some((st) => keep(st.arrow) || st.before.some((x) => typeof x === "string" && keep(x))) || r.products.some((x) => typeof x === "string" && keep(x)));
   const cycles = (m.cycles ?? []).filter((c) => keep(`c${c.id}`)).map((c) => ({
     id: `c${c.id}`, clockwise: c.clockwise, intermediates: c.nodes.map((n, i) => (n.length ? idOf(n) : ((t) => (t ? `t${t.id}` : null))(textOn(m, c, i)))),
-    centre: m.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.side === "centre")?.text,
+    centre: centreText(m, c)?.text,
     sides: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && (x.cycle.side === "in" || x.cycle.side === "out")).map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, side: x.cycle!.side, text: x.text })),
     names: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && x.cycle.side === "name").map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, text: x.text })),
   }));
@@ -3015,6 +3046,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         if (changes) await ctx.check();
         if (kept !== undefined && !out.error) await from.keep?.(kept);
         if (!free) await h.settle();
+        const laid = was && !out.error && !free ? layoutCheck(h, h.doc()) : undefined, cleared = laid && LAYS_OUT.has(tool.name) ? await clearLabels(h, before, laid) : laid;
         const after = h.doc();
         if (!free) keepIdsAbove(highest(after));
         // A short result unless the call (or a batch's step) asked for detail: full (R6).
@@ -3041,7 +3073,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
           const lean = routed.lines && !full, plus = new Set(lean ? (after.captions ?? []).filter((c) => c.text === "+").map((c) => `t${c.id}`) : []);
           const owned = ownedText(after), top = (full ? touched : made).filter((k) => !owned.has(k) && !(lean && (k[0] === "s" || plus.has(k)))), listed = top.slice(0, 200);
           const boxes = lean ? {} : Object.fromEntries(listed.flatMap((k) => { const b = boxOfIds(h, after, [k]); return b ? [[k, rounded(b)]] : []; }));
-          const drawing = h.window(), check = layoutCheck(h, after), more = { ...(top.length > listed.length ? { made: top.length - listed.length } : {}), ...(fresh.length > MOST_WARNINGS ? { warnings: fresh.length - MOST_WARNINGS } : {}) };
+          const drawing = h.window(), check = cleared ?? layoutCheck(h, after), more = { ...(top.length > listed.length ? { made: top.length - listed.length } : {}), ...(fresh.length > MOST_WARNINGS ? { warnings: fresh.length - MOST_WARNINGS } : {}) };
           if (full) structured = { drawing: { id: drawing.id, title: drawing.name }, done: text, made, changed, deleted: [...was.keys()].filter((k) => !now.has(k)), ...(touched.length ? { boxes } : {}), ...out.data, ...out.extra?.(), warnings: fresh, check };
           else {
             const data = { ...(lean ? { compounds: madeCompounds(h, after, made) } : {}), made: listed, ...(listed.length && !lean ? { boxes } : {}), ...out.data, warnings: fresh.slice(0, MOST_WARNINGS), check, ...(Object.keys(more).length ? { more } : {}) };
