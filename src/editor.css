@@ -6808,7 +6808,8 @@ div.facts {
 
 /* A minimised panel's pill (PanelControls.tsx Pills): beside its structure, placed from the view with no redraw, so
    it follows pan and zoom and is never scaled by the zoom; a structure off screen keeps its pill at the canvas edge. It is not part of the drawing: it never prints,
-   exports or copies. Its X shows on hover and focus, and always for touch and pen. */
+   exports or copies. Its X has its room always, so the pill keeps its size, and shows on hover and focus, and always
+   for touch and pen. */
 .pills {
   position: absolute;
   inset: 0;
@@ -6861,7 +6862,8 @@ div.facts {
   text-align: center;
 }
 .pill-close {
-  display: none;
+  display: grid;
+  visibility: hidden;
   place-items: center;
   width: 18px;
   height: 18px;
@@ -6874,11 +6876,11 @@ div.facts {
 }
 .pill:hover .pill-close,
 .pill:focus-within .pill-close {
-  display: grid;
+  visibility: visible;
 }
 @media (hover: none), (pointer: coarse) {
   .pill-close {
-    display: grid;
+    visibility: visible;
   }
 }
 @media (hover: hover) and (pointer: fine) {
