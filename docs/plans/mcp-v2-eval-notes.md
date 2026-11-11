@@ -219,3 +219,152 @@ others took up to 114 s, and `new_drawing` timed out three times in the set-up (
 - set_style reply: 'The drawing now uses RSC on a 171 x 233 mm page' confirms the page but not what the drawing was on before, so I could not tell the user what changed without a read first.
 - set_style with picture: true returned a picture of the reaction cropped to its contents, with no page edge, so the picture could not show that the scheme fits the 171 mm width. I relied on check: 'clean' for that.
 - The single set_style call took about 114 s in Octet (octetSeconds 114.3). Nothing in the reply said why; the instructions say 'each call costs the user a wait' but this was far beyond what I expected for a style change.
+
+## 11 November 2026: the five tools (draw, change, read, drawings, advanced), 21 train cases, agents on Opus 5.5
+
+21 of 21 pass. 41 calls (50 on the v1 names), 3 refused (0), 7696 characters of arguments (8,715).
+The agents were on Opus 5.5 where the run above was on Fable 5.2, so the two runs differ in the model as well as in
+the tools. What an agent reads before its first call fell from about 82,000 characters to about 19,600.
+
+| Case | Pass | Calls (v1 names) | Refused | Characters (v1 names) |
+|---|---|---|---|---|
+| cycle-suzuki | yes | 1 (4) | 0 | 463 (900) |
+| experiment-boc | yes | 3 (2) | 0 | 767 (701) |
+| experiment-suzuki | yes | 5 (5) | 1 | 978 (2118) |
+| fix-numbers | yes | 2 (2) | 0 | 138 (150) |
+| fix-product | yes | 3 (2) | 0 | 103 (88) |
+| fix-valence | yes | 2 (4) | 0 | 97 (55) |
+| grid-amides | yes | 1 (9) | 0 | 363 (1386) |
+| picture-caffeine | yes | 1 (1) | 0 | 71 (51) |
+| picture-ibuprofen | yes | 1 (3) | 0 | 125 (147) |
+| picture-scheme | yes | 9 (6) | 2 | 1823 (804) |
+| read-identify | yes | 1 (1) | 0 | 17 (17) |
+| read-smiles | yes | 1 (1) | 0 | 15 (15) |
+| scheme-boc | yes | 1 (1) | 0 | 304 (208) |
+| scheme-fischer | yes | 1 (1) | 0 | 232 (263) |
+| scheme-grignard | yes | 1 (1) | 0 | 313 (279) |
+| scheme-reductive-amination | yes | 1 (1) | 0 | 368 (265) |
+| scheme-suzuki | yes | 1 (1) | 0 | 393 (351) |
+| scheme-three-steps | yes | 1 (1) | 0 | 544 (517) |
+| scheme-wittig | yes | 1 (1) | 0 | 274 (256) |
+| style-jacs | yes | 2 (2) | 0 | 201 (91) |
+| style-rsc | yes | 2 (1) | 0 | 107 (53) |
+
+### What misled the AI app
+
+**cycle-suzuki**
+
+- draw (kind cycle): no description says whether a step's in/out or a caption takes formula markup. My caption 'Pd(0)L2' drew the 2 on the line, and 'Br−' drew the minus on the line, while 'B(OH)3' got a subscript. I couldn't tell how to get L2 subscripted or a superscript charge.
+- draw (kind cycle): the schema doesn't say if step names should be short ('OA, TM, RE') or can be full words. I used full words and they fit, but long in/out text like 'PhB(OH)3− (PhB(OH)2 + base)' made a wide label at the bottom right. Nothing says how long side-arrow text can be before it crowds the layout.
+
+**experiment-boc**
+
+- advanced fill_experiment: its arguments are only in 'advanced help', and the top-level description gives just '{details, amounts}'. I spent a help call to learn the field names (measured, limiting, density).
+- advanced help of fill_experiment: 'A volume needs a density or a molarity' does not say whether Octet knows densities for common liquids (Et3N, CH2Cl2). I supplied 0.726 and 1.33 myself and could not tell if that was needed.
+- fill_experiment details: there is no field for the page's Procedure box, so the procedure text could not go on the page. No tool description says how to fill it.
+- draw result for the reaction: a5's box [-17.7,-4.9,14.4,12.7] reaches far below the arrow (it seems to include the reagent table g5). That is not explained, and it made me unsure whether the layout was right until I looked at the picture.
+- fill_experiment details.solvent: 'CH2Cl2' shows as plain text in the details header, not subscripted as it is in the scheme. The help does not say whether formulas are formatted there.
+
+**experiment-suzuki**
+
+- advanced help of fill_experiment says 'of names a compound (its name, SMILES, number or the reagent's text)', but of: 'Pd(PPh3)4' and of: 'K2CO3' failed with "is not in the reaction" because I had written the amounts into the conditions ('Pd(PPh3)4 (3 mol%)', 'K2CO3 (2.0 equiv)'), as the server instructions tell you to. Only the full text worked. This cost one extra change call. The match should accept the compound's name without the bracketed amount.
+- Same fill_experiment reply: the wording "cannot read \"Pd(PPh3)4\" is not in the reaction; ..." is garbled. It reads as partial success, with no clear list of which amounts were dropped.
+- draw (kind reaction) on an experiment page put the yield line ('88%', t10) on top of the reagent table g5, and check reported overlap [t10, g5]. The draw description does not say a yield clashes with the table on an experiment page. I deleted the yield. It cost no call because I did it in the same change as the fill.
+- drawings list does not say which drawing is an experiment page (every entry is 'Untitled' with no purpose). I could only tell the open drawing was an experiment page from the draw picture. I spent one call on the list and on fill_experiment help together.
+
+**fix-numbers**
+
+- read summary: structures came back without boxes or positions, so I had no way to tell which compound sits first on the page. I numbered them in id order (s1, s2, s3) and didn't spend a read with detail 'full' to check reading order. The summary could give each structure's x position, or say that ids follow page order.
+- change picture: true crops to 'only what changed'. Here that was just the number labels, and the picture cut off the bottom of each ring, so it couldn't show the numbers sat under the right compounds. A picture of the numbered structures and their labels would have done that.
+- change's number op: the description says 'a number names the first structure that has it'. That made me use s ids, because '1' was ambiguous (s1 and s2 both had it). It was clear, but read's warning 'Compound number 1 is on more than one structure.' doesn't say which ids share the number. I had to work that out from the structure list.
+
+**fix-product**
+
+- change replace: the reply ('Replaced s3, which keeps its number 3' plus made s4 and a box) gave no formula, SMILES or name for the new structure, so I spent a second read call to confirm the replacement was ethyl acetate and still number 3.
+- read (summary): structures carry only formula, and SMILES only with smiles: true; no names, so I had to work out acetic acid / ethanol / propyl acetate from SMILES. The tool description says names come only with detail: full, which is a heavier read than this job needed.
+- read: the route 's1 + s2 -> 3' mixes ids and compound numbers, which is readable but meant matching ids to SMILES by hand to see which was the product.
+
+**fix-valence**
+
+- change delete: the result 'Deleted s1.5, s1.6' with made: [] gives no ids, boxes or new formula of the edited structure s1, so confirming the fix needed picture: true (or another read). With detail summary it could give the structure's new formula or SMILES.
+- change delete on atoms: nothing says whether deleting an atom also deletes its bonds, or whether s1's remaining atom ids are renumbered afterwards. I had to assume both from the clean result.
+
+**grid-amides**
+
+- draw kind structures: the grid lays each amide out its own way. 5a and 5c have the C=O pointing down and the NH above it, while 5b, 5d, 5e and 5f have the C=O up. Nothing in the draw description or the instructions says how to make a series lie the same way (for example by drawing 5b to 5f with from on 5a). So I left it as it was.
+
+**picture-caffeine**
+
+- draw description: it says advanced help gives 'hints that turn a compound as a picture shows it', but it doesn't say whether a name-drawn compound already takes the textbook orientation. I couldn't tell beforehand if I would need those hints, so I asked for picture: true to check. Here the default orientation matched the user's picture, so it cost no extra call.
+
+**picture-ibuprofen**
+
+- draw reply: 'Octet read the names as: caffeine (...)' echoes only the compounds given by name. For the one given as a SMILES it says nothing (no formula, no name, no R/S), so the reply alone could not confirm the stereocentre came out (S). I checked it by eye from the picture.
+- draw description: 'hints that turn a compound as a picture shows it' are only in advanced help. Matching the picture's CO2H orientation (OH up, C=O right) would have cost an extra help call and a redraw, so I left the CO2H flipped and told the user.
+
+**picture-scheme**
+
+- draw tool list: the compound schema ($defs/compound) has no up/down/left/right/rotate/flip/like fields. The description only says 'hints that turn a compound as a picture shows it' are in advanced help, so I needed an extra help call to learn them.
+- change replace: its description says 'text, or changes as a compound's', which reads as if it takes any compound field. It refused up ('up is not an argument of this tool'), so I could not re-orient a structure in place. I had to delete and redraw it with draw at a box corner, and that cost a refused call.
+- structures help, orientation hints: 'an atom that points that way ... a second one sets which way round' does not say the hints set the whole molecule's direction from its centre. I expected a local direction from the neighbouring atom. up:'#14' (the carboxyl OH) turned all of ibuprofen vertical, and that cost a call plus a delete-and-redraw.
+- structures help: 'a second one sets which way round' does not say the second hint must lie across the first. up+down was refused ('up and down are one line'). Putting the keys in a different order (left then up) gave the same result as up then left, which also cost a call.
+- There is no hint or documented way to choose a carboxylic acid's rotamer (which O is drawn up). I matched the picture by swapping bond orders with edit bond on s8.13-14 and s8.13-15, and found that by guessing. The 1-based atom numbering for 'sN.k' is only implied by 's3.2 (the second atom as you gave it)'.
+- The reaction draw (keep_orientation default) laid 4-bromoanisole, phenylboronic acid and the product out mirrored from the picture. Every compound needed a horizontal flip afterwards. The instruction 'Trust Octet's layout' made me draw first and fix second rather than set orientation hints up front.
+
+**read-identify**
+
+- read with detail: full gives each structure's name only as the IUPAC name ('2-(acetyloxy)benzoic acid', '2-[4-(2-methylpropyl)phenyl]propanoic acid'). It has no common name such as aspirin or ibuprofen, so the model has to know the common names itself. It cost no extra call here.
+
+**read-smiles**
+
+- read with smiles: true gives SMILES in an unusual Kekule form with ring closure on a double bond ('COC1C=CC(Br)=CC=1') rather than canonical aromatic SMILES; nothing in the read description says which SMILES form it returns, so I converted to aromatic form by hand for the user.
+- read reply gives no name for the unnumbered structures s1 and s2 (only formula), so naming them in the answer relied on my own chemistry; detail: 'full' would add names but the description of smiles: true does not say names are left out.
+
+**scheme-boc**
+
+- Instructions: 'put a co-reactant in start (Octet draws the +) or over the arrow, as the source does' left it unclear whether a reagent like Boc2O ('treated with Boc2O') should be drawn as a structure ('structure: Boc2O' in above) or written as text in reagents. I picked text in reagents. No extra call was needed.
+- draw schema: the compound 'caption' field says only 'caption under the number'. It does not say whether a starting material's amount (1.07 g, 10.0 mmol) belongs there or somewhere else. I put it there and it rendered fine.
+- draw reply: the product's caption sits lower than the start's because the product is taller, so the captions are not on one baseline. This was visible only in the picture, and the check still said 'clean'.
+
+**scheme-fischer**
+
+- Instructions say a co-reactant goes 'in start (Octet draws the +) or over the arrow' but give no rule for a reactant that is also the solvent in excess (methanol here). I had to choose between start and reagents myself. I put MeOH over the arrow.
+- Instructions say amounts go 'in that text or a caption', but they do not say whether a scheme should carry them by default. I left them out and offered to add them. It did not cost a call.
+
+**scheme-grignard**
+
+- draw: the instructions say a co-reactant goes 'in start (Octet draws the +) or over the arrow, as the source does', but nothing says how to write a two-part sequence on one arrow (1. reagent, conditions; 2. quench). I put both lines in above/below by hand, which leaves the step's temperature and time fields unused. Not sure that is what the tools expect.
+- draw: the reply's 'made' list gives arrows a1 and a4 with no a2/a3 and no t ids for the arrow text. It is unclear whether hand-written above/below lines can be edited later as conditions or only as free text.
+- draw: phenylmagnesium bromide comes out with Br on Mg at an odd angle (Br below-left of Mg). The check still says clean, so only the picture shows it. I left it as it is.
+
+**scheme-reductive-amination**
+
+- Instructions: 'Amounts go in that text ... or a caption' left it unclear where starting-material masses/mmol belong (caption under each start compound was my guess) and whether a solvent volume (DCE 30 mL) should go in solvents text; I dropped the 30 mL.
+- draw reply: 'Octet read the names as: benzylamine' reported the name read for benzylamine only, not cyclohexanone or the product, so it was unclear whether the others were checked or simply matched exactly.
+
+**scheme-suzuki**
+
+- draw result: the reply says 'Octet read the names as' for 4-bromoanisole and 4-methoxybiphenyl only. Phenylboronic acid is left out, so I had to check the picture to confirm it was read correctly (I looked at the picture anyway, so it cost no extra call).
+- draw result: 'made' lists t2 with a tiny box [-11.7,23.9,-11.3,24.7] and nothing says what it is. It is the '+' (the instructions say t covers each +), but the caption '(1.2 equiv)' and the numbers get no id, so it is unclear how I would address that caption to change it later.
+- draw description: it does not say whether a starting material's caption ('(1.2 equiv)') goes under its number. I guessed it from 'caption under the number' in the compound schema, and the picture confirmed it.
+
+**scheme-three-steps**
+
+- draw steps description: it says 'solvents, temperature, time and atmosphere under it, then the yield; above and below add one free line'. It doesn't say whether a below line goes before or after the yield, so I couldn't tell where 'then Et3N' would land. It came out before the yield, which is right for Swern, but I only knew that from the picture.
+- draw steps: there is no field for a sequential addition ('then Et3N'). I put it in below as a guess, without knowing whether a reagent there would be read as a compound and drawn as a structure ('one free line or compound each').
+
+**scheme-wittig**
+
+- draw steps description: 'solvents, temperature, time and atmosphere under it, then the yield; above and below add one free line or compound each' does not say where a below line goes relative to the yield. My 'E/Z > 20:1' landed between the conditions and '92%', so a selectivity line can't sit after the yield without a caption or a move.
+- draw tool: nothing says whether a free text line such as 'E/Z > 20:1' can be italic (the usual convention for E/Z). I left it plain so I wouldn't spend an extra change call.
+
+**style-jacs**
+
+- change: the set_style op is only listed by name under 'Also ops: draw (with kind), set_style, ...' with no arguments; I had to guess it takes preset and page like advanced set_style (it worked, but nothing in change's schema says so).
+- Instructions and advanced set_style list presets but never say which one a journal like JACS uses (ACS Document 1996), nor which page (ACS1 single column vs ACS2 double column) suits a figure; I picked ACS2 on my own judgement.
+- read: check reported off_page ids s3, t7 and a2, but t7 never appears in the summary (no free text listed), so it was unclear what t7 was (presumably the conditions text).
+
+**style-rsc**
+
+- advanced set_style: the tool list offers ACS1/ACS2 column pages but no RSC column pages, so 'two-column width' for RSC needed my own outside knowledge (171 mm) and a page_size; I spent one help call to confirm there was no RSC column page or width option.
+- advanced set_style help: page_size needs [w, h] but nothing says what height to use for a journal column page (or whether height can be left as it was), so 233 mm was a guess; the help also says the preset 'keeps the page' without saying whether RSC has a column width of its own.
