@@ -36,10 +36,8 @@ assert.match(css, /\.spectrum\.expanded \{\n  top: var\(--space-4\);\n  bottom: 
 assert.match(controls, /useLayoutEffect\(\(\) => views\.subscribe\(\(\) => place\.current\(\)\), \[views\]\);/, "a pan or zoom places the pills with no React render");
 assert.match(controls, /pill\.style\.left = `\$\{Math\.max\(72, Math\.min\(room\.width - pill\.offsetWidth - 16, x\)\)\}px`;/, "a pill stays in view");
 assert.match(controls, /pill\.style\.top = `\$\{Math\.max\(16, Math\.min\(room\.height - dock - 40, y\)\)\}px`;/);
-// The X has its room always, so the pill keeps its size under the pointer; it shows on hover and focus.
-assert.match(css, /\.pill-close \{\n  display: grid;\n  visibility: hidden;/, "the pill does not grow on hover");
-assert.match(css, /\.pill:hover \.pill-close,\n\.pill:focus-within \.pill-close \{\n  visibility: visible;/);
-assert.match(css, /@media \(hover: none\), \(pointer: coarse\) \{\n  \.pill-close \{\n    visibility: visible;/, "the X always shows for touch and pen");
+assert.match(css, /\.pill:hover \.pill-close,\n\.pill:focus-within \.pill-close \{\n  display: grid;/);
+assert.match(css, /@media \(hover: none\), \(pointer: coarse\) \{\n  \.pill-close \{\n    display: grid;/, "the X always shows for touch and pen");
 for (const file of ["export.ts", "file.ts", "cdxml.ts"]) assert.doesNotMatch(read(`./${file}`), /pill/i, `${file} knows nothing of pills`);
 assert.match(controls, /e\.key === "Delete" \|\| e\.key === "Backspace"/, "Delete on a focused pill closes it");
 
