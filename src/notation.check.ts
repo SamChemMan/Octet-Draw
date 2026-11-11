@@ -45,10 +45,10 @@ assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
 // It teaches by example (models copy examples): each of its drawings reads and draws with no refusal. The route draws
-// 3 from 2 and PhB(OH)2 on a line of their own, and 4 from 3 by its number in a second scheme with its lettered parts kept as written; the scope its
-// two compounds, 5b with morpholine joined at its N; the grid its two; the cycle, one step a line, its three
-// intermediates as text (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and
-// L = PPh3 in the middle.
+// 3 from 2 + PhB(OH)2 on the first line, and 4 from 3 by its number in a second scheme with its lettered parts kept as
+// written; the scope its two compounds, 5b with morpholine joined at its N; the grid its two; the cycle, one step a
+// line, its three intermediates as text (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the
+// steps written and L = PPh3 in the middle.
 {
   const [route, scope, grid, cycle] = NOTATION.split("\n\n").slice(0, 4).map((x) => x.replace(/^Lines as .*\n/, ""));
   const drawn = async (lines: string) => { const r = fromLines({ lines }); assert.ok(typeof r !== "string", String(r)); const s = await shown(...callOf(r)); assert.ok("structures" in s, JSON.stringify(s)); return s; };
@@ -386,6 +386,14 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   for (const x of ["Cc1ccc(cc1)S(=O)(=O)OCCC=C", "but-3-en-1-yl tosylate"]) assert.deepEqual(start(`piribedil\n-> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a), ${x} (11a)`), [{ text: "piribedil" }, { text: x, number: "11a" }]);
   const r = fromLines({ lines: "CCO -> CC=O (2), PCC\n-> CC=CC(=O)O (3), C=CC(=O)O (9), PhB(OH)2 (1.5 equiv), Pd(PPh3)4 (5 mol%), HCl (4M), C=CCBr, NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2, c1ccccc1Br" }) as { args: { start: Compound[]; steps: { above?: unknown[]; reagents?: string[]; catalysts?: string[] }[] } };
   assert.deepEqual([r.args.start, r.args.steps[1].above, r.args.steps[1].reagents, r.args.steps[1].catalysts], [[{ text: "CCO" }], [{ text: "C=CC(=O)O", number: "9" }, { text: "C=CCBr" }, { text: "c1ccccc1Br" }], ["PhB(OH)2 (1.5 equiv)", "HCl (4M)", "NBS", "SOCl2", "Boc2O", "Cs2CO3", "[Zn](SO2CF3)2"], ["Pd(PPh3)4 (5 mol%)"]]);
+  // Only a reagent with a number no compound has yet: an amount in units (2eq, 16h, 1atm) and a temperature, time or
+  // solvent with one stay conditions, and so does one with a number already drawn (Pd2(dba)3 (2) after biphenyl 2).
+  const cond = (l: string) => { const { args: a } = fromLines({ lines: l }) as { args: { start: Compound[]; steps: Record<string, unknown>[] } }; return [a.start.length, a.steps[0]]; };
+  assert.deepEqual(cond("A (1)\n-> B (2), NaH (2eq), THF, rt (16h)"), [1, { reagents: ["NaH (2eq)"], solvents: ["THF"], temperature: "rt (16h)", products: [{ text: "B", number: "2" }] }]);
+  assert.deepEqual(cond("A (1) -> B (2), toluene (0.2M), 110 °C (18h)"), [1, { solvents: ["toluene (0.2M)"], temperature: "110 °C (18h)", products: [{ text: "B", number: "2" }] }]);
+  assert.deepEqual(cond("CCO (1) -> CC=O (2), H2 (1atm), Pd/C"), [1, { reagents: ["H2 (1atm)", "Pd/C"], products: [{ text: "CC=O", number: "2" }] }]);
+  assert.deepEqual(cond("A (1) -> B (2), CH2Cl2 (16h)"), [1, { solvents: ["CH2Cl2 (16h)"], products: [{ text: "B", number: "2" }] }]);
+  assert.deepEqual(cond("bromobenzene (1)\n-> biphenyl (2), PhB(OH)2, Pd2(dba)3 (2), K3PO4"), [1, { reagents: ["PhB(OH)2", "Pd2(dba)3 (2)", "K3PO4"], products: [{ text: "biphenyl", number: "2" }] }]);
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });

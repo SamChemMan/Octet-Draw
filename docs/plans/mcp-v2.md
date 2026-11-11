@@ -1770,9 +1770,13 @@ tries ("compound 11a is drawn", "an arrow from 11a to 12a"), where round 3 passe
 - **A compound among the conditions.** One with a compound number (`(12a), Cc1ccc(cc1)S(=O)(=O)OCCC=C (11a)`, or the
   name) is the scheme's: at the first step a starting material beside the first with a +, at a later step a structure
   over the arrow, as an added reactant is; it is listed in the reply's compounds. A number is told from an amount as a
-  compound's own is ((1.5 equiv), (5 mol%) and (4M) stay conditions). A SMILES with no number and a double or triple
-  bond or an aromatic ring closed is drawn over its arrow, never as its text; a formula or an abbreviation that looks
-  like a SMILES (NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2) stays text.
+  compound's own is ((1.5 equiv), (5 mol%) and (4M) stay conditions). Only a reagent takes a number this way, and only
+  one no compound has yet that is no amount in units: `NaH (2eq)`, `H2 (1atm)`, `rt (16h)`, `CH2Cl2 (16h)` and
+  `Pd2(dba)3 (2)` after product 2 stay conditions. A SMILES with no number and a double or triple bond or an aromatic
+  ring closed is drawn over its arrow, never as its text; a formula or an abbreviation that looks like a SMILES (NBS,
+  SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2) stays text.
+- **Left for Sam.** A SMILES with no number and no `=`, `#` or aromatic ring (CCO, C1CCCCC1, CC(C)O) still shows as
+  text over its arrow: NBS, CO and PCC are valid SMILES too, so Octet cannot tell these from an abbreviation.
 - **NOTATION's route** starts `4-bromoanisole (2) + PhB(OH)2` and then `-> 4-methoxybiphenyl (3), Pd(PPh3)4 ...`:
-  the second reactant is a starting material, not a condition (models had copied it into the conditions). 765
+  the second reactant is a starting material (models had copied it into the conditions). 765
   characters; tools/list 12,429. The 36 replayed answers still score 35.

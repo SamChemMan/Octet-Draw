@@ -12,7 +12,8 @@ import { conditionKind, solvent } from "./stoich.ts";
 
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
 // them: a route from its starting materials on a line of their own (the second one joined by +, as models put it with
-// the conditions when the example did), and a second scheme from it by its number with lettered parts on one arrow; a scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+// the conditions when the example did), and a second scheme from it by its number with lettered parts on one arrow; a
+// scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
 export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Biaryl 3
 4-bromoanisole (2) + PhB(OH)2
@@ -322,9 +323,10 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
     // A compound with its number ((12a), but-3-en-1-yl tosylate (11a)) is one of the scheme's, not a reagent's name; a
     // SMILES with no number is drawn too, as its text over an arrow says nothing to a reader (round 3c). Only one with a
     // double or triple bond or an aromatic ring closed, and no count after a bracket: a formula or an abbreviation can
-    // look like one (NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2).
+    // look like one (NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2). A number is the scheme's only after a reagent, when it
+    // is no amount (NaH (2eq), H2 (1atm), rt (16h) stay conditions) and no compound has it yet (Pd2(dba)3 (2) after 2).
     const c = /[)\]]$/.test(t) || looksLikeSmiles(t) ? compound(t, known) : undefined;
-    if (c && typeof c !== "string" && c.text !== undefined && (c.number ? REFERENCE.test(c.number) : /[=#]|[a-z](\d).*\1/.test(c.text) && !/\)\d/.test(c.text) && looksLikeSmiles(c.text))) { (out.more ??= []).push(c); continue; }
+    if (c && typeof c !== "string" && c.text !== undefined && (c.number ? REFERENCE.test(c.number) && !/^\d+(?:h|min|d|s|eq|atm|bar|vol)$/.test(c.number) && !known.has(c.number) && kindOf(c.text) === "reagents" :/[=#]|[a-z](\d).*\1/.test(c.text) && !/\)\d/.test(c.text) && looksLikeSmiles(c.text))) { (out.more ??= []).push(c); continue; }
     const k = kindOf(t);
     if (k === "below") { free("below", k, t); continue; }
     last = undefined;
