@@ -1,7 +1,8 @@
 // What's new in this version (releases.ts): once after an update, and from About Octet Draw. Earlier versions' notes
 // are on GitHub. The highlights come first. A row of section names stays at the top of the notes: a click scrolls to
-// that section, and the name of the section in view is marked as the notes scroll. Under the thank-you line, one line
-// and a Donate button (Sam, 11 November 2026: "a small but clear 'donate to help if you want' button").
+// that section, and the name of the section in view is marked as the notes scroll. Under the first line, above the
+// highlights, one line and a Donate button (Sam, 11 November 2026: "a small but clear 'donate to help if you want'
+// button", then "move donate to the top").
 import { invoke } from "@tauri-apps/api/core";
 import { useRef, useState } from "react";
 import { Heart } from "@phosphor-icons/react";
@@ -40,6 +41,12 @@ export function WhatsNew({ release, onClose }: { release: Release; onClose: () =
           ))}
         </div>
         <p>{release.intro}</p>
+        {/* Octet Draw is free for everyone, and stays free. A donation is only for those who want to help: one line and
+            a small button at the top of the notes, never a window of its own. */}
+        <p className="notes-donate">
+          <span>Octet Draw is free. If you want to help, you can donate.</span>
+          <button type="button" className="dialog-button" onClick={() => void invoke("open_link", { name: "donate" }).catch(() => undefined)}><Heart size={16} aria-hidden /> Donate</button>
+        </p>
         {sections.map((s, i) => (
           <section key={s.title} className={i === 0 && release.summary ? "notes-highlights" : undefined}>
             <h3 ref={(el) => { heads.current[i] = el; }}>{s.title}</h3>
@@ -47,12 +54,6 @@ export function WhatsNew({ release, onClose }: { release: Release; onClose: () =
           </section>
         ))}
         <p className="notes-thanks">{release.thanks}</p>
-        {/* Octet Draw is free for everyone, and stays free. A donation is only for those who want to help: one line and
-            a small button at the end of the notes, never a window of its own. */}
-        <p className="notes-donate">
-          <span>Octet Draw is free. If you want to help, you can donate.</span>
-          <button type="button" className="dialog-button" onClick={() => void invoke("open_link", { name: "donate" }).catch(() => undefined)}><Heart size={16} aria-hidden /> Donate</button>
-        </p>
       </div>
     </Dialog>
   );
