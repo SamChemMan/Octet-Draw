@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use base64::Engine;
-use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
+use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, TextStr};
 use svg2pdf::usvg::{self, fontdb};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -77,10 +77,19 @@ pub fn cdxml_document(cdxml: &str) -> String {
     format!("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!DOCTYPE CDXML SYSTEM \"http://www.cambridgesoft.com/xml/cdxml.dtd\" >\n{s}")
 }
 
+// The drawing's title, author and keywords (Settings > Document > Properties), for a PDF's document information.
+#[derive(serde::Deserialize)]
+pub struct Info {
+    title: Option<String>,
+    author: Option<String>,
+    keywords: Option<String>,
+}
+
 // A vector PDF of the SVG at true size: the page is the SVG's box (1 pt per pt, CSS units honoured), text stays
 // text in embedded font subsets, and nothing paints the background. With CDXML, the catalog gets a /Metadata
-// stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet).
-pub fn make_pdf(svg: &str, cdxml: Option<&str>) -> Result<Vec<u8>, String> {
+// stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet). With `info`, the document
+// information gets the title, author and keywords that are set.
+pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
     let tree = tree(svg)?;
     let (chunk, picture) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default()).map_err(|e| e.to_string())?;
     let mut alloc = Ref::new(1);
@@ -110,6 +119,18 @@ pub fn make_pdf(svg: &str, cdxml: Option<&str>) -> Result<Vec<u8>, String> {
     if let Some(x) = cdxml {
         let data = miniz_oxide::deflate::compress_to_vec_zlib(cdxml_document(x).as_bytes(), 6);
         pdf.metadata(meta, &data).filter(Filter::FlateDecode).pair(Name(b"Vendor"), Name(b"org.octet"));
+    }
+    if let Some(i) = info.filter(|i| i.title.is_some() || i.author.is_some() || i.keywords.is_some()) {
+        let mut d = pdf.document_info(alloc.bump());
+        if let Some(v) = &i.title {
+            d.title(TextStr(v));
+        }
+        if let Some(v) = &i.author {
+            d.author(TextStr(v));
+        }
+        if let Some(v) = &i.keywords {
+            d.keywords(TextStr(v));
+        }
     }
     Ok(pdf.finish())
 }
@@ -488,6 +509,7 @@ pub struct Export {
     dpi: Option<f32>,
     transparent: Option<bool>,
     quality: Option<u8>, // JPEG
+    info: Option<Info>, // the PDF's
 }
 
 // Files exported this session. The page can ask to show one of them in the file manager (reveal_file), never
@@ -539,7 +561,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     };
     let text = |s: &Option<String>| s.clone().unwrap_or_default().into_bytes();
     let bytes = match format {
-        "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref())?,
+        "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref(), e.info.as_ref())?,
         "svg" => format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n", e.svg.as_deref().unwrap_or_default()).into_bytes(),
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false), e.cdxml.as_deref())?,
         "tif" => make_tiff(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
@@ -956,7 +978,7 @@ mod tests {
 
     #[test]
     fn pdf_carries_cdxml_and_reads_back() {
-        let pdf = make_pdf(SVG, Some(CDXML)).unwrap();
+        let pdf = make_pdf(SVG, Some(CDXML), None).unwrap();
         assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
         // The catalog points at the stream, which is marked as ChemDraw marks its own.
         let text = String::from_utf8_lossy(&pdf);
@@ -1043,9 +1065,25 @@ mod tests {
 
     #[test]
     fn pdf_without_cdxml_has_no_metadata() {
-        let pdf = make_pdf(SVG, None).unwrap();
+        let pdf = make_pdf(SVG, None, None).unwrap();
         assert!(find(&pdf, b"/Metadata").is_none());
         assert_eq!(cdxml_from_pdf(&pdf), None);
+    }
+
+    // Settings > Document > Properties: the title, author and keywords that are set go in the document information
+    // (text past ASCII as UTF-16), and the CDXML still reads back. None set writes no document information.
+    #[test]
+    fn pdf_has_the_drawings_properties() {
+        let info = Info { title: Some("Aspirin (route 2)".into()), author: Some("Zoë Ångström".into()), keywords: None };
+        let pdf = make_pdf(SVG, Some(CDXML), Some(&info)).unwrap();
+        assert!(find(&pdf, b"/Info").is_some() && find(&pdf, b"/Title (Aspirin (route 2))").is_some());
+        let utf16: String = [0xFEFF].into_iter().chain("Zoë Ångström".encode_utf16()).map(|u| format!("{u:04X}")).collect();
+        assert!(find(&pdf, format!("/Author <{utf16}>").as_bytes()).is_some());
+        assert!(find(&pdf, b"/Keywords").is_none());
+        assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
+        let none = Info { title: None, author: None, keywords: None };
+        assert_eq!(make_pdf(SVG, Some(CDXML), Some(&none)).unwrap(), make_pdf(SVG, Some(CDXML), None).unwrap());
+        assert!(find(&make_pdf(SVG, None, None).unwrap(), b"/Info").is_none());
     }
 
     #[test]
@@ -1148,7 +1186,7 @@ mod tests {
             let (w, h, rgba) = pixels(&svg, 72.0, true).unwrap();
             let k = ((h / 2) * w + w / 2) as usize * 4;
             assert!(rgba[k] > 200 && rgba[k + 1] < 60 && rgba[k + 3] > 200, "{mime}: {:?}", &rgba[k..k + 4]);
-            assert!(find(&make_pdf(&svg, None).unwrap(), b"/Subtype /Image").is_some(), "{mime}");
+            assert!(find(&make_pdf(&svg, None, None).unwrap(), b"/Subtype /Image").is_some(), "{mime}");
             // The clipboard's PNG on Windows and Linux, and EMF and EPS (vector.rs, which checks where they go).
             let mut reader = png::Decoder::new(std::io::Cursor::new(clipboard_pictures(&svg, false, 600.0, None).unwrap().0)).read_info().unwrap();
             let mut buf = vec![0; reader.output_buffer_size()];

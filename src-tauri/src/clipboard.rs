@@ -212,7 +212,7 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
     let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().map(|n| (*n, b.clone())));
     if let Some(svg) = svg {
         if s == System::Mac {
-            put(Kind::Pdf, crate::export::make_pdf(svg, cdxml)?);
+            put(Kind::Pdf, crate::export::make_pdf(svg, cdxml, None)?);
         } else if s == System::Windows {
             let tree = crate::export::tree(svg)?;
             put(Kind::Emf, crate::vector::make_emf(&tree, cdxml));
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn chemdraws_copy_pastes_from_its_pdf() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let pdf = crate::export::make_pdf(svg, Some("<CDXML><page><arrow/></page></CDXML>")).unwrap();
+        let pdf = crate::export::make_pdf(svg, Some("<CDXML><page><arrow/></page></CDXML>"), None).unwrap();
         for cdx in CDX {
             let c = clip(System::Mac, |name| match name {
                 PDF => Some(pdf.clone()),
@@ -755,7 +755,7 @@ mod tests {
         assert_eq!((c.cdxml.as_deref(), c.octet.as_deref(), c.molfile.as_deref()), (Some(doc.as_str()), None, None));
         // Keynote: its own PDF, with no CDXML, then Octet's under a numbered type (mac::read finds it by the prefix).
         let keynote = |n: &str| match n {
-            PDF => Some(crate::export::make_pdf(svg, None).unwrap()),
+            PDF => Some(crate::export::make_pdf(svg, None, None).unwrap()),
             "com.apple.iWork.TSPData." => Some(pdf.clone()),
             _ => None,
         };
@@ -794,7 +794,7 @@ mod tests {
     #[test]
     fn hostile_office_zips_give_nothing() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let pdf = crate::export::make_pdf(svg, Some("<CDXML/>")).unwrap();
+        let pdf = crate::export::make_pdf(svg, Some("<CDXML/>"), None).unwrap();
         let good = office_zip(&[("clipboard/media/image1.pdf", &pdf)]);
         assert!(cdxml_from_office(&good).is_some());
         for k in 0..good.len() {

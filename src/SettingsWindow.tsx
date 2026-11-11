@@ -11,7 +11,9 @@ import { Exit, useLeaving } from "./motion";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
-import { NumberField, Segmented, Switch } from "./Fields";
+import { NumberField, Segmented, Switch, TextField } from "./Fields";
+import { PROPERTIES, detailsOf, withDetails } from "./experiment";
+import type { Annotation } from "./render";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
 import { EXPORT_FORMATS, PICTURES, type ExportFormat } from "./export";
@@ -60,6 +62,8 @@ type Props = {
   onRemoveTemplate: (id: string) => void;
   onApplyFile?: () => void; // the open drawing takes a drawing's or a style sheet's style (File > Apply Settings From File…)
   onSaveFile?: () => void; // the open drawing's style as a ChemDraw style sheet (.cds)
+  annotations?: Annotation[]; // the open drawing's, which hold its title, author and keywords (PROPERTIES)
+  onAnnotations: (annotations: Annotation[] | undefined) => void;
   keys: Keymap; // the user's changes to the shortcuts
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
@@ -484,6 +488,7 @@ export function SettingsWindow(p: Props) {
 
   const defs: Def[] = useMemo(() => {
     const d = (module: ModuleId, section: string, label: string, keywords: string, control: React.ReactNode, wide?: boolean): Def => ({ module, section, label, keywords, control, wide });
+    const properties = detailsOf(p.annotations, PROPERTIES);
     const num = (k: keyof DocStyle, label: string, unit: string, words: string, section = "Style") =>
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
     // The selection's own settings: a row for each one something selected has, to 0.01 pt (typed values count on Return).
@@ -552,6 +557,14 @@ export function SettingsWindow(p: Props) {
       d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
         <Backgrounds value={style.background} onChange={(background) => change({ background })} />
       )),
+      // The drawing's title, author and keywords, saved in the file and written in a PDF's document information. A
+      // template being made has none.
+      ...(p.template ? [] : PROPERTIES.map(([k, name]) => d("document", "Properties", name, `document properties ${name} metadata pdf file info creator name tags`, (
+        <TextField label={name} value={properties[k] ?? ""} onChange={(v) => {
+          const next = withDetails(p.annotations, { ...properties, [k]: v }, PROPERTIES);
+          if (JSON.stringify(next) !== JSON.stringify(p.annotations)) p.onAnnotations(next);
+        }} />
+      )))),
       d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
       )),
@@ -630,7 +643,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

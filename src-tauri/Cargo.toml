@@ -60,7 +60,7 @@ gtk = "0.18"
 objc2 = "0.6"
 # Quit from the Dock answers AppKit on the main queue (src/quit.rs). Already used by Tauri's dialogs (rfd).
 dispatch2 = "0.3"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSString", "NSDictionary", "NSError", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSString", "NSDictionary", "NSError", "NSPathUtilities", "NSURL"] }
 # The eyedropper (src/eyedropper.rs): the system's colour sampler (NSColorSampler, NSColor, NSColorSpace, block2), in
 # the same crate.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSApplication", "NSColor", "NSColorSampler", "NSColorSpace", "block2", "objc2-core-foundation"] }
