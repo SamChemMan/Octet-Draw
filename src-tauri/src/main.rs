@@ -28,6 +28,7 @@ mod clipboard;
 mod convert;
 mod crashlog;
 mod export;
+mod eyedropper;
 // Feedback, for testers: not in the public release (build.rs, REL-8).
 #[cfg(feedback)]
 mod feedback;
@@ -53,6 +54,21 @@ mod windows;
 // the crate, not src/open.rs.
 pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
     ::open::that_detached(target)
+}
+
+// The computer user's full name (the Mac's, or the GECOS field of /etc/passwd on Linux), else the login name: a new
+// drawing's author (Settings > Document > Properties). Windows gives the login name.
+#[tauri::command]
+fn user_name() -> String {
+    let login = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+    #[cfg(target_os = "macos")]
+    let full = objc2_foundation::NSFullUserName().to_string();
+    #[cfg(target_os = "linux")]
+    let full = std::fs::read_to_string("/etc/passwd").unwrap_or_default().lines().find_map(|l| Some(l.strip_prefix(&format!("{login}:"))?.split(':').nth(3)?.split(',').next()?.to_string())).unwrap_or_default();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let full = String::new();
+    let name = if full.trim().is_empty() { login } else { full };
+    name.chars().filter(|c| !c.is_control()).take(200).collect::<String>().trim().to_string()
 }
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
@@ -239,11 +255,12 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool, enabled: Opti
     answer
 }
 
-// The user's own colours (20 at most), then the drawing's own (24 at most), by name, in the Colour menu: the menu
-// bar is built again with them (names cut to 40 characters). The frontend sets its check marks again afterwards.
+// The user's own colours (100 at most, OWN_MOST in src/colours.ts), then the drawing's own (24 at most), by name, in
+// the Colour menu: the menu bar is built again with them (names cut to 40 characters). The frontend sets its check
+// marks again afterwards.
 #[tauri::command]
 fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
-    let names: Vec<String> = names.into_iter().take(44).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
+    let names: Vec<String> = names.into_iter().take(124).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
     if !keep_new(&app.state::<Palette>().0, names) {
         return Ok(());
     }
@@ -284,21 +301,53 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
 }
 
 // View > Templates (ChemDraw's View > Templates): the template sets a floating palette opens for, the user's own
-// (My templates first) and then Octet's, each as an item "templates_<k>" in that order. The page sends both lists (at
-// most 80 sets, names cut to 40 characters) and opens the palette for the item chosen.
+// (My templates first), then Octet's structures and Octet's clip art, as the library has them apart, each as an item
+// "templates_<k>" in that order. The page sends the three lists (at most 80 sets each, names cut to 40 characters) and
+// opens the palette for the item chosen.
 #[derive(Default)]
-struct TemplateSets(Mutex<(Vec<String>, Vec<String>)>);
+struct TemplateSets(Mutex<[Vec<String>; 3]>);
 
 #[tauri::command]
-fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>) -> Result<(), String> {
+fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
     let clean = |list: Vec<String>| list.into_iter().take(80).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>()).collect::<Vec<_>>();
-    let next = (clean(own), clean(octet));
+    let next = [clean(own), clean(octet), clean(art)];
     {
         let mut held = held.0.lock().unwrap();
         if *held == next {
             return Ok(());
         }
         *held = next;
+    }
+    rebuild(&app)
+}
+
+// A menu's items for the template sets, group by group (the user's, Octet's structures, Octet's clip art), with a
+// separator between two groups that have sets.
+fn in_groups<'a, M: IsMenuItem<Wry>>(items: &'a [M], groups: &[Vec<String>; 3], seps: &'a [PredefinedMenuItem<Wry>; 2]) -> Vec<&'a dyn IsMenuItem<Wry>> {
+    let mut list: Vec<&'a dyn IsMenuItem<Wry>> = Vec::new();
+    let mut at = 0;
+    for (k, n) in groups.iter().map(Vec::len).filter(|&n| n > 0).enumerate() {
+        if k > 0 {
+            list.push(&seps[k - 1]);
+        }
+        list.extend(items[at..at + n].iter().map(|m| m as &dyn IsMenuItem<Wry>));
+        at += n;
+    }
+    list
+}
+
+// File > More Formats (Settings > Pro > More formats): the rare formats the page lists (40 at most), each an id ("more_"
+// and the format) and its name (cut to 60 characters). None while the switch is off: File has no More Formats.
+#[derive(Default)]
+struct MoreFormats(Mutex<Option<Vec<(String, String)>>>);
+
+#[tauri::command]
+fn set_more_formats(app: AppHandle, formats: Option<Vec<(String, String)>>) -> Result<(), String> {
+    let next = formats.map(|list| list.into_iter()
+        .filter(|(id, _)| id.len() <= 60 && id.starts_with("more_") && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .take(40).map(|(id, name)| (id, name.chars().filter(|c| !c.is_control()).take(60).collect())).collect());
+    if !keep_new(&app.state::<MoreFormats>().0, next) {
+        return Ok(());
     }
     rebuild(&app)
 }
@@ -311,6 +360,9 @@ const OPEN: (&str, &[&str]) = ("Drawings", &open::DRAWINGS);
 // File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
 // and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
 const OPEN_MORE: [&str; 6] = ["jdx", "dx", "jcamp", "spc", "ctp", "cts"];
+// File > Apply Settings From File… also takes a ChemDraw style sheet (.cds: a CDX file with the settings and no
+// drawing), as Settings > Document > Save to file… writes one.
+const STYLES: (&str, &[&str]) = ("Drawings and style sheets", &["oct", "cdxml", "cdx", "cds", "octet"]);
 // A ChemDraw template file: read, but never a drawing Octet saves over or lists on Home.
 pub fn is_template_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ctp") || e.eq_ignore_ascii_case("cts"))
@@ -401,18 +453,18 @@ async fn revert_drawing(app: AppHandle, picked: State<'_, Picked>, path: String)
     read_text_or_cdx(&p).map_err(|e| e.to_string())
 }
 
-// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing to take the style
-// from. Only read: it is not remembered for Save and does not go in the recent drawings.
+// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing or a style sheet to
+// take the style from. Only read: it is not remembered for Save and does not go in the recent drawings.
 #[tauri::command]
 async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
-    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter(STYLES.0, STYLES.1).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot open it.".into());
     }
-    read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing (Octet, CDXML or CDX).".to_string())
+    read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing or a style sheet (Octet, CDXML, CDX or CDS).".to_string())
 }
 
 // Opens one of Octet's own links in the browser (or, for feedback, the mail app). The page names it; only these fixed
@@ -425,12 +477,16 @@ async fn open_link(app: tauri::AppHandle, name: String) -> Result<(), String> {
         "issues" => "https://github.com/SamChemMan/Octet-Draw/issues/new".to_string(),
         // What's new > All versions: every version's notes.
         "releases" => "https://github.com/SamChemMan/Octet-Draw/releases".to_string(),
+        // What's new > Donate: Sam's Buy Me a Coffee page, the link at the foot of octet.software.
+        "donate" => "https://buymeacoffee.com/chemmansam".to_string(),
         // The Feedback button: a new mail to Sam, with the version and system filled in.
         "feedback" => format!(
             "mailto:{FEEDBACK_TO}?subject=Octet%20Draw%20feedback&body=%0A%0A--%0AOctet%20Draw%20{}%20on%20{}",
             app.package_info().version,
             std::env::consts::OS
         ),
+        // The Properties panel's PubChem CID: the compound's Safety and Hazards section.
+        n if n.starts_with("pubchem:") => pubchem::safety_page(&n["pubchem:".len()..]).ok_or("Octet has no such link.")?,
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
@@ -477,11 +533,13 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
-// Returns its name and text (a CDX file's bytes in base64).
+// Returns its name and text (a CDX file's bytes in base64). ct: only a connection table (.ct), for File > More Formats >
+// Import a Connection Table….
 pub const STRUCTURES: [&str; 14] = ["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"];
 #[tauri::command]
-async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &STRUCTURES).blocking_pick_file() else {
+async fn import_structure(app: AppHandle, ct: Option<bool>) -> Result<Option<(String, String)>, String> {
+    let (kind, list): (&str, &[&str]) = if ct == Some(true) { ("Connection Table (CT)", &["ct"]) } else { ("Structures", &STRUCTURES) };
+    let Some(file) = app.dialog().file().add_filter(kind, list).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -491,6 +549,21 @@ async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, St
     let text = read_text_or_cdx(&path).map_err(|_| "Octet can only import structure files (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).".to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(Some((name, text)))
+}
+
+// File > More Formats > Open CIF or mmCIF…: a crystal structure's file. Returns its name and text, with any bytes that
+// are not UTF-8 replaced (older CIF files can have Latin-1 names in them). It is not a drawing to save over.
+#[tauri::command]
+async fn open_cif(app: AppHandle) -> Result<Option<(String, String)>, String> {
+    let Some(file) = app.dialog().file().add_filter("CIF and mmCIF", &["cif", "mmcif"]).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
+    }
+    let text = String::from_utf8_lossy(&fs::read(&path).map_err(|e| e.to_string())?).into_owned();
+    Ok(Some((path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), text)))
 }
 
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
@@ -597,17 +670,19 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
     // File > Save Templates for ChemDraw: each template set (as View > Templates lists them, "ctp_<k>") saved as a
     // ChemDraw template file. The items change with the sets, so they are not commands with shortcuts.
-    let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
-    let ctp_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+    let template_sets = app.state::<TemplateSets>().0.lock().unwrap().clone();
+    let ctp_items = template_sets.iter().flatten().enumerate()
         .map(|(k, name)| MenuItem::with_id(app, format!("ctp_{k}"), name, true, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let ctp_sep = sep()?;
-    let mut ctp_list: Vec<&dyn IsMenuItem<Wry>> = ctp_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
-    if !own_sets.is_empty() && !octet_sets.is_empty() {
-        ctp_list.push(&ctp_sep);
-    }
-    ctp_list.extend(ctp_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let ctp_seps = [sep()?, sep()?];
+    let ctp_list = in_groups(&ctp_items, &template_sets, &ctp_seps);
     let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
+    // File > More Formats, while Settings > Pro > More formats is on: the rare formats, as the page lists them. Each is a
+    // command with a shortcut, as File's others are. Off, File has no More Formats.
+    let more_list = app.state::<MoreFormats>().0.lock().unwrap().clone();
+    section.replace("File › More Formats".into());
+    let more_items = more_list.iter().flatten().map(|(id, name)| item(id, name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let more = Submenu::with_items(app, "More Formats", !more_items.is_empty(), &more_items.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
     let revert = item("revert", "Revert to Saved", "")?;
@@ -618,6 +693,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("open", "Open…", "CmdOrCtrl+O")?,
         &open_recent,
         &item("import", "Import a Structure…", "")?,
+        &item("insert_file", "Insert…", "")?,
         &sep()?,
         &item("save", &object.map_or("Save".into(), |h| format!("Update {h}")), "CmdOrCtrl+S")?,
         &item("save_as", if object.is_some() { "Save Copy As…" } else { "Save As…" }, "CmdOrCtrl+Shift+S")?,
@@ -626,6 +702,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
         &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
         &save_ctp,
+        &more,
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
@@ -642,6 +719,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if object.is_some() {
         file.remove(&revert)?;
     }
+    if more_list.is_none() {
+        file.remove(&more)?;
+    }
     let close_text = object.map(|h| format!("Close and Return to {h}"));
     #[cfg(not(target_os = "linux"))]
     file.append(&match close_text.as_deref() {
@@ -656,7 +736,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
     }
     // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
-    // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
+    // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text, ⌥⌘E HELM (on
+    // the Mac only: Ctrl+Alt+E is AltGr+E, which types € on many keyboards).
     section.replace("Edit › Copy As".into());
     let copy_as = Submenu::with_items(app, "Copy As", true, &[
         &item("copy_smiles", "SMILES", "Alt+CmdOrCtrl+C")?,
@@ -665,6 +746,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_cdxml", "CDXML Text", "CmdOrCtrl+D")?,
         &item("copy_mol", "MOL Text", "Alt+CmdOrCtrl+O")?,
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
+        &item("copy_helm", "HELM", if cfg!(target_os = "macos") { "Alt+CmdOrCtrl+E" } else { "" })?,
+        &item("copy_fasta", "FASTA", "")?,
     ])?;
     section.replace("Edit".into());
     // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.
@@ -707,17 +790,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // ChemDraw's View > Show Reaction Interpretation.
     let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
     // View > Templates: each set shows or hides its floating palette, ticked while it is open (ChemDraw's View > Templates
-    // toggles a palette's window). The user's sets come first, then Octet's. The items change with
-    // the sets, so they are not commands with shortcuts, and Settings does not list them.
-    let set_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+    // toggles a palette's window). The user's sets come first, then Octet's structures, then its clip art. The items
+    // change with the sets, so they are not commands with shortcuts, and Settings does not list them.
+    let set_items = template_sets.iter().flatten().enumerate()
         .map(|(k, name)| CheckMenuItem::with_id(app, format!("templates_{k}"), name, true, false, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let sets_sep = sep()?;
-    let mut sets_list: Vec<&dyn IsMenuItem<Wry>> = set_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
-    if !own_sets.is_empty() && !octet_sets.is_empty() {
-        sets_list.push(&sets_sep);
-    }
-    sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let sets_seps = [sep()?, sep()?];
+    let sets_list = in_groups(&set_items, &template_sets, &sets_seps);
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
     let view = Submenu::with_items(app, "&View", true, &[
         // ChemDraw's keys: Actual Size and Fit to Window.
@@ -742,6 +821,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
+        // The spectrum or Mass spec panel shown goes to its pill beside its structure, or the last one comes back.
+        &item("toggle_spectrum", "Show or Hide Spectrum", "")?,
         &templates,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
@@ -760,7 +841,6 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
-        &item("clean_reaction_augmented", "Augmented Clean Up Reaction", "")?,
         // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
         &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
         &item("atom_properties", "Atom Properties…", "")?,
@@ -770,6 +850,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("expand_label", "Expand Label", "")?,
         &item("contract_label", "Contract Label", "")?,
         &item("expand_generic", "Expand Generic Structure", "")?,
+        &item("expand_generic_sdf", "Expand Generic Structure to SDF…", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("hydrogen_display", "Toggle Hydrogen Display", "")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
@@ -785,6 +866,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
         &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,
+        &item("predict_19f", "Predict ¹⁹F-NMR Shifts", "")?,
+        &item("predict_31p", "Predict ³¹P-NMR Shifts", "")?,
+        // With the two NMR items, as the Actions panel has them; the Mass spec analysis tool stays in the toolbar.
+        &item("mass_spec", "Show Mass Spec Analysis", "")?,
         &sep()?,
         // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,
@@ -937,7 +1022,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("curves_faded", "Faded", "")?,
     ])?;
     // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
-    // Then the user's own colours by name, and Edit Colours…, which opens them in Settings.
+    // Then the user's own colours by name, Pick from Screen (the eyedropper) and Edit Colours…, which opens them in
+    // Settings.
     section.replace("Colour".into());
     let builtin = ["Black", "Ink", "Octet Blue", "Bright Blue", "Green", "Amber", "Red"].iter().enumerate()
         .map(|(k, name)| item(&format!("colour_{k}"), name, ""))
@@ -946,6 +1032,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         .map(|(k, name)| item(&format!("colour_user_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let (sep1, sep2, sep3) = (sep()?, sep()?, sep()?);
+    let pick_colour = item("colour_pick", "Pick from Screen", "")?;
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
     // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
     let by_element = item("colour_by_element", "By Element", "")?;
@@ -968,6 +1055,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     colour_items.push(&highlight);
     colour_items.push(&ringfill);
     colour_items.push(&sep3);
+    colour_items.push(&pick_colour);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
@@ -979,13 +1067,23 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
+        &sep()?,
+        &item("search_scifinder", "Search SciFinder", "")?,
+        &sep()?,
+        &item("search_scholar", "Search Google Scholar", "")?,
+        &item("search_patents", "Search Google Patents", "")?,
     ])?;
-    // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
-    // full screen item.
+    // Window: Minimize and Full Screen where the system has them (GTK on Linux has neither, Windows has no full screen
+    // item), then the open drawings. The Mac lists the windows itself (set_bar); Windows and Linux list them here.
     section.replace("Window".into());
-    let window = Submenu::with_id_and_items(app, "window", "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    let window = Submenu::with_id(app, "window", "&Window", true)?;
+    #[cfg(not(target_os = "linux"))]
+    window.append(&PredefinedMenuItem::minimize(app, None)?)?;
     #[cfg(target_os = "macos")]
     window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    if !cfg!(target_os = "macos") {
+        windows::list(app, &window)?;
+    }
     // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
     // search field.
     section.replace("Help".into());
@@ -1028,9 +1126,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if online {
         items.push(&search);
     }
-    if !cfg!(target_os = "linux") {
-        items.push(&window);
-    }
+    items.push(&window);
     items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
@@ -1173,7 +1269,8 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, mcp::mcp_bundle])
+        .manage(MoreFormats::default())
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, mcp::mcp_bundle])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1239,6 +1336,11 @@ fn main() {
                 if id == "recent_clear" {
                     recent::clear(app);
                 }
+                // Window > a drawing (Windows and Linux): its window comes to the front, and the menu ticks it again.
+                if let Some(label) = id.strip_prefix("window_") {
+                    tauri::async_runtime::spawn(windows::window_show(app.clone(), label.to_string()));
+                    return;
+                }
                 if let Some(w) = app.get_webview_window("reaxys").filter(|w| w.is_focused().unwrap_or(false)) {
                     let js = match id {
                         "undo" => Some("document.execCommand('undo')"),
@@ -1261,7 +1363,7 @@ fn main() {
         // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(true) = event {
-                windows::focused(window.label());
+                windows::focused(window.app_handle(), window.label());
             }
             // Only Home and the drawing windows take files (not the Reaxys window).
             if !windows::ours(window.label()) {

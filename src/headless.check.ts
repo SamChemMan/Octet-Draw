@@ -194,6 +194,13 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(span(under)[3] <= table[1] - 3 && span(under)[3] > table[1] - 4.5, `3 bond lengths under the table (and the grid's 1.25 round a structure): ${span(under)}, ${table}`);
 }
 {
+  // A reagent table starts under the compound numbers of its reaction, as the window lays it out (gridview.ts captionBox).
+  d = drawing("experiment", "Numbers");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol", number: "2" }] }] })).isError);
+  const m = d.host.doc(), table = d.host.tables()[0].box, numbers = m.captions!.filter((c) => c.bold && /^[12]$/.test(c.text)).map((c) => d.host.textBox(c.id)!);
+  assert.ok(numbers.length === 2 && numbers.every((b) => table[3] <= b[1]), `the table ${table} is under the numbers ${numbers.join(" ")}`);
+}
+{
   // Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A
   // reactant that then reaches over the plus sign beside it (terphenyl, drawn upright, lies flat when it is cleaned
   // up) keeps that plus sign: Octet adds no second one.

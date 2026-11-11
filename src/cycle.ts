@@ -46,7 +46,6 @@ export type OldText = CycleText & { through?: boolean; meet?: number; tail?: [nu
 export const sideAt = (t: CycleText) => t.at ?? 0.5;
 // A reagent or product (with an arrow); one of those or a step's name (placed along a step).
 export const isSide = (t?: CycleText) => t?.side === "in" || t?.side === "out";
-export const onStep = (t?: CycleText) => isSide(t) || t?.side === "name";
 // Where a branch meets its step, unset: half way with both ends, before the middle for a reagent alone, after it for a
 // product alone.
 export const meetOf = (b: CycleBranch) => b.meet ?? (b.in && b.out ? 0.5 : b.in ? 0.4 : 0.6);
@@ -297,7 +296,6 @@ export function orderAround(centre: P, items: { atoms: number[]; middle: P }[]):
   return [...items].sort((a, b) => angle(a.middle) - angle(b.middle)).map((x) => x.atoms);
 }
 
-export const isCycleText = (c: Caption) => !!c.cycle;
 // The text in the middle of a cycle.
 export const centreText = (m: Mol, c: Cycle) => m.captions?.find((t) => t.cycle?.cycle === c.id && t.cycle.side === "centre");
 

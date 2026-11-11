@@ -10,6 +10,8 @@ import { endoExoSmiles } from "./endoexo.ts";
 import { PEPTIDE, peptideText } from "./peptide.ts";
 // RNA and DNA typed as one-letter codes after "rna:" or "dna:" (nucleic.ts).
 import { NUCLEIC, nucleicText } from "./nucleic.ts";
+// Octet's abbreviations by standard InChI. The stoichiometry table reads them too, so they load at start-up (stoich.ts).
+import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 
 type Opsin = typeof import("./vendor/opsin/opsin.js");
 let opsin: Opsin | undefined;
@@ -22,9 +24,8 @@ export function loadNames(): Promise<void> {
     // The dictionary loads alongside. Without it, names still read.
     const dictionary = loadDictionary().catch(() => undefined);
     // The drug names and the index load with the engine, so start-up does not wait for them.
-    const [mod, { default: pack }, { default: list }, { default: known }, { DRUGS }, { default: cites }] = await Promise.all([import("./vendor/opsin/opsin.js"),
-      import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json"), import("./drugs.ts"),
-      import("./abbreviations.json")]);
+    const [mod, { default: pack }, { default: list }, { default: known }, { DRUGS }] = await Promise.all([import("./vendor/opsin/opsin.js"),
+      import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json"), import("./drugs.ts")]);
     const [data, words] = await Promise.all([fetch(pack).then((r) => r.arrayBuffer()), fetch(list).then((r) => r.text())]);
     // The pack: [name length (u16), name (latin1), size (i32), bytes] repeated, ending with a zero length.
     const view = new DataView(data), files = new Map<string, Int8Array>(), latin1 = new TextDecoder("latin1");
@@ -37,7 +38,7 @@ export function loadNames(): Promise<void> {
     }
     (globalThis as { opsinResource?: (name: string) => Int8Array | null }).opsinResource = (name) => files.get(name) ?? null;
     mod.init();
-    attachOpsin(mod, words, known, DRUGS, cites);
+    attachOpsin(mod, words, known, DRUGS, ABBREVIATIONS);
     await dictionary;
   })();
   return loading;

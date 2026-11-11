@@ -25,7 +25,8 @@ Main changes:
 
 - Spectrum panels with Minimise, Full screen and Close. A minimised spectrum is a pill beside its structure.
 - ¹⁹F and ³¹P NMR prediction.
-- 14 new template sets with 211 new templates.
+- 15 new template sets with 251 new templates.
+- Gel and Plasmid map tools, and membranes as a line style.
 - One colour system, with Pick from screen.
 - The stoichiometry table reads reagents over the arrow, ions and coefficients (issues 131 to 136).
 - Settings > Pro and File > More Formats: CML, BMP, 3MF, connection tables, SLN, chemfig, CIF and mmCIF.
@@ -42,19 +43,10 @@ To do for the release:
 3. Post the Flatpak link in issue 37. Ask the reporter to test it.
 4. Close the issues that 1.1.2 fixes.
 
-Built on a branch and not merged into `release-1.1.2` on 11 November:
-
-| Work | Issue | Branch |
-|---|---|---|
-| Dashed and bold orbitals | 139 | `item/orbital-dash` |
-| Photochemistry template set | 43 | `item/photochem` |
-| Gel and plasmid map objects | 96 | `item/gel-plasmid` |
-| Membranes and other biology objects | 95 | `item/bio-objects` |
-| More laboratory equipment | 98 | `item/lab-equipment` |
-| Nanotubes, fullerenes and host molecules | 97 | `item/nano-hosts` |
-| Seven bug fixes from the code review of 11 November | none | `item/review-bugs` (not committed) |
-
-The code clean-up from the same review is on hold until Sam says go.
+Merged on 11 November: dashed and bold orbitals (issue 139), the Photochemistry set (43), gels and plasmid maps (96),
+membranes (95), six more laboratory templates (98), the polyhedra frames and C70 (97), and the seven bug fixes and the
+code clean-up from the code review. Built on a branch and not merged: the Office work for the Mac and LibreOffice
+(`item/office`), and charts (`item/charts`).
 
 ## 1.2: Octet for AI apps (MCP)
 
@@ -173,7 +165,7 @@ Reactio Draw is AGPL-3.0, so use none of its code. Design Octet's own, with the 
 |---|---|
 | Updates on by default | Done (decision 0010). |
 | ChemDraw file fidelity | Done: 68 of 68 CDXML round trips. |
-| Template and clip-art library (audit item CD-32) | Done (decision 0017): 292 templates in 16 sets. 1.1.2 adds 14 sets. |
+| Template and clip-art library (audit item CD-32) | Done (decision 0017): 292 templates in 16 sets. 1.1.2 adds 15 sets. |
 | Template features: edit, order by drag, floating palettes, sizes, `.ctp` and `.cts` files | Done (decision 0018). |
 | Measured spectra with peak assignment (audit item CH-29) | Done (decision 0016). |
 | Mass Spec Analysis (audit item CH-40) | Done. |

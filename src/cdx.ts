@@ -146,7 +146,7 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
       case "flag": a[name] = "yes"; return;
       case "bool": a[name] = n === 0 ? (tag === 0x0011 ? "no" : tag === 0x0014 ? "no" : "yes") : b.some((x) => x) ? "yes" : "no"; return;
       case "i8": case "i16": case "i32": case "u16": { const v = int(d, p.kind !== "u16"); if (v !== undefined) a[name] = String(v); return; }
-      case "e8": case "e16": { const v = int(d, little); if (v !== undefined) a[name] = p.names!.get(v) ?? p.names!.get(v & 0xffff) ?? String(v); return; }
+      case "e8": case "e16": { const v = int(d, true); if (v !== undefined) a[name] = p.names!.get(v) ?? p.names!.get(v & 0xffff) ?? String(v); return; }
       case "b8": case "b16": {
         const v = int(d, false);
         if (v === undefined) return;
@@ -160,18 +160,18 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
         a[name] = (n === 1 && v === 0xff) || v === 0xffff ? "any" : [...p.names!].filter(([bit]) => v & bit).map(([, nm]) => nm).join(" ") || "1";
         return;
       }
-      case "charge": { const v = n === 4 ? d.getInt32(0, little) / 2 ** 24 : int(d, little); if (v !== undefined) a[name] = String(n === 4 ? +v.toFixed(4) : v); return; }
+      case "charge": { const v = n === 4 ? d.getInt32(0, little) / 2 ** 24 : int(d, true); if (v !== undefined) a[name] = String(n === 4 ? +v.toFixed(4) : v); return; }
       case "coord": if (n === 4) a[name] = num(coord(d, 0)); return;
       case "p2": if (n === 8) a[name] = `${num(coord(d, 4))} ${num(coord(d, 0))}`; return;
       case "p3": if (n === 12) a[name] = `${num(coord(d, 0))} ${num(coord(d, 4))} ${num(coord(d, 8))}`; return;
       case "rect": if (n === 16) a[name] = `${num(coord(d, 4))} ${num(coord(d, 0))} ${num(coord(d, 12))} ${num(coord(d, 8))}`; return;
       case "angle": { const v = n === 4 ? d.getInt32(0, little) / 65536 : n === 2 ? d.getInt16(0, little) / 10 : undefined; if (v !== undefined) a[name] = exact ? String(v) : String(+v.toFixed(2)); return; }
-      case "deg10": { const v = int(d, little); if (v !== undefined) a[name] = String(v / 10); return; }
+      case "deg10": { const v = int(d, true); if (v !== undefined) a[name] = String(v / 10); return; }
       case "spacing": { const v = int(d, false); if (v !== undefined) a[name] = String(v / 10); return; }
       case "alpha": { const v = int(d, false); if (v !== undefined) a[name] = exact ? String(v / 65535) : String(+(v / 65535).toFixed(4)); return; }
       case "f64": if (n === 8) a[name] = String(d.getFloat64(0, little)); return;
-      case "lh": { const v = n === 4 ? d.getInt32(0, little) / 65536 : int(d, little); if (v !== undefined) a[name] = n !== 4 && v === 1 ? "auto" : n !== 4 && v === 0 ? "variable" : String(n === 4 ? v : v / 20); return; }
-      case "wrap": { const v = n === 4 ? d.getInt32(0, little) / 65536 : int(d, little); if (v !== undefined) a[name] = num(v); return; }
+      case "lh": { const v = n === 4 ? d.getInt32(0, little) / 65536 : int(d, true); if (v !== undefined) a[name] = n !== 4 && v === 1 ? "auto" : n !== 4 && v === 0 ? "variable" : String(n === 4 ? v : v / 20); return; }
+      case "wrap": { const v = n === 4 ? d.getInt32(0, little) / 65536 : int(d, true); if (v !== undefined) a[name] = num(v); return; }
       case "str": a[name] = anyText(styled(b).text).replace(/\r\n?/g, "\n"); return;
       case "plain": a[name] = anyText(b); return;
       case "hex": a[name] = hex(b); return;
@@ -199,7 +199,7 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
       case "tagvalue": {
         const t = a.TagType;
         if (t === "Double" && n === 8) a[name] = String(d.getFloat64(0, little));
-        else if (t === "Long") { const v = int(d, little); if (v !== undefined) a[name] = String(v); }
+        else if (t === "Long") { const v = int(d, true); if (v !== undefined) a[name] = String(v); }
         else if (t === "String") a[name] = anyText(styled(b).text);
         else raw();
         return;

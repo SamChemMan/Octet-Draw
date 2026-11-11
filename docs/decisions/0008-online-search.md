@@ -65,3 +65,53 @@ Reaxys's website keeps its Query Builder form in the browser and, on a link, sea
 Decision 0015: with Online search on, Name to Structure asks PubChem's PUG REST service for a name or InChIKey that
 nothing offline reads, when the user presses Return. Octet makes that connection itself (`src-tauri/src/pubchem.rs`),
 with the updater's HTTPS client, to a fixed address. Only the typed text goes. Off, Octet asks nothing.
+
+## Update, 11 November 2026: Search SciFinder, Search Google Scholar and Search Google Patents
+
+Issues 113 and 115. The same rules apply: a press only, one search a second, Online search off hides them and the
+app refuses them, no logos, fixed hosts in `src-tauri/src/search.rs`. Each opens in the user's browser. A query with
+generic labels goes only to Reaxys.
+
+- Search SciFinder (the Search menu, the Actions panel and the palette): CAS publishes no address that carries a
+  structure. Its Structure Search API needs a client ID that CAS gives to partners. So Octet opens
+  `https://scifinder-n.cas.org/` and puts the selection's SMILES on the clipboard. CAS Draw's Add to Editor reads
+  SMILES, so the user pastes it there and chooses the search type in SciFinder. Nothing goes to CAS until the user
+  pastes. A one-press search needs a CAS client ID.
+- Search Google Scholar: Google Scholar has no structure search. Octet sends each structure's checked name as a
+  phrase in quotes, or its InChIKey when Octet has no name for it, to Google in `scholar.google.com/scholar?q=`.
+- Search Google Patents: Octet sends the selection's InChIKey to Google in `patents.google.com/?q=`. Google's
+  chemistry search reads an InChIKey as that structure, so this finds the same structure in patents. Google Patents
+  is free, needs no account, covers patents from many offices and documents its chemistry search syntax. SureChEMBL
+  documents no address that carries a structure. Substructure (`SSS=`) and similarity (`~`) searches are not in
+  Octet yet, because their link forms are not tested.
+- "Google Scholar", "Google Patents" and "SciFinder" are trademarks of Google and CAS, used here only to name the
+  sites.
+
+## Update, 11 November 2026: the Properties panel asks PubChem for CAS numbers
+
+Issue #121: the Properties panel has a CAS number row. Octet looks each structure up by its standard InChIKey in its
+dictionary (data/names, offline). For a structure the dictionary does not have, with Online search on, Octet asks
+PubChem's PUG REST service for the compound's synonyms and shows the first CAS number in them, which is PubChem's
+main one (`src-tauri/src/pubchem.rs`, `pubchem_cas`).
+
+This is the first PubChem request the user does not start with a key or a button. It runs only while the Properties
+panel is open, after the drawing has been still for a second, one structure at a time and at most one request a
+second, and once for each structure in a session. Only the InChIKey goes, to a fixed address, and Octet reads only
+a CAS number with a right check digit from the answer (at most 64 KB). With no network, or Online search off, the
+row shows only the dictionary's numbers and no message. An InChIKey cannot be turned back into a structure, but
+PubChem sees which compounds the user draws, so users who may not send unpublished structures to third parties
+can turn Online search off. Open for Sam: keep this automatic, or ask PubChem only when the user clicks the row.
+
+## Update, 11 November 2026: Find hazards in the Properties panel
+
+Issue 116. With Online search on, the Properties panel has Find hazards. It shows each structure's GHS pictograms,
+signal word, hazard statements, precautionary statement codes, their source and the PubChem CID, which opens the
+compound's Safety and Hazards page in the browser. Octet shows the first source PubChem lists, as PubChem's own page
+does. ChemDraw's PubChem GHS LCSS add-in shows the whole LCSS page and can copy from one source or all of them.
+
+- Octet asks only when the user presses Find hazards, never on a selection change. A compound's answer is kept while
+  its window is open, so a structure found before shows its hazards again with no new request.
+- Only each structure's standard InChIKey goes to PubChem (NIH), from `src-tauri/src/pubchem.rs`, to fixed addresses:
+  PUG REST for the CID, then PUG View for the GHS Classification section. One key at a time.
+- The answer is hostile: at most 1 MB of UTF-8, read with `JSON.parse` and each value's type checked (`src/ghs.ts`).
+  No answer, or no network, shows nothing.

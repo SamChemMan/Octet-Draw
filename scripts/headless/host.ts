@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, analyseCompound, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -183,8 +183,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const m = doc, d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
-      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), reagent,
-      bottom: (id) => d.captionBox(id)?.[1],
+      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)), reagent,
+      captionBox: d.captionBox,
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
     }).map((v) => {
