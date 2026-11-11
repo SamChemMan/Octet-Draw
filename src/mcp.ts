@@ -364,6 +364,26 @@ const READING = { type: "object", required: ["drawing", "structures", "reactions
 // or grid is drawn, and set_brief's arguments, their answers in the same order.
 const QUESTIONS = "1. Do you have a preferred working style? If so, ask them for a drawing in it. 2. Where is this going, and how big does it need to be? 3. Is there anything to emphasise, or a layout to follow?";
 const BRIEF_FIRST = `Octet needs the brief first. Ask the user these three questions, then call set_brief: ${QUESTIONS}`;
+// An AI app that takes elicitation/create (plan 3.1, 7.3) has Octet ask the user itself, in the AI app's own form: a
+// flat object of text and one choice, as MCP 2025-11-25 (Elicitation, Requested Schema) allows. The answers are read as
+// draw's brief line is (briefOf).
+const ASK_BRIEF = { message: "Where is this drawing going, and in what style?", requestedSchema: { type: "object", properties: {
+  destination: { type: "string", title: "Where it goes", oneOf: [["quick", "Quick look, no page"], ["paper", "Paper"], ["thesis", "Thesis"], ["slides", "Slides"], ["poster", "Poster"], ["notebook", "Notebook"]].map(([c, title]) => ({ const: c, title })) },
+  journal_or_size: { type: "string", title: "Journal or size", description: "For example JACS, 2 columns; A4; 85 x 60 mm" },
+  emphasis: { type: "string", title: "What to emphasise" }, layout: { type: "string", title: "Layout to follow" },
+}, required: ["destination"] } };
+const UNANSWERED = `Octet changed nothing. The user closed Octet's questions without answering. Ask them in the chat, then call again with brief: ${QUESTIONS}`;
+// The brief from the user's answer (the AI app's, as mcp.rs checked it), or why there is none. decline: the user has no
+// preference, so quick.
+function answered(text: string | undefined): unknown {
+  let r: { action?: string; content?: Record<string, unknown> };
+  try { r = JSON.parse(text ?? ""); } catch { return UNANSWERED; }
+  if (r?.action === "decline") return briefOf("quick");
+  if (r?.action !== "accept") return UNANSWERED;
+  const v = (k: string) => { const x = r.content?.[k]; return typeof x === "string" || typeof x === "number" ? clean(String(x)) : ""; };
+  const b = briefOf(`${[v("destination"), v("journal_or_size")].filter(Boolean).join(", ")}${v("emphasis") ? ` emphasis: ${v("emphasis")}` : ""}${v("layout") ? ` layout: ${v("layout")}` : ""}`);
+  return typeof b === "string" ? UNANSWERED : b;
+}
 const DESTINATIONS = ["quick", "paper", "thesis", "slides", "poster", "notebook"] as const;
 // The journals' presets by the short names a user gives them (journalOf reads each as its preset).
 const JOURNALS = Object.keys(PRESETS).filter((p) => !p.includes("ChemDraw")).map((p) => p.replace(/ Document 1996| \(.*\)/, ""));
@@ -751,6 +771,10 @@ const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's 
 - To highlight an atom, bond, group or structure, use change's edit with highlight, or ring_fill for a ring: a shape is a frame or a panel. Colour only what the user asks to colour.
 - Each call is one undo step. Never delete what the user drew unless they ask.
 - advanced help gives every argument of a kind of draw, an operation of change or an advanced tool.`;
+// The instructions for an AI app that takes elicitation (plan 3.1): Octet asks the user the brief's questions itself,
+// so the AI app does not spend a turn on them. Only the bullet that asks them changes.
+const elicits = (c: any) => { const e = c?.elicitation; return !!e && typeof e === "object" && !Array.isArray(e) && (!Object.keys(e).length || "form" in e); };
+const instructionsFor = (c: unknown) => (elicits(c) ? INSTRUCTIONS.replace(/^- Before a scheme.*$/m, "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.") : INSTRUCTIONS);
 
 // ---- What each tool does ----
 
@@ -2857,9 +2881,11 @@ let queue: Promise<unknown> = Promise.resolve();
 // progress: sends a progress notification (JSON) on the call's event stream; cancelled: the call was cancelled.
 // brief: the session's brief (set_brief), as its transport keeps it (none until set_brief); keep: keeps a new one for
 // the session (mcp.rs mcp_brief), for its later calls in every drawing. unset: the session has no drawing yet.
+// elicit: asks the user through the AI app's form (elicitation/create params) and gives the answer as JSON, or rejects
+// when there is none (mcp.rs mcp_elicit); only for an AI app that takes elicitation.
 // timed: when mcp.rs sent the request and when this page got it, with the page's visibility and focus then (a dev
 // build run with OCTET_MCP_TIMES): the reply's _meta gives them, with when the work started and ended (plan 17.5).
-export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown; unset?: boolean; timed?: { sent: number; got: number; visibility: string; focus: boolean } };
+export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown; unset?: boolean; elicit?: (params: object) => Promise<string>; timed?: { sent: number; got: number; visibility: string; focus: boolean } };
 
 // Runs f after every request queued before it; later ones wait for it.
 function queued<T>(f: () => Promise<T>): Promise<T> {
@@ -2914,7 +2940,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       return reply(id, {
         protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[0], capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: false }, prompts: { listChanged: false } },
         serverInfo: { name: "octet-draw", title: "Octet Draw", version, description: "Draws and reads chemical structures, reactions, schemes and catalytic cycles in the Octet Draw window open on this computer.", websiteUrl: "https://octet.software" },
-        instructions: INSTRUCTIONS,
+        instructions: instructionsFor(msg.params?.capabilities),
       });
     }
     case "ping": return reply(id, {});
@@ -2962,17 +2988,32 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes) : "arguments: not an object";
       if (typeof routed === "string") return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${routed}.` }], isError: true });
       // A scheme, route, figure, cycle or grid waits for the brief (plan 3.1): the AI app asks the user first, and gives
-      // the answers with the call (draw's brief) or before it (set_brief).
-      const brief = routed.brief;
-      if (!from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: BRIEF_FIRST }], isError: true });
-      const tool = opOf(routed.op), args = routed.args, unfit = wrongWith(tool.inputSchema, args, notes, routed.at) ?? (brief === undefined ? undefined : wrongWith(opOf("brief").inputSchema, brief, notes, "brief")), wrong = unfit ?? tool.refuse?.(args);
-      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
+      // the answers with the call (draw's brief) or before it (set_brief). An AI app that takes elicitation has Octet
+      // ask the user (plan 7.3), and so does set_brief with no destination: the same call then goes on with the answers.
+      let brief = routed.brief;
+      const asks = !!from.elicit && !from.lost && (routed.op === "brief" ? routed.args.destination === undefined : !from.brief && brief === undefined && needsBrief(routed.op, routed.args));
+      if (!asks && !from.brief && brief === undefined && needsBrief(routed.op, routed.args)) return reply(id, { content: [{ type: "text", text: BRIEF_FIRST }], isError: true });
+      const tool = opOf(routed.op), own = asks && tool.name === "brief";
+      let args = routed.args, unfit = own ? undefined : wrongWith(tool.inputSchema, args, notes, routed.at);
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
+      let stopped = false, halt = () => {};
+      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; halt(); };
+      if (asks && !unfit) {
+        // Octet's window says it waits for the user, with Stop, which ends the wait at once (as a cancel does).
+        h.working(busy, stop, `Waiting for your answer in ${from.client && from.client !== "An AI app" ? from.client : "the AI app"}`);
+        const said = await Promise.race([from.elicit!(ASK_BRIEF).catch(() => undefined), new Promise<undefined>((r) => { halt = () => r(undefined); })]);
+        h.working();
+        if (stopped || (await from.cancelled?.())) return reply(id, { content: [{ type: "text", text: `${named.name} was cancelled, and the drawing is as it was before the call.` }], isError: true });
+        const got = answered(said);
+        if (typeof got === "string") return reply(id, { content: [{ type: "text", text: got }], isError: true });
+        if (own) { args = { ...(got as object), ...args }; unfit = wrongWith(tool.inputSchema, args, notes, routed.at); } else brief = got;
+      }
+      unfit ??= brief === undefined ? undefined : wrongWith(opOf("brief").inputSchema, brief, notes, "brief");
+      const wrong = unfit ?? tool.refuse?.(args);
+      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
       if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call drawings, then drawings with use.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
-      let stopped = false;
-      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
       // The session keeps a new brief only when the call that gives it does what it asks.
       let kept: string | undefined;
       const ctx: Ctx = {

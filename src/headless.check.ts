@@ -554,4 +554,14 @@ try {
   assert.deepEqual(["C31H46O10Si, with 8 stereocentres.", "Stereocentres: eight.", "C31H46O10Si; 9 stereocentres (8 defined).", "C31H46O10Si (MW 8 hundred), 9 stereocentres."].map(asked), [true, true, false, false]);
 }
 
+// Plan 3.1, 7.3: an AI app that takes elicitation, through the Node host. A scheme with no brief asks the user (the
+// answer the host was given), and the same call draws it, in a thesis's style, and the session keeps the brief.
+{
+  const e = drawing("quick", "Asked"), forms: object[] = [];
+  const draw = async () => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { lines: "benzaldehyde -> benzyl alcohol" } } }), () => e.host, "1", session("Check", "asked", async (p) => { forms.push(p); return JSON.stringify({ action: "accept", content: { destination: "thesis" } }); }))).result;
+  const r = await draw();
+  assert.ok(!r.isError && /^Octet keeps this brief for the session\. The drawing now uses /.test(r.content[0].text), r.content[0].text);
+  assert.deepEqual([forms.length, e.host.doc().arrows?.length, e.host.style().purpose], [1, 1, "thesis"]);
+  assert.ok(!(await draw()).isError && forms.length === 1, "the session keeps the brief");
+}
 console.log("headless.check: ok");

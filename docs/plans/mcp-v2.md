@@ -203,6 +203,33 @@ preset on its own.
   free text for the rest. When it does not, the refusal above is the fallback. This reverses plan section 8, decision
   4. That decision was about confirmations, which stay unused. Transport work is in section 7.3.
 - `docs/decisions/0021-mcp.md` and `docs/plans/mcp.md` section 8 change to say so.
+- **As built (step 7, 11 November 2026, branch `mcp/elicit`).** Read against MCP 2025-11-25 (Elicitation), the newest
+  version in `VERSIONS`. An AI app takes elicitation when its initialize gives `capabilities.elicitation` as `{}` or
+  with `form` (url mode alone does not count): `elicits` in `mcp.rs`, kept on its `Session`, and `elicits` in
+  `src/mcp.ts` for the instructions.
+  - **Where a call would get the refusal** (a scheme with no brief, `needsBrief`), and for `set_brief` with no
+    destination, Octet asks with `elicitation/create` (`ASK_BRIEF`): "Where is this drawing going, and in what
+    style?", with destination (one choice, titled: Quick look, no page; Paper; Thesis; Slides; Poster; Notebook, the
+    only field required), journal_or_size ("JACS, 2 columns", "A4", "85 x 60 mm"), emphasis and layout, all text. A
+    tool call's own arguments are checked first, so a wrong call asks nothing.
+  - **accept:** the answers are made into one line ("paper, JACS, 2 columns emphasis: ...") and read by `briefOf`, as
+    draw's brief is, then the call goes on as if it had that brief: set first in the same undo step, said in the first
+    line of the reply, kept for the session when the call does its work. The reply is the one the call gives with that
+    brief (a check proves it). `set_brief` takes the answers as its arguments; what it was given wins.
+  - **decline:** the user has no preference, so the brief is quick.
+  - **cancel, no answer in 5 minutes, or an answer that is not one** (no destination Octet can read, an action not of
+    the three): the call ends with "Octet changed nothing. The user closed Octet's questions without answering. Ask
+    them in the chat, then call again with brief:" and the three questions. Nothing is kept: the old path still works.
+  - **Stop and cancel:** Stop in Octet's window, or notifications/cancelled, ends the wait at once, and the call is
+    cancelled as any call is. While it waits, Octet's notice says "Waiting for your answer in" the AI app's name.
+  - **The instructions** for such an AI app have one line changed: the bullet with the three questions becomes "For a
+    scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis
+    itself when it needs to. Give brief only for answers the user has already given in the chat." (`instructionsFor`,
+    over `INSTRUCTIONS`, which is not changed). Other AI apps get the instructions as before, word for word.
+  - **Not built:** the prompts (draw_scheme and the rest) still say to ask the three questions, for every AI app; the
+    form has no field for the user's own style file (a form takes text, not a file), so that stays `set_brief`'s
+    from_file; a draw that fails after the user answered keeps no brief (as draw's brief), so the next call asks
+    again.
 
 ### 3.2 Advice on fit (question 2)
 
@@ -826,6 +853,31 @@ The server needs to send a request to the client mid-call and wait for the answe
 4. The page carries on with the answer, or treats "decline" and "cancel" as no brief.
 
 Test it with a small client in `scripts/` that answers elicitation, as `mcp-evals/octet.mjs` is for calls.
+
+**As built (step 7, 11 November 2026, branch `mcp/elicit`):**
+
+- `From` has `elicit`, a function, present only when the session's AI app takes elicitation: mcp.rs sends `elicit` with
+  each request, and the window (`Editor.tsx`) makes it a call of the command `mcp_elicit(id, body)`; the Node host
+  (`scripts/headless/host.ts`, `session(client, id, elicit)`) takes it from the caller, so a check gives the answer.
+- **The stream.** The choice is made late: a tool call without a progress token is answered with plain JSON, as before,
+  unless the page asks; the first question writes the event stream's headers, then the question, then the reply comes
+  as an event (`opened` and `event` in `serve`). A call with a progress token is a stream from the start, as before. So
+  a call that asks nothing is answered byte for byte as before, for every AI app.
+- **mcp_elicit** writes `elicitation/create` with an id of its own (`octet-ask-N`) on the call's stream (`Msg::Ask`),
+  one at a time per call, and waits up to `ASK` (5 minutes). The call's own wait (`WAIT`) grows by `ASK` when it asks.
+- **The answer** is a POST of a JSON-RPC response (no method). `answered` gives it to the call of the same session that
+  waits on that id; any other is ignored. It is checked (`checked`): at most 16 KB, action accept, decline or cancel,
+  and only the form's own fields that are text or a number. Anything else is no answer.
+- **The wait ends at once** when the call ends (its `Pending` goes: the page answered, Stop, the window closed),
+  when notifications/cancelled names it, or when the answer is not one; else after `ASK`. The page reads each as no
+  answer.
+- **`--headless --mcp`:** the question goes out as a line, and the answer comes in as a line (`stdio`).
+- **The relay (`--mcp`, Claude Desktop):** the question comes on the call's stream and goes out as a line; the answer
+  line goes to Octet as a POST, as a notification does. An AI app that takes elicitation has its calls wait `ASK` more
+  in the relay.
+- Checked by Rust tests in `mcp.rs` (the capability, the question on the stream, the answer by id, an unknown id, an
+  answer that is not one, the time running out, a cancel, the relay both ways), `src/mcp.check.ts` and
+  `src/headless.check.ts`, and acceptance case 22 (to run on a build).
 
 ## 8. Background jobs (R7)
 
