@@ -2,7 +2,7 @@
 // to a set, naming, renaming, moving, removing, the sets themselves, built-in templates kept apart, a built-in copied
 // into My templates, and every kind of structure coming back whole from the settings.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
@@ -284,6 +284,10 @@ const { LIBRARY: SETS, loadMore } = await import("./library.ts");
 const atStart = SETS.length;
 await loadMore();
 assert.ok(SETS.length > atStart, "the later sets load");
+// And in the dev app: Vite's dev server keeps the attributes of a dynamic import() and serves a JSON file as a script,
+// which the webview refuses (library-more.ts). So no import() in the app's code passes { with: ... }.
+for (const f of readdirSync(new URL(".", import.meta.url)).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".check.ts")))
+  assert.doesNotMatch(readFileSync(new URL(f, import.meta.url), "utf8"), /\bimport\([^()]*,\s*\{\s*with\b/, `${f}: an import() with attributes`);
 const inSet = (name: string, m: Mol) => ({ name, mol: back(addTo(empty, newTemplate(name, m)))[0].mol }); // as a set keeps it
 const mine = [inSet("Salt", whole), ...fromText.templates.map((t) => inSet(t.name, t.mol)), inSet("Odd\u0007 \n name", chain)];
 const saved = writeTemplateFile(mine, "Salts", 4, "large");

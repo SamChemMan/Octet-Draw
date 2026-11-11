@@ -41,7 +41,7 @@ export const libraryItem = (kind: string) => byKind.get(kind);
 // its later items. The promise is kept, so the file is fetched and read once.
 let more: Promise<void> | undefined;
 export function loadMore(): Promise<void> {
-  more ??= import("./library-more.json", { with: { type: "json" } }).then(({ default: later }) => {
+  more ??= import("./library-more.ts").then(({ default: later }) => {
     const { order, sets } = later as { order: string[]; sets: Raw };
     for (const raw of sets) {
       const set = read(raw), have = LIBRARY.find((c) => c.name === set.name);
