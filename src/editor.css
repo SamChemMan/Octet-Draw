@@ -644,6 +644,10 @@ rect.mark {
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out);
 }
+/* In a list (the user's own colours in a colour menu) the name keeps clear of the button, so it never runs under it. */
+.strip.list .variant-cell:has(> .variant-action) > .variant {
+  padding-right: 28px;
+}
 .variant-cell:hover .variant-action,
 .library-cell:hover .variant-action,
 .variant-action:focus-visible,
@@ -4948,7 +4952,8 @@ div.facts {
   color: var(--error);
   fill: var(--error);
 }
-/* A colour in a colour menu (ColourPick), with the swatch edge, so a white or a pale colour shows on the menu. */
+/* A colour in a colour menu (ColourPick), as it is, with the swatch edge, so a white or a pale colour shows on the menu.
+   In a menu it stands in an icon's 18 px, so the names line up. */
 .pick-swatch {
   display: inline-block;
   flex: none;
@@ -4956,12 +4961,12 @@ div.facts {
   height: 14px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px var(--swatch-edge);
-  opacity: 0.7;
+}
+.variant > .pick-swatch {
+  margin: 0 2px;
 }
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
-  border: 1px solid var(--hairline);
-  opacity: 1;
 }
 /* Printing: only the page Print laid out, at true size. */
 .print-root {

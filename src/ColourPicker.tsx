@@ -163,9 +163,12 @@ export const colourItems = (groups: ColourOption[][], key = (o: ColourOption) =>
 // screen. Add colour… opens the picker by the button: the colour changes as the picker does, and joins the user's own
 // colours as the picker closes. The user's own colours drag into a new order and have a remove button; a right-click
 // on one renames, moves or removes it. A press keeps the focus where it is, so text being typed takes the colour.
-export function ColourPick({ label, value, presets, none, own, drawing = [], onPick, onOwn }: {
+// field: drawn as the fields beside it (a Settings row, which names it), with the colour's name where a select shows its
+// value.
+export function ColourPick({ label, value, presets, none, own, drawing = [], onPick, onOwn, field }: {
   label: string; value: string; // the colour chosen now (#RRGGBB), or "none"
   presets: [string, string][]; none?: boolean; // the preset colours, after None where it applies (Highlight, Ring fill)
+  field?: boolean;
   own: Swatch[]; drawing?: Swatch[]; onOwn: (own: Swatch[]) => void; // the user's own colours, and the drawing's after them
   onPick: (hex: string, live?: boolean) => void; // live: a change in the picker while it is open (one step to undo)
 }) {
@@ -217,8 +220,8 @@ export function ColourPick({ label, value, presets, none, own, drawing = [], onP
   return (
     <div className="pick" ref={box} onMouseDown={(e) => { if (!(e.target as Element).closest("input, .colour-pop")) e.preventDefault(); }}>
       <Pick label={label} value={chosen ?? value} groups={items} onPick={choose} onPress={press} onItemMenu={(key, where, keyboard) => { if (ownIndex(key, own) >= 0) setManage({ key, at: where, keyboard }); }}
-        className="chip pick-button" title={`${label}: ${current?.name ?? value}`}>
-        <span className="pick-label" aria-hidden>{label}</span>
+        className={field ? "select-field" : "chip pick-button"} title={`${label}: ${current?.name ?? value}`}>
+        <span className={field ? undefined : "pick-label"} aria-hidden>{field ? current?.name ?? value : label}</span>
         <span className={current?.hex ? "pick-swatch" : "pick-swatch none"} style={current?.hex ? { background: current.hex } : undefined} />
       </Pick>
       <Exit>{adding && <ColourPop anchor={adding.anchor} keep={box.current} label={`${label} colour`} value={adding.hex} onChange={(hex) => { setAdding((a) => a && { ...a, hex }); onPick(hex, true); }}
