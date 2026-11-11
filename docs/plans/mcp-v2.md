@@ -329,8 +329,9 @@ name:
 ### 4.3.1 As built (step 3b, 11 November 2026): `src/compound.ts`
 
 - One more change: `{ do, at?, with?, to?, config? }`. The names and their arguments are `TRANSFORMATIONS` in
-  `compound.ts`, for the tool-merge step to publish under advanced help. A tool's own description names `do` in one
-  line, and a refused `do` lists the names. Protect and deprotect take `with` (the 13 groups, `acetonide`,
+  `compound.ts`. Since the merge with step 5 (`mcp/integrate2`, 15.1), `advanced` with `help` and
+  `{ of: "transformations" }` gives that table, and `draw`'s list of a compound's changes names `do` in one example
+  (`{do: 'reduce', at: '7', config: 'R'}`) and says help lists the rest. A refused `do` lists the names. Protect and deprotect take `with` (the 13 groups, `acetonide`,
   `carbonate`); also `acetylate`, `benzoylate`, `form_carbonate`, `esterify`, `hydrolyse`, `oxidise`, `reduce`,
   `hydrogenate`, `epoxidise`, `dihydroxylate`, `hydroborate`, `open_epoxide`, `lactonise`, `close`, `open` and
   `join` (a bond to an atom of another earlier compound, named by `with`).
@@ -346,6 +347,8 @@ name:
   small ring goes on the side of its bond with room. `at` takes a label too (OTBS: the atom it is on). `hydrolyse`
   also takes an acetal (a ketal, a THP ether: the part with the atom `at` names stays, or the largest). `config` on a
   centre that the changes keep is refused: it sets only a new centre, or one a change took the configuration of.
+- **Left:** the evals have not been run on `do` (they need the app), and `tools/list` does not type `do`, `with` or
+  `config` (an object inside a tool's arguments is open, so a strict AI app sends them).
 - **Not as specified:** when the part that stays has atoms of the new ring that are not one run (the McMurry, 13:
   the A ring with the carbonate holds three atoms of the B ring), Octet lays out the whole compound with Indigo,
   turned (or mirrored, with its wedges) to lie as it did, and the reply says the atoms moved. A ring-closing
@@ -413,11 +416,24 @@ Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. Wh
 
 ### 5.5 As built (step 5, 11 November 2026, branch `mcp/tools`)
 
-`tools/list` has five tools: `draw`, `change`, `read`, `drawings` and `advanced`. It is 13,905 characters (about
-3,970 tokens at 3.5 characters each), from 59,857 with 26 tools. `set_brief`, `draw_route` and `job` are not built:
-each is one more entry in `TOOLS` (`src/mcp.ts`). There are 95 characters left under the 14,000 that `mcp.check.ts`
-allows, so those three need the limit looked at again, or room found (`draw_route` can take over what `draw` says of
-a reaction).
+`tools/list` has five tools: `draw`, `change`, `read`, `drawings` and `advanced`. It was 13,970 characters on
+`mcp/tools`, from 59,857 with 26 tools. With page fit and the named transformations merged in (`mcp/integrate2`, 15.1)
+it is 13,995 (about 4,000 tokens at 3.5 characters each): 5 characters are left under the 14,000 that `mcp.check.ts`
+allows. `set_brief`, `draw_route` and `job` are not built: each is one more entry in `TOOLS` (`src/mcp.ts`), so those
+three need the limit looked at again, or room found (`draw_route` can take over what `draw` says of a reaction).
+
+- **What the merge with `mcp/fit` and `mcp/transform` published.** `advanced help { of: "transformations" }` gives
+  the named transformations (4.3.1), and `draw`'s list of changes names `do` in one example. `help` of `reaction`
+  says that `above` and `below` take a compound as well as text, that a list over 30 characters goes on more lines
+  between its items and a free line after a comma or semicolon, and that `read` gives the compounds at an arrow
+  after its text lines; `draw`'s steps say "one free line or compound each". For room, two lines were cut with no
+  loss: `change`'s "Also ops, each with its own arguments beside op:" is "Also ops:" (its first line says each op has its
+  arguments beside it), and "drawing, so it lies the same way" is "drawing: it lies the same way". The compound's
+  "Give text instead when a ring is made or broken, or a new stereocentre is set" went, as `do` and `config` now say
+  those.
+- **Left:** `above` and `below` are listed as text only: typing them as text or a compound would take `tools/list`
+  to about 14,070. A strict AI app that checks a call against the list will not send a compound object there. It can
+  give a structure as text (`'structure: name'`), but not one with labels or a number.
 
 - **How it is made.** The 26 tools of v1 are the operations (`OPS`), each with its own schema, which every call is
   still checked against, and its own code, which is as it was. A tool is a name, a short description, the arguments
@@ -488,8 +504,8 @@ a reaction).
   - Align and distribute: Octet with no window has no Arrange commands ("a dialog is open"), as it has no Export
     dialog. The window has them; not a fault of the list.
 - **Not tried:** the acceptance script and the evals (both need the app). They are on the new names and `node --check`
-  passes. The Rust tests of the relay still send the names `read_drawing` and `draw_structures`, which the relay does
-  not read.
+  passes. The Rust tests of the relay and the bundle now send the names `read`, `draw` and `advanced` (`mcp/integrate2`;
+  not run there, as nothing was built).
 
 ## 6. Lenient arguments (R5)
 
@@ -826,6 +842,10 @@ benchmark runner should time only the MCP part.
 | 5: the tool merge (11 Nov, `mcp/tools`) | 13,824 (3,950), 5 tools | 2,367 | taxol-chained | 3 | 0 | 3,941 | 2,411 | 2,140 | 19 of 19 | 40 |
 | | | | taxol-schemes | 3 | 0 | 4,490 | 2,090 | 2,569 | 19 of 19 | 40 |
 | | | | taxol-v1-job | 33 | 0 | 16,009 | 169,663 | 3,867 | 19 of 19 | 9 |
+| Tool merge, page fit and transformations merged (11 Nov, `mcp/integrate2`) | 13,995 (4,000), 5 tools | 2,367 | taxol-chained | 3 | 0 | 3,699 | 2,819 | 1,777 | 19 of 19 | 40 |
+| | | | taxol-schemes | 3 | 0 | 4,490 | 2,208 | 2,481 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 33 | 0 | 16,010 | 169,892 | 3,713 | 19 of 19 | 9 |
+| | | | corpus-chained | 3 | 0 | 1,781 | 1,232 | 105 | 6 of 6 | 2 |
 
 - 3b (named transformations): `taxol-chained` has 18 of its 21 structures written `from` another; only 2 and 8 (each
   scheme's new skeleton) and taxol 1 (its side chain is a reagent, not an earlier compound) are text. The 18 take
@@ -931,6 +951,26 @@ benchmark runner should time only the MCP part.
     3.0, a refused call 2.0 and 3.2. Finding a call's operation costs 0.5 to 1.5 µs, which no case shows. The three
     schemes took 2,807 ms before and 2,720 after (the quickest of 6), a grid of six 7.95 and 7.97. `tools/list`
     itself is answered in 0.07 ms (0.83): it is made once, not at each call.
+- Tool merge, page fit and transformations merged (`mcp/integrate2`: `mcp/tools`, then `mcp/fit`, then
+  `mcp/transform`, on `release-1.2-mcp`, then what fit and transform left for the tool merge published in help, 5.5).
+  No case has fewer structures right, more refused calls or more warnings than on any branch that measured it.
+  - The 60 corpus jobs: 227 of 240 right, 1 refused call and 73 warnings (as `mcp/fit`; 225, 1 and 159 on
+    `mcp/tools`), 30,722 characters sent (as `mcp/tools`), 30,233 read and 34,731 in the default reads (as
+    `mcp/fit`).
+  - `taxol-chained` sends 3,699: `mcp/transform`'s 3,645 and 54 for `"kind":"reaction",` in three calls. It reads
+    2,819: fit's sentences on what does not fit the page and transform's notes on the new compounds (2,411 on
+    `release-1.2-mcp`, 2,647 on `mcp/fit`, 2,566 on `mcp/transform`). `taxol-schemes` reads fit's 2,208.
+    `taxol-v1-job` sends 16,010, one more than `mcp/tools`, as on `mcp/fit` (the MOL text it sends back).
+  - `corpus-chained` (new on `mcp/transform`): 6 of 6 right, sends 1,781 (1,727 there, and 54 for the kind), reads
+    1,232 (1,241 there: fit's shorter replies).
+  - Times: `results.json` keeps, for each case, the lowest of the times the four branches kept and three `--write`
+    runs of the merged code (load 4 to 5). 19 of the 64 keep a branch's time, `taxol-v1-job` among them
+    (`mcp/transform`'s 3,713 ms; measured here 3,820 to 3,889). `run.ts taxol-v1-job` on each branch's code in turn,
+    four rounds (the quickest, and the slowest): `release-1.2-mcp` 3,701 (3,794), `mcp/tools` 3,791 (3,942),
+    `mcp/fit` 3,803 (3,959), `mcp/transform` 3,742 (4,188), merged 3,817 (3,832). The merged code was the steadiest,
+    and its quickest is 3% over the quickest branch: within the noise of these runs, but no run proves it is not
+    slower. The three schemes: 2,481 merged against 2,543 on `mcp/transform` (each code's quickest of 4); the chained
+    schemes 1,771 against 1,791.
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -1062,7 +1102,9 @@ every user sees, so each needs Sam's yes and the ChemDraw cross-check.
   as drawn; conditions longer than 30 characters go on more lines; a second product goes to the next line and is
   still read as the step's; a structure at an arrow gets room. Tool gaps: a line in `above` or `below` can be a
   compound object. The reply says what does not fit (a grid, a scheme, a cycle and its side text). Benchmark: 162
-  warnings to 73, 225 to 227 right of 240. Left: a one-step reaction wider than the page is not fitted (zu2025-fig3a,
+  warnings to 73, 225 to 227 right of 240. Merged with the tool merge and the named transformations
+  (`mcp/integrate2`, 15.1): the same 227 and 73 there, on `draw`, `change` and `read`, and `help` of `reaction` says
+  what a line at an arrow takes (5.5). Left: a one-step reaction wider than the page is not fitted (zu2025-fig3a,
   3b, 3c, 4b, robinson2026-fig3c, proctor2019-scheme72-52: the reply says so and what to do); grocott2025-fig4e still
   has 7 warnings; a hydrate or other parts with no charge and no number read as several compounds.
 
