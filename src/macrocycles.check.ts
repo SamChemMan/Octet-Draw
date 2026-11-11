@@ -8,8 +8,8 @@
 // 3. Derivatives written by hand from the figures' Kekulé structures (walked from another atom than OPSIN's SMILES),
 //    with a chlorine at one position and a methyl at each other: OPSIN's reading of each name must be that structure.
 // Then the free bases as drawn: Structure to Name gives 21H,23H-porphyrin, 29H,31H-phthalocyanine and
-// 21H,22H,23H-corrole names when every pyrrole N points into the ring, and none for an N-confused porphyrin or a
-// pyrrole drawn turned out (naming.ts macrocycle).
+// 21H,22H,23H-corrole names when every pyrrole N points into the ring, none for a pyrrole drawn turned out, and a
+// von Baeyer name that cites its E and Z for an N-confused porphyrin (naming.ts macrocycle).
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import type { Mol } from "./render.ts";
