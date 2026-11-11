@@ -631,8 +631,8 @@ pub(crate) mod tests {
         i32::from_le_bytes(emf[at..at + 4].try_into().unwrap())
     }
 
-    // Issue 55: the metafile is recorded against a 96 dpi device (1.1.1's was 720), the logical units exactly 15 device
-    // px, and every bounds record in device px.
+    // Issue 55: the metafile is recorded against a 96 dpi device (1.1.1's was 720), a device px exactly 15 logical
+    // units, and every bounds record in device px.
     #[test]
     fn emf_reference_device_is_96_dpi() {
         let emf = make_emf(&tree(SVG), None);
