@@ -11,14 +11,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
-// Octet may still be starting (a CI machine): up to a minute for its mcp.json and its server.
-const read = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp.json"), "utf8")); } catch { return undefined; } };
+// Octet may still be starting (a CI machine): up to a minute for its file and its server. A dev build keeps
+// mcp-dev.json (mcp.json is the installed Octet's, which may run at the same time).
+const read = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
 let info;
 for (const end = Date.now() + 60_000; Date.now() < end; await new Promise((r) => setTimeout(r, 1000))) {
   info = read();
   if (info && (await fetch(`http://127.0.0.1:${info.port}/mcp`, { method: "POST" }).then(() => true, () => false))) break;
 }
-if (!info) throw new Error("Octet's mcp.json is not there: start a dev build with OCTET_MCP=1.");
+if (!info) throw new Error("Octet's mcp-dev.json is not there: start a dev build with OCTET_MCP=1.");
 const { port, token } = info;
 const URL_ = `http://127.0.0.1:${port}/mcp`;
 
@@ -293,23 +294,26 @@ const CASES = {
     r.stop();
     // Octet not there yet: the relay answers itself, then the tools appear once Octet is.
     const home = mkdtempSync(join(tmpdir(), "octet-relay-")), mine = platform() === "darwin" ? join(home, "Library/Application Support") : platform() === "win32" ? join(home, "AppData") : join(home, "share");
-    const c = stdio(info.program, ["--mcp"], { HOME: home, APPDATA: mine, XDG_DATA_HOME: mine });
+    const there = { HOME: home, APPDATA: mine, XDG_DATA_HOME: mine };
+    const c = stdio(info.program, ["--mcp"], there);
     const early = await c.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-early", version: "1" } });
     const none = (await c.ask("tools/list")).result?.tools;
     check(early.result?.capabilities?.tools?.listChanged === true && Array.isArray(none) && !none.length, "before Octet: initialize answered, no tools yet", JSON.stringify(early).slice(0, 200));
     mkdirSync(join(mine, "io.github.samchemman.octet-draw"), { recursive: true });
-    writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp.json"), JSON.stringify(info));
+    writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp-dev.json"), JSON.stringify(info));
     const changed = await until(() => c.notes.some((m) => m.method === "notifications/tools/list_changed"), 6000);
     const later = (await c.ask("tools/list")).result?.tools ?? [];
     check(changed && later.length >= 20, "Octet found: the list changed and the tools are there", `${changed} ${later.length}`);
     c.stop();
-    rmSync(home, { recursive: true, force: true });
-    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay.
-    const b = stdio(process.execPath, [fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url))]);
+    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. As shipped it reads mcp.json, the installed
+    // Octet's file: in this folder that file names the dev build.
+    writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp.json"), JSON.stringify(info));
+    const b = stdio(process.execPath, [fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url))], there);
     await b.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-bundle", version: "1" } });
     const read = await b.ask("tools/call", { name: "list_drawings", arguments: {} });
     check(!read.result?.isError && read.result?.structuredContent, "the bundle's server reaches Octet", JSON.stringify(read).slice(0, 160));
     b.stop();
+    rmSync(home, { recursive: true, force: true });
   },
   async 11(a) {
     console.log("11. Align and space evenly (Octet's Object > Align and Distribute)");
