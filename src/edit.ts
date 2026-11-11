@@ -2638,9 +2638,13 @@ export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number
   };
 }
 // Object > Flatten: atoms keep where they are drawn and lose their depth. As in ChemDraw, depth shading stays set (it
-// shows again if the structure is turned again).
+// shows again if the structure is turned again); an opacity set by hand goes.
 export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0], a.location[1], 0] as [number, number, number] } : a)) });
+  ({ ...m, atoms: m.atoms.map((a, i) => {
+    if (!ids.has(i)) return a;
+    const location: [number, number, number] = [a.location[0], a.location[1], 0];
+    return typeof a.shade === "number" ? { ...a, shade: true, location } : { ...a, location };
+  }) });
 // The axis part of a structure turns about in 3D, as [atom, atom]: the one bond joining the part to the rest of its
 // structure ([inside atom, outside atom]), or, when its bonds to the rest all go to the same two atoms (a
 // carboxylate bridging a metal–metal bond, a ring fused on a bond), the line through those two. Else none.

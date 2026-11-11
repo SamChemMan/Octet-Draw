@@ -21,7 +21,7 @@ const RADIUS: Record<string, number> = { H: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 
 const CC = 1.52;
 
 // ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on
-// (as ChemDraw turns it on after 3D Clean Up).
+// (as ChemDraw turns it on after 3D Clean Up). An atom keeps an opacity set by hand.
 export function clean3d(m: Mol, ids: number[]): Mol {
   const n = ids.length, local = new Map(ids.map((g, k) => [g, k]));
   if (n < 2) return m;
@@ -122,7 +122,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     atoms: m.atoms.map((a, g) => {
       const k = local.get(g);
       if (k === undefined) return a;
-      return { ...a, shade: true, location: [p[k][0] + shift[0], p[k][1] + shift[1], p[k][2] + shift[2]] as V };
+      return { ...a, shade: a.shade || true, location: [p[k][0] + shift[0], p[k][1] + shift[1], p[k][2] + shift[2]] as V };
     }),
   };
 }
