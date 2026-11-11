@@ -263,7 +263,9 @@ Before drawing, Octet works out whether the job fits the destination:
   stand-in of `src/mcp.check.ts`.
 - **The refusal** comes after a call is routed and before its schema check (`needsBrief`): draw with kind reaction,
   cycle or figure, or structures with more than one; a change with one of these, or with more than one structure
-  drawn in all. The text is exactly 3.1's, with nothing before it.
+  drawn in all. The text is exactly 3.1's, with nothing before it. draw and change take the answers as `brief`
+  (change since `mcp/lenient`), so their refusal says to call again with them as brief, if the user has given them
+  (`BRIEF_HERE`); tools without brief keep 3.1's text (`BRIEF_FIRST`).
 - **Destination.** quick is `QUICK_STYLE` (page edges off, no purpose). paper, thesis, slides and poster are their
   purposes (`purposeStyle`). notebook is the experiment purpose when the drawing is an experiment page, else paper's,
   and the reply says how to open an experiment page. journal is the one preset whose name, or a journal named in its

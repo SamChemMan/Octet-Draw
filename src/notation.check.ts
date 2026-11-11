@@ -343,6 +343,10 @@ for (const [text, want] of HARD) {
     ["// Hajos–Parrish cyclisation\n# Hajos–Parrish ketol 2\nCC(=O)CCC1(C)C(=O)CCC1=O (1) -> (3aS,7aS)-3a-hydroxy-7a-methylhexahydro-1H-indene-1,5(6H)-dione (2), L-proline (20 mol%), CHCl3, rt, 99% ee", ["1", "2"], "Hajos–Parrish ketol 2", "Octet left out line 1, a comment."],
     ["// Piribedil N-alkylation, hydroboration, then benzylic C–N to C–C coupling\n# Piribedil to 14a\nC1OC2=C(O1)C=C(C=C2)CN1CCN(CC1)c1ncccn1 + C=CCCOS(=O)(=O)c1ccc(C)cc1 (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a)\n-> C1OC2=C(O1)C=C(C=C2)CCCCCN3CCN(CC3)c4ncccn4 (14a), SPhos·Pd-G3, t-BuOK, 47%", ["", "11a", "12a", "14a"], "Piribedil to 14a", "Octet left out line 1, a comment."],
     ["Hajos-Parrish proline cycle\nOC(=O)[C@@H]1CCCN1 (1)\n-> O=C1CCC(=O)C1(C)CC/C(C)=[N+]\\1CCC[C@H]1C(=O)[O-] (2), +triketone, -H2O\n-> C=C(CCC1(C)C(=O)CCC1=O)N1CCC[C@H]1C(=O)O (3), -H+\n-> C[C@]12CCC(\\C[C@@]1(O)CCC2=O)=[N+]/3CCC[C@H]3C(=O)[O-] (4), aldol\n-> 1, -ketol, +H2O (hydrolysis)", ["1", "2", "3", "4"], "centre:Hajos-Parrish proline cycle", "Octet read line 1 as the scheme's title."],
+    ["Hajos–Parrish proline cycle\nOC(=O)[C@@H]1CCCN1 (1)\n-> O=C1CCC(=O)C1(C)CC/C(C)=[N+]\\1CCC[C@H]1C(=O)[O-] (2), + triketone, −H2O\n-> C=C(CCC1(C)C(=O)CCC1=O)N1CCC[C@H]1C(=O)O (3), −H+\n-> C[C@]12CCC(\\C[C@@]1(O)CCC2=O)=[N+]/3CCC[C@H]3C(=O)[O-] (4), aldol\n-> 1, − ketol, + H2O (hydrolysis)", ["1", "2", "3", "4"], "centre:Hajos–Parrish proline cycle", "Octet read line 1 as the scheme's title."],
+    // (One word is a title too, and a comment between the title and its scheme leaves it so, said in line order.)
+    ["Hajos-Parrish\nOC(=O)[C@@H]1CCCN1 (1)\n-> CCO (2)", ["1", "2"], "Hajos-Parrish", "Octet read line 1 as the scheme's title."],
+    ["the ketol\n// a note\nCCO (1)\n-> CC=O (2)", ["1", "2"], "the ketol", "Octet read line 1 as the scheme's title.\nOctet left out line 2, a comment."],
     // (Names, which Octet reads: a start on the line before its arrow, a structure before a blank line and a title,
     // and one alone. Two lone lines before an arrow are refused as before.)
     ["methyl benzoate\n-> benzoic acid", ["", ""], undefined, ""],
@@ -360,6 +364,20 @@ for (const [text, want] of HARD) {
   // A title with nothing under it before a scheme is that scheme's (it was an empty panel, refused with its JSON path).
   const r = fromLines({ lines: "benzene | toluene\n# Next\nanisole -> phenol" }) as { op: string; args: { steps: { tool: string; args: { text?: string } }[] } };
   assert.deepEqual(r.args.steps.map((x) => x.args.text ?? x.tool), ["structures", "Next", "reaction"]);
+  // A limit the lines break is said of the line it is on, and what to write, never as the JSON path the lines made.
+  const long = "x".repeat(320);
+  for (const [text, want] of [
+    [`ethanol -> acetaldehyde, ${long}`, `Line 1: "${"x".repeat(40)}…" is longer than 300 characters: make it shorter.`],
+    [`ethanol -> acetaldehyde (1)\n\n# T\nbenzene -> phenol, ${long}`, `Line 4: "${"x".repeat(40)}…" is longer than 300 characters: make it shorter.`],
+    [`benzene | toluene\n\nethanol -> acetaldehyde, ${long}`, `Line 3: "${"x".repeat(40)}…" is longer than 300 characters: make it shorter.`],
+    [Array.from({ length: 201 }, (_, k) => "C".repeat(k + 1)).join(" | "), "The lines make more than 200 structures: draw them in parts."],
+  ]) assert.equal((await call("draw", { lines: text, brief: "quick" }, "words-limit")).content[0].text, `Octet changed nothing. ${want}`, text.slice(0, 60));
+  // Reading line 1 waits for nothing: a call sent after a draw by lines (by an AI app that takes elicitation, whose
+  // calls go in turn) sees what it drew.
+  const o = drawing("paper"), go = (name: string, a: unknown) => handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: a } }), () => o.host, "1", session("Order", "order", (async () => ({ action: "decline" })) as any));
+  await go("set_brief", { destination: { kind: "quick" } });
+  const [, seen] = await Promise.all([go("draw", { lines: "ethanol -> acetaldehyde" }), go("read", {})]);
+  assert.equal(JSON.parse(JSON.parse(seen).result.content[0].text).reactions.length, 1, seen);
 }
 // A name or SMILES Octet cannot read is named as the lines wrote it ({R}), with the line it is on (not one that only
 // holds its text, as a caption), and no more: on every path (a reaction, a route, a batch, a change). The JSON form

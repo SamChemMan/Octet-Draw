@@ -375,6 +375,8 @@ function arrowsOf(s: string): { parts: string[]; arrows: string[] } | string {
 type Cell = Compound | { note: string };
 const head = (l: string) => /^(#+)\s*(.*)$/.exec(l)!;
 
+// A scope's core: a SMILES with {R} groups, then a colon (or after "core:").
+const cored = (l: string) => l.includes("{") && /:(?:\s|$)|^core\b/i.test(l);
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
@@ -386,15 +388,18 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   const bad = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.exec(text);
   if (bad) return `The lines have the character U+${bad[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")} at ${bad.index + 1}: take it out`;
   // The lines, each joined to the next when it ends with a comma or semicolon or the next starts with a comma.
-  const all: { line: string; at: number }[] = [];
+  // gap: a blank line comes before it. left: what Octet left out, said in line order with the first line's reading.
+  const all: { line: string; at: number; gap: boolean }[] = [], left: [number, string, string][] = [];
+  let gap = false;
   // A Markdown code fence round them is not part of them.
   for (const [k, raw] of text.replace(/\r\n?/g, "\n").replace(/^\s*```[\w-]*\n|\n```\s*$/g, "\n").split("\n").entries()) {
     const l = raw.replace(/[\t ]/g, " ").replace(/[“”„]/g, '"').replace(/[‘’]/g, "'").replace(/[º˚](?=\s*C\b)/g, "°").replace(/\s+/g, " ").trim(), prev = all[all.length - 1];
-    if (!l) continue;
+    if (!l) { gap = true; continue; }
     // A line that starts with // is a comment, as in code.
-    if (l.startsWith("//")) { said?.("comment", `Octet left out line ${k + 1}, a comment.`); continue; }
+    if (l.startsWith("//")) { left.push([k + 1, "comment", `Octet left out line ${k + 1}, a comment.`]); continue; }
     if (prev && (/[,;]$/.test(prev.line) || l[0] === ",")) prev.line = `${prev.line}${l[0] === "," ? "" : " "}${l}`;
-    else all.push({ line: l, at: k + 1 });
+    else all.push({ line: l, at: k + 1, gap });
+    gap = false;
   }
   for (const x of all) {
     // A full stop at the end, unless it ends an abbreviation (r.t., e.e., cat.).
@@ -405,11 +410,12 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   // A first line of words that is not a compound (no number, no arrow, no | or +, and Octet cannot read it as a
   // structure) says what follows: before a blank line or a # title it is left out ("the ketol"), and before a compound
   // and an arrow line it is the scheme's title, as with #.
-  const [w0, w1, w2] = all, plain = (x: { line: string }) => x.line[0] !== "#" && !quoted(x.line) && ((r) => typeof r !== "string" && !r.arrows.length)(arrowsOf(x.line));
-  if (reads && w1 && plain(w0) && / /.test(w0.line) && !/\||\s\+\s/.test(w0.line) && ((c) => typeof c !== "string" && !c.number && c.from === undefined)(compound(w0.line, new Set())) && !reads(w0.line)) {
-    if (w1.at > w0.at + 1 || w1.line[0] === "#") { said?.("words", `Octet left out line ${w0.at}, "${w0.line.slice(0, 40)}": it is not a structure.`); all.shift(); }
-    else if (w2 && plain(w1) && arrowAt(w2.line, 0)) { said?.("words", `Octet read line ${w0.at} as the scheme's title.`); w0.line = `# ${w0.line}`; }
+  const [w0, w1, w2] = all, plain = (x: { line: string }) => x.line[0] !== "#" && !quoted(x.line) && !cored(x.line) && ((r) => typeof r !== "string" && !r.arrows.length)(arrowsOf(x.line));
+  if (reads && w1 && plain(w0) && !/\||\s\+\s/.test(w0.line) && ((c) => typeof c !== "string" && !c.number && c.from === undefined)(compound(w0.line, new Set())) && !reads(w0.line)) {
+    if (w1.gap || w1.line[0] === "#") { left.push([w0.at, "words", `Octet left out line ${w0.at}, "${w0.line.slice(0, 40)}": it is not a structure.`]); all.shift(); }
+    else if (w2 && plain(w1) && arrowAt(w2.line, 0)) { left.push([w0.at, "words", `Octet read line ${w0.at} as the scheme's title.`]); w0.line = `# ${w0.line}`; }
   }
+  for (const [, kind, line] of left.sort((a, b) => a[0] - b[0])) said?.(kind, line);
   const known = new Set<string>(), ops: Op[] = [];
   let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound[] | undefined;
   const add = (c: Compound, at: number) => { if (c.number) known.add(c.number); if (c.text !== undefined && where && !where.has(written(c as { text: string }))) where.set(written(c as { text: string }), at); };
@@ -529,7 +535,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (typeof split === "string") return `Line ${at}: ${split}`;
     const smiles = !split.arrows.length && /^([^\s>]+)>([^\s>]+)>([^\s>]+)$/.exec(line);
     if (smiles) return `Line ${at}: "${line.slice(0, 40)}" is a reaction SMILES with agents: write ${smiles[1]} -> ${smiles[3]}, ${smiles[2]}`;
-    if (!split.arrows.length && line.includes("{") && /:(?:\s|$)|^core\b/i.test(line)) {
+    if (!split.arrows.length && cored(line)) {
       // A scope's core: a SMILES with {R} groups, then a colon (or after "core:"). Its compounds (R=Me (5) 80%) are
       // the lines after it, or what follows the colon, with or without "then". {R} after the core again is the core's.
       const named = /^core\b\s*:?\s*/i.exec(line), colon = named ? [] : cut(line, (i) => (line[i] === ":" && /^(?:\s|$)/.test(line[i + 1] ?? "") ? 1 : 0));

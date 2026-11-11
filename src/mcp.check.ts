@@ -291,6 +291,7 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
     ["No, I have no preferred style. Just a quick look on screen, no page. Nothing to emphasise.", { kind: "quick" }],
     ["nowhere in particular", { kind: "quick" }],
     ["a quick look for a JACS paper", { kind: "paper", journal: "ACS Document 1996" }],
+    ["JACS, on screen", { kind: "paper", journal: "ACS Document 1996" }],
   ] as [string, object][]).entries()) {
     fresh();
     o = await call("draw", { lines: "ethanol -> water", brief }, `s-q${k}`);
@@ -301,6 +302,11 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
   fresh();
   o = await call("set_brief", { destination: "On screen only, a quick look" }, "s-qw");
   assert.ok(!o.isError && JSON.parse(briefs.get("s-qw")!).destination.kind === "quick", text(o));
+  // The call's own emphasis wins over one in the words, and words Octet cannot read are refused as destination's.
+  fresh();
+  o = await call("set_brief", { destination: "JACS. Emphasis: the water", emphasis: "the product" }, "s-qe");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-qe")!).emphasis === "the product", text(o));
+  assert.match(text(await call("set_brief", { destination: "no idea" }, "s-qn")), /^Octet changed nothing\. destination: give quick/);
   // change takes brief as draw does (the lab's Haiku drew a cycle with change, and was refused for want of it).
   const cycle = { op: "draw", kind: "cycle", intermediates: [{ text: "OC(=O)[C@@H]1CCCN1" }, { text: "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O" }, { text: "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O" }, { text: "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O" }], steps: [{ step: 0, in: "triketone", name: "cond" }, { step: 1, name: "tautom" }, { step: 2, name: "aldol" }, { step: 3, out: "ketol", name: "hydrol" }], anticlockwise: false };
   fresh();

@@ -20,7 +20,7 @@ import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, p
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION, written } from "./notation.ts";
 import { formulaTextRuns, isGeneric, labelSmiles } from "./labels.ts";
-import { looksLikeSmiles } from "./names.ts";
+import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
@@ -184,6 +184,16 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
 // A call's arguments, read leniently and then checked: what is wrong with them, or undefined. at: where they are in
 // the call (an operation's are at operations[0]).
 const wrongWith = (s: Schema, args: unknown, notes: Notes, at = "") => check(s, coerce(s, args, "", notes), at);
+// The same refusal of arguments the lines made, said of the lines: their JSON path means nothing to the model that
+// wrote them. The line is the first that has the text refused (or the first text of a list refused).
+function onLines(wrong: string, args: unknown, text: string): string {
+  const [, path, why] = /^([\w.[\]]+): (.+)$/.exec(wrong) ?? [];
+  if (!path) return wrong;
+  const v = path.split(/[.[\]]+/).filter(Boolean).reduce((o: any, k) => o?.[k], args), first = [v].flat(3).find((x) => typeof x === "string") as string | undefined;
+  const at = first ? text.split("\n").findIndex((l) => l.replace(/\s+/g, " ").includes(first.slice(0, 40))) + 1 : 0;
+  if (typeof v === "string") return `${at ? `Line ${at}` : "The lines"}: "${short(v, 40)}" is ${why}${/^longer/.test(why) ? ": make it shorter" : ""}`;
+  return `${at ? `Line ${at} has` : "The lines make"} ${why.replace(/\bitems?\b/, /(\w+)(?:\[\d+\])*$/.exec(path)![1])}${/^more/.test(why) ? ": draw them in parts" : ""}`;
+}
 // Control characters out of text the AI app gives (a line break stays where text takes one).
 const clean = (t: string, lines = false) => t.replace(lines ? /[\u0000-\u0009\u000b-\u001f\u007f]+/g : /[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " ").trim();
 // Text cut to its first characters, for a result to quote.
@@ -339,10 +349,10 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // notes: what the call's arguments were read as (coerce), for the reply.
 // brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session. unset: the session
 // has no drawing yet.
-// lean: the call was a draw by lines, whose reply names each compound in its list (madeCompounds); where: the line each
+// lean: the call was a draw by lines (their text), whose reply names each compound in its list (madeCompounds); where: the line each
 // name or SMILES of the lines is on (fromLines).
 // full: the call asked for detail: full. along: the brief is set by a draw that gives it.
-type Ctx = { lean?: boolean; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+type Ctx = { lean?: string; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -626,9 +636,9 @@ for (const t of OPS) {
 // wrong with the call.
 // hidden: callable by its name (scripts, checks) but not listed: AI apps reach it through advanced.
 // route's brief: the user's answers given with the call (draw's brief), set as set_brief sets them before it draws;
-// lines: the call was the line notation, so its reply is the one that ends a job (answer); where: the line of each of
+// lines: the call was the line notation (its text), so its reply is the one that ends a job (answer); where: the line of each of
 // its names (fromLines).
-type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes, reads?: (t: string) => boolean) => { op: string; args: any; at?: string; brief?: unknown; lines?: true; where?: Map<string, number> } | string };
+type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes, reads?: (t: string) => boolean) => { op: string; args: any; at?: string; brief?: unknown; lines?: string; where?: Map<string, number> } | string };
 const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
 const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "set_brief", "file", "new"];
 // The values an operation's argument takes, for a tool's description to list.
@@ -673,7 +683,8 @@ const BRIEF_NOTE = "The user's answers to the three questions, when this call dr
 // paper", "thesis, A4"), so each part (split at commas, semicolons and full stops) gives the destination, columns,
 // size and page wherever they are in it; the words left are the journal, unless they say no or nothing, or are only
 // filler and the question's own words ("Where it goes: on screen only"). A quick look, on screen, no page or nowhere in
-// particular is Quick start, unless a part names where the drawing goes ("a quick look for a JACS paper" is a paper).
+// particular is Quick start, unless a part names where the drawing goes or a journal ("a quick look for a JACS paper"
+// and "JACS, on screen" are a paper).
 const PAGE_WORD = /\b(a[0-4]|(?:us\s+)?letter|legal|tabloid)\b|(16:9|4:3)/i;
 const QUICK = /\b(?:quick(?:\s+(?:start|look))?|(?:on\s+)?screen|glance|no\s+page|nowhere(?:\s+in\s+particular)?|no\s+preference|none)\b/gi;
 const FILLER = "a|an|the|my|for|in|on|at|as|with|to|of|just|only|it|is|this|where|goes|going|and|how|big|does|need|needs|be|now", LEAD = new RegExp(`^(?:(?:${FILLER})\\b[\\s:]*)+`, "i"), FILL = new RegExp(`\\b(?:${FILLER})\\b`, "gi");
@@ -692,7 +703,7 @@ function briefOf(b: unknown): unknown {
     else if (/[a-z0-9]/i.test(left.replace(FILL, ""))) journal.push(left);
   }
   if (journal.length) d.journal = journal.join(" ");
-  if (d.kind === undefined && quick) d.kind = "quick";
+  if (d.kind === undefined && !journal.length && quick) d.kind = "quick";
   // A page is a size, unless it is the destination's own page (a thesis on A4, slides at 16:9).
   const own = purposeStyle((d.kind === "quick" || d.kind === "notebook" || d.kind === undefined ? "paper" : d.kind) as PurposeKind);
   if (page && page !== "Custom" && page !== own.page && !d.size_mm) d.size_mm = page.startsWith("Slide") ? [...PAGES[page]].reverse() : PAGES[page];
@@ -713,7 +724,7 @@ const TOOLS: Tool[] = [
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes, reads) => {
       const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
-      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: true as const, where } : {}) };
+      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: rest.lines as string, where } : {}) };
     },
   },
   {
@@ -761,8 +772,8 @@ const TOOLS: Tool[] = [
     name: "set_brief", title: "Set the brief", ops: ["brief"],
     description: "The user's answers to the three questions in the instructions. A scheme, route, figure, cycle or grid waits for it. Octet sets the style and page, keeps it for the session and says what will not fit. No preference: kind quick. Call again to change it.",
     inputSchema: BRIEF_IN,
-    // (A destination given as words is read as draw's brief is.)
-    route: (a) => { const d = typeof a.destination === "string" ? briefOf(a.destination) : undefined; return typeof d === "string" ? d : { op: "brief", args: { ...a, ...(d as object) } }; },
+    // (A destination given as words is read as draw's brief is. The call's own emphasis and layout win over any in them.)
+    route: (a) => { const d = typeof a.destination === "string" ? briefOf(a.destination) : undefined; return typeof d === "string" ? d.replace(/^brief/, "destination") : { op: "brief", args: { ...(d as object), ...a, ...(d ? { destination: (d as { destination: unknown }).destination } : {}) } }; },
   },
   {
     // Not listed: lines draw a route, and advanced takes it as JSON. Scripts and checks call it by name.
@@ -1682,7 +1693,7 @@ async function setBrief(host: Host, a: BriefIn, ctx: Ctx): Promise<Result> {
     own = read.style;
   } else if (a.style?.from_drawing !== undefined) {
     // (This drawing by its id or title, or as the user says it: current, this, open, the current drawing.)
-    if (![w.id, w.name].includes(clean(a.style.from_drawing)) && !/^(?:the\s+)?(?:current|open|active|this)(?:\s+(?:drawing|document|one))?$/i.test(clean(a.style.from_drawing))) return why(`Octet reads the style of this session's drawing (${w.id}) only. For another drawing: drawings use it, read with format cdxml, and give that text as from_file.`);
+    if (![w.id, w.name].includes(clean(a.style.from_drawing)) && !/^(?:the\s+)?(?:current|this|open)(?:\s+drawing)?$/i.test(clean(a.style.from_drawing))) return why(`Octet reads the style of this session's drawing (${w.id}) only. For another drawing: drawings use it, read with format cdxml, and give that text as from_file.`);
     own = s;
   }
   // Question 2: the destination's purpose (its page, and its sizes at its scale), with a journal's preset and column.
@@ -2493,7 +2504,7 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
   // earlier step.
   for (const [k, st] of a.steps.entries()) {
     const wrong = wrongWith(opOf(st.tool).inputSchema, args[k], ctx.notes), late = refsIn(args[k]).find((n) => n < 1 || n > k);
-    if (wrong) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}): ${wrong}.`, error: true };
+    if (wrong) return { text: `Octet changed nothing. ${ctx.lean ? onLines(wrong, args[k], ctx.lean) : `Step ${k + 1} (${st.tool}): ${wrong}`}.`, error: true };
     if (late !== undefined) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}) names step ${late}: a step can name only the steps before it (they count from 1).`, error: true };
   }
   const made: Made[] = [], top: string[][] = [], said: string[] = [];
@@ -3146,10 +3157,9 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
       // The operation the call is, and its arguments, which are checked against that operation's own schema. A
       // refusal there names where the whole schema is: the tool lists the arguments most calls give.
-      // Lines are read with Name to Structure's reading (a first line of words that is no structure), so it is loaded
-      // first, as drawing them loads it.
-      if (typeof given?.lines === "string" || (Array.isArray(given?.operations) && given.operations.some((o: any) => typeof o?.lines === "string"))) await host().ready();
-      const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes, (t) => !!host().structure(t)) : "arguments: not an object";
+      // Lines are read with Name to Structure's reading (a first line of words that is no structure) once its names have
+      // loaded; until then line 1 is read as before. (Not awaited: an await here would let a call sent later go first.)
+      const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes, namesLoaded() ? (t) => !!host().structure(t) : undefined) : "arguments: not an object";
       if (typeof routed === "string") return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${routed}.` }], isError: true });
       // A scheme, route, figure, cycle or grid waits for the brief (plan 3.1): the AI app asks the user first, and gives
       // the answers with the call (draw's brief) or before it (set_brief). An AI app that takes elicitation has Octet
@@ -3160,6 +3170,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       // set_brief's other arguments are checked before it asks, with a destination standing in for the answer.
       const tool = opOf(routed.op), own = asks && tool.name === "brief";
       let args = routed.args, unfit = wrongWith(tool.inputSchema, own ? { destination: { kind: "quick" }, ...args } : args, notes, routed.at);
+      if (unfit && routed.lines) unfit = onLines(unfit, args, routed.lines);
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
       let stopped = false, halt = () => {};
@@ -3183,7 +3194,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (take) await take(); // (only then: an await of nothing would still let a request sent after this one go first)
       unfit ??= brief === undefined ? undefined : wrongWith(opOf("brief").inputSchema, brief, notes, "brief");
       const wrong = unfit ?? tool.refuse?.(args);
-      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
+      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && !routed.lines && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
       if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call drawings, then drawings with use.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
       // The session keeps a new brief only when the call that gives it does what it asks.
@@ -3203,7 +3214,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (changes) { delete args.picture; delete args.picture_size; }
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
-      ctx.lean = !!routed.lines;
+      ctx.lean = routed.lines;
       ctx.full = wantFull;
       ctx.where = routed.where;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
