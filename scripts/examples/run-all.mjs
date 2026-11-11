@@ -2,9 +2,9 @@
 // examples (docs/scripting.md) in JavaScript and in Python against that program, on files made in OUT through the
 // program itself: two schemes (one .cdxml, one .oct), a drawing with one number on two structures, and a CSV of
 // SMILES with a row Octet cannot read. One line an example, and both outputs on a difference. The exit code is 1 when
-// the two languages print different lines, end with different codes or write different files, or an example prints
-// nothing. Each run (command, exit code, output) is in OUT/runs.json. For the checks (src/headless.check.ts) and for
-// Windows and Linux (.github/workflows/platforms.yml).
+// an example in either language prints other lines (standard output and error) or ends with another code than the
+// page's, or the two languages write different files. Each run (command, exit code, output) is in OUT/runs.json. For
+// the checks (src/headless.check.ts) and for Windows and Linux (.github/workflows/platforms.yml).
 import { execFile, spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -18,13 +18,14 @@ const python = [["python3"], ["python"], ["py", "-3"]].find(([exe, ...a]) => /^P
 console.log(`Octet: ${process.env.OCTET}\nPython: ${python?.join(" ") ?? "none"}`);
 if (!python) process.exit(1);
 
-// The files, drawn and saved by the program the examples run against. A program that cannot write .oct (the checks'
-// Octet with no window) saves the second scheme as .cdxml, and says so.
+// The files, drawn and saved by the program the examples run against. The checks' Octet with no window
+// (scripts/headless/stdio.ts) cannot write .oct, so there the second scheme is saved as .cdxml, and says so. Any other
+// program must write it.
 mkdirSync(at("in"), { recursive: true });
 const o = octet(), make = async (file, args) => {
   await o.call("drawings", { action: "new", for: "paper" });
   await o.call("draw", args);
-  try { await o.save(file); return file; } catch (e) { if (!file.endsWith(".oct")) throw e; console.log(`${basename(file)}: ${e.message} Saved as .cdxml.`); }
+  try { await o.save(file); return file; } catch (e) { if (!file.endsWith(".oct") || !process.env.OCTET.endsWith("stdio.ts")) throw e; console.log(`${basename(file)}: ${e.message} Saved as .cdxml.`); }
   await o.save(file = file.replace(/\.oct$/, ".cdxml"));
   return file;
 };
@@ -60,12 +61,19 @@ writeFileSync(at("runs.json"), JSON.stringify({ mjs, py }, null, 1));
 // The files each language wrote, and their bytes.
 const files = (x) => new Map(readdirSync(at(x), { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => [relative(at(x), join(e.parentPath, e.name)), readFileSync(join(e.parentPath, e.name))]));
 const [jf, pf] = [files("mjs"), files("py")];
+// What each example prints and its exit code, as the page gives them. The second scheme is named as it was saved.
+const s2 = basename(schemes[1]), expected = {
+  renumber: `scheme1.cdxml: 7 is 1, 3 is 2, 9 is 3\n${s2}: 9 is 3, 4 is 4\nexit 0`,
+  restyle: `scheme1.cdxml: Wiley (Angewandte)\n${s2}: Wiley (Angewandte)\nexit 0`,
+  table: '1.cdxml: benzene\n2.cdxml: 2,4-dinitrophenol\n3: Octet drew nothing. Octet cannot read "C1CC(": give a SMILES instead (with * for a generic group such as L or R, and its labels).\n4.cdxml: ethanol\nexit 1',
+  check: `scheme1.cdxml: clean\n${s2}: clean\nfive.cdxml: 1 to look at\n  Compound number 5 is on more than one structure.\ntable.csv: Octet cannot read the structures in this file.\n2 to look at.\nexit 1`,
+};
 let failed = 0;
 mjs.forEach((j, k) => {
-  const p = py[k], same = j.stdout === p.stdout && j.code === p.code && j.stdout !== "";
-  console.log(`${j.name}: ${same ? `the same in both (exit ${j.code})` : "different"}`);
-  if (!same) for (const r of [j, p]) console.log(`  ${r.command}\n  exit ${r.code}\n${r.stdout}${r.stderr}`);
-  failed += !same;
+  const p = py[k], as = (r) => `${r.stdout}${r.stderr}exit ${r.code}` === expected[j.name], right = as(j) && as(p);
+  console.log(`${j.name}: ${right ? `as the page gives it in both (exit ${j.code})` : `different in ${[j, p].filter((r) => !as(r)).map((r) => r === j ? "JavaScript" : "Python").join(" and ")}`}`);
+  if (!right) console.log([`  expected\n${expected[j.name]}`, ...[j, p].map((r) => `  ${r.command}\n${r.stdout}${r.stderr}exit ${r.code}`)].join("\n"));
+  failed += !right;
 });
 const differ = [...new Set([...jf.keys(), ...pf.keys()])].filter((f) => !(jf.has(f) && pf.has(f) && jf.get(f).equals(pf.get(f))));
 console.log(differ.length ? `Files that differ or are in one language only: ${differ.sort().join(", ")}` : `Files: the same ${jf.size} in both`);

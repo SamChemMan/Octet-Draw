@@ -190,7 +190,7 @@ jobs:
         timeout-minutes: 20
         run: node scripts/examples/run-all.mjs examples-out
       - name: --convert to PDF and SVG (Linux, on a virtual screen)
-        if: runner.os == 'Linux'
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
         timeout-minutes: 10
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
@@ -202,7 +202,7 @@ jobs:
           test -s examples-out/converted/scheme1.pdf && test -s examples-out/converted/scheme1.svg
       # A window program waits to end here only when its output is piped.
       - name: --convert to PDF and SVG (Windows)
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         timeout-minutes: 10
         shell: pwsh
         run: |
@@ -318,22 +318,6 @@ jobs:
           Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
           Start-Sleep -Seconds 5
           if (Test-Path $clsid) { throw "left after uninstall" }
-      # The scripting page's path on Windows (docs/scripting.md): the installer puts octet.exe there, and it answers a
-      # script's initialize (--headless --mcp). This is the debug build's installer: the release build is in the
-      # examples job, with no installer.
-      - name: The installed Octet is where the scripting page says, and answers a script
-        shell: pwsh
-        run: |
-          $setup = Get-ChildItem src-tauri/target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Start-Process $setup.FullName -ArgumentList '/S' -Wait
-          $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
-          if (-not (Test-Path $exe)) { throw "no $exe" }
-          $hello = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
-          $reply = $hello | & $exe --headless --mcp
-          Write-Output "$exe answered: $reply"
-          Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
-          Start-Sleep -Seconds 5
-          if (-not ("$reply" -match '"serverInfo"')) { throw "no answer to initialize" }
       # A release build for the tests in Word by hand (docs/testing/ole-manual.md). A debug build differs: it never
       # repairs the keys and offers objects only when Windows starts it. Unsigned.
       - name: A release installer for the tests in Word
@@ -343,6 +327,22 @@ jobs:
           name: octet-office-objects-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+      # The scripting page's path on Windows (docs/scripting.md): the release installer puts octet.exe there (the window
+      # program, as a user gets it), and it answers a script's initialize (--headless --mcp).
+      - name: The installed Octet is where the scripting page says, and answers a script
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
+          if (-not (Test-Path $exe)) { throw "no $exe" }
+          $hello = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          $reply = $hello | & $exe --headless --mcp
+          Write-Output "$exe answered: $reply"
+          Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (-not ("$reply" -match '"serverInfo"')) { throw "no answer to initialize" }
       # Octet's crash log, where the server writes what it refused and why.
       - name: Octet's log
         if: always()

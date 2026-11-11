@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("headless.check: skipped (no OPSIN build)"); process.exit(0); }
 // The scripting page's examples run beside the rest of this check, in processes of their own, and are checked at the end.
+// A check that fails before then leaves them to end on their own, and their folder in tmpdir.
 const examplesIn = mkdtempSync(join(tmpdir(), "octet-examples-")), examplesRan = promisify(execFile)(process.execPath, [new URL("../scripts/examples/run-all.mjs", import.meta.url).pathname, examplesIn], { env: { ...process.env, OCTET: new URL("../scripts/headless/stdio.ts", import.meta.url).pathname } }).then((r) => ({ ...r, code: 0 }), (e) => e);
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { realFonts } = await import("../scripts/headless/browser.ts");
@@ -664,17 +665,13 @@ try {
 // script. scripts/examples/run-all.mjs (which platforms.yml runs on Windows and Linux) makes two schemes, which are
 // renumbered across both, restyled for a journal and checked (with a file that is not a drawing, and a drawing whose
 // warning names no atom), and a table of SMILES gives a drawing a row (a row Octet cannot read is named, and the rows
-// after it are drawn). The Python examples run at the same time and give the same lines and the same files.
+// after it are drawn). It fails when an example in either language prints other lines or ends with another code than
+// the page's, or the Python examples write other files. Here: the numbers and the journal's bond length in the files.
 {
   const at = (...p: string[]) => join(examplesIn, ...p);
   try {
     const all = await examplesRan;
     assert.equal(all.code, 0, all.stdout + all.stderr);
-    const { mjs } = JSON.parse(readFileSync(at("runs.json"), "utf8")) as { mjs: { code: number; stdout: string; stderr: string }[] };
-    assert.deepEqual(mjs.map((r) => `${r.stdout}${r.stderr}${r.code ? `exit ${r.code}` : ""}`), [
-      "scheme1.cdxml: 7 is 1, 3 is 2, 9 is 3\nscheme2.cdxml: 9 is 3, 4 is 4\n", "scheme1.cdxml: Wiley (Angewandte)\nscheme2.cdxml: Wiley (Angewandte)\n", "1.cdxml: benzene\n2.cdxml: 2,4-dinitrophenol\n3: Octet drew nothing. Octet cannot read \"C1CC(\": give a SMILES instead (with * for a generic group such as L or R, and its labels).\n4.cdxml: ethanol\nexit 1",
-      "scheme1.cdxml: clean\nscheme2.cdxml: clean\nfive.cdxml: 1 to look at\n  Compound number 5 is on more than one structure.\ntable.csv: Octet cannot read the structures in this file.\n2 to look at.\nexit 1",
-    ]);
     const numbers = (file: string) => (fromCdxml(readFileSync(at("mjs", ...file.split("/")), "utf8")).mol.captions ?? []).filter((c: { bold?: boolean }) => c.bold).map((c: { text: string }) => c.text);
     assert.deepEqual([numbers("renumbered/scheme1.cdxml"), numbers("renumbered/scheme2.cdxml"), numbers("table/2.cdxml"), numbers("table/4.cdxml")], [["1", "2", "3"], ["3", "4"], ["2"], ["4"]]);
     assert.ok(/<CDXML[^>]*BondLength="17"/.test(readFileSync(at("mjs", "restyled", "scheme1.cdxml"), "utf8")), "Angewandte's bonds");
