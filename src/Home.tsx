@@ -1058,6 +1058,7 @@ export function Home(p: Props) {
             <MagnifyingGlass size={16} aria-hidden />
             <input type="search" aria-label="Search experiments" placeholder="Search" spellCheck={false} maxLength={200} value={search} onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (search) setSearch(""); else closeLab(); } }} />
+            {search && <button className="search-clear" onClick={(e) => { setSearch(""); (e.currentTarget.previousElementSibling as HTMLElement).focus(); }} aria-label="Clear search"><X size={12} /></button>}
           </label>
           {rows.length > 0 && <button className="home-open" onClick={() => p.onExportExperiments(rows)}><Export size={16} aria-hidden />Export CSV…</button>}
         </span>
