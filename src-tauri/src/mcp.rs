@@ -52,6 +52,7 @@ struct Shared {
     pending: Mutex<HashMap<u64, Pending>>,
     sessions: Mutex<HashMap<String, Session>>,
     ready: Mutex<HashMap<String, String>>, // each window's page that listens, by the page's own id
+    heard: Mutex<HashMap<String, u32>>,    // each window's newest listener, by the number its page gave it
     open: Mutex<Option<(f64, Instant)>>,   // the rate limit for initialize and for requests with no session, all apps together
     loose: Mutex<Option<String>>,          // the brief of the requests with no session (an older client), all of them together
 }
@@ -74,6 +75,7 @@ fn take(bucket: &mut (f64, Instant)) -> bool {
 pub fn closed(app: &AppHandle, label: &str) {
     let Some(mcp) = app.try_state::<Mcp>() else { return };
     mcp.shared.ready.lock().unwrap().remove(label);
+    mcp.shared.heard.lock().unwrap().remove(label);
     mcp.shared.pending.lock().unwrap().retain(|_, p| {
         if p.window == label {
             let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The drawing closed before the call finished.")));
@@ -98,6 +100,7 @@ struct Pending {
 enum Msg {
     Progress(String), // a notifications/progress message, as JSON
     Done(String),     // the reply
+    Got,              // the page has the request
 }
 
 // An AI app's session (decision 0021, D1): its name, the drawing (window label) its calls go to, and when it last
@@ -121,6 +124,7 @@ const RATE: f64 = 20.0; // calls a second a session may make
 const MOST_WAITING: usize = 4; // calls a session may have under way at once
 const USING: Duration = Duration::from_secs(600); // a session that has not called for this long no longer holds its drawing (uses)
 const READY: Duration = Duration::from_secs(15); // the longest a request waits for a new window's page to start
+const GOT: Duration = Duration::from_secs(3); // a request the page has not said it got by then is sent again
 const STARTING: &str = "The drawing is still starting. Call again.";
 pub const VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
@@ -242,11 +246,23 @@ pub fn mcp_brief(mcp: State<'_, Mcp>, session: Option<String>, brief: String) ->
     }
 }
 
+// A page's listener goes (the page takes it down before it puts up another, as a dev build's page does on its first
+// render): requests wait until one listens again, and none is sent into the gap and lost. A newer listener is already
+// up when this comes late: nothing changes.
+#[tauri::command(async)]
+pub fn mcp_unready(window: Window, mcp: State<'_, Mcp>, listener: u32) {
+    let label = window.label();
+    if mcp.shared.heard.lock().unwrap().get(label) == Some(&listener) {
+        mcp.shared.ready.lock().unwrap().remove(label);
+    }
+}
+
 // A page listens for requests now. A new page in a window (reloaded) has lost the requests the old one had: they end
 // now. The same page saying so again changes nothing.
 #[tauri::command(async)]
-pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String) -> bool {
+pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String, listener: u32) -> bool {
     let label = window.label().to_string();
+    mcp.shared.heard.lock().unwrap().entry(label.clone()).and_modify(|n| *n = (*n).max(listener)).or_insert(listener);
     let was = mcp.shared.ready.lock().unwrap().insert(label.clone(), page.chars().take(64).collect());
     if was.is_some_and(|w| w != page) {
         mcp.shared.pending.lock().unwrap().retain(|_, p| {
@@ -259,6 +275,14 @@ pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String) -> bool {
     // Whether an AI app subscribes to this drawing: a page that started again says each change from then on.
     mcp.shared.sessions.lock().unwrap().values().any(|s| s.subs.iter().any(|u| drawing_uri_label(u) == Some(label.as_str())))
 }
+// The page has request `id` (it says so before it starts the work), so the request is not sent again.
+#[tauri::command(async)]
+pub fn mcp_got(mcp: State<'_, Mcp>, id: u64) {
+    if let Some(p) = mcp.shared.pending.lock().unwrap().get(&id) {
+        let _ = p.tx.send(Msg::Got);
+    }
+}
+
 
 // The page's answer to request `id`.
 #[tauri::command(async)]
@@ -669,16 +693,30 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     // 1970), only in a dev build run with OCTET_MCP_TIMES set: the page then gives each call's times in the reply's
     // _meta, to show whether WebKit slows the page of a covered window (plan 17.5).
     let at = (cfg!(debug_assertions) && std::env::var_os("OCTET_MCP_TIMES").is_some()).then(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64));
-    let sent = app.emit_to(window.as_str(), "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost, "brief": brief, "unset": unset, "sent": at }));
+    let request = serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost, "brief": brief, "unset": unset, "sent": at });
+    let send = || app.emit_to(window.as_str(), "mcp", request.clone());
+    let sent = send();
     let timeout = || error_reply(Some(id), -32603, "Octet did not answer in time.");
+    // The next message from the page for this request, until WAIT is over. A request the page has not said it got
+    // within GOT is sent again, up to three times in all: a page between two listeners, or one still starting, loses
+    // what is sent to it, and the call would wait the whole of WAIT. The page answers one copy only.
+    let end = Instant::now() + WAIT;
+    let (mut got, mut sends) = (false, 1);
+    let mut next = || loop {
+        let left = end.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(if got || sends >= 3 { left } else { left.min(GOT) }) {
+            Ok(Msg::Got) => got = true,
+            Ok(m) => break Some(m),
+            Err(_) if !got && sends < 3 && Instant::now() < end => { sends += 1; let _ = send(); }
+            Err(_) => break None,
+        }
+    };
     // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
     if message.pointer("/params/_meta/progressToken").is_some() && sent.is_ok() {
         let new = new_session.as_deref().map(|s| format!("Mcp-Session-Id: {s}\r\n")).unwrap_or_default();
         let ok = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{new}Connection: close\r\n\r\n").is_ok();
-        let end = Instant::now() + WAIT;
         loop {
-            let msg = rx.recv_timeout(end.saturating_duration_since(Instant::now()));
-            let (data, last) = match msg { Ok(Msg::Progress(p)) => (p, false), Ok(Msg::Done(r)) => (r, true), Err(_) => (timeout(), true) };
+            let (data, last) = match next() { Some(Msg::Progress(p)) => (p, false), Some(Msg::Done(r)) => (r, true), _ => (timeout(), true) };
             if ok && write!(stream, "event: message\ndata: {}\n\n", data.replace('\n', " ")).and_then(|_| stream.flush()).is_err() { break; }
             if last { break; }
         }
@@ -687,11 +725,10 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
         let _ = stream.shutdown(Shutdown::Both);
         return;
     }
-    let end = Instant::now() + WAIT;
     let reply = loop {
-        match sent.as_ref().ok().map(|_| rx.recv_timeout(end.saturating_duration_since(Instant::now()))) {
-            Some(Ok(Msg::Progress(_))) => continue,
-            Some(Ok(Msg::Done(r))) => break Some(r),
+        match sent.as_ref().ok().and_then(|_| next()) {
+            Some(Msg::Progress(_)) => continue,
+            Some(Msg::Done(r)) => break Some(r),
             _ => break None,
         }
     };

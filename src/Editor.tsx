@@ -151,6 +151,10 @@ const TAURI = "__TAURI_INTERNALS__" in window;
 type McpInfo = { port: number; token: string; program: string };
 // This page's own id, so the app can tell a reloaded page (whose requests are lost) from this one saying it listens again.
 const MCP_PAGE = Math.random().toString(36).slice(2);
+// Each listener this page puts up for the app's MCP requests has a number, so the app knows which one went.
+let mcpListener = 0;
+// The requests this page has taken: the app sends one again when it has not heard that the page has it.
+const mcpTaken = new Set<number>();
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
 // A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
 labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
@@ -2722,14 +2726,19 @@ export default function Editor() {
     // session has no drawing yet. sent: when the server sent it, in a dev build that times calls (mcp.rs, plan 17.5).
     const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null; unset: boolean; sent: number | null }>("mcp", (e) => {
       const p = e.payload;
+      if (mcpTaken.has(p.id)) return;
+      mcpTaken.add(p.id);
+      void invoke("mcp_got", { id: p.id }).catch(() => {});
       void handleMcp(p.body, () => mcpHost.current!, version, {
         client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief, unset: p.unset,
         ...(p.sent ? { timed: { sent: p.sent, got: Date.now(), visibility: document.visibilityState, focus: document.hasFocus() } } : {}),
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
-      }).then((body) => invoke("mcp_reply", { id: p.id, body }));
+      }).then((body) => invoke("mcp_reply", { id: p.id, body })).finally(() => window.setTimeout(() => mcpTaken.delete(p.id), 15_000));
     });
-    void off.then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
-    return () => { off.then((f) => f()); };
+    const listener = ++mcpListener;
+    void off.then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE, listener })).then((watched) => { if (watched) mcpWatched.current = true; });
+    // The app is told before the listener goes, so it sends no request into the gap before the next one is up.
+    return () => { void invoke("mcp_unready", { listener }).catch(() => {}).then(() => off).then((f) => f()); };
   }, []);
   // Files to open or dropped: those named before the page started, then each time the app says more came. The page
   // listens first and then takes, so a file named in between is not left waiting.
