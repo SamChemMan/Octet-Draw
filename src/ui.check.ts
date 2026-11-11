@@ -46,6 +46,11 @@ for (const r of rules) {
   if (h && sizes.has(Number(h[1]))) assert.fail(`${r.selector}: height ${h[1]}px is --${sizes.get(Number(h[1]))}; use the token`);
   if (h && [20, 22, 26].includes(Number(h[1]))) assert.fail(`${r.selector}: ${h[1]}px is not a control size (18, 24, 28, 30, 32, 36)`);
 }
+// A control with an edge counts the edge inside its height (border-box), whatever element it is: a span or a label
+// with an edge is 2 px higher than its token otherwise (the pill and the search fields were).
+for (const r of rules) {
+  if (/^var\(--size-/.test(r.props.get("height") ?? "") && /^1px /.test(r.props.get("border") ?? "")) assert.equal(r.props.get("box-sizing"), "border-box", `${r.selector}: add box-sizing: border-box, or its edge adds 2 px to its height`);
+}
 // The controls themselves hold the token for their kind.
 const sizeOf = SIZE_OF; // the same list measures the page as it is drawn (lookwatch.ts)
 for (const [token, selectors] of Object.entries(sizeOf)) {
@@ -60,11 +65,18 @@ assert.match(read("./Spectrum.tsx"), /<span className="segmented spectrum-tabs" 
 for (const r of rules) {
   if (!has(r, ".segmented") || inKeyframes(r)) continue;
   const segment = /button|\[role=/.test(r.selector);
+  // Its edge and its room stay as they are, so a segment is 22 px high in every control.
+  if (!segment && r.selector !== ".segmented") for (const name of ["border", "border-width", "padding"]) assert.ok(!r.props.has(name), `${r.selector}: ${name} changes the height of the segments`);
   if (!segment && r.props.has("display")) assert.ok(/^(inline-grid|grid)$/.test(r.props.get("display")!) || r.selector === ".segmented.purposes", `${r.selector}: a segmented control has equal columns (display: grid), not ${r.props.get("display")}`);
   if (segment && !has(r, ".close-x")) for (const name of ["width", "max-width", "flex", "flex-grow", "flex-basis", "grid-column"]) {
     assert.ok(!r.props.has(name) || [".segmented.units button", ".segmented.purposes button"].includes(r.selector), `${r.selector}: ${name} gives one segment its own width`);
   }
 }
+// npm run look measures the app in WebKit, the engine the Mac app runs in (scripts/look.mjs): it stays in the repo
+// and in the rules every agent reads.
+assert.match(read("../package.json"), /"look": "node scripts\/look\.mjs"/);
+for (const file of ["../scripts/look.mjs", "../scripts/look/webkit.swift", "../scripts/look/sweep.js"]) assert.ok(read(file).length > 500, file);
+for (const file of ["../CLAUDE.md", "../brand/CLAUDE.md", "../brand/BRAND.md"]) assert.match(read(file), /npm run look/, `${file} tells agents to run npm run look`);
 // In development the app measures its own controls as they are drawn and says so in the console (lookwatch.ts).
 assert.match(read("./main.tsx"), /if \(import\.meta\.env\.DEV\) void import\("\.\/lookwatch"\)\.then\(\(m\) => m\.watchLook\(\)\);/);
 

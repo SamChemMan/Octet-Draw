@@ -146,6 +146,8 @@ A shortcut beside a command is plain 11px text in `ink-faint`. Only the tutorial
 3. Run the app. Measure the new control and the controls beside it: height, width of each segment, corners, font, icon size. They must be equal. In development the app measures its own controls (`src/lookwatch.ts`). Read the console: an error that starts with `look:` is a control that does not match.
 4. Look at hover, press, focus, selected and disabled, in the light theme and the dark theme.
 5. Run `npm test`.
+6. On a Mac, run `npm run look` with the dev server running. It loads the app in WebKit (the engine the Mac app runs in), goes through its panels, dialogs and pages, and fails if a control does not match. A browser preview is a different engine: it is not enough alone. When you add a panel, a dialog or a page, add it to `scripts/look/sweep.js`.
+7. Tell Sam what you measured. Do not give Sam a list of things you did not check: check them first.
 
 ## Iconography
 

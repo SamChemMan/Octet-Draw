@@ -140,6 +140,16 @@ Security is a top priority.
   button, field, menu, tab or panel. Use the size, state and layer tokens. Run the app and measure the
   new control against the controls beside it before you show it. `npm test` runs `src/ui.check.ts`,
   which fails on a size, corner, space, colour, shadow or press scale typed by hand.
+- Three guards hold the look. Run all three before you show UI work:
+  1. `npm test`: `src/ui.check.ts` reads the stylesheet.
+  2. The console in development: `src/lookwatch.ts` measures the controls on the page after each click
+     and key, and writes an error that starts with `look:` when they do not match.
+  3. `npm run look` (Mac, dev server running; pass its address if it is not port 1420): loads the app
+     in WebKit, the engine the Mac app runs in, goes through every panel, dialog and page
+     (`scripts/look/sweep.js`) and fails on any `look:` error. The browser preview is Chromium: it
+     does not replace this.
+  When you add a panel, a dialog or a page, add it to the sweep. When you add a kind of control, add it
+  to `SIZE_OF` in `src/lookwatch.ts`. Do not report UI work with a list of things you did not check.
 - Record significant technical decisions in `docs/decisions/`.
 - Check every feature against ChemDraw side by side (same input, compare
   the output, the speed and the number of steps) so Octet is never worse.
