@@ -1141,6 +1141,24 @@ first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release
 stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
 they come out.
 
+### 17.5 Several AI sessions at once (found 11 November 2026, to fix with step 8)
+
+In the eval run of 11 November, 8 agents worked at once in one Octet. A call that takes 0.1 to 2 s alone took up to
+114 s, and a new drawing timed out three times. Traced from the code (nothing a call waits on stops when its window
+is behind others: `settle`, `ready` and the new-drawing wait already use message polls, not timers or frames):
+
+| Cause | Proven? | Smallest fix |
+|---|---|---|
+| A session with no drawing yet is given the last window opened (`mcp.rs` `serve`, `windows::front`). So every session's first calls run in one page, one after another, and **a tool that session calls before it makes its own drawing acts on another session's drawing.** | From the code | Do not give a session a drawing on protocol methods or on `drawings`; only on its first other call. Answer initialize, ping, tools/list, prompts, resources/list and `drawings` outside the page's queue (`handle` in `mcp.ts`). |
+| A new drawing polls the window list for 8 s with no pause, from every waiting page, on the app's main thread. Eight windows starting at once need longer. | From the code | Return when `open_window` gives the label and the session's target is set. Rust's 15 s wait for the page then covers start-up. |
+| A request sent to a page that is not ready after 15 s is lost, and the call waits the whole 120 s. | From the code | Answer at once: "The drawing is still starting. Call again." |
+| Reply, progress, cancel, ready, target and window-list commands run on the app's main thread, with window making. | Structure from the code, size not measured | Mark them `#[tauri::command(async)]`: each only takes a lock. |
+| WebKit slows the page of a covered window (App Nap, background role), though windows are built with background throttling off when AI apps are on. Home is not. | Likely, needs a measurement in the app | For a window with a call in flight, turn window occlusion detection off (a private WKWebView setting, guarded) and back on after. |
+
+Test with no one watching: `scripts/mcp-acceptance.mjs` with 1, 2, 4 and 8 clients at once and Octet behind another
+app. Each makes a drawing, draws, restyles and reads. Every session must end in its own drawing, none may time out,
+and no call may take over 15 s. The second check fails today.
+
 ## 18. Scripting (#89) and batch conversion (#91)
 
 Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
