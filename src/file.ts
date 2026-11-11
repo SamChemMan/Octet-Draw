@@ -3,7 +3,7 @@ import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData } from "./cdxml.ts";
-import { oldLigands, tidyGroups } from "./edit.ts";
+import { oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
 import { ALL_ARROW_KINDS, HBOND, isBracket, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize } from "./render.ts";
@@ -42,7 +42,7 @@ export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.shade ? { shade: true } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.text && a.runs && plainOf(a.runs) === a.text ? { runs: a.runs } : {}), ...(a.centre ? { centre: a.centre } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
-    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.hiddenNumber ? { hiddenNumber: a.hiddenNumber } : {}), ...(a.shown ? { shown: true } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.labelAngle ? { labelAngle: round(a.labelAngle) } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}), ...(a.chemical === false ? { chemical: false } : {}),
+    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.hiddenNumber ? { hiddenNumber: a.hiddenNumber } : {}), ...(a.shown ? { shown: true } : {}), ...(a.implicitHCount !== undefined ? { implicitHCount: a.implicitHCount } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.labelAngle ? { labelAngle: round(a.labelAngle) } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}), ...(a.chemical === false ? { chemical: false } : {}),
     ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.order ? { order: a.order } : {}),
     ...(a.query ? { query: a.query } : {}), ...(a.peaks?.length ? { peaks: a.peaks } : {}), ...(a.inner?.atoms.length ? { inner: innerOut(a.inner) } : {}), ...scaled(a) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.ignoreWarnings ? { ignoreWarnings: true } : {}),
@@ -221,6 +221,7 @@ export function parse(text: string): Mol {
     if (a.fill) legacy.set(out.atoms.length, a.fill as string);
     if (a.circle) atom.circle = true;
     if (a.shown) atom.shown = true;
+    if (int(a.implicitHCount, 0, 14)) atom.implicitHCount = a.implicitHCount as number;
     if (a.number) atom.number = a.number as string;
     if (a.hiddenNumber) atom.hiddenNumber = a.hiddenNumber as string;
     // Measured multiplets by id: kept when the drawing's spectra have them (below).
@@ -406,8 +407,9 @@ export function parse(text: string): Mol {
   const known = new Set((out.spectra ?? []).flatMap((s) => s.groups.map((g) => g.id)));
   for (const a of [...out.atoms, ...out.bonds]) if (a.peaks) { const kept = a.peaks.filter((k) => known.has(k)); if (kept.length) a.peaks = kept; else delete a.peaks; }
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each. Cycles
-  // as this version keeps them, and π rings from 1.0.x as ligand() orders them.
-  return tidyGroups(migrateCycles(d.app === undefined ? oldLigands(out) : out));
+  // as this version keeps them, and π rings from 1.0.x as ligand() orders them. Hydrogens set by hand only where they
+  // are fewer than usual (settleHydrogens).
+  return settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(out) : out)));
 }
 
 // Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them.

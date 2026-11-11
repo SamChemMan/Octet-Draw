@@ -286,11 +286,32 @@ const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atom
 export const setAtomMarks = (m: Mol, i: number, change: Pick<Partial<Atom>, "hmark" | "attach" | "bead">) => setAtom(m, i, change);
 const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...b, ...change } : b)) });
 
-export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined, runs: undefined, shown: undefined });
+export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined, runs: undefined, shown: undefined, implicitHCount: undefined });
 // ChemDraw's c key, or C typed as a label: a carbon whose label shows with its hydrogens (CH3, CH2, CH).
-export const showCarbon = (m: Mol, i: number) => setAtom(m, i, { label: "C", text: undefined, runs: undefined, shown: true });
-// An element key (or an element picked from a menu) on an atom: that element. C shows the carbon's label.
-export const keyElement = (m: Mol, i: number, label: string) => (label === "C" ? showCarbon(m, i) : setElement(m, i, label));
+export const showCarbon = (m: Mol, i: number) => setAtom(m, i, { label: "C", text: undefined, runs: undefined, shown: true, implicitHCount: undefined });
+// An element key (or an element picked from a menu) on an atom: that element. C shows the carbon's label. On an atom
+// that is that element already (a carbon, once its label shows), the key takes off one hydrogen, and after none gives
+// back its usual hydrogens: CH4, CH3, CH2, CH, C, as in ChemDraw. So a bare O or a Br+ can be drawn (issue 125).
+export function keyElement(m: Mol, i: number, label: string): Mol {
+  const a = m.atoms[i], again = !a.text && a.label === label && (label !== "C" || !!a.shown || !neighbours(m, i).length);
+  const out = label === "C" ? showCarbon(m, i) : setElement(m, i, label);
+  if (!again) return out;
+  const h = a.implicitHCount ?? hydrogens(label, a.charge ?? 0, bondOrders(m)[i], a.radical);
+  return setAtom(out, i, { implicitHCount: h ? h - 1 : undefined });
+}
+// Hydrogens set by hand (keyElement) stay while they are fewer than the atom's usual number. A bond, charge or
+// radical that leaves no more room, or a written label, makes it a usual atom again.
+export function settleHydrogens(m: Mol): Mol {
+  if (!m.atoms.some((a) => a.implicitHCount !== undefined)) return m;
+  const used = bondOrders(m), over = (a: Atom, i: number) => a.implicitHCount !== undefined && (!!a.text || a.implicitHCount >= hydrogens(a.label, a.charge ?? 0, used[i], a.radical));
+  return m.atoms.some(over) ? { ...m, atoms: m.atoms.map((a, i) => (over(a, i) ? { ...a, implicitHCount: undefined } : a)) } : m;
+}
+// An atom read with a valence (a molfile's VAL, used: its bond orders added up): the hydrogens that leaves, when fewer
+// than usual, set by hand. A carbon so set shows its label, as keyElement shows it.
+export function withValence(a: Atom, valence: number, used: number): Atom {
+  const h = valence - used;
+  return !a.text && Number.isInteger(h) && h >= 0 && h < hydrogens(a.label, a.charge ?? 0, used, a.radical) ? { ...a, implicitHCount: h, ...(a.label === "C" ? { shown: true as const } : {}) } : a;
+}
 // Sets what an atom reads as. One element symbol makes it that element; anything else (OMe, CO2Et, Ph) is a
 // written label attached through its first element, or through carbon for a group. Empty text clears it to carbon.
 // A residue label (its bonds say which kept atom each joins) given another name: the new residue's atoms when the
