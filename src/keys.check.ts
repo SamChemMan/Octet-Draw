@@ -234,6 +234,7 @@ import type { Mol } from "./render.ts";
   assert.deepEqual(charges.map((a) => { const x = mark(n, a.id.slice(7)); return [x.charge, x.circled]; }), [[1, undefined], [-1, undefined], [1, true], [-1, true]]);
   const circled = keyCharge(n, 0, "circledPlus");
   assert.deepEqual([mark(circled, "circledPlus").charge, mark(circled, "circledMinus").circled], [2, undefined], "a second circled key adds up, or takes the charge off");
+  assert.equal(mark(circled, "plus").circled, true, "+ on a circled charge keeps the circle, as before");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.equal(editor.match(/if \(kind === "charge"[^\n]*keyCharge\(\w+, \w+, arg\)/g)?.length, 2, "a charge key on an atom and on a selection");
 }
