@@ -8,12 +8,14 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
   TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
@@ -273,7 +275,7 @@ type View = { x: number; y: number; zoom: number; pinch?: boolean };
 // What Export and Copy make from the drawing for other programs (pictures aside).
 // molfile: V2000, as ChemDraw puts it on the clipboard; mol, sdf, rxn and rdf: V3000 (or V2000 with 2000), as ChemDraw
 // 26.1 saves them.
-type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000";
+type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "cml" | "ct";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step && a.branch === b.branch && a.part === b.part && a.key === b.key && a.mark === b.mark;
 const nothing = (t: Hover) => t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
@@ -1273,10 +1275,13 @@ export default function Editor() {
     return (kept.formats[f] = out);
   }
   // A part's molecules or reactions as MDL files and SMILES. A drawing with reactions copies as reaction SMILES (one line
-  // for each step, with its map numbers); an RXN file holds one step, an RD file every step.
+  // for each step, with its map numbers); an RXN file holds one step, an RD file every step. CML and a connection table
+  // (File > More Formats) hold the molecules, as a MOL file does; the table takes the drawing's name as its title.
   function chemistryOf(part: Mol, f: PartFormat): string | undefined {
     const v2000 = f.endsWith("2000"), kind = f.replace("2000", "");
     if (f === "inchi") return toInchi(part);
+    if (f === "cml") return toCml(part);
+    if (f === "ct") return toCt(part, name);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
     if (kind === "sdf") return toSdf(part, v2000);
     const steps = stepsIn(part);
@@ -1367,6 +1372,18 @@ export default function Editor() {
       const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
       const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
       if (path) { setExportView(undefined); saved(path); }
+    } catch (e) {
+      setNotice(failure("Octet cannot export this drawing.", e));
+    }
+  }
+  // File > More Formats > Export as CML… and Export as Connection Table…: the selected structures, or every structure, to
+  // the Save dialog in that format.
+  async function exportText(f: "cml" | "ct") {
+    const part = selectedPart() ?? doc, text = formatOf(part, f);
+    if (!text) return setNotice(part.atoms.length ? `Octet cannot write this structure as ${f === "cml" ? "CML" : "a connection table"}.` : "There is no structure to export.", part.atoms.length ? "error" : "info");
+    try {
+      const path = await exportFile({ name, format: f, mdl: text });
+      if (path) saved(path);
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
@@ -1923,9 +1940,10 @@ export default function Editor() {
     return out;
   }
   // Import a structure file: it lands to the right of the drawing (or in the middle of an empty canvas), selected.
-  async function importFile() {
+  // ct: a connection table (File > More Formats > Import a Connection Table…).
+  async function importFile(ct = false) {
     try {
-      const picked = await invoke<[string, string] | null>("import_structure");
+      const picked = await invoke<[string, string] | null>("import_structure", { ct });
       if (!picked) return;
       if (picked[1].startsWith(BASE64_MAGIC) || /<CDXML[\s>/]/.test(picked[1].slice(0, 65536))) {
         // A ChemDraw drawing (CDXML or CDX): all of it, arrows and text too, to the right of what is there, its text in
@@ -1938,7 +1956,7 @@ export default function Editor() {
         setPicked(r.items);
         return sayLost(lost);
       }
-      place(asOpened(importStructure(picked[1]), picked[1], true));
+      place(asOpened(importStructure(ct ? fromCt(picked[1]) : picked[1]), picked[1], true));
     } catch (e) {
       setNotice(failure("Octet cannot read this file.", e));
     }
@@ -2175,7 +2193,12 @@ export default function Editor() {
   // File > More Formats (Settings > Pro > More formats): the rare formats, one line each. A line is the command's id
   // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
   // The menu, the palette and Settings' shortcuts take each format from here.
-  const moreFormats: [string, string, React.ReactNode, () => void][] = [];
+  const moreFormats: [string, string, React.ReactNode, () => void][] = [
+    ["more_cml", "Export as CML…", <BracketsAngle size={18} />, () => checkFirst(() => void exportText("cml"))],
+    ["more_ct_import", "Import a Connection Table…", <TrayArrowDown size={18} />, () => void importFile(true)],
+    ["more_ct_export", "Export as Connection Table…", <TrayArrowUp size={18} />, () => checkFirst(() => void exportText("ct"))],
+    ["more_sln", "Copy as SLN", <Quotes size={18} />, () => copyAs("sln")],
+  ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
@@ -6817,10 +6840,10 @@ export default function Editor() {
   };
   // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
   // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
-  // 26.1) and MOL V2000 Text (⇧⌥⌘O).
+  // 26.1) and MOL V2000 Text (⇧⌥⌘O). SLN is in File > More Formats (Settings > Pro).
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
-    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)],
+    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], sln: ["SLN", (m) => toSln(m) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;

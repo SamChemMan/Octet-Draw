@@ -470,10 +470,12 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
-// Returns its name and text (a CDX file's bytes in base64).
+// Returns its name and text (a CDX file's bytes in base64). ct: only a connection table (.ct), for File > More Formats >
+// Import a Connection Table….
 #[tauri::command]
-async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
+async fn import_structure(app: AppHandle, ct: Option<bool>) -> Result<Option<(String, String)>, String> {
+    let (kind, list): (&str, &[&str]) = if ct == Some(true) { ("Connection Table (CT)", &["ct"]) } else { ("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]) };
+    let Some(file) = app.dialog().file().add_filter(kind, list).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;

@@ -365,8 +365,8 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default). The MDL formats
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
-// same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 24] = [
+// same CDX file. CML and ChemDraw's connection table (CT) are File > More Formats' (Settings > Pro), with ChemDraw's names.
+const FORMATS: [(&str, &str, &[&str]); 26] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -391,6 +391,8 @@ const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("ctp", "ChemDraw Template (CTP)", &["ctp"]),
     ("cts", "ChemDraw Template Style Sheet (CTS)", &["cts"]),
     ("csv", "CSV", &["csv"]),
+    ("cml", "Chemical Markup Language (CML)", &["cml"]),
+    ("ct", "Connection Table (CT)", &["ct"]),
 ];
 
 #[derive(serde::Deserialize)]
@@ -402,7 +404,7 @@ pub struct Export {
     cdxml: Option<String>,
     cdx: Option<String>, // base64
     ctp: Option<String>, // a template set's ChemDraw template file, base64
-    mdl: Option<String>, // the text of the MDL format asked for
+    mdl: Option<String>, // the text of the MDL format asked for, or of CML or CT
     smiles: Option<String>,
     inchi: Option<String>,
     csv: Option<String>, // Home's Experiments list
