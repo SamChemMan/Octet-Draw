@@ -1,108 +1,185 @@
 # Roadmap
 
-## Now (Sam, 27 October 2026: "everything other than the signing keys is tractable. Get to work, methodically")
+Updated 11 November 2026.
 
-Parked by Sam: signing keys (they cost money), institutional features, the other Octet apps. Updates are on by
-default (decision 0010).
+This page lists the releases, the work that is built for the next releases, and the work that is not started.
+The notes for each release are in `docs/release-notes/`. The decisions are in `docs/decisions/`.
 
-| Work | Status |
+Sam says when a release goes out. Releases go out on Fridays. Nothing is pushed before Sam says.
+
+## Releases
+
+| Version | Date | Main changes |
+|---|---|---|
+| 1.0.x | October to 2 November 2026 | The first public releases. 1.0.26 is the first signed and notarised Mac release. A window for each drawing (decision 0020). |
+| 1.1.0 | 4 November 2026 | Experiment page, the Experiments list on Home, catalytic cycle side arrows. |
+| 1.1.1 | 6 November 2026 | Sequence tool, metallocenes, 88,000 more names in Name to Structure, ChemDraw file fixes. |
+| 1.1.2 | Planned: Friday 13 November 2026 | See below. |
+| 1.2 | No date | Octet for AI apps (MCP). See below. |
+
+## 1.1.2: built, not released
+
+Branch: `release-1.1.2`. The version number is set and the notes are written (`docs/release-notes/1.1.2.md`).
+
+Main changes:
+
+- Spectrum panels with Minimise, Full screen and Close. A minimised spectrum is a pill beside its structure.
+- ¹⁹F and ³¹P NMR prediction.
+- 14 new template sets with 211 new templates.
+- One colour system, with Pick from screen.
+- The stoichiometry table reads reagents over the arrow, ions and coefficients (issues 131 to 136).
+- Settings > Pro and File > More Formats: CML, BMP, 3MF, connection tables, SLN, chemfig, CIF and mmCIF.
+- Paste into Word for Windows as an object that opens in Octet (issue 24, decision 0023).
+- The fix for the 1.1.1 crash with a large drawing.
+- A Flatpak test build in CI, for slow drawing on Linux with NVIDIA (issue 37).
+- Windows code signing is ready in CI. It needs one secret (issue 17).
+- Decision 0024: no release takes a feature away or makes one slower. `docs/removals.md` lists each approved removal.
+
+To do for the release:
+
+1. Sam says go.
+2. Publish the release.
+3. Post the Flatpak link in issue 37. Ask the reporter to test it.
+4. Close the issues that 1.1.2 fixes.
+
+Built on a branch and not merged into `release-1.1.2` on 11 November:
+
+| Work | Issue | Branch |
+|---|---|---|
+| Dashed and bold orbitals | 139 | `item/orbital-dash` |
+| Photochemistry template set | 43 | `item/photochem` |
+| Gel and plasmid map objects | 96 | `item/gel-plasmid` |
+| Membranes and other biology objects | 95 | `item/bio-objects` |
+| More laboratory equipment | 98 | `item/lab-equipment` |
+| Nanotubes, fullerenes and host molecules | 97 | `item/nano-hosts` |
+| Seven bug fixes from the code review of 11 November | none | `item/review-bugs` (not committed) |
+
+The code clean-up from the same review is on hold until Sam says go.
+
+## 1.2: Octet for AI apps (MCP)
+
+Branch: `release-1.2-mcp`, on GitHub since 11 November 2026. The plan (`docs/plans/mcp-v2.md`) and the tests
+(`docs/plans/mcp-v2-tests.md`) are on that branch only.
+
+An AI app draws in Octet through Octet's MCP server. The MCP must have every function that the app has.
+Scripting (issue 89) and batch conversion (issue 91) use the same engine, with no window.
+
+Built (11 November 2026):
+
+- The benchmark runner, lenient arguments and short replies (plan steps 0 and 1).
+- The brief: an AI app asks the user three questions before it draws a scheme (step 2).
+- Compounds written as changes to earlier compounds, with named transformations (steps 3a and 3b).
+- `draw_route`: a full synthesis in one call (step 4).
+- Five tools: `draw`, `change`, `read`, `drawings` and `advanced` (step 5).
+- The overlay: a molecule builds in the window while an AI app works (step 6).
+- Several AI sessions at the same time, each in its own drawing.
+- Octet with no window: `--headless --mcp` for scripts and `--convert` for folders of drawings (steps 9 and 10).
+
+Not built:
+
+- Questions to the user through MCP elicitation (step 7).
+- Background jobs, with progress in the overlay (step 8).
+
+Started, not complete, and no release is set:
+
+- Word for Mac: Edit Picture opens the drawing in Octet (`item/office-mac`).
+- LibreOffice (issue 48, `item/libreoffice`).
+
+To do before the release:
+
+1. Merge `release-1.1.2` into `release-1.2-mcp` when Sam says (plan section 17.3).
+2. After that merge, give `place_template` the new template sets and give `run_command` the spectrum commands
+   (plan section 15.2).
+3. Test with one AI app that is not from Anthropic. This needs Sam's sign-in.
+4. Sam answers the open questions in plan section 16.
+
+## Checks that wait
+
+| Check | Waits for |
 |---|---|
-| Updates on by default | Done (71dab94) |
-| ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
-| Template and clip-art library (CD-32), paddlewheels and ligands | Done: 292 templates in 16 sets, no label clashes |
-| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done, with ChemDraw's spectrum object in CDXML and CDX, peaks linked to bonds, and SPC files |
-| Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
-| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done: Windows and Linux runs pass every step |
-| Windows: screen readers could not open Octet's menus (found by the CI run, 28 October) | Done: the menu bar was in UI Automation all along, but MSAA and UI Automation open a menu by pressing Alt and its access key, which WebView2 kept from the window. Each menu now has an access key, and `access_keys.rs` passes Alt and the key to the menu bar. The Windows run opens each menu through UI Automation. The Reaxys window has the same handler (28 October); the Windows run does not open that window yet |
-| Mac: check VoiceOver's view of a dev build with the AX API | Waiting for Sam to allow accessibility access |
-| Screen readers on the canvas: the drawing is one image to VoiceOver and Narrator; structures need a text equivalent and keyboard navigation | Done (decision 0019); next: a real VoiceOver, Narrator and NVDA session |
-| Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
-| Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
-| ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
-| Reaxys: reproduce what fails in the built app, then fix | Waiting for the ChemDraw session |
-| Template features ChemDraw has: edit in place, rows and columns, floating palettes, .ctp files, a user dictionary | Done (decision 0018): Edit, order by drag, floating palettes, template sizes, .ctp and .cts files read and written, the user's dictionary |
-| Launch: the website on Cloudflare Pages | Next; needs Sam's Cloudflare sign-in |
-| Signing and notarisation | Parked: needs Sam's keys |
+| A VoiceOver, Narrator and NVDA session on the canvas and the menus (decision 0019) | Sam to allow accessibility access on the Mac |
+| The ChemDraw checks in Sam's notes (`chemdraw-checks-pending.md`) | A session on Sam's Mac with ChemDraw open |
+| Search Reaxys in the built app (decision 0008) | Sam to say what failed. Ask Sam before you start. |
+| Quit from the Dock: a real logout or restart, and Save from the question on a new drawing | A test on Sam's Mac |
+| A signed Windows installer | The Windows certificate. It was under verification on 4 November. Then add the secret (`docs/release.md`). |
 
-## Before 1.1.2 ships (Friday 13 November 2026)
+## Open on GitHub
 
-- Flatpak build in CI (x86_64, GNOME runtime's WebKitGTK) for NVIDIA Linux users with lag. Issue #37: post the
-  Flatpak link there and ask BAWE-beep to test it. The 1.1.1 reply promised this.
+Problem reports:
 
-## To do
+- 140: the Single bond tool does not change an aromatic double bond to a single bond.
 
-- Idea, not scheduled (7 November 2026): compound numbers in Word that renumber themselves, as Reactio Draw does
-  (marks in the text and in pasted drawings become 1, 2a and so on; chapters numbered on their own). Reactio Draw is
-  AGPL-3.0: use none of its code. Design Octet's own, through the Word OLE object and an Office add-in.
+Requests that are not built:
 
-## Version 1.1.0: next steps
+| Area | Issues |
+|---|---|
+| Drawing | 85 (3D measurement objects), 93 (pen and touch), 101 (document annotations), 102 (annotate one object), 107 (objects from other programs in a drawing) |
+| Windows | 73 (Tile and Cascade; the list of open drawings is in 1.1.2) |
+| Files | 68 (data fields that go into SDF), 103 (ISIS/Draw files), 104 (SMD, ChemNote and CHM files), 111 (NMR assignments to and from Mnova), 117 (export to an electronic lab notebook) |
+| Search | 114 (supplier lookup) |
+| Help | 94 (tutorials and example drawings) |
+| Platforms | 48 (Android), 92 (a browser version; see "The editor as a web component") |
 
-Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are the next steps after 1.0.0. Build them in this order.
+Pull requests: 61, 62, 65, 66, 124, 126, 127, 128, 137 and 138 are open. Sam decides each one. 1.1.2 has the
+features of five of them: fishhook arrows (65), label colours (66), circled charges (124), chemfig (127) and the
+stoichiometry table (137).
 
-### 1. Template and clip-art library (audit item CD-32)
+## Later
 
-Built on 27 October 2026 for Sam to review (decision 0017): 292 templates in 16 sets, with the eight sets below, more ligands, paddlewheels and seven more lab items. ChemDraw ships 29 template sets; decision 0017 lists which Octet covers. Octet must draw its own sets and must not copy ChemDraw's art or data.
+Sam parked these. Do not start them before Sam says.
 
-Draw Octet's own sets in this order:
+- Institutional features.
+- The other Octet apps.
+- Tile and Cascade for drawing windows (issue 73).
 
-1. Stereocentres.
-2. Conformers: chairs, Newman projections and sawhorse projections.
-3. Cycloalkanes.
-4. Aromatics and bicyclics.
-5. Hexoses.
-6. Functional groups.
-7. Cp and arene rings, with metallocenes.
-8. Lab clip art in Octet's own line style: round-bottom flask, beaker, conical flask, condenser, separatory funnel, test tube, light bulb and LED for photochemistry, heating mantle and stirrer bar. A starter set of eight (light bulb, LED, round-bottom flask, beaker, conical flask, reflux condenser, separatory funnel and test tube) ships in 1.0 as the library's Lab group.
+### A Mac App Store build
 
-Give every item a name, so the library search finds it. Each item must look right at the brand line weights and in dark mode.
+Sam agreed to this on 3 November 2026. It is a separate build. Not started.
 
-### 2. Measured spectra (audit item CH-29)
+- Turn on the App Sandbox.
+- Keep access to the recent files on Home with security-scoped bookmarks.
+- Turn the updater off in the Store build.
+- Make the Store certificates and the provisioning profile.
+- Write the App Store listing.
 
-Built 27 October 2026 for Sam to review (decision 0016). Octet opens JCAMP-DX and Bruker spectra into the Spectrum panel, picks peaks and multiplets, and links them to atoms.
+### The editor as a web component
 
-- Read JCAMP-DX files (with size and nesting limits, as for every opened file) into a spectrum in the Spectrum panel.
-- Let the user link each measured peak to its atoms, with the peak and atom lighting Octet already uses for predicted peaks.
+A user asked on 3 November 2026 for Octet's editor as a component that web apps can embed (ELNs, LIMS, journal
+submission and teaching sites). Sam wants it after 1.x. Issue 92 asks for a browser version.
 
-Done on the `spectra-parity` branch (27 October 2026, decision 0016): ChemDraw's spectrum object and its spectrum-structure assignments are written and read in CDXML and CDX, peaks link to bonds as ChemDraw's assignment does, and Galactic SPC files open. ChemDraw checks 19 (h) to (l) wait in `~/octet-research/notes/chemdraw-checks-pending.md`.
+- On 3 November, 9 of about 200 files in `src/` called the desktop shell: `Actions.tsx`, `App.tsx`, `crashlog.ts`,
+  `Home.tsx`, `Editor.tsx`, `homeApi.ts`, `export.ts`, `Feedback.tsx` and `About.tsx`.
+- The other files are React and TypeScript, and Indigo is WASM. They run in a browser now (the `octet-ui-only`
+  preview).
+- Until this work starts, put new shell calls in those 9 files only.
+- The work:
+  1. Put the shell calls behind one interface, with a desktop version and a web version.
+  2. Give the editor an API: load and get SMILES, MOL and CDXML, and an event when the drawing changes.
+  3. Publish it on npm as a React component and a web component.
+  4. Write the documents and a demo page.
+- Decide how to version the API before the first release. Apps that embed Octet depend on it.
+- Other editors that web apps embed: Ketcher (Apache-2.0), Marvin JS, ChemDraw JS and JSME.
+- Companies that embed Octet are the organisations most likely to pay for support.
 
-### 3. Mass Spec Analysis (audit item CH-40)
+### Idea: compound numbers in Word
 
-The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, so only Mass Spec Analysis stays in this step.
+Not scheduled (7 November 2026). Compound numbers in a Word document that renumber themselves: marks in the text
+and in pasted drawings become 1, 2a and so on, and each chapter has its own numbers. Reactio Draw does this.
+Reactio Draw is AGPL-3.0, so use none of its code. Design Octet's own, with the Word object and an Office add-in.
 
-- A Mass Spec Analysis mode beside Mass Fragmentation: built on 27 October 2026 (the Mass spec analysis tool and panel, `src/MassSpec.tsx` and `src/msanalysis.ts`).
-- Done (28 October 2026, `drawing-loose-ends` branch): a fragmentation line with corners (any key pressed during the drag adds one where the pointer is), dragging from a line's end to make it longer, and Tab (Shift+Tab back) through the fragments of the atom or bond under the pointer. ChemDraw check 26 waits in `~/octet-research/notes/chemdraw-checks-pending.md`.
-- Done (`spectra-parity` branch): a measured mass spectrum in the drawing is the Mass spec panel's peak list (`peaks`).
+## Done from the roadmap of October 2026
 
-### Search Reaxys needs fixing
-
-Sam, 18 October 2026: the Reaxys integration needs fixing. Fix it first in 1.1.0.
-
-- Search Reaxys opens Reaxys in Octet's Reaxys window (decision 0008). The window clears the Query Builder form that Reaxys keeps from the last search, because Reaxys's own site searches that old form before it loads the new structure. The research note is `~/octet-research/notes/reaxys-search.md` on Sam's Mac.
-- The window was tested in headless Chrome and in a bare macOS web view. It has not been tested in the built app.
-- What Sam saw fail is not recorded yet. Ask Sam before you start.
-
-### Moved from 1.0 on 18 October 2026 to save usage
-
-Sam wanted these in 1.0. They are not done yet.
-
-- ChemDraw file fidelity (done on the `file-fidelity` branch, 27 October 2026; ChemDraw checks 15 to 18 wait in `~/octet-research/notes/chemdraw-checks-pending.md`):
-  - Done: conditions keep their text positions from a ChemDraw file, by their arrow, until the arrow changes length or direction or Clean Up Reaction runs.
-  - Done: a label keeps the justification its file gives it (centred, left, right, stacked) where Octet's automatic one would draw it another way.
-  - Done: a label's `RotationAngle` is kept, drawn and written back.
-  - Done: all 68 of Sam's CDXML files write and read back unchanged.
-  - Arrowhead sizes and hollow block arrows are done.
-  - Done (27 October 2026; ChemDraw check 23): tritium typed as T is hydrogen-3, as D is hydrogen-2, in the formula's weight, CDXML and MOL; an atom number ChemDraw keeps hidden (`AtomNumber` without `ShowAtomNumber`) is kept and written back without showing.
-  - Done (28 October 2026, `drawing-loose-ends` branch): a node label of more than one line ("Direct,\nNo ISC" in the corpus). Option-Return in the label box starts a new line (Settings > Typing > New line in labels can make it Return, as ChemDraw's preference). The attaching line sits on the atom as a one-line label does; the other lines go a caption's line apart, lined up with it. Bonds stop at each line's box. CDXML and CDX keep the break and write LineStarts. ChemDraw check 26 waits in `~/octet-research/notes/chemdraw-checks-pending.md`.
-
-### Platform limits
-
-Octet cannot test these on Sam's Mac.
-
-- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine. The workflow
-  `.github/workflows/platforms.yml` drives them on GitHub's machines (docs/release.md, Checks); it has not run yet.
-- The build pipeline (`.github/workflows/release.yml`) has never run on GitHub.
-- Updates cannot be tested until the first release is published.
-- Signing and notarisation wait for Sam's Apple and Windows keys.
-- The Dock's Quit (`src-tauri/src/quit.rs`) was tried on 27 October 2026 in a built Octet with a quit Apple Event, as the Dock
-  sends: with no changes Octet ends at once; with unsaved changes the question shows and the quit waits; Cancel stops it
-  and Don't Save ends Octet. Not tried: a real logout or restart, and Save from that question on a new drawing.
+| Work | Result |
+|---|---|
+| Updates on by default | Done (decision 0010). |
+| ChemDraw file fidelity | Done: 68 of 68 CDXML round trips. |
+| Template and clip-art library (audit item CD-32) | Done (decision 0017): 292 templates in 16 sets. 1.1.2 adds 14 sets. |
+| Template features: edit, order by drag, floating palettes, sizes, `.ctp` and `.cts` files | Done (decision 0018). |
+| Measured spectra with peak assignment (audit item CH-29) | Done (decision 0016). |
+| Mass Spec Analysis (audit item CH-40) | Done. |
+| Names of mixtures, clusters and metal complexes | Done: 6855 of 6924 named right, 0 wrong. |
+| Windows and Linux test runs in CI | Done: each run passes every step. |
+| Screen readers: the menus on Windows, and the structures on the canvas | Done (decision 0019). The real session is in "Checks that wait". |
+| The website | Done: octet.software is live since 30 October 2026. |
+| Mac signing and notarisation | Done from 1.0.26 (2 November 2026). |
+| The release workflow on GitHub | Done: it builds each release. |
