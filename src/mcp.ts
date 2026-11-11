@@ -18,7 +18,7 @@ import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
-import { fromLines, NOTATION } from "./notation.ts";
+import { fromLines, NOTATION, written } from "./notation.ts";
 import { formulaTextRuns } from "./labels.ts";
 import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
@@ -328,8 +328,9 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // watched: the AI app asked for progress, so a long call shows each part as it goes.
 // notes: what the call's arguments were read as (coerce), for the reply.
 // brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session.
-// lean: the call was a draw by lines, whose reply names each compound in its list (madeCompounds).
-type Ctx = { lean?: boolean; session?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+// lean: the call was a draw by lines, whose reply names each compound in its list (madeCompounds); where: the line each
+// name or SMILES of the lines is on (fromLines).
+type Ctx = { lean?: boolean; where?: Map<string, number>; session?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -583,8 +584,9 @@ for (const t of OPS) {
 // wrong with the call.
 // hidden: callable by its name (scripts, checks) but not listed: AI apps reach it through advanced.
 // route's brief: the user's answers given with the call (draw's brief), set as set_brief sets them before it draws;
-// lines: the call was the line notation, so its reply is the one that ends a job (answer).
-type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes) => { op: string; args: any; at?: string; brief?: unknown; lines?: string } | string };
+// lines: the call was the line notation, so its reply is the one that ends a job (answer); where: the line of each of
+// its names (fromLines).
+type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes) => { op: string; args: any; at?: string; brief?: unknown; lines?: true; where?: Map<string, number> } | string };
 const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
 const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "set_brief"];
 // The values an operation's argument takes, for a tool's description to list.
@@ -664,8 +666,8 @@ const TOOLS: Tool[] = [
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l))) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
-      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(typeof rest.lines === "string" ? { lines: rest.lines } : {}) };
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: true as const, where } : {}) };
     },
   },
   {
@@ -676,10 +678,10 @@ const TOOLS: Tool[] = [
       const wrong = wrongWith(OPERATIONS, a, notes);
       if (wrong) return wrong;
       // A draw is its kind's operation. One operation is run as itself, so its result is as its own call's.
-      const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [];
+      const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [], where = new Map<string, number>();
       for (const [k, { op, ...args }] of (operations as any[]).entries()) {
         // Lines of one drawing are its kind (lines that make several go in a draw call of their own).
-        const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l)) : undefined;
+        const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l), where) : undefined;
         if (typeof lined === "string") return `operations[${k}]: ${lined}`;
         if (lined && (lined.op === "batch" || lined.op === "route")) return `operations[${k}]: these lines make several drawings: draw them with draw, then change them`;
         const no = op === "draw" && !lined ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
@@ -687,7 +689,7 @@ const TOOLS: Tool[] = [
         const { kind, ...rest } = args;
         steps.push(lined ? { tool: lined.op, args: lined.args } : op === "draw" ? { tool: kind, args: rest } : { tool: op, args });
       }
-      return steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" };
+      return { ...(steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" }), ...(where.size ? { where } : {}) };
     },
   },
   {
@@ -787,10 +789,12 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 }
 // Each compound read; the texts Octet cannot read (failed); and what is wrong with the rest (wrong: a molecule with a
 // bond to no atom, labels that do not fit the *s).
-// lost: the place in items of each that failed.
-async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[]; lost: number[] }> {
+// lost: the place in items of each that failed. where: the line each name or SMILES of the line notation is on, which
+// names it as the lines wrote it.
+type Failed = { text: string; line?: number };
+async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
   await host.ready();
-  const ok: Read[] = [], failed: string[] = [], wrong: string[] = [], lost: number[] = [];
+  const ok: Read[] = [], failed: Failed[] = [], wrong: string[] = [], lost: number[] = [];
   let last: Read | undefined; // the compound before this one, when Octet read it
   const add = (r: Read, it: CompoundIn) => { ok.push(r); if (!it.aside) last = r; };
   for (const [k, it] of items.entries()) {
@@ -841,7 +845,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     // A SMILES's map numbers name its atoms for later changes: they are kept as tags, and not drawn.
     const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), got = host.structure(text), read = got && tagged(got);
     let mol = read && crowded(read) ? host.tidy(read) : read;
-    if (!mol?.atoms.length) { failed.push(short(text, 60)); lost.push(k); continue; }
+    if (!mol?.atoms.length) { const w = where && written(it as { text: string }), line = w ? where!.get(w) : undefined; failed.push(line ? { text: short(w!, 60), line } : { text: short(text, 60) }); lost.push(k); continue; }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
     if (it.labels?.length) {
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
@@ -1034,7 +1038,8 @@ function readAs(host: Host, list: Read[], ctx?: Ctx): string {
 }
 // Octet's reading of each name given (D9).
 const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own, formula } = about(host, x.mol); return { given: short(x.text, 80), ...(own ? { octet: own } : {}), ...(formula ? { formula } : {}) }; });
-const failedNote = (failed: string[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f}"`).join(", ")}: give a SMILES instead (with * for a generic group such as L or R, and its labels).${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
+// A name of the line notation is named as the lines wrote it, with its line.
+const failedNote = (failed: Failed[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f.text}"${f.line ? ` (line ${f.line})` : ""}`).join(", ")}${failed.every((f) => f.line) ? " as a structure." : ": give a SMILES instead (with * for a generic group such as L or R, and its labels)."}${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f.text)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
 const UNDO = " One undo step.";
 
 async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number } & Placement, ctx: Ctx): Promise<Result> {
@@ -1117,7 +1122,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   const lines = a.steps.map(stepLines);
   // In the order they are drawn: each step's structures over and under its arrow, then its products.
   const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t): CompoundIn => ({ ...(typeof t === "string" ? { text: t.replace(/^structure:\s*/i, "") } : t), aside: true })), ...s.products])];
-  const { ok, failed, wrong } = await read(host, all);
+  const { ok, failed, wrong } = await read(host, all, undefined, ctx.where);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
   let m = host.doc();
@@ -1293,7 +1298,7 @@ async function drawRoute(host: Host, a: { title?: string; schemes: SchemeIn[]; l
 }
 
 async function drawCycle(host: Host, a: { intermediates: { text: string; labels?: string[]; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
-  const { ok, failed, wrong, lost } = await read(host, a.intermediates);
+  const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   // An intermediate Octet cannot read as a structure (L2Pd(Ar)Br) is text, as the cycle tool writes one: with its labels
   // for its * and its number in bold under it, formulas with subscripts. Its box is a guess until Clean Up measures it.
@@ -2917,6 +2922,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
       ctx.lean = !!routed.lines;
+      ctx.where = routed.where;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
       let before: Mol | undefined, told = false, shown: Box | undefined;
       try {
@@ -2931,8 +2937,6 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         const out = set?.error ? set : await runOp(tool, h, args, ctx);
         // A draw by lines answers in as few characters as carry it (plan 19.2): not that Octet laid it out or that it is
         // one undo step, which every such call is.
-        // A name or SMILES of the lines that Octet cannot read is named with its line, in the lines' terms ({R}, not *).
-        if (routed.lines && out.error) out.text = out.text.replace(/ Octet cannot read ((?:"[^"]*"(?:, )?)+): give a SMILES instead \(with \* for a generic group such as L or R, and its labels\)\./, (_, list: string) => ` Octet cannot read ${list.replace(/"([^"]*)"/g, (q, t: string) => { const re = new RegExp(t.replace(/…$/, "").replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? "\\{[^{}]*\\}" : `\\${c}`))), k = routed.lines!.split("\n").findIndex((l) => re.test(l)); return k < 0 ? q : `${q} (line ${k + 1})`; })} as a structure: write each as a name or SMILES, with {R} for a group.`);
         if (routed.lines && !wantFull && !out.error) out.text = out.text.replace(UNDO, "").replace(/ Octet (?:laid it out|laid out each) with Clean Up Reaction\.| Octet tidied it with Clean Up\./, "");
         // (The room inside the page's margins, or that there is no page, is left out: the draw says what does not fit.)
         if (set && !out.error) out.text = `${set.text.split("\n")[0].replace(UNDO, "").replace(/ Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\.| With no page, nothing runs off it\./, "")} ${out.text}`;

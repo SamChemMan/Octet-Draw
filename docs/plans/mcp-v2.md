@@ -710,13 +710,14 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
     can be written against a compound with no space after the sign (`P (1) +triketone -> ...`, `4 -ketol -> 1`,
     `OA +ArBr`): before an arrow on its line it is that arrow's step; at the end of a line, in goes into the step from
     the compound and out comes from the step to it. Side text is as written, with no braces or quotes (`+{Ar}Br` is
-    ArBr). Back to the start with any `+x` or `-x` is a cycle with no further question. The centre text can be a line
-    of its own after or before the cycle (`L = PPh3`, `{L}: PPh3`) or in quotes after it. A cycle's side text is always
-    text: the tools' cycle has no structure at a side arrow's end (the editor's has, `CycleEnd.atoms`). Not a cycle,
-    `A +B` is two starting materials as before, and `B -H2O` a line under the arrow after it. A definition line with no
-    cycle is a title.
-  - A compound alone on a line (under a `#` title, or after a scheme), then a line that starts with an arrow: the lone
-    compound is the start.
+    ArBr). Back to the start with any `+x` or `-x`, or a `#` title, is a cycle with no further question. The centre
+    text is a line of its own (`L = PPh3`, `{L}: PPh3`) before such a cycle or after it, or a line in quotes after it.
+  - What is not a cycle reads as before. A chain back to its start with yields and no `+x`, `-x` or title is a scheme,
+    and a quoted line after it is a note. Its compounds are read as written (`A +B` is two, `trans -stilbene` one
+    name). A definition that no cycle takes (`TBS = tert-butyldimethylsilyl`) is free text, as a quoted line is: not a
+    title.
+  - A compound alone on a line (the first of its panel, under a `#` title, after a scheme or a figure), then a line
+    that starts with an arrow: the lone compound is the start.
   - Conditions before the arrow (`cyclohexanone + NaBH4, MeOH, 0 °C -> cyclohexanol (1), 95%`): starting materials are
     joined by `+`, so what follows the first comma on the left is the step's conditions, and the reply says so in its
     coerced line ("Line 1: Octet read "MeOH, 0 °C", before the arrow, as the step's conditions."). Before, it was
@@ -725,18 +726,26 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
     `;` between compounds when the next starts with the core's first group, `then` before a compound or after the
     colon, the group again after the core (`CORE {R}:`), `R = OMe`, and the number bare (`R=OMe 3a 91%`) or in brackets.
   - A refusal that Octet can correct ends with the line as it would have it (`Write: A -> B, X, 90%` for `B,X`; a
-    cycle's `@Y` or `^Y` without its mark), and a name or SMILES of the lines that Octet cannot read is named with its
-    line (`"triketone" (line 1)`) and the lines' `{R}`, not the JSON's `*` and labels.
-  - `NOTATION` (771 characters, from 810) is examples, as models copy them: a titled route with conditions and a
-    continuing step with a change, a scope with its core, a cycle with text intermediates, side text and centre text,
-    then one paragraph of the compound's form, the marks and the arrows. `src/notation.check.ts` draws each example.
+    cycle's `@Y` or `^Y` without its mark): the reader's refusal carries its correction. A name or SMILES of the lines
+    that Octet cannot read is named as the lines wrote it, with the line it is on and no more, on every path (a
+    reaction, a route, a batch, a grid, `change`'s draw): `Octet cannot read "{R}C(=O)Nqqzx" (line 1) as a
+    structure.` `fromLines` gives the line of each name (`where`) and `read` names it; the JSON form still says to give
+    a SMILES.
+  - `NOTATION` (549 characters, from 810) is examples, as models copy them: a titled route with conditions and a
+    continuing step with a change, a scope with its core on one line, a cycle on one line with what goes in and out
+    and its centre text, then one line of changes, marks and arrows. No title says "Scheme". `src/notation.check.ts`
+    draws each example.
   - The model test's check (`scripts/mcp-evals/notation.ts`) counts a word drawn as its structure (`1 + SOCl2 -> 2`, a
     reagent written as a starting material, is right) and no longer wants "Scheme" in a title the job did not ask for.
-  - Measured: the 36 answers through the new reader and check, 35 right (Haiku 9 to 12, Sonnet 7 to 11, Opus 10 to 12);
-    the one left is Sonnet's cycle, which draws Pd(PPh3)4 as intermediate A and never writes L = PPh3. The 60 corpus
-    jobs and taxol draw as before. The reader is quicker: the 61 jobs read in 3.5 ms, from 4.7 (best of 10; `cut`
-    reads by character code), taxol 25 µs a line. Benchmark: no case worse; tools/list 12,434 characters (12,463), and lines-grocott2025-fig2a-catalyst reads 145
-    (150), its refusal naming the line of the name Octet cannot read.
+  - Measured: the 36 answers through the new reader and check, 35 right (Haiku 9 to 12, Sonnet 7 to 11, Opus 10 to
+    12); the one left is Sonnet's cycle, which draws Pd(PPh3)4 as intermediate A and never writes L = PPh3. The 61
+    jobs (60 of the corpus and taxol) draw as before, taxol read in about 25 µs a line. Benchmark: no case worse;
+    tools/list 12,209 characters (12,463), and lines-grocott2025-fig2a-catalyst reads 91 (150), its refusal naming the
+    line of the name Octet cannot read.
+  - **For Sam:** item 1(b) asked for what goes in or out to be drawn as a structure when Octet can read it, unless
+    quoted. Not built: the tools' cycle takes side text only (`steps[].in` and `out`), so a cycle's side items are text
+    for now. The editor has structures at a side arrow's end (`CycleEnd.atoms`, put there by `attachBeside`); the
+    tools' cycle would take a compound at `in` and `out`, which changes its JSON too. Sam to agree before it is built.
 - **Still JSON only:** a compound's hints (up, down, left, right, rotate, flip, geometry, colours, like) and a molecule
   atom by atom; MOL or CDXML text as a compound; `from` by a structure's id (`s3`); a figure item's brackets, mark and
   colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`. Every operation of `change` other
@@ -1604,6 +1613,9 @@ What a model sees and sends was rebuilt so that a drawing job is one call and no
   a cycle (before: refused, then a scheme), which still fails on Haiku's own SMILES for 4 and its long title, as the
   centre, over two intermediates (the check names them). The one still refused is say-cycle's third try (`"triketone"
   at 1 to 2`, words for where), which a model no longer reaches. Whether thinking falls is for the main session's
-  model runs.
+  model runs. After review: the same 4 of 5 go through, and the 36 answers are still 35 right, with a scheme back to
+  its start, a definition line and `trans -stilbene` read as before round 2, a lone compound under a figure's title
+  taken as the start, and a name Octet cannot read named with its line on every path. NOTATION is 549 characters and
+  tools/list 12,209.
 - **Not done:** models on the lab (the main session runs them).
 

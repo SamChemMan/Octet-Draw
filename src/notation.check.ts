@@ -41,6 +41,8 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 // It goes in the tool list, which is 14,000 characters in all (610 before it said a step's label and a name changed,
 // in the room draw_route's listing left).
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
+// Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title.
+assert.ok(NOTATION.split("\n").length <= 12 && !/Scheme/.test(NOTATION), NOTATION);
 // It teaches by example (models copy examples): each of its drawings reads and draws with no refusal. The route draws
 // 3 and 4 by InChIKey, the second from the first; the scope its two compounds; the cycle its three intermediates as text
 // (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and L = PPh3 in the middle.
@@ -117,7 +119,7 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
     let r: any;
     const got = await shown("draw", { lines: text, brief: id === "taxol-route" ? "quick" : "paper" }, `one-${++k}`, (x) => (r = x)), want = wanted.get(id)!;
     // (A job the JSON draws nothing of, as Octet cannot read a name, is refused the same, with the line of each name.)
-    if ("refused" in want) { assert.equal(String(got.refused).replace(/ \(line \d+\)/g, "").replace(/ as a structure: write each as a name or SMILES, with \{R\} for a group\.$/, ""), want.refused.replace(/: give a SMILES instead.*$/, ""), id); assert.match(String(got.refused), /" \(line 1\) as a structure/, id); }
+    if ("refused" in want) { assert.equal(String(got.refused).replace(/ \(line \d+\)/g, "").replace(/ as a structure\.$/, ""), want.refused.replace(/: give a SMILES instead.*$/, ""), id); assert.match(String(got.refused), /" \(line 1\) as a structure\.$/, id); }
     else assert.deepEqual(got, want, id);
     if (!r) continue;
     const said = r.content.map((c: { text: string }) => c.text).join("\n"), sc = r.structuredContent;
@@ -256,6 +258,7 @@ const HARD: [string, object | RegExp][] = [
   // A compound alone on a line (under its title), then a line that starts with an arrow: it is the start.
   ["ethyl (S)-lactate (1)\n-> 1[OH>OTBS] (2), TBSCl", R([{ text: "ethyl (S)-lactate", number: "1" }], [{ reagents: ["TBSCl"], products: [{ from: "1", changes: [{ swap: { OH: "OTBS" } }], number: "2" }] }])],
   ["# T\nX (1)\n-> Y (2)", { op: "route", args: { schemes: [{ title: "T", start: [{ text: "X", number: "1" }], steps: [{ products: [{ text: "Y", number: "2" }] }] }] } }],
+  ["# Fig\nX (1) | Y (2)\n# Scheme\nZ (3)\n-> W (4)", { op: "batch", args: { steps: [{ tool: "figure", args: { panels: [{ title: "Fig", rows: [[{ structure: "X", number: "1" }, { structure: "Y", number: "2" }]] }] } }, { tool: "text", args: { text: "Scheme" } }, { tool: "reaction", args: { start: [{ text: "Z", number: "3" }], steps: [{ products: [{ text: "W", number: "4" }] }] } }] } }],
   ["A -> B\nX (1)\n-> Y (2)", { op: "route", args: { schemes: [{ start: A, steps: [{ products: [B] }] }, { start: [{ text: "X", number: "1" }], steps: [{ products: [{ text: "Y", number: "2" }] }] }] } }],
   // A cycle on one line with what goes in and out written against its compounds: before an arrow, that arrow's step;
   // at the end of a line, in goes into the step from the compound and out comes from the step to it. Words that are
@@ -269,11 +272,17 @@ const HARD: [string, object | RegExp][] = [
   ["# Suzuki\n{L}: PPh3\nPd(0)L2 (A) -> L2Pd(Ar)Br (B), +ArBr, OA -> Pd(0)L2 (A), -{Ar}-{Ar'}, RE", { op: "cycle", args: { intermediates: [{ text: "Pd(0)L2", number: "A" }, { text: "L2Pd(Ar)Br", number: "B" }], centre: "Suzuki\nL = PPh3", steps: [{ step: 0, in: "ArBr", name: "OA" }, { step: 1, out: "Ar-Ar'", name: "RE" }] } }],
   ['P (A) -> Q (B), +X\n-> A, -Y\n"L = PPh3"', { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }], centre: "L = PPh3", steps: [{ step: 0, in: "X" }, { step: 1, out: "Y" }] } }],
   ["P (A) -> Q (B), +X\n-> A, -Y\nL = PPh3", { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }], centre: "L = PPh3", steps: [{ step: 0, in: "X" }, { step: 1, out: "Y" }] } }],
-  // Not a cycle: +x against a compound is one more compound, as before, and -x a line under the arrow after it. A
-  // definition with no cycle is a title.
+  // Not a cycle: compounds are read as written, as before (A +B is two, trans -stilbene one name). A definition no
+  // cycle takes is free text, as a line in quotes is: not a title.
   ["A +B -> C", R([T("A"), B], [{ products: [T("C")] }])],
-  ["A -> B -H2O", R(A, [{ below: ["-H2O"], products: [B] }])],
-  ["L = PPh3\nA -> B", { op: "route", args: { schemes: [{ title: "L = PPh3", start: A, steps: [{ products: [B] }] }] } }],
+  ["A -> B -H2O", R(A, [{ products: [T("B -H2O")] }])],
+  ["trans -stilbene -> B", R([T("trans -stilbene")], [{ products: [B] }])],
+  ["L = PPh3\nA -> B", { op: "batch", args: { steps: [{ tool: "figure", args: { panels: [{ rows: [[T("L = PPh3")]] }] } }, { tool: "reaction", args: { start: A, steps: [{ products: [B] }] } }] } }],
+  ["TBS = tert-butyldimethylsilyl\nA (1) -> B (2), TBSCl, 90%", { op: "batch", args: { steps: [{ tool: "figure", args: { panels: [{ rows: [[T("TBS = tert-butyldimethylsilyl")]] }] } }, { tool: "reaction", args: { start: [{ text: "A", number: "1" }], steps: [{ reagents: ["TBSCl"], yield: "90%", products: [{ text: "B", number: "2" }] }] } }] } }],
+  // A scheme back to its start with yields stays a scheme: a quoted line or a definition after it is a note, not the
+  // centre of a cycle.
+  ['A (1) -> B (2), 90%\n-> 1, 80%\n"from ref 3"', { op: "batch", args: { steps: [{ tool: "reaction", args: { start: [{ text: "A", number: "1" }], steps: [{ yield: "90%", products: [{ text: "B", number: "2" }] }, { yield: "80%", products: [{ from: "1", number: "1" }] }] } }, { tool: "figure", args: { panels: [{ rows: [[T("from ref 3")]] }] } }] } }],
+  ["A (1) -> B (2), 90%\n-> 1, 80%\nTHF = tetrahydrofuran", { op: "batch", args: { steps: [{ tool: "reaction", args: { start: [{ text: "A", number: "1" }], steps: [{ yield: "90%", products: [{ text: "B", number: "2" }] }, { yield: "80%", products: [{ from: "1", number: "1" }] }] } }, { tool: "figure", args: { panels: [{ rows: [[T("THF = tetrahydrofuran")]] }] } }] } }],
   // A scope as models write it: the core with "then" and its compounds on its line, joined by ; or |, or the core with
   // its group again after it; a number bare or in brackets with its yield.
   ["{R}c1ccc(cc1)C(C)=O: then R=OMe (3a) 91%; R=F (3b) 85% | R = CF3 3c 70%", { op: "structures", args: { structures: [{ text: "*c1ccc(cc1)C(C)=O", labels: ["OMe"], number: "3a", caption: "91%" }, { text: "*c1ccc(cc1)C(C)=O", labels: ["F"], number: "3b", caption: "85%" }, { text: "*c1ccc(cc1)C(C)=O", labels: ["CF3"], number: "3c", caption: "70%" }], columns: 3 } }],
@@ -294,6 +303,18 @@ for (const [text, want] of HARD) {
   assert.deepEqual(said, ['before: Line 1: Octet read "MeOH, 0 °C", before the arrow, as the step\'s conditions.']);
   const r = await call("draw", { lines: "cyclohexanone + NaBH4, MeOH, 0 °C -> cyclohexanol (1), 95%" });
   assert.match(r.content.map((c: { text: string }) => c.text).join("\n"), /\nLine 1: Octet read "MeOH, 0 °C", before the arrow, as the step's conditions\.$/);
+}
+// A name or SMILES Octet cannot read is named as the lines wrote it ({R}), with the line it is on (not one that only
+// holds its text, as a caption), and no more: on every path (a reaction, a route, a batch, a change). The JSON form
+// still says what to give.
+{
+  d = drawing("paper");
+  const said = async (n: string, a: unknown) => (await call(n, a)).content[0].text as string;
+  assert.match(await said("draw", { lines: "{R}C(=O)Nqqzx -> CC" }), /Octet cannot read "\{R\}C\(=O\)Nqqzx" \(line 1\) as a structure\.$/);
+  assert.match(await said("draw", { lines: 'CCO -> CC (1) "qqzx"\n# T\n1 -> qqzx' }), /Octet cannot read "qqzx" \(line 3\) as a structure\.$/);
+  assert.match(await said("draw", { lines: "CC -> CCO\nqqzx (1) | CO (2)" }), /Octet cannot read "qqzx" \(line 2\) as a structure\./);
+  assert.match(await said("change", { operations: [{ op: "draw", lines: "CC -> qqzx" }] }), /Octet cannot read "qqzx" \(line 1\) as a structure\.$/);
+  assert.match(await said("draw", { kind: "reaction", start: [{ text: "qqzx" }], steps: [{ products: [{ text: "CC" }] }] }), /Octet cannot read "qqzx": give a SMILES instead/);
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });

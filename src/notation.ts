@@ -9,21 +9,19 @@ import { isElement } from "./labels.ts";
 import { NAMED, TO, WITH } from "./named.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
-// What a model reads in the tool list (about 800 characters: the list is 14,000 in all).
+// What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
+// them: a titled route with conditions and a step that changes a compound, a scope, a cycle; then one line of marks.
 export const NOTATION = `Lines as chemists type them, as in these 3 drawings:
-# Scheme 1. Biaryl 4
-4-bromoanisole + PhB(OH)2 (1.5 equiv) -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
--> 3[OMe>OH] (4), BBr3, 78%
+# Biaryl 4
+4-bromoanisole + PhB(OH)2 -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
+-> 3[OMe>OH] (4), BBr3, CH2Cl2, −78 °C, 78%
 
-{R}c1ccc(cc1)C(C)=O:
-R=OMe (5a) 91% | R=F (5b) 85%
+{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=F (5b) 85%
 
-Pd(0)L2 (A) -> L2Pd(Ar)Br (B), OA, +ArBr
--> L2Pd(Ar)Ar' (C), TM, +Ar'B(OH)2, -B(OH)2Br
--> A, RE, -Ar–Ar'
+Pd(0)L2 (A) -> L2Pd(Ar)Br (B), OA, +ArBr -> L2Pd(Ar)Ar' (C), TM, +Ar'B(OH)2, -B(OH)2Br -> A, RE, -Ar–Ar'
 L = PPh3
 
-Compound: name, formula or SMILES ({R}: label R), (number), caption. 3 is compound 3; 3[..] changes it: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9; aspirin[OAc>OH]. Conditions in any order. Each # title is over its scheme; the schemes are one route, numbered as one. Marks: ^x over, _x under, "x" as written, @x drawn, (a) first: letters on arrows. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. Marks: ^x over, _x under, "x" as written, @x drawn, (a) first: letters. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -33,13 +31,20 @@ type Step = { products: Compound[]; label?: string; arrow?: string; reagents?: s
 type Op = { tool: string; args: Record<string, unknown> };
 // A reaction as read: its compounds, and each arrow with what follows its products, read once Octet knows whether the
 // chain is a cycle. asides: what goes in or out written against a compound (cat +ArBr), with the step (-1 the start)
-// whose compounds it follows and whether an arrow follows it on its line. centre: a cycle's centre text after it.
-// A step's next: an arrow follows its products on their line.
+// whose compounds it follows and whether an arrow follows it on its line. raw: the compounds' text as written where
+// it had any (part -1 the start), read as written when the chain is not a cycle (trans -stilbene is one name). defs: the
+// definitions (L = PPh3) before it; centre: a cycle's centre text after it. A step's next: an arrow follows its
+// products on their line.
 type Aside = { sign: "+" | "-"; text: string; part: number; before: boolean };
-type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number }[]; heads: string[]; asides: Aside[]; centre: string[] };
+type Raw = { part: number; text: string; prev: Compound[]; line: number; asides: Aside[] };
+type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number }[]; heads: string[]; asides: Aside[]; raw: Raw[]; defs: string[]; centre: string[] };
 
-// A refusal's corrected text, when Octet can work it out: what to replace in the line, and with what (fromLines' wrong).
-let fix: [string, string] | undefined;
+// A refusal with its correction, when Octet can work one out: why, then what to replace in the line and with what, as
+// one string (no line holds a U+0000), so it goes back through every caller as any refusal does (fromLines' wrong).
+const fixed = (why: string, from: string, to: string) => `${why}\u0000${from}\u0000${to}`;
+/** A compound's name or SMILES as the lines wrote it: {R} for each * with its label. A draw by lines names one that
+ * Octet cannot read by this, with its line (fromLines' where). */
+export const written = (c: { text: string; labels?: string[] }) => { let k = 0; return c.labels?.length ? c.text.replace(/\*/g, () => `{${c.labels![k++] ?? "*"}}`) : c.text; };
 const MOST = 100_000; // characters: a 50-step route is about 5,000
 // Arrows, longest first. Unicode or ASCII, as a model writes them.
 const ARROWS: [string, string][] = [["-/->", "nogo"], ["-x->", "nogo"], ["-X->", "nogo"], ["<-->", "resonance"], ["-->", "reaction"], ["<=>", "equilibrium"], ["<->", "resonance"], ["-/>", "nogo"], ["->", "reaction"], ["—>", "reaction"], ["–>", "reaction"], ["=>", "retro"], [">>", "reaction"],
@@ -138,7 +143,7 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
   // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
   const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
-  if (odd > 0) { fix = [t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`]; return `"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`; }
+  if (odd > 0) return fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
   // An earlier compound, changed: 3[...], or [...] for the one before. A name or SMILES changed (aspirin[OAc>OH]) is
@@ -281,13 +286,13 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
     const m = /^([\^_])\s*/.exec(t), at = m ? (m[1] === "^" ? "above" : "below") : undefined, x = t.slice(m?.[0].length ?? 0);
     if (quoted(x)) { if (cycle) cyc.name.push(unquote(x)); else free(at ?? "above", "quoted", unquote(x)); last = undefined; return true; }
     if (x[0] === "@") {
-      if (cycle) { fix = [x, x.slice(1)]; return `${x.slice(0, 40)}: a cycle's steps take text, not a structure`; }
+      if (cycle) return fixed(`${x.slice(0, 40)}: a cycle's steps take text, not a structure`, x, x.slice(1));
       const c = compound(x.slice(1), known);
       if (typeof c === "string") return c;
       sides[at ?? "above"].push(c); last = undefined; return true;
     }
     if (!m) return undefined;
-    if (cycle) { fix = [t, x]; return `${t.slice(0, 40)}: a cycle's steps take text: +x goes in, -x comes out, the rest is the step's name`; }
+    if (cycle) return fixed(`${t.slice(0, 40)}: a cycle's steps take text: +x goes in, -x comes out, the rest is the step's name`, t, x);
     free(at!, "forced", x, by); return true;
   };
   // then and what follows it (then Et3N, MeOH) is a line under the arrow, as written, with its yield taken out.
@@ -354,9 +359,10 @@ type Cell = Compound | { note: string };
 const head = (l: string) => /^(#+)\s*(.*)$/.exec(l)!;
 
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
- * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. */
-export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void): { op: string; args: any } | string {
-  fix = undefined;
+ * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
+ * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
+ * line it is on. */
+export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>): { op: string; args: any } | string {
   if (typeof text !== "string") return "lines is text: one reaction a line";
   if (text.length > MOST) return `The lines are ${text.length} characters, over ${MOST}: draw them in parts`;
   // Characters no model means: control characters, and half a surrogate pair.
@@ -378,10 +384,12 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (no) return `Line ${x.at}: ${no}`;
   }
   const known = new Set<string>(), ops: Op[] = [];
-  let heads: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound | undefined;
-  const add = (c: Compound) => { if (c.number) known.add(c.number); };
-  // What is wrong with a line, with the line as Octet would have it when it can work that out (fix).
-  const wrong = (at: number, why: string) => { const l = all.find((x) => x.at === at)?.line, f = fix; fix = undefined; return `Line ${at}: ${why}${f && l?.includes(f[0]) ? `. Write: ${l.replace(f[0], f[1])}` : ""}`; };
+  let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound | undefined;
+  const add = (c: Compound, at: number) => { if (c.number) known.add(c.number); if (c.text !== undefined && where && !where.has(written(c as { text: string }))) where.set(written(c as { text: string }), at); };
+  // What is wrong with a line, with the line as Octet would have it when it can work that out (fixed).
+  const wrong = (at: number, why: string) => { const l = all.find((x) => x.at === at)?.line, [no, from, to] = why.split("\u0000"); return `Line ${at}: ${no}${from !== undefined && l?.includes(from) ? `. Write: ${l.replace(from, to)}` : ""}`; };
+  // Definitions no cycle took (TBS = tert-butyldimethylsilyl): free text, as a line in quotes is.
+  const free = (t: string[]) => { if (t.length) ops.push({ tool: "figure", args: { panels: [{ rows: t.map((x) => [{ text: x }]) }] } }); };
   // Compounds joined by +. A + in brackets, or at the end of a word with a space after it ([NH4+], Na+ + Cl−), is a
   // charge. [...] alone changes the first of the compounds before (by its number, or previous when it is the only one).
   const compounds = (s: string, prev: Compound[], at: number): Compound[] | string => {
@@ -389,7 +397,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     for (const { text: t } of cut(s, (i) => (s[i] === "+" && i > 0 && (/\s/.test(s[i - 1]) || !/^(?:\s|$)/.test(s.slice(i + 1))) ? 1 : 0))) {
       const c = compound(t, known, () => prev[0]?.number ?? (prev.length === 1 ? "previous" : undefined));
       if (typeof c === "string") return wrong(at, c);
-      out.push(c); add(c);
+      out.push(c); add(c, at);
     }
     return out;
   };
@@ -398,15 +406,18 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     const first = c.start[0], end = c.steps[c.steps.length - 1]?.products;
     return c.start.length === 1 && end?.length === 1 && c.steps.length > 1 && ((first.number !== undefined && end[0].from === first.number && !end[0].changes) || (first.text !== undefined && end[0].text === first.text && String(end[0].labels) === String(first.labels)));
   };
+  // Back with a title, or anything in or out (+x, -x): a catalytic cycle by its own lines.
+  const cyclic = (c: Chain) => back(c) && (c.heads.length > 0 || c.asides.length > 0 || c.raw.some((r) => r.asides.length) || c.steps.some((s) => TIGHT.test(s.conditions) || cut(s.conditions, (i) => sepAt(s.conditions, i)).some((x) => /^\s*(?:\+|[-−](?!\s*\d))/.test(x.text))));
   const flush = (): string | undefined => {
     if (chain) {
       const c = chain, first = c.start[0], n = c.steps.length, round = back(c);
       chain = undefined;
-      // A chain back to its first compound with a title or centre text, or anything in or out (+x, -x), is a catalytic
-      // cycle: step k runs from intermediate k to k + 1, the last back to the first. With none, it is a scheme when a
-      // step has a yield or a line over or under its arrow, which a cycle's steps do not take.
-      if (round && (c.heads.length || c.centre.length || c.asides.length || c.steps.some((s) => TIGHT.test(s.conditions) || cut(s.conditions, (i) => sepAt(s.conditions, i)).some((x) => /^\s*(?:\+|[-−](?!\s*\d))/.test(x.text))))) {
+      // A cycle: step k runs from intermediate k to k + 1, the last back to the first. Back to the first compound with
+      // nothing in or out and no title, it is a scheme when a step has a yield or a line over or under its arrow, which a
+      // cycle's steps do not take.
+      if (cyclic(c)) {
         if (c.steps.some((s) => s.products.length !== 1)) return `Line ${c.steps[0].line}: a cycle has one intermediate a step`;
+        for (const r of c.raw) c.asides.push(...r.asides);
         // What is written against a compound goes in or out at the arrow after it on its line; else what goes in goes
         // into the step from that compound, and what comes out comes from the step to it.
         // Among a step's text (OA +ArBr), it is the same.
@@ -417,11 +428,17 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
           if (typeof x === "string") return wrong(s.line, x);
           if (Object.keys(x).length) steps.push({ step: k, ...x });
         }
-        const centre = [...c.heads, ...c.centre];
+        const centre = [...c.heads, ...c.defs, ...c.centre];
         ops.push({ tool: "cycle", args: { intermediates: [first, ...c.steps.slice(0, -1).map((s) => s.products[0])], ...(centre.length ? { centre: centre.join("\n") } : {}), ...(steps.length ? { steps } : {}) } });
         return;
       }
-      // Not a cycle: +x against a compound is one more of them, as A + B is, and -x a line under the arrow after it.
+      // Not a cycle: compounds are read as written (A +B is two, trans -stilbene one name). +x against an earlier
+      // compound by its number is one more of them, and -x a line under the arrow after it.
+      for (const r of c.raw) {
+        const made = compounds(r.text, r.prev, r.line);
+        if (typeof made === "string") return made;
+        if (r.part < 0) c.start = made; else c.steps[r.part].products = made;
+      }
       for (const x of c.asides) {
         const s = c.steps[Math.min(n - 1, Math.max(0, x.before ? x.part + 1 : x.part))];
         if (x.sign === "+" && !quoted(x.text)) {
@@ -431,10 +448,12 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         } else s.conditions = [s.conditions, quoted(x.text) ? `"${x.sign}${unquote(x.text)}"` : `${x.sign}${x.text}`].filter(Boolean).join(", ");
       }
       ops.push(...c.heads.map((h) => ({ tool: "text", args: { text: h } })));
+      free(c.defs);
       const steps: Step[] = [];
       for (const s of c.steps) {
         const x = conditions(s.conditions, known, false);
         if (typeof x === "string") return wrong(s.line, x);
+        for (const y of [...((x as Step).above ?? []), ...((x as Step).below ?? [])]) if (typeof y !== "string") add(y, s.line);
         steps.push({ ...x, ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
       if (round && !steps.some((s) => s.yield || s.above || s.below)) return `Line ${c.steps[0].line}: the steps come back to ${first.number ?? first.text}, so they read two ways: a catalytic cycle (write +x for what goes in, -x for what comes out) or a scheme (give a step its yield)`;
@@ -455,8 +474,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       }
     }
   };
-  for (const { line: written, at } of all) {
-    let line = written;
+  for (const { line: typed, at } of all) {
+    let line = typed;
     const was = lone;
     lone = undefined;
     if (line[0] === "#") {
@@ -484,18 +503,25 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (!line) continue;
       }
     }
-    // A definition (L = PPh3, {L}: PPh3), or a line in quotes, after a cycle is its centre text; a definition elsewhere is
-    // a title.
+    // A definition (L = PPh3, {L}: PPh3), or a line in quotes, after a cycle is its centre text. A definition elsewhere
+    // waits for what comes next: the centre of a cycle, else free text.
     const def = !core && !grid && !split.arrows.length && /^(?:\{([A-Za-z][\w'′]{0,5})\}\s*[:=]|([A-Za-z][\w'′]{0,5})\s+=)\s*(\S.*)$/.exec(line);
     const centre = def ? `${def[1] ?? def[2]} = ${def[3]}` : !split.arrows.length && quoted(line) && !line.slice(1, -1).includes('"') ? unquote(line) : undefined;
-    if (centre !== undefined && chain && back(chain)) { chain.centre.push(centre); continue; }
-    if (def) { const no = flush(); if (no) return no; heads.push(`# ${centre}`); continue; }
+    if (centre !== undefined && chain && cyclic(chain)) { chain.centre.push(centre); continue; }
+    if (def) { const no = flush(); if (no) return no; defs.push(centre!); continue; }
     if (split.arrows.length) {
-      const { parts, arrows } = split;
+      const { parts, arrows } = split, begin = (start: Compound[], hs: string[]): Chain => { const c = { start, steps: [], heads: hs, asides: [], raw: [], defs, centre: [] }; defs = []; return c; };
       let reactants: Compound[], before = "";
       if (!parts[0]) {
-        // A compound alone on the line before (under its title) is the start.
-        if (!chain && was && grid?.length === 1 && grid[0].rows.length === 1 && grid[0].rows[0][0] === was) { chain = { start: [was], steps: [], heads: grid[0].heads.map((h) => head(h)[2]), asides: [], centre: [] }; grid = undefined; }
+        // A compound alone on the line before (the first of its panel, under its title) is the start.
+        const p = grid?.[grid.length - 1];
+        if (!chain && was && p?.rows.length === 1 && p.rows[0][0] === was) {
+          grid!.pop();
+          if (!grid!.length) grid = undefined;
+          const no = flush();
+          if (no) return no;
+          chain = begin([was], p.heads.map((h) => head(h)[2]));
+        }
         if (!chain) return `Line ${at} starts with an arrow, but there is no compound before it to go on from: write the starting material first`;
         reactants = chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start;
       } else {
@@ -506,13 +532,15 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof start === "string") return start;
         // A line that starts with the last line's products, by their numbers, goes on from them.
         const last = chain && (chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start);
-        if (last && start.length === last.length && start.every((c, k) => c.from !== undefined && !c.changes && c.from === last[k].number)) reactants = last;
-        else {
+        if (last && start.length === last.length && start.every((c, k) => c.from !== undefined && !c.changes && c.from === last[k].number)) {
+          reactants = last;
+          for (const x of sides) chain!.asides.push({ ...x, part: chain!.steps.length - 1, before: true });
+        } else {
           const no = flush();
           if (no) return no;
-          chain = { start, steps: [], heads: heads.map((h) => head(h)[2]), asides: [], centre: [] }; heads = []; reactants = start;
+          chain = begin(start, heads.map((h) => head(h)[2])); heads = []; reactants = start;
+          if (sides.length) chain.raw.push({ part: -1, text: lhs.text, prev: [], line: at, asides: sides.map((x) => ({ ...x, part: -1, before: true })) });
         }
-        for (const x of sides) chain!.asides.push({ ...x, part: chain!.steps.length - 1, before: true });
       }
       for (const [k, p] of parts.slice(1).entries()) {
         const first = cut(p, (i) => sepAt(p, i))[0].text;
@@ -520,7 +548,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         const [mine, sides] = apart(first), made = compounds(mine, reactants, at);
         if (typeof made === "string") return made;
         const own = p.slice(first.length).replace(/^[,;]\s*/, ""), c = chain!, next = k < parts.length - 2;
-        for (const x of sides) c.asides.push({ ...x, part: c.steps.length, before: next });
+        if (sides.length) c.raw.push({ part: c.steps.length, text: first, prev: reactants, line: at, asides: sides.map((x) => ({ ...x, part: c.steps.length, before: next })) });
         c.steps.push({ arrow: arrows[k], products: made, conditions: k || !before ? own : own ? `${before}, ${own}` : before, next, line: at });
         reactants = made;
       }
@@ -528,7 +556,6 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     }
     // Compounds, one or more on a line between | (in a scope, ; too before the next R=).
     if (chain) { const no = flush(); if (no) return no; }
-    const fresh = !grid;
     grid ??= [{ heads, rows: [] }];
     heads = [];
     const row: Cell[] = [], rows = grid[grid.length - 1].rows;
@@ -554,13 +581,14 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof c !== "string") c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) };
       } else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
       if (typeof c === "string") return wrong(at, c);
-      row.push(c); add(c);
+      row.push(c); add(c, at);
     }
     rows.push(row);
-    if (fresh && rows.length === 1 && row.length === 1 && !("note" in row[0])) lone = row[0];
+    if (rows.length === 1 && row.length === 1 && !("note" in row[0])) lone = row[0];
   }
   const no = flush();
   if (no) return no;
+  free(defs);
   ops.push(...heads.map((h) => ({ tool: "text", args: { text: head(h)[2] } })));
   if (!ops.length) return "There is nothing to draw: write one reaction a line (A + B -> C, conditions), or compounds";
   if (rest.kind !== undefined && (ops.length > 1 || rest.kind !== ops[0].tool)) return `kind does not go with lines, which draw ${ops.length > 1 ? "several things" : `a ${ops[0].tool}`}: leave kind out`;
