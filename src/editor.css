@@ -1909,6 +1909,9 @@ div.facts {
 }
 .problem-hide:active,
 .actions-close:active,
+.close-x:active,
+.segmented button.close-x:active,
+.floating-size:active,
 .variant-action:active,
 .name-forget:active,
 .key-remove:active,
@@ -2584,8 +2587,8 @@ div.facts {
 .library-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
+  gap: var(--space-2);
+  height: var(--size-control);
   margin-bottom: var(--space-2);
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
@@ -2611,7 +2614,7 @@ div.facts {
   outline: none;
   background: transparent;
   color: var(--ink);
-  font: 13px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   -webkit-appearance: none;
   appearance: none;
   -webkit-user-select: text;
@@ -3071,8 +3074,8 @@ div.facts {
 .floating-size {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -4561,23 +4564,21 @@ div.facts {
   gap: 2px;
 }
 /* The X that closes a pill or a spectrum tab (CloseX in PanelControls.tsx): one look, the panel controls' (no fill,
-   muted ink, sunken under the pointer with the controls' 6 px corners, no motion) at 18 px, so it fits a 24 px pill or
+   muted ink, sunken under the pointer with the controls' 6 px corners, the small press) at 18 px, so it fits a 24 px pill or
    tab. It shows on hover and focus of its pill or tab, and always for touch and pen. ".segmented button.close-x"
    outranks the segmented control's own button rules, so a tab's X looks the same as a pill's. */
 .close-x,
 .segmented button.close-x {
   display: none;
   place-items: center;
-  width: 18px;
+  width: var(--size-action);
   min-width: 0;
-  height: 18px;
+  height: var(--size-action);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
-  transform: none;
-  transition: none;
 }
 :is(.pill, .spectrum-tab):is(:hover, :focus-within) .close-x {
   display: grid;
@@ -4620,7 +4621,7 @@ div.facts {
   height: 100%;
 }
 .spectrum-tab.closable button[role="tab"] {
-  padding-right: 25px;
+  padding-right: calc(var(--size-action) + var(--space-1) + 2px);
 }
 .spectrum-tabs button[aria-selected="true"] {
   background: var(--brand-mist);
@@ -4631,7 +4632,7 @@ div.facts {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 3px;
+  right: 2px;
   margin: auto 0;
 }
 .spectrum-none {
@@ -6914,7 +6915,7 @@ div.facts {
   text-align: center;
 }
 .pill .close-x {
-  margin-right: 3px;
+  margin-right: 2px;
 }
 @media (hover: hover) and (pointer: fine) {
   .pill-open:hover {

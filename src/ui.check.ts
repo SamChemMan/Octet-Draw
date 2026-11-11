@@ -36,25 +36,20 @@ assert.ok(rules.length > 1000, `found the rules (${rules.length})`);
 const inKeyframes = (r: Rule) => r.media.some((m) => m.startsWith("@keyframes"));
 const has = (r: Rule, ...names: string[]) => names.some((n) => r.parts.some((p) => p.includes(n)));
 
-// In flight on item/ui-audit (11 November 2026): these rules are being rewritten there, so this file leaves them as they
-// are. Take a name off this list when that work is merged, and bring its rule under the checks below.
-const PENDING = [".notice-close", ".settings-search", ".library-search", ".floating-size", ".floating-close", ".close-x", ".spectrum-tab.closable", ".search-clear"];
-const pending = (r: Rule) => has(r, ...PENDING);
-
 // 1. Sizes. A control's height is a size token. A height typed by hand that equals a token is a control that missed
 // it; the marks below are not controls (a knob, a swatch, a thumbnail, a ring round a tool).
-const NOT_CONTROLS = [".switch", ".swatch", ".library-rename", ".command-icon", ".paper-choice", ".halo", ".hold-ring", ".indicator", ".carry", ".pin-slot", ".name-recent.show-all", ".library-head", ".name-thumb", ".floating-head", ".page-option-thumb", ".library-set-name", ".char-map .char", ".eyedropper", ".fold-title", ".palette-toggle", ".badge", ".spectrum-swatches", ".home-name-field", ".home-carry-count", ".ghs", ".remove-bin", ".segmented.purposes"];
+const NOT_CONTROLS = [".search-clear", ".switch", ".swatch", ".library-rename", ".command-icon", ".paper-choice", ".halo", ".hold-ring", ".indicator", ".carry", ".pin-slot", ".name-recent.show-all", ".library-head", ".name-thumb", ".floating-head", ".page-option-thumb", ".library-set-name", ".char-map .char", ".eyedropper", ".fold-title", ".palette-toggle", ".badge", ".spectrum-swatches", ".home-name-field", ".home-carry-count", ".ghs", ".remove-bin", ".segmented.purposes"];
 for (const r of rules) {
-  if (inKeyframes(r) || pending(r) || has(r, ...NOT_CONTROLS)) continue;
+  if (inKeyframes(r) || has(r, ...NOT_CONTROLS)) continue;
   const h = /^(\d+)px$/.exec(r.props.get("height") ?? "");
   if (h && sizes.has(Number(h[1]))) assert.fail(`${r.selector}: height ${h[1]}px is --${sizes.get(Number(h[1]))}; use the token`);
   if (h && [20, 22, 26].includes(Number(h[1]))) assert.fail(`${r.selector}: ${h[1]}px is not a control size (18, 24, 28, 30, 32, 36)`);
 }
 // The controls themselves hold the token for their kind.
 const sizeOf: Record<string, string[]> = {
-  "size-action": [".variant-action", ".name-forget", ".problem-hide", ".home-remove", ".key-remove"],
-  "size-control-sm": [".actions-close", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button", ".notes-tab"],
-  "size-control": [".text-button", ".dialog-button", ".spectrum-button", ".prop-add", ".home-open", ".page-button", ".select-field", ".unit-field", ".segmented", ".list-find"],
+  "size-action": [".close-x, .segmented button.close-x", ".variant-action", ".name-forget", ".problem-hide", ".home-remove", ".key-remove"],
+  "size-control-sm": [".actions-close", ".floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button", ".notes-tab"],
+  "size-control": [".text-button", ".dialog-button", ".spectrum-button", ".prop-add", ".home-open", ".page-button", ".select-field", ".unit-field", ".segmented", ".list-find", ".settings-search, .library-search"],
   "size-row": [".action", ".chip", ".module", ".library-category", ".strip.list .variant"],
   "size-tool": [".tool", ".tray-button", ".export-button", ".feedback-link", ".actions-reopen"],
   "size-cell": [".variant", ".command"],
@@ -65,14 +60,13 @@ for (const [token, selectors] of Object.entries(sizeOf)) {
 
 // 2. Corners, spacing and layers come from the tokens. 0, 1 px and 2 px are lines, not spacing.
 for (const r of rules) {
-  if (inKeyframes(r) || pending(r)) continue;
+  if (inKeyframes(r)) continue;
   const radius = r.props.get("border-radius");
   if (radius) assert.ok(/^(var\(--radius-[\w-]+\)|inherit|0|calc\(var\(--radius-lg\) \+ var\(--space-4\)\)|(0|var\(--radius-sm\))( (0|var\(--radius-sm\))){3})$/.test(radius), `${r.selector}: border-radius ${radius}`);
   for (const [name, value] of r.props) {
     if (!/^(gap|padding|margin)(-|$)/.test(name)) continue;
     const outside = value.replace(/calc\([^;]*\)/g, "");
     for (const px of outside.matchAll(/(?<![\w.-])(\d+(?:\.\d+)?)px/g)) {
-      if (r.selector === ".pill .close-x") continue;
       assert.ok(Number(px[1]) <= 2, `${r.selector}: ${name} ${value} types ${px[0]}; use a --space token`);
     }
   }
@@ -84,7 +78,6 @@ for (const r of rules) {
 
 // 3. Type. 13 px text has the 18 px line of the type scale, and no weight is heavier than the 600 the app bundles.
 for (const r of rules) {
-  if (pending(r)) continue;
   const font = r.props.get("font");
   if (font) assert.ok(!/\b13px(?!\/)/.test(font), `${r.selector}: font ${font} has no line height (13px/18px)`);
   const weight = r.props.get("font-weight") ?? /^(\d00) /.exec(font ?? "")?.[1];
@@ -139,20 +132,20 @@ for (const r of rules) {
 // a swatch and a paper show their own colour, so their edge says which is chosen.
 const OWN_SELECTED = [".switch", ".prop-check", ".swatch", ".paper-choice", ".page-thumb", ".tool", ".home-", ".canvas"];
 for (const r of rules) {
-  if (!/aria-(pressed|checked|selected|current)(="true")?\]/.test(r.selector) || /:not\(\[aria-/.test(r.selector) || has(r, ...OWN_SELECTED) || pending(r)) continue;
+  if (!/aria-(pressed|checked|selected|current)(="true")?\]/.test(r.selector) || /:not\(\[aria-/.test(r.selector) || has(r, ...OWN_SELECTED)) continue;
   const bg = r.props.get("background") ?? r.props.get("background-color");
   if (bg && !/:hover|:active/.test(r.selector)) assert.ok(/^(var\(--brand-mist\)|transparent|none)$/.test(bg), `${r.selector}: a selected control has the mist fill, not ${bg}`);
 }
 // Hover: a look that changes under the pointer is inside the hover gate, so a touch screen does not hold it. A rule
 // that shows a hidden control for a row, or that shares its look with focus or a drag, stays outside.
 for (const r of rules) {
-  if (inKeyframes(r) || pending(r) || r.media.some((m) => m.includes("hover: hover"))) continue;
+  if (inKeyframes(r) || r.media.some((m) => m.includes("hover: hover"))) continue;
   const own = r.parts.every((p) => /:hover(:not\([^)]*\))*$/.test(p));
   assert.ok(!own, `${r.selector}: put this hover rule inside @media (hover: hover) and (pointer: fine)`);
 }
 // The fill under the pointer is the sunken colour (on a sunken ground, one step more: the hairline colour).
 for (const r of rules) {
-  if (!r.parts.every((p) => /:hover/.test(p)) || pending(r) || has(r, ".scrollbar", ".dialog-button.primary", "[data-over]", ".library.dragging", "[data-drop")) continue;
+  if (!r.parts.every((p) => /:hover/.test(p)) || has(r, ".scrollbar", ".dialog-button.primary", "[data-over]", ".library.dragging", "[data-drop")) continue;
   const bg = r.props.get("background") ?? r.props.get("background-color");
   if (bg) assert.ok(/^(var\(--surface-sunken\)|var\(--hairline\)|var\(--surface-raised\)|var\(--brand-hover\)|color-mix\(in oklab, var\(--brand-mist\) 45%, var\(--canvas\)\))$/.test(bg), `${r.selector}: hover fill ${bg}`);
 }
