@@ -559,3 +559,118 @@ first.
 - Calls on one session wait behind a long batch (section 8).
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
   `mcp.json`. Give dev builds their own identifier, or their own file name.
+
+### 17.1 Faults the paper corpus found (11 November 2026)
+
+60 jobs from six papers (`scripts/mcp-bench/corpus/`), each structure read from the page by one agent and checked by
+a second. v1 draws 225 of 240 numbered compounds right. The 67 confirmed faults, each with its smallest input, are
+in `docs/plans/mcp-v2-corpus-faults.md`. Grouped:
+
+| Group | Faults | Where |
+|---|---|---|
+| Labels not read, with no warning | `Bpin`, `BBN` (read as B-B-N), `F3B`, `D`, `Allyl`, `Vinyl`, `OtBu`, hyphenated `t-Bu`, `i-Pr`, `n-Bu`, `4-ClPh`. A nonsense label gets the same silent reply. | `src/labels.ts`; the reply in `read()` |
+| Labels read wrong | `Ar` drawn as phenyl (the tool description's own example); `NC` as an isocyanide; `P(O)(OEt)2`; `BF3K` warned though right; a radical marked on Si or N of an expanded label in `read_drawing`'s SMILES | `src/labels.ts`, `src/chem.ts` |
+| Salts | A salt given as one compound becomes two structures with the same number. No structure has the salt's InChIKey, and the scheme does not wrap. | `read()`, `place()` in `src/mcp.ts` |
+| Layout | `draw_structures` picks columns by count, not by the page or by label widths. A one-step reaction that is too wide is not fitted. A `structure:` line over an arrow gets no room. A wrapped second product drops out of the reaction as read. Side-arrow text on a cycle overlaps. | `src/mcp.ts`, `src/reaction.ts`, `src/cycle.ts` |
+| Tool gaps | A structure at an arrow takes no number or labels. `draw_structures` takes no caption. A number is at most 12 characters. A cycle takes no text node and no structure on a side arrow. A double bond with no geometry is drawn and keyed as E. | The compound object (section 4.1) fixes the first three |
+| Metals | A neutral N or P donor on a metal warns about valence. `Ir(ppy)3` by name warns on each N. `fac-` is dropped with no note. Hoveyda-Grubbs by name has no O to Ru bond. | `src/check.ts`, `src/complexes.ts` |
+| Name to Structure | `(R)-carvone` and `(R)-limonene` refused though the (S) forms read; chlorido complex names; spelling variants of catalyst names; a quinuclidine with bridgehead descriptors | `src/names.ts` (outside the MCP: for Sam to place in a release) |
+| Small | A valence warning numbers the atom by the whole drawing. `1,5-HAT` is split at its comma. Explicit H at ring fusions is missing when a group is a label. | `src/check.ts`, `classify()` in `src/mcp.ts` |
+
+The label, salt, layout and tool-gap groups are MCP work and are in the build order. Names and metals change what
+every user sees, so each needs Sam's yes and the ChemDraw cross-check.
+
+### 17.2 Indigo stops working after about 1,266 refused calls
+
+Found by the 1.1.2 session on the same night (it is the cause of the 1.1.1 crash): each call Indigo refuses loses 32
+to 48 bytes of its 64 KB stack for good, and then any call fails ("getWasmTableEntry(...) is not a function",
+"memory access out of bounds"). The benchmark met it when it drew all 60 corpus jobs three times in one process. An
+AI app sends many texts Octet cannot read, so a long MCP session can reach it too (test plan P6 and R3). The fix is
+on the 1.1.2 side (`item/indigo-crash`) and comes here with the merge. Until then the runner draws each corpus job
+once.
+
+### 17.3 Taking 1.1.2 into this branch (from the 1.1.2 session)
+
+`release-1.1.2` has a commit that takes the MCP out (`38674b3`). Record it as merged with none of its changes
+first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release-1.1.2`. Expect conflicts in
+`src/Editor.tsx`, `src/editor.css` and `src/releases.ts`. Only when Sam says.
+
+### 17.4 Before any push
+
+`docs/plans/mcp.md` and `docs/decisions/0021-mcp.md` are in this branch's history (from R7). Sam's notes say they
+stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
+they come out.
+
+## 18. Scripting (#89) and batch conversion (#91): a proposal for Sam's yes
+
+Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
+save files and loop over a folder; AI apps still have no file access; batch conversion runs from the command line
+only, with no menu item; it handles everything Octet opens and saves. **Not built until Sam says yes to this section.**
+
+### 18.1 One engine: Octet with no window
+
+Both issues ask for Octet's work "without opening the program". Both get it from one new mode of the app's own
+program, so nothing is written twice and every format and layout is the app's own:
+
+- `Octet Draw --headless` starts Octet with one drawing window that is never shown (no Dock icon, no Home). The page
+  in it is the normal drawing page, so Name to Structure, Clean Up, the readers and the exporters are the ones the
+  app uses. It ends when its input ends.
+- It does not use the server, the key or `mcp.json`, and it does not need "Let AI apps use Octet" on. It talks only
+  to the program that started it, on standard input and output. Nothing listens on a port.
+- The Node runner in `scripts/headless/` stays what it is: a test tool for this repository. It is not shipped.
+
+### 18.2 Scripting (#89)
+
+- `Octet Draw --headless --mcp` speaks MCP on standard input and output, with the v2 tools (section 5). A script in
+  any language starts it and sends tool calls, exactly as an AI app does. With Octet open, `Octet Draw --mcp` (the
+  relay that exists) does the same in the user's open drawing.
+- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, from: text }`
+  (CDXML, CDX, MOL, SDF, RXN, SMILES, InChI, CML and `.oct`). It asks `read { file: format }` for the drawing's text
+  or bytes and writes the file itself. So Octet needs no tool that takes a path, and decision 0021's "no files" rule
+  stays whole for AI apps and scripts alike.
+- For that, `read`'s `file` takes every format Export has: the text formats of today, and SVG, PDF, PNG and EMF (the
+  binary ones as base64), each with the Export dialog's own options (`width_mm`, `dpi`, `transparent`, `selection`).
+  It makes the file's bytes with the app's export code and returns them. It opens no dialog and writes nothing.
+- Documentation: one page, `scripting.html` on octet.software, with the tool list and four worked examples from the
+  issue (renumber compounds across the schemes of a review; apply a journal's style to every figure in a folder; one
+  drawing a row from a table of SMILES; check every structure in a manuscript). Each example is under 30 lines of
+  Python and of JavaScript, with no package to install: a 20-line client that starts Octet and sends JSON lines.
+- No Python package, no interpreter inside Octet, no add-in system (issue #90 is closed).
+
+### 18.3 Batch conversion (#91)
+
+A command of the same program, with no menu item and no setting:
+
+```
+Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET] [--each]
+```
+
+- `INPUT`: files or folders (a folder gives every drawing file in it; `--recursive` goes into folders inside it).
+- `--to`: any format Export or Save writes. With `--to sdf --each`, one SDF of every compound in each drawing.
+- `--out`: where the files go (beside each input by default). A file that exists is never written over: the new one
+  gets a number, and `--overwrite` allows it.
+- `--width` and `--dpi` are Export's own options. `--style` restyles first (a journal preset or a `.oct` or CDXML
+  whose style to use), as `set_brief` does.
+- It prints one line a file (`figure3.cdxml -> figure3.pdf`) and ends with the count. A file that cannot be read is
+  named with the reason, the rest carry on, and the exit code is 1.
+- It is the headless engine with the loop and the file reads and writes in Rust. Rust reads and writes only the
+  paths given on the command line (the user picked them). Each file is parsed in the page with the same limits as
+  File > Open (every file is hostile input).
+- Windows: the release build is a window program, so its output does not show in a console. `--convert` writes its
+  lines to the console it was started from when there is one (`AttachConsole`), as the relay's pipes already work.
+
+### 18.4 Order and tests
+
+After step 5 (the tool merge), so scripts are written against the final tool names:
+
+| Step | Work | Done when |
+|---|---|---|
+| 9 | `--headless`: a hidden window that answers on standard input and output; `read { file }` in every export format | The acceptance script passes through `--headless --mcp` with no Octet open; a PDF and an SVG from `read` are the same bytes as Export's |
+| 10 | `--convert` | The 68 CDXML round-trip files convert to `.oct`, PDF, SVG and SDF and back with nothing lost; a 200-file folder converts with a bounded memory use |
+| 11 | The scripting page and its four examples | Each example runs as written on Mac, Windows and Linux |
+
+Tests are in `mcp-v2-tests.md`, section 15.
+
+Open for Sam: is the command's name `--convert` on the app's own program right (on Mac that is
+`/Applications/Octet Draw.app/Contents/MacOS/Octet Draw --convert ...`), or does he want a short `octet` command
+installed on the PATH (an installer step on each platform)?
