@@ -35,6 +35,8 @@ assert.ok(wholeMolecule({ atoms: [at("C", 0, { attach: true }), at("C", 1)], bon
 assert.ok(!wholeMolecule(propane, [0, 1]) && !wholeMolecule(propane, [1]) && wholeMolecule(propane, [0, 1, 2]));
 const withWater: Mol = { atoms: [...ethane.atoms, at("O", 3)], bonds: ethane.bonds };
 assert.ok(!wholeMolecule(withWater, [0, 2]) && wholeMolecule(withWater, [2]));
+// An alkene on a metal by a multi-centre attachment (Zeise's salt) is part of the complex, with no bond out of it.
+assert.ok(!wholeMolecule({ atoms: [...ethane.atoms, at("C", 0.5, { centre: { atoms: [0, 1] } }), at("Pt", 0.5)], bonds: [{ type: 2, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }] }, [0, 1]));
 // One labelled atom is a molecule (water as O, or H2O typed as a label); an attachment point, a polymer bead or a label
 // read as text only is not.
 assert.ok(wholeMolecule(alone(), [0]) && wholeMolecule(alone({ label: "C", text: "H2O" }), [0]));
@@ -44,6 +46,9 @@ for (const more of [{ attach: true }, { bead: true }, { text: "Workup", chemical
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), actions = readFileSync(new URL("Actions.tsx", import.meta.url), "utf8");
 assert.match(editor, /const molecule = ids\.length <= 2 && wholeMolecule\(doc, ids\) \? structureOf\(\) : undefined;/);
 assert.match(actions, /items\.push\(\.\.\.actionItems\(context\.molecule, messy, hiddenWarnings, warned, online\)\.filter/);
+// Both the atom and the bond context carry it, and both the editor and the panel show its formula and mass.
+assert.equal(editor.match(/, molecule \};/g)?.length, 2);
+assert.equal((editor + actions).match(/\(\w+\??\.kind === "atom" \|\| \w+\??\.kind === "bond"\) && !!\w+\.molecule\)/g)?.length, 2);
 
 // Each structure action on ethane. The formula and mass (the panel's, Properties).
 const facts = analyse(ethane)!;
