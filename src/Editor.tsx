@@ -1814,16 +1814,7 @@ export default function Editor() {
   function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): { failed?: string; lost?: string } {
     drawingColours.current = [];
     try {
-      let read: ReturnType<typeof readOct>;
-      if (typeof text !== "string") read = { mol: text, lost: {} };
-      else if (isDrawingText(text)) read = readOct(text, /\.oct$/i.test(path ?? ""));
-      else {
-        let mol: Mol;
-        try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
-        const b = bounds(mol);
-        if (!b) throw new Error("There are no structures in this file.");
-        read = { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
-      }
+      const read = readFile(path, text);
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const opened = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
@@ -1854,6 +1845,16 @@ export default function Editor() {
       setNotice(failed);
       return { failed };
     }
+  }
+  // A file as load reads it (a structure file's text needs Indigo): throws why it cannot.
+  function readFile(path: string | undefined, text: string | Mol): ReturnType<typeof readOct> {
+    if (typeof text !== "string") return { mol: text, lost: {} };
+    if (isDrawingText(text)) return readOct(text, /\.oct$/i.test(path ?? ""));
+    let mol: Mol;
+    try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
+    const b = bounds(mol);
+    if (!b) throw new Error("There are no structures in this file.");
+    return { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
@@ -2737,15 +2738,18 @@ export default function Editor() {
   // Each request the app's MCP server sends to this window, answered by mcp.ts.
   useEffect(() => {
     if (!TAURI) return;
-    // brief: the session's brief (set_brief), which the server keeps for it (mcp_brief keeps a new one).
-    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null }>("mcp", (e) => {
+    // brief: the session's brief (set_brief), which the server keeps for it (mcp_brief keeps a new one). unset: the
+    // session has no drawing yet. sent: when the server sent it, in a dev build that times calls (mcp.rs, plan 17.5).
+    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null; unset: boolean; sent: number | null }>("mcp", (e) => {
       const p = e.payload;
       // With no window (--convert), a file that did not open answers each call with why, for Octet to name the file,
-      // and each result says what Octet left out of it, as File > Open does.
-      void started.current.then(({ failed, lost } = {}) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: (JSON.parse(p.body) as { id?: unknown }).id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
-        client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief,
+      // and read's result says what Octet left out of it, as File > Open does (drawings new says so itself).
+      const asked = (() => { try { return JSON.parse(p.body) as { id?: unknown; params?: { name?: unknown } }; } catch { return {}; } })();
+      void started.current.then(({ failed, lost } = {}) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: asked.id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
+        client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief, unset: p.unset,
+        ...(p.sent ? { timed: { sent: p.sent, got: Date.now(), visibility: document.visibilityState, focus: document.hasFocus() } } : {}),
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
-      }).then((body) => { if (!lost || !HEADLESS) return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
+      }).then((body) => { if (!lost || !HEADLESS || asked.params?.name !== "read") return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
     });
     void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
     return () => { off.then((f) => f()); };
@@ -6546,7 +6550,7 @@ export default function Editor() {
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
     // A file needs Indigo alone (names false): a window that has just opened (--convert) loads no names engine for it.
     ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
-    newWindow: async (purpose, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text } }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    newWindow: (purpose, session, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
     loaded: loaded && namesLoaded, indigo: loaded,
     structure: (text) => structureFromText(text),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
@@ -6627,6 +6631,10 @@ export default function Editor() {
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
     dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),
+    opens: async (text) => {
+      if (!isDrawingText(text)) await ready;
+      try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
+    },
     windowless: () => HEADLESS,
     export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
   };

@@ -5,7 +5,7 @@
 //   node scripts/mcp-acceptance.mjs --headless PROGRAM [cases]
 //                                              through PROGRAM --headless --mcp, with no Octet open (plan 18, K1):
 //                                              every case but those that need Octet's window or server (7, the
-//                                              Export dialog; 9, two sessions and the window in front; 18, the relay)
+//                                              Export dialog; 9 and 21, sessions sharing one Octet; 18, the relay)
 // Each check prints PASS or FAIL with what it found. A failing check is work still to do; the script ends with 1 when
 // any check fails. Case 7 (Export) runs last: its dialog stays open, and Octet runs no menu command over a dialog.
 import { spawn } from "node:child_process";
@@ -31,8 +31,9 @@ const URL_ = `http://127.0.0.1:${port}/mcp`;
 const STREAM = headless ? "standard output" : "text/event-stream";
 
 // A client: one MCP session (initialize, then each call with its session id). It gives its brief first, as the
-// instructions ask (plan 3.1): the user's answers, a paper with no style of their own. brief false: none. With
-// --headless, the session of a program of its own on standard input and output, with the same calls.
+// instructions ask (plan 3.1), in a new drawing: the user's answers, a paper with no style of their own. brief false:
+// none, and no drawing yet. With --headless, the session of a program of its own on standard input and output, with the
+// same calls (its own drawing already: no other session is there).
 async function client(name, brief = true) {
   if (headless) return lines(name, brief);
   let session, n = 0;
@@ -49,7 +50,13 @@ async function client(name, brief = true) {
     const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
   };
-  if (brief) await call("set_brief", { destination: { kind: "paper" } });
+  // In a drawing of its own first: set_brief in the window in front is refused while another session works there (plan
+  // 17.5), and a session with no brief fails each scheme far from the cause.
+  if (brief) {
+    await call("drawings", { action: "new", for: "paper" });
+    const r = await call("set_brief", { destination: { kind: "paper" } });
+    if (r.isError) throw new Error(`${name}: set_brief was refused: ${r.text}`);
+  }
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const headers = () => ({ authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", "mcp-session-id": session });
   // Each server-sent event's message, as it comes: onEvent may return false to stop reading.
@@ -520,6 +527,41 @@ const CASES = {
     const loose = { ...d, captions: d.captions };
     layout(loose, "the figure");
   },
+  async 21() {
+    // Plan 17.5, test plan R5 and R6. Run it with Octet behind another app too: nothing an AI app waits on may stop
+    // when its window is covered.
+    console.log("21. 1, 2, 4 and 8 sessions at once, each in a drawing of its own");
+    for (const N of [1, 2, 4, 8]) {
+      // Each session: initialize, a new drawing, the brief, one structure, a small route, a read. Session k draws
+      // compounds of k + 1 carbons (an alkane, then its alcohol to its aldehyde), so its read shows whose work is in
+      // its drawing.
+      const one = async (k) => {
+        const n = k + 1, C = ["meth", "eth", "prop", "but", "pent", "hex", "hept", "oct"][k], t0 = Date.now(), c = await client(`acceptance-many-${N}-${k}`, false), took = { initialize: Date.now() - t0 }, said = [];
+        const step = async (what, tool, args) => { const r = await c.call(tool, args); took[what] = r.ms; if (r.isError) said.push(`${what}: ${r.text.slice(0, 120)}`); return r; };
+        const opened = (await step("drawings new", "drawings", { action: "new", for: "paper" })).structuredContent?.opened;
+        await step("set_brief", "set_brief", { destination: { kind: "paper" } });
+        await step("draw", "draw", { kind: "structures", structures: [{ text: `${C}ane` }] });
+        await step("draw_route", "draw_route", { schemes: [{ start: [{ text: `${C}an-1-ol` }], steps: [{ products: [{ text: `${C}anal` }] }] }] });
+        const t1 = Date.now(), d = await c.read();
+        took.read = Date.now() - t1;
+        const f = (h, o) => `C${n > 1 ? n : ""}H${h}${o ? "O" : ""}`;
+        return { k, opened, said, d, took, want: [f(2 * n + 2), f(2 * n + 2, 1), f(2 * n, 1)].sort() };
+      };
+      const all = await Promise.all(Array.from({ length: N }, (_, k) => one(k)));
+      const ids = all.map((x) => x.opened);
+      check(ids.every(Boolean) && new Set(ids).size === N, `N = ${N}: each session has a drawing of its own`, ids.join(", "));
+      for (const x of all) {
+        check(!x.said.length, `N = ${N}, session ${x.k}: every call did its work (none timed out)`, x.said.join(" | "));
+        const got = (x.d?.structures ?? []).map((s) => s.formula).sort();
+        check(x.d?.drawing?.id === x.opened && same(got, x.want), `N = ${N}, session ${x.k}: its read shows its own work and nothing else`, JSON.stringify([x.d?.drawing?.id, got]));
+        const slow = Object.entries(x.took).filter(([, ms]) => ms > 15_000);
+        check(!slow.length, `N = ${N}, session ${x.k}: no call took over 15 s`, slow.map(([w, ms]) => `${w} ${ms} ms`).join(", "));
+      }
+      // Each call's time by N: the median and the slowest of the N sessions.
+      const by = Object.keys(all[0].took).map((w) => { const v = all.map((x) => x.took[w]).sort((p, q) => p - q); return `${w} ${v[(v.length - 1) >> 1]}/${v.at(-1)}`; });
+      console.log(`  N = ${N}, ms (median/slowest): ${by.join(", ")}`);
+    }
+  },
   async 7(a) {
     console.log("7. Export: the dialog opens, and the next call still answers");
     const e = await a.call("advanced", { tool: "export", args: { format: "pdf" } });
@@ -530,7 +572,7 @@ const CASES = {
 };
 
 const want = process.argv.slice(headless ? 4 : 2);
-const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "7"].filter((k) => (!want.length || want.includes(k)) && !(headless && ["7", "9", "18"].includes(k)));
+const order = ["1", "2", "3", "4", "5", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "7"].filter((k) => (!want.length || want.includes(k)) && !(headless && ["7", "9", "18", "21"].includes(k)));
 const a = await client("acceptance");
 // Cases 2 to 4 run in case 1's drawing, and 6 in case 5's; run alone, each starts its own.
 for (const k of order) {

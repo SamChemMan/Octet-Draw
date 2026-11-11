@@ -47,7 +47,7 @@ export type Host = {
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
-  newWindow: (purpose: string, text?: string) => Promise<string | undefined>; // File > New For, or a file's text opened, always in a new window: its id (none where there are no windows)
+  newWindow: (purpose: string, session?: string, text?: string) => Promise<string | undefined> | undefined; // File > New For, or a file's text opened, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
   reaction: (arrow: number) => Reaction | undefined;
   ink: (atoms: number[]) => Box | undefined; // drawing units, y up
   textBox: (caption: number) => Box | undefined; // a caption's box as drawn, drawing units, y up
@@ -73,6 +73,7 @@ export type Host = {
   selection: () => { atoms: number[]; items: number[] };
   select: (atoms: number[], items: number[]) => void;
   file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF or RXN file, SMILES or InChI
+  opens: (text: string) => Promise<{ failed?: string; lost?: string }>; // a file's text read as File > Open reads it, put nowhere: why it would not open, or what it would leave out
   export: (format: string) => boolean; // Octet's Export dialog, on this format
   dialog: (command: string) => boolean; // the command opens a dialog or a box to type in (run_command says so, or refuses it with no window)
   windowless: () => boolean; // Octet with no window (--headless, --convert): no one is there to finish a dialog
@@ -329,8 +330,9 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // (notifications/cancelled, or Stop in Octet's notice), and the drawing goes back as it was.
 // watched: the AI app asked for progress, so a long call shows each part as it goes.
 // notes: what the call's arguments were read as (coerce), for the reply.
-// brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session.
-type Ctx = { session?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+// brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session. unset: the session
+// has no drawing yet.
+type Ctx = { session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -344,7 +346,10 @@ const CHANGE = { type: "object", required: ["done", "made", "warnings", "check"]
 // detail on a read, and on every operation whose result is a change: short unless full is asked for (R6).
 const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also: { short: "summary", brief: "summary" }, ...(unlisted && { unlisted }) });
 const PICTURE_SIZE = Object.keys(SIZES), PURPOSES = ["paper", "thesis", "slides", "poster", "experiment", "quick"];
-const DRAWINGS = { type: "object", required: ["using", "drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
+// drawings new and use: the drawing the session's calls go to now. Nothing is drawn, so no change is reported: they are
+// answered outside the page's queue (plan 17.5), while another call may be changing the page's drawing.
+const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
+const DRAWINGS = { type: "object", required: ["drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
 const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
 // The brief (plan section 3, Sam's rule): the three questions the user is asked before a scheme, route, figure, cycle
@@ -456,7 +461,7 @@ const OPS: Op[] = [
     run: placeTemplate, place: true,
   },
   {
-    name: "new", hints: ADD, outputSchema: CHANGE, done: "opened a new drawing",
+    name: "new", hints: ADD, outputSchema: OPENED, done: "opened a new drawing",
     description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, SMILES or InChI), which opens as File > Open opens it, in its own style.",
     inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }), text: { ...str(1_000_000), unlisted: true } }, ["for"]),
     run: newDrawing,
@@ -470,12 +475,13 @@ const OPS: Op[] = [
   {
     name: "list", hints: READ, outputSchema: DRAWINGS,
     inputSchema: obj({}),
-    run: async (host) => { const data = { using: host.window().id, drawings: (await host.windows()).map((w) => ({ id: w.id, title: w.name, edited: w.edited })) }; return { text: JSON.stringify(data, null, 1), data }; },
+    // A session with no drawing yet uses none: its first call that needs one takes the window in front (mcp.rs route).
+    run: async (host, _, ctx) => { const data = { ...(ctx.unset ? {} : { using: host.window().id }), drawings: (await host.windows()).map((w) => ({ id: w.id, title: w.name, edited: w.edited })) }; return { text: JSON.stringify(data, null, 1), data }; },
   },
   {
-    name: "use", hints: READ, outputSchema: CHANGE,
+    name: "use", hints: READ, outputSchema: USES,
     inputSchema: obj({ drawing: str(40) }, ["drawing"]),
-    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.` } : { text: `There is no drawing ${a.drawing}. Call drawings for the ids.`, error: true }),
+    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.`, data: { using: a.drawing } } : { text: `There is no drawing ${a.drawing}. Call drawings for the ids.`, error: true }),
   },
   {
     name: "move", title: "Move", hints: ADD, outputSchema: CHANGE, done: "moved part of the drawing",
@@ -1635,21 +1641,39 @@ async function select(host: Host, a: { ids: string[] }): Promise<Result> {
 }
 
 // File > New For, in a window of its own, so that each session can have its own drawing (D1); where there are no
-// windows (the web component), in this one. The answer waits until the new window is there, and the session's calls
-// go to it.
+// windows (the web component), in this one. The answer comes once the window is made and is the session's drawing
+// (open_window gives it to the session): mcp.rs holds the session's next call until the new page has started (plan
+// 17.5), so nothing here waits for it. A client with no session has the new window in front. A file's text (text) needs
+// a window of its own (add_file adds one to this drawing): it is read here first, as File > Open reads it, so a file
+// that does not open opens no window and says why.
 async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ctx): Promise<Result> {
-  // The window this call opened, by its id: two AI apps opening drawings at once each get their own. A file's text
-  // needs a window of its own (add_file adds one to this drawing).
-  const opened = await host.newWindow(a.for, a.text);
-  if (!opened && (a.text !== undefined || !host.command(`new_${a.for}`))) return { text: "Octet cannot open a new drawing now.", error: true };
-  for (const end = Date.now() + 8000; opened && Date.now() < end;) {
-    if ((await host.windows()).some((w) => w.id === opened)) { await host.target(ctx.session, opened); return { text: `Octet opened a new drawing ${a.text === undefined ? `for ${a.for}` : "of the file"}: ${opened}. This session's calls go to it now.`, data: { opened } }; }
-    await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+  let lost: string | undefined;
+  if (a.text !== undefined) {
+    const read = await host.opens(a.text);
+    if (read.failed) return { text: read.failed, error: true };
+    lost = read.lost;
   }
-  if (opened) return { text: "Octet opened a new window, but it did not start in time. Call drawings, then drawings with use.", error: true };
-  await host.settle();
-  resetIds();
-  return { text: `Octet started a new drawing for ${a.for} in ${host.window().id}, which had nothing in it. This session's calls go to it.`, data: { opened: host.window().id } };
+  // The window this call opened, by its id: two AI apps opening drawings at once each get their own. No windows (the
+  // web component, headless): this page, queued at once (newWindow gives nothing there, with no wait), so the calls
+  // sent after this one run in the new drawing; one undo step, said to the user, and a cancel puts the drawing back.
+  const opening = host.newWindow(a.for, ctx.session, a.text);
+  const here = () => queued(async (): Promise<Result> => {
+    const was = host.doc();
+    host.begin(`mcp-${++steps}`);
+    try {
+      if (!host.command(`new_${a.for}`)) return { text: "Octet cannot open a new drawing now.", error: true };
+      await host.settle();
+      await ctx.check();
+      resetIds();
+      host.said(`${ctx.client} opened a new drawing.`);
+      return { text: `Octet started a new drawing for ${a.for} in ${host.window().id}, which had nothing in it. This session's calls go to it.`, data: { opened: host.window().id } };
+    } catch (e) { if (host.doc() !== was) host.set(was); throw e; } finally { host.end(); }
+  });
+  // (A file's text never goes into this page's drawing.)
+  const none = () => (a.text === undefined ? here() : { text: "Octet cannot open a new drawing now.", error: true as const });
+  if (!opening) return none();
+  const opened = await opening;
+  return opened ? { text: `Octet opened a new drawing ${a.text === undefined ? `for ${a.for}` : "of the file"}: ${opened}.${lost ? ` Octet left out ${lost}.` : ""} This session's calls go to it now.`, data: { opened } } : none();
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's
@@ -2732,14 +2756,35 @@ let queue: Promise<unknown> = Promise.resolve();
 // closed; client: the AI app's name.
 // progress: sends a progress notification (JSON) on the call's event stream; cancelled: the call was cancelled.
 // brief: the session's brief (set_brief), as its transport keeps it (none until set_brief); keep: keeps a new one for
-// the session (mcp.rs mcp_brief), for its later calls in every drawing.
-export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown };
+// the session (mcp.rs mcp_brief), for its later calls in every drawing. unset: the session has no drawing yet.
+// timed: when mcp.rs sent the request and when this page got it, with the page's visibility and focus then (a dev
+// build run with OCTET_MCP_TIMES): the reply's _meta gives them, with when the work started and ended (plan 17.5).
+export type From = { client?: string; session?: string; lost?: string | null; progress?: (note: string) => void; cancelled?: () => boolean | Promise<boolean>; brief?: string | null; keep?: (brief: string) => unknown; unset?: boolean; timed?: { sent: number; got: number; visibility: string; focus: boolean } };
 
-// One request from the AI app, as its JSON text; the reply's JSON text. Tool calls run one after another.
-export function handle(body: string, host: () => Host, version: string, from: From = {}): Promise<string> {
-  const run = queue.then(() => answer(body, host, version, from));
+// Runs f after every request queued before it; later ones wait for it.
+function queued<T>(f: () => Promise<T>): Promise<T> {
+  const run = queue.then(f);
   queue = run.catch(() => {});
   return run;
+}
+// What is answered at once, outside the queue (plan 17.5): the protocol's own requests and drawings, which read and
+// change no drawing, so a session's first requests never wait behind another session's work in this page. Everything
+// else runs one after another: a read never sees a drawing half made.
+const FREE = new Set(["initialize", "ping", "tools/list", "prompts/list", "prompts/get", "resources/list", "resources/templates/list"]);
+
+// One request from the AI app, as its JSON text; the reply's JSON text.
+export function handle(body: string, host: () => Host, version: string, from: From = {}): Promise<string> {
+  let msg: Message;
+  try { msg = JSON.parse(body); } catch { return Promise.resolve(reply(null, undefined, { code: -32700, message: "The request is not JSON." })); }
+  const free = FREE.has(msg?.method as string) || (msg?.method === "tools/call" && msg.params?.name === "drawings");
+  let start = 0;
+  const work = () => { start = Date.now(); return answer(msg, host, version, from, free); }, run = free ? work() : queued(work), t = from.timed;
+  if (!t) return run;
+  return run.then((body) => {
+    const r = JSON.parse(body), end = Date.now();
+    if (r.result) r.result._meta = { ...r.result._meta, "octet/times": { ...t, start, end, wait: start - t.got, work: end - start } };
+    return JSON.stringify(r);
+  });
 }
 
 // What a change made, changed and deleted (D9): each object's id with a fingerprint of it, before and after.
@@ -2759,9 +2804,8 @@ const highest = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows 
 const ANYWHERE = new Set(["list", "use", "new"]);
 const CUT = " (cut: detail: full gives all of it)";
 
-async function answer(body: string, host: () => Host, version: string, from: From): Promise<string> {
-  let msg: Message;
-  try { msg = JSON.parse(body); } catch { return reply(null, undefined, { code: -32700, message: "The request is not JSON." }); }
+// free: answered outside the queue, so it neither waits for the drawing to settle nor touches it.
+async function answer(msg: Message, host: () => Host, version: string, from: From, free: boolean): Promise<string> {
   const id = msg?.id ?? null;
   if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return reply(id, undefined, { code: -32600, message: "Not a JSON-RPC 2.0 request." });
   switch (msg.method) {
@@ -2826,9 +2870,9 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call drawings, then drawings with use.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
       let stopped = false;
-      const changes = !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
+      const changes = !free && !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
       const ctx: Ctx = {
-        session: from.session, client: from.client ?? "An AI app", notes, brief: from.brief ?? undefined, keep: from.keep,
+        session: from.session, unset: from.unset, client: from.client ?? "An AI app", notes, brief: from.brief ?? undefined, keep: from.keep,
         // A call that changes the drawing also tells the window how far it is, for the user (McpMagic's pill): the
         // tool's own words, which say what it counts ("Step 2 of 3", "Drew 3 of 5 rows"). What follows a colon is for
         // the AI app (a tool's name).
@@ -2845,20 +2889,20 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
       let before: Mol | undefined, told = false, shown: Box | undefined;
       try {
-        await h.settle();
+        if (!free) await h.settle();
         before = h.doc();
         // (A read reports no change, and a call that changes nothing causes no warning: neither is worked out. The
         // layout's warnings are for a full result only: the call asked for one, or it is a batch, whose steps can.)
         const was = reports ? index(before) : undefined, warned = changes ? new Set(wantFull || tool.name === "batch" ? warningTexts(h, before) : shownProblems(h).map((p) => p.message)) : undefined;
-        keepIdsAbove(highest(before));
+        if (!free) keepIdsAbove(highest(before));
         const out = await runOp(tool, h, args, ctx);
         // A tool that refuses part way (edit's structure, after a rotate) leaves nothing behind, as a throw does.
         if (out.error && changes && h.doc() !== before) h.set(before);
         // Stop, or a cancel, while the tool ran: what it did goes too.
         if (changes) await ctx.check();
-        await h.settle();
+        if (!free) await h.settle();
         const after = h.doc();
-        keepIdsAbove(highest(after));
+        if (!free) keepIdsAbove(highest(after));
         // A short result unless the call (or a batch's step) asked for detail: full (R6).
         const full = wantFull || !!out.full;
         // What Octet warns about now that it did not before: the chemistry, and in a full result the layout too (a
@@ -2901,7 +2945,8 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         // A picture of what the call made or changed, cropped to it, smaller than a read's (F2).
         const cropped = wantPicture || !!out.cropped, crop = cropped ? (touched.length ? boxOfIds(h, after, touched, 1) : undefined) : out.crop;
         if (out.picture || (cropped && !out.error)) { const png = await h.picture(out.of, crop, out.longest ?? (cropped ? (size ? SIZES[size] : 800) : 1000)); if (png) content.push({ type: "image", data: png, mimeType: "image/png" }); }
-        if (tool.done && !out.error) { h.said(`${ctx.client} ${tool.done}.`); told = true; }
+        // (Not from outside the queue: the notice, with its Undo, would end the pill of the call that runs here.)
+        if (tool.done && !out.error && !free) { h.said(`${ctx.client} ${tool.done}.`); told = true; }
         return reply(id, { content, ...(structured && !out.error ? { structuredContent: structured } : {}), ...(out.error ? { isError: true } : {}) });
       } catch (e) {
         // A call that fails part way, or is cancelled, leaves nothing behind (B5): the drawing goes back as it was, in

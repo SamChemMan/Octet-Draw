@@ -193,7 +193,7 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
 
 // A hidden drawing window that opens `start`, for `work`, closed after.
 fn hidden<T>(app: &AppHandle, start: serde_json::Value, work: impl FnOnce(&str) -> Result<T, String>) -> Result<T, String> {
-    let window = crate::windows::open(app, start)?;
+    let window = crate::windows::open(app, start, None)?;
     let made = work(&window);
     if let Some(w) = app.get_webview_window(&window) {
         let _ = w.destroy();

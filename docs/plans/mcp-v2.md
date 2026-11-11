@@ -1305,6 +1305,36 @@ Test with no one watching: `scripts/mcp-acceptance.mjs` with 1, 2, 4 and 8 clien
 app. Each makes a drawing, draws, restyles and reads. Every session must end in its own drawing, none may time out,
 and no call may take over 15 s. The second check fails today.
 
+**Built (11 November 2026, branch `mcp/sessions`).**
+
+- **Where a session's calls go** (`mcp.rs` `route`). A session with a drawing: that drawing. A session with no drawing
+  yet sends initialize, ping, the lists, prompts and `drawings` to the window in front and takes no drawing by them
+  (`drawings list` then gives no `using`). When the page in front has not started (often another session's new
+  window), they go to the newest window whose page listens (`listening`), so they never wait for another session's
+  new drawing. Its first other tool call (`set_brief` too) takes the window in front, as
+  decision 0021 and mcp.md section 8 have an AI app work in the user's open drawing, **unless another session works
+  there**: then Octet changes nothing and says so, with the two ways on ("For a drawing of your own, call drawings
+  with action new, then call again. To work in draw-3 with the other AI app, call drawings with action use and drawing
+  draw-3."). A session works in a drawing while it has a call under way or called in the last 10 minutes, so a session
+  an AI app left without ending it does not hold the user's drawing for the 12 hours sessions last. Two sessions with
+  no drawing that call at once: the first through the sessions lock takes the window in front and the second is
+  refused, so the second never acts in the first's drawing. `drawings new` gives the session its new window inside
+  `open_window`, before the window is made, so no other session's first call can take it in between (if the window
+  cannot be made, the session has its drawing from before again).
+- **The page's queue** (`handle` in `mcp.ts`). The protocol's own requests and `drawings` are answered at once, outside
+  the queue: they neither wait for the drawing to settle nor read it (so `drawings new` and `use` report no change,
+  only the drawing the session uses now). Everything else runs in order, so a read sees each write whole.
+- **A new drawing** answers once its window is made, with no wait for the page. `mcp.rs` holds the session's next call
+  up to 15 s for the page to start, then answers "The drawing is still starting. Call again." at once.
+- **Commands off the main thread:** `mcp_reply`, `mcp_progress`, `mcp_cancelled`, `mcp_ready`, `mcp_target`,
+  `mcp_brief` and `window_list` are `#[tauri::command(async)]`.
+- **The WebKit measurement, not the fix:** a dev build run with `OCTET_MCP_TIMES=1` gives each reply's
+  `result._meta["octet/times"]`: `sent` (Rust sent it), `got` (the page's listener got it), `start` and `end` of the
+  work, `wait` (in the queue) and `work` in ms, and the page's `visibility` and `focus` when it got the call. A large
+  `got - sent` with `visibility: "hidden"` is WebKit slowing a covered page.
+- **The test:** acceptance case 21. Run a dev build with `OCTET_MCP=1`, put another app in front, then
+  `node scripts/mcp-acceptance.mjs 21`. It prints each call's median and slowest time for N = 1, 2, 4 and 8.
+
 ## 18. Scripting (#89) and batch conversion (#91)
 
 Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and

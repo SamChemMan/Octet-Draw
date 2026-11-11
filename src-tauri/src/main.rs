@@ -1202,7 +1202,7 @@ fn main() {
                 std::thread::spawn(move || {
                     let code = match job {
                         Some(job) => convert::run(&app, &job),
-                        None => match windows::open(&app, serde_json::json!({ "new": "quick" })) {
+                        None => match windows::open(&app, serde_json::json!({ "new": "quick" }), None) {
                             Ok(_) => {
                                 mcp::stdio(&app);
                                 0
