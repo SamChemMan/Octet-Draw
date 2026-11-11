@@ -366,7 +366,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 24] = [
+const FORMATS: [(&str, &str, &[&str]); 25] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -388,6 +388,7 @@ const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("rdf2000", "MDL RDfile V2000", &["rdf", "rd"]),
     ("smi", "SMILES", &["smi", "smiles"]),
     ("inchi", "InChI", &["inchi", "txt"]),
+    ("tex", "chemfig (LaTeX)", &["tex"]),
     ("ctp", "ChemDraw Template (CTP)", &["ctp"]),
     ("cts", "ChemDraw Template Style Sheet (CTS)", &["cts"]),
     ("csv", "CSV", &["csv"]),
@@ -405,6 +406,7 @@ pub struct Export {
     mdl: Option<String>, // the text of the MDL format asked for
     smiles: Option<String>,
     inchi: Option<String>,
+    chemfig: Option<String>, // \chemfig{…} code, for a .tex file to \input
     csv: Option<String>, // Home's Experiments list
     dpi: Option<f32>,
     transparent: Option<bool>,
@@ -429,6 +431,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),
         "smi" => e.smiles.is_some(),
+        "tex" => e.chemfig.is_some(),
         "ctp" | "cts" => e.ctp.is_some(),
         "csv" => e.csv.is_some(),
         _ => e.mdl.is_some(),
@@ -471,6 +474,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "ctp" | "cts" => base64::engine::general_purpose::STANDARD.decode(e.ctp.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this template file.".to_string())?,
         "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
         "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        "tex" => format!("{}\n", e.chemfig.as_deref().unwrap_or_default().trim()).into_bytes(),
         "csv" => text(&e.csv),
         _ => text(&e.mdl),
     };

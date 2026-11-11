@@ -9,7 +9,7 @@ import { Dialog } from "./Dialog";
 import { Menu, Pick } from "./Menu";
 import { Exit } from "./motion";
 import { Select } from "./Select";
-import { NumberField, Segmented } from "./Fields";
+import { NumberField, Segmented, Switch } from "./Fields";
 import { EXPORT_FORMATS as FORMATS, DPI_MAX, DPI_MIN, DPIS, dpiFor, pictureAs, PICTURES, pixelsAt, RASTERS, shortName, tooLarge } from "./export";
 import type { ExportFormat } from "./export";
 import type { FilePrefs } from "./SettingsWindow";
@@ -58,7 +58,7 @@ export function ExportButton({ quick, selected, onQuick, onExport, hint }: { qui
   );
 }
 
-export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin" | "quality"> & { format: ExportFormat };
+export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin" | "quality" | "chemfigCompact"> & { format: ExportFormat };
 
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
 // selection (standaloneSvg, in pt, no margin). page: the drawing's page colour, when it has one. Changes are kept as
@@ -120,6 +120,13 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExpo
       {format === "jpg" && (
         <label className="dialog-row"><span>Quality</span>
           <NumberField label="Quality" unit="%" min={1} max={100} step={5} value={prefs.quality} onChange={(n) => onPrefs({ quality: Math.round(n) })} />
+        </label>
+      )}
+      {/* chemfig code on one line, or an atom a line, indented by branch (the default). Both draw the same. The same
+          setting is in Settings > Import and export, and Edit > Copy As > chemfig follows it. */}
+      {format === "tex" && (
+        <label className="dialog-row"><span>Compact code</span>
+          <Switch on={prefs.chemfigCompact} label="Compact code" onChange={(on) => onPrefs({ chemfigCompact: on })} />
         </label>
       )}
       {isPicture && (

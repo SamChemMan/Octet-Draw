@@ -5,7 +5,7 @@ import {
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
-  EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
+  EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad, BracketsCurly,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
   TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
 } from "@phosphor-icons/react";
@@ -67,6 +67,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
+import { chemfigNotice, toChemfig, type Scheme, type SchemeItem } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { conditionItems, formatAmount, formulaWeight, inert, keyColumns, parseAmount, solve, type Field } from "./stoich";
@@ -87,7 +88,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -1211,6 +1212,31 @@ export default function Editor() {
     if (kind === "rxn") return steps.length === 1 ? toReaction(part, steps, "rxn", v2000) : undefined;
     return steps.length ? toReaction(part, steps, "rdf", v2000) : undefined;
   }
+  // A part's structures as chemfig code (chemfig.ts), with the captions read as chemistry as labels.
+  // Drawn as the page draws it, so lone pairs, radicals and circled charges go where the page has them, and with its
+  // reactions as chemfig's schemes, and its R/S and E/Z labels where Show Stereochemistry shows them.
+  function chemfigOf(part: Mol, compact = false): string | undefined {
+    try {
+      const { mol, schemes } = chemfigInput(part);
+      const labels = loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined, stereo = labels && { ...labels, parens: settings.stereoParens };
+      return toChemfig(mol, style, { compact, page: render(mol, frame, measure, L), schemes, stereo }) || undefined;
+    } catch { return undefined; }
+  }
+  // What the user is told after the chemfig code of a part is copied or saved (head: "Copied", "Saved name.tex").
+  const chemfigNote = (head: string, part: Mol) => {
+    const { mol, schemes } = chemfigInput(part);
+    return chemfigNotice(head, mol, style.interpret, schemes);
+  };
+  // The part with its captions read as chemistry among its atoms, and its reactions as schemes: worked out once for
+  // the code and the notice of one copy or save (kept with the part, for the Interpret Chemically setting it was read with).
+  const chemfigInputs = useRef(new WeakMap<Mol, { interpret: boolean; mol: Mol; schemes: Scheme[] }>());
+  const chemfigInput = (part: Mol) => {
+    const kept = chemfigInputs.current.get(part);
+    if (kept && kept.interpret === style.interpret) return kept;
+    const { mol, captions } = withCaptionAtoms(part, style.interpret), made = { interpret: style.interpret, mol, schemes: schemesIn(part, captions) };
+    chemfigInputs.current.set(part, made);
+    return made;
+  };
   // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers and what
   // only shapes others (defs, masks, clips). Text
   // by its glyphs (inkOfText), and a stroke by half its width (a square cap or mitred join by √2 times that).
@@ -1292,8 +1318,8 @@ export default function Editor() {
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
     try {
       const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
-      if (path) { setExportView(undefined); saved(path); }
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), chemfig: f.format === "tex" ? chemfigOf(mol, f.chemfigCompact) : undefined, dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
+      if (path) { setExportView(undefined); saved(path, f.format === "tex" ? (file) => chemfigNote(`Saved ${file}`, mol) : undefined); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
@@ -1314,9 +1340,11 @@ export default function Editor() {
   }
   // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
   // in the system's file manager.
-  function saved(path: string) {
+  // note: what to say in place of Saved (an export to chemfig says what the code leaves out), given the file's name.
+  function saved(path: string, note?: (name: string) => string | undefined) {
     const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
-    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
+    const text = note?.(fileName(path));
+    setNotice(text ?? `Saved ${fileName(path)}.`, text ? "info" : "done", reveal || undefined);
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -2434,6 +2462,7 @@ export default function Editor() {
     copy_smiles: () => copyAs("smiles"),
     copy_inchi: () => copyAs("inchi"),
     copy_inchikey: () => copyAs("inchikey"),
+    copy_chemfig: () => copyAs("chemfig"),
     copy_cdxml: () => copyAs("cdxml"),
     copy_mol: () => copyAs("mol"),
     copy_mol_v2000: () => copyAs("mol_v2000"),
@@ -3337,6 +3366,26 @@ export default function Editor() {
     return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structures(s.reactants), products: structures(s.products), agents: structures([...s.above, ...s.below]) }))
       .filter((s) => s.reactants.length && s.products.length && (!at || [...s.reactants, ...s.products, ...s.agents].flat().every((i) => at.has(i))))
       .map((s) => (at ? { reactants: s.reactants.map((g) => g.map((i) => at.get(i)!)), products: s.products.map((g) => g.map((i) => at.get(i)!)), agents: s.agents.map((g) => g.map((i) => at.get(i)!)) } : s));
+  };
+  // The reactions in a part of the drawing as the chemfig export takes them (chemfig.ts Scheme): each reaction's row in
+  // order and its arrows' conditions, by the part's atoms, a caption read as chemistry by its atom (chemical: those
+  // captions' ids, in the order withCaptionAtoms puts their atoms after the part's). A reaction comes only when its
+  // row is all in the part; a condition that is not in the part is left out.
+  const schemesIn = (part: Mol, chemical: number[]): Scheme[] => {
+    const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
+    const atomOf = new Map(chemical.map((id, k) => [id, part.atoms.length + k]));
+    const ids = new Set([...(part.captions ?? []).map((c) => c.id), ...(part.arrows ?? []).map((a) => a.id)]);
+    const item = (p: Part): SchemeItem | undefined => {
+      if (p.kind === "text") return atomOf.has(p.id) ? { atoms: [atomOf.get(p.id)!] } : ids.has(p.id) ? { caption: p.id } : undefined;
+      if (!at) return { atoms: p.atoms };
+      return p.atoms.every((i) => at.has(i)) ? { atoms: p.atoms.map((i) => at.get(i)!) } : undefined;
+    };
+    return reactions().flatMap(({ r, steps }) => {
+      const row = r.steps.map((s) => (s.kind === "plus" ? (ids.has(s.id) ? { plus: s.id } : undefined) : s.kind === "arrow" ? (ids.has(s.id) ? { arrow: s.id } : undefined) : item(s)));
+      if (row.some((x) => !x)) return [];
+      const side = (k: "above" | "below") => new Map(steps.map((s) => [s.arrow, s[k].flatMap((p) => item(p) ?? [])]));
+      return [{ row: row as Scheme["row"], above: side("above"), below: side("below") }];
+    });
   };
   // ChemDraw's reaction shortcut: a reaction arrow (the Arrow tool's straight arrow) and a copy of the selected
   // structures (or the structure under the pointer) beyond it, that way, spaced as Clean Up Reaction spaces a reaction.
@@ -6110,11 +6159,9 @@ export default function Editor() {
     stereo.bonds.forEach((c, k) => {
       const b = shown.bonds[k];
       if (!c || !b || !shown.atoms[b.atoms[0]]?.cip) return;
-      // Beside the middle of the double bond, on the side with fewer neighbours.
-      const [p, q] = b.atoms.map((i) => pos(shown, i)), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
-      const side = shown.bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = pos(shown, b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
-      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
-      out.push({ key: `b${k}`, x: (mx + side * nx * 0.5 * f) * L, y: -(my + side * ny * 0.5 * f) * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
+      // Beside the middle of the double bond, on the side with fewer neighbours (render.ts stereoSpot).
+      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2, [x, y] = stereoSpot(shown.bonds, b, (i) => pos(shown, i) as [number, number], f);
+      out.push({ key: `b${k}`, x: x * L, y: -y * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
     });
     return out;
   }
@@ -6375,16 +6422,18 @@ export default function Editor() {
   }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
-  const copyText = useRef<string>(undefined);
+  const copyText = useRef<string>(undefined), copyNote = useRef<[string, NoticeKind]>(undefined);
   // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). In the app, the app puts it there
   // (CH-7): the webview lets a page copy only during a click, and a menu command is not one. In a browser, the copy
-  // event puts it there, or else the Clipboard API.
-  const copyPlain = (text: string) => {
-    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice("Copied.", "done"), (err) => setNotice(failure("Octet cannot copy this.", err)));
+  // event puts it there, or else the Clipboard API. note: what to say once it is copied, in place of Copied (Copy As
+  // chemfig says what the code leaves out).
+  const copyPlain = (text: string, note: [string, NoticeKind] = ["Copied.", "done"]) => {
+    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice(...note), (err) => setNotice(failure("Octet cannot copy this.", err)));
     copyText.current = text;
+    copyNote.current = note;
     if (document.execCommand("copy")) return;
-    copyText.current = undefined;
-    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
+    copyText.current = copyNote.current = undefined;
+    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice(...note), () => setNotice("Octet cannot copy this."));
   };
   // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs) and GTK gives them Ctrl+X, C
   // and V before the page. In a text field they work on its text through the app's clipboard, as copyPlain does (the
@@ -6401,10 +6450,11 @@ export default function Editor() {
   };
   // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
   // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
-  // 26.1) and MOL V2000 Text (⇧⌥⌘O).
-  const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
+  // 26.1) and MOL V2000 Text (⇧⌥⌘O). Octet adds chemfig, LaTeX code that draws the structures as the page does.
+  // Each writer gets the part with its captions read as chemistry among its atoms (m), and the part as drawn.
+  const COPY_AS: Record<string, [string, (m: Mol, part: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
-    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)],
+    mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], chemfig: ["chemfig", (_, part) => chemfigOf(part, settings.files.chemfigCompact) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;
@@ -6415,8 +6465,10 @@ export default function Editor() {
     }
     const [name, write] = COPY_AS[what], mol = withCaptionAtoms(part, style.interpret).mol;
     let text = "";
-    try { text = mol.atoms.length && loaded ? write(mol).trimEnd() : ""; } catch { text = ""; }
-    if (text) copyPlain(text);
+    try { text = mol.atoms.length && loaded ? write(mol, part).trimEnd() : ""; } catch { text = ""; }
+    // chemfig says what the code leaves out, or draws differently.
+    const note = what === "chemfig" ? chemfigNote("Copied", part) : undefined;
+    if (text) copyPlain(text, note ? [note, "info"] : undefined);
     else if (mol.atoms.length) setNotice(`Octet cannot write this structure as ${name}.`);
     else setNotice("There is no structure to copy.", "info");
   };
@@ -6467,7 +6519,7 @@ export default function Editor() {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
-    copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
+    copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />], copy_chemfig: ["Copy as chemfig (LaTeX)", "", <BracketsCurly size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
@@ -6656,7 +6708,7 @@ export default function Editor() {
       return set({ ...doc, fills: fills.length ? fills : undefined }, true, merge);
     }
 
-    if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000"].includes(command)) return copyAs(command.slice(5));
+    if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000", "copy_chemfig"].includes(command)) return copyAs(command.slice(5));
     if (command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
@@ -7632,8 +7684,8 @@ export default function Editor() {
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
-        copyText.current = undefined;
-        setNotice("Copied.", "done");
+        setNotice(...(copyNote.current ?? (["Copied.", "done"] as [string, NoticeKind])));
+        copyText.current = copyNote.current = undefined;
         return Promise.resolve(true);
       }
       if (partPick) return Promise.resolve(false);
@@ -9230,7 +9282,7 @@ export default function Editor() {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
             // when the part can have them, and made when they are chosen.
             const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format, steps = may && mol ? stepsIn(mol).length : 0;
-            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, smi: may, inchi: may, ...Object.fromEntries(MDL.map((x) => [x, x.startsWith("rxn") ? steps === 1 : x.startsWith("rdf") ? steps > 0 : may])) };
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, smi: may, inchi: may, tex: may && (f !== "tex" || !!chemfigOf(mol!)), ...Object.fromEntries(MDL.map((x) => [x, x.startsWith("rxn") ? steps === 1 : x.startsWith("rdf") ? steps > 0 : may])) };
             const pf: PartFormat | undefined = f === "oct" || f === "cdxml" || f === "cdx" || f === "inchi" ? f : f === "smi" ? "smiles" : MDL.includes(f) ? (f as PartFormat) : undefined;
             if (pf && mol) has[f] = !!formatOf(mol, pf);
             return has;

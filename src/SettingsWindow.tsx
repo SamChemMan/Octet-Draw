@@ -31,12 +31,13 @@ export type FilePrefs = {
   clipboard: { pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
   quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
+  chemfigCompact: boolean; // chemfig code on one line, not an atom a line (chemfig.ts), from Export… and Copy As
 };
 const MAC = navigator.platform.startsWith("Mac");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
 const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "EMF, with the structure inside";
 // 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides).
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png" };
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png", chemfigCompact: false };
 
 type Props = {
   module: ModuleId;
@@ -561,7 +562,9 @@ export function SettingsWindow(p: Props) {
           {note?.id === a.id && <span className="key-note">{note.text} <button className="text-button" onClick={() => { p.onKeys(note.undo); setNote(undefined); }}>Undo</button></span>}
         </>
       ), true)),
-      d("files", "Export", "Format", "export format pdf svg png emf eps tiff tif jpeg jpg gif metafile postscript cdxml cdx mol sdf rxn rdf v2000 v3000 smiles inchi file save", <Select label="Export format" value={files.format} options={EXPORT_FORMATS} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      d("files", "Export", "Format", "export format pdf svg png emf eps tiff tif jpeg jpg gif metafile postscript cdxml cdx mol sdf rxn rdf v2000 v3000 smiles inchi chemfig latex tex file save", <Select label="Export format" value={files.format} options={EXPORT_FORMATS} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      // One setting for chemfig code from Export… and from Edit > Copy As: on one line, or an atom a line (chemfig.ts).
+      d("files", "Export", "Compact chemfig code", "chemfig latex tex compact one line readable indent copy as code", <Switch on={files.chemfigCompact} label="Compact chemfig code" onChange={(on) => setFiles({ chemfigCompact: on })} />),
       d("files", "Export", "Quick export", "quick export format png svg pdf emf eps tiff jpeg gif latex office one click", <Select label="Quick export" value={files.quick} options={EXPORT_FORMATS.filter(([f]) => PICTURES.includes(f))} onChange={(v) => setFiles({ quick: v as FilePrefs["quick"] })} />),
       d("files", "Export", "Resolution", "png tiff jpeg gif image resolution dpi ppi scale pixels size", <DpiField value={files.dpi} onChange={(dpi) => setFiles({ dpi })} />),
       d("files", "Export", "Background", "background transparent white page colour color png tiff jpeg gif", <Select label="Background" value={files.background} options={BACKDROPS} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
