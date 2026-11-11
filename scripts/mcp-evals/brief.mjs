@@ -6,8 +6,8 @@
 //   node scripts/mcp-evals/cost.mjs LOGS JUDGED        what each job cost the model (cost.mjs says more)
 // The first message holds what an AI app gives its model: Octet's instructions and its tools as tools/list gives them
 // (whatever tools the server lists), then the user's message, with the user's answers to Octet's three questions (the
-// job's own, else a paper with no particular journal). The model calls set_brief itself: that call is part of the job's
-// cost. The job's state (its session and calls) is in out/lean/.
+// job's own, else a paper with no particular journal). The model gives them to Octet itself (draw's brief, or set_brief):
+// that is part of the job's cost. The job's state (its session and calls) is in out/lean/.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { connect } from "./octet.mjs";

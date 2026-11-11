@@ -62,12 +62,13 @@ const listed: Record<string, any> = Object.fromEntries(((await rpc(JSON.stringif
 type Wrap = (a: any) => [string, unknown];
 const values = (s: any) => s.enum as string[], beside = (a: unknown, own: object) => (a && typeof a === "object" && !Array.isArray(a) ? { ...own, ...a } : a);
 const ROUTES: [string, Wrap][] = [
-  ...values(listed.draw.inputSchema.properties.kind).map((k): [string, Wrap] => [k, (a) => ["draw", beside(a, { kind: k })]]),
+  // (draw lists lines and structures, and still takes each kind: plan 19.4.)
+  ...["structures", "cycle", "figure"].map((k): [string, Wrap] => [k, (a) => ["draw", beside(a, { kind: k })]]),
   ...values(listed.change.inputSchema.properties.operations.items.properties.op).filter((o) => o !== "draw").map((o): [string, Wrap] => [o, (a) => ["change", { operations: [beside(a, { op: o })] }]]),
-  ...values(listed.advanced.inputSchema.properties.tool).map((o): [string, Wrap] => [o, (a) => ["advanced", { tool: o, args: a }]]),
+  ...values(listed.advanced.inputSchema.properties.tool).map((o): [string, Wrap] => [o === "draw_route" ? "route" : o, (a) => ["advanced", { tool: o, args: a }]]),
   ...values(listed.drawings.inputSchema.properties.action).map((o): [string, Wrap] => [o, (a) => ["drawings", beside(a, { action: o })]]),
   ["read", (a) => ["read", a]], ["file", (a) => ["read", beside(a, { format: "smiles" })]],
-  // The brief and a route are tools of their own, and one reaction is still a kind of draw, though no longer listed.
+  // The brief is a tool of its own, a route also one that is not listed, and one reaction is still a kind of draw.
   ["brief", (a) => ["set_brief", a]], ["route", (a) => ["draw_route", a]], ["reaction", (a) => ["draw", beside(a, { kind: "reaction" })]],
 ];
 const routes = new Map<string, Wrap>();

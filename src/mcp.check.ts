@@ -18,6 +18,7 @@ const { TRANSFORMATIONS } = await import("./compound.ts");
 const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
 const { handle, MAX_TEXT, resetIds, TOOL_NAMES, TOOL_TABLE, OP_TABLE } = await import("./mcp.ts");
+const { NOTATION } = await import("./notation.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
@@ -73,7 +74,7 @@ const opOf = (name: string, a: any): string | undefined => {
 // operation's own, which says more; and a default reply is at most MOST characters.
 const call = async (name: string, args: any, session?: string) => {
   const asked = JSON.stringify(args ?? null), op = opOf(name, args), out = (await send("tools/call", { name, arguments: args }, session)).result as { content: { type: string; text?: string; data?: string }[]; isError?: true; structuredContent?: any };
-  if (out.structuredContent) for (const schema of [TOOL_TABLE.find((t) => t.name === name)!.outputSchema, OP_TABLE.find((t) => t.name === op)?.outputSchema]) assert.ok(fits(schema, out.structuredContent), `${name} ${op}: structuredContent does not fit its outputSchema: ${JSON.stringify(out.structuredContent).slice(0, 300)}`);
+  if (out.structuredContent) for (const schema of [TOOL_TABLE.find((t) => t.name === name)?.outputSchema, OP_TABLE.find((t) => t.name === op)?.outputSchema]) assert.ok(fits(schema, out.structuredContent), `${name} ${op}: structuredContent does not fit its outputSchema: ${JSON.stringify(out.structuredContent).slice(0, 300)}`);
   const size = out.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
   if (op !== "file" && !/"detail":"full"|"atoms":true/i.test(asked)) assert.ok(size <= MOST, `${name} ${op}: a default reply of ${size} characters`);
   return out;
@@ -87,13 +88,13 @@ const read = async () => JSON.parse(text(await call("read", { detail: "full" }))
 let r = await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "x", version: "1" } });
 assert.equal(r.result.protocolVersion, "2025-06-18");
 assert.equal(r.result.serverInfo.name, "octet-draw");
-assert.match(r.result.instructions, /draw_route for a reaction, scheme or route/);
+assert.match(r.result.instructions, /make ONE draw call with lines: a reaction, a scheme, every scheme of a route/);
 assert.equal((await send("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion, "2025-11-25");
 assert.deepEqual((await send("ping")).result, {});
-// Seven tools are listed (plan 5.1; set_brief, plan 3.1; draw_route, plan 5.4), each with a closed object schema and
-// hints.
+// Six tools are listed (plan 5.1; set_brief, plan 3.1), each with a closed object schema and hints. draw_route is
+// lines of draw now (plan 19.2), and advanced's: it is callable by its name, for scripts, but not listed.
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
-assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief", "draw_route"]);
+assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
@@ -108,8 +109,9 @@ const refsIn = (schema: object) => [...JSON.stringify(schema).matchAll(/"\$ref":
 const alone = (schema: { $defs?: Record<string, unknown> }, at: string) => assert.deepEqual(Object.keys(schema.$defs ?? {}).map((k) => `#/$defs/${k}`).sort(), [...new Set(refsIn(schema))].sort(), at);
 for (const t of tools as unknown as { name: string; inputSchema: { $defs?: Record<string, { properties: Record<string, unknown> }> } }[]) {
   alone(t.inputSchema, t.name);
-  assert.equal(refsIn(t.inputSchema).length, { draw: 6 }[t.name] ?? 0, t.name);
-  if (t.name === "draw") assert.deepEqual(Object.keys(t.inputSchema.$defs!.compound.properties), ["text", "labels", "from", "changes", "number", "caption"]);
+  assert.equal(refsIn(t.inputSchema).length, { draw: 5 }[t.name] ?? 0, t.name);
+  // The hints that turn a compound as a picture shows it are listed (plan 19.2: the eval agents called help for them).
+  if (t.name === "draw") assert.deepEqual(Object.keys(t.inputSchema.$defs!.compound.properties), ["text", "labels", "from", "changes", "number", "caption", "up", "down", "left", "right", "rotate", "flip"]);
 }
 // A compound's changes are typed where draw lists them (plan 4.2.1, left for this step).
 assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.properties.changes.items.properties), ["swap", "occurrence", "at", "set", "add", "remove", "bond", "to"]);
@@ -136,10 +138,13 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
   // The compound: its changes are typed in the list only (compound.ts checks each one itself).
   within(listed("draw").$defs.compound, { ...pieces.compound, properties: { ...pieces.compound.properties, changes: { type: "array", items: { type: "object", additionalProperties: true } } } }, "compound");
   // Each tool's arguments, but for the one that says which operation (no operation has it).
-  // (draw lists no reaction: that is draw_route's, though draw still takes one.)
-  for (const [name, route, of] of [["draw", "kind", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]], ["draw_route", "", ["route"]]] as [string, string, string[]][])
+  // (draw lists its lines and brief, which it reads itself into an operation and set_brief's arguments, and the JSON
+  // of structures: the other kinds' JSON is in help, and taken as change's draw.)
+  assert.equal(listed("draw").properties.lines.description, NOTATION);
+  for (const [name, route, of] of [["draw", "", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]]] as [string, string, string[]][])
     for (const [k, p] of Object.entries(listed(name).properties) as [string, any][]) {
       if (k === route) { assert.deepEqual(p.enum, of, name); continue; }
+      if (name === "draw" && (k === "lines" || k === "brief")) continue;
       const takers = ops(of).filter((x) => x.properties[k]);
       assert.ok(takers.length, `${name}.${k}`);
       // (steps is a reaction's and a cycle's, each with its own keys: every key listed is a key of one of them.)
@@ -151,11 +156,10 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
       }
     }
   assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment"]);
-  assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "help"]);
-  // draw_route lists what each scheme and step must have; keep_orientation (true unless set false) is in its help.
-  const scheme = listed("draw_route").properties.schemes.items;
-  assert.deepEqual([scheme.required, scheme.properties.steps.items.required, "keep_orientation" in listed("draw_route").properties], [["start", "steps"], ["products"], false]);
-  assert.ok("keep_orientation" in (await call("advanced", { tool: "help", args: { of: "draw_route" } })).structuredContent.arguments.properties);
+  assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "draw_route", "help"]);
+  // help of draw_route gives what each scheme and step must have, and keep_orientation (true unless set false).
+  const route = (await call("advanced", { tool: "help", args: { of: "draw_route" } })).structuredContent, scheme = route.arguments.properties.schemes.items;
+  assert.deepEqual([route.call, scheme.required, scheme.properties.steps.items.required, "keep_orientation" in route.arguments.properties], ["advanced with tool: 'draw_route' and args", ["start", "steps"], ["products"], true]);
 }
 assert.ok(tools.find((t) => t.name === "read")!.annotations.readOnlyHint && !tools.find((t) => t.name === "draw")!.annotations.readOnlyHint);
 // The tool table (D11): names of 64 characters at most from A-Z a-z 0-9 _ - ., a title, a closed input schema, an
@@ -221,7 +225,39 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   assert.equal(m.style, undefined, "no call changed the drawing's style");
   assert.equal(steps.length, 6);
   // The server instructions ask the three questions in their first lines, so an AI app asks before its first call.
-  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions, then call set_brief with the answers: ${QUESTIONS.split(": ").slice(1).join(": ")}`));
+  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions, unless they have answered them: ${QUESTIONS.split(": ").slice(1).join(": ")} Give the answers as draw's brief in the same call that draws`));
+  // The brief inside the first drawing call (plan 19.2): draw's brief, in a line or as set_brief's object, is set as
+  // set_brief sets it, in the same undo step, said in a line before the result, and kept for the session. A brief Octet
+  // refuses changes and keeps nothing. With no brief anywhere a scheme is refused with the three questions, as before.
+  fresh();
+  assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "s-8")), QUESTIONS);
+  let o = await call("draw", { lines: "ethanol -> water", brief: "JACS, 2 columns, emphasis: the water, as drawn" }, "s-8");
+  assert.ok(!o.isError && m.style!.page === "ACS2" && m.style!.preset === "ACS Document 1996", text(o));
+  assert.match(text(o), /^Octet keeps this brief for the session\. The drawing now uses ACS Document 1996 on ACS2, with 10 pt labels and 14\.4 pt bonds\. Follow its emphasis and layout as you draw\. Drew the reaction\./);
+  assert.deepEqual(JSON.parse(briefs.get("s-8")!), { destination: { kind: "paper", journal: "ACS Document 1996", columns: 2 }, style: "destination", emphasis: "the water, as drawn" });
+  assert.deepEqual([steps.length, said], [1, ["Test drew a reaction."]]);
+  // The session keeps it: its next scheme needs none.
+  assert.ok(!(await call("draw", { lines: "ethanol -> water" }, "s-8")).isError);
+  for (const [brief, why] of [["Bull. Chem. Soc. Jpn.", /^Octet has no preset for Bull\. Chem\. Soc\. Jpn\. The nearest it has is ACS Document 1996\./], ["emphasis: x", /^Octet changed nothing\. brief: give quick, or where the drawing goes/], [{ destination: { kind: "book" } }, /^Octet changed nothing\. brief\.destination\.kind: not one of/]] as [unknown, RegExp][]) {
+    fresh();
+    o = await call("draw", { lines: "ethanol -> water", brief }, "s-9");
+    assert.ok(o.isError && why.test(text(o)) && m === EMPTY && !briefs.has("s-9"), text(o));
+  }
+  // The answers in one line, each part read one way; or set_brief's object.
+  for (const [line, brief] of [
+    ["quick", { destination: { kind: "quick" }, style: "destination" }], ["No preference.", { destination: { kind: "quick" }, style: "destination" }],
+    ["thesis", { destination: { kind: "thesis" }, style: "destination" }], ["A paper, no particular journal; nothing to emphasise", { destination: { kind: "paper" }, style: "destination" }],
+    ["paper, Org. Lett., 1 column", { destination: { kind: "paper", journal: "ACS Document 1996", columns: 1 }, style: "destination" }],
+    ["Angew. Chem. Int. Ed.", { destination: { kind: "paper", journal: "Wiley (Angewandte)" }, style: "destination" }],
+    ["poster, 600 x 900 mm; layout: one row", { destination: { kind: "poster", size_mm: [600, 900] }, style: "destination", layout: "one row" }],
+    [{ destination: { kind: "slides" } }, { destination: { kind: "slides" }, style: "destination" }],
+  ] as [unknown, object][]) {
+    fresh();
+    briefs.delete("s-10");
+    o = await call("draw", { lines: "ethanol (1)\nwater (2)", brief: line }, "s-10");
+    assert.ok(!o.isError, text(o));
+    assert.deepEqual(JSON.parse(briefs.get("s-10")!), brief, JSON.stringify(line));
+  }
 }
 // The session the rest of this file's calls come in gives its brief here: a paper.
 assert.ok(!(await call("set_brief", { destination: { kind: "paper" } })).isError);
@@ -279,7 +315,8 @@ assert.equal(steps.length, 0);
 // schema says where all its arguments are (the tools list the ones most calls give).
 {
   const no = async (name: string, args: unknown, why: RegExp) => { const o = await call(name, args); assert.ok(o.isError && why.test(text(o)), `${name} ${JSON.stringify(args)}: ${text(o)}`); };
-  await no("draw", { structures: [{ text: "water" }] }, /^Octet changed nothing\. arguments: kind is missing\.$/);
+  // (structures alone is the structures kind: draw lists it with lines, plan 19.2.)
+  await no("draw", {}, /^Octet changed nothing\. give lines, or structures\.$/);
   await no("draw", { kind: "scheme", start: [{ text: "water" }] }, /^Octet changed nothing\. kind: not one of structures, reaction, cycle, figure\.$/);
   await no("draw", { kind: "structures", start: [{ text: "water" }], structures: [{ text: "water" }] }, /^Octet changed nothing\. arguments: start is not an argument of this tool\. advanced help of structures gives its arguments\.$/);
   await no("draw", { kind: "structures", structures: [{ name: "water" }] }, /^Octet changed nothing\. structures\[0\]: name is not an argument of this tool\. advanced help of structures gives its arguments\.$/);
@@ -293,7 +330,7 @@ assert.equal(steps.length, 0);
   await no("change", { operations: [{ op: "move", ids: ["s1"], by: [1, 0] }] }, /^Octet changed nothing\. operations\[0\]: by is not an argument of this tool\. advanced help of move gives its arguments\.$/);
   await no("change", { operations: [{ op: "number", structure: "s1" }] }, /^Octet changed nothing\. operations\[0\]: number is missing\. advanced help of number gives its arguments\.$/);
   await no("advanced", { args: {} }, /arguments: tool is missing/);
-  await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, help\.$/);
+  await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, draw_route, help\.$/);
   await no("advanced", { tool: "export", args: "pdf" }, /args: not an object/);
   await no("advanced", { tool: "export", format: "pdf" }, /arguments: format is not an argument of this tool\.$/);
   await no("advanced", { tool: "set_style", args: { journal: "Nature" } }, /^Octet changed nothing\. args: journal is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
@@ -350,10 +387,13 @@ assert.equal(steps.length, 0);
   resetIds();
   for (const [name, args] of [
     ["drawings", { action: "list" }],
-    ["draw_route", { schemes: [{ start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", yield: "90%", products: [{ text: "ethyl acetate", number: "1" }] }, { arrow: "equilibrium", above: ["H2O"], products: [{ from: "previous", changes: [{ swap: { OEt: "OH" } }], number: "2", caption: "again" }] }] }] }],
-    ["draw", { kind: "structures", columns: 2, structures: [{ text: "benzene", number: "3" }, { text: "*c1ccccc1", labels: ["Ar"], number: "4" }, { text: "phenol", number: "5", up: "O" }], below: "1", gap: 2, align: "left" }],
-    ["draw", { kind: "cycle", intermediates: [{ text: "*[Pd]*", labels: ["L", "L"] }, { text: "*[Pd](*)(c1ccccc1)Br", labels: ["L", "L"] }], centre: "Pd", steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, out: "PhH" }], anticlockwise: true }],
-    ["draw", { kind: "figure", panels: [{ title: "A", frame: "line", rows: [[{ structure: "toluene", number: "6", caption: "arene" }, { text: "and" }]] }], width: 20, detail: "full" }],
+    // (draw lists lines and the JSON of structures, plan 19.2: a cycle anticlockwise and a figure's frames are change's
+    // draw, whose operations are open.)
+    ["draw", { lines: 'acetic acid + ethanol -> ethyl acetate (1), H2SO4 (cat.), reflux, 90%\n<=> 1[OEt>OH] (2) "again", ^H2O' }],
+    ["draw", { columns: 2, structures: [{ text: "benzene", number: "3" }, { text: "*c1ccccc1", labels: ["Ar"], number: "4" }, { text: "phenol", number: "5", up: "O" }], below: "1", gap: 2, align: "left" }],
+    ["draw", { lines: "# Pd\n{L}[Pd]{L} -> {L}[Pd]({L})(c1ccccc1)Br, +PhBr, OA -> {L}[Pd]{L}, -PhH" }],
+    ["change", { operations: [{ op: "draw", kind: "cycle", intermediates: [{ text: "*[Pd]*", labels: ["L", "L"] }, { text: "*[Pd](*)(c1ccccc1)Br", labels: ["L", "L"] }], centre: "Pd", steps: [{ step: 0, name: "OA", in: "PhBr" }, { step: 1, out: "PhH" }], anticlockwise: true }] }],
+    ["change", { operations: [{ op: "draw", kind: "figure", panels: [{ title: "A", frame: "line", rows: [[{ structure: "toluene", number: "6", caption: "arene" }, { text: "and" }]] }], width: 20 }], detail: "full" }],
     ["read", { atoms: true, ids: ["3"] }],
     ["change", { operations: [{ op: "edit", ids: ["s3.1", "s3.1-2"], highlight: "#FFD6A5" }, { op: "replace", structure: "5", text: "toluene" }, { op: "number", structure: "s3", number: "3a" }] }],
     ["change", { operations: [{ op: "text", text: "Figure 1", bold: true, below: "4" }, { op: "shape", kind: "box", around: ["3a", "$1.t[0]"] }, { op: "arrow", kind: "line", from: [-10, 0], to: [10, 0] }, { op: "move", ids: ["$3.a[0]"], dy: -1 }, { op: "arrange", ids: ["3a", "4"], how: "top" }, { op: "select", ids: ["4"] }], picture: true, picture_size: "small" }],
@@ -895,10 +935,10 @@ const prompts = (await send("prompts/list")).result.prompts as { name: string; a
 assert.deepEqual(prompts.map((p) => p.name), ["draw_scheme", "redraw_picture", "check_drawing", "fill_experiment", "journal_figure"]);
 r = await send("prompts/get", { name: "draw_scheme", arguments: { text: "Benzaldehyde (1) was reduced with NaBH4." } });
 assert.equal(r.result.messages[0].role, "user");
-assert.match(r.result.messages[0].content.text, /one draw_route call[\s\S]*Benzaldehyde \(1\)/);
-// (draw lists no reaction kind: a strict client refuses one, so the prompts send reactions to draw_route.)
-assert.match((await send("prompts/get", { name: "redraw_picture", arguments: {} })).result.messages[0].content.text, /with draw_route for reactions, and draw: kind structures for structures, cycle for a catalytic cycle\./);
-assert.match(text(await call("advanced", { tool: "help", args: { of: "arrow" } })), /For a reaction, use draw_route\./);
+assert.match(r.result.messages[0].content.text, /one draw call with lines[\s\S]*Benzaldehyde \(1\)/);
+// (The prompts draw with lines, as the instructions say, plan 19.2.)
+assert.match((await send("prompts/get", { name: "redraw_picture", arguments: {} })).result.messages[0].content.text, /with one draw call with lines\./);
+assert.match(text(await call("advanced", { tool: "help", args: { of: "arrow" } })), /For a reaction, use draw's lines\./);
 assert.equal((await send("prompts/get", { name: "nope" })).error.code, -32602);
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: {} })).error.code, -32602, "a missing argument");
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: { text: "x".repeat(20_001) } })).error.code, -32602, "too long");
@@ -968,7 +1008,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(near(b[0], 10) && near(b[3], 20), JSON.stringify(b));
   // Beside several ids (as draw lists it, the same as every operation): beside the box round them.
   const two = { below: [ref.id, (await read()).structures[1].id] }, drawTool = tools.find((x) => x.name === "draw")!.inputSchema as any;
-  assert.equal(strict(drawTool, { kind: "structures", structures: [{ text: "water" }], ...two }, drawTool.$defs, "draw"), undefined);
+  assert.equal(strict(drawTool, { structures: [{ text: "water" }], ...two }, drawTool.$defs, "draw"), undefined);
   b = await placedBox(two);
   assert.ok(b[3] < Math.min(...(await read()).structures.slice(0, 2).map((x: { box: number[] }) => x.box[1])), JSON.stringify(b));
   // Below or above, it stays on the page across: centred under a structure near the left margin, a wide one would
@@ -1178,26 +1218,27 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 {
   const ins = (await send("initialize", {})).result.instructions as string;
   for (const name of ins.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(["right_of", "ring_fill", ...TOOL_NAMES, ...tools[4].inputSchema.properties.tool.enum].includes(name), name);
-  assert.match(ins, /Make all your fixes in one change\./);
-  assert.match(ins, /figure for a figure of panels/);
-  // What misled AI apps in the evals (mcp-v2-eval-notes.md): reagent or reactant, where amounts go, what the ids in
-  // made are, and when to look at a picture.
-  assert.match(ins, /co-reactant in start .* or over the arrow/);
-  assert.match(ins, /Amounts go in that text .* or a caption\. An experiment page's reagent table takes them through advanced fill_experiment\./);
-  assert.match(ins, /s structures, t text and each \+, a arrows, b shapes, c cycles; a number, conditions and a cycle's text have no id there/);
-  assert.match(ins, /picture: true on a write shows only what changed\. A chemistry question needs no picture\./);
+  // (Rewritten for speed, plan 19.2: one draw call with lines, then the answer.)
+  assert.match(ins, /When it names ids, fix those in one change call\./);
+  assert.match(ins, /ONE draw call with lines: .* a grid or scope, or a catalytic cycle/);
+  // What misled AI apps in the evals (mcp-v2-eval-notes.md): reagent or reactant and which side (Octet sorts them),
+  // where amounts go, what the ids are, and when to look at a picture.
+  assert.match(ins, /Do not sort conditions: list them after the product in any order/);
+  assert.match(ins, /An amount goes in brackets after its compound or reagent .*\. An experiment page's reagent table takes amounts through advanced fill_experiment\./);
+  assert.match(ins, /Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to\./);
+  assert.match(ins, /When check is "clean", answer the user: do not read back or ask for a picture unless they ask how it looks\./);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
   const gone = /\b(read_drawing|draw_structures|draw_reaction|draw_cycle|draw_figure|replace_structure|add_text|new_drawing|list_drawings|use_drawing|set_number|get_file|add_arrow|add_shape)\b/;
   const prompted = await Promise.all(["draw_scheme", "redraw_picture", "check_drawing", "fill_experiment", "journal_figure"].map(async (name) => JSON.stringify((await send("prompts/get", { name, arguments: { text: "x", procedure: "x", journal: "x" } })).result)));
   for (const t of [ins, JSON.stringify(tools), ...prompted, ...OP_TABLE.map((o) => o.description ?? "")]) assert.ok(!gone.test(t), gone.exec(t)?.[0]);
   // Help is of each kind, operation and advanced tool, by the name a call gives it, and says how to call it.
-  for (const [of, how] of [["reaction", "draw with kind: 'reaction'"], ["edit", "change, as an operation with op: 'edit'"], ["export", "advanced with tool: 'export' and args"]]) {
+  for (const [of, how] of [["reaction", "change, as an operation with op: 'draw' and kind: 'reaction'"], ["structures", "draw with structures"], ["edit", "change, as an operation with op: 'edit'"], ["export", "advanced with tool: 'export' and args"]]) {
     const h = (await call("advanced", { tool: "help", args: { of } })).structuredContent;
     assert.deepEqual([h.of, h.call, h.description], [of, how, OP_TABLE.find((o) => o.name === of)!.description]);
     assert.ok(h.description.length > 100 && h.arguments.type === "object" && h.arguments.additionalProperties === false && !("picture" in h.arguments.properties) && !("detail" in h.arguments.properties), of);
   }
-  for (const name of [...tools[0].inputSchema.properties.kind.enum, ...tools[1].inputSchema.properties.operations.items.properties.op.enum.filter((o: string) => o !== "draw"), ...tools[4].inputSchema.properties.tool.enum.filter((o: string) => o !== "help")]) assert.ok(!(await call("advanced", { tool: "help", args: { of: name } })).isError, name);
+  for (const name of ["structures", "reaction", "cycle", "figure", ...tools[1].inputSchema.properties.operations.items.properties.op.enum.filter((o: string) => o !== "draw"), ...tools[4].inputSchema.properties.tool.enum.filter((o: string) => o !== "help")]) assert.ok(!(await call("advanced", { tool: "help", args: { of: name } })).isError, name);
   // With no name, or one Octet does not have, it says what it is of. batch and help are no names to ask of.
   assert.match(text(await call("advanced", { tool: "help" })), /^Give of: a kind of draw \(structures, reaction, cycle, figure\), an operation of change \(edit, /);
   for (const name of ["batch", "help", "read_drawing"]) { const h = await call("advanced", { tool: "help", args: { of: name } }); assert.ok(h.isError && /^Octet has nothing named /.test(text(h)), name); }
@@ -1206,13 +1247,13 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   {
     const h = await call("advanced", { tool: "help", args: { of: "transformations" } });
     assert.deepEqual([h.isError, h.structuredContent.of, h.structuredContent.description], [undefined, "transformations", TRANSFORMATIONS]);
-    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\), draw_route or transformations \(a compound's changes with do\)\.$/);
+    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*, draw_route\), set_brief or transformations \(a compound's changes with do\)\.$/);
     assert.match((tools[0].inputSchema as any).$defs.compound.properties.changes.description, /\{do: 'reduce', at: '7', config: 'R'\}, a named transformation \(advanced help of transformations lists them\)/);
   }
   // A reaction's help says what its lines over and under an arrow take and how they read back; draw_route says it in a
   // word.
   assert.match(OP_TABLE.find((o) => o.name === "reaction")!.description, /or a compound drawn at the arrow .*a list over 30 characters goes on more lines between its items, and a free line after a comma or semicolon\. read gives the compounds at an arrow after its text lines\./);
-  assert.match((tools.find((t) => t.name === "draw_route")!.inputSchema.properties.schemes as any).items.properties.steps.description, /above and below add one free line or compound each/);
+  assert.match(OP_TABLE.find((o) => o.name === "route")!.description!, /above and below add one free line or compound each/);
   // The pieces a tool lists once are whole in help: the compound with its hints and molecule (once in structures and
   // a cycle; four times in a reaction: its starting materials, each step's products, and a line over or under an
   // arrow, which is text or a compound drawn there), text that can be runs (four places in a figure), an arrow's end (two).
@@ -1791,7 +1832,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(o), /^Did 2 steps as one undo step:\n1\. Drew 1 structure in 1 row of 1\.\n2\. /);
   // tools/list gives detail on every tool that takes it, and picture with it (plan sections 10 and 16: detail was
   // left unlisted on the write tools until they were merged). Every operation whose result is a change takes it.
-  for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced", "draw_route"], k);
+  for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
   assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 25);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
@@ -1927,6 +1968,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // B9: on Quick start a row wider than any page draws with no advice.
   let o = await call("draw", { kind: "structures", structures: Array.from({ length: 6 }, () => ({ text: "CCCCCCCCCCCCCC" })), columns: 6 }, "s-2");
   assert.ok(!/page/.test(text(o)), text(o));
+  // No preference on a drawing that already has work in it keeps its own style and page, and says so (plan 3.3,
+  // decided 11 November 2026: before, Quick start replaced them). Quick start is for an empty drawing.
+  fresh();
+  assert.ok(!(await call("draw", { structures: [{ text: "benzene" }] }, "s-11")).isError);
+  const own = m.style;
+  b = await brief({ destination: { kind: "quick" } }, "s-11");
+  assert.match(b.said, /^Octet keeps this brief for the session\. The drawing has work in it, so it keeps its own style and page\. The drawing uses ACS Document 1996 on A4, with 10 pt labels and 14\.4 pt bonds\. Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\.\n\{/);
+  assert.deepEqual([m.style, b.sc.brief], [own, { destination: { kind: "quick" }, style: "from_drawing" }]);
   // B6: a new brief mid-session restyles in one undo step, and says what changed. A journal and a column give its
   // preset's own sizes on its column's page (D2, D3).
   fresh();
@@ -1953,9 +2002,17 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // D8: a size in mm that a draw does not fit says so, with what to do.
   o = await call("draw", { kind: "structures", structures: Array.from({ length: 3 }, () => ({ text: "CCCCCCCC" })), columns: 3 }, "s-2");
   assert.match(text(o), /A row of 3 is [\d.]+ bond lengths wide \(the page has 5\.9\): give columns: 1, or a larger page \(set_brief\)\./);
-  // D9: a journal or page Octet has no preset for is said, with the nearest it has, and nothing changes.
+  // D9: a journal or page Octet has no preset for is said, with the nearest it has, and nothing changes. A journal that
+  // uses a preset's style under its own name is that preset (plan 3.3, decided 11 November 2026: before, these were
+  // asked about too), and the reply names it.
   const was = m;
-  for (const [journal, nearest] of [["Org. Lett.", "ACS Document 1996"], ["JACS", "ACS Document 1996"], ["Nature Chemistry", "Nature"], ["Chem. Commun.", "RSC"], ["Angew. Chem.", "Wiley (Angewandte)"], ["New", "ACS Document 1996"]]) {
+  for (const [journal, preset] of [["Org. Lett.", "ACS Document 1996"], ["JACS", "ACS Document 1996"], ["J. Org. Chem.", "ACS Document 1996"], ["ACS Catal.", "ACS Document 1996"], ["Nature Chemistry", "Nature"], ["Nat. Commun.", "Nature"], ["Chem. Commun.", "RSC"], ["Chem. Sci.", "RSC"], ["Org. Biomol. Chem.", "RSC"], ["Angew. Chem.", "Wiley (Angewandte)"], ["Chem. Eur. J.", "Wiley (Angewandte)"]]) {
+    m = was;
+    o = await call("set_brief", { destination: { kind: "paper", journal } }, "s-5");
+    assert.ok(!o.isError && o.structuredContent.brief.destination.journal === preset && m.style!.preset === preset && text(o).includes(`now uses ${preset} on`), `${journal}: ${text(o)}`);
+  }
+  m = was;
+  for (const [journal, nearest] of [["Bull. Chem. Soc. Jpn.", "ACS Document 1996"], ["Tetrahedron Lett.", "ACS Document 1996"], ["Natl. Sci. Rev.", "Nature"], ["New", "ACS Document 1996"]]) {
     o = await call("set_brief", { destination: { kind: "paper", journal } }, "s-2");
     assert.ok(o.isError && text(o).includes(`Octet has no preset for ${journal.replace(/\.$/, "")}. The nearest it has is ${nearest}. Ask the user whether to use it (journal: '${nearest}')`), text(o));
     assert.equal(m, was);
@@ -2013,6 +2070,30 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   b = await brief({ style: { from_drawing: "draw-1" }, destination: { kind: "paper" } }, "s-7");
   assert.deepEqual([m.style!.bond, m.style!.labelFont, m.style!.page, b.sc.brief.style], [17, "Helvetica", "A4", "from_drawing"]);
   assert.match(text(await call("set_brief", { style: { from_drawing: "draw-9" }, destination: { kind: "paper" } }, "s-7")), /^Octet reads the style of this session's drawing \(draw-1\) only\./);
+}
+
+// What a model sees and sends, for speed (plan 19.2). A draw by lines answers so the AI app can tell the user at once:
+// each structure it made (its number, its id, its formula), the other ids it made and the check, with no boxes and no
+// plus signs. Lines of one drawing are change's draw too. A name or SMILES with changes and no from is that compound
+// changed; the hints that turn a compound turn one already drawn, on replace.
+{
+  fresh();
+  let o = await call("draw", { lines: "OC(=O)c1ccccc1 (1) + CO -> COC(=O)c1ccccc1 (2), H2SO4, reflux, 88%" });
+  const sc = o.structuredContent;
+  assert.deepEqual(Object.keys(sc ?? {}), ["done", "compounds", "made", "warnings", "check"], text(o));
+  assert.ok(sc.compounds.length === 3 && sc.compounds.every((c: string) => /^(?:[12] )?s\d+ C/.test(c)) && sc.made.every((id: string) => id[0] === "a"), JSON.stringify(sc));
+  assert.ok(!text(o).includes("boxes"));
+  fresh();
+  o = await call("change", { operations: [{ op: "draw", lines: "CCO (3)" }, { op: "text", text: "ethanol", below: "$1.s[0]" }] });
+  assert.ok(!o.isError && (await read()).structures[0].number === "3", text(o));
+  assert.match(text(await call("change", { operations: [{ op: "draw", lines: "# A\nC -> CC" }] })), /^Octet changed nothing\. operations\[0\]: these lines make several drawings: draw them with draw, then change them\.$/);
+  fresh();
+  o = await call("draw", { structures: [{ text: "CC(=O)Oc1ccccc1C(O)=O", changes: [{ swap: { OAc: "OH" } }], number: "4" }] });
+  assert.ok(!o.isError, text(o));
+  assert.equal((await read()).structures[0].inchiKey, host.inchi(host.structure("Oc1ccccc1C(O)=O")!).key);
+  const at = () => m.atoms.map((x) => x.location.map((v) => Math.round(v * 10) / 10).join()).join(" "), was = at();
+  o = await call("change", { operations: [{ op: "replace", structure: "4", rotate: 90 }] });
+  assert.ok(!o.isError && at() !== was && (await read()).structures[0].number === "4", text(o));
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

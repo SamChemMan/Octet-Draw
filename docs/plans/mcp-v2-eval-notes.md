@@ -384,3 +384,20 @@ answer, the check), with 1 Octet call.
 The lean harness (`brief.mjs`, `call.mjs`, `judge.mjs`, with `speed.mjs` for the jobs and `headless.ts` for a server
 with no window) gives the model the instructions and the tools in its first message, as an AI app does, and does the
 set-up and the check itself, so the turns counted are the job's own.
+
+## 11 November 2026: the jobs by hand on the tools of plan 19.4 (`mcp/ai`) and of part 1 (`f693134`)
+
+Each job written as a model would, from each code's tool list and instructions alone, run with no window and judged
+(not a model run: the main session runs small, middle and large models on the lab). Part 1 gives the brief with
+set_brief before a scheme, as its instructions say; plan 19.4 gives it in the draw call.
+
+| Jobs | Right at the first try | Calls | Characters sent | Characters read |
+|---|---|---|---|---|
+| The 25 typical jobs of `src/headless.check.ts`, part 1 | 25 of 25 | 57 | 7,469 | 19,172 |
+| The same, plan 19.4 | 25 of 25 | 41 | 3,976 | 14,634 |
+| The 14 speed jobs (`speed.mjs`, through `call.mjs` against the headless server, `judge.mjs`), part 1 | 14 of 14 | 25 | 8,524 | 8,689 |
+| The same, plan 19.4 | 14 of 14 | 14 | 5,389 | 5,991 |
+
+Every drawing job of the 14 is one call on plan 19.4 (two on part 1: set_brief, then the draw). A job that starts with
+change (a convergent synthesis drawn as two reactions, a structure and two arrows) still calls set_brief first: change
+takes no brief.

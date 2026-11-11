@@ -9,17 +9,17 @@ import { isElement } from "./labels.ts";
 import { NAMED, TO, WITH } from "./named.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
-// What a model reads in the tool list (about 600 characters: the list is 14,000 in all).
+// What a model reads in the tool list (about 800 characters: the list is 14,000 in all).
 export const NOTATION = `One reaction a line, as chemists type it:
 4-bromoanisole + PhB(OH)2 (1.5 equiv) -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
 -> 3[OMe>OH] (4), BBr3, 78%
-Compound: name, formula or SMILES ({R}: label R), then (number) and caption. 3 is compound 3 again; 3[..] is 3 changed: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. Conditions in any order; ^x forces over, _x under; "x" as written; @x drawn. Arrows -> <=> => <-> -/->. A line starting -> goes on; a chain back to its start is a cycle (+x in, -x out). # title. Grid: CORE{R}: then R=Me (5) 80% lines; | joins a row.`;
+Compound: name, formula or SMILES ({R}: label R), then (number) and caption. 3 is compound 3 again; 3[..] is 3 changed: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9; a name changes by labels only: aspirin[OAc>OH]. Conditions in any order, Octet sorts them; ^x forces over, _x under; "x" as written; @x drawn. (a) first labels a step: letters on the arrows, conditions in a note. Arrows -> <=> => <-> -/->. A line starting -> goes on; a chain back to its start is a cycle (+x in, -x out). # title: the scheme under it; the schemes are one route, numbered as one. Grid: CORE{R}: then R=Me (5) 80% lines; | joins a row.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
 type Side = "above" | "below";
 type Line = string | Compound;
-type Step = { products: Compound[]; arrow?: string; reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string; above?: Line[]; below?: Line[] };
+type Step = { products: Compound[]; label?: string; arrow?: string; reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string; above?: Line[]; below?: Line[] };
 type Op = { tool: string; args: Record<string, unknown> };
 // A reaction as read: its compounds, and each arrow with what follows its products, read once Octet knows whether the
 // chain is a cycle.
@@ -110,17 +110,19 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   if (odd > 0) return `"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`;
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
-  // An earlier compound, changed: 3[...], or [...] for the one before.
+  // An earlier compound, changed: 3[...], or [...] for the one before. A name or SMILES changed (aspirin[OAc>OH]) is
+  // Octet's reading of it with the changes made, when they are changes (CC[Pd] is a SMILES).
   const block = /^(.*?)\s*\[([^[\]]*)\]$/.exec(t), reference = (x: string) => REFERENCE.test(x) || known.has(x);
+  let changes: Change[] | undefined;
   if (block && (block[1] === "" || reference(block[1]))) {
-    const changes = changesOf(block[2]);
-    if (typeof changes !== "string") {
+    const made = changesOf(block[2]);
+    if (typeof made !== "string") {
       const from = block[1] || previous?.();
       if (!from) return `[${block[2].slice(0, 40)}] changes the compound before it, but there is none here with a number: write that compound's number before the [`;
-      return { from, changes, ...own };
+      return { from, changes: made, ...own };
     }
-    if (block[1]) return `${block[1]}[${block[2].slice(0, 40)}]: ${changes}`;
-  }
+    if (block[1]) return `${block[1]}[${block[2].slice(0, 40)}]: ${made}`;
+  } else if (block) { const made = changesOf(block[2]); if (typeof made !== "string") { changes = made; t = block[1]; } }
   // A number given earlier that is also a formula or SMILES (C, CO, PC4).
   if (known.has(t) && !REFERENCE.test(t) && /^(?:[A-Z][a-z]?\d*)+$/.test(t) && t.match(/[A-Z][a-z]?/g)!.every(isElement)) return `"${t}" reads two ways: compound ${t} (write **${t}**), or the structure ${t} (write its name)`;
   if (reference(t)) return { from: t, number: number ?? t, ...(caption ? { caption } : {}) };
@@ -128,7 +130,7 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   const labels: string[] = [], text = t.replace(/\{([^{}]*)\}/g, (_, x: string) => (labels.push(x.trim()), "*"));
   if (labels.length && text.split("*").length - 1 !== labels.length) return `"${t.slice(0, 40)}" has a * with no label: write each as {R}`;
   if (labels.some((x) => !x)) return `"${t.slice(0, 40)}" has an empty {}: write the label in it, as {OMe}`;
-  return { text, ...(labels.length ? { labels } : {}), ...own };
+  return { text, ...(labels.length ? { labels } : {}), ...(changes ? { changes } : {}), ...own };
 }
 
 // A compound's changes, as compound.ts takes them: OBn>OTES, 2nd OBn>OTES, 7:OBn>OTES, 7:OTBS, 7:=O, 7:H, 7+OH, 5=6,
@@ -200,11 +202,17 @@ function kindOf(t: string): ReturnType<typeof conditionKind> | "reagents" | "bel
 // Numbered operations: 1. 2., 1) 2), (1) (2), a) b), (i) (ii). One starts an item; the next must follow it.
 const OP = /^([\^_]?)(\(?)(\d{1,2}|[a-z]|[ivx]{1,4})([.)])\s/;
 const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"];
+const LABEL = /^\(((?:[a-z]|[ivx]{1,4})(?:\s*[,–-]\s*(?:[a-z]|[ivx]{1,4}))*)\)(?:\s*[,;]\s*|\s+|$)/;
 const follows = (a: string, b: string) => (/^\d/.test(a) ? Number(b) === Number(a) + 1 : b === String.fromCharCode(a.charCodeAt(0) + 1) || ROMAN[ROMAN.indexOf(a) + 1] === b);
 
 type Item = { text: string; by: string };
 // One step's conditions as the reaction kind of draw takes them; or, in a cycle, the step's in, out and name.
 function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "products"> | { in?: string; out?: string; name?: string } | string {
+  // A step's label first, (a) or (b, c): the scheme gets letters on its arrows and its conditions in a note. A single
+  // (a) followed by its next, (b), is the first of numbered operations, as before.
+  const lab = cycle ? null : LABEL.exec(s), one = lab && !/[,–-]/.test(lab[1]) ? lab[1] : undefined;
+  const label = lab && !(one && [String.fromCharCode(one.charCodeAt(0) + 1), ROMAN[ROMAN.indexOf(one) + 1]].some((n) => n && new RegExp(`(?:^|[\\s,;])\\(?${n}[.)]\\s`).test(s.slice(lab[0].length)))) ? lab[1].replace(/\s+/g, " ") : undefined;
+  if (label) s = s.slice(lab![0].length);
   const items = cut(s, (i) => sepAt(s, i)).map((x) => ({ text: x.text.trim(), by: x.by })).filter((x) => x.text);
   // Numbered operations: from the first item that starts with one, each to the next in order, even with no comma
   // before it (1. n-BuLi, THF 2. DMF).
@@ -285,7 +293,7 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
   }
   if (cycle) return { ...(cyc.in.length ? { in: cyc.in.join(", ") } : {}), ...(cyc.out.length ? { out: cyc.out.join(", ") } : {}), ...(cyc.name.length ? { name: cyc.name.join(", ") } : {}) };
   if (yields.length) out.yield = yields.join(", ");
-  return { ...out, ...(sides.above.length ? { above: sides.above } : {}), ...(sides.below.length ? { below: sides.below } : {}) };
+  return { ...out, ...(sides.above.length ? { above: sides.above } : {}), ...(sides.below.length ? { below: sides.below } : {}), ...(label ? { label } : {}) };
 }
 
 // ---- Lines ----
@@ -483,9 +491,20 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   // Several drawings take only what the reply is to have; where each goes is for one drawing.
   const one = ops.length > 1 && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
   if (one) return `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
+  // Schemes alone, with a title or more than one, or a step's label, are a route (plan 5.4): one series of numbers,
+  // each title over its scheme, wrapped to the page, and with a label, letters on the arrows and the conditions in a
+  // note under each scheme.
+  const lettered = ops.some((o) => o.tool === "reaction" && (o.args.steps as Step[]).some((st) => st.label));
+  if ((lettered || ops.length > 1) && ops.every((o) => o.tool === "text" || o.tool === "reaction") && ops[ops.length - 1].tool === "reaction") {
+    const schemes: object[] = [];
+    let titles: string[] = [];
+    for (const o of ops) if (o.tool === "text") titles.push(o.args.text as string); else { schemes.push({ ...(titles.length ? { title: titles.join(" ") } : {}), ...o.args }); titles = []; }
+    return { op: "route", args: { schemes, ...(lettered ? { legend: "letters" } : {}), ...rest } };
+  }
   return ops.length === 1 ? { op: ops[0].tool, args: { ...ops[0].args, ...rest } } : { op: "batch", args: { steps: ops, ...rest } };
 }
 
-/** fromLines' result as the call that draws it: a kind of draw, or a change of several operations (a batch is drawn
- * as change draws one). For the checks and the model test, which call the tools as an AI app does. */
-export const callOf = (r: { op: string; args: any }): [string, unknown] => (r.op === "batch" ? ["change", { operations: r.args.steps.map((s: { tool: string; args: object }) => (s.tool === "text" ? { op: "text", ...s.args } : { op: "draw", kind: s.tool, ...s.args })), ...(({ steps: _, ...reply }) => reply)(r.args) }] : ["draw", { kind: r.op, ...r.args }]);
+/** fromLines' result as the call that draws it: a kind of draw, a route (draw_route), or a change of several
+ * operations (a batch is drawn as change draws one). For the checks and the model test, which call the tools as an AI
+ * app does. */
+export const callOf = (r: { op: string; args: any }): [string, unknown] => (r.op === "route" ? ["draw_route", r.args] : r.op === "batch" ? ["change", { operations: r.args.steps.map((s: { tool: string; args: object }) => (s.tool === "text" ? { op: "text", ...s.args } : { op: "draw", kind: s.tool, ...s.args })), ...(({ steps: _, ...reply }) => reply)(r.args) }] : ["draw", { kind: r.op, ...r.args }]);

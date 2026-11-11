@@ -268,11 +268,24 @@ Before drawing, Octet works out whether the job fits the destination:
   - `draw`: "Give a compound's name when you know it, else a SMILES" (the instructions say it); the reaction and cycle
     kinds say less, as steps' own description says each part.
   - "Add a PNG of what changed" on draw, change and advanced (the instructions say it). drawings' wording is shorter.
-- **Open for Sam** (review of 11 November): (1) quick on a drawing that already has work or a preset replaces its
-  style and page with Quick start (undo brings them back). Should quick keep an open drawing's style and page, or
-  should the instructions say to give from_drawing to keep them? (2) add_file never needs a brief, even for a file
-  that is a whole scheme (3.1 exempts one structure from add_file). Should a file of more than one structure or a
-  reaction wait for the brief?
+- **Decided by the main session** (Sam left them to it, 11 November; built on `mcp/ai`, section 19.4):
+  - **No preference on a drawing with work in it keeps that drawing's own style and page**, and the reply says so
+    ("The drawing has work in it, so it keeps its own style and page."): the brief's style is `from_drawing`, and its
+    advice on fit is the page's when the drawing has one. Quick start is for an empty drawing. Before, quick replaced
+    the style and page with Quick start (undo brought them back).
+  - **A journal that uses a preset's style under its own name is that preset** (`ALIASES` in `src/mcp.ts`, by the
+    journal's name or abbreviation, case, spaces and stops aside): JACS, Org. Lett., J. Org. Chem., Inorg. Chem.,
+    J. Med. Chem., Organometallics, Chem. Rev., Acc. Chem. Res., Chem. Mater., J. Nat. Prod., Org. Process Res. Dev.,
+    J. Phys. Chem., Biochemistry and every ACS ... journal are ACS Document 1996; Angewandte, Chem. Eur. J., Eur. J. Org.
+    Chem., Eur. J. Inorg. Chem., Chem. Asian J., ChemCatChem, ChemMedChem, ChemSusChem, ChemBioChem, ChemPhysChem
+    and ChemistrySelect are Wiley (Angewandte); Chem. Commun., Chem. Sci., Org. Biomol. Chem., Dalton Trans., Green
+    Chem., Org. Chem. Front., RSC Adv., Catal. Sci. Technol., Chem. Soc. Rev. and Nat. Prod. Rep. are RSC; Nature
+    Chemistry, Nature Communications, Nature Catalysis, Nature Synthesis and Nature Reviews Chemistry are Nature.
+    The reply names the preset. A journal Octet truly has nothing for (Bull. Chem. Soc. Jpn., Tetrahedron Lett.) is
+    still refused with the nearest, as test plan D9 says, and nothing changes.
+- **Open for Sam** (review of 11 November): add_file never needs a brief, even for a file that is a whole scheme
+  (3.1 exempts one structure from add_file). Should a file of more than one structure or a reaction wait for the
+  brief?
 - **Not built:** asking the user through MCP elicitation (step 7); carrying out emphasis and layout (kept with the
   brief and said back: the AI app does them with draw and change).
 - **Benchmark.** Each case gives its brief first, counted as a call: its own (`brief` in the case), else the page it
@@ -655,7 +668,7 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
   a drawn arrow's are read (`conditionKind`, moved from `mcp.ts` to `stoich.ts` so both share it). A reactant that is
   also the solvent, amounts in brackets, `then`, and numbered or lettered operations need no decision. A compound's
   changes (`compound.ts`) are written in brackets after its number: `16[OBn>OTES; 20:OH]`, `7[join 2-1 8 (2S)]`.
-- **The hook (for the merger):** `draw` takes `lines` (text; its description is `NOTATION`), and `kind` is no longer
+- **The hook (built on `mcp/ai`, section 19.4):** `draw` takes `lines` (text; its description is `NOTATION`), and `kind` is no longer
   required. Its route becomes `route: (a, notes) => (a.lines !== undefined ? fromLines(a) : <as now>)`. The other
   arguments of the call go with the lines when they draw one thing. When they draw several (a batch: titles with
   schemes, two schemes), only `picture`, `picture_size` and `detail` go with them, and anything else (placement,
@@ -689,8 +702,8 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
   operations that skip a number are refused with what to write.
 - **Still JSON only:** a compound's hints (up, down, left, right, rotate, flip, geometry, colours, like) and a molecule
   atom by atom; MOL or CDXML text as a compound; `from` by a structure's id (`s3`); a figure item's brackets, mark and
-  colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`; `draw_route`'s `legend` and a
-  step's `label` (not built). Every operation of `change` other than draw.
+  colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`. Every operation of `change` other
+  than draw. `draw_route`'s `legend` and a step's `label` are lines now: `(a)` first in a step's conditions (19.4).
 - **Not done:** the model test. No model could be started from the builder's session or the review fix's (`claude -p`:
   "OAuth session expired"). The twelve jobs and the checker are `scripts/mcp-evals/notation.ts`: `ask` runs `claude -p`
   on each and checks it, or `prompts` prints each prompt for a fresh model with no tools and `check answers.json`
@@ -1478,3 +1491,60 @@ harness in which the model's turns are the job's own, speed jobs with exact chec
 calls, output tokens, characters sent and read, seconds) kept and compared like `scripts/mcp-bench/results.json`.
 Each change above is kept only if a small, a middle and a large model each do the jobs in fewer turns and tokens with
 no fewer passes.
+
+### 19.4 As built (part 2, 11 November 2026, branch `mcp/ai`)
+
+What a model sees and sends was rebuilt so that a drawing job is one call and no read.
+
+- **One way to draw: `draw` with `lines`.** `fromLines` is the hook of 5.6. Lines of schemes alone (with a `#` title, or
+  more than one, or a step's label) are a route (`route`, as `draw_route` draws one): one series of numbers, a compound
+  drawn in two schemes with one number, each title over its scheme, wrapped to the page, and page-fit advice. A
+  step's label is its first item in round brackets, `(a)` or `(b, c)` (a single `(a)` followed by its next, `(b)`, is
+  numbered operations, as before): the route then has letters on its arrows and the conditions in a note under each
+  scheme (`legend: letters`, a, b, c for steps with none). A cycle, a grid, or a scheme with a grid are as before.
+  `change`'s `draw` takes lines of one drawing too.
+- **What is listed** (6 tools, 12,293 characters, from 13,998 with 7; what a model gets is 10,986, from 12,353):
+  `draw` lists `lines`, `brief`, `structures` (the JSON, with its compound's hints: `up`, `down`, `left`, `right`,
+  `rotate`, `flip`, which the eval agents called help for), `columns`, placement and the reply's arguments. `kind`
+  and the JSON of a cycle and a figure are no longer listed: `draw` still takes them, `change`'s `draw` takes them in
+  its open operations, and help of each says so. `draw_route` is not listed: lines draw a route, `advanced` takes it as
+  JSON (`{tool: 'draw_route', args}`), and its name still calls it (`hidden` in `TOOLS`), so scripts and checks that
+  call it work. `set_brief` stays listed: the refusal tells the AI app to call it (Sam's words, unchanged), and it is
+  how to change the brief later or give a style file. `replace` takes the hints (it refused them), and `change` says so.
+- **The brief in the first drawing call.** `draw`'s `brief` is the answers in one line (`quick`, `paper, JACS, 2
+  columns`, `thesis; emphasis: the new bond`), read into set_brief's arguments (`briefOf`), or set_brief's own object.
+  Each part is a destination, a column count, a size in mm, or else the journal; `no particular journal` and the like
+  are left out. It is set as set_brief sets it, first, in the same undo step, said in a line before the result (the
+  room inside the margins is left out: the draw says what does not fit), and kept for the session only when the call
+  succeeds. A call with no brief, in a session with none, that draws more than one structure is refused with the three
+  questions, word for word as before. One structure needs none.
+- **The reply that ends a job** (a draw by lines; `answer` and `madeCompounds`): the sentence, then `compounds` (each
+  structure made: its number, its id, its formula, and Octet's name where a name was given and Octet's name for it is
+  another), `made` (the other ids: arrows, titles, notes, a cycle; no structures, plus signs or boxes), `warnings` and
+  `check`. The sentence leaves out "Octet read the names as" (the names are in compounds) and a stereocentre that keeps
+  its configuration (nothing to do for it); what needs the AI app (a centre with no configuration, a compound drawn
+  again) stays. A JSON draw answers as before. The 60 corpus jobs and taxol, each one draw call with the brief: every
+  reply is under 1,200 characters (`src/notation.check.ts`); the longest is taxol on Quick start, 1,177. Taxol on a
+  paper page is about 1,500: it runs past the page, and the reply names the 20 ids past it and what to do.
+- **Lines over and under an arrow.** Not built as a report: a line forced over (`^`) or under (`_`) is drawn there, and
+  the reply would say nothing in every job measured. Octet's own sorting is the papers' (5.6), and the instructions say
+  the model need not sort.
+- **Instructions** (2,162 characters, from 2,928): ask the three questions unless answered or one structure; then one
+  draw call with lines, the brief in it; each compound once, later ones as changes; do not sort conditions; an amount in
+  brackets after its compound; when check is clean answer the user with no read and no picture; else fix the ids in
+  one change call; the hints for a picture; highlight, colour, undo; help. The prompts say the same.
+- **A name changed** (`aspirin[OAc>OH]`, or `{text, changes}` in JSON with no from): Octet's reading of the name with
+  the changes made. Changes by a group's label (`OAc>OH`) and named transformations that fit one place work; a change
+  by an atom's number is refused ("This compound has no atom numbers"), as a name has no map numbers: give a SMILES with
+  them. A SMILES that ends in a bracket atom (`CC[Pd]`) is a SMILES.
+- **Measured.** The benchmark (`node scripts/mcp-bench/run.ts`): every case as before (calls, refused calls,
+  characters, structures right, warnings). `taxol-lines`: 1 call, 1,780 characters sent, 1,177 read, 19 of 19 right,
+  0 warnings, no read (`taxol-route`: 3 calls, 3,606 sent, 5,052 read; `taxol-v1-job`: 34, 16,042, 170,123). The 60
+  corpus jobs as lines (`run.ts lines`, run alone: with every other case in one process they reach the end of Indigo's
+  stack, 17.2): 60 calls (120 with set_brief), 18,637 sent (32,642), 26,662 read (43,906), 227 of 240 right and 66
+  warnings, as their JSON, no job worse. The lab (each job written from the tool list and instructions alone, run with
+  no window, judged): the 25 typical jobs of `src/headless.check.ts`, 25 of 25 right at the first try on part 1 and
+  here, 57 calls to 41, 7,469 characters sent to 3,976, 19,172 read to 14,634; the 14 speed jobs, through `call.mjs`
+  against the headless server, 14 of 14 on both, 25 calls to 14, 8,524 sent to 5,389, 8,689 read to 5,991.
+- **Not done:** models on the lab (the main session runs them).
+
