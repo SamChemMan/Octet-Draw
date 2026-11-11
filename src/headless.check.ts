@@ -589,6 +589,11 @@ try {
   assert.deepEqual(await sides(), ["t6 1→2 out", "t7 4→1 out", "t8 2→3 name"]);
   assert.match((await call("change", { operations: [{ op: "edit", ids: ["t6"], at: "5→1" }] })).content[0].text, /t6's cycle has no step 5→1: its steps are 1→2, 2→3, 3→4, 4→1\./);
   assert.match((await call("change", { operations: [{ op: "edit", ids: ["t8"], side: "in" }] })).content[0].text, /t8 is a cycle's step name: it takes no side\./);
+  // Side text moved to a step that has that end already joins the text there, as draw writes two at one step (a second
+  // side arrow on the first gave an overlap that no tool could fix).
+  assert.equal((await call("change", { operations: [{ op: "edit", ids: ["t6"], at: "4→1" }] })).structuredContent.check, "clean");
+  assert.deepEqual(await sides(), ["t7 4→1 out", "t8 2→3 name"]);
+  assert.deepEqual([d.host.doc().captions!.find((x) => x.id === 7)!.text, d.host.doc().cycles![0].branches!.length], ["ketol, triketone", 1]);
   // With no page (brief quick), a figure wider than A4 says nothing of a page (Haiku told the user it needed a larger
   // page before export).
   d = drawing("paper", "No page");

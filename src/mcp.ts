@@ -746,11 +746,11 @@ const TOOLS: Tool[] = [
 const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's computer. These tools draw in the user's open drawing and read it.
 - Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
 - Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
-- Write each compound by the name or SMILES you have (copy the user's); else as a change to an earlier one (3[OBn>OTES]), keeping its stereocentres. A generic group or ligand is {R} in SMILES ({L}[Pd]{L}).
-- Do not sort conditions: list them after the product in any order; Octet places each. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
+- Write each compound as the name or SMILES you have (copy the user's); only with neither, as a change to an earlier one (3[OBn>OTES]), which keeps stereocentres. A generic group or metal ligand is {R} ({L}[Pd]{L}).
+- Do not sort conditions: list them after the product in any order. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
 - The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), its warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
 - To match a picture, turn a compound with hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
-- To highlight atoms, bonds or a structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
+- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
 - Each call is one undo step. Never delete the user's work unless they ask.
 - advanced help gives the arguments of every draw kind, change op and tool.`;
 
@@ -890,14 +890,18 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
   return { ok, failed, wrong, lost };
 }
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
-// SMILES by its first atom (N1CCOCC1); a substituent name (morpholin-4-yl) where its lithium compound has the lithium;
-// a compound's name by its one N–H (4-phenylpiperidine). Two N–H is refused. Undefined: it stays a label (L, dppf).
+// SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
+// name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
+// (4-phenylpiperidine). Two N–H, and a word Octet cannot join, are refused. Undefined: it stays a label (L, Nu, dppf).
 function group(host: Host, v: string): Mol | string | undefined {
-  if (labelSmiles(v) || isGeneric(v)) return undefined;
-  if (!host.named(v)) {
-    if (looksLikeSmiles(v)) return host.structure(v);
-    const m = /yl$/.test(v) ? host.structure(`${v}lithium`) : undefined, li = m?.atoms.flatMap((a, i) => (a.label === "Li" ? [i] : [])) ?? [], on = m?.bonds.filter((b) => b.atoms.includes(li[0])) ?? [];
-    return li.length === 1 && on.length === 1 ? first(m!, on[0].atoms.find((i) => i !== li[0])!, li[0]) : undefined;
+  const smiles = looksLikeSmiles(v);
+  if (!(smiles && /(\d).*\1/.test(v)) && (labelSmiles(v) || isGeneric(v))) return undefined;
+  const named = host.named(v);
+  if (!named && smiles) return host.structure(v);
+  if (!named || /yl$/.test(v)) {
+    const m = host.structure(`${v}lithium`), li = m?.atoms.flatMap((a, i) => (a.label === "Li" ? [i] : [])) ?? [], on = m?.bonds.filter((b) => b.atoms.includes(li[0])) ?? [];
+    if (li.length === 1 && on.length === 1) return first(m!, on[0].atoms.find((i) => i !== li[0])!, li[0]);
+    return /[a-z]{3}/.test(v) ? `Octet cannot join ${v}: give it as a SMILES, its joining atom first` : undefined;
   }
   const m = host.structure(v)!, used = bondOrders(m), nh = m.atoms.flatMap((a, i) => (a.label === "N" && hydrogens("N", a.charge ?? 0, used[i]) > 0 ? [i] : []));
   if (nh.length > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
@@ -1353,6 +1357,26 @@ async function drawRoute(host: Host, a: { title?: string; schemes: SchemeIn[]; l
   };
 }
 
+// A side arrow's text that lies on an intermediate: that end of the arrow goes further out from the circle, three
+// quarters of a bond length at a time, until its text is clear (6 times at most), as draw lays a cycle out and as edit
+// moves its text. What still lies on one.
+async function clearSides(host: Host, id: number): Promise<Caption[]> {
+  let m = host.doc();
+  const lying = () => {
+    m = host.doc();
+    const inks = m.cycles!.find((x) => x.id === id)!.nodes.map((atoms) => host.ink(atoms));
+    return (m.captions ?? []).filter((t) => t.cycle?.cycle === id && isSide(t.cycle) && inks.some((b) => { const tb = b && host.textBox(t.id); return !!tb && overlap(tb, b!); }));
+  };
+  let on = lying();
+  for (let k = 0; k < 6 && on.length; k++) {
+    const out = (br: NonNullable<Cycle["branches"]>[number]) => on.reduce((x, { cycle: t }) => (t!.branch === x.id && (t!.side === "in" || t!.side === "out") ? { ...x, [t!.side]: { ...x[t!.side], reach: (x[t!.side]?.reach ?? 1.1) + 0.75 } } : x), br);
+    host.set({ ...m, cycles: m.cycles!.map((x) => (x.id === id ? { ...x, branches: x.branches?.map(out) } : x)) });
+    await host.settle();
+    on = lying();
+  }
+  return on;
+}
+
 // Where a cycle's step runs, as replies and read say it: from intermediate to intermediate, each by its number, else
 // its place from 1 (the last step back to the first). Models cannot tell which arrow step 0 is.
 function stepAt(m: Mol, c: Cycle, k: number): string {
@@ -1407,20 +1431,8 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
   await host.settle();
   host.tidyCycle(id);
   await host.settle();
-  // A side arrow's text that lies on an intermediate: that end of the arrow goes further out from the circle, three
-  // quarters of a bond length at a time, until its text is clear (6 times at most).
-  const lying = () => {
-    m = host.doc();
-    const inks = m.cycles!.find((x) => x.id === id)!.nodes.map((atoms) => host.ink(atoms));
-    return (m.captions ?? []).filter((t) => t.cycle?.cycle === id && isSide(t.cycle) && inks.some((b) => { const tb = b && host.textBox(t.id); return !!tb && overlap(tb, b!); }));
-  };
-  let on = lying();
-  for (let k = 0; k < 6 && on.length; k++) {
-    const out = (br: NonNullable<Cycle["branches"]>[number]) => on.reduce((x, { cycle: t }) => (t!.branch === x.id && (t!.side === "in" || t!.side === "out") ? { ...x, [t!.side]: { ...x[t!.side], reach: (x[t!.side]?.reach ?? 1.1) + 0.75 } } : x), br);
-    host.set({ ...m, cycles: m.cycles!.map((x) => (x.id === id ? { ...x, branches: x.branches?.map(out) } : x)) });
-    await host.settle();
-    on = lying();
-  }
+  const on = await clearSides(host, id);
+  m = host.doc();
   // The cycle with its text goes on the page, as a scheme does, and no higher than where new work starts. What does
   // not fit is said in the reply: side text still on an intermediate, and a cycle wider than the page.
   const st = host.style(), b = placed(a) ? undefined : boxOfIds(host, m, [`c${id}`]), d: P = b ? [across(st, b), Math.min(0, y0 - b[3])] : [0, 0];
@@ -2085,7 +2097,8 @@ async function edit(host: Host, a: Edit): Promise<Result> {
     } else if (caption) {
       // A cycle's side text or step name takes its step (at, as read gives it) and a side text its side (in, out).
       const cyc = caption.cycle && (isSide(caption.cycle) || caption.cycle.side === "name") ? caption.cycle : undefined;
-      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...(cyc ? ["at"] : []), ...STYLE]);
+      let join: Caption | undefined;
+      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...(cyc ? ["at"] : []), ...STYLE]), moves = cyc && (use.includes("at") || use.includes("side"));
       const change: Partial<Caption> = textOf(use);
       if (use.includes("text")) Object.assign(change, { text: clean(a.text!, true), runs: undefined });
       if (use.includes("runs") && runs) Object.assign(change, { text: plain(runs), runs });
@@ -2095,15 +2108,17 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("line_height")) change.lineHeight = a.line_height === "auto" ? undefined : a.line_height;
       if (use.includes("chemical")) change.chemical = a.chemical ? undefined : false;
       if (use.includes("rotate")) change.angle = ((caption.angle ?? 0) + a.rotate!) % 360 || undefined;
-      if (cyc && (use.includes("at") || use.includes("side"))) {
+      if (moves) {
         const c = m.cycles!.find((x) => x.id === cyc.cycle)!, at = a.at?.replace(/\s/g, "").replace(/->|⟶/g, "→"), step = at === undefined ? cyc.step : c.nodes.findIndex((_, k) => stepAt(m, c, k) === at);
         if (step < 0) return { text: `${id}'s cycle has no step ${a.at}: its steps are ${c.nodes.map((_, k) => stepAt(m, c, k)).join(", ")}.`, error: true };
         const side = (a.side ?? cyc.side) as typeof cyc.side;
         if (isSide(cyc) ? side !== "in" && side !== "out" : a.side !== undefined) return { text: `${id} is ${isSide(cyc) ? "a cycle's side text: side is in or out" : "a cycle's step name: it takes no side"}.`, error: true };
         // A side text leaves its end of its side arrow (the arrow goes when it has no other end) for a side arrow of
-        // its new step, as the Side arrow tool puts one.
+        // its new step, as the Side arrow tool puts one. Where the step has that text already, the two join in it, as
+        // draw writes two at one step.
+        join = m.captions!.find((x) => x.id !== caption.id && x.cycle?.cycle === c.id && x.cycle.step === step && x.cycle.side === side);
         m = updateCaption(m, caption.id, { cycle: { ...cyc, step, side, branch: undefined } });
-        if (isSide(cyc) && cyc.branch !== undefined) m = labelEnd(removeEnd(m, c.id, cyc.branch, cyc.side as "in" | "out"), caption.id);
+        if (isSide(cyc) && cyc.branch !== undefined) { m = removeEnd(m, c.id, cyc.branch, cyc.side as "in" | "out"); if (!join) m = labelEnd(m, caption.id); }
       }
       // On an arrow as its conditions, or freed where it is drawn.
       if (!cyc && (a.side === "in" || a.side === "out")) return { text: `${id} is not a cycle's side text: side is above or below.`, error: true };
@@ -2117,6 +2132,9 @@ async function edit(host: Host, a: Edit): Promise<Result> {
         }
       }
       m = updateCaption(m, caption.id, change);
+      if (join) { const t = m.captions!.find((x) => x.id === caption.id)!, run = (x: Caption) => x.runs ?? [{ text: x.text }]; m = deleteGraphics(updateCaption(m, join.id, { text: `${join.text}, ${t.text}`, runs: join.runs || t.runs ? [...run(join), { text: ", " }, ...run(t)] : undefined }), new Set([t.id])); }
+      // Text moved on a cycle clears its intermediates, as draw lays it out.
+      if (moves) { m = host.set(m); await host.settle(); await clearSides(host, cyc.cycle); m = host.doc(); }
       if (use.includes("scale")) scaled.items.add(caption.id);
     } else if (arrow) {
       const use = fits(id, ["kind", "style", "start", "end", "head", "head_size", "bend", "ratio", "shaft", "line_width", "fill", "orbital_shape", "orbital_phase", "colour", "from", "to", "rotate", "scale"]);

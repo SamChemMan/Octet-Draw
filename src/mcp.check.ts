@@ -1402,7 +1402,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /^Octet Draw is .* These tools draw in the user's open drawing and read it\.\n[^]*The reply lists each compound as Octet read it \(number, id, formula or =id if drawn again; a name only if read as another\)/);
   // Round 3b: given every compound's SMILES, Haiku tried to write them as changes ("write each compound once ... a
   // later one is a change to it" read as a rule), could not, and said sorry to the user. The SMILES given come first.
-  assert.match(ins, /Write each compound by the name or SMILES you have \(copy the user's\); else as a change to an earlier one \(3\[OBn>OTES\]\), keeping its stereocentres\./);
+  assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, as a change to an earlier one \(3\[OBn>OTES\]\), which keeps stereocentres\./);
+  // (A group is highlighted with highlight too: a shape is a frame or panel.)
+  assert.match(ins, /To highlight an atom, bond, group or structure, use change's edit with highlight/);
   assert.ok(ins.length <= 2162, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
