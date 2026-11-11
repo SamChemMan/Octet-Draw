@@ -24,7 +24,7 @@ import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
-  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule,
+  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
@@ -877,6 +877,8 @@ export default function Editor() {
   const labelOpen = useRef(false);
   // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
   const lastLabel = useRef<string>(undefined);
+  // The element the Text tool puts on atoms, chosen from its periodic table (issue 71); none while it writes text.
+  const [textElement, setTextElement] = useState<string>();
   // The bond tool's last click on an atom, and the drawing it made: a second click there soon after is a double-click.
   const lastClick = useRef<{ atom: number; time: number; after: Mol }>(undefined);
   // The Cycle tool's last click on an arc (a break, or a step made reversible): the step, when, and the drawing it made.
@@ -7621,6 +7623,10 @@ export default function Editor() {
       return set(addRing(doc, r.n, r.aromatic || !!more.meta, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }, { sprout: sproutIt, firstSingle: more.shift, circle: more.meta }), false, undefined, "placed");
     }
     if (tool === "text") {
+      // With an element from the periodic table, as ChemDraw's: a click on an atom makes it that element, and a click on
+      // empty space puts a lone atom of it there (carbon shows as CH4). A caption or anything else takes text as usual.
+      if (textElement && t.atom !== undefined) return set(keyElement(doc, t.atom, textElement));
+      if (textElement && Object.values(t).every((v) => v === undefined)) { const [m, i] = withAtom(doc, at); return set(keyElement(m, i, textElement)); }
       // Option-click repeats the last label typed, as in ChemDraw.
       if (t.atom !== undefined) return pressAlt.current && lastLabel.current ? set(setLabel(doc, t.atom, lastLabel.current)) : editLabel(t.atom);
       return startWriting(t.caption !== undefined ? { id: t.caption } : { at });
@@ -9457,6 +9463,8 @@ export default function Editor() {
         keys={hint}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
+        element={textElement}
+        onElement={(el) => { setTextElement(el); setTool("text"); }}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
         onDrop={(x, y) => setDropAt([x, y])}
