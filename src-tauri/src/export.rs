@@ -680,9 +680,12 @@ fn xml_stream(pdf: &[u8], at: usize, marked: bool, budget: &Cell<usize>) -> Opti
     cdxml_of(&pdf[i..end], flate)
 }
 
-// `data` as CDXML, inflated (zlib) first when `flate`: None if it is not CDXML or comes to more than 32 MB.
+// `data` as CDXML, inflated (zlib) first when `flate`: None if it is not CDXML or comes to more than 32 MB. Zlib data
+// with no filter is inflated too: LibreOffice keeps a PDF newer than 1.6 (Octet's, ChemDraw's) as pdfium saves it at
+// 1.6, which takes the /Filter off the /Metadata stream and leaves the stream deflated.
 fn cdxml_of(data: &[u8], flate: bool) -> Option<String> {
-    if !flate {
+    let zlib = data.len() > 2 && data[0] == 0x78 && (u16::from(data[0]) << 8 | u16::from(data[1])) % 31 == 0;
+    if !flate && !zlib {
         return (data.len() <= MAX_XML && is_cdxml(data)).then(|| String::from_utf8_lossy(data).into_owned());
     }
     use miniz_oxide::inflate::{decompress_to_vec_zlib_with_limit as inflate, TINFLStatus};
@@ -980,6 +983,11 @@ mod tests {
     fn pdf_carries_cdxml_and_reads_back() {
         let pdf = make_pdf(SVG, Some(CDXML), None).unwrap();
         assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
+        // As LibreOffice keeps it: pdfium's copy at PDF 1.6 has the /Metadata stream deflated with no /Filter.
+        let meta = find(&pdf, b"/Type /Metadata").unwrap();
+        let at = meta + find(&pdf[meta..], b"/Filter /FlateDecode").unwrap();
+        let unfiltered = [&pdf[..at], &[b' '; 20][..], &pdf[at + 20..]].concat();
+        assert_eq!(cdxml_from_pdf(&unfiltered).as_deref(), Some(CDXML));
         // The catalog points at the stream, which is marked as ChemDraw marks its own.
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains("/Type /Catalog"));

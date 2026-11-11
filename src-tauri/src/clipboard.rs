@@ -14,7 +14,8 @@
 //   that.
 //   An Octet Drawing object goes first ("Embed Source", "Object Descriptor"), through the OLE clipboard, for Word,
 //   PowerPoint and Excel (decision 0023, ole_windows.rs); Settings switches it off.
-// - Linux: the picture is a PNG (with the CDXML in a chunk) and an SVG, and the chemistry has its MIME types
+// - Linux: the picture is a PNG (with the CDXML in a chunk), the Mac's PDF (with the CDXML in it, which LibreOffice
+//   keeps, so its Octet extension can open the drawing again) and an SVG. The chemistry has its MIME types
 //   (chemical/x-cdx and so on).
 //
 // The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from
@@ -40,6 +41,8 @@ pub const FILE_URL: &str = "public.file-url";
 pub const DIB: &str = "CF_DIB";
 pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
 pub const ENHMETAFILE: &str = "CF_ENHMETAFILE";
+// LibreOffice's own copy of a picture on Linux, under its full name.
+pub const SVXB: &str = "application/x-openoffice-svxb;windows_formatname=\"SVXB (StarView Bitmap/Animation)\"";
 
 const MAX_TYPE: usize = 64 << 20;
 const MAX_TEXT: usize = 64 << 10;
@@ -70,6 +73,7 @@ enum Kind {
     Office,  // read only: Office's own copy of a picture, a zip with the picture's file in it (cdxml_from_office)
     Keynote, // read only: Keynote's copy keeps the picture's file under a numbered type (com.apple.iWork.TSPData.364)
     Object,  // read only: an Octet Drawing object copied out of Word ("Embed Source", Windows only, decision 0023)
+    Svxb,    // read only: LibreOffice's own copy of a picture, which holds the picture's file (svxb_picture)
 }
 
 // Each system's names for a kind, in the order copy writes them; paste reads the first one there. Empty: that system's
@@ -90,7 +94,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Bitmap => &["public.tiff"],
             FileUrl => &[FILE_URL],
             Office => &["com.microsoft.Art--GVML-ClipFormat"],
-            Object => &[],
+            Object | Svxb => &[],
             // A prefix: mac::read gives the first such type that holds a PDF.
             Keynote => &["com.apple.iWork.TSPData."],
             Svg | Emf => &[],
@@ -107,10 +111,11 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Text => &[UNICODE_TEXT],
             Office => &["Art::GVML ClipFormat"],
             Object => &[crate::ole::EMBED_SOURCE, crate::ole::EMBEDDED_OBJECT],
-            Pdf | Svg | FileUrl | Keynote => &[],
+            Pdf | Svg | FileUrl | Keynote | Svxb => &[],
         },
         System::Linux => match k {
             Png => &["image/png"],
+            Pdf => &["application/pdf"],
             Svg => &["image/svg+xml"],
             Cdx => &["chemical/x-cdx"],
             Cdxml => &["chemical/x-cdxml"],
@@ -119,7 +124,8 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Octet => &["application/x-octet+json"],
             Text => &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"],
             FileUrl => &["text/uri-list"],
-            Pdf | Bitmap | Emf | Office | Keynote | Object => &[],
+            Svxb => &[SVXB],
+            Bitmap | Emf | Office | Keynote | Object => &[],
         },
     }
 }
@@ -220,15 +226,15 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
                 put(Kind::Bitmap, b);
             }
         } else {
-            let (png, bitmap) = crate::export::clipboard_pictures(svg, false, dpi, cdxml)?;
-            put(Kind::Png, png);
-            if let Some(b) = bitmap {
-                put(Kind::Bitmap, b);
-            }
+            // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.2.
+            let (png, pdf) = std::thread::scope(|t| {
+                let pdf = t.spawn(|| crate::export::make_pdf(svg, cdxml, None));
+                (crate::export::clipboard_pictures(svg, false, dpi, cdxml), pdf.join().unwrap_or_else(|_| Err("Octet cannot copy this.".into())))
+            });
+            put(Kind::Png, png?.0);
+            put(Kind::Pdf, pdf?);
             // The SVG in px user units, so Inkscape pastes it at true size (issue 47).
-            if s == System::Linux {
-                put(Kind::Svg, crate::export::px_units(svg).into_bytes());
-            }
+            put(Kind::Svg, crate::export::px_units(svg).into_bytes());
         }
     }
     if let Some(b) = cdx.filter(|b| b.starts_with(b"VjCD0100")) {
@@ -300,6 +306,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
     if c.octet.is_none() && c.cdxml.is_none() {
         let picture = |k: Kind| first(s, k, &read).and_then(|b| crate::export::cdxml_from_picture(&b));
         c.cdxml = picture(Kind::Pdf)
+            .or_else(|| first(s, Kind::Svxb, &read).and_then(|b| svxb_picture(&b).and_then(crate::export::cdxml_from_picture)))
             .or_else(|| picture(Kind::Keynote))
             .or_else(|| picture(Kind::Emf))
             .or_else(|| first(s, Kind::Office, &read).and_then(|b| cdxml_from_office(&b)))
@@ -362,6 +369,18 @@ fn cdxml_from_office(zip: &[u8]) -> Option<String> {
     None
 }
 
+// The picture's file in LibreOffice's own copy of a picture (SVXB): "NAT5" and a 6-byte header, then the picture's
+// link, a 6-byte header with the length of the link's fields, which start with its type (2 bytes) and the file's size
+// (4 bytes). The file comes after the fields: for a PDF, the PDF as it was pasted in. Read with bounds checks.
+fn svxb_picture(b: &[u8]) -> Option<&[u8]> {
+    let u32_at = |k: usize| b.get(k..k + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]) as usize);
+    if b.get(..4)? != b"NAT5" {
+        return None;
+    }
+    let start = 16usize.checked_add(u32_at(12)?)?;
+    b.get(start..start.checked_add(u32_at(18)?)?)
+}
+
 // The drawing in a PDF, EMF or PNG file copied in Finder or the file manager (its path, or a file:// list), read
 // with Open's 64 MB limit.
 fn copied_drawing(url: &str) -> Option<String> {
@@ -382,7 +401,7 @@ fn copied_drawing(url: &str) -> Option<String> {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
-    [Octet, Object, Cdxml, Cdx, Molfile, Smiles, Pdf, Emf, Office, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+    [Octet, Object, Cdxml, Cdx, Molfile, Smiles, Pdf, Svxb, Emf, Office, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
 }
 
 // What paste can use from the types the system found. any: the clipboard holds something, even if paste reads none
@@ -743,8 +762,10 @@ mod tests {
         let c = clip(System::Windows, |n| (n == "application/x-octet+json").then(|| b"{}\0\0\0".to_vec()));
         assert_eq!(c.octet.as_deref(), Some("{}"));
         let t = all(System::Linux);
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"]);
-        assert_eq!((t[1].1.as_slice(), t[4].1.as_slice(), t[5].1.as_slice()), (crate::export::px_units(svg).as_bytes(), MOL.as_bytes(), b"CO".as_slice()));
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "application/pdf", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"]);
+        assert_eq!((t[2].1.as_slice(), t[5].1.as_slice(), t[6].1.as_slice()), (crate::export::px_units(svg).as_bytes(), MOL.as_bytes(), b"CO".as_slice()));
+        // The PDF is the Mac's, with the CDXML in it.
+        assert_eq!(t[1].1, types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, None, None).unwrap()[0].1);
         let c = clip(System::Linux, |n| read(&t, n));
         assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
         assert!(c.cdxml.unwrap().ends_with("<CDXML/>") && c.cdx.is_some());
@@ -754,7 +775,7 @@ mod tests {
             assert_eq!(t.len(), 1);
         }
         // Paste reads only names its system has.
-        assert!(readable(System::Windows).contains(&"MDLCT") && !readable(System::Linux).contains(&PDF));
+        assert!(readable(System::Windows).contains(&"MDLCT") && !readable(System::Linux).contains(&PDF) && readable(System::Linux).contains(&"application/pdf"));
     }
 
     // A zip as Office writes its own copy of a picture (Art::GVML ClipFormat): `files` deflated, with the central
@@ -812,8 +833,27 @@ mod tests {
         };
         assert_eq!(clip(System::Windows, windows_word).cdxml.as_deref(), Some(x));
         assert_eq!(cdxml_from_office(&office_zip(&[("clipboard/media/image1.png", &crate::export::clipboard_pictures(svg, false, 600.0, Some(x)).unwrap().0)])).as_deref(), Some(doc.as_str()));
-        // Linux: Octet's PNG.
+        // Linux: Octet's PNG, or the PDF that LibreOffice keeps (Octet's or ChemDraw's), which goes first.
         assert_eq!(clip(System::Linux, |n| (n == "image/png").then(|| png.clone())).cdxml.as_deref(), Some(doc.as_str()));
+        let libreoffice = |n: &str| match n {
+            "application/pdf" => Some(pdf.clone()),
+            "image/png" => Some(crate::export::clipboard_pictures(svg, false, 600.0, None).unwrap().0),
+            _ => None,
+        };
+        assert_eq!(clip(System::Linux, libreoffice).cdxml.as_deref(), Some(doc.as_str()));
+        // Copied out of LibreOffice: its own copy (SVXB) holds the PDF as it was pasted in. Its PNG is LibreOffice's.
+        let svxb = [&b"NAT5\x01\x00\0\0\0\0\x02\x00\x33\0\0\0\x0c\x00"[..], &(pdf.len() as u32).to_le_bytes(), &[0; 45], &pdf, &[0; 9]].concat();
+        let libreoffice = |n: &str| match n {
+            SVXB => Some(svxb.clone()),
+            "image/png" => Some(crate::export::clipboard_pictures(svg, false, 600.0, None).unwrap().0),
+            _ => None,
+        };
+        assert_eq!(clip(System::Linux, libreoffice).cdxml.as_deref(), Some(doc.as_str()));
+        assert_eq!(svxb_picture(&svxb), Some(pdf.as_slice()));
+        for k in 0..70 {
+            assert_eq!(svxb_picture(&svxb[..k]), None, "cut at {k}");
+        }
+        assert_eq!(svxb_picture(&[&svxb[..12], &[0xff; 4][..], &svxb[16..]].concat()), None, "fields past the end");
         // A PDF or PNG file copied in Finder (its path) or the file manager (a file:// list).
         let dir = std::env::temp_dir().join(format!("octet-copied-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -857,6 +897,43 @@ mod tests {
         assert!(t.elapsed() < std::time::Duration::from_secs(10), "{:?}", t.elapsed());
         assert_eq!(cdxml_from_office(&[0; 21]), None);
         assert_eq!(cdxml_from_office(b"PK\x05\x06\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\0\0"), None);
+    }
+
+    // No step back (decision 0024): Copy on Linux makes the PDF while it draws the PNG, so it takes no longer than 1.1.2's
+    // PNG and SVG. A drawing the size of aspirin with its labels; the middle of 9 runs of each, taken in turn, so
+    // other tests running at the same time slow both alike.
+    #[test]
+    fn linux_copy_takes_no_longer() {
+        let mut svg = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="160pt" height="120pt" viewBox="0 0 160 120">"#);
+        for k in 0..13 {
+            let (x, y) = (10.0 + 10.0 * k as f32, 20.0 + 6.0 * (k % 3) as f32);
+            svg += &format!(r#"<path d="M{x} {y}L{} {}" stroke="rgb(0, 0, 0)" stroke-width="0.6"/>"#, x + 12.0, y + 7.0);
+        }
+        for (k, label) in ["O", "OH", "O", "O"].iter().enumerate() {
+            svg += &format!(r#"<text x="{}" y="80" font-family="Arial, Helvetica, sans-serif" font-size="10">{label}</text>"#, 20 + 30 * k);
+        }
+        svg += "</svg>";
+        let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
+        let time = |f: &dyn Fn()| {
+            let t = std::time::Instant::now();
+            f();
+            t.elapsed()
+        };
+        let (mut before, mut now) = (Vec::new(), Vec::new());
+        for _ in 0..9 {
+            before.push(time(&|| {
+                crate::export::clipboard_pictures(&svg, false, 600.0, Some(x)).unwrap();
+                crate::export::px_units(&svg);
+            }));
+            now.push(time(&|| {
+                types(System::Linux, Some(&svg), 600.0, Some(x), false, None, None, None, None).unwrap();
+            }));
+        }
+        before.sort();
+        now.sort();
+        let (before, now) = (before[4], now[4]);
+        eprintln!("Copy on Linux: {now:?}, 1.1.2's pictures: {before:?}");
+        assert!(now <= before + before / 10 + std::time::Duration::from_millis(2), "Copy takes {now:?}, 1.1.2 took {before:?}");
     }
 
     // CH-7: Copy As puts the text alone, under each system's names for text (on Windows UTF-16 with a NUL).

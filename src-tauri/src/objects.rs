@@ -5,7 +5,11 @@
 // - Windows: an OLE object in Word (ole_windows.rs, whose objects hold a session each).
 // - A file: `octet --object <file> --host <document>` opens the drawing in a PDF (Octet's or ChemDraw's, with CDXML
 //   in it) or a CDXML file, and Update writes the new picture to that file atomically. LibreOffice's Octet extension
-//   on Linux starts Octet this way (plan step L2), and it opens an object window for tests on every system.
+//   on Linux starts Octet this way (tools/libreoffice), and it opens an object window for tests on every system. The
+//   extension watches the file and puts each new picture in its document. Two empty files beside it say what
+//   happened: Octet writes `closed` when the window closes, and the extension writes `gone` when the document closes
+//   first. The file's folder is the extension's own (mode 0700): $XDG_RUNTIME_DIR/app/<Octet's id>/, which a Flatpak
+//   Octet can read and write with no file access of its own.
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -13,6 +17,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, Window};
 
@@ -272,7 +277,6 @@ fn took(app: &AppHandle, id: u64, oct: String, seq: Option<u64>, name: Option<St
 }
 
 // The document closed while the window was open: the title says so, and Update stops. Save Copy As still works.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn gone(app: &AppHandle, id: u64) {
     let title = {
         let files = app.state::<Files>();
@@ -292,18 +296,46 @@ pub fn object_arg(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Optio
     Some((cwd.join(after("--object")?), host))
 }
 
-// An object window for the drawing in a file. A file Octet cannot read opens nothing, and the user hears why.
+// An object window for the drawing in a file. A file Octet cannot read opens nothing, and the user hears why. A file
+// that is open already brings its window to the front, as a second double-click does in Word.
 pub fn open_file(app: &AppHandle, path: PathBuf, host: String) {
+    let open_already = app.state::<Files>().0.lock().unwrap().iter().find(|(_, f)| matches!(&f.to, To::Path(p) if *p == path)).map(|(id, _)| *id);
+    if let Some(window) = open_already.and_then(|id| app.get_webview_window(&label(id))) {
+        let _ = window.set_focus();
+        return;
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match File::open(path, &host) {
-            Ok(f) => open(&app, f).await,
+        match File::open(path.clone(), &host) {
+            Ok(f) => {
+                let id = f.session.id;
+                open(&app, f).await;
+                watch(app, id, path.with_file_name("gone"));
+            }
             Err(e) => {
+                mark(&path, "closed");
                 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
                 app.dialog().message(e).title(crate::ole::APP).kind(MessageDialogKind::Warning).show(|_| {});
             }
         }
     });
+}
+
+// The document closed first: the extension wrote `gone`. Looked for four times a second while the window is open.
+fn watch(app: AppHandle, id: u64, gone_file: PathBuf) {
+    std::thread::spawn(move || {
+        while app.state::<Files>().0.lock().unwrap().contains_key(&id) {
+            if gone_file.exists() {
+                return gone(&app, id);
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    });
+}
+
+// An empty file `name` beside the object's file. create_new: never through a link, and never over a file.
+fn mark(path: &Path, name: &str) {
+    let _ = std::fs::OpenOptions::new().write(true).create_new(true).open(path.with_file_name(name));
 }
 
 // Edit Picture from Word (word.rs): an object window for the picture, or for a new drawing at Word's cursor.
@@ -334,6 +366,7 @@ pub fn closed(app: &AppHandle, id: u64, back: bool) {
             if let Some((_, picture)) = latest {
                 let _ = write(&path, &picture, "");
             }
+            mark(&path, "closed");
         }
         // Word can take a second: a thread of its own, never the main thread.
         #[cfg(target_os = "macos")]
@@ -393,6 +426,28 @@ mod tests {
         assert_eq!(object_arg(args(&["octet", "--object"]), cwd), None);
         assert_eq!(object_arg(args(&["octet", "a.pdf"]), cwd), None);
         assert_eq!(object_arg(args(&["--object"]), cwd), None, "the program's own path is not an argument");
+    }
+
+    // The empty files beside a file object (`closed`, and the extension's `gone`): made new, never through a link and
+    // never over a file.
+    #[test]
+    fn marks_are_new_files() {
+        let dir = std::env::temp_dir().join(format!("octet-marks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("drawing.pdf");
+        mark(&path, "closed");
+        assert_eq!(std::fs::read(dir.join("closed")).unwrap(), b"");
+        std::fs::write(dir.join("gone"), "kept").unwrap();
+        mark(&path, "gone");
+        assert_eq!(std::fs::read_to_string(dir.join("gone")).unwrap(), "kept");
+        #[cfg(unix)]
+        {
+            std::fs::write(dir.join("target"), "kept").unwrap();
+            std::os::unix::fs::symlink(dir.join("target"), dir.join("link")).unwrap();
+            mark(&path, "link");
+            assert_eq!(std::fs::read_to_string(dir.join("target")).unwrap(), "kept");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // A PDF with CDXML opens as its drawing; Update writes the new picture over it, and Close the newest one kept.

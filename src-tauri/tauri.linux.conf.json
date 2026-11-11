@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "resources": { "gen/octet-draw.oxt": "libreoffice/octet-draw.oxt" }
+  }
+}
