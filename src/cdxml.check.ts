@@ -1131,13 +1131,43 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
     assert.deepEqual([back.atoms[0].runs, back.atoms[0].bold], [[{ text: "O", bold: true }, { text: "Me" }], undefined]);
     assert.deepEqual([back.atoms[2].runs, back.atoms[2].italic], [[{ text: "OMe\n" }, { text: "CH3", underline: true }], true]);
   }
-  // Runs in Octet's own file must spell the label's text, with only bold, italic and underline.
+  // Runs in Octet's own file must spell the label's text, with only bold, italic, underline, script and a sound colour.
   const bad = JSON.parse(serialize(m));
-  for (const r of [[{ text: "OH", bold: true }], [{ text: "OMe", script: "mid" }], [{ text: "OMe", font: "Georgia" }], [{ text: "OMe", colour: "#ff0000" }]]) { bad.structure.atoms[0].runs = r; assert.throws(() => parse(JSON.stringify(bad)), /damaged/, JSON.stringify(r)); }
+  for (const r of [[{ text: "OH", bold: true }], [{ text: "OMe", script: "mid" }], [{ text: "OMe", font: "Georgia" }], [{ text: "OMe", size: 12 }], [{ text: "OMe", colour: "red" }]]) { bad.structure.atoms[0].runs = r; assert.throws(() => parse(JSON.stringify(bad)), /damaged/, JSON.stringify(r)); }
   // ChemDraw's own: OR with a bold R, and a label all bold (its own bold, no runs).
   const cd = fromCdxml(`<CDXML BondLength="14.40"><page id="1"><fragment id="2"><n id="3" p="100 100" NodeType="Unspecified"><t p="97 104"><s font="3" size="10" face="96">O</s><s font="3" size="10" face="97">R</s></t></n><n id="4" p="200 100" NodeType="Unspecified"><t p="197 104"><s font="3" size="10" face="97">O</s><s font="3" size="10" face="97">Me</s></t></n></fragment></page></CDXML>`);
   assert.deepEqual(cd.mol.atoms.map((a) => [a.text, a.bold, a.runs]), [["OR", undefined, [{ text: "O" }, { text: "R", bold: true }]], ["OMe", true, undefined]]);
   console.log("cdxml.check: labels with styled characters ok");
+}
+
+// A label in more than one colour (issue 64, the N of NMe2 in red): each <s> run in the colour it is drawn in, read
+// back as the same runs from CDXML, CDX and .oct. Black in a coloured label is #000000. ChemDraw draws a label in its
+// runs' colours: a colour every run has is the label's own, whatever the node's.
+{
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const red = "#B42323", blue = "#1D4E89";
+  const m: Mol = { atoms: [A("N", 0, 0, { text: "NMe2", runs: [{ text: "N", colour: red }, { text: "Me2" }] }), A("C", 1, 0),
+    A("O", 3, 0, { text: "OMe\nCH3", colour: blue, runs: [{ text: "OMe\n" }, { text: "CH", colour: "#000000" }, { text: "3", colour: red }] }), A("C", 4, 0)], bonds: [b(0, 1), b(2, 3)] };
+  const xml = toCdxml(m, DEFAULT_STYLE), doc = parseXml(xml), ts = every(doc).filter((x) => x.name === "t");
+  const table = every(doc).find((x) => x.name === "colortable")!.kids.map((c) => `#${["r", "g", "b"].map((k) => Math.round(Number(c.attrs[k]) * 255).toString(16).padStart(2, "0")).join("")}`.toUpperCase());
+  const hue = (k: Xml) => (k.attrs.color === undefined ? undefined : k.attrs.color === "0" ? "#000000" : table[Number(k.attrs.color) - 2]);
+  assert.deepEqual(ts[0].kids.map((k) => [k.text, hue(k)]), [["N", red], ["Me2", undefined]]);
+  assert.deepEqual(ts[1].kids.map((k) => [k.text, hue(k)]), [["OMe\n", blue], ["CH", "#000000"], ["3", red]]);
+  for (const back of [fromCdxml(xml).mol, fromCdxml(cdxToXml(xmlToCdx(doc))).mol, parse(serialize(fromCdxml(xml).mol))]) {
+    assert.deepEqual([back.atoms[0].colour, back.atoms[0].runs], [undefined, m.atoms[0].runs]);
+    assert.deepEqual([back.atoms[2].colour, back.atoms[2].runs], [blue, m.atoms[2].runs]);
+  }
+  // ChemDraw's own: a red O on a black node (its Text tool colours the runs), and MeO with the O red on a blue node.
+  const cd = fromCdxml(`<CDXML BondLength="14.40"><colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/><color r="1" g="0" b="0"/><color r="0" g="0" b="1"/></colortable><page id="1"><fragment id="2"><n id="3" p="100 100" Element="8" NumHydrogens="0"><t p="97 104"><s font="3" size="10" color="4" face="96">O</s></t></n><n id="4" p="114.4 100"/><n id="5" p="200 100" NodeType="Unspecified" color="5"><t p="197 104" color="5"><s font="3" size="10" color="5" face="96">Me</s><s font="3" size="10" color="4" face="96">O</s></t></n><n id="6" p="214.4 100"/><b id="7" B="3" E="4"/><b id="8" B="5" E="6"/></fragment></page></CDXML>`).mol;
+  assert.deepEqual([cd.atoms[0].label, cd.atoms[0].colour, cd.atoms[0].runs], ["O", "#FF0000", undefined]);
+  assert.deepEqual([cd.atoms[2].text, cd.atoms[2].colour, cd.atoms[2].runs], ["MeO", "#0000FF", [{ text: "Me" }, { text: "O", colour: "#FF0000" }]]);
+  // A label in one colour still has no runs, and keeps its colour.
+  const one = fromCdxml(toCdxml({ atoms: [A("O", 0, 0, { text: "OMe", colour: red }), A("C", 1, 0)], bonds: [b(0, 1)] }, DEFAULT_STYLE)).mol.atoms[0];
+  assert.deepEqual([one.colour, one.runs], [red, undefined]);
+  // Runs in two colours on a node in a third: the label keeps the node's colour, and the run in another its own.
+  const two = fromCdxml(`<CDXML BondLength="14.40"><colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/><color r="1" g="0" b="0"/><color r="0" g="0" b="1"/></colortable><page id="1"><fragment id="2"><n id="3" p="100 100" NodeType="Unspecified" color="5"><t p="97 104" color="4"><s font="3" size="10" color="4" face="96">Me</s><s font="3" size="10" color="5" face="96">O</s></t></n><n id="4" p="114.4 100"/><b id="5" B="3" E="4"/></fragment></page></CDXML>`).mol.atoms[0];
+  assert.deepEqual([two.colour, two.runs], ["#0000FF", [{ text: "Me", colour: "#FF0000" }, { text: "O" }]]);
+  console.log("cdxml.check: labels in more than one colour ok");
 }
 
 // A label with part raised or lowered (issue 44, Fe with III raised): written as <s> runs with the superscript face
