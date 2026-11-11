@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, orbitalLine, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 import { arialGlyph } from "./cdxml.ts";
 
@@ -621,6 +621,13 @@ console.log("render.check: written labels ok");
     twice(shapeInk(sh, S, S.bond), shapeInk(bigger, S, S.bond), `${kind} shape${angle ? " turned" : ""}`);
     const m1 = markAt(sh, S.bond), m2 = markAt(bigger, S.bond);
     assert.ok(close(m2.x, 2 * m1.x) && close(m2.y, 2 * m1.y), `${kind} mark`);
+  }
+  // An orbital's outline (issue 139): bold at the bold width, dashed 0.2 bond lengths on and off as a shape, any other
+  // line plain; twice as wide and twice as long at scale 2.
+  for (const style of [undefined, "dashed", "bold", "doubled", "wavy"] as const) {
+    const o = orbitalLine({ style }, S), o2 = orbitalLine({ style, scale: 2 }, S);
+    assert.deepEqual(o, { width: style === "bold" ? S.bold : S.line, dash: style === "dashed" ? 0.2 * S.bond : undefined }, `${style ?? "plain"} orbital`);
+    assert.ok(close(o2.width, 2 * o.width) && (o.dash === undefined ? o2.dash === undefined : close(o2.dash!, 2 * o.dash)), `${style ?? "plain"} orbital at scale 2`);
   }
   const plate: Shape = { id: 1, kind: "tlc", from: [0, 3], to: [2, 0], tlc: { lanes: 2, spots: [{ lane: 0, rf: 0.3 }, { lane: 1, rf: 0.6, w: 0.2, h: 0.1, tail: 0.3 }] } };
   const plate2: Shape = { ...plate, from: two(plate.from), to: two(plate.to), scale: 2 };

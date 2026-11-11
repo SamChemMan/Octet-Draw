@@ -160,7 +160,7 @@ function placeAt(m: Mol, p: P): string | undefined {
 function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string } {
   const kind = ARROWS[a.kind];
   if (a.kind === "line" || a.kind === "arc" || a.kind === "curve" || a.kind === "cut" || a.kind === "orbital") {
-    if (a.orbital) return { role: "shape", name: `${a.orbital.shape} orbital${a.orbital.phase === "plain" ? "" : `, ${a.orbital.phase}`}` };
+    if (a.orbital) return { role: "shape", name: `${a.orbital.shape} orbital${a.orbital.phase === "plain" ? "" : `, ${a.orbital.phase}`}${a.style ? `, ${a.style}` : ""}` };
     const noun = a.kind === "curve" && a.curve?.closed ? "closed curve" : lower(kind);
     return { role: "shape", name: upper(a.style ? `${a.style} ${noun}` : noun) };
   }
