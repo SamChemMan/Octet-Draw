@@ -10,11 +10,12 @@ import type { Part, RoleStep } from "./interpret.ts";
 
 // The grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only once one of these
 // was typed somewhere; product: rows for products (true) or reactants (false) only. Equivalents are a product's
-// coefficient too, as ChemDraw's product column has them.
+// coefficient too, as ChemDraw's product column has them. Volume and Density always show for reactants, so a density
+// typed gives the volume to measure out (issue 135).
 export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
   { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "limiting", name: "Limiting?", product: false },
   { id: "equiv", name: "Equivalents", field: "equiv" }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
-  { id: "volume", name: "Volume", field: "volume", product: false, shown: ["volume", "density", "molarity"] }, { id: "density", name: "Density", field: "density", product: false, shown: ["density"] },
+  { id: "volume", name: "Volume", field: "volume", product: false }, { id: "density", name: "Density", field: "density", product: false },
   { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
   { id: "expected", name: "Expected mass", product: true }, { id: "expectedMoles", name: "Expected moles", product: true },
   { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
@@ -88,7 +89,7 @@ export function gridViews(m: Mol, d: GridDeps) {
     cols.forEach((c, k) => { if (k && c.x < cols[k - 1].x + width) c.x = cols[k - 1].x + width; });
     if (!cols.length) return [];
     const used = (fd: Field) => cols.some((c) => c.typed[fd] !== undefined), products = cols.some((c) => c.product);
-    // As rows, Volume, Density, Molarity and Purity show only when used, on an experiment page too, so the table fits the page.
+    // As rows, Molarity and Purity show only when used, on an experiment page too, so the table fits the page.
     const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
     // Below the components and the numbers under them.
     const under = (m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]).filter((y): y is number => y !== undefined);

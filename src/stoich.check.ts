@@ -173,7 +173,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
       captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
     };
     const v = gridViews(m, deps)[0];
-    return { keys: v.all.map((c) => c.key), at: (key: string) => v.solved[key] };
+    return { keys: v.all.map((c) => c.key), rows: v.rows.map((row) => row.id), at: (key: string) => v.solved[key] };
   };
   // 2 A + B → C, B limiting at 10 mmol: 20 mmol of A at 2 eq., 10 mmol of C. The 2 has no column.
   const bLim = grid(["2", 0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1");
@@ -204,6 +204,13 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.ok(grid(["2", "+", 0, "→", 1], {}).keys.includes('r:"2"'), "2 + A");
   assert.equal(grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 } }).at("r:S1").equiv, 1);
   assert.equal(grid([0, "+", 1, "→", 2], {}).at("r:S1").equiv, undefined, "no equivalents shown where none are given");
+  // Issue 135: Volume and Density always show for reactants, Molarity and Purity once used; a density typed gives the
+  // volume to measure out (B at 2 eq. of 10 mmol, MW 100, 0.8 g/mL: 2 g, 2.5 mL).
+  assert.deepEqual(grid([0, "→", 1], {}).rows.filter((id) => ["volume", "density", "molarity", "purity"].includes(id)), ["volume", "density"]);
+  assert.ok(grid([0, "→", 1], { "r:S0": { molarity: 1 } }).rows.includes("molarity"));
+  const liquid = grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 }, "r:S1": { equiv: 2, density: 0.8 } });
+  near(liquid.at("r:S1").mass, 2, "its mass");
+  near(liquid.at("r:S1").volume, 2.5, "its volume");
 }
 // Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
 // Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.
