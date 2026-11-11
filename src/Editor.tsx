@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -30,7 +30,9 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
-import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
+import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type Swatch } from "./settings";
+import { pickColour } from "./ColourPicker";
+import { OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
@@ -1576,7 +1578,7 @@ export default function Editor() {
     let template: Mol | undefined;
     try { template = own?.start ? parse(own.start) : undefined; } catch { template = undefined; }
     const fresh: Mol = { ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, template) : {}) };
-    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
+    drawingColours.current = []; passing.current.clear(); set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
@@ -1813,6 +1815,7 @@ export default function Editor() {
   // comes as it is.
   function load(path: string | undefined, text: string | Mol, title?: string) {
     drawingColours.current = [];
+    passing.current.clear();
     try {
       let read: ReturnType<typeof readOct>;
       if (typeof text !== "string") read = { mol: text, lost: {} };
@@ -2650,12 +2653,14 @@ export default function Editor() {
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
     // The user's colours, then the drawing's own (its saved palette and the colours it uses), as the menu lists them.
-    ...Object.fromEntries(Array.from({ length: 44 }, (_, k) => [`colour_user_${k}`, () => { const c = [...settings.palette, ...docColours][k]; if (c) runAction(`colour.${c.hex}`); }])),
+    ...Object.fromEntries(Array.from({ length: OWN_MOST + 24 }, (_, k) => [`colour_user_${k}`, () => { const c = [...settings.palette, ...docColours][k]; if (c) runAction(`colour.${c.hex}`); }])),
     // By Element, Highlight and Ring Fill, as in the Actions panel (and ChemDraw's Colors menu and toolbars).
     colour_by_element: () => colourByElement(),
     ...Object.fromEntries(["none", ...HIGHLIGHT_COLOURS.map(([, hex]) => hex)].map((v, k) => [`highlight_${k}`, () => runAction(`halo.${v}`)])),
     ...Object.fromEntries(["none", ...RING_FILLS.map(([, hex]) => hex)].map((v, k) => [`ringfill_${k}`, () => runAction(`ringfill.${v}`)])),
     colour_other: () => setSettingsOpen("appearance"),
+    // Pick from Screen: the eyedropper, for the selection's colour.
+    colour_pick: () => void pickColour().then((hex) => hex && runAction(`colour.${hex}`)),
     colours_add: () => { setAddingColour(true); setSettingsOpen("appearance"); },
     // Text > Size (its sizes are set with the font list, below): Other Size… types any size; Last Typed Size uses that
     // size again (ChemDraw's Other… and Set Font Size To Last One).
@@ -6793,8 +6798,9 @@ export default function Editor() {
   const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has((p.shape ?? p.caption)!)));
   const subsetProblems = () => selectedOf(allProblems());
   // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
-  // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
-  const drawingColours = useRef<string[]>([]);
+  // Color menu lists each document's colours. A colour stays in the row until another drawing opens. passing: the
+  // colours the picker passed through (.drag), kept out of the row until another drawing opens.
+  const drawingColours = useRef<string[]>([]), passing = useRef(new Set<string>());
   const docColours = useMemo(() => {
     const known = new Set([...COLOURS.map(([, hex]) => hex), ...settings.palette.map((c) => c.hex)].map((h) => h.toLowerCase()));
     const walk = (v: unknown): void => {
@@ -6802,7 +6808,7 @@ export default function Editor() {
       if (!v || typeof v !== "object") return;
       for (const [k, x] of Object.entries(v)) {
         if (k === "style") continue;
-        if (k === "colour" && typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) { const h = x.toLowerCase(); if (!known.has(h) && !drawingColours.current.includes(h)) drawingColours.current.push(h); }
+        if (k === "colour" && typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) { const h = x.toLowerCase(); if (!known.has(h) && !passing.current.has(h) && !drawingColours.current.includes(h)) drawingColours.current.push(h); }
         else walk(x);
       }
     };
@@ -6813,6 +6819,8 @@ export default function Editor() {
   }, [doc, settings.palette, style.palette]);
   // The Colour menu lists the user's colours and the drawing's own by name: the menu bar is built again when they change.
   const paletteNames = [...settings.palette, ...docColours].map((c) => c.name).join("\n");
+  // The colour menus' colours (ColourPick): the user's own, which they can add to, rename, move and remove, then the drawing's.
+  const colours = { own: settings.palette, drawing: docColours, onOwn: (palette: Swatch[]) => setSettings((s) => ({ ...s, palette })) };
   useEffect(() => {
     if (TAURI) invoke("set_palette", { names: paletteNames.split("\n").filter(Boolean) }).then(syncChecks).catch(() => {});
   }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -6953,6 +6961,7 @@ export default function Editor() {
     text_markup: ["Apply markup", "", <MarkdownLogo size={18} />], ...(expPage ? { experiment_details: ["Experiment details…", "", <Notebook size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
+    colour_pick: ["Pick colour from screen", "", <Eyedropper size={18} />],
     ...Object.fromEntries(moreFormats.map(([id, name, icon]): [string, [string, string, React.ReactNode]] => [id, [name, "", icon]])),
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
@@ -6960,7 +6969,7 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -7025,15 +7034,20 @@ export default function Editor() {
     set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label], ...(a.runs ? { runs: uncoloured(a.runs) } : {}) } : a)) }, true);
   }
   // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
-  // each document).
+  // each document). Only the user's first 20 colours, as when 20 was their limit, so the drawing's own keep their room.
   const savedStyle = (): DocStyle => {
-    const own = [...settings.palette, ...(style.palette ?? []).filter((c) => !settings.palette.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
+    const mine = settings.palette.slice(0, 20), own = [...mine, ...(style.palette ?? []).filter((c) => !mine.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
     return own.length ? { ...style, palette: own } : style;
   };
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
     if (REPEATS.test(command)) lastRepeat.current = { action: command };
+    // A colour chosen from any menu joins the recent colours, at the top of every colour menu. The colours the picker
+    // passes through on the way (.drag) do not join the drawing's own (docColours).
+    const used = /^(?:colour|halo|ringfill)\.(#[0-9a-f]{6})(\.drag)?$/i.exec(command);
+    if (used?.[2]) passing.current.add(used[1].toLowerCase());
+    else if (used) rememberColour(used[1]);
     // The Actions panel's Scale field: the selection takes that scale with its labels and lines, about its middle; when
     // its parts differ, each structure, group and object takes it about its own middle.
     if (command.startsWith("scale.")) {
@@ -7070,7 +7084,8 @@ export default function Editor() {
     }
     if (command === "delete" && context.kind === "grid") return runAction("grid.remove");
     if (command.startsWith("colour.")) {
-      const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
+      // A colour changed in the picker (.drag) is one step to undo, as a highlight's is.
+      const [hex, drag] = command.slice(7).split("."), ink = hex.toLowerCase() === "#000000" ? undefined : hex, merge = drag ? "colour" : undefined;
       // A label being typed: part of it selected takes the colour (issue 64), as part of a caption does, and a part in
       // the label's own colour has none of its own (a label in its element's colour has none yet). Else the whole label
       // takes it when its box closes.
@@ -7081,8 +7096,8 @@ export default function Editor() {
       }
       if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
-      if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
-      if (context.kind === "cycle" && context.side && branchPick) return set(setBranch(doc, branchPick.cycle, branchPick.branch, { colour: ink }), true);
+      if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true, merge);
+      if (context.kind === "cycle" && context.side && branchPick) return set(setBranch(doc, branchPick.cycle, branchPick.branch, { colour: ink }), true, merge);
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
       return set({
         ...doc,
@@ -7092,7 +7107,7 @@ export default function Editor() {
         arrows: doc.arrows?.map(pick), shapes: doc.shapes?.map(pick), cycles: doc.cycles?.map(pick),
         // A whole caption takes the colour on all its characters: its runs lose their own.
         captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex, ...(c.runs ? { runs: uncoloured(c.runs) } : {}) } : c)),
-      }, true);
+      }, true, merge);
     }
     // Highlight colours and ring fills, as ChemDraw's Highlight and Ring Fill colour toolbars; none takes them off. A
     // highlight goes on the selected atoms and the bonds between them. A ring fill goes in the rings fillRings finds,
@@ -9562,7 +9577,7 @@ export default function Editor() {
             folded={settings.folded}
             onFold={(id, folded) => setSettings((s) => ({ ...s, folded: folded ? [...s.folded.filter((k) => k !== id), id] : s.folded.filter((k) => k !== id) }))}
             grouping={grouping}
-            palette={[...settings.palette, ...docColours]}
+            colours={colours}
             sizes={sizeList}
             scale={selectionScale()}
             run={runAction}
@@ -9577,7 +9592,7 @@ export default function Editor() {
       <Exit>{menuAt && (() => {
         const context = panelContext ?? contextOf();
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={hiddenHere()} warned={selectedOf(found).length} grouping={grouping}
-          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} colours={colours} online={settings.onlineSearch} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}</Exit>
       <Exit>{dialog?.kind === "rf" && (
         // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.
@@ -9621,7 +9636,7 @@ export default function Editor() {
             experiments={experiments} onRemoveExperiment={(path) => void homeCall("experiment_remove", { path }).then(refreshRecents).catch(() => {})}
             onExportExperiments={(list) => void exportFile({ name: "Experiments", format: "csv", csv: experimentsCsv(list) })
               .then((path) => { if (path) saved(path); }, (e) => setNotice(failure("Octet cannot export the experiments.", e)))}
-            lib={library} drops={TAURI} palette={settings.palette}
+            lib={library} drops={TAURI} palette={settings.palette} onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
             layout={settings.homeLayout} onLayout={(homeLayout) => setSettings((s) => ({ ...s, homeLayout }))} />)}
       <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}

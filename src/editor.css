@@ -2272,20 +2272,11 @@ button.variant.add {
   border-radius: var(--radius-pill);
   transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
-.swatch[aria-checked="true"],
-.swatch.custom[data-checked] {
+.swatch[aria-checked="true"] {
   box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--brand-bright);
 }
 .swatch:active {
   transform: scale(0.92);
-}
-/* Add a colour: an empty swatch with a +, on the raised surface in both themes. */
-.swatch.custom {
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  background: var(--surface-raised);
-  color: var(--ink-muted);
 }
 .modal footer {
   display: flex;
@@ -2346,17 +2337,6 @@ button.variant.add {
   .modal {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
-}
-
-/* Text colour in the Actions panel: the same swatches, smaller. */
-.swatches.small {
-  gap: 6px;
-  margin: 0;
-  padding: 2px var(--space-2) var(--space-2);
-}
-.swatches.small .swatch {
-  width: 20px;
-  height: 20px;
 }
 
 /* Page size: a button, and a panel that pops out below it with every size drawn to scale. */
@@ -3893,8 +3873,31 @@ button.variant.add {
   -webkit-user-select: text;
   user-select: text;
 }
+.picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* The window's own eyedropper (pickColour in ColourPicker.tsx): Octet's crosshair over the whole window, and the colour
+   under it beside the pointer. */
+.eyedropper {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  cursor: var(--cursor-cross, crosshair);
+}
+.eyedropper span {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  margin: 12px 0 0 12px;
+  border: 1px solid var(--swatch-edge);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+}
 
-/* Settings > Colours: Octet's colours, then the user's, each with its name; Add a colour under them. */
+/* Settings > Colours: Octet's colours, then the user's, each with its name; Add colour under them. */
 .palette-editor {
   display: grid;
   gap: var(--space-2);
@@ -4863,50 +4866,15 @@ button.variant.add {
   color: var(--error);
   fill: var(--error);
 }
+/* A colour in a colour menu (ColourPick), with the swatch edge, so a white or a pale colour shows on the menu. */
 .pick-swatch {
   display: inline-block;
+  flex: none;
   width: 14px;
   height: 14px;
   border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--swatch-edge);
   opacity: 0.7;
-}
-/* Highlight and ring fill colours: a grid of swatches, then Custom colour… and the picker. */
-.size-menu.swatch-menu {
-  min-width: 0;
-  width: max-content;
-}
-.swatch-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 28px);
-  gap: 2px;
-}
-.swatch-grid button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-}
-.swatch-grid button[aria-checked="true"] {
-  box-shadow: inset 0 0 0 1.5px var(--brand);
-}
-.swatch-grid .pick-swatch {
-  width: 18px;
-  height: 18px;
-}
-.swatch-menu .swatch-custom {
-  margin-top: 4px;
-  padding-top: 0;
-  border-top: 1px solid var(--hairline);
-  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
-  color: var(--ink-muted);
-}
-.swatch-menu .colour-picker {
-  width: 172px;
-  padding: var(--space-2) 2px 2px;
-}
-.swatch-menu .picker-square {
-  height: 100px;
 }
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);

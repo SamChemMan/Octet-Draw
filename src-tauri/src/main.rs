@@ -18,6 +18,7 @@ mod access_keys;
 mod clipboard;
 mod crashlog;
 mod export;
+mod eyedropper;
 // Feedback, for testers: not in the public release (build.rs, REL-8).
 #[cfg(feedback)]
 mod feedback;
@@ -228,11 +229,12 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool, enabled: Opti
     answer
 }
 
-// The user's own colours (20 at most), then the drawing's own (24 at most), by name, in the Colour menu: the menu
-// bar is built again with them (names cut to 40 characters). The frontend sets its check marks again afterwards.
+// The user's own colours (100 at most, OWN_MOST in src/colours.ts), then the drawing's own (24 at most), by name, in
+// the Colour menu: the menu bar is built again with them (names cut to 40 characters). The frontend sets its check
+// marks again afterwards.
 #[tauri::command]
 fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
-    let names: Vec<String> = names.into_iter().take(44).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
+    let names: Vec<String> = names.into_iter().take(124).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
     if !keep_new(&app.state::<Palette>().0, names) {
         return Ok(());
     }
@@ -946,7 +948,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("curves_faded", "Faded", "")?,
     ])?;
     // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
-    // Then the user's own colours by name, and Edit Colours…, which opens them in Settings.
+    // Then the user's own colours by name, Pick from Screen (the eyedropper) and Edit Colours…, which opens them in
+    // Settings.
     section.replace("Colour".into());
     let builtin = ["Black", "Ink", "Octet Blue", "Bright Blue", "Green", "Amber", "Red"].iter().enumerate()
         .map(|(k, name)| item(&format!("colour_{k}"), name, ""))
@@ -955,6 +958,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         .map(|(k, name)| item(&format!("colour_user_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let (sep1, sep2, sep3) = (sep()?, sep()?, sep()?);
+    let pick_colour = item("colour_pick", "Pick from Screen", "")?;
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
     // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
     let by_element = item("colour_by_element", "By Element", "")?;
@@ -977,6 +981,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     colour_items.push(&highlight);
     colour_items.push(&ringfill);
     colour_items.push(&sep3);
+    colour_items.push(&pick_colour);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
@@ -1105,7 +1110,7 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an

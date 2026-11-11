@@ -3,7 +3,8 @@
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Toolbox, Warning, X } from "@phosphor-icons/react";
-import { ColourPicker, ColourPop } from "./ColourPicker";
+import { ColourPick, ColourPicker, ColourPop } from "./ColourPicker";
+import { OWN_MOST } from "./colours";
 import { Dialog, useModal } from "./Dialog";
 import { CURSOR_INKS, holdCursor, type CursorInk } from "./cursor";
 import { Exit, useLeaving } from "./motion";
@@ -109,12 +110,12 @@ type Props = {
 };
 
 // The user's colours: each one's swatch, name and remove button; the one chosen opens Octet's picker under it.
-// Add a colour makes a new one from the last colour picked and opens it. With no colours yet, Add a colour stands
-// where the list goes.
+// Add colour makes a new one from the last colour picked and opens it. With no colours yet, Add colour stands where
+// the list goes. Every colour menu lists them too, and renames, moves and removes them (ColourPick).
 function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPalette: (p: Swatch[]) => void; adding?: boolean }) {
   const [open, setOpen] = useState<number>();
   const add = () => {
-    if (palette.length >= 20) return;
+    if (palette.length >= OWN_MOST) return;
     onPalette([...palette, { name: `Colour ${palette.length + 1}`, hex: palette[palette.length - 1]?.hex ?? "#213C99" }]);
     setOpen(palette.length);
   };
@@ -133,7 +134,7 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
           {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
         </div>
       ))}
-      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} aria-hidden /> Add a colour</button>}
+      {palette.length < OWN_MOST && <button className="palette-add" onClick={add}><Plus size={12} aria-hidden /> Add colour</button>}
     </div>
   );
 }
@@ -511,14 +512,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions): captions that read as
       // chemistry (Rh, CH3OH) count in the formula, names and warnings, and bonds join them.
       d("document", "Text", "Interpret chemically", "interpret chemically when possible captions text chemistry formula mass analysis bonds valence", <Switch on={style.interpret} label="Interpret chemically" onChange={(on) => change({ interpret: on })} />),
-      d("document", "Text", "Colour", "text colour caption", (
-        <span className="swatches" role="radiogroup" aria-label="Text colour">
-          {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
-            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
-          ))}
-          {!p.template && <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("appearance")}><Plus size={12} aria-hidden /></button>}
-        </span>
-      ), true),
+      d("document", "Text", "Colour", "text colour caption", <ColourPick label="Text colour" value={style.colour} presets={COLOURS} own={p.palette} onOwn={p.onPalette} onPick={(colour) => change({ colour })} />),
       ...(p.ownTemplates.length && !p.template ? [d("document", "Your templates", "Your templates", "template templates purpose purposes named style styles stationery saved own rename remove",
         <OwnTemplates list={p.ownTemplates} onRename={p.onRenameTemplate} onRemove={p.onRemoveTemplate} />, true)] : []),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),

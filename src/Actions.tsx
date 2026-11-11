@@ -9,7 +9,7 @@ import {
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
-  TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
+  TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, EyeClosed, BellSlash, ArrowsInLineVertical, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
@@ -19,7 +19,9 @@ import type { Problem } from "./check";
 import { GENERICS, massText, queryLabel } from "./query";
 import { ContextMenu, Menu, Pick, type MenuItem } from "./Menu";
 import { setItems } from "./TemplateLibrary";
-import { ColourPop } from "./ColourPicker";
+import { ColourPick, colourItems } from "./ColourPicker";
+import { colourOptions, PICK } from "./colours";
+import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
 import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
@@ -109,8 +111,8 @@ type Props = {
   // The user's arrangement for each kind of selection: the order of actions and how many show as rows.
   layout: Record<string, { order: string[]; rows: number }>;
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
-  colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
-  palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
+  colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour menu every selection gets
+  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void }; // the user's own colours, the drawing's, after Octet's
   grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
@@ -130,18 +132,15 @@ const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
-// list), each drawn as itself with its name. onCustom adds Custom colour…, which opens the colour picker by the button
-// (each change of it is passed on as it is made).
-function PickButton({ label, value, options, onPick, onCustom }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void; onCustom?: (hex: string) => void }) {
-  const current = options.find((o) => o.id === value) ?? options[0], [custom, setCustom] = useState<DOMRect>(), box = useRef<HTMLDivElement>(null);
+// list), each drawn as itself with its name. Colours are ColourPick's (ColourPicker.tsx), which works the same way.
+function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
+  const current = options.find((o) => o.id === value) ?? options[0];
   return (
-    <div className="pick" ref={box}>
-      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> })), ...(onCustom ? [[{ key: "\u0000custom", name: "Custom colour…", icon: <Palette size={16} /> }]] : [])]}
-        onPick={(k) => (k === "\u0000custom" ? setCustom(box.current!.getBoundingClientRect()) : onPick(k))} className="chip pick-button" title={`${label}: ${current.name}`}>
+    <div className="pick">
+      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> }))]} onPick={onPick} className="chip pick-button" title={`${label}: ${current.name}`}>
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
       </Pick>
-      <Exit>{custom && onCustom && <ColourPop anchor={custom} label={`${label} colour`} value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#3F6BFF"} onChange={onCustom} onClose={() => setCustom(undefined)} />}</Exit>
     </div>
   );
 }
@@ -587,7 +586,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale, online, folded, onFold }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, folded, onFold }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -1040,27 +1039,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <Fold id="colour" title="Colour" className="colour-block" folded={folded.includes("colour")} onFold={onFold} folds={folds}>
-        {/* One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour. */}
-        {/* A swatch pressed keeps the focus where it is, so a caption or label being typed stays open and takes the colour. */}
-        <div className="swatches small" role="radiogroup" aria-label="Colour" onMouseDown={(e) => e.preventDefault()}>
-          {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
-            <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
-          ))}
-          <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={12} aria-hidden /></button>
+        {/* One colour menu for every kind of selection (a highlight shape takes a pale fill, anything else an ink colour),
+            and Highlight (the selected atoms and the bonds between them) and Ring fill (each ring on its own) for
+            structures. A colour changed in the picker is one step to undo (drag). */}
+        <div className="picks" role="group" aria-label="Colour">
+          <ColourPick label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
+          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
         </div>
-        {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && (() => {
-          // Highlight (the selected atoms and the bonds between them) and ring fill (each ring on its own), each a
-          // labelled button with its colours and a custom colour.
-          const swatch = (c: string) => <span className="pick-swatch" style={{ background: c }} />;
-          const options = (list: [string, string][], value?: string) => [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...list.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) })),
-            ...(value && !list.some(([, hex]) => hex.toLowerCase() === value.toLowerCase()) ? [{ id: value, name: "Custom", glyph: swatch(value) }] : [])];
-          return (
-            <div className="picks" role="group" aria-label="Highlight and ring fill">
-              <PickButton label="Highlight" value={context.halo ?? "none"} options={options(HIGHLIGHT_COLOURS, context.halo)} onPick={(v) => run(`halo.${v}`)} onCustom={(hex) => run(`halo.${hex}.drag`)} />
-              {(context.kind !== "bond" || context.ring) && <PickButton label="Ring fill" value={context.fill ?? "none"} options={options(RING_FILLS, context.fill)} onPick={(v) => run(`ringfill.${v}`)} onCustom={(hex) => run(`ringfill.${hex}.drag`)} />}
-            </div>
-          );
-        })()}
         </Fold>
       )}
 
@@ -1156,8 +1142,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 // actions as one row that opens the set beside it, then Add to templates (which opens My templates and the user's
 // sets), Add to dictionary…, Colour, a label's Alignment and Delete. An arrow's, a cycle's or a cycle's side arrow's picks
 // (Kind, Line, Start, End, Heads, Size, Fill and so on, as the panel shows them) come before Add to templates.
-type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "palette" | "online"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
-export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, palette, online, templateSets, onClose }: MenuProps) {
+type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "colours" | "online"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
+export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, colours, online, templateSets, onClose }: MenuProps) {
   const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
   const item = (i: Item): MenuItem => ({ key: i.command, name: i.short ?? i.name, icon: i.icon, hint: hint(i.command) });
   const keep = (list: readonly Item[]) => list.filter((i) => i.command !== "template.add" && i.command !== "dictionary.add");
@@ -1180,7 +1166,9 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
     const p = picks.find((q) => `pick:${q.command}` === key);
     if (p) return { label: p.label, groups: [choices(p, context).map((o) => ({ key: `${p.command}.${o.id}`, name: o.name, icon: o.glyph, checked: p.value === o.id }))] };
     if (key === "set:align") return { label: "Alignment", groups: [labelAligns(18).map(([id, name, icon]) => ({ key: `caption.align.${id}`, name, icon, checked: aligned === id }))] };
-    if (key === "set:colour") return { label: "Colour", groups: [[...(colour?.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => ({ key: `colour.${hex}`, name, icon: <span className="pick-swatch" style={{ background: hex }} />, checked: colour?.value.toLowerCase() === hex.toLowerCase() }))] };
+    // The colours as the panel's colour menu lists them. Add colour… opens the user's colours in Settings, as there is no
+    // button here for the picker to open by.
+    if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, [...colours.own, ...colours.drawing], colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
     const list = keep(sets.find(([s]) => `set:${s}` === key)?.[1] ?? []);
     return { label: SET_TITLES[key.slice(4) as SetId], groups: key === "set:more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k).map(item)) : [list.map(item)] };
   };
