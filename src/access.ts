@@ -174,10 +174,11 @@ function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string }
 function shapeText(sh: Shape): { name: string; more?: string } {
   const base = SHAPES[sh.kind], dashed = sh.dashed ? ", dashed" : "";
   if (sh.rgroup) return { name: `R-group definition ${sh.rgroup.name}` };
-  // A gel by its lanes' names and their bands' sizes, largest first; a plasmid map by its length, regions and markers.
+  // A gel by its lanes' names and the sizes of the bands it draws (in its range), largest first; a plasmid map by its
+  // length, regions and markers.
   if (sh.kind === "gel" && sh.tlc) {
     const t = sh.tlc, unit = t.unit ?? "kDa", lanes = Array.from({ length: t.lanes }, (_, k) => t.spots.filter((x) => x.lane === k && x.rf >= 0 && x.rf <= 1).map((x) => sizeText(bandSize(t, x.rf))).sort((p, q) => Number(q) - Number(p)));
-    return { name: `${base}, ${count(t.lanes, "lane")}, ${count(t.spots.length, "band")}`, more: lanes.map((b, k) => `Lane ${t.names?.[k] || k + 1}: ${b.length ? `${b.join(", ")} ${unit}` : "no bands"}`).join(". ") };
+    return { name: `${base}, ${count(t.lanes, "lane")}, ${count(lanes.flat().length, "band")}`, more: lanes.map((b, k) => `Lane ${t.names?.[k] || k + 1}: ${b.length ? `${b.join(", ")} ${unit}` : "no bands"}`).join(". ") };
   }
   if (sh.plasmid) {
     const p = sh.plasmid, parts = [...p.regions.map((r) => `${r.name || "region"} ${r.start} to ${r.end}${r.dir === "reverse" ? ", reverse" : ""}`), ...p.markers.map((m) => `${m.name} at ${m.at}`)];

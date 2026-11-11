@@ -108,6 +108,11 @@ import { bandRf, bandSize, gelScale, namesTurn, plasmidLayout, tlcLayout } from 
   const narrow = { ...loaded, tlc: setRange(loaded.tlc!, [20, 120]) };
   assert.deepEqual(sizes(narrow, 2), [66, 45]);
   assert.ok(narrow.tlc!.spots.filter((s) => s.lane === 0).some((s) => s.rf < 0) && narrow.tlc!.spots.filter((s) => s.lane === 0).some((s) => s.rf > 1));
+  // A very narrow range (or a tiny size) still saves a drawing Octet can open; a band rounded past an end stays drawn.
+  const tight = { ...loaded, tlc: addBands(setRange(loaded.tlc!, [100, 101]), 1, [1e-200]) };
+  assert.doesNotThrow(() => parse(serialize({ atoms: [], bonds: [], shapes: [tight] })));
+  const odd = tlcLayout({ ...made, tlc: setRange(t, [5.55, 400]) });
+  assert.ok(odd.snap(odd.front) <= 1 && odd.snap(odd.origin) >= 0);
   const dna = { ...made, tlc: withLadder(made.tlc!, "bp") };
   assert.deepEqual([dna.tlc!.unit, sizes(dna, 0)], ["bp", [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500]]);
   // Lane names go with their lanes: a new lane is named by the lanes before it, a copy as its lane.

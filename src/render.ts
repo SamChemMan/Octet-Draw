@@ -2311,7 +2311,7 @@ export function orbitalPaths(a: Arrow, k: number): { path: P[]; second: boolean 
 // range), each lane's middle, where a spot of a given Rf sits, and the Rf a press at a height gives (to 0.01, or a
 // gel's size to two figures).
 export const TLC_ORIGIN = 0.12, TLC_FRONT = 0.1; // the origin's height and the front's depth, as fractions of the plate
-export const GEL_WELLS = 0.1, GEL_FOOT = 0.04; // a gel's wells' depth and the bottom of its range, as fractions of the gel
+const GEL_WELLS = 0.1, GEL_FOOT = 0.04; // a gel's wells' depth and the bottom of its range, as fractions of the gel
 export function tlcLayout(sh: Shape) {
   const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]), gel = sh.kind === "gel";
   const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = gel ? y1 - (y1 - y0) * GEL_WELLS : y0 + (y1 - y0) * (sh.tlc?.origin ?? TLC_ORIGIN), front = gel ? y0 + (y1 - y0) * GEL_FOOT : y1 - (y1 - y0) * (sh.tlc?.front ?? TLC_FRONT);
@@ -2320,7 +2320,9 @@ export function tlcLayout(sh: Shape) {
   // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15 (a band
   // 38% of a lane, at most 0.6, by 0.06); drawn times the plate's scale.
   const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min(((gel ? 0.38 : 0.3) * width) / f, gel ? 0.6 : 0.34)) * f, ry: (x.h ?? (gel ? 0.06 : 0.15)) * f });
-  const snap = (y: number) => { const rf = Math.min(1, Math.max(0, (y - origin) / (front - origin))); return gel ? bandRf(sh.tlc, Number(bandSize(sh.tlc, rf).toPrecision(2))) : Math.round(rf * 100) / 100; };
+  // A band's size rounded past an end of the range keeps it at that end, so it stays drawn.
+  const inside = (rf: number) => Math.min(1, Math.max(0, rf));
+  const snap = (y: number) => { const rf = inside((y - origin) / (front - origin)); return gel ? inside(bandRf(sh.tlc, Number(bandSize(sh.tlc, rf).toPrecision(2)))) : Math.round(rf * 100) / 100; };
   // A gel's wells: the top and bottom of each, as wide as a band.
   const wells = [y1 - (y1 - y0) * 0.035, y1 - (y1 - y0) * 0.07];
   return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, gel, snap, wells, at: (rf: number) => origin + (front - origin) * rf };
@@ -2332,8 +2334,9 @@ export const GEL: Record<"kDa" | "bp", { range: [number, number]; ladder: number
   bp: { range: [300, 15000], ladder: [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500] },
 };
 export const gelRange = (t?: Tlc): [number, number] => t?.range ?? GEL[t?.unit ?? "kDa"].range;
-// A band's Rf from its size, and its size from its Rf: log size falls in step with how far the band runs.
-export const bandRf = (t: Tlc | undefined, size: number) => { const [lo, hi] = gelRange(t); return Math.log(hi / size) / Math.log(hi / lo); };
+// A band's Rf from its size, and its size from its Rf: log size falls in step with how far the band runs. An Rf is
+// kept between -100 and 100, the most Octet's file reads, so a very narrow range still saves a drawing Octet opens.
+export const bandRf = (t: Tlc | undefined, size: number) => { const [lo, hi] = gelRange(t); return Math.min(100, Math.max(-100, Math.log(hi / size) / Math.log(hi / lo))); };
 export const bandSize = (t: Tlc | undefined, rf: number) => { const [lo, hi] = gelRange(t); return hi * (lo / hi) ** rf; };
 // A size as shown: four figures at most (37.5, 2686, 10000).
 export const sizeText = (n: number) => String(Number(n.toPrecision(4)));
@@ -2353,7 +2356,7 @@ export const namesTurn = (sh: Shape, width: (name: string) => number) => (sh.tlc
 // pair 1 at the top and the rest clockwise, each region as an arrow along the ring (one that overlaps another goes out
 // on a track of its own), each marker as a tick across the ring, and every name outside the ring, spread so no two
 // overlap and joined to its place by a leader. line: a label's line height.
-export const PLASMID_BAND = 0.1, PLASMID_TRACK = 0.3; // a region's half-width, and the step out to the next track
+const PLASMID_BAND = 0.1, PLASMID_TRACK = 0.3; // a region's half-width, and the step out to the next track
 export function plasmidLayout(sh: Shape, line: number) {
   const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
   const p = sh.plasmid ?? { bp: 1000, regions: [], markers: [] }, bp = Math.max(1, p.bp), f = scaleOf(sh), c: P = [(x0 + x1) / 2, (y0 + y1) / 2];
@@ -2403,7 +2406,7 @@ export function plasmidLayout(sh: Shape, line: number) {
     for (const b of blocks) b.list.forEach((x, k) => { x.y = b.top - k * line; });
   }
   return {
-    c, R, bp, f, angle, at, regions, markers, hw,
+    c, R, f, at, regions, markers,
     labels: labels.map((x) => {
       // Off the top or bottom of the circle, a name keeps its place's distance across.
       const dy = x.y - c[1], dx = Math.max(Math.sqrt(Math.max(0, RL * RL - dy * dy)), Math.abs(RL * Math.cos(x.a))) * (x.right ? 1 : -1), to: P = [c[0] + dx + (x.right ? 0.05 : -0.05) * f, x.y];

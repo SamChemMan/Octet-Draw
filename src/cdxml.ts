@@ -493,7 +493,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
         kids.push(el("t", { id: fresh(), p: pt(at(q)), Z: Z(), color: ink, CaptionJustification: just, Justification: just, LineHeight: "auto", RotationAngle: rotationAngle(turn), Octet: DERIVED }, run(s, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face: face | (bold ? 1 : 0) })));
       };
-      const rule = (a: P, b: P, w = mine) => kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt(at(a))} ${pt(at(b))}`, Z: Z(), color: ink, GraphicType: "Line", ...w, Octet: DERIVED }));
+      const rule = (a: P, b: P, w = mine, c = ink) => kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt(at(a))} ${pt(at(b))}`, Z: Z(), color: c, GraphicType: "Line", ...w, Octet: DERIVED }));
       const rect = (a: P, b: P) => kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt(at(b))} ${pt(at(a))}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: "Plain", ...mine, Octet: DERIVED }));
       // A closed outline: filled (CurveType 128) unless hollow, shaded (256), dashed (2), bold (4) or doubled (512).
       const outline = (q: P[], c: string | undefined, bits: number) => kids.push(el("curve", { id: fresh(), Z: Z(), color: colour(c), FillType: bits & 128 ? "Solid" : bits & 256 ? "Shaded" : undefined, CurveType: bits | 1, Closed: "yes",
@@ -516,7 +516,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         const m = plasmidLayout(sh, (1.2 * size) / B), pl = sh.plasmid, c = at(m.c), R = m.R * B;
         kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt([c[0] + R, c[1]])} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: "Circle", Center3D: pt3(c), MajorAxisEnd3D: pt3([c[0] + R, c[1]]), MinorAxisEnd3D: pt3([c[0], c[1] + R]), ...mine, Octet: DERIVED }));
         m.regions.forEach((r, k) => outline(r.path, pl?.regions[k].colour ?? sh.colour, 128));
-        m.markers.forEach((x) => rule(x.tick[0], x.tick[1]));
+        m.markers.forEach((x, k) => rule(x.tick[0], x.tick[1], mine, colour(pl?.markers[k].colour ?? sh.colour)));
         for (const x of m.labels) { rule(x.from, x.to, { LineWidth: fmt(((sh.width ?? line) * f) / 2) }); text(x.text, x.at, x.anchor === "start" ? "left" : "right"); }
         if (pl?.name) text(pl.name, [m.c[0], m.c[1] + (0.15 * size) / B], "centre", undefined, true);
         text(`${pl?.bp ?? 0} bp`, [m.c[0], m.c[1] - ((pl?.name ? 0.95 : 0.35) * size) / B], "centre");

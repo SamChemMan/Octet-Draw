@@ -4845,11 +4845,13 @@ export default function Editor() {
     }
     // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
     const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
+    // With the Plasmid map tool, a press on a map picks it, with the region or marker under the pointer, also where its
+    // ring runs through them (elsewhere a press on the ring moves the map). A hold gives Select.
+    const map = tool === "plasmid" && t.caption === undefined ? plasmidAt(p) : undefined, part = map && plasmidPart(map, p);
+    if (map && (t.arrow === undefined || (t.arrow === map.id && (part?.region ?? part?.marker) !== undefined))) { pickPart(map, p); setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
-    // A gel's lane names take a double-click, not a new gel; with the Plasmid map tool, a press on a map picks it, with
-    // the region or marker under the pointer.
-    if (tool === "gel" && laneNameAt(p)) return setDrag({ kind: "click", at: p, start: screen, target: t });
-    if (tool === "plasmid" && plasmidAt(p)) { pickPart(plasmidAt(p)!, p); return setDrag({ kind: "click", at: p, start: screen, target: t }); }
+    // A gel's lane names take a double-click, not a new gel.
+    if (tool === "gel" && laneNameAt(p)) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     // With the TLC or Gel tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if ((tool === "tlc" || tool === "gel") && plateAt(p)) {
       const sh = plateAt(p)!;
@@ -9732,7 +9734,7 @@ export default function Editor() {
         const region: Region = { start, end, ...(dialog.name.trim() ? { name: dialog.name.trim() } : {}), ...(dialog.dir ? { dir: dialog.dir } : {}), ...(edit && pl?.regions[dialog.index!]?.colour ? { colour: pl.regions[dialog.index!].colour } : {}) };
         return (
           <Dialog title={edit ? "Region" : "Add a region"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
-            alt={edit && pl ? { label: "Delete", onClick: () => put(pl.regions.filter((_, k) => k !== dialog.index)) } : undefined}
+            alt={edit && pl ? { label: "Delete", onClick: () => { setFeaturePick(undefined); put(pl.regions.filter((_, k) => k !== dialog.index)); } } : undefined}
             onAction={() => (ok && pl ? put(edit ? pl.regions.map((r, k) => (k === dialog.index ? region : r)) : [...pl.regions, region]) : setDialog(undefined))}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
             <label className="dialog-row"><span>Start</span><NumberField label="Start" unit="bp" min={1} max={pl?.bp ?? 1} step={1} value={Number(dialog.start)} onChange={(n) => setDialog({ ...dialog, start: String(n) })} /></label>
@@ -9749,7 +9751,7 @@ export default function Editor() {
         const marker: Marker = { at, name: dialog.name.trim(), ...(edit && pl?.markers[dialog.index!]?.colour ? { colour: pl.markers[dialog.index!].colour } : {}) };
         return (
           <Dialog title={edit ? "Marker" : "Add a marker"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
-            alt={edit && pl ? { label: "Delete", onClick: () => put(pl.markers.filter((_, k) => k !== dialog.index)) } : undefined}
+            alt={edit && pl ? { label: "Delete", onClick: () => { setFeaturePick(undefined); put(pl.markers.filter((_, k) => k !== dialog.index)); } } : undefined}
             onAction={() => (ok && pl ? put(edit ? pl.markers.map((m, k) => (k === dialog.index ? marker : m)) : [...pl.markers, marker]) : setDialog(undefined))}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
             <label className="dialog-row"><span>Position</span><NumberField label="Position" unit="bp" min={1} max={pl?.bp ?? 1} step={1} value={Number(dialog.at)} onChange={(n) => setDialog({ ...dialog, at: String(n) })} /></label>
