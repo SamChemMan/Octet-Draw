@@ -4380,7 +4380,10 @@ button.variant.add {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: var(--space-1);
+  font: 13px/18px var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 .prop-link {
   display: inline-flex;
@@ -4390,9 +4393,8 @@ button.variant.add {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--brand);
-  font: 13px/18px var(--font-sans);
-  font-variant-numeric: tabular-nums;
+  color: var(--link);
+  font: inherit;
 }
 .prop-link:hover {
   background: var(--surface-sunken);

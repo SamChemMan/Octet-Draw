@@ -24,6 +24,9 @@ assert.deepEqual(ethanol, { cid: 702, source: "Regulation (EC) No 1272/2008", pi
 assert.deepEqual(ghsOf(answer([{ ReferenceNumber: 3, Name: "GHS Hazard Statements", Value: swm("H302 (95.6%): Harmful if swallowed [Warning Acute toxicity, oral]", "EUH066: Repeated exposure may cause skin dryness or cracking", "Reported by 3 companies.") }]))?.hazards,
   ["H302 (95.6%): Harmful if swallowed", "EUH066: Repeated exposure may cause skin dryness or cracking"]);
 assert.deepEqual(ghsOf(answer([{ ReferenceNumber: 3, Name: "GHS Hazard Statements", Value: swm("Not Classified", "Reported as not meeting GHS hazard criteria.") }]))?.hazards, ["Not classified"]);
+// A statement can hold a semicolon (H360FD): it stays one statement.
+assert.deepEqual(ghsOf(answer([{ ReferenceNumber: 3, Name: "GHS Hazard Statements", Value: swm("H360FD: May damage fertility; May damage the unborn child [Danger Reproductive toxicity]") }]))?.hazards,
+  ["H360FD: May damage fertility; May damage the unborn child"]);
 
 // A hostile or broken answer reads as nothing, and never throws.
 for (const bad of ["", "<html>", "null", "[]", '{"Record":null}', '{"Record":{"RecordNumber":"702"}}', '{"Record":{"RecordNumber":-1}}', '{"Record":{"RecordNumber":702,"Section":5}}'])
@@ -70,4 +73,7 @@ assert.match(editor, /onHazards=\{findHazards\}/);
 assert.match(panel, /\{online && <button className="prop-add" onClick=\{onHazards\}/);
 assert.match(editor, /online=\{settings\.onlineSearch\}\s+onHazards/);
 assert.match(editor, /settings\.onlineSearch && ghsKeys\?\.structures\[k\] === s/);
+// The panel draws each structure's pictograms and statements from its own value, so a semicolon in a statement does
+// not split it as if it were the next structure's.
+assert.match(panel, /row\.key === "ghs" \? row\.values\.map[\s\S]*row\.key === "hazards" \? row\.values\.map/);
 console.log("ghs.check: ok");

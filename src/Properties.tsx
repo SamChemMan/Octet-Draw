@@ -34,10 +34,11 @@ const Pictogram = ({ code }: { code: string }) => (
 );
 
 export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, online, onHazards, onOpen }: Props) {
-  // Pictograms are drawn, and hazard statements go one to a line: each structure's, in turn.
-  const show = (key: string, v: string) => (key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)])
-    : key === "ghs" ? v.split("; ").map((one, k) => <span key={k} className="ghs-set">{one.match(/GHS0[1-9]/g)?.map((c) => <Pictogram key={c} code={c} />) ?? one}</span>)
-    : key === "hazards" ? v.split("; ").map((one, k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>) : v);
+  // Pictograms are drawn, and hazard statements go one to a line: each structure's, in turn (from its own value, as a
+  // statement can hold a semicolon: H360FD).
+  const show = (row: PropertyValues[number][number], v: string) => (row.key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)])
+    : row.key === "ghs" ? row.values.map((one = "–", k) => <span key={k} className="ghs-set">{one.match(/GHS0[1-9]/g)?.map((c) => <Pictogram key={c} code={c} />) ?? one}</span>)
+    : row.key === "hazards" ? row.values.map((one = "–", k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>) : v);
   const groups = useMemo(() => values.filter((g) => g.length), [values]);
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
   // header.
@@ -73,9 +74,9 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
                   </button>
                   <span className="prop-name">{row.name}</span>
                   {row.key === "cid" ? (
-                    <span className="prop-links">{row.values.map((v, k) => v && <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button>)}</span>
+                    <span className="prop-links">{row.values.map((v, k) => (v ? <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button> : "–"))}</span>
                   ) : (
-                    <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text}`)}>{show(row.key, text)}</button>
+                    <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text}`)}>{show(row, text)}</button>
                   )}
                 </div>
               );
