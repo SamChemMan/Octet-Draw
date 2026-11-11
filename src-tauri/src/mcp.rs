@@ -12,7 +12,7 @@ use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -101,8 +101,8 @@ enum Msg {
 }
 
 // An AI app's session (decision 0021, D1): its name, the drawing (window label) its calls go to, and when it last
-// called. A session with no drawing takes the window in front at its first call; a window coming to the front later
-// does not move it.
+// called. A session with no drawing takes the window in front at its first tool call (route), unless another session
+// works there; a window coming to the front later does not move it.
 // stream: its event stream for notifications (GET); subs: the drawing URIs it subscribed to; bucket: its calls left this
 // second (D16), and when it was last filled; waiting: its calls under way. brief: the user's answers to set_brief's
 // three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief.
@@ -119,6 +119,9 @@ struct Session {
 const IDLE: Duration = Duration::from_secs(12 * 3600); // a session unused this long ends
 const RATE: f64 = 20.0; // calls a second a session may make
 const MOST_WAITING: usize = 4; // calls a session may have under way at once
+const USING: Duration = Duration::from_secs(600); // a session that has not called for this long no longer holds its drawing (uses)
+const READY: Duration = Duration::from_secs(15); // the longest a request waits for a new window's page to start
+const STARTING: &str = "The drawing is still starting. Call again.";
 pub const VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -205,22 +208,26 @@ pub fn mcp_status(mcp: State<'_, Mcp>) -> Option<Info> {
     mcp.running.lock().unwrap().as_ref().map(|(i, _)| i.clone())
 }
 
-// The session's drawing from now on (drawings use and new). The window must be one of Octet's drawings.
-#[tauri::command]
-pub fn mcp_target(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: String) -> Result<(), String> {
+// The session's drawing from now on: drawings use, and drawings new (open_window gives the session the window it made
+// before that window comes to the front, so no other session's first call takes it). False: no such session.
+pub fn give(app: &AppHandle, session: &str, drawing: &str) -> bool {
+    app.try_state::<Mcp>().and_then(|m| m.shared.sessions.lock().unwrap().get_mut(session).map(|s| s.drawing = Some(drawing.into()))).is_some()
+}
+
+// The commands below only take a lock, so they run off the main thread (async): there they waited behind the window
+// making of eight AI apps' new drawings at once (plan 17.5).
+// drawings use: the window must be one of Octet's drawings.
+#[tauri::command(async)]
+pub fn mcp_target(app: AppHandle, session: String, drawing: String) -> Result<(), String> {
     if !crate::windows::ours(&drawing) || app.get_webview_window(&drawing).is_none() {
         return Err("There is no such drawing.".into());
     }
-    match mcp.shared.sessions.lock().unwrap().get_mut(&session) {
-        Some(s) => s.drawing = Some(drawing),
-        None => return Err("There is no such session.".into()),
-    }
-    Ok(())
+    give(&app, &session, &drawing).then_some(()).ok_or_else(|| "There is no such session.".into())
 }
 
 // The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
 // request that has none. Kept in memory only: a new session starts with none.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_brief(mcp: State<'_, Mcp>, session: Option<String>, brief: String) -> Result<(), String> {
     if brief.len() > 16 * 1024 {
         return Err("The brief is too long.".into());
@@ -236,7 +243,7 @@ pub fn mcp_brief(mcp: State<'_, Mcp>, session: Option<String>, brief: String) ->
 
 // A page listens for requests now. A new page in a window (reloaded) has lost the requests the old one had: they end
 // now. The same page saying so again changes nothing.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String) -> bool {
     let label = window.label().to_string();
     let was = mcp.shared.ready.lock().unwrap().insert(label.clone(), page.chars().take(64).collect());
@@ -253,7 +260,7 @@ pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String) -> bool {
 }
 
 // The page's answer to request `id`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_reply(mcp: State<'_, Mcp>, id: u64, body: String) -> Result<(), String> {
     if let Some(p) = mcp.shared.pending.lock().unwrap().remove(&id) {
         let _ = p.tx.send(Msg::Done(if body.len() > MAX_REPLY { error_reply(Some(&p.rid), -32603, "The reply is too large.") } else { body }));
@@ -262,7 +269,7 @@ pub fn mcp_reply(mcp: State<'_, Mcp>, id: u64, body: String) -> Result<(), Strin
 }
 
 // A progress notification for request `id` (D2), as JSON, sent on its event stream when it asked for progress.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_progress(mcp: State<'_, Mcp>, id: u64, body: String) {
     if body.len() > 4096 {
         return;
@@ -274,7 +281,7 @@ pub fn mcp_progress(mcp: State<'_, Mcp>, id: u64, body: String) {
 
 // Whether the AI app cancelled a call, or no longer waits for it (it timed out). The page asks between the call's parts: an event sent to a busy window in the
 // background comes too late.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_cancelled(mcp: State<'_, Mcp>, id: u64) -> bool {
     mcp.shared.pending.lock().unwrap().get(&id).is_none_or(|p| p.cancelled)
 }
@@ -380,6 +387,47 @@ pub async fn mcp_png(svg: String, dpi: f32) -> Result<String, String> {
 
 fn error_reply(id: Option<&serde_json::Value>, code: i64, message: &str) -> String {
     serde_json::json!({ "jsonrpc": "2.0", "id": id.cloned().unwrap_or(serde_json::Value::Null), "error": { "code": code, "message": message } }).to_string()
+}
+// A tool call's result that is an error: the AI model reads it and can act on it (a JSON-RPC error stops at the AI app).
+fn tool_error(id: &serde_json::Value, text: &str) -> String {
+    serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": text }], "isError": true } }).to_string()
+}
+// The answer to a request whose window's page has not started after READY: at once, never a wait of WAIT for a page
+// with no listener.
+fn starting(id: &serde_json::Value, method: &str) -> String {
+    if method == "tools/call" { tool_error(id, STARTING) } else { error_reply(Some(id), -32603, STARTING) }
+}
+
+// Whether a request gives a session with no drawing its drawing (plan 17.5): a tool call, except drawings (which lists,
+// uses or makes a drawing). The protocol's own requests (initialize, ping, the lists, prompts) take none.
+fn claims(method: &str, message: &serde_json::Value) -> bool {
+    method == "tools/call" && message.pointer("/params/name").and_then(|n| n.as_str()) != Some("drawings")
+}
+// Whether a session works in a drawing now: it is the session's drawing, and the session has a call under way or
+// called in the last USING. (A session that an AI app left without ending it stops holding the drawing then.)
+fn uses(s: &Session, label: &str) -> bool {
+    s.drawing.as_deref() == Some(label) && (s.waiting > 0 || s.last.elapsed() < USING)
+}
+// Where a session's request goes, and whether the session takes that window as its drawing (decision 0021: an AI app
+// works in the user's open drawing). Its drawing while that is open; a drawing that closed is lost (the page says so)
+// and the request goes to the window in front, which it does not take. A session with no drawing sends the protocol's
+// requests and drawings to the window in front and takes nothing; its first other tool call takes the window in front,
+// unless another session works there (front_used): then the call is refused (Err, that window), so it never runs in
+// another session's drawing. Two sessions with no drawing that both call at once: the first through the sessions lock
+// takes the window in front, and the second is refused, with how to get a drawing of its own or share that one.
+fn route(own: Option<&str>, open: bool, front: Option<String>, front_used: bool, claims: bool) -> Result<(Option<String>, bool), String> {
+    match (own, front) {
+        (Some(d), _) if open => Ok((Some(d.to_string()), false)),
+        (None, Some(f)) if claims && front_used => Err(f),
+        (None, f) if claims => {
+            let take = f.is_some();
+            Ok((f, take))
+        }
+        (_, f) => Ok((f, false)),
+    }
+}
+fn taken(id: &serde_json::Value, label: &str) -> String {
+    tool_error(id, &format!("Octet changed nothing. Another AI app works in the drawing in front ({label}). For a drawing of your own, call drawings with action new, then call again. To work in {label} with the other AI app, call drawings with action use and drawing {label}."))
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &str, session: Option<&str>) {
@@ -515,7 +563,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     // client) acts on the window in front.
     let mut new_session = None;
     let front = crate::windows::front(app);
-    let (client, session, window, lost, brief) = {
+    let (client, session, window, lost, brief, unset) = {
         let mut sessions = shared.sessions.lock().unwrap();
         sessions.retain(|_, s| s.last.elapsed() < IDLE);
         if method == "initialize" || sid.is_none() {
@@ -539,8 +587,9 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
             let (name, new) = (client_name(&message), random_hex(16).unwrap_or_default());
             sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
             new_session = Some(new.clone());
-            (name, Some(new), front, None, None)
+            (name, Some(new), front, None, None, true)
         } else if let Some(s) = sid.as_ref() {
+            let front_used = front.as_deref().is_some_and(|f| sessions.iter().any(|(k, x)| k != s && uses(x, f)));
             let Some(session) = sessions.get_mut(s) else {
                 drop(sessions);
                 return respond(&mut stream, "404 Not Found", "", None);
@@ -566,18 +615,25 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
                 }
                 return respond(&mut stream, "200 OK", &serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": {} }).to_string(), None);
             }
-            // The session's drawing; else the window in front, which it keeps. A drawing that has closed is lost: the
-            // page says so, and drawings list and use still work. Reading a drawing's resource goes to it.
-            let open = session.drawing.as_ref().filter(|d| app.get_webview_window(d).is_some()).cloned();
-            let lost = session.drawing.clone().filter(|_| open.is_none());
-            if session.drawing.is_none() {
-                session.drawing = front.clone();
+            // The session's drawing (route). A drawing that has closed is lost: the page says so, and drawings list
+            // and use still work. Reading a drawing's resource goes to it.
+            let open = session.drawing.as_ref().is_some_and(|d| app.get_webview_window(d).is_some());
+            let lost = session.drawing.clone().filter(|_| !open);
+            let (window, take) = match route(session.drawing.as_deref(), open, front, front_used, claims(method, &message)) {
+                Ok(r) => r,
+                Err(label) => {
+                    drop(sessions);
+                    return respond(&mut stream, "200 OK", &taken(id, &label), None);
+                }
+            };
+            if take {
+                session.drawing = window.clone();
             }
             let named = drawing_uri(app, uri).filter(|_| method == "resources/read").map(String::from);
             session.waiting += 1;
-            (session.client.clone(), Some(s.clone()), named.or(open).or(front), lost, session.brief.clone())
+            (session.client.clone(), Some(s.clone()), named.or(window), lost, session.brief.clone(), session.drawing.is_none())
         } else {
-            ("An AI app".into(), None, front, None, shared.loose.lock().unwrap().clone())
+            ("An AI app".into(), None, front, None, shared.loose.lock().unwrap().clone(), false)
         }
     };
     let done = |shared: &Shared| { if let Some(s) = session.as_ref().and_then(|s| shared.sessions.lock().unwrap().get_mut(s).map(|x| { x.waiting = x.waiting.saturating_sub(1); })) { s } };
@@ -585,15 +641,24 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
         done(shared);
         return respond(&mut stream, "200 OK", &error_reply(Some(id), -32603, "Octet has no window open."), None);
     };
-    // A window that has just opened (File > New) listens once its page has started: up to 15 s.
-    let start = Instant::now();
-    while !shared.ready.lock().unwrap().contains_key(&window) && start.elapsed() < Duration::from_secs(15) {
+    // A window that has just opened (File > New, drawings new) listens once its page has started: up to READY. Then
+    // the AI app is told to call again.
+    let (start, listens) = (Instant::now(), || shared.ready.lock().unwrap().contains_key(&window));
+    while !listens() && start.elapsed() < READY {
         std::thread::sleep(Duration::from_millis(50));
+    }
+    if !listens() {
+        done(shared);
+        return respond(&mut stream, "200 OK", &starting(id, method), new_session.as_deref());
     }
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::channel();
     shared.pending.lock().unwrap().insert(n, Pending { window: window.clone(), rid: id.clone(), session: session.clone(), tx, cancelled: false });
-    let sent = app.emit_to(window.as_str(), "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost, "brief": brief }));
+    // unset: the session has no drawing yet (drawings list says none). sent: when this side sent the request (ms since
+    // 1970), only in a dev build run with OCTET_MCP_TIMES set: the page then gives each call's times in the reply's
+    // _meta, to show whether WebKit slows the page of a covered window (plan 17.5).
+    let at = (cfg!(debug_assertions) && std::env::var_os("OCTET_MCP_TIMES").is_some()).then(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64));
+    let sent = app.emit_to(window.as_str(), "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(&body), "client": client, "session": session, "lost": lost, "brief": brief, "unset": unset, "sent": at }));
     let timeout = || error_reply(Some(id), -32603, "Octet did not answer in time.");
     // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
     if message.pointer("/params/_meta/progressToken").is_some() && sent.is_ok() {
@@ -1070,6 +1135,56 @@ mod tests {
         assert_eq!(allowed(&swap(3, "Content-Type: text/plain"), 47681, KEY), Err("415 Unsupported Media Type"));
         assert_eq!(allowed(&swap(4, "Content-Length: lots"), 47681, KEY), Err("411 Length Required"));
         assert_eq!(allowed(&swap(4, "Content-Length: 99999999"), 47681, KEY), Err("413 Content Too Large"));
+    }
+
+    // Plan 17.5: which window a session's request goes to, and whether the session takes it.
+    #[test]
+    fn a_session_never_lands_in_another_sessions_drawing() {
+        let f = || Some("draw-2".to_string());
+        // Its own drawing while it is open, whatever is in front.
+        assert_eq!(route(Some("draw-1"), true, f(), true, true), Ok((Some("draw-1".into()), false)));
+        // Its drawing closed: the window in front, taken by nothing (the page says the drawing is lost).
+        assert_eq!(route(Some("draw-1"), false, f(), false, true), Ok((f(), false)));
+        // No drawing yet: the protocol's requests and drawings go to the window in front and take nothing, also when
+        // another session works there.
+        assert_eq!(route(None, false, f(), false, false), Ok((f(), false)));
+        assert_eq!(route(None, false, f(), true, false), Ok((f(), false)));
+        // Its first other tool call takes the window in front, when no other session works there.
+        assert_eq!(route(None, false, f(), false, true), Ok((f(), true)));
+        // When another session works there, the call is refused.
+        assert_eq!(route(None, false, f(), true, true), Err("draw-2".into()));
+        // No window: nothing to take.
+        assert_eq!(route(None, false, None, false, true), Ok((None, false)));
+        let call = |name: &str| serde_json::json!({ "method": "tools/call", "params": { "name": name } });
+        assert!(claims("tools/call", &call("set_brief")) && claims("tools/call", &call("draw")) && claims("tools/call", &call("read")));
+        assert!(!claims("tools/call", &call("drawings")));
+        for m in ["initialize", "ping", "tools/list", "prompts/list", "prompts/get", "resources/list", "resources/read"] {
+            assert!(!claims(m, &serde_json::json!({ "method": m })), "{m}");
+        }
+        let refused: serde_json::Value = serde_json::from_str(&taken(&serde_json::json!(4), "draw-2")).unwrap();
+        assert_eq!((&refused["id"], &refused["result"]["isError"]), (&serde_json::json!(4), &serde_json::json!(true)));
+        let text = refused["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("drawings with action new") && text.contains("drawings with action use and drawing draw-2"), "{text}");
+    }
+
+    // A session works in its drawing while it has a call under way or called in the last USING.
+    #[test]
+    fn a_session_works_in_its_drawing_while_it_calls() {
+        let at = |ago: u64, waiting| Session { client: "x".into(), drawing: Some("draw-1".into()), brief: None, last: Instant::now().checked_sub(Duration::from_secs(ago)).unwrap(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting };
+        assert!(uses(&at(5, 0), "draw-1"));
+        assert!(!uses(&at(5, 0), "draw-2"));
+        assert!(!uses(&at(USING.as_secs() + 1, 0), "draw-1"));
+        assert!(uses(&at(USING.as_secs() + 1, 1), "draw-1"));
+    }
+
+    // A window whose page has not started is answered at once: a tool call with a result the model reads, any other
+    // request with an error.
+    #[test]
+    fn a_drawing_still_starting_says_call_again() {
+        let call: serde_json::Value = serde_json::from_str(&starting(&serde_json::json!("c1"), "tools/call")).unwrap();
+        assert_eq!(call, serde_json::json!({ "jsonrpc": "2.0", "id": "c1", "result": { "content": [{ "type": "text", "text": "The drawing is still starting. Call again." }], "isError": true } }));
+        let other: serde_json::Value = serde_json::from_str(&starting(&serde_json::json!(2), "resources/read")).unwrap();
+        assert_eq!((&other["error"]["message"], &other["id"]), (&serde_json::json!(STARTING), &serde_json::json!(2)));
     }
 
     #[test]

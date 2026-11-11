@@ -699,6 +699,40 @@ const lost = async (name: string, args: unknown) => JSON.parse(await handle(JSON
 assert.match((await lost("read", {})).content[0].text, /draw-7\) is closed\. Call drawings, then drawings with use\./);
 assert.ok(!(await lost("drawings", { action: "list" })).isError);
 
+// Several sessions in one page at once (plan 17.5). The protocol's own requests and drawings are answered while a draw
+// runs: they do not wait for it. A read waits its turn and sees the whole draw.
+fresh();
+{
+  const was = { settle: host.settle, newWindow: host.newWindow, windows: host.windows };
+  host.settle = () => new Promise((r) => setTimeout(r, 30)); // a page that takes its time to draw
+  const order: string[] = [];
+  const req = (what: string, method: string, params?: unknown, from: import("./mcp.ts").From = as("s-2")) => handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }), () => host, "1.2.0", from).then((r) => { order.push(what); return JSON.parse(r); });
+  const draw = req("draw", "tools/call", { name: "draw", arguments: { kind: "structures", structures: [{ text: "benzene", number: "1" }] } }, as("s-1"));
+  const read = req("read", "tools/call", { name: "read", arguments: {} }, { ...as("s-1"), timed: { sent: 1, got: Date.now(), visibility: "hidden", focus: false } });
+  // drawings new is answered once the window is made, before its page lists it: mcp.rs holds the next call for the page.
+  let asked: unknown[] = [];
+  host.newWindow = async (purpose, session) => { asked = [purpose, session]; return "draw-9"; };
+  host.windows = async () => [];
+  const free = await Promise.all([
+    req("initialize", "initialize", { protocolVersion: "2025-11-25" }), req("ping", "ping"), req("tools/list", "tools/list"), req("prompts/list", "prompts/list"), req("resources/list", "resources/list"),
+    req("list", "tools/call", { name: "drawings", arguments: { action: "list" } }, { ...as("s-2"), unset: true }), req("new", "tools/call", { name: "drawings", arguments: { action: "new", for: "paper" } }),
+    req("timed ping", "ping", undefined, { ...as("s-2"), timed: { sent: 1, got: 2, visibility: "hidden", focus: false } }),
+  ]);
+  const [drawn, readOut] = await Promise.all([draw, read]);
+  assert.deepEqual([order.length, order.slice(-2)], [10, ["draw", "read"]], order.join(", "));
+  assert.ok(free.every((r) => !r.error && !r.result.isError), JSON.stringify(free));
+  // A session with no drawing yet uses none; drawings new gives the window it made, which is the session's.
+  assert.deepEqual(free[5].result.structuredContent, { drawings: [] });
+  assert.deepEqual([free[6].result.structuredContent, asked], [{ opened: "draw-9" }, ["paper", "s-2"]]);
+  assert.ok(!drawn.result.isError && readOut.result.structuredContent.structures.length === 1, JSON.stringify(readOut.result.structuredContent));
+  // The times of a call, only when asked (a dev build with OCTET_MCP_TIMES): the read waited for the draw.
+  const t = readOut.result._meta["octet/times"];
+  assert.deepEqual([t.sent, t.visibility, t.focus, t.start - t.got === t.wait, t.end - t.start === t.work, t.wait >= 30], [1, "hidden", false, true, true, true], JSON.stringify(t));
+  assert.deepEqual(Object.keys(free[7].result._meta["octet/times"]), ["sent", "got", "visibility", "focus", "start", "end", "wait", "work"]);
+  assert.ok(!("_meta" in free[1].result) && !("_meta" in drawn.result));
+  Object.assign(host, was);
+}
+
 // fill_experiment: refused off an experiment page; on one, the details and the grid's amounts by the grid's keys.
 fresh();
 assert.ok((await call("advanced", { tool: "fill_experiment", args: { details: { title: "Ethyl acetate" } } })).isError);
@@ -1793,7 +1827,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // left unlisted on the write tools until they were merged). Every operation whose result is a change takes it.
   for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced", "draw_route"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
-  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 25);
+  // (Not drawings new and use: they report no change, as they run outside the page's queue, plan 17.5.)
+  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 23);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
   assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
   // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a
