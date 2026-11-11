@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
@@ -157,8 +157,6 @@ let pageSheet: CSSStyleSheet | undefined;
 const NATIVE_CLIP = TAURI;
 
 const L = STYLE.bond; // px per bond length at 100%
-// The largest structure the canvas for screen readers names (access.ts): naming a larger one could hold up the window.
-const MOST_NAMED = 120;
 // The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
 // labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
 // purpose opens with bonds the same length on screen (IDEA-SIZE-7): Slides and Poster show their page smaller round
@@ -1143,7 +1141,7 @@ export default function Editor() {
   useEffect(() => {
     const wait = () => ready.then(() => setLoaded(true), (e) => { logError(`Indigo did not load: ${e}`); setNotice("Octet cannot load its chemistry engine. Restart Octet."); });
     void wait();
-    return onRestart((e) => { logError(`Indigo loads again after: ${e}`); setLoaded(false); void wait(); });
+    return onRestart((e) => { logError(`Indigo loads again after: ${e instanceof Error ? e : (e as object | null)?.constructor?.name}`); setLoaded(false); void wait(); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Clean Up's code is made ready soon after start (the browser compiles it as it runs): a few small clean-ups that
   // change nothing, a moment apart, so the first Clean Up is as quick as the next (decision 0024).

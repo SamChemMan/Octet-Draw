@@ -1745,12 +1745,17 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 // standard InChI (names.ts abbreviationOf), given as each structure's abbreviation (TREN).
 export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat; abbreviation?: string }[];
 const analysed = new Map<string, Analysis | undefined>(), inchis = new Map<string, string | undefined>();
+// The largest structure Octet asks a name or an abbreviation for by its InChI (here, and the names for screen readers
+// in Editor.tsx). The InChI of a larger fused ring system can take seconds, or overflow Indigo's stack (watched) and
+// never end. Octet's own abbreviations have up to 77 atoms. Here hydrogens drawn as atoms do not count, so Pd(PPh3)4
+// read from a file with its 60 hydrogens is still cited.
+export const MOST_NAMED = 120;
 export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | undefined) => string | undefined): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
-  const out: Analysis = [], parts = pieces(mol);
+  const out: Analysis = [], parts = pieces(mol), named = (m: Mol) => m.atoms.filter((a) => a.label !== "H").length <= MOST_NAMED;
   // Pieces that are one compound together, as a salt ([Ru(bpy)3]Cl2), a complex with its ligands apart (Ni(cod)2) or
   // ferrocene's ions (dppf), are one entry when they are all there is and have an abbreviation.
-  if (cite && parts.length > 1 && parts.length <= 12 && mol.atoms.length <= 300 && !mol.shapes?.some((sh) => sh.polymer)) {
+  if (cite && parts.length > 1 && parts.length <= 12 && named(mol) && !mol.shapes?.some((sh) => sh.polymer)) {
     const abbreviation = cite(remembered(inchis, contentOf(mol), () => toInchi(mol)));
     const entries = abbreviation ? parts.flatMap((part) => remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []) : [];
     if (abbreviation && entries.length) {
@@ -1764,9 +1769,7 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
     const polymer = mol.shapes?.some((sh) => sh.polymer) ? polymerValues({ ...part, shapes: mol.shapes }) : undefined;
     if (polymer) { out.push(polymer); continue; }
     const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
-    // The InChI for the abbreviation, of a structure of up to 300 atoms, as for several structures above: a larger
-    // one's InChI is slow, and can overflow Indigo's stack (a large fused ring system).
-    const abbreviation = cite && entries.length === 1 && part.atoms.length <= 300 ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
+    const abbreviation = cite && entries.length === 1 && named(part) ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
     // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
     if (entries.length > 1 && part.atoms.some((a) => a.centre)) {
       const total: Record<string, number> = {};

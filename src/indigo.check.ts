@@ -53,24 +53,32 @@ assert.equal(chem.analyse(grid)?.[0].formula, "C289H68", "the grid's formula, wi
 assert.equal(chem.stereoLabels(methyl), undefined, "no stereocentre once Indigo reads the label");
 console.log("indigo.check: a damaged Indigo is replaced, and no value throws meanwhile");
 
-// The Actions panel asks for an abbreviation (by InChI) only for a structure of up to 300 atoms, as for a selection of
-// several structures. Above that, InChI is slow, can overflow (the grid above), and fails above 1,023 atoms.
+// The Actions panel asks for an abbreviation (by InChI) only for a structure of up to 120 atoms (MOST_NAMED), as for a
+// selection of several structures. Above that, a fused ring system's InChI can take seconds, overflow (the grid above,
+// or one of 170 atoms after 500 failed calls) or never end, and InChI fails above 1,023 atoms.
 const asked: (string | undefined)[] = [];
 const cite = (inchi: string | undefined) => { asked.push(inchi); return undefined; };
 chem.analyse(chain(30), 3, cite);
 assert.equal(asked.length, 1);
-chem.analyse(chain(301), 3, cite);
-assert.equal(asked.length, 1, "no InChI for 301 atoms");
+chem.analyse(chain(121), 3, cite);
+assert.equal(asked.length, 1, "no InChI for 121 atoms");
+// Hydrogens drawn as atoms do not count: 40 carbons with their 82 hydrogens (122 atoms) are asked for.
+const drawnH = chain(40);
+drawnH.atoms.slice().forEach((_, k) => { for (let n = k % 39 ? 2 : 3; n--; ) { drawnH.bonds.push({ type: 1, atoms: [k, drawnH.atoms.length] }); drawnH.atoms.push({ label: "H", location: [k * 0.87, 2 + n, 0] }); } });
+chem.analyse(drawnH, 3, cite);
+assert.equal(asked.length, 2, "an InChI for 40 carbons with their hydrogens drawn");
 console.log("indigo.check: no InChI for the panel's large structures");
 
 // The stereo warnings keep Indigo's reading of a structure by its shape, not by where it is, so a structure moved is
 // not read again (wedges that conflict make failed calls). The shape still counts: two wedges on next bonds conflict,
-// on opposite bonds they set the centre.
+// on opposite bonds they set the centre. Moved, each is read with Indigo set aside (after a call its binding refuses, as
+// after damage): only what was kept can answer.
 const centre = (angles: number[], dx: number): Mol => ({
   atoms: [{ label: "C", location: [dx, 0, 0] }, ...["C", "N", "O", "F"].map((label, k) => ({ label, location: [dx + Math.cos((angles[k] * Math.PI) / 180), Math.sin((angles[k] * Math.PI) / 180), 0] as [number, number, number] }))],
   bonds: [0, 1, 2, 3].map((k) => ({ type: 1, atoms: [0, k + 1] as [number, number], ...(k < 2 ? { stereo: 1 } : {}) })),
 });
 for (const dx of [0, 7.3]) {
+  if (dx) chem.smilesWeight(0 as unknown as string);
   assert.deepEqual([...chem.stereoFacts(centre([0, 90, 180, 270], dx)).conflict], [0]);
   assert.deepEqual([...chem.stereoFacts(centre([0, 180, 90, 270], dx)).conflict], []);
 }
