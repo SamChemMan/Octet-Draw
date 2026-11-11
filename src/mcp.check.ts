@@ -242,7 +242,8 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "s-8")), QUESTIONS);
   let o = await call("draw", { lines: "ethanol -> water", brief: "JACS, 2 columns, emphasis: the water, as drawn" }, "s-8");
   assert.ok(!o.isError && m.style!.page === "ACS2" && m.style!.preset === "ACS Document 1996", text(o));
-  assert.match(text(o), /^Octet keeps this brief for the session\. The drawing now uses ACS Document 1996 on ACS2, with 10 pt labels and 14\.4 pt bonds\. Follow its emphasis and layout as you draw\. Drew the reaction\./);
+  // (In the fewest words that say it is kept, with its style and page: models repeated all of it to the user.)
+  assert.match(text(o), /^Brief kept: ACS Document 1996 on ACS2\. Follow its emphasis and layout as you draw\. Drew the reaction\./);
   assert.deepEqual(JSON.parse(briefs.get("s-8")!), { destination: { kind: "paper", journal: "ACS Document 1996", columns: 2 }, style: "destination", emphasis: "the water, as drawn" });
   assert.deepEqual([steps.length, said], [1, ["Test drew a reaction."]]);
   // The session keeps it: its next scheme needs none.
@@ -250,7 +251,11 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   // A draw by lines says what it drew and nothing every such call says (Clean Up, one undo step, no page).
   fresh();
   o = await call("draw", { lines: "ethanol -> water", brief: "quick" }, "s-lean");
-  assert.match(text(o), /^Octet keeps this brief for the session\. The drawing (?:now )?uses ACS Document 1996 with no page \(Quick start\), with 10 pt labels and 14\.4 pt bonds\. Drew the reaction\.\n\{/);
+  assert.match(text(o), /^Brief kept: Quick start \(ACS Document 1996, no page\)\. Drew the reaction\.\n\{/);
+  // detail: full gives the sizes too.
+  fresh();
+  o = await call("draw", { lines: "ethanol -> water", brief: "quick", detail: "full" }, "s-full");
+  assert.match(text(o), /^Octet keeps this brief for the session\. The drawing (?:now )?uses ACS Document 1996 with no page \(Quick start\), with 10 pt labels and 14\.4 pt bonds\. Drew the reaction\./);
   for (const [brief, why] of [["Bull. Chem. Soc. Jpn.", /^Octet has no preset for Bull\. Chem\. Soc\. Jpn\. The nearest it has is ACS Document 1996\./], ["emphasis: x", /^Octet changed nothing\. brief: give quick, or where the drawing goes/], [{ destination: { kind: "book" } }, /^Octet changed nothing\. brief\.destination\.kind: not one of/]] as [unknown, RegExp][]) {
     fresh();
     o = await call("draw", { lines: "ethanol -> water", brief }, "s-9");
@@ -670,7 +675,7 @@ d = await read();
 
 // cycle: three intermediates on the circle, the centre text, side arrows in and out, step names.
 fresh();
-out = await call("draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene" }, { text: "phenol" }], centre: "Pd(0)", steps: [{ step: 0, in: "PhBr", name: "OA" }, { step: 1, in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, out: "Ph–Ar" }, { step: 7, in: "nothing" }] });
+out = await call("draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene", number: "5" }, { text: "phenol" }], centre: "Pd(0)", steps: [{ step: 0, in: "PhBr", name: "OA" }, { step: 1, in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, out: "Ph–Ar" }, { step: 7, in: "nothing" }] });
 assert.ok(!out.isError, text(out));
 const c = m.cycles![0];
 assert.equal(c.nodes.length, 3);
@@ -681,6 +686,10 @@ d = await read();
 assert.deepEqual(d.cycles[0].intermediates, d.structures.map((s: { id: string }) => s.id));
 assert.equal(d.cycles[0].centre, "Pd(0)");
 assert.deepEqual(d.cycles[0].names.map((x: { text: string }) => x.text), ["OA"]);
+// Each side arrow by the intermediates its step joins, by number or else place from 1, in the reply and in read: "steps
+// 0, 3" made Haiku put a side arrow one step early and never know.
+assert.match(text(out), /clockwise; in: PhBr at 1→5; in: ArB\(OH\)2, out: B\(OH\)3 at 5→3; out: Ph–Ar at 3→1\./);
+assert.deepEqual(d.cycles[0].sides.map((x: { side: string; text: string; at: string }) => `${x.side} ${x.text} ${x.at}`), ["in PhBr 1→5", "in ArB(OH)2 5→3", "out B(OH)3 5→3", "out Ph–Ar 3→1"]);
 
 // replace keeps the place and the number; delete takes structures and text away; select picks them.
 fresh();
@@ -1386,7 +1395,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /Do not sort conditions: list them after the product in any order/);
   assert.match(ins, /An amount goes in brackets after its compound or reagent .*\. An experiment page's reagent table takes amounts through advanced fill_experiment\./);
   assert.match(ins, /Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to\./);
-  assert.match(ins, /When check is "clean", answer the user: do not read back or ask for a picture unless they ask how it looks\./);
+  // A clean check is a sentence or two to the user, with only what differs from what they asked: models answered with
+  // 150 to 300 tokens that repeated every compound, the most of a plain job's time.
+  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two \(they see it\), and only what you changed from what they asked or could not do: do not read back or ask for a picture unless they ask how it looks\./);
+  assert.ok(ins.length <= 2162, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
   const gone = /\b(read_drawing|draw_structures|draw_reaction|draw_cycle|draw_figure|replace_structure|add_text|new_drawing|list_drawings|use_drawing|set_number|get_file|add_arrow|add_shape)\b/;
@@ -2244,6 +2256,12 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(Object.keys(sc ?? {}), ["done", "compounds", "made", "warnings", "check"], text(o));
   assert.ok(sc.compounds.length === 3 && sc.compounds.every((c: string) => /^(?:[12] )?s\d+ C/.test(c)) && sc.made.every((id: string) => id[0] === "a"), JSON.stringify(sc));
   assert.ok(!text(o).includes("boxes"));
+  // A later scheme that starts from a compound of one before draws it again, as each scheme shows its own start: the
+  // list marks the repeat, with no formula (Haiku took the two 15s for a fault and told the user so).
+  fresh();
+  o = await call("draw", { lines: "# One\nc1ccccc1 -> O=[N+]([O-])c1ccccc1 (15), HNO3, 90%\n# Two\n15 -> Nc1ccccc1 (16), H2, Pd/C, 95%" });
+  assert.ok(!o.isError, text(o));
+  assert.match(o.structuredContent.compounds.join("|"), /^s\d+ C6H6\|15 (s\d+) C6H5NO2\|15 s\d+ =\1\|16 s\d+ C6H7N$/, text(o));
   fresh();
   o = await call("change", { operations: [{ op: "draw", lines: "CCO (3)" }, { op: "text", text: "ethanol", below: "$1.s[0]" }] });
   assert.ok(!o.isError && (await read()).structures[0].number === "3", text(o));
@@ -2255,6 +2273,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const at = () => m.atoms.map((x) => x.location.map((v) => Math.round(v * 10) / 10).join()).join(" "), was = at();
   o = await call("change", { operations: [{ op: "replace", structure: "4", rotate: 90 }] });
   assert.ok(!o.isError && at() !== was && (await read()).structures[0].number === "4", text(o));
+  // A replace that only turns a structure names none in a summary: the compound is the same (Opus read 3,133 characters
+  // for one flip of three taxol intermediates). Steps one after another say it once; detail: full names each.
+  assert.match(text(o), /^Turned 4 \(now s\d+\)\. One undo step\.\n\{/);
+  await call("draw", { structures: [{ text: "caffeine", number: "5" }] });
+  o = await call("change", { operations: [{ op: "replace", structure: "4", flip: "horizontal" }, { op: "replace", structure: "5", flip: "horizontal" }, { op: "number", structure: "5", number: "6" }] });
+  assert.match(text(o), /^Did 3 steps as one undo step:\n1–2\. Turned 4, 5 \(now s\d+, s\d+\)\.\n3\. /);
+  o = await call("change", { operations: [{ op: "replace", structure: "4", flip: "vertical" }], detail: "full" });
+  assert.match(text(o), /^Replaced 4 with [^,]+, now s\d+/);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

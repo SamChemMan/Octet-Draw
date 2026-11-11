@@ -59,7 +59,7 @@ const CHECK = {
   cycle: ({ d, key }) => {
     const c = d.cycles?.[0], ids = Object.values(CYCLE).map((s) => find(d, key(s))?.id);
     return [[d.cycles?.length === 1, "one cycle", String(d.cycles?.length ?? 0)], [!!c && ids.every((id, k) => c.intermediates[k] === id), "the four intermediates in order", JSON.stringify([c?.intermediates, ids])], ...numbered(d, key, CYCLE),
-      [!!c?.sides?.some((x) => x.side === "in" && x.step === 0), "the triketone goes in at the first step", JSON.stringify(c?.sides)], [!!c?.sides?.some((x) => x.side === "out" && x.step === 3), "the ketol comes out at the last step", JSON.stringify(c?.sides)], apart(d)];
+      [!!c?.sides?.some((x) => x.side === "in" && x.at === "1→2"), "the triketone goes in at the first step", JSON.stringify(c?.sides)], [!!c?.sides?.some((x) => x.side === "out" && x.at === "4→1"), "the ketol comes out at the last step", JSON.stringify(c?.sides)], apart(d)];
   },
 };
 

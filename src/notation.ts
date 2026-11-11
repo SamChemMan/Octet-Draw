@@ -37,7 +37,7 @@ type Op = { tool: string; args: Record<string, unknown> };
 // products on their line.
 type Aside = { sign: "+" | "-"; text: string; part: number; before: boolean };
 type Raw = { part: number; text: string; prev: Compound[]; line: number; asides: Aside[] };
-type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number }[]; heads: string[]; asides: Aside[]; raw: Raw[]; defs: string[]; centre: string[] };
+type Chain = { start: Compound[]; steps: { arrow: string; products: Compound[]; conditions: string; next: boolean; line: number; added?: Compound[] }[]; heads: string[]; asides: Aside[]; raw: Raw[]; defs: string[]; centre: string[] };
 
 // A refusal with its correction, when Octet can work one out: why, then what to replace in the line and with what, as
 // one string (no line holds a U+0000), so it goes back through every caller as any refusal does (fromLines' wrong).
@@ -418,6 +418,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       if (cyclic(c)) {
         if (c.steps.some((s) => s.products.length !== 1)) return `Line ${c.steps[0].line}: a cycle has one intermediate a step`;
         for (const r of c.raw) c.asides.push(...r.asides);
+        // A step's added reactants (B + X -> C) go in at that step, as +X does.
+        for (const [k, s] of c.steps.entries()) for (const x of s.added ?? []) c.asides.push({ sign: "+", text: x.text === undefined ? x.from! : written(x as { text: string }), part: k - 1, before: true });
         // What is written against a compound goes in or out at the arrow after it on its line; else what goes in goes
         // into the step from that compound, and what comes out comes from the step to it.
         // Among a step's text (OA +ArBr), it is the same.
@@ -454,7 +456,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         const x = conditions(s.conditions, known, false);
         if (typeof x === "string") return wrong(s.line, x);
         for (const y of [...((x as Step).above ?? []), ...((x as Step).below ?? [])]) if (typeof y !== "string") add(y, s.line);
-        steps.push({ ...x, ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
+        steps.push({ ...x, ...(s.added ? { above: [...s.added, ...((x as Step).above ?? [])] } : {}), ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
       if (round && !steps.some((s) => s.yield || s.above || s.below)) return `Line ${c.steps[0].line}: the steps come back to ${first.number ?? first.text}, so they read two ways: a catalytic cycle (write +x for what goes in, -x for what comes out) or a scheme (give a step its yield)`;
       ops.push({ tool: "reaction", args: { start: c.start, steps } });
@@ -511,7 +513,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (def) { const no = flush(); if (no) return no; defs.push(centre!); continue; }
     if (split.arrows.length) {
       const { parts, arrows } = split, begin = (start: Compound[], hs: string[]): Chain => { const c = { start, steps: [], heads: hs, asides: [], raw: [], defs, centre: [] }; defs = []; return c; };
-      let reactants: Compound[], before = "";
+      let reactants: Compound[], before = "", added: Compound[] = [];
       if (!parts[0]) {
         // A compound alone on the line before (the first of its panel, under its title) is the start.
         const p = grid?.[grid.length - 1];
@@ -530,10 +532,13 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (pre.length) { before = parts[0].slice(lhs.text.length).replace(/^[,;]\s*/, "").trim(); said?.("before", `Line ${at}: Octet read "${before}", before the arrow, as the step's conditions.`); }
         const [mine, sides] = apart(lhs.text), start = compounds(mine, [], at);
         if (typeof start === "string") return start;
-        // A line that starts with the last line's products, by their numbers, goes on from them.
+        // A line whose starting materials include what the chain has just made (by its number, or the same text) goes on
+        // from it: the others are that step's added reactants, drawn over its arrow (12a + 9-BBN -> 13a).
         const last = chain && (chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start);
-        if (last && start.length === last.length && start.every((c, k) => c.from !== undefined && !c.changes && c.from === last[k].number)) {
+        const made = (c: Compound) => !c.changes && last!.some((p) => (c.from !== undefined && c.from === p.number) || (c.text !== undefined && c.text === p.text && String(c.labels) === String(p.labels)));
+        if (last && start.some(made)) {
           reactants = last;
+          added = start.filter((c) => !made(c));
           for (const x of sides) chain!.asides.push({ ...x, part: chain!.steps.length - 1, before: true });
         } else {
           const no = flush();
@@ -549,7 +554,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof made === "string") return made;
         const own = p.slice(first.length).replace(/^[,;]\s*/, ""), c = chain!, next = k < parts.length - 2;
         if (sides.length) c.raw.push({ part: c.steps.length, text: first, prev: reactants, line: at, asides: sides.map((x) => ({ ...x, part: c.steps.length, before: next })) });
-        c.steps.push({ arrow: arrows[k], products: made, conditions: k || !before ? own : own ? `${before}, ${own}` : before, next, line: at });
+        c.steps.push({ arrow: arrows[k], products: made, conditions: k || !before ? own : own ? `${before}, ${own}` : before, next, line: at, ...(!k && added.length ? { added } : {}) });
         reactants = made;
       }
       continue;

@@ -125,7 +125,7 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
     const said = r.content.map((c: { text: string }) => c.text).join("\n"), sc = r.structuredContent;
     assert.ok(said.length < 1200, `${id}: ${said.length} characters\n${said}`);
     assert.equal(sc.compounds.length, (await call("read", {}, `one-${k}`)).structuredContent.structures.length, `${id}: ${said}`);
-    assert.ok(sc.compounds.every((c: string) => /^(?:\S+ )?s\d+ [A-Z]/.test(c)) && sc.check !== undefined && !("boxes" in sc), `${id}: ${said}`);
+    assert.ok(sc.compounds.every((c: string) => /^(?:\S+ )?s\d+ (?:[A-Z]|=s\d+$)/.test(c)) && sc.check !== undefined && !("boxes" in sc), `${id}: ${said}`);
     if (said.length > most[0]) most = [said.length, id];
   }
   console.log(`The longest reply of a job drawn in one call: ${most[0]} characters (${most[1]}).`);
@@ -315,6 +315,24 @@ for (const [text, want] of HARD) {
   assert.match(await said("draw", { lines: "CC -> CCO\nqqzx (1) | CO (2)" }), /Octet cannot read "qqzx" \(line 2\) as a structure\./);
   assert.match(await said("change", { operations: [{ op: "draw", lines: "CC -> qqzx" }] }), /Octet cannot read "qqzx" \(line 1\) as a structure\.$/);
   assert.match(await said("draw", { kind: "reaction", start: [{ text: "qqzx" }], steps: [{ products: [{ text: "CC" }] }] }), /Octet cannot read "qqzx": give a SMILES instead/);
+}
+// A line that starts with what the chain has just made, by its number or its text, goes on from it (Haiku's lines,
+// paper-three-step: before, 2 schemes and a second 12a): one scheme of three steps, with the other starting material
+// over its arrow as a structure. One Octet cannot read that is not a SMILES (Haiku's first try) is text there, and the
+// reply says so; the first starting material, and a SMILES that does not parse, are refused as before.
+{
+  const P = `# Piribedil to 14a
+piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a)
+12a + B1C2CCCC1CCC2 -> B1(CCCC[N+]2(Cc3ccc4OCOc4c3)CCN(CC2)c2ncccn2)C2CCCC1CCC2.Cc1ccc(cc1)S(=O)(=O)[O-] (13a)
+13a -> C1CN(CCCCCc2ccc3OCOc3c2)CCN1c1ncccn1 (14a), SPhos·Pd-G3, t-BuOK, 47%`;
+  const r = fromLines({ lines: P }) as { op: string; args: { schemes: { steps: { above?: unknown }[] }[] } };
+  assert.deepEqual([r.op, r.args.schemes.length, r.args.schemes[0].steps.map((s) => s.above)], ["route", 1, [undefined, [{ text: "B1C2CCCC1CCC2" }], undefined]]);
+  assert.deepEqual((fromLines({ lines: "CCO -> CC=O, PCC\nCC=O + CN -> CC=NC" }) as { args: { steps: { above?: unknown }[] } }).args.steps.map((s) => s.above), [undefined, [{ text: "CN" }]]);
+  let said = "";
+  const s = await shown("draw", { lines: P.replace("B1C2CCCC1CCC2", "9-BBN–H") }, undefined, (x) => (said = x.content[0].text));
+  assert.match(said, /^Drew a scheme of 3 steps with 4 numbered compounds\. 9-BBN–H is text over its arrow\./);
+  assert.ok("arrows" in s && s.arrows.includes("reaction | 9-BBN–H | ") && s.structures.filter((x) => x.startsWith("12a=")).length === 1, JSON.stringify(s));
+  for (const [l, bad] of [["qqzx + CC -> CCO", "qqzx"], ["CC + C1CCCC -> CCO", "C1CCCC"]]) assert.match((await call("draw", { lines: l })).content[0].text, new RegExp(`^Octet drew nothing\\. Octet cannot read "${bad}" \\(line 1\\) as a structure\\.$`), l);
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });

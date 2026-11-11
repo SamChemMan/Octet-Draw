@@ -20,6 +20,7 @@ import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, p
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION, written } from "./notation.ts";
 import { formulaTextRuns } from "./labels.ts";
+import { looksLikeSmiles } from "./names.ts";
 import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
@@ -340,7 +341,8 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // has no drawing yet.
 // lean: the call was a draw by lines, whose reply names each compound in its list (madeCompounds); where: the line each
 // name or SMILES of the lines is on (fromLines).
-type Ctx = { lean?: boolean; where?: Map<string, number>; session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+// full: the call asked for detail: full. along: the brief is set by a draw that gives it.
+type Ctx = { lean?: boolean; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -741,12 +743,12 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in the user's open drawing and read it back.
+const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in it and read it back.
 - Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
 - Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
 - Write each compound once, as a name or SMILES; a later one is a change to it (3[OBn>OTES]). A generic group or a metal's ligand is {R} in a SMILES ({L}[Pd]{L}).
-- Do not sort conditions: list them after the product in any order, and Octet puts each over or under the arrow as papers do. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
-- The reply lists each compound as Octet read it (number, id, formula; a name only where Octet read it as another), Octet's warnings, and check. When check is "clean", answer the user: do not read back or ask for a picture unless they ask how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
+- Do not sort conditions: list them after the product in any order, and Octet places each as papers do. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
+- The reply lists each compound as Octet read it, Octet's warnings, and check. When check is "clean", tell the user it is drawn in a sentence or two (they see it), and only what you changed from what they asked or could not do: do not read back or ask for a picture unless they ask how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
 - To match a picture, turn a compound with the hints (up, down, left, right, rotate, flip) in draw's structures, or with change's replace.
 - To highlight an atom, bond, group or structure, use change's edit with highlight, or ring_fill for a ring: a shape is a frame or a panel. Colour only what the user asks to colour.
 - Each call is one undo step. Never delete what the user drew unless they ask.
@@ -1134,13 +1136,24 @@ function stepLines(st: StepIn): { above: Line[]; below: Line[] } {
 
 // route: a scheme of a route (drawRoute), which gets the compounds Octet read and the scheme's box as drawn, and says
 // what does not fit the page for all its schemes at once.
-async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[]; keep_orientation?: boolean } & Placement, ctx: Ctx, route?: { ok: Read[]; boxes: Box[] }): Promise<Result> {
+async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[]; keep_orientation?: boolean } & Placement, ctx: Ctx, route?: { ok: Read[]; boxes: Box[]; said: string }): Promise<Result> {
   // Every compound read first, so nothing is drawn when one of them cannot be.
   const lines = a.steps.map(stepLines);
-  // In the order they are drawn: each step's structures over and under its arrow, then its products.
-  const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t): CompoundIn => ({ ...(typeof t === "string" ? { text: t.replace(/^structure:\s*/i, "") } : t), aside: true })), ...s.products])];
-  const { ok, failed, wrong } = await read(host, all, undefined, ctx.where);
-  if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
+  // In the order they are drawn: each step's structures over and under its arrow, then its products. at: where each
+  // starting material after the first, and each structure at an arrow, is.
+  const all: CompoundIn[] = [...a.start], at: (Line | true | undefined)[] = a.start.map((_, k) => (k ? true : undefined));
+  for (const [k, s] of a.steps.entries()) {
+    for (const l of [...lines[k].above, ...lines[k].below].filter(([t]) => structured(t))) { all.push({ ...(typeof l[0] === "string" ? { text: l[0].replace(/^structure:\s*/i, "") } : l[0]), aside: true }); at.push(l); }
+    all.push(...s.products); at.push(...s.products.map(() => undefined));
+  }
+  const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where);
+  // The first starting material and the products must be read. Any other Octet cannot read, and that is not a SMILES
+  // (a typo in one is refused), is a reagent's name: text over its arrow (9-BBN–H), and the reply says so.
+  const soft = lost.filter((k) => at[k] && !looksLikeSmiles(all[k].text!));
+  if (wrong.length || soft.length < lost.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
+  const asText = soft.map((k) => clean(all[k].text!) + (all[k].number ? ` (${clean(all[k].number!)})` : ""));
+  for (const [j, k] of soft.entries()) if (at[k] !== true) (at[k] as Line)[0] = asText[j]; else lines[0].above.splice(a.steps[0].label ? 1 : 0, 0, [asText[j]]);
+  const starts = a.start.length - soft.filter((k) => at[k] === true).length;
   const next = (() => { let k = 0; return () => ok[k++]; })();
   let m = host.doc();
   // The row's line: under where new work starts by as far as the row can reach up (half its tallest structure, however
@@ -1162,7 +1175,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     }
     last = groups;
   };
-  group(a.start.length);
+  group(starts);
   for (const [k, st] of a.steps.entries()) {
     const reactants = last;
     await ctx.check();
@@ -1215,8 +1228,9 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     const at: Box = [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]];
     if (route) route.boxes.push(at); else advice = unfit(host, [at]);
   }
-  route?.ok.push(...ok);
-  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  const said = asText.length ? ` ${asText.join(", ")} ${asText.length > 1 ? "are text over their arrows" : "is text over its arrow"}.` : "";
+  if (route) { route.ok.push(...ok); route.said += said; }
+  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${said}${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 // A product turned to lie as its starting material can come out narrower or wider than its place in the row (a chain
 // turned upright leaves a gap wider than a reaction's), and then Clean Up Reaction cannot read the row whole, so cannot
@@ -1280,7 +1294,7 @@ const titled = (t: string) => { const [, head, rest] = /^((?:scheme|figure)\s+\S
 // from previous starts from the last product of the scheme before; and a compound from another with no changes is
 // that one, drawn again under its number. A route of one scheme with no title is a reaction, and says what one says.
 async function drawRoute(host: Host, a: { title?: string; schemes: SchemeIn[]; legend?: "none" | "letters"; keep_orientation?: boolean }, ctx: Ctx): Promise<Result> {
-  const numbers = new Set<string>(), route = { ok: [] as Read[], boxes: [] as Box[] }, keep_orientation = a.keep_orientation;
+  const numbers = new Set<string>(), route = { ok: [] as Read[], boxes: [] as Box[], said: "" }, keep_orientation = a.keep_orientation;
   const alone = a.schemes.length === 1 && !a.title && !a.schemes[0].title && a.legend !== "letters";
   let last: string | undefined, branched = false;
   // A compound as the route reads it, and the numbers given so far.
@@ -1309,11 +1323,17 @@ async function drawRoute(host: Host, a: { title?: string; schemes: SchemeIn[]; l
   }
   const counts = a.schemes.map((s) => s.steps.length), list = counts.length > 1 ? `${counts.slice(0, -1).join(", ")} and ${counts[counts.length - 1]}` : `${counts[0]}`;
   return {
-    text: `Drew ${counts.length > 1 ? `${counts.length} schemes of ${list} steps` : `a scheme of ${list} step${counts[0] > 1 ? "s" : ""}`}${numbers.size ? ` with ${numbers.size} numbered compounds` : ""}. Octet laid out each with Clean Up Reaction.${unfit(host, route.boxes)}${branched ? " Octet drew each branch as a scheme of its own, under the one before, with a compound they share drawn again under its number: it does not join branches with arrows." : ""}${readAs(host, route.ok, ctx)}${UNDO}`,
+    text: `Drew ${counts.length > 1 ? `${counts.length} schemes of ${list} steps` : `a scheme of ${list} step${counts[0] > 1 ? "s" : ""}`}${numbers.size ? ` with ${numbers.size} numbered compounds` : ""}. Octet laid out each with Clean Up Reaction.${route.said}${unfit(host, route.boxes)}${branched ? " Octet drew each branch as a scheme of its own, under the one before, with a compound they share drawn again under its number: it does not join branches with arrows." : ""}${readAs(host, route.ok, ctx)}${UNDO}`,
     extra: () => ({ names: names(host, route.ok) }),
   };
 }
 
+// Where a cycle's step runs, as replies and read say it: from intermediate to intermediate, each by its number, else
+// its place from 1 (the last step back to the first). Models cannot tell which arrow step 0 is.
+function stepAt(m: Mol, c: Cycle, k: number): string {
+  const n = (i: number) => (c.nodes[i].length ? m.captions?.find((t) => t.bold && t.under?.some((a) => c.nodes[i].includes(a)))?.text : ((r) => (r?.bold ? r.text : undefined))(textOn(m, c, i)?.runs?.slice(-1)[0])) ?? `${i + 1}`;
+  return `${n(k)}→${n((k + 1) % c.nodes.length)}`;
+}
 async function drawCycle(host: Host, a: { intermediates: { text: string; labels?: string[]; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
   const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
@@ -1344,7 +1364,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
     m = addCaption(m, { text: s.number ? `${s.text}\n${s.number}` : s.text, ...(s.number ? { runs: [...formulaTextRuns(s.text), { text: "\n" }, { text: s.number, bold: true }] } : {}), x: p[0], y: p[1], align: "centre", cycle: { cycle: id, step: k, side: "node" } })[0];
   });
   if (a.centre) m = addCaption(m, { text: clean(a.centre, true), x: centre[0], y: centre[1], align: "centre", cycle: { cycle: id, step: 0, side: "centre" } })[0];
-  const sides: number[] = [];
+  const sides: string[] = [];
   for (const st of a.steps ?? []) {
     if (st.step >= n) continue;
     const [i, o] = [st.in && clean(st.in, true), st.out && clean(st.out, true)];
@@ -1354,7 +1374,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
       m = mol;
       if (i) m = addCaption(m, { text: i, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "in", branch } })[0];
       if (o) m = addCaption(m, { text: o, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "out", branch } })[0];
-      sides.push(st.step);
+      sides.push(`${[i && `in: ${i}`, o && `out: ${o}`].filter(Boolean).join(", ")} at ${st.step}`);
     }
     if (st.name) m = addCaption(m, { text: clean(st.name, true), x: 0, y: 0, italic: true, cycle: { cycle: id, step: st.step, side: "name" } })[0];
   }
@@ -1382,8 +1402,8 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
   if (Math.hypot(...d) > 1e-6) { host.set(shift(m, new Set(nodes.flat()), new Set([id]), d)); await host.settle(); }
   const r1 = (v: number) => Math.round(v * 10) / 10, inside = -2 * leftMargin(st), wide = b && st.edges && !host.experiment() && b[2] - b[0] > inside + 1e-6;
   const advice = `${on.length ? ` The side text ${on.map((t) => `t${t.id}`).join(", ")} lies on an intermediate: give shorter side text.` : ""}${wide ? ` The cycle is ${r1(b[2] - b[0])} bond lengths wide (the page has ${r1(inside)}): give shorter side text, or a larger page or landscape (set_brief).` : ""}`;
-  const words = items.flatMap((s) => ("read" in s ? [] : [s.number ?? s.text]));
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}.${words.length ? ` ${words.join(", ")} ${words.length > 1 ? "are" : "is"} text: Octet cannot read ${words.length > 1 ? "them as structures" : "it as a structure"}.` : ""} Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  const words = items.flatMap((s) => ("read" in s ? [] : [s.number ?? s.text])), cycle = (m = host.doc()).cycles!.find((x) => x.id === id)!;
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `; ${sides.map((x) => x.replace(/\d+$/, (k) => stepAt(m, cycle, Number(k)))).join("; ")}` : ""}.${words.length ? ` ${words.join(", ")} ${words.length > 1 ? "are" : "is"} text: Octet cannot read ${words.length > 1 ? "them as structures" : "it as a structure"}.` : ""} Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 // ---- Ids (D5) ----
@@ -1427,7 +1447,7 @@ function structureOf(m: Mol, id: string, host?: Host): number[] | undefined {
   return all.find((s) => about(host, pickPart(m, s.atoms)).name?.toLowerCase() === want.toLowerCase())?.atoms;
 }
 
-async function replaceStructure(host: Host, a: { structure: string; text?: string; from?: string; changes?: Change[]; like?: string } & Orient): Promise<Result> {
+async function replaceStructure(host: Host, a: { structure: string; text?: string; from?: string; changes?: Change[]; like?: string } & Orient, ctx?: Ctx): Promise<Result> {
   const m = host.doc(), atoms = structureOf(m, a.structure, host);
   if (!atoms) return { text: `There is no structure ${a.structure}. Call read for the ids.`, error: true };
   // Changes alone are made on the structure itself (as is from that names it): the new one is put where its own atoms
@@ -1447,6 +1467,8 @@ async function replaceStructure(host: Host, a: { structure: string; text?: strin
   await host.settle();
   // A structure made by changes is named, with what they did at each stereocentre and its new id, so the AI app
   // sees the change is the one it meant. One from text is named only when Octet read its name another way.
+  // One only turned is the same compound: a summary names none (each name of a taxol intermediate is 300 characters).
+  if (own && turn && !changes?.length && !ctx?.full) return { text: `Turned ${a.structure} (now ${sid(host.doc(), r.atoms)}).${UNDO}` };
   const now = a.text === undefined ? about(host, ok[0].mol) : undefined, made = now ? ` with ${now.name ?? now.formula ?? "a structure"}${ok[0].note ? ` [${ok[0].note}]` : ""}, now ${sid(host.doc(), r.atoms)}` : "";
   return { text: `Replaced ${a.structure}${made}${number ? `, which keeps its number ${number.text}` : ""}${under.length > (number ? 1 : 0) ? `${number ? " and" : ", which keeps"} its caption` : ""}.${made ? "" : readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
@@ -1617,9 +1639,13 @@ async function setBrief(host: Host, a: BriefIn, ctx: Ctx): Promise<Result> {
   const changed = was ? (Object.keys({ ...was, ...brief }) as (keyof typeof brief)[]).filter((x) => JSON.stringify(was![x]) !== JSON.stringify(brief[x])) : [];
   const json = JSON.stringify(brief);
   await ctx.keep?.(json);
+  const again = laid ? `, and Octet laid out ${laid === 1 ? "its reaction" : `its ${laid} reactions`} again with Clean Up Reaction` : "";
+  // Said with a draw, in the fewest words that tell the AI app the brief is kept and its style and page (models repeat
+  // all of it to the user); the sizes too with detail: full.
+  const terse = ctx.along && !ctx.full ? `${was ? (changed.length ? `Brief changed (${changed.join(", ")})` : "Brief as it was") : "Brief kept"}: ${kept ? "the drawing's own style and page, " : ""}${paged ? uses(next) : kept ? `${next.preset} with no page` : `Quick start (${next.preset}, no page)`}${again}.` : undefined;
   const told = was ? (changed.length ? `Octet changed the brief's ${changed.join(", ")}.` : "The brief is as it was.") : "Octet keeps this brief for the session.";
-  const now = `${paged ? uses(next) : `${next.preset} with no page${kept ? "" : " (Quick start)"}`}, with ${next.labelSize} pt labels and ${next.bond} pt bonds${laid ? `, and Octet laid out ${laid === 1 ? "its reaction" : `its ${laid} reactions`} again with Clean Up Reaction` : ""}`;
-  return { text: `${told}${kept ? " The drawing has work in it, so it keeps its own style and page." : ""} The drawing ${restyled ? "now uses" : "uses"} ${now}.${own && journal ? ` The style is the user's own, in place of ${journal.preset}'s.` : ""}${advice}${brief.emphasis || brief.layout ? " Follow its emphasis and layout as you draw." : ""}${restyled ? UNDO : ""}\n${json}`, data: { brief } };
+  const now = `${paged ? uses(next) : `${next.preset} with no page${kept ? "" : " (Quick start)"}`}, with ${next.labelSize} pt labels and ${next.bond} pt bonds${again}`;
+  return { text: `${terse ?? `${told}${kept ? " The drawing has work in it, so it keeps its own style and page." : ""} The drawing ${restyled ? "now uses" : "uses"} ${now}.`}${own && journal ? ` The style is the user's own, in place of ${journal.preset}'s.` : ""}${advice}${brief.emphasis || brief.layout ? " Follow its emphasis and layout as you draw." : ""}${restyled ? UNDO : ""}\n${json}`, data: { brief } };
 }
 
 async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ of: string; limiting?: boolean } & Partial<Record<Field, string>>)[] }): Promise<Result> {
@@ -2320,10 +2346,15 @@ const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under |
 // so the AI app sees how Octet read every compound with no read.
 // Octet's name follows where a name was given and Octet's name for it is another (as readAs says them), so the AI app
 // can see it is the compound it meant.
+// A compound drawn again under its number (a later scheme's start) says which it repeats, with no formula: 15 s4 =s3.
 function madeCompounds(host: Host, m: Mol, made: string[]): string[] {
-  const ids = new Set(made), bold = (m.captions ?? []).filter((c) => c.bold && c.under?.length);
-  return structuresOf(m).filter((x) => ids.has(x.id)).map((x) => {
-    const n = bold.find((c) => c.under!.includes(x.atoms[0]))?.text, part = pickPart(m, x.atoms), src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined;
+  const ids = new Set(made), number = new Map<number, string>(), first = new Map<string, { atoms: number[]; id: string }>(), all = structuresOf(m);
+  for (const c of m.captions ?? []) if (c.bold) for (const i of c.under ?? []) if (!number.has(i)) number.set(i, c.text);
+  for (const y of all) { const k = number.get(y.atoms[0]); if (k && !first.has(k)) first.set(k, y); }
+  return all.filter((x) => ids.has(x.id)).map((x) => {
+    const n = number.get(x.atoms[0]), part = pickPart(m, x.atoms), was = n ? first.get(n) : undefined;
+    if (was && was !== x && host.smiles(pickPart(m, was.atoms)) === host.smiles(part)) return `${n} ${x.id} =${was.id}`;
+    const src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined;
     return `${n ? `${n} ` : ""}${x.id} ${it?.formula ?? host.formula(part)}${it?.name && plainName(it.name) !== plainName(src!.given) ? ` ${short(it.name, 120)}` : ""}`;
   });
 }
@@ -2382,7 +2413,7 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
     const wrong = wrongWith(opOf(st.tool).inputSchema, given, ctx.notes);
     if (wrong) throw new Error(`Step ${k + 1} (${st.tool}): ${wrong}.`);
     // A step that asks for detail: full asks for the batch's, as with a picture.
-    if (given.detail === "full") full = true;
+    if (given.detail === "full") full = ctx.full = true;
     delete given.detail;
     await host.settle();
     const was = index(host.doc()), out = await runOp(opOf(st.tool), host, given, ctx);
@@ -2392,6 +2423,9 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
     const now = host.doc(), fresh = [...index(now).keys()].filter((id) => !was.has(id)), owned = ownedText(now);
     made.push(byKind(fresh)); top.push(fresh.filter((id) => !owned.has(id)));
     said.push(`${k + 1}. ${out.text.replace(UNDO, "").replace(/ Call read[^.]*\.$/, "")}`);
+    // Steps one after another that each only turned a structure say it once: 1–3. Turned s3, s4, s5 (now s7, s8, s9).
+    const [p, q] = said.slice(-2).map((x) => /^(\d+)(?:–\d+)?\. Turned (.+) \(now (.+)\)\.$/.exec(x));
+    if (p && q) said.splice(-2, 2, `${p[1]}–${q[1]}. Turned ${p[2]}, ${q[2]} (now ${p[3]}, ${q[3]}).`);
   }
   return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, extra: () => ({ steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]()).filter(([key]) => key !== "names")) })) }), ...(picture ? { cropped: true as const } : {}), ...(full ? { full: true as const } : {}) };
 }
@@ -2789,7 +2823,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   const cycles = (m.cycles ?? []).filter((c) => keep(`c${c.id}`)).map((c) => ({
     id: `c${c.id}`, clockwise: c.clockwise, intermediates: c.nodes.map((n, i) => (n.length ? idOf(n) : ((t) => (t ? `t${t.id}` : null))(textOn(m, c, i)))),
     centre: centreText(m, c)?.text,
-    sides: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && (x.cycle.side === "in" || x.cycle.side === "out")).map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, side: x.cycle!.side, text: x.text })),
+    sides: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && (x.cycle.side === "in" || x.cycle.side === "out")).map((x) => ({ id: `t${x.id}`, at: stepAt(m, c, x.cycle!.step), side: x.cycle!.side, text: x.text })),
     names: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && x.cycle.side === "name").map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, text: x.text })),
   }));
   const at = (v: number) => Math.round(v * 10) / 10;
@@ -3022,6 +3056,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
       ctx.lean = !!routed.lines;
+      ctx.full = wantFull;
       ctx.where = routed.where;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
       let before: Mol | undefined, told = false, shown: Box | undefined;
@@ -3033,7 +3068,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         const was = reports ? index(before) : undefined, warned = changes ? new Set(wantFull || tool.name === "batch" ? warningTexts(h, before) : shownProblems(h).map((p) => p.message)) : undefined;
         if (!free) keepIdsAbove(highest(before));
         // The brief given with the call, set first in the same undo step, and said in a line before the result.
-        const set = brief === undefined ? undefined : await opOf("brief").run(h, brief, ctx);
+        const set = brief === undefined ? undefined : await opOf("brief").run(h, brief, { ...ctx, along: true });
         const out = set?.error ? set : await runOp(tool, h, args, ctx);
         // A draw by lines answers in as few characters as carry it (plan 19.2): not that Octet laid it out or that it is
         // one undo step, which every such call is.
