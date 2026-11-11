@@ -289,7 +289,9 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const first = row(arrowId);
   if (!first) return undefined;
   const way = (r: Reaction) => { const a = arrows.find((x) => x.id === r.arrows[0])!, dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1]; return Math.abs(dx) > 3 * Math.abs(dy) ? Math.sign(dx) : 0; };
-  const span = (r: Reaction) => union([...r.steps, ...[...r.conditions.values()].flatMap((c) => [...c.above, ...c.below])].map((x) => x.box));
+  // (Each row's box is worked out once: a wrapped scheme asks for it from each line above and below.)
+  const spans = new Map<Reaction, Box>();
+  const span = (r: Reaction) => { let b = spans.get(r); if (!b) spans.set(r, (b = union([...r.steps, ...[...r.conditions.values()].flatMap((c) => [...c.above, ...c.below])].map((x) => x.box)))); return b; };
   const starts = (r: Reaction) => r.steps[0]?.kind === "arrow", ends = (r: Reaction) => r.steps[r.steps.length - 1]?.kind === "structure";
   // The nearest line above or below that could be a line of the same reaction (below: the next one down the page),
   // among the arrows no higher up the page than `under`.
@@ -450,25 +452,27 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
   // after the first arrow, so the first line holds the starting materials and their arrow (a line of starting
   // materials alone would read as no reaction); the fewest lines, then the most even.
   const widthOf = (from: number, to: number) => parts.slice(from, to).reduce((w, p) => w + p.length, 0) + gap * Math.max(0, to - from - 1);
-  let breaks: number[] = [], widest = Infinity;
+  let breaks: number[] = [], over = Infinity, widest = Infinity;
   if (flat && o.width && widthOf(0, parts.length) > o.width) {
     const firstArrow = parts.findIndex((p) => p.step.kind === "arrow"), at = (kind: string) => parts.flatMap((p, k) => (k > firstArrow && p.step.kind === kind ? [k] : []));
     for (const candidates of [at("arrow"), [...new Set([...at("arrow"), ...at("plus")])].sort((p, q) => p - q)]) {
-      // best[k]: the fewest lines, then the narrowest widest line, for parts 0..k-1 broken at candidates.
-      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; widest: number; cuts: number[] }>([[0, { lines: 0, widest: 0, cuts: [] }]]);
-      for (const end of ends) for (const [from, b] of [...best]) {
+      // best[k]: the fewest lines, then the narrowest widest line, for parts 0..k-1 broken at candidates. over: how
+      // many of its lines are wider than the page (each a piece with no break inside it, so the same whatever the cuts).
+      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; over: number; widest: number; cuts: number[] }>([[0, { lines: 0, over: 0, widest: 0, cuts: [] }]]);
+      for (const [k, end] of ends.entries()) for (const [from, b] of [...best]) {
         // (A first line of one structure alone gains no room: the reaction stays on one line.)
         if (from >= end || (!from && end < 2)) continue;
         // (A piece with no break inside it stays whole, however wide: the rest still wraps.)
         const w = widthOf(from, end);
-        if (w > o.width && ends.some((e) => e > from && e < end)) continue;
-        const next = { lines: b.lines + 1, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] }, was = best.get(end);
+        if (w > o.width && k && ends[k - 1] > from) continue;
+        const next = { lines: b.lines + 1, over: b.over + Number(w > o.width + 1e-9), widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] }, was = best.get(end);
         if (!was || next.lines < was.lines || (next.lines === was.lines && next.widest < was.widest - 1e-9)) best.set(end, next);
       }
-      // (Breaks before plus signs are used only when they make the widest line narrower.)
+      // (Breaks before plus signs are used only when they leave fewer lines wider than the page, or as many and the
+      // widest line narrower.)
       const done = best.get(parts.length);
-      if (done && done.widest < widest - 1e-9) { breaks = done.cuts; widest = done.widest; }
-      if (widest <= o.width + 1e-9) break;
+      if (done && (done.over < over || (done.over === over && done.widest < widest - 1e-9))) { breaks = done.cuts; over = done.over; widest = done.widest; }
+      if (!over) break;
     }
   }
 

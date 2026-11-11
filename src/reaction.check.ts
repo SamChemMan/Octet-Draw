@@ -218,6 +218,23 @@ for (const id of [first, second]) {
   assert.equal(e, d, "D + E on one line, after their arrow");
   assert.deepEqual(done.captions!.map((p) => Math.round(middle(capBox(done)(p.id)!)[1] * 100) / 100 || 0).sort((p, q) => q - p), [c || 0, d], "a plus sign on the first line and one on the second");
 }
+// A later line that is too wide breaks before its plus sign, though the first line stays too wide whatever is done:
+// in A + B → C → D + E → F with a wide D, both A + B → C and → D + E are wider than a page of 11, so the lines after
+// the first are → D, then + E → F.
+// (Before, breaks before plus signs were judged by the widest line alone, and the first line is always that.)
+{
+  let t: Mol = EMPTY;
+  for (const [x, n] of [[0, 6], [3, 6], [9, 6], [17, 14], [23, 6], [29, 6]]) t = addRing(t, n, false, { point: [x, 0] });
+  const ids = [4.6, 10.6, 24.6].map((x) => { let id: number; [t, id] = addArrow(t, { kind: "reaction", from: [x, 0], to: [x + 2.8, 0] }); return id; });
+  const level = (b: Box) => Math.round(middle(b)[1] * 100) / 100, wide = (mol: Mol, y: number) => { const l = [...fragments(mol).map((g) => ink(mol)(g)), ...mol.arrows!.map((a): Box => [a.from[0], a.from[1], a.to[0], a.from[1]]), ...mol.captions!.map((p) => capBox(mol)(p.id)!)].filter((b) => Math.abs(level(b) - y) < 0.5); return Math.max(...l.map((b) => b[2])) - Math.min(...l.map((b) => b[0])); };
+  const roomy = clean(t, find(t, ids[0]), 12), [, , c0, d0, e0] = fragments(roomy).map((g) => level(ink(roomy)(g)));
+  assert.ok(wide(roomy, c0) > 11 && e0 === d0 && wide(roomy, d0) > 11, "on a page of 12, A + B → C and → D + E are two lines, each wider than 11");
+  const done = clean(t, find(t, ids[0]), 11), [, , c, d, e, f] = fragments(done).map((g) => level(ink(done)(g)));
+  assert.ok(d < c - 1 && e < d - 1 && f === e, "three lines: → D, then E and F");
+  assert.deepEqual(ids.map((id) => Math.round(arrowOf(done, id).from[1] * 100) / 100), [c, d, e], "each line after the first has its arrow");
+  assert.ok(done.captions!.some((p) => Math.abs(level(capBox(done)(p.id)!) - e) < 0.5), "the third line starts with the plus sign");
+  for (const y of [d, e]) assert.ok(wide(done, y) <= 11 + 1e-6, `a line after the first fits the page: ${wide(done, y)}`);
+}
 // A plus sign that the structure beside it reaches over (a reactant cleaned up or turned where it stands, on either
 // side of the plus sign) is still the row's: Clean Up Reaction adds no second one, and sets it between the two.
 for (const at of [0.5, 2.5]) {

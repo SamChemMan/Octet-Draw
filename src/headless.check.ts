@@ -141,6 +141,32 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(Math.abs(s1[0] + s3[2]) < 0.21, "it is in the middle of the page");
   assert.ok(s4[3] < s3[1], "the steps after it wrap");
   assert.ok(fits(wide), JSON.stringify(wide.structuredContent.check));
+  // set_style puts a drawing across the page by the same rule: with the same preset, the scheme stays in the middle.
+  const styled: Wrote = await call("set_style", { preset: "ACS Document 1996" });
+  assert.ok(!styled.structuredContent.changed.includes("s1") && fits(styled), `set_style moved the scheme: ${JSON.stringify(styled.structuredContent)}`);
+  // A reaction of one step wider than the page cannot wrap or fit: it starts at the left margin, so only its end is
+  // past the page (in the middle of the page, both ends would be).
+  d = drawing("paper", "Wider than the page");
+  const over: Wrote = await call("draw_reaction", { start: [{ text: ph(6, "Br") }, { text: ph(6, "OB(O)") }], steps: [{ reagents: ["Pd"], products: [{ text: ph(8) }] }] }), bo = span(over);
+  assert.ok(bo[2] - bo[0] > pageSize(d.host.style())[0] * (72 / 25.4 / d.host.style().bond), `wider than the page: ${bo}`);
+  assert.ok(Math.abs(bo[0] - margins().left) < 0.11, `it starts at the left margin: ${bo}`);
+}
+{
+  // Free text with no place given, on an empty page: the top left of its box is at the page's margins.
+  d = drawing("paper", "Text");
+  const { left, top } = margins(), text: Wrote = await call("add_text", { text: "Scheme 1. A title" }), b = span(text);
+  assert.ok(Math.abs(b[0] - left) < 0.11 && Math.abs(b[3] - top) < 0.11, `${b}, ${[left, top]}`);
+}
+{
+  // New work starts under a reagent table too. On an experiment page with its Procedure heading and box deleted, the
+  // table under the scheme is the lowest thing drawn.
+  d = drawing("experiment", "A table");
+  const scheme: Wrote = await call("draw_reaction", { start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol" }] }] });
+  const page = (await call("read_drawing", { detail: "full" })).structuredContent, heading = page.text.find((x: { text: string }) => x.text === "Procedure").id, lowest = page.shapes.reduce((p: { box: number[] }, q: { box: number[] }) => (q.box[1] < p.box[1] ? q : p)).id;
+  assert.ok(!(await call("delete", { ids: [heading, lowest] })).isError);
+  const table = d.host.tables()[0].box, under: Wrote = await call("draw_structures", { structures: [{ text: "toluene" }] });
+  assert.ok(table[1] < scheme.structuredContent.boxes.s1[1] - 1, "the table reaches under the scheme's structures");
+  assert.ok(span(under)[3] <= table[1] - 3 && span(under)[3] > table[1] - 4.5, `3 bond lengths under the table (and the grid's 1.25 round a structure): ${span(under)}, ${table}`);
 }
 {
   // Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A

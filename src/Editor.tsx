@@ -3698,16 +3698,20 @@ export default function Editor() {
     const b = drawnBox(doc.atoms.keys(), items), [x, y] = [Math.max(...pages.map(([, w]) => w)) / 2 * mm * L, Math.max(...pages.map(([, , h]) => h)) / 2 * mm * L];
     return b ? [Math.min(b[0], -x), Math.min(b[1], -y), Math.max(b[2], x), Math.max(b[3], y)] : [-x, -y, x, y];
   }, [doc, placed, arrows, cycleArrows, shown.shapes, pages, mm]); // eslint-disable-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => {
-    const what = revealNext.current;
-    if (!what) return;
-    revealNext.current = false;
-    const b = what === true ? drawnBox(selection, picked) : drawnBox([], what), el = svg.current?.getBoundingClientRect();
+  // A box (drawing px at 100%, y down) comes into view so. What an AI app's call made does too (mcpHost.end).
+  const panTo = (b: Box | undefined) => {
+    const el = svg.current?.getBoundingClientRect();
     if (!b || !el) return;
     const v = views.get(), [dx, dy] = panInto([v.x + b[0] * v.zoom, v.y + b[1] * v.zoom, v.x + b[2] * v.zoom, v.y + b[3] * v.zoom], roomOf([el.left, el.top, el.right, el.bottom], panelSpans()));
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
     stopCamera();
     setView({ ...v, x: v.x + dx, y: v.y + dy });
+  };
+  useLayoutEffect(() => {
+    const what = revealNext.current;
+    if (!what) return;
+    revealNext.current = false;
+    panTo(what === true ? drawnBox(selection, picked) : drawnBox([], what));
   }); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure a caption at this point (drawing coordinates) would sit under: one whose ink is just above it.
   const structureAbove = (p: P, reach = 2.5) => {
@@ -6519,7 +6523,7 @@ export default function Editor() {
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
-    end: () => { joinNext.current = undefined; mcpCalling.current = false; },
+    end: (made) => { joinNext.current = undefined; mcpCalling.current = false; if (made) panTo([made[0] * L, -made[3] * L, made[2] * L, -made[1] * L]); },
     set: (m) => (mcpWait.current = { mol: set(m) }).mol!,
     // A message to itself is a task the browser runs at once, where a timer in a window behind others can wait a second.
     settle: async () => {

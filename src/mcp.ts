@@ -16,7 +16,7 @@ import { addSide } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, parseAmount, reagentName, type Field } from "./stoich.ts";
 import { PRESETS, PAGES, pageSize, presetAt, type DocStyle, type PageName } from "./docstyle.ts";
-import { straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
+import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
 import type { TextRun } from "./richtext.ts";
@@ -33,7 +33,7 @@ export type Host = {
   tidy: (m: Mol) => Mol; // Clean Up Structure
   named: (text: string) => boolean; // Name to Structure reads the text as a name (not SMILES or a file)
   begin: (label: string) => void; // what follows is one undo step, until end
-  end: () => void;
+  end: (made?: Box) => void; // made: the box of what the call made (drawing units, y up), which comes into view
   set: (m: Mol) => Mol; // the drawing as the editor keeps it (an experiment page adds a reagent table to a new arrow)
   settle: () => Promise<void>; // what the tool changed is drawn and measured (3 s at most)
   cleanReactions: (arrows: Set<number>) => number; // Clean Up Reaction on the reactions of these arrows
@@ -481,10 +481,12 @@ function about(host: Host, m: Mol): { name?: string; formula?: string; smiles?: 
 
 const PAD = 3; // bond lengths between what is drawn and what an AI app adds below it
 // The box of everything drawn, as drawn (drawing units, y up), or undefined: the structures with their labels, each
-// text (a number under a structure and an arrow's conditions too), the arrows and the cycles.
+// text (a number under a structure and an arrow's conditions too), the arrows, the cycles, the reagent tables and the
+// shapes. Not an experiment page's shapes: they are the boxes under its headings, and its schemes and text go in them.
 function drawnBox(host: Host, m: Mol): Box | undefined {
   const cycles = (m.cycles ?? []).map((c): Box => [c.centre[0] - c.radius, c.centre[1] - c.radius, c.centre[0] + c.radius, c.centre[1] + c.radius]);
-  return union([host.ink(m.atoms.map((_, i) => i)), ...(m.captions ?? []).map((c) => host.textBox(c.id)), ...(m.arrows ?? []).map(arrowBox), ...cycles].filter((b): b is Box => !!b));
+  const shapes = host.experiment() ? [] : (m.shapes ?? []).map((x) => corners([x.from, x.to]));
+  return union([host.ink(m.atoms.map((_, i) => i)), ...(m.captions ?? []).map((c) => host.textBox(c.id)), ...(m.arrows ?? []).map(arrowBox), ...cycles, ...host.tables().map((t) => t.box), ...shapes].filter((b): b is Box => !!b));
 }
 // Where new work starts: its top left, clear under everything drawn, or at the top left of an empty page.
 function origin(host: Host, m: Mol): P {
@@ -802,11 +804,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   // text within 3 bond lengths over an arrow's line reads as its conditions (a scheme's title, drawn before).
   const tall = Math.max(...ok.map((s) => { const b = boxOf(s.mol); return Math.hypot(b[2] - b[0], b[3] - b[1]); }));
   const was = m, [x0, top] = origin(host, m), up = Math.max(tall / 2, ...lines.map((l) => l.above.reduce((h, [t]) => h + (structured(t) ? tall : t.split("\n").length), 0)));
-  // (A box round one part of a row goes with that part. A row that would lie across a box's top or bottom edge is
-  // drawn under that box, and moves into its place when it is laid out.)
-  let y = top - up;
-  for (const f of (m.shapes ?? []).map((x) => [Math.min(x.from[1], x.to[1]), Math.max(x.from[1], x.to[1])]).sort((p, q) => q[0] - p[0])) if (f.some((edge) => Math.abs(edge - y) < up + 1)) y = f[0] - PAD - up;
-  const arrows = new Set<number>(), said: string[] = [];
+  const y = top - up, arrows = new Set<number>(), said: string[] = [];
   let x = x0;
   // Each step's structures (their atoms), for the turn that lays each product as its starting material.
   const laid: { reactants: number[][]; products: number[][] }[] = [];
@@ -858,14 +856,12 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   await host.settle();
   host.cleanReactions(arrows);
   await host.settle();
-  // The scheme as laid out goes where new work starts: its top there, and inside the page's left and right margins,
-  // or in the middle of the page when it is wider than that (Clean Up Reaction wraps to the page less half an inch each
-  // side, a little more than the page inside its 15 mm margins). A wrapped line is centred under the first, and a
-  // reagent table has its row names to the left of the reaction (B4).
+  // The scheme as laid out goes where new work starts: its top there, and across the page as `across` puts it. A
+  // wrapped line is centred under the first, and a reagent table has its row names to the left of the reaction (B4).
   const now = host.doc(), old = new Set(was.captions?.map((c) => c.id)), atoms = now.atoms.map((_, i) => i).slice(was.atoms.length), texts = (now.captions ?? []).filter((c) => !old.has(c.id)).map((c) => c.id);
   const b = union([host.ink(atoms), ...texts.map((id) => host.textBox(id)), ...(now.arrows ?? []).filter((x) => arrows.has(x.id)).map(arrowBox), ...host.tables().filter((t) => arrows.has(t.arrow)).map((t) => t.box)].filter((v): v is Box => !!v));
   if (b && !placed(a)) {
-    const left = leftMargin(host.style()), d: P = [b[2] - b[0] > -2 * left ? -(b[0] + b[2]) / 2 : Math.max(left - b[0], Math.min(0, -left - b[2])), top - b[3]];
+    const d: P = [across(host.style(), b), top - b[3]];
     if (Math.hypot(...d) > 1e-6) { host.set(shift(now, new Set(atoms), new Set([...arrows, ...texts]), d)); await host.settle(); }
   }
   return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}: ${said.join(" ")}. Octet laid it out with Clean Up Reaction.${UNDO}`, data: { names: names(host, ok) } };
@@ -1017,7 +1013,8 @@ async function addText(host: Host, a: TextIn): Promise<Result> {
   // the page's width less its margins (15 mm each side).
   const s = host.style(), k = 72 / 25.4 / s.bond, page = pageSize(s), heading = host.experiment() ? m.captions?.find((c) => c.bold && c.text.trim() === "Procedure" && !c.under && !c.on) : undefined;
   const below = heading && Math.min(heading.y, ...(m.captions ?? []).filter((c) => c !== heading && !c.on && !c.under && !c.cycle && c.y < heading.y && Math.abs(c.x - heading.x) < 0.5).map((c) => c.y - c.text.split("\n").length * 1.2 * (s.captionSize / s.bond)));
-  const [x, y] = heading ? [heading.x, below! - 1.4 * (s.captionSize / s.bond)] : origin(host, m);
+  // Else where new work starts: the top of its first line there (a text is placed by that line's baseline).
+  const [x, y] = heading ? [heading.x, below! - 1.4 * (s.captionSize / s.bond)] : (([ox, oy]) => [ox, oy - ASCENT * ((a.size ?? s.captionSize) / s.bond)])(origin(host, m));
   const width = text.length > 60 ? (page[0] - 30) * k : undefined;
   const [mol, id] = addCaption(m, { text, ...runs, x, y, align: a.text_align ?? "left", ...(width ? { width } : {}), ...textStyle(a) });
   host.set(mol);
@@ -1036,20 +1033,17 @@ async function setStyle(host: Host, a: { preset?: string; page?: PageName; lands
   const laid = arrows.size && (a.page || a.page_size || a.preset || a.landscape !== undefined) ? host.cleanReactions(arrows) : 0;
   await host.settle();
   // A new page: everything keeps its place from the page's top left corner (the page is centred on the drawing's
-  // origin), then moves across together to the left margin (15 mm) if it would still run past it (B4).
+  // origin), then moves across together as `across` puts it, if it would still run past a margin (B4).
   const corner = (st: DocStyle): P => { const [pw, ph] = pageSize(st), kk = 72 / 25.4 / st.bond; return [(-pw / 2) * kk, (ph / 2) * kk]; };
   const [c0, c1] = [corner(s), corner(next)], move0: P = [c1[0] - c0[0], c1[1] - c0[1]];
   if (Math.hypot(...move0) > 1e-6) { host.set(shift(host.doc(), ...everything(host.doc()), move0)); await host.settle(); }
   let m = host.doc();
-  const [w] = pageSize(next), k = 72 / 25.4 / next.bond, left = leftMargin(next);
+  const [w] = pageSize(next), k = 72 / 25.4 / next.bond;
   // Text that wraps (a procedure) wraps to the new page's width less its margins.
   const text = (w - 30) * k;
   if (m.captions?.some((c) => c.width !== undefined && c.width > text + 1e-6)) { m = host.set({ ...m, captions: m.captions.map((c) => (c.width !== undefined && c.width > text ? { ...c, width: text } : c)) }); await host.settle(); }
-  const box = drawnBox(host, m), lowest = Math.min(box?.[0] ?? Infinity, ...host.tables().map((t) => t.box[0]));
-  if (Number.isFinite(lowest) && lowest < left - 1e-6) {
-    host.set(shift(m, ...everything(m), [left - lowest, 0]));
-    await host.settle();
-  }
+  const box = drawnBox(host, m), dx = box ? across(next, box) : 0;
+  if (Math.abs(dx) > 1e-6) { host.set(shift(m, ...everything(m), [dx, 0])); await host.settle(); }
   return { text: `The drawing now uses ${next.preset} on ${next.page === "Custom" ? `a ${next.custom[0]} x ${next.custom[1]} mm page` : next.page}${next.landscape ? " (landscape)" : ""}${laid ? `, and Octet laid out ${laid === 1 ? "its reaction" : `its ${laid} reactions`} again with Clean Up Reaction` : ""}.${UNDO}` };
 }
 
@@ -1184,6 +1178,10 @@ function shift(m: Mol, atoms: Set<number>, items: Set<number>, d: P): Mol {
 const everything = (m: Mol): [Set<number>, Set<number>] => [new Set(m.atoms.map((_, i) => i)), new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.cycles ?? []), ...(m.shapes ?? [])].map((x) => x.id))];
 // The page's left margin (15 mm), drawing units.
 const leftMargin = (s: DocStyle) => (15 - pageSize(s)[0] / 2) * (72 / 25.4 / s.bond);
+// How far across the page a box moves to lie on it: inside the left and right margins; in the middle of the page when
+// it is wider than that and no wider than the page (Clean Up Reaction wraps to the page less half an inch each side, a
+// little more than the page inside its margins); from the left margin when it is wider than the page.
+const across = (s: DocStyle, b: Box) => { const left = leftMargin(s), w = b[2] - b[0]; return w > -2 * left && w <= pageSize(s)[0] * (72 / 25.4 / s.bond) + 1e-6 ? -(b[0] + b[2]) / 2 : Math.max(left - b[0], Math.min(0, -left - b[2])); };
 
 async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } & Placement): Promise<Result> {
   let m = host.doc();
@@ -1605,7 +1603,10 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   let m = host.doc();
   const bond = a.on !== undefined ? bondOf(m, a.on, host) : undefined, atom = a.on !== undefined && bond === undefined ? atomOf(m, a.on, host) : undefined;
   if (a.on !== undefined && bond === undefined && atom === undefined) return { text: `No atom or bond ${a.on}.`, error: true };
-  m = host.set(addTemplate(m, item.mol, bond !== undefined ? { bond } : atom !== undefined ? { atom } : { point: origin(host, m) }));
+  // With no atom or bond to go on: its top left where new work starts (addTemplate takes where the middle of its
+  // atoms goes, or its own origin when it has none).
+  const t = item.mol, b = roughBox(t), n = t.atoms.length || 1, c = t.atoms.reduce((p, x) => [p[0] + x.location[0] / n, p[1] + x.location[1] / n], [0, 0]), [x, y] = origin(host, m);
+  m = host.set(addTemplate(m, t, bond !== undefined ? { bond } : atom !== undefined ? { atom } : { point: [x + c[0] - b[0], y + c[1] - b[3]] }));
   await host.settle();
   return { text: `Placed ${item.name} from ${item.category}.${UNDO}` };
 }
@@ -1615,7 +1616,7 @@ async function addFile(host: Host, a: { text: string }): Promise<Result> {
   const add = host.file(a.text);
   if (!add || (!add.atoms.length && !add.captions?.length && !add.arrows?.length && !add.shapes?.length)) return { text: "Octet cannot read this as a drawing. Give CDXML, a MOL, SDF or RXN file, SMILES or InChI.", error: true };
   let m = host.doc();
-  const b = add.atoms.length ? boxOf(add) : [0, 0, 0, 0], [x, y] = origin(host, m), r = insertMol(m, { ...add, style: undefined }, [x - b[0], y - b[3]]);
+  const b = roughBox(add), [x, y] = origin(host, m), r = insertMol(m, { ...add, style: undefined }, [x - b[0], y - b[3]]);
   m = r.mol;
   m = host.set(m);
   await host.settle();
@@ -1632,6 +1633,9 @@ const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...bo
 const corners = (ps: P[]): Box => [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))];
 const arrowBox = (x: Arrow): Box => corners([x.from, x.to, ...(x.curve?.points.flatMap((q) => [q.at, ...(q.c1 ? [q.c1] : []), ...(q.c2 ? [q.c2] : [])]) ?? [])]);
 const mid = (b: Box): P => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+// The box of a drawing before it is drawn (a file's, a template's): its atoms' places, its arrows and shapes, and
+// the points its free text is at.
+const roughBox = (t: Mol): Box => union([...(t.atoms.length ? [boxOf(t)] : []), ...(t.arrows ?? []).map(arrowBox), ...(t.shapes ?? []).map((x) => corners([x.from, x.to])), ...(t.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle).map((c): Box => [c.x, c.y, c.x, c.y])]) ?? [0, 0, 0, 0];
 const rounded = (b: Box) => b.map((v) => Math.round(v * 10) / 10);
 // The box of what the ids name (bond lengths, y up), with what belongs to them: a structure's number, an arrow's
 // conditions, a cycle's text. Each write result gives these boxes, and placement measures with them.
@@ -2241,7 +2245,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (changes) delete args.picture;
       ctx.watched = token !== undefined;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(`${ctx.client} is drawing.`, () => { stopped = true; }); }
-      let before: Mol | undefined, told = false;
+      let before: Mol | undefined, told = false, shown: Box | undefined;
       try {
         await h.settle();
         before = h.doc();
@@ -2262,6 +2266,9 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
           // The box of each object made or changed (F2), with what belongs to it, so the next call can place against
           // it without a read.
           touched = [...made, ...changed];
+          // What the call made comes into view when it ends: new work starts at the top of the page or under what
+          // is drawn, which the window may not show.
+          if (made.length) shown = boxOfIds(h, after, made);
           // Only the top-level objects': a caption that belongs to something (a number, conditions, a cycle's text) is
           // in its box already, and leaving it out keeps the result short for the AI app to read.
           const owned = new Set((after.captions ?? []).filter((c) => c.under || c.on || c.cycle).map((c) => `t${c.id}`));
@@ -2282,7 +2289,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         if (e instanceof Cancelled) { told = true; h.said(`${ctx.client} stopped. The drawing is as it was.`); return reply(id, { content: [{ type: "text", text: `${tool.name} was cancelled, and the drawing is as it was before the call.` }], isError: true }); }
         return reply(id, { content: [{ type: "text", text: `${tool.name} did not finish, and the drawing is as it was before the call: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500) }], isError: true });
       } finally {
-        if (changes) { h.end(); if (!told) h.working(); }
+        if (changes) { h.end(shown); if (!told) h.working(); }
       }
     }
     default: return reply(id, undefined, { code: -32601, message: `Octet does not take ${msg.method.slice(0, 40)}.` });
