@@ -1398,6 +1398,15 @@ once.
 first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release-1.1.2`. Expect conflicts in
 `src/Editor.tsx`, `src/editor.css` and `src/releases.ts`. Only when Sam says.
 
+After that merge, two things for Clean Up Reaction (1.1.2's `item/clean-up`, `166c79a`, which Sam approved on 11 Nov:
+Clean Up Reaction now does both jobs and `clean_reaction_augmented` is gone):
+
+- Take `clean_reaction_augmented` off `run_command`'s list in `src/mcp.ts`.
+- In the app, `clean_reaction` lays the reaction out first and turns the products from a timer when the glide ends
+  (`turnNext`, `turnProducts` in `Editor.tsx`), so a `run_command` call returns before the turn. The MCP path and
+  `scripts/headless/host.ts` must turn the products at once (`turnProducts`, then one set), so the call returns the
+  finished drawing. Add a check that the reply's drawing is the turned one.
+
 ### 17.4 Before any push
 
 `docs/plans/mcp.md` and `docs/decisions/0021-mcp.md` are in this branch's history (from R7). Sam's notes say they
