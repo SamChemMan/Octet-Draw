@@ -101,10 +101,11 @@ const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t ==
 // takes over from a drawing tool.
 export const HOLD_MS = 350;
 
-// Tool icons in Phosphor's style (256 grid, 16-unit round strokes). Each one draws the real object.
-function Icon({ children }: { children: React.ReactNode }) {
+// Tool icons in Phosphor's style (256 grid, 16-unit round strokes). Each one draws the real object. size: 18 for a
+// row's icon (BRAND.md Iconography).
+function Icon({ children, size = 20 }: { children: React.ReactNode; size?: number }) {
   return (
-    <svg width={20} height={20} viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth={16} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth={16} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       {children}
     </svg>
   );
@@ -344,6 +345,19 @@ export const MassSpecGlyph = () => (
     <path d="M64,224V176M104,224V196M152,224V160M192,224V204" />
   </Icon>
 );
+
+// Add multi-centre attachment and Add variable attachment, at 18 px as the Phosphor icons beside them: a ring with a
+// bond from its centre. A multi-centre attachment (an η bond, to all the ring's atoms) has a dot at the centre; a
+// variable one has a dashed arc over some of the ring's atoms (one of them takes the bond).
+const AttachmentRing = ({ children }: { children: React.ReactNode }) => (
+  <Icon size={18}>
+    <polygon points="128,62 190.4,98 190.4,170 128,206 65.6,170 65.6,98" />
+    <line x1={128} y1={134} x2={187} y2={32} />
+    {children}
+  </Icon>
+);
+export const MultiAttachmentGlyph = () => <AttachmentRing><circle cx={128} cy={134} r={24} fill="currentColor" stroke="none" /></AttachmentRing>;
+export const VariableAttachmentGlyph = () => <AttachmentRing><path d="M93.8,228A100,100 0 0 1 41.4,84" strokeDasharray="16 36.8" /></AttachmentRing>;
 
 // Synthesis and Retrosynthesis: the cut chain under the arrow each draws (a reaction arrow, or a retrosynthetic one).
 export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (

@@ -11,7 +11,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, BracketsRound, TreeStructure, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, StarFour, TextTSlash,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -26,7 +26,7 @@ import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
 import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
-import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, MassSpecGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, withSize, type BondKind } from "./tools";
+import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
 
 // Each pick's choices (arrowPicks lists them) drawn as themselves, for the Actions panel and the right-click menu alike.
 const choices = (p: ArrowPick, c: Context) => p.options.map(([id, name]) => ({ id, name, glyph: pickGlyph(p, id, c) }));
@@ -375,7 +375,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(small(it(<CubeTransparent size={18} />, "3D clean up", "clean_3d")));
       // Query and Markush structures (ChemDraw's Structure menu): attachments on the selected atoms, and an R-group
       // definition round the selected structures.
-      if (context.atoms > 1) items.push(small(it(<Asterisk size={18} />, "Add multi-centre attachment", "add_multicentre")), small(it(<AsteriskSimple size={18} />, "Add variable attachment", "add_variable")));
+      if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
       items.push(small(it(<BracketsSquare size={18} />, "Make an R-group definition", "define_rgroup")));
       items.push(...mirrors, ...objects, ...frames, del);
       break;
@@ -1088,9 +1088,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {((!menus && sets.length > 0) || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
           {sets.map(([s, set]) => {
-            const buttons = (
-            <div className="tray-buttons">
-            {set.map((i) => (
+            const button = (i: Item) => (
             <button
               key={i.command}
               data-command={i.command}
@@ -1103,7 +1101,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             >
               {i.icon}
             </button>
-            ))}
+            );
+            // Add multi-centre attachment and Add variable attachment go side by side as one pair, at any panel width.
+            const paired = (k: number) => set[k]?.command === "add_multicentre" && set[k + 1]?.command === "add_variable";
+            const buttons = (
+            <div className="tray-buttons">
+            {set.map((i, k) => paired(k - 1) ? null : paired(k) ? <span key={i.command} className="tray-pair">{button(i)}{button(set[k + 1])}</span> : button(i))}
             </div>
             );
             // Every section of small buttons has its title and folds, however many buttons it has. Delete is the one
