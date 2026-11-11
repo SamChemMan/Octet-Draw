@@ -777,6 +777,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("expand_label", "Expand Label", "")?,
         &item("contract_label", "Contract Label", "")?,
         &item("expand_generic", "Expand Generic Structure", "")?,
+        &item("expand_generic_sdf", "Expand Generic Structure to SDF…", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("hydrogen_display", "Toggle Hydrogen Display", "")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
