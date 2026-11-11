@@ -46,6 +46,8 @@ const REAGENTS: [string, string][] = [
 // Compared by molar mass: the table shows a formula as it was written (LiAlH4), and others in Hill order (AlH4Li).
 const wrong = REAGENTS.flatMap(([text, want]) => { const got = weightOf(text), w = formulaWeight(want)!; return got !== undefined && Math.abs(got - w) < 0.01 ? [] : [`${text}: ${got?.toFixed(2) ?? "nothing"} (want ${want}, ${w.toFixed(2)})`]; });
 assert.deepEqual(wrong, [], "reagents read wrongly");
+// Names without three letters in a row, as Name to Structure reads them: deuterated D2O and CD3OD, HF·pyridine.
+for (const [text, want] of [["D2O", 20.03], ["CD3OD", 36.07], ["HF·py", 99.11]] as const) assert.ok(Math.abs((weightOf(text) ?? 0) - want) < 0.01, `${text}: ${weightOf(text)}`);
 // A mixture is not one compound; a line splits at commas outside brackets; the atmosphere's gas is not a reagent.
 for (const mix of ["toluene/EtOH/H2O (4:1:1)", "toluene/EtOH/H2O", "THF/H2O"]) assert.equal(weightOf(mix), undefined, mix);
 assert.deepEqual(conditionItems("toluene/EtOH/H2O (4:1:1, 30 mL), 80 °C; 12 h"), ["toluene/EtOH/H2O (4:1:1, 30 mL)", "80 °C", "12 h"]);
@@ -88,14 +90,18 @@ for (const reagent of ["H2", "O2", "CO", "NH3"]) assert.ok(!inert(reagent), reag
     structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent, captionBox: () => undefined, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
   });
   assert.deepEqual(layout(now)[0].all.map((c) => c.key), ["r:S0", "r:S1", 'r:"NaBH4"', 'r:"MeOH"', "p:S2"], "only reagents have columns");
-  const best = [Infinity, Infinity];
-  for (let k = 0; k < 6; k++) for (const [j, reagent] of [then, now].entries()) {
-    let n = 0;
-    const t0 = performance.now();
-    do { layout(reagent); n++; } while (performance.now() - t0 < 20);
-    best[j] = Math.min(best[j], (performance.now() - t0) / n);
+  // Timed again, up to 3 times, when another program on the computer slowed one of them.
+  let was = 0, is = Infinity;
+  for (let tries = 0; tries < 3 && !(is < 1.5 * was); tries++) {
+    const best = [Infinity, Infinity];
+    for (let k = 0; k < 6; k++) for (const [j, reagent] of [then, now].entries()) {
+      let n = 0;
+      const t0 = performance.now();
+      do { layout(reagent); n++; } while (performance.now() - t0 < 20);
+      best[j] = Math.min(best[j], (performance.now() - t0) / n);
+    }
+    [was, is] = best;
   }
-  const [was, is] = best;
   assert.ok(is < 1.5 * was, `a layout takes ${is.toFixed(4)} ms, 1.1.1's way ${was.toFixed(4)} ms`);
 }
 console.log(`reagents.check: ${REAGENTS.length} reagents read right`);

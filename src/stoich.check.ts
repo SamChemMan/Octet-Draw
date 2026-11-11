@@ -270,13 +270,13 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
   near(weight("Bi(NO3)3"), 208.98 + 3 * (14.007 + 3 * 15.999), "Bi(NO3)3");
 }
 // Name to Structure takes a few ms a name, and the table is laid out again on every change: each name is read once
-// by a reader, and never for a word for how the reaction is run or text with under three letters in a row (a CAS
-// number is read). The editor gives one reader while Octet's names and the user's own stay the same.
+// by a reader, and never for a word for how the reaction is run. Short names (D2O) and CAS numbers are read. The editor
+// gives one reader while Octet's names and the user's own stay the same.
 {
   const asked: string[] = [], read = (t: string) => void asked.push(t), none = () => undefined;
-  const texts = ["reflux", "rt", "r.t.", "overnight", "0 °C", "-78 °C", "2 h", "MW", "hν", "Δ", "then workup", "sonication", "Lindlar", "7647-01-0"];
-  for (let k = 0; k < 3; k++) for (const t of texts) reagentFormula(t, read, none, none);
-  assert.deepEqual(asked, ["Lindlar", "7647-01-0"]);
+  const words = ["reflux", "rt", "r.t.", "overnight", "MW", "hν", "Δ", "then workup", "sonication"], names = ["Lindlar", "D2O", "7647-01-0"];
+  for (let k = 0; k < 3; k++) for (const t of [...words, ...names]) reagentFormula(t, read, none, none);
+  assert.deepEqual(asked, names);
   reagentFormula("Lindlar", (t) => void asked.push(`again ${t}`), none, none);
   assert.equal(asked.at(-1), "again Lindlar", "a new reader reads it again");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");

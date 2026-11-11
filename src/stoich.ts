@@ -175,11 +175,11 @@ function charged(text: string): [string, string] {
 const CONDITION_WORDS = /^(?:reflux|rt|r\.t\.|room temp(?:erature)?|overnight|o\/n|heat|heating|light|dark|stir|stirring|sonication|ultrasound|microwave|MW|hν|hv|Δ|then|workup|work-up|quench|filter|filtration)$/i;
 // What a reader (Name to Structure) made of each name. It takes a few ms a name, and the table is laid out again on
 // every change, so each name is read once. Kept for the last reader given: Editor.tsx gives a new one when Octet's
-// names load or the user's own names change. Only text that may be a name is read: three letters in a row, or a CAS
-// number (64-17-5), and not a word for how the reaction is run.
+// names load or the user's own names change. A word for how the reaction is run is never read. Short text is read
+// (D2O, CD3OD and HF·py are names): once read, it costs nothing.
 let reader: ((name: string) => string | undefined) | undefined, readings = new Map<string, string | undefined>();
 function readName(name: string, read: (name: string) => string | undefined): string | undefined {
-  if (!/\p{L}{3}|\d-\d/u.test(name) || CONDITION_WORDS.test(name)) return undefined;
+  if (CONDITION_WORDS.test(name)) return undefined;
   if (read !== reader || readings.size >= 500) [reader, readings] = [read, new Map()];
   if (!readings.has(name)) readings.set(name, read(name));
   return readings.get(name);
