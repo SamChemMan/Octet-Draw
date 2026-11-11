@@ -39,7 +39,7 @@ import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackCh
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
-import { propertyValues, PROPERTY_ROWS, rowLabel, type Calculated, type PropertyValues } from "./proprows";
+import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -295,6 +295,11 @@ function pictureUrl(p: Record<string, string>): string | undefined {
 // Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
 // structure), so each structure is worked out once.
 const calculated = new WeakMap<Structure, Calculated>();
+// Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
+function calc(s: Structure, g: Graph) {
+  if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
+  return calculated.get(s);
+}
 // A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
 // of colour or fill, and undo find them again at once. Kept by the bonds themselves too (which atoms each joins), so a
 // command that makes a new bond list with the same bonds (Rotate 180°, Flip) finds them at once: for 885 atoms that
@@ -3884,8 +3889,9 @@ export default function Editor() {
       if (!text) return set(deleteGraphics(doc, new Set([w.id])));
       if (old && (text !== old.text || Object.keys(st).length || JSON.stringify(runs) !== JSON.stringify(old.runs))) {
         // A caption that already held markup kept as typed (an escape, or Undo of the change) is not changed again.
-        // New text typed over a number Octet gave makes it the user's (numbering.ts renumber).
-        const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined } : {}) }));
+        // New text typed over a number Octet gave makes it the user's (numbering.ts renumber), and over live values
+        // stops them following the structure (liveValues).
+        const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined, ...(old.property?.attrs.rows ? { property: undefined } : {}) } : {}) }));
         if (!(expPage && markupCaption(old))) marked(m, w.id);
       }
       return setPicked(new Set([w.id]));
@@ -6103,14 +6109,26 @@ export default function Editor() {
     const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    // Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
-    const calc = (s: Structure, g: Graph) => {
-      if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
-      return calculated.get(s);
-    };
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
   }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
+  // Live values (Add to drawing): a moment after the drawing last changes, each caption's rows are worked out again for
+  // its structure (liveValues), so no pointer move works them out. Never during a drag, a glide or typing. They go into
+  // the change's own undo step (amend), so Undo never stops at them, and Space still picks what the change added.
+  useEffect(() => {
+    if (!loaded || gliding || drag || writing || !doc.captions?.some((c) => c.property?.attrs.rows)) return;
+    const t = setTimeout(() => {
+      const next = liveValues(doc, (atoms, places) => {
+        const found = structures(subset(doc, new Set(atoms)))?.filter((s): s is Structure => !!s);
+        return found?.length ? propertyValues(found, calc, places) : undefined;
+      });
+      if (next === doc) return;
+      if (added.current?.mol === doc) added.current = { ...added.current, mol: next };
+      before.current = next;
+      dispatch({ type: "amend", mol: next });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [doc, loaded, gliding, drag, writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
   const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
@@ -6804,30 +6822,23 @@ export default function Editor() {
     setPicked(new Set(items));
     say("Spectrum added");
   }
-  // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
+  // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts. One for a
+  // whole structure is live: its values follow the structure as it changes, with these decimals (liveValues).
   function addProperties() {
     if (!properties) return;
-    const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k));
-    const rows = properties.values.flat().filter((r) => chosen.includes(r.key));
+    const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k)), groups = fragments(doc);
     let m = doc, id = 0;
     const items: number[] = [];
     properties.atoms.forEach((atoms, k) => {
-      const runs: TextRun[] = [];
-      rows.forEach((r, i) => {
-        const v = r.values[k];
-        if (v === undefined) return;
-        if (runs.length) runs.push({ text: "\n" });
-        runs.push({ text: `${rowLabel(r)}: ` });
-        if (r.key === "formula") for (const [, letters, digits] of v.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
-        else runs.push({ text: v });
-        void i;
-      });
+      const runs = propertyRuns(properties.values, chosen, k);
       if (!runs.length) return;
       const clean = normalise(runs), text = { text: plainOf(clean), ...(styled(clean) ? { runs: clean } : {}) };
       // A caption that counts as chemistry is an atom after the drawing's (chem): its values go under the caption.
       const c = atoms[0] >= doc.atoms.length ? doc.captions?.find((x) => x.id === chem.captions[atoms[0] - doc.atoms.length]) : undefined;
       if (!c && atoms.some((i) => i >= doc.atoms.length)) return;
-      [m, id] = addCaption(m, c ? { ...text, ...belowCaption(c) } : { ...text, x: 0, y: 0, under: atoms });
+      const live = groups.find((g) => g.includes(atoms[0]))?.length === atoms.length
+        ? { property: { attrs: { rows: chosen.join(" "), ...(settings.decimals !== undefined ? { places: String(settings.decimals) } : {}) }, atoms: [...atoms].sort((p, q) => p - q) } } : {};
+      [m, id] = addCaption(m, c ? { ...text, ...belowCaption(c) } : { ...text, x: 0, y: 0, under: atoms, ...live });
       items.push(id);
     });
     if (m === doc) return;

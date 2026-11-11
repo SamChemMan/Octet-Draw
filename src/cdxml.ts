@@ -1002,6 +1002,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // A turned caption turns about p; its box goes round it.
     const box = turnedBox(level, p, c.angle);
     const just = c.align === "justify" && align === own ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
+    // Octet's live values (Add to drawing) are in its own data, with their atoms' ids. ChemDraw sees their text only:
+    // its property type for each row is not known.
+    const live = c.property?.attrs.rows ? { ...c.property.attrs, atoms: c.property.atoms.map((i) => nodeId.get(i)).filter((n) => n !== undefined) } : undefined;
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
@@ -1009,9 +1012,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
-        align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined }),
+        align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
-    if (c.property) {
+    if (c.property && !live) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
       if (atoms.size) kept.push(el("chemicalproperty", { id: fresh(), ChemicalPropertyDisplayID: idOf.get(c.id), ...c.property.attrs, PositioningType: "absolute", PositioningOffset: pt(p), BasisObjects: basis(atoms) }));
     }
@@ -1133,8 +1136,8 @@ export type CdxmlRead = { mol: Mol; style: DocStyle; lost: Record<string, number
 export const PICTURE_HEX = ["MacPICT", "PDF", "WindowsMetafile", "EnhancedMetafile", "OLEObject", "CompressedMacPICT", "CompressedWindowsMetafile", "CompressedEnhancedMetafile", "CompressedOLEObject", "GIF", "TIFF", "PNG", "JPEG", "BMP"];
 const PICTURE_INT = ["UncompressedMacPICTSize", "UncompressedWindowsMetafileSize", "UncompressedEnhancedMetafileSize", "UncompressedOLEObjectSize", "RotationAngle"];
 export const PICTURE_KEYS = [...PICTURE_HEX, ...PICTURE_INT];
-// What Octet keeps of a live property text.
-export const PROPERTY_ATTRS = ["ChemicalPropertyType", "ChemicalPropertyIsActive", "Name"];
+// What Octet keeps of a live property text, and what its own live values hold (the Properties rows, and the decimals).
+export const PROPERTY_ATTRS = ["ChemicalPropertyType", "ChemicalPropertyIsActive", "Name"], LIVE_ATTRS = ["rows", "places"];
 // A bond's own settings that Octet keeps as they came when they do not make a scale (decision 0007).
 export const OWN_BOND_ATTRS = ["BondLength", "HashSpacing", "LineWidth", "BoldWidth", "MarginWidth"];
 // A picture's data, if it is sound: known keys, bytes where bytes belong, whole numbers elsewhere, and some picture.
@@ -1344,7 +1347,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // characters differ.
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number | undefined>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
   // Formula runs read back as plain text (issue 31), kept in case the text is not drawn as a formula after all.
   const asFormula = new Map<Caption, TextRun[]>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -1922,6 +1925,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const role = readPart(p?.role);
     if (role) c.role = role;
     if (p?.under) unders.push({ c, nodes: p.under });
+    if (p?.live && typeof p.live === "object") lives.push({ c, live: p.live as Record<string, unknown> });
     // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
     if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
     const cyc = p?.cycle as Record<string, unknown> | undefined;
@@ -2408,9 +2412,15 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const r = readRgroup({ name: sh.rgroup!.name, occur: row.attrs.RLogicOccurrence || undefined, restH: yes(row.attrs.RLogicRestH) ? true : undefined, then: row.attrs.RLogicIfThenGroup || undefined });
     if (r) sh.rgroup = r;
   }
+  const atomsOf = (nodes: unknown) => (Array.isArray(nodes) ? [...new Set(nodes.map((n) => atomOf.get(Number.isInteger(n) ? (n as number) : -1)).filter((i): i is number => i !== undefined))] : []);
   for (const { c, nodes } of unders) {
-    const under = Array.isArray(nodes) ? [...new Set(nodes.map((n) => atomOf.get(Number.isInteger(n) ? (n as number) : -1)).filter((i): i is number => i !== undefined))] : [];
+    const under = atomsOf(nodes);
     if (under.length) c.under = under;
+  }
+  // Octet's live values: their rows and decimals, for their atoms.
+  for (const { c, live } of lives) {
+    const atoms = atomsOf(live.atoms), attrs = Object.fromEntries(LIVE_ATTRS.filter((k) => typeof live[k] === "string").map((k) => [k, cleanText(live[k] as string).slice(0, 200)]));
+    if (atoms.length && attrs.rows) c.property = { attrs, atoms };
   }
   // A cycle id the file repeats is the first cycle's: the others go, so deleting one never deletes two.
   const seenCycle = new Set<number>();

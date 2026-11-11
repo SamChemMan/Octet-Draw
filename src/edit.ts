@@ -2563,8 +2563,8 @@ function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, m
   for (const x of objects) to.set(x.id, id++);
   const out: Mol = {
     ...m,
-    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => ({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
-      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }))] } : {}),
+    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => remapKept({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
+      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }, atom))] } : {}),
     ...(t.arrows?.length ? { arrows: [...(m.arrows ?? []), ...t.arrows.map((a) => ({ ...a, id: to.get(a.id)! }))] } : {}),
     ...(t.shapes?.length ? { shapes: [...(m.shapes ?? []), ...t.shapes.map((x) => ({ ...x, id: to.get(x.id)! }))] } : {}),
     ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...mapBranches(c, atom), id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
