@@ -472,27 +472,22 @@ function about(host: Host, m: Mol): { name?: string; formula?: string; smiles?: 
 }
 
 const PAD = 3; // bond lengths between what is drawn and what an AI app adds below it
-// The box of everything drawn (drawing units, y up), or undefined.
+// The box of everything drawn, as drawn (drawing units, y up), or undefined: the structures with their labels, each
+// text (a number under a structure and an arrow's conditions too), the arrows and the cycles.
 function drawnBox(host: Host, m: Mol): Box | undefined {
-  const xs: number[] = [], ys: number[] = [];
-  const atoms = host.ink(m.atoms.map((_, i) => i));
-  if (atoms) { xs.push(atoms[0], atoms[2]); ys.push(atoms[1], atoms[3]); }
-  for (const c of m.captions ?? []) if (!c.on && !c.under && !c.cycle) { xs.push(c.x); ys.push(c.y); }
-  for (const a of m.arrows ?? []) { xs.push(a.from[0], a.to[0]); ys.push(a.from[1], a.to[1]); }
-  for (const c of m.cycles ?? []) { xs.push(c.centre[0] - c.radius, c.centre[0] + c.radius); ys.push(c.centre[1] - c.radius, c.centre[1] + c.radius); }
-  return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : undefined;
+  const cycles = (m.cycles ?? []).map((c): Box => [c.centre[0] - c.radius, c.centre[1] - c.radius, c.centre[0] + c.radius, c.centre[1] + c.radius]);
+  return union([host.ink(m.atoms.map((_, i) => i)), ...(m.captions ?? []).map((c) => host.textBox(c.id)), ...(m.arrows ?? []).map(arrowBox), ...cycles].filter((b): b is Box => !!b));
 }
-// Where new work starts: its top left, under what is drawn, or at the left margin of an empty page.
+// Where new work starts: its top left, clear under everything drawn, or at the top left of an empty page.
 function origin(host: Host, m: Mol): P {
+  const s = host.style(), [w, h] = pageSize(s), k = 72 / 25.4 / s.bond;
   // On an experiment page with nothing drawn yet: under the details at the top, at the left margin (15 mm), 80 mm down.
-  if (host.experiment() && !m.atoms.length && !m.arrows?.length) {
-    const s = host.style(), [w, h] = pageSize(s), k = 72 / 25.4 / s.bond;
-    return [(15 - w / 2) * k, (h / 2 - 80) * k];
-  }
+  if (host.experiment() && !m.atoms.length && !m.arrows?.length) return [(15 - w / 2) * k, (h / 2 - 80) * k];
   const b = drawnBox(host, m);
   if (b) return [b[0], b[1] - PAD];
-  // On an empty page: at its left margin, level with the middle of the view.
-  return [leftMargin(host.style()), host.centre()[1] + 2];
+  // On an empty page: at its left and top margins (15 mm), so that a scheme has the whole page under it. Where the
+  // page's edges do not show (Quick start), level with the middle of the view.
+  return [leftMargin(s), s.edges ? (h / 2 - 15) * k : host.centre()[1] + 2];
 }
 const boxOf = (m: Mol): Box => {
   const xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
@@ -764,7 +759,16 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
   let m = host.doc();
-  const [x0, y] = origin(host, m), arrows = new Set<number>(), said: string[] = [];
+  // The row's line: under where new work starts by as far as the row can reach up (half its tallest structure, however
+  // it is turned; an arrow's lines, about a bond length each, and structures over it). So the new row is read alone:
+  // text within 3 bond lengths over an arrow's line reads as its conditions (a scheme's title, drawn before).
+  const tall = Math.max(...ok.map((s) => { const b = boxOf(s.mol); return Math.hypot(b[2] - b[0], b[3] - b[1]); }));
+  const was = m, [x0, top] = origin(host, m), up = Math.max(tall / 2, ...lines.map((l) => l.above.reduce((h, [t]) => h + (structured(t) ? tall : t.split("\n").length), 0)));
+  // (A box round one part of a row goes with that part. A row that would lie across a box's top or bottom edge is
+  // drawn under that box, and moves into its place when it is laid out.)
+  let y = top - up;
+  for (const f of (m.shapes ?? []).map((x) => [Math.min(x.from[1], x.to[1]), Math.max(x.from[1], x.to[1])]).sort((p, q) => q[0] - p[0])) if (f.some((edge) => Math.abs(edge - y) < up + 1)) y = f[0] - PAD - up;
+  const arrows = new Set<number>(), said: string[] = [];
   let x = x0;
   // Each step's structures (their atoms), for the turn that lays each product as its starting material.
   const laid: { reactants: number[][]; products: number[][] }[] = [];
@@ -816,14 +820,15 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   await host.settle();
   host.cleanReactions(arrows);
   await host.settle();
-  // A wrapped line is centred under the first, and a reagent table has its row names to the left of the reaction: the
-  // reaction moves right until all of it is inside the page's left margin (B4).
-  const r = host.reaction([...arrows][0]), drawnNow = host.doc(), table = host.tables().filter((t) => arrows.has(t.arrow));
-  const lefts = r ? [host.ink(r.atoms)?.[0], ...r.arrows.flatMap((id) => { const x = drawnNow.arrows?.find((y) => y.id === id); return x ? [Math.min(x.from[0], x.to[0])] : []; }), ...r.captions.map((id) => host.textBox(id)?.[0]), ...table.map((t) => t.box[0])].filter((v): v is number => v !== undefined) : [];
-  const over = leftMargin(host.style()) - Math.min(Infinity, ...lefts);
-  if (r && over > 1e-6 && !placed(a)) {
-    host.set(shift(host.doc(), new Set(r.atoms), new Set([...r.arrows, ...r.captions]), [over, 0]));
-    await host.settle();
+  // The scheme as laid out goes where new work starts: its top there, and inside the page's left and right margins,
+  // or in the middle of the page when it is wider than that (Clean Up Reaction wraps to the page less half an inch each
+  // side, a little more than the page inside its 15 mm margins). A wrapped line is centred under the first, and a
+  // reagent table has its row names to the left of the reaction (B4).
+  const now = host.doc(), old = new Set(was.captions?.map((c) => c.id)), atoms = now.atoms.map((_, i) => i).slice(was.atoms.length), texts = (now.captions ?? []).filter((c) => !old.has(c.id)).map((c) => c.id);
+  const b = union([host.ink(atoms), ...texts.map((id) => host.textBox(id)), ...(now.arrows ?? []).filter((x) => arrows.has(x.id)).map(arrowBox), ...host.tables().filter((t) => arrows.has(t.arrow)).map((t) => t.box)].filter((v): v is Box => !!v));
+  if (b && !placed(a)) {
+    const left = leftMargin(host.style()), d: P = [b[2] - b[0] > -2 * left ? -(b[0] + b[2]) / 2 : Math.max(left - b[0], Math.min(0, -left - b[2])), top - b[3]];
+    if (Math.hypot(...d) > 1e-6) { host.set(shift(now, new Set(atoms), new Set([...arrows, ...texts]), d)); await host.settle(); }
   }
   return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}: ${said.join(" ")}. Octet laid it out with Clean Up Reaction.${UNDO}`, data: { names: names(host, ok) } };
 }

@@ -7,23 +7,23 @@
    "calls": 3,
    "failed": 0,
    "sent": 4436,
-   "read": 15836,
-   "ms": 2599,
-   "slowest": 1589,
+   "read": 14823,
+   "ms": 2703,
+   "slowest": 1610,
    "right": 18,
    "of": 19,
-   "warnings": 44
+   "warnings": 42
   },
   "taxol-v1-job": {
    "calls": 33,
    "failed": 6,
-   "sent": 15365,
-   "read": 282623,
-   "ms": 3649,
-   "slowest": 1595,
+   "sent": 15295,
+   "read": 275602,
+   "ms": 3712,
+   "slowest": 1627,
    "right": 18,
    "of": 19,
-   "warnings": 17
+   "warnings": 11
   }
  }
 }

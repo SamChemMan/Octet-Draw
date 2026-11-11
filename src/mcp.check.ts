@@ -12,7 +12,7 @@ g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { analyse, expandLabels, mapReaction, parseStructure, ready, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
-const { DEFAULT_STYLE } = await import("./docstyle.ts");
+const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
 const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
@@ -492,7 +492,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // F3: placement. Each side, with gap and align, the same on every tool that takes it, and move to a point.
 {
   fresh();
-  await call("draw_structures", { structures: [{ text: "benzene" }] });
+  // (At a point with round numbers: a result's boxes are rounded to 0.1, and the comparisons below are that exact.)
+  await call("draw_structures", { structures: [{ text: "benzene" }], at: [-10, 5] });
   const [ref] = (await read()).structures, near = (p: number, q: number) => Math.abs(p - q) < 0.05;
   const placedBox = async (args: Record<string, unknown>) => { const r = (await call("draw_structures", { structures: [{ text: "water" }], ...args })) as unknown as { isError?: true; structuredContent: { made: string[]; boxes: Record<string, number[]> } }; assert.ok(!r.isError, JSON.stringify(r)); return r.structuredContent.boxes[r.structuredContent.made[0]]; };
   let b = await placedBox({ right_of: ref.id, gap: 2 });
@@ -523,6 +524,25 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   mv = await call("move", { ids: [ref.id], to: [0, 0] });
   const moved = (mv as unknown as { structuredContent: { boxes: Record<string, number[]> } }).structuredContent.boxes[ref.id];
   assert.ok(near((moved[0] + moved[2]) / 2, 0) && near((moved[1] + moved[3]) / 2, 0), JSON.stringify(moved));
+}
+
+// Where new work starts. On an empty page: at the page's left and top margins (15 mm), so that a scheme has the whole
+// page under it; where the page's edges do not show (Quick start), level with the middle of the view. Then under
+// everything drawn, from its left edge, measured by boxes: a text's box, not the point it is anchored at.
+{
+  const k = 72 / 25.4 / DEFAULT_STYLE.bond, [w, h] = pageSize(DEFAULT_STYLE), left = (15 - w / 2) * k, top = (h / 2 - 15) * k;
+  const drawn = async (name: string, args: unknown) => { const r = (await call(name, args)) as unknown as { structuredContent: { made: string[]; boxes: Record<string, number[]> } }; return r.structuredContent.boxes[r.structuredContent.made[0]]; };
+  fresh();
+  let b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - left) < 0.5 && b[3] <= top && b[3] > top - 1.5, `at the left and top margins: ${b}`);
+  fresh();
+  m = { ...EMPTY, style: { ...DEFAULT_STYLE, edges: false } };
+  b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - left) < 0.5 && Math.abs((b[1] + b[3]) / 2) < 3, `no page edges: level with the middle of the view: ${b}`);
+  fresh();
+  const title = await drawn("add_text", { text: "A title that is wider than benzene", text_align: "centre", at: [0, 10] });
+  b = await drawn("draw_structures", { structures: [{ text: "benzene" }] });
+  assert.ok(Math.abs(b[0] - title[0]) < 0.5 && b[3] <= title[1] - 3, `under the title's box, from its left edge: ${b}, ${title}`);
 }
 
 // F1: batch. References to what earlier steps made, one undo step, and a failure or a bad step leaves the drawing as
