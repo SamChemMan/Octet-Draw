@@ -18,10 +18,9 @@ if (!job) throw new Error(`No job ${process.argv[2]}. The jobs: ${SPEED.map((c) 
 const o = await connect(`octet-lean-${job.id}`), tools = await o.tools();
 const made = await o.call("drawings", { action: "new", for: job.for ?? "paper" });
 if (made.isError) throw new Error(`drawings new: ${made.text}`);
-// The user's drawing as it was before the chat. Where Octet asks for the brief first, the setup gives one.
+// The user's drawing as it was before the chat.
 for (const [tool, args] of job.setup ?? []) {
-  let r = await o.call(tool, args);
-  if (r.isError && /brief first/.test(r.text)) { await o.call("set_brief", { destination: { kind: job.for ?? "paper" } }); r = await o.call(tool, args); }
+  const r = await o.call(tool, args);
   if (r.isError) throw new Error(`setup ${tool}: ${r.text}`);
 }
 mkdirSync(LEAN, { recursive: true });

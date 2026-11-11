@@ -14,7 +14,7 @@ const json = (f) => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8")
 const TAXOL = json("../mcp-bench/taxol/structures.json");
 const corpus = (paper, id) => json(`../mcp-bench/corpus/${paper}.json`).jobs.find((j) => j.id === id).expect.smiles;
 const SCOPE = corpus("trowbridge2018", "trowbridge2018-fig4a-amines"), PIRIBEDIL = corpus("robinson2026", "robinson2026-fig5a");
-const KETOL = "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O", TRIKETONE = "CC(=O)CCC1(C)C(=O)CCC1=O";
+const TOSYLATE = "Cc1ccc(cc1)S(=O)(=O)[O-]", KETOL = "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O", TRIKETONE = "CC(=O)CCC1(C)C(=O)CCC1=O";
 const CYCLE = { 1: "OC(=O)[C@@H]1CCCN1", 2: "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O", 3: "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O", 4: "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O" };
 const YIELDS = { "7a": "51%", "7b": "54%", "7c": "38%", "7d": "60%", "7e": "25%", "7f": "38%", "7g": "34%", "7h": "81%", "7i": "69%", "7j": "86%", "7k": "88%", "7l": "61%" };
 
@@ -41,7 +41,13 @@ const told = (d, ...list) => list.map((w) => [flat(words(d)).includes(flat(w)), 
 
 const CHECK = {
   oneStep: ({ d, key }) => [...is(d, key(TRIKETONE), "the triketone", { as: "reactant", number: "1" }), ...is(d, key(KETOL), "the ketol, with its stereocentres", { as: "product", number: "2" }), ...arrow(d, key(TRIKETONE), key(KETOL), "proline", "CHCl3", "99% ee"), clean(d), apart(d)],
-  threeStep: ({ d, key }) => [...numbered(d, key, PIRIBEDIL), ...arrow(d, key(PIRIBEDIL["11a"]), key(PIRIBEDIL["12a"])), ...arrow(d, key(PIRIBEDIL["12a"]), key(PIRIBEDIL["13a"]), "9-BBN"), ...arrow(d, key(PIRIBEDIL["13a"]), key(PIRIBEDIL["14a"]), "SPhos", "t-BuOK", "47%"), apart(d)],
+  // A salt is one structure (its dotted SMILES) or its cation with the tosylate drawn as a structure of its own: "draw
+  // the tosylate with each salt" reads either way.
+  threeStep: ({ d, key }) => {
+    const k = (s) => (find(d, key(s)) || !s.includes(".") ? key(s) : key(s.split(".")[0])), split = ["12a", "13a"].filter((n) => k(PIRIBEDIL[n]) !== key(PIRIBEDIL[n])).length;
+    return [...numbered(d, k, PIRIBEDIL), [d.structures.filter((s) => s.inchiKey === key(TOSYLATE)).length >= split, "a tosylate with each salt drawn as its cation"],
+      ...arrow(d, k(PIRIBEDIL["11a"]), k(PIRIBEDIL["12a"])), ...arrow(d, k(PIRIBEDIL["12a"]), k(PIRIBEDIL["13a"]), "9-BBN"), ...arrow(d, k(PIRIBEDIL["13a"]), k(PIRIBEDIL["14a"]), "SPhos", "t-BuOK", "47%"), apart(d)];
+  },
   fiveStep: ({ d, key }) => {
     const k = (n) => key(TAXOL[n]);
     return [...numbered(d, key, Object.fromEntries(["2", "3", "4", "5", "6", "7"].map((n) => [n, TAXOL[n]]))),
@@ -104,7 +110,7 @@ export const SPEED = [
   { id: "say-question", kind: "say",
     setup: [["draw", { kind: "structures", structures: [{ text: TAXOL[18], number: "18" }, { text: TAXOL[19], number: "19" }] }]],
     prompt: "What is the molecular formula of compound 19 in my open drawing, and how many stereocentres does it have?",
-    check: ({ d, answer }) => { const a = sub(answer).replace(/\s/g, ""); return [[a.includes("C31H46O10Si"), "the answer gives C31H46O10Si", answer.slice(0, 200)], [/\b8\b|eight/i.test(answer), "the answer gives 8 stereocentres"], [d.structures.length === 2, "the drawing is as it was", String(d.structures.length)]]; } },
+    check: ({ d, answer }) => { const a = sub(answer).replace(/\s/g, ""); return [[a.includes("C31H46O10Si"), "the answer gives C31H46O10Si", answer.slice(0, 200)], [/\b(8|eight)\s+(stereo|chiral)|stereocent\w*\s*[:=]?\s*(8|eight)\b/i.test(answer), "the answer gives 8 stereocentres"], [d.structures.length === 2, "the drawing is as it was", String(d.structures.length)]]; } },
 
   // ---- paper: the same drawing jobs as a paper gives them; the model works out the structures ----
   { id: "paper-one-step", kind: "paper", brief: QUICK, check: CHECK.oneStep,
@@ -123,7 +129,8 @@ export const SPEED = [
       the lactone to its diol and takes off the tertiary TBS ether (80%), which gives the triol 5. Me2C(OMe)2, CSA, CH2Cl2 (82%) makes the
       acetonide of the tertiary OH and the CH2OH on the same carbon, which gives 6. TPAP, NMO, MeCN (95%) oxidises the last CH2OH to the
       aldehyde 7. Keep every stereocentre.`) },
-  { id: "paper-scope", kind: "paper", brief: QUICK, check: CHECK.scope,
+  // The names of 7f and 7g give no stereo, and their bridges allow only one: a drawing with it or without it is right.
+  { id: "paper-scope", kind: "paper", brief: QUICK, check: ({ d, key, loose }) => CHECK.scope({ d, key: (s) => ([SCOPE["7f"], SCOPE["7g"]].includes(s) ? loose(s) : key(s)) }),
     prompt: say(`Draw the amine scope of this hydroaminoalkylation as a grid of numbered products, two rows of six, with each yield under its
       product. Products 7a to 7k are the tertiary amines R2N–CH(n-Pr)–CH2–CHPh2 from these amines: 7a 4-phenylpiperidine, 51%; 7b
       4-(trifluoromethyl)piperidine, 54%; 7c 1-Boc-piperazine, 38%; 7d cis-2,6-dimethylmorpholine, 60%; 7e 3-azabicyclo[3.1.0]hexane (cis),
@@ -132,7 +139,7 @@ export const SPEED = [
       (2S,4S)-2-tert-butyl-5-oxo-4-[2-(2,2,6,6-tetramethylpiperidin-1-yl)ethyl]-1,3-oxazolidine-3-carboxylate, 61% (>20:1 d.r.).`) },
   { id: "paper-cycle", kind: "paper", brief: QUICK, check: CHECK.cycle,
     prompt: say(`Draw the proline catalytic cycle of the Hajos–Parrish reaction, clockwise, with the species numbered 1 to 4: L-proline (1); the
-      iminium carboxylate (2) that proline forms with the side-chain ketone of the triketone (the E iminium); the enamine (3), drawn as the
-      neutral acid with the terminal alkene; and the iminium carboxylate (4) of the cyclised (3aS,7aS)-ketol. The triketone goes in at the first
+      iminium carboxylate (2) that proline forms with the side-chain ketone of the triketone (the Z iminium); the enamine (3), drawn as the
+      neutral acid with the terminal alkene; and the iminium carboxylate (4) of the cyclised (3aS,7aS)-ketol (the E iminium). The triketone goes in at the first
       step and the ketol comes out at the last. Write the triketone and the ketol as words on the side arrows.`) },
 ];

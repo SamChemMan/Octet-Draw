@@ -16,17 +16,16 @@ import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker } from "node:worker_threads";
 
 if (!isMainThread) {
-  // One session: its drawing and its brief (set_brief, when the tools have it), as the app keeps them for a session.
+  // One session: its drawing, as the app keeps one for a session.
   const { load, drawing } = await import("../headless/host.ts");
   const { handle } = await import("../../src/mcp.ts");
   const version = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
   void load();
   const d = drawing(), stopped = new Set<number>();
-  let brief: string | null = null;
   parentPort!.on("message", async (m: { n: number; body?: string; client?: string; session?: string; cancel?: boolean }) => {
     if (m.cancel) { stopped.add(m.n); return; }
     // cancelled answers after the messages waiting, so a notifications/cancelled sent during the call is seen.
-    const from = { client: m.client, session: m.session, brief, keep: (b: string) => { brief = b; }, progress: (note: string) => parentPort!.postMessage({ n: m.n, progress: note }), cancelled: () => new Promise<boolean>((ok) => setImmediate(() => ok(stopped.has(m.n)))) };
+    const from = { client: m.client, session: m.session, progress: (note: string) => parentPort!.postMessage({ n: m.n, progress: note }), cancelled: () => new Promise<boolean>((ok) => setImmediate(() => ok(stopped.has(m.n)))) };
     parentPort!.postMessage({ n: m.n, reply: await handle(m.body!, () => d.host, version, from) });
   });
 } else {
@@ -35,11 +34,14 @@ if (!isMainThread) {
   const key = randomBytes(16).toString("hex");
   type Waiting = { res: ServerResponse; rid: unknown; stream: boolean; picture: boolean };
   type Session = { worker: Worker; client: string; last: number; waiting: Map<number, Waiting> };
-  const sessions = new Map<string, Session>();
+  const sessions = new Map<string, Session>(), VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"]; // as src-tauri/src/mcp.rs
   let next = 0;
   const send = (res: ServerResponse, status: number, body = "", head: Record<string, string> = {}) => { res.writeHead(status, { "cache-control": "no-store", ...(body ? { "content-type": "application/json" } : {}), ...head }); res.end(body); };
+  // The answer to a waiting call: on its event stream when it has one (its head is sent), else as JSON.
+  const answer = (w: Waiting, sid: string, reply: string) => (w.stream ? w.res.end(`event: message\ndata: ${reply}\n\n`) : send(w.res, 200, reply, { "mcp-session-id": sid }));
   const error = (id: unknown, code: number, message: string) => JSON.stringify({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
-  // A reply as the AI app gets it; a call that asked for a picture says that there is none here.
+  // A reply as the AI app gets it; a call that asked for a picture (picture: true, or in advanced's args) says that there
+  // is none here.
   const told = (picture: boolean, reply: string) => {
     if (!picture) return reply;
     const r = JSON.parse(reply), content = r.result?.content;
@@ -57,11 +59,12 @@ if (!isMainThread) {
       if (!w) return;
       if (m.progress !== undefined) { if (w.stream) w.res.write(`event: message\ndata: ${m.progress}\n\n`); return; }
       s.waiting.delete(m.n);
-      const reply = told(w.picture, m.reply!);
-      if (w.stream) w.res.end(`event: message\ndata: ${reply}\n\n`);
-      else send(w.res, 200, reply, { "mcp-session-id": id });
+      answer(w, id, told(w.picture, m.reply!));
     });
-    s.worker.on("error", (e) => { for (const w of s.waiting.values()) send(w.res, 200, error(w.rid, -32603, `Octet stopped: ${e.message}`)); sessions.delete(id); });
+    // A worker that stops (a fault, or DELETE during a call) answers each call still waiting, so none waits for ever.
+    let fault = "the session ended";
+    s.worker.on("error", (e) => { fault = e.message; });
+    s.worker.on("exit", () => { for (const w of s.waiting.values()) answer(w, id, error(w.rid, -32603, `Octet stopped: ${fault}.`)); s.waiting.clear(); if (sessions.get(id) === s) sessions.delete(id); });
     sessions.set(id, s);
     return id;
   }
@@ -71,6 +74,8 @@ if (!isMainThread) {
     if (!ours(req.headers.host) || (req.headers.origin !== undefined && !ours(req.headers.origin.replace(/^http:\/\//, "")))) return send(res, 403);
     const given = Buffer.from((req.headers.authorization ?? "").replace(/^Bearer /, "").trim());
     if (given.length !== key.length || !timingSafeEqual(given, Buffer.from(key))) return send(res, 401);
+    const version = req.headers["mcp-protocol-version"];
+    if (version !== undefined && !VERSIONS.includes(String(version))) return send(res, 400);
     const sid = req.headers["mcp-session-id"] as string | undefined;
     if (req.method === "DELETE") return send(res, sid && end(sid) ? 200 : 404);
     if (req.method !== "POST") return send(res, 405);
@@ -92,7 +97,7 @@ if (!isMainThread) {
     s.last = Date.now();
     const n = ++next, stream = msg.params?._meta?.progressToken !== undefined;
     if (stream) res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", "mcp-session-id": id! });
-    s.waiting.set(n, { res, rid: msg.id, stream, picture: msg.method === "tools/call" && /"picture(_size)?"\s*:\s*(true|")/.test(body) });
+    s.waiting.set(n, { res, rid: msg.id, stream, picture: msg.method === "tools/call" && [msg.params?.arguments, msg.params?.arguments?.args].some((a) => a?.picture === true) });
     s.worker.postMessage({ n, body, client: s.client, session: id });
   });
   server.listen(0, "127.0.0.1", () => {

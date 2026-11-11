@@ -400,17 +400,26 @@ try {
   assert.equal(JSON.parse(readFileSync(join(dir, "calls.drawn.json"), "utf8")).drawing.structures.length, 2);
   assert.match(readFileSync(join(dir, "scheme.cdxml"), "utf8"), /<scheme[\s\S]*<step[\s\S]*<step[\s\S]*<step/);
 
-  // The evals' cost report (scripts/mcp-evals/cost.mjs): one reply of the model logged as two lines counts once.
-  const reply = (at: string, content: object[]) => JSON.stringify({ timestamp: at, message: { role: "assistant", id: "m1", model: "any", content, usage: { output_tokens: 300, output_tokens_details: { thinking_tokens: 100 } } } });
+  // The evals' cost report (scripts/mcp-evals/cost.mjs): one reply of the model logged as two lines counts once, and a
+  // copy of it (api-request-blob) adds nothing. A job run twice takes its judge lines in the order its logs start (the
+  // later log's file comes first here); a total of what no row has is "-".
+  const reply = (at: string, content: object[], id = "m1") => JSON.stringify({ timestamp: at, message: { role: "assistant", id, model: "any", content, usage: { output_tokens: 300, output_tokens_details: { thinking_tokens: 100 } } } });
+  const use = (job: string) => [{ type: "tool_use", id: `u${job}`, input: { command: `node call.mjs ${job} change '{}'` } }];
   mkdirSync(join(dir, "logs"));
-  writeFileSync(join(dir, "logs", "agent-1.jsonl"), [reply("2026-11-11T10:00:00Z", [{ type: "thinking" }]), reply("2026-11-11T10:00:20Z", [{ type: "tool_use", id: "u1", input: { command: "node call.mjs say-fix change '{}'" } }])].join("\n"));
-  writeFileSync(join(dir, "judged.jsonl"), JSON.stringify({ job: "say-fix", pass: true, calls: 1, refused: 0, sent: 2, read: 40 }));
-  const cost = spawnSync(process.execPath, [new URL("../scripts/mcp-evals/cost.mjs", import.meta.url).pathname, join(dir, "logs"), join(dir, "judged.jsonl")], { encoding: "utf8" });
+  writeFileSync(join(dir, "logs", "agent-1.jsonl"), [reply("2026-11-11T10:00:00Z", [{ type: "thinking" }]), reply("2026-11-11T10:00:20Z", use("say-fix")), JSON.stringify({ type: "api-request-blob", message: { role: "assistant", content: use("say-fix") } })].join("\n"));
+  writeFileSync(join(dir, "logs", "agent-0.jsonl"), reply("2026-11-11T11:00:00Z", use("say-fix"), "m2"));
+  writeFileSync(join(dir, "judged.jsonl"), [{ job: "say-fix", pass: true, calls: 1, refused: 0, sent: 2, read: 40 }, { job: "say-fix", pass: false, calls: 3, refused: 1, sent: 9, read: 90 }].map((j) => JSON.stringify(j)).join("\n"));
+  const costOf = (judged: string) => spawnSync(process.execPath, [new URL("../scripts/mcp-evals/cost.mjs", import.meta.url).pathname, join(dir, "logs"), judged], { encoding: "utf8" });
+  const cost = costOf(join(dir, "judged.jsonl"));
   assert.match(cost.stdout, /\| say-fix \| yes \| 1 \| 1 \| 0 \| 0 \| 300 \| 100 \| 2 \| 40 \| 20 \|/, cost.stdout + cost.stderr);
+  assert.match(cost.stdout, /\| say-fix #2 \| NO \| 1 \| 3 \| 1 \| 0 \| 300 \| 100 \| 9 \| 90 \| 0 \|/, cost.stdout);
+  writeFileSync(join(dir, "none.jsonl"), "");
+  assert.match(costOf(join(dir, "none.jsonl")).stdout, /\| Total \(2\) \| 0 \| 2 \| 2 \| - \| 0 \| 600 \| 200 \| - \| - \| 20 \|/);
 
   // The MCP server for evals (scripts/mcp-evals/headless.ts), with the evals' client in a process of its own (here,
   // fetch reaches no network): two AI apps at once, each in a drawing of its own with its own ids; a picture asked for
-  // is said to be missing; a wrong key, and a session after DELETE, are refused.
+  // is said to be missing, and only then; a wrong key, a protocol version the app refuses, and a session after DELETE,
+  // are refused. A DELETE during a call answers it, on its event stream when it has one, so no call waits for ever.
   const env = { ...process.env, OCTET_MCP_INFO: join(dir, "mcp.json") };
   const server = spawn(process.execPath, [new URL("../scripts/mcp-evals/headless.ts", import.meta.url).pathname], { env, stdio: "ignore" });
   try {
@@ -422,11 +431,44 @@ try {
       const { port, token } = JSON.parse((await import("node:fs")).readFileSync(process.env.OCTET_MCP_INFO, "utf8")), url = "http://127.0.0.1:" + port + "/mcp";
       const wrong = (await fetch(url, { method: "POST", headers: { authorization: "Bearer " + token.replace(/./, "x"), "content-type": "application/json" }, body: "{}" })).status;
       const ended = (await fetch(url, { method: "DELETE", headers: { authorization: "Bearer " + token, "mcp-session-id": a.session } })).status;
-      console.log(JSON.stringify({ a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError }));`;
+      const small = (await b.call("read", { picture_size: "small" })).content.length;
+      const version = (await fetch(url, { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json", "mcp-protocol-version": "1999-01-01" }, body: "{}" })).status;
+      const c = await connect("c"), head = { authorization: "Bearer " + token, "content-type": "application/json", "mcp-session-id": c.session };
+      const slow = (id, _meta) => fetch(url, { method: "POST", headers: head, signal: AbortSignal.timeout(10_000), body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "draw", arguments: { kind: "structures", structures: [{ text: "2-phenylethylamine" }] }, _meta } }) }).then((r) => r.text(), () => "no answer");
+      const calls = Promise.all([slow(1), slow(2, { progressToken: 1 })]);
+      await new Promise((r) => setTimeout(r, 20));
+      await fetch(url, { method: "DELETE", headers: head });
+      const stopped = (await calls).map((t) => /Octet stopped/.test(t) ? (t.startsWith("event:") ? "stream" : "json") : t.slice(0, 80));
+      console.log(JSON.stringify({ a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError, small, version, stopped }));`;
     const out = spawnSync(process.execPath, ["--input-type=module", "-e", client], { env, encoding: "utf8", timeout: 60_000 });
     assert.equal(out.status, 0, out.stderr);
-    assert.deepEqual(JSON.parse(out.stdout), { a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true });
+    assert.deepEqual(JSON.parse(out.stdout), { a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true, small: 1, version: 400, stopped: ["json", "stream"] });
   } finally { server.kill(); }
 } finally { rmSync(dir, { recursive: true, force: true }); }
+
+// The speed jobs' checks (scripts/mcp-evals/speed.mjs) take each answer the prompt allows: a salt drawn as its cation
+// with the tosylate beside it (and not without it), the scope's bridged amines with no stereo (their names give none),
+// and the count of stereocentres only where it is said of them.
+{
+  const { SPEED } = await import(new URL("../scripts/mcp-evals/speed.mjs", import.meta.url).href);
+  const key = (s: string) => toInchiKey(parseStructure(s)), loose = (s: string) => key(s).split("-")[0];
+  const failed = async (job: string, answer = "") => SPEED.find((j: { id: string }) => j.id === job).check({ d: (await call("read", { detail: "full" })).structuredContent, answer, key, loose }).filter(([ok]: [boolean]) => !ok).map(([, what]: [boolean, string]) => what);
+  const TS = "Cc1ccc(cc1)S(=O)(=O)[O-]", salt = (tosylate: boolean) => ({ kind: "reaction", start: [{ text: "piribedil" }, { text: "Cc1ccc(cc1)S(=O)(=O)OCCC=C", number: "11a" }], steps: [
+    { products: [{ text: "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "12a" }, ...(tosylate ? [{ text: TS }] : [])] },
+    { reagents: ["9-BBN–H"], products: [{ text: "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "13a" }, ...(tosylate ? [{ text: TS }] : [])] },
+    { reagents: ["SPhos·Pd-G3", "t-BuOK"], yield: "47%", products: [{ text: "c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1", number: "14a" }] }] });
+  for (const tosylate of [true, false]) {
+    d = drawing("paper", "A salt as two structures");
+    assert.ok(!(await call("draw", salt(tosylate))).isError);
+    assert.deepEqual(await failed("paper-three-step"), tosylate ? [] : ["a tosylate with each salt drawn as its cation"]);
+  }
+  d = drawing("paper", "A scope from names");
+  const R = "CCCC(CC(c1ccccc1)c1ccccc1)";
+  const scope = { "7a": "N1CCC(CC1)c1ccccc1", "7b": "N1CCC(CC1)C(F)(F)F", "7c": "N1CCN(CC1)C(=O)OC(C)(C)C", "7d": "N1C[C@@H](C)O[C@@H](C)C1", "7e": "N1C[C@H]2C[C@H]2C1", "7f": "N1CC2CC(C1)c1ccccc12", "7g": "N1C2CCC1CC(=O)C2", "7h": "N1CC(OC)C1", "7i": "N(CC)C1CCCCC1", "7j": "N(C)CCOC", "7k": "N(C)C" };
+  assert.ok(!(await call("draw", { kind: "structures", structures: [...Object.entries(scope).map(([n, s]) => ({ text: R + s, number: n })), { text: "CC1(C)CCCC(C)(C)N1CC[C@@H]1N(C(=O)OCc2ccccc2)[C@H](C(C)(C)C)OC1=O", number: "7l" }] })).isError);
+  assert.deepEqual((await failed("paper-scope")).filter((w: string) => w.startsWith("compound")), []);
+  const asked = (answer: string) => SPEED.find((j: { id: string }) => j.id === "say-question").check({ d: { structures: [1, 2] }, answer })[1][0];
+  assert.deepEqual(["C31H46O10Si, with 8 stereocentres.", "Stereocentres: eight.", "C31H46O10Si; 9 stereocentres (8 defined).", "C31H46O10Si (MW 8 hundred), 9 stereocentres."].map(asked), [true, true, false, false]);
+}
 
 console.log("headless.check: ok");

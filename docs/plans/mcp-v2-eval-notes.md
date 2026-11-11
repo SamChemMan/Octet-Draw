@@ -372,9 +372,11 @@ the tools. What an agent reads before its first call fell from about 82,000 char
 ## 11 November 2026: what a job costs the model, and the lean harness
 
 `scripts/mcp-evals/cost.mjs` reads the agents' logs of the run above (five tools, Opus 5.5). A job's model turns are its
-requests to the model; one reply is often logged as two lines with the same usage, and the first count (aicost.py)
-counted both, so its turns, calls and output tokens were too high (8 to 10 turns and about 3,000 tokens a one-reaction
-job). The corrected numbers for the 21 cases: 146 model turns, 40 Octet calls, 109 other tool uses, 51,464 output
+requests to the model. The first count (aicost.py) was too high in two ways. One reply is often logged as two lines
+with the same usage (its thinking, then its tool use), and aicost.py added the output tokens of both. The log also keeps
+copies of earlier replies as lines of type api-request-blob, with the tool use and no usage, and aicost.py counted each
+copy as a turn and its call again (5 such lines in one agent's log of 13 replies). So it gave 8 to 10 turns and about
+3,000 tokens a one-reaction job. The corrected numbers for the 21 cases: 146 model turns, 40 Octet calls, 109 other tool uses, 51,464 output
 tokens (9,209 of them thinking), 684 s. A one-reaction scheme (scheme-fischer, scheme-boc and the like) is 5 or 6 turns,
 about 2,100 output tokens and 25 to 30 s, and 5 of its tool uses are the harness's own (the tool list, prep, writing the
 answer, the check), with 1 Octet call.
