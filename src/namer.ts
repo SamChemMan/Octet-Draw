@@ -311,6 +311,7 @@ class Namer {
   het = new Map<number, string>(); // atoms of groups built on N, O, S, P and the halogens, by role (namer-hetero.ts)
   ions = new Set<number>(); ionBonds = new Set<string>(); onium: number[] = []; azanide: number[] = []; // atoms named as ions, their hetero bonds, onium S, P, O, azanide N
   esterIon?: { x: number; word: string; ors: number[]; ohs: number }; // an ester anion of an inorganic acid: methyl sulfate
+  bridgeheadBonds = false; // a von Baeyer system's double bond from a bridgehead takes a compound locant (nameOf)
 
   // opaque: atoms that stand for a group named elsewhere (metals.ts: ferrocenyl), cited by that name and in no chain.
   opaque: Map<number, Name>;
@@ -1376,9 +1377,10 @@ class Namer {
     };
     const bridged = info?.bridged;
     const multiple = (num: number[], o?: number) => bridged ? bridged.bonds.flatMap(([a, b]) => {
-      // A double bond between atoms with locants that do not follow on (a bridgehead's) cannot be cited this way.
+      // A double bond between atoms with locants that do not follow on (a bridgehead's) takes a compound locant, 1(9),
+      // and ranks after the others: 1000 + the lower locant + the higher one / 1000.
       const ord = this.ord(a, b), x = loc(num, a), y = loc(num, b);
-      return ord > 1 && (o === undefined || ord === o) ? [Math.abs(x - y) === 1 ? Math.min(x, y) : 1000 + Math.min(x, y)] : [];
+      return ord > 1 && (o === undefined || ord === o) ? [Math.abs(x - y) === 1 ? Math.min(x, y) : 1000 + Math.min(x, y) + Math.max(x, y) / 1000] : [];
     }).sort((a, b) => a - b) : num.flatMap((a, k) => {
       const b = num[(k + 1) % num.length];
       if (k === num.length - 1 && !p.ring) return [];
@@ -1480,8 +1482,9 @@ class Namer {
     } else if (p.ring && info!.ring) parent = (info!.ring.hydrogen && (!opts.attach || opts.sulfo || opts.acyl) ? info!.ring.hydrogen : "") + info!.ring.name;
     else if (bridged) {
       // A large monocycle's double bond from its last atom to atom 1 takes a compound locant (P-31.1.4.2.4): 1(13).
-      const closure = (l: number[]) => l.map((x) => (x > 999 ? `${x - 1000}(${size})` : String(x))).sort((a, b) => parseInt(a) - parseInt(b));
-      if (multiple(num).some((l) => l > 999) && bridged.prefix !== "cyclo") throw new Error("bridgehead double bond");
+      // So does a von Baeyer system's double bond from a bridgehead, where nameOf asks for one: bicyclo[3.3.1]non-1(9)-ene.
+      const closure = (l: number[]) => l.map((x) => (x > 999 ? `${Math.floor(x) - 1000}(${Math.round((x % 1) * 1000)})` : String(x))).sort((a, b) => parseInt(a) - parseInt(b));
+      if (multiple(num).some((l) => l > 999) && bridged.prefix !== "cyclo" && !this.bridgeheadBonds) throw new Error("bridgehead double bond");
       // Replacement prefixes in front: 8-azabicyclo[3.2.1]octane, 1,4-dioxaspiro[4.5]decane, and azonia for an N+
       // (P-73.1.2): 1,4-diazoniabicyclo[2.2.2]octane.
       const replaced = [...REPLACE, ["N+", "azonia"]].map(([e, word]) => {
@@ -2791,13 +2794,18 @@ function fragments(g: Graph): number[][] {
 // A structure's name: one with metal atoms (metals.ts), a simple species, one structure, or a salt.
 function nameOf(g: Graph): string | undefined {
   const parts = fragments(g);
-  const named = (h: Graph) => metalName(h, parts, METAL_API) ?? (parts.length === 1 ? speciesName(h) ?? nOxideName(h) ?? new Namer(h).name() : saltName(h, parts));
+  const named = (h: Graph, bridgeheadBonds = false) => metalName(h, parts, METAL_API) ?? (parts.length === 1 ? speciesName(h) ?? nOxideName(h) ?? Object.assign(new Namer(h), { bridgeheadBonds }).name() : saltName(h, parts));
+  const bridgehead = (e: unknown) => e instanceof Error && e.message === "bridgehead double bond" && parts.length === 1;
   try { return named(g); } catch (e) {
-    // A von Baeyer name cannot cite a double bond between bridgeheads; the benzene rings drawn the other way round
-    // avoid it: bicyclo[4.2.0]octa-1,3,5-triene.
-    const other = e instanceof Error && e.message === "bridgehead double bond" && parts.length === 1 ? otherKekule(g) : undefined;
-    if (!other) throw e;
-    return named(other);
+    // A von Baeyer name cites a double bond from a bridgehead with a compound locant (P-31.1.4.2.4) only where the
+    // benzene rings drawn the other way round do not avoid it: bicyclo[4.2.0]octa-1,3,5-triene, but galantamine's
+    // 11-oxa-4-azatetracyclo[8.6.1.0¹,¹².0⁶,¹⁷]heptadeca-6,8,10(17),15-tetraene. Then both ways round are named and
+    // the name with the lower locants is kept, so galantamine has one name however its benzene ring is drawn.
+    if (!bridgehead(e)) throw e;
+    const other = otherKekule(g);
+    if (other) try { return named(other); } catch (f) { if (!bridgehead(f)) throw f; }
+    const names = [g, other].flatMap((h) => { const name = h && named(h, true); return name ? [name] : []; });
+    return names.sort((a, b) => compare(locantsOf(a), locantsOf(b)))[0];
   }
 }
 

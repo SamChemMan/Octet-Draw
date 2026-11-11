@@ -117,6 +117,12 @@ run("von Baeyer", [
   "pentacyclo[4.3.0.0^{2,5}.0^{3,8}.0^{4,7}]nonane = pentacyclo[4.3.0.0²,⁵.0³,⁸.0⁴,⁷]nonane",
   "smiles:CN1[C@@H]2CC(C[C@H]1[C@H]1[C@@H]2O1)OC(=O)[C@H](CO)c1ccccc1 = (1S,2S,4R,5R)-9-methyl-3-oxa-9-azatricyclo[3.3.1.0²,⁴]nonan-7-yl (2S)-3-hydroxy-2-phenylpropanoate",
   "ajmalene = (1R,9R,10S,12S,13S,16S)-13-ethyl-8-methyl-8,15-diazahexacyclo[14.2.1.0¹,⁹.0²,⁷.0¹⁰,¹⁵.0¹²,¹⁷]nonadeca-2,4,6,17-tetraene",
+  // A double bond from a bridgehead takes a compound locant (P-31.1.4.2.4) where the benzene ring drawn the other way
+  // round does not avoid it; galantamine has the same name drawn either way round.
+  "bicyclo[3.3.1]non-1(9)-ene = bicyclo[3.3.1]non-1(9)-ene", "bicyclo[4.2.0]oct-1(6)-ene = bicyclo[4.2.0]oct-1(6)-ene",
+  "smiles:C1CC2=C1C=CC=C2 = bicyclo[4.2.0]octa-1,3,5-triene", "smiles:C1CC2=CC=CC=C12 = bicyclo[4.2.0]octa-1,3,5-triene",
+  "smiles:COC1=CC=C2CN(CC[C@]34[C@@H](OC1=C42)C[C@H](C=C3)O)C = (1S,12S,14R)-9-methoxy-4-methyl-11-oxa-4-azatetracyclo[8.6.1.0¹,¹².0⁶,¹⁷]heptadeca-6,8,10(17),15-tetraen-14-ol",
+  "smiles:COC1C=CC=2CN(CC[C@]34[C@@H](OC=1C42)C[C@H](C=C3)O)C = (1S,12S,14R)-9-methoxy-4-methyl-11-oxa-4-azatetracyclo[8.6.1.0¹,¹².0⁶,¹⁷]heptadeca-6,8,10(17),15-tetraen-14-ol",
 ]);
 
 // A ring triple bond in a fused system: a double bond of the parent made triple by didehydro, cited with the hydro

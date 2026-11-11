@@ -541,11 +541,11 @@ console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are 
 
 // Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
 // templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; r and s centres;
-// a cage; a base pair, two molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake; a calixarene or
-// pillararene or cyclophane, whose von Baeyer names the namer does not make). The drawn sets
-// have no structure.
+// a cage; a base pair, two molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake). The drawn sets
+// have no structure. The calixarenes, pillar[5]arene and [2.2]paracyclophane take von Baeyer names with compound
+// locants: pentacyclo[19.3.1.1³,⁷.1⁹,¹³.1¹⁵,¹⁹]octacosa-1(25),3,5,7(28),…-dodecaene.
 const UNNAMED = new Set(["cis-Decalin", "trans-Decalin", "Cubane", "IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
-  "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair", "Calix[4]arene", "p-tert-Butylcalix[4]arene", "Pillar[5]arene", "[2.2]Paracyclophane",
+  "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair",
   ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))]);
 let named = 0;
 for (const t of molecular) {
