@@ -74,12 +74,12 @@ export function toChemfig(mol: Mol, s: Style, measure: (text: string, face?: Fac
   const bond = (i: number, j: number, k?: number) => {
     const l = Math.hypot(at(j)[0] - at(i)[0], at(j)[1] - at(i)[1]) * f;
     const fields = [`:${num(degrees(i, j), 1)}`, Math.abs(l - 1) > 0.02 ? num(l, 2) : "", ...[i, j].map((n) => (labels[n].parts.length > 1 ? String(labels[n].anchor + 1) : "")), k === undefined ? "draw=none" : ""];
-    while (!fields[fields.length - 1]) fields.pop();
-    return `${k === undefined ? "-" : look(mol.bonds[k], k, i)}[${fields.join(",")}]`;
+    return `${k === undefined ? "-" : look(mol.bonds[k], k, i)}[${fields.join(",").replace(/,+$/, "")}]`;
   };
 
   // Each structure as a tree from its leftmost atom (a walk with no recursion, so a long chain is safe). A bond back to
-  // an atom on the path closes a ring: that atom is written first, and chemfig draws the hook's bond from it.
+  // an atom on the path closes a ring: that atom is written first, and chemfig draws the hook's bond from it. The walk
+  // takes double bonds first, so a ring closes on a single bond: chemfig reads no side (=^, =_) on a hook.
   const seen = atoms.map(() => false), kids: number[][] = atoms.map(() => []), via: number[] = [], hooks = atoms.map(() => "");
   const done = new Set<number>(), order: number[] = [], roots: number[] = [];
   let named = 0;
@@ -90,7 +90,7 @@ export function toChemfig(mol: Mol, s: Style, measure: (text: string, face?: Fac
     roots.push(r);
     order.push(r);
     for (const path = [r]; path.length; ) {
-      const u = path[path.length - 1], e = nbrs[u].find((n) => !done.has(n.k));
+      const u = path[path.length - 1], e = nbrs[u].find((n) => !done.has(n.k) && mol.bonds[n.k].type === 2) ?? nbrs[u].find((n) => !done.has(n.k));
       if (!e) { path.pop(); continue; }
       done.add(e.k);
       if (seen[e.to]) {

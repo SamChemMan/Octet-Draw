@@ -1393,7 +1393,7 @@ export default function Editor() {
     if (!tex) return setNotice("There is nothing to export.", "info");
     try {
       const path = await exportFile({ name, format: "tex", tex });
-      if (path) saved(path, part.captions?.length || part.arrows?.length || part.shapes?.length ? " The file has only the structures." : "");
+      if (path) saved(path, part.captions?.length || part.arrows?.length || part.shapes?.length || part.cycles?.length ? " The file has only the structures." : "");
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
