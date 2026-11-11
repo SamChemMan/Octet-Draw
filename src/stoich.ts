@@ -8,12 +8,14 @@
 import type { Grid, GridConditions, GridRole } from "./render.ts";
 import { oneLine } from "./experiment.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
+import { LIQUIDS, type Liquid } from "./liquids.ts";
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
 export type Typed = Partial<Record<Field, number>>;
 // given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
-// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is).
-export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number };
+// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is). density: a
+// known liquid's listed density (liquids.ts), used when none is typed.
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number };
 export type Solved = {
   mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number;
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
@@ -27,10 +29,10 @@ export function solve(components: Component[], limiting?: string): Record<string
   const ref = lim?.coef ?? 1, given = (c: Component) => c.typed.equiv ?? c.given ?? (c.coef === undefined ? undefined : c.coef / ref);
   // A reactant's moles from what was typed: moles, mass, volume with density, or volume with molarity.
   const own = (c: Component): number | undefined => {
-    const t = c.typed, purity = t.purity ?? 1;
+    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density;
     if (t.moles !== undefined) return t.moles;
     if (t.mass !== undefined && c.mw > 0) return (t.mass * purity) / c.mw;
-    if (t.volume !== undefined && t.density !== undefined && c.mw > 0) return (t.volume * t.density * purity) / c.mw;
+    if (t.volume !== undefined && density !== undefined && c.mw > 0) return (t.volume * density * purity) / c.mw;
     if (t.volume !== undefined && t.molarity !== undefined) return (t.volume / 1000) * t.molarity;
     return undefined;
   };
@@ -40,12 +42,12 @@ export function solve(components: Component[], limiting?: string): Record<string
   // With no reactant amount, a product's mass wanted fixes it.
   if (limMoles === undefined) for (const c of components) { const e = given(c) ?? 1; if (c.product && c.typed.mass !== undefined && c.mw > 0 && e > 0) { limMoles = c.typed.mass / c.mw / e; break; } }
   for (const c of reactants) {
-    const t = c.typed, purity = t.purity ?? 1;
+    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density;
     let moles = own(c);
     if (moles === undefined && limMoles !== undefined) moles = limMoles * (c === lim ? 1 : given(c) ?? 1);
     const mass = moles !== undefined && c.mw > 0 ? (moles * c.mw) / purity : t.mass;
-    const volume = t.volume ?? (mass !== undefined && t.density ? mass / t.density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
-    out[c.key] = { moles, mass, volume, purity, density: t.density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
+    const volume = t.volume ?? (mass !== undefined && density ? mass / density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
+    out[c.key] = { moles, mass, volume, purity, density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
   }
   for (const c of components.filter((x) => x.product)) {
     const purity = c.typed.purity ?? 1, equiv = given(c) ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
@@ -159,6 +161,23 @@ const GROUP = new RegExp(Object.keys(GROUPS).join("|"), "g");
 // Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
 let abbreviated: Map<string, string> | undefined;
 const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
+// Octet's listed liquids (liquids.ts): by standard InChI, by name in lower case, and the formulas they have.
+let liquids: { inchi: Map<string, Liquid>; name: Map<string, Liquid>; formulas: Set<string> } | undefined;
+const listed = () => (liquids ??= { inchi: new Map(LIQUIDS.map((l) => [l.inchi, l])), name: new Map(LIQUIDS.flatMap((l) => l.names.map((n) => [n.toLowerCase(), l] as const))), formulas: new Set(LIQUIDS.map((l) => l.inchi.split("/")[1])) });
+// A drawn structure's listed liquid: by its formula first, then by its standard InChI, asked for only then, so a
+// structure with THF's formula (butanone, butanal) is never THF.
+export const liquidOf = (formula: string, inchi: () => string | undefined): Liquid | undefined => {
+  const l = listed();
+  if (!l.formulas.has(formula)) return undefined;
+  const i = inchi();
+  return i === undefined ? undefined : l.inchi.get(i);
+};
+// A reagent written as text: by a name the list gives it ("THF", "dry THF", "tetrahydrofuran"), else by Octet's
+// abbreviation's InChI. Undefined when it is not a listed liquid.
+export function liquidNamed(text: string): Liquid | undefined {
+  const plain = coefficient(reagentName(text))[0].trim(), l = listed(), inchi = l.name.has(plain.toLowerCase()) ? undefined : abbreviation(plain);
+  return l.name.get(plain.toLowerCase()) ?? (inchi === undefined ? undefined : l.inchi.get(inchi));
+}
 // Words for what a formula says (issue 132). A Map, so "constructor" is not one.
 const WORDS = new Map([["proton", "H+"], ["hydroxide", "OH−"], ["hydronium", "H3O+"], ["hydride", "H−"], ["water", "H2O"]]);
 // A formula and the charge at its end, raised: H+ is H and ⁺, OH− is OH and ⁻, SO4 2− and SO42− are SO4 and ²⁻, Fe³⁺

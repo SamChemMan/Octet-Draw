@@ -5,7 +5,7 @@
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Box, type Grid, type Mol } from "./render.ts";
 import { sheetSafe } from "./experiment.ts";
-import { coefficient, conditionItems, formatAmount, inert, keyColumns, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
+import { coefficient, conditionItems, formatAmount, inert, keyColumns, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 
@@ -26,7 +26,8 @@ export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boo
 // What laying a grid out needs from the drawing as drawn. reaction: an arrow's reaction; steps: its parts by role
 // (interpret.ts); structure: a structure's formula and molar mass; reagent: a reagent's (stoich.ts reagentFormula);
 // captionBox: a caption's box (drawing units, y up); nameWidth: a text's width at a size in pt (drawing units);
-// perPt: drawing units in a point; experiment: the drawing is an experiment page.
+// perPt: drawing units in a point; experiment: the drawing is an experiment page; inchi: a structure's standard InChI,
+// asked for only when its formula is a listed liquid's (stoich.ts liquidOf).
 export type GridDeps = {
   reaction: (arrow: number) => Reaction | undefined;
   steps: (r: Reaction) => RoleStep[];
@@ -34,7 +35,7 @@ export type GridDeps = {
   reagent: (text: string) => { formula: string; weight: number } | undefined;
   captionBox: (caption: number) => Box | undefined;
   nameWidth: (text: string, sizePt: number, bold?: boolean) => number;
-  captionSize: number; perPt: number; experiment: boolean;
+  captionSize: number; perPt: number; experiment: boolean; inchi?: (atoms: number[]) => string | undefined;
 };
 
 // One grid for each reaction (an experiment page gives each new arrow one), laid out under it.
@@ -62,19 +63,24 @@ export function gridViews(m: Mol, d: GridDeps) {
     // label: what names it in a table of rows, its compound number or the text it is written as. given: the
     // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed. coef: its coefficient, for
     // a part of the equation; side: written over or under an arrow, where a number in front ("2 HCl") gives its
-    // equivalents.
-    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean }[] = [];
+    // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent.
+    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean }[] = [];
     // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
     const add = (p: Part, product: boolean, conditions = false) => {
       const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
-      if (p.kind === "structure") { const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text; parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions }); return; }
+      if (p.kind === "structure") {
+        const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
+        parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: liquid?.solvent });
+        return;
+      }
       if (counted.has(p)) return;
       const text = m.captions?.find((c) => c.id === p.id)?.text ?? "", items = conditions ? conditionItems(text) : [text.trim()];
       items.forEach((item, k) => {
         const n = coefficient(reagentName(item))[1], plain = n ? coefficient(item)[0] : item, got = d.reagent(item);
         // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
         if (conditions && (!got || inert(item))) return;
-        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: reagentEquiv(item) ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions });
+        const liquid = product ? undefined : liquidNamed(item);
+        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: reagentEquiv(item) ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: liquid?.density, solvent: liquid?.solvent });
       });
     };
     steps[0].reactants.forEach((p) => add(p, false));

@@ -1,7 +1,8 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
+import { coefficient, conditionItems, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
+import { LIQUIDS } from "./liquids.ts";
 import { cellText, emptyRows, gridTsv, gridViews, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
@@ -100,6 +101,32 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   const back = fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol;
   assert.deepEqual(back.grids, [{ arrow: back.arrows![0].id, typed: { "r:C7H6O": { mass: 1.06 } }, layout: "rows" }]);
   assert.equal(fromCdxml(toCdxml({ ...m, grids: [{ arrow: 4, typed: {} }] }, DEFAULT_STYLE)).mol.grids?.[0].layout, undefined, "columns stay the default");
+}
+// Listed densities (liquids.ts): a drawn structure by its formula, then its InChI (asked for only then); text by a name
+// the list gives, or Octet's abbreviation. THF drawn and THF written both take THF's; butanone, with THF's formula,
+// takes its own, and butanal none. A typed density wins over the listed one, which shows plain.
+{
+  const THF = "InChI=1S/C4H8O/c1-2-4-5-3-1/h1-4H2", asked: string[] = [];
+  const inchi = (i: string) => () => { asked.push(i); return i; };
+  assert.equal(liquidOf("C4H8O", inchi(THF))?.density, 0.8833);
+  assert.equal(liquidOf("C4H8O", inchi("InChI=1S/C4H8O/c1-3-4(2)5/h3H2,1-2H3"))?.density, 0.7999, "butanone");
+  assert.equal(liquidOf("C4H8O", inchi("InChI=1S/C4H8O/c1-2-3-4-5/h4H,2-3H2,1H3")), undefined, "butanal");
+  asked.length = 0;
+  assert.equal(liquidOf("C7H6O", inchi("x")), undefined);
+  assert.deepEqual(asked, [], "no InChI asked for a formula no liquid has");
+  for (const t of ["THF", "dry THF", "anhydrous THF", "tetrahydrofuran", "THF (5 mL)", "thf"]) assert.equal(liquidNamed(t)?.density, 0.8833, t);
+  for (const [t, d] of [["CH2Cl2", 1.326], ["DCM", 1.326], ["MeOH", 0.791], ["Et3N", 0.728], ["H2O", 0.998], ["PhMe", 0.867], ["py", 0.982]] as const) assert.equal(liquidNamed(t)?.density, d, t);
+  for (const t of ["NaBH4", "K2CO3", "reflux", "toluene/EtOH", "constructor", "__proto__"]) assert.equal(liquidNamed(t), undefined, t);
+  // The list: each name names one liquid, each InChI is one, and every density is a liquid's.
+  const names = LIQUIDS.flatMap((l) => l.names.map((n) => n.toLowerCase()));
+  assert.equal(new Set(names).size, names.length, "a name names one liquid");
+  assert.equal(new Set(LIQUIDS.map((l) => l.inchi)).size, LIQUIDS.length);
+  assert.ok(LIQUIDS.length >= 40 && LIQUIDS.every((l) => l.density > 0.5 && l.density < 3 && /^InChI=1S\//.test(l.inchi)));
+  // 5 mL of THF (72.11) at its listed density is 4.42 g, 61.2 mmol; a density typed wins.
+  const thf = (typed: object) => solve([{ key: "r:A", mw: 100, product: false, typed: { moles: 0.001 } }, { key: "r:T", mw: 72.11, product: false, typed: { volume: 5, ...typed }, density: 0.8833 }])["r:T"];
+  near(thf({}).mass, 5 * 0.8833, "THF's mass from its listed density");
+  near(thf({}).density, 0.8833, "the listed density shows");
+  near(thf({ density: 1 }).mass, 5, "a typed density wins");
 }
 // The fields added after 1.1.2 (roles, taken, conc, conditions, step) are each read alone: a bad one is left out and
 // the grid kept. They go through Octet's file and CDXML, and none is inside typed, where Octet 1.1.1 calls a grid
@@ -203,7 +230,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
     const deps: GridDeps = {
       reaction: () => ({ steps, arrows: [9], atoms: [], captions: [], carried: [], conditions: new Map() }) as never,
       steps: (r) => [{ arrow: 9, reactants: parts(r.steps.slice(0, at)), products: parts(r.steps.slice(at + 1)), above: conditions, below: [] }] as never,
-      structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2/.test(t) ? { formula: "X", weight: 36 } : undefined),
+      structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2|THF/.test(t) ? { formula: "X", weight: 36 } : undefined),
       captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
     };
     const v = gridViews(m, deps)[0];
@@ -254,6 +281,9 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(empty.rows.filter((id) => !emptyRows(empty.v).includes(id)), ["formula", "mw", "limiting", "equiv"]);
   assert.equal(cellText(empty.v, empty.v.cols[1], empty.v.rows.find((row) => row.id === "equiv")!).text, "1.00");
   assert.ok(!emptyRows(liquid.v).includes("volume") && emptyRows(liquid.v).includes("yield"), "a row with a value stays");
+  // A listed density (THF over the arrow) shows plain: bold only when typed.
+  const listedGrid = grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", ["THF"]), thfCol = listedGrid.v.cols.find((c) => c.key === 'r:"THF"')!;
+  assert.deepEqual(cellText(listedGrid.v, thfCol, listedGrid.v.rows.find((r) => r.id === "density")!), { text: "0.88 g/mL", typed: false });
   // Copy table: tab-separated, as shown. In columns, a row naming the components, then each row shown; hidden rows
   // are left out; a value a spreadsheet would run as a formula gets an apostrophe; the conditions follow.
   const named = grid(["=HYPERLINK(1)", "+", 0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", [], undefined, { hidden: { rows: ["density", "volume"] } });

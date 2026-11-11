@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { analyse, keptInchi, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -5971,7 +5971,7 @@ export default function Editor() {
   const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
-    structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
+    structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0], inchi: (atoms) => keptInchi(pickAtoms(m, atoms)),
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, readName, labelSmiles, smilesWeight),
     captionBox,
