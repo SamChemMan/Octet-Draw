@@ -1,7 +1,7 @@
 // Run: node src/mcprobust.check.ts [SEED]. What an AI app sends cannot break Octet (MCP v2 test plan, R1, R3, R9, P1,
 // P2 and P6), with no window (scripts/headless). R1: calls made from each tool's listed schema and each operation's own
 // (as advanced help gives it), each broken in every way its schema allows, come back refused in one line, fast, with
-// the drawing as it was and no undo step. They run in child processes, so a call that hangs is named. R9: text that
+// the drawing as it was (here, with no window, its undo steps are not seen: history.check.ts holds those). They run in child processes, so a call that hangs is named. R9: text that
 // says to delete or export is drawn and read back as text. R3 and P1: the size of a job, its time, its longest stretch
 // with no pause (the window freezes for that long) and its reply. P6: 300 calls of a normal session, with Indigo's
 // memory and Node's heap, and how much of Indigo's stack the calls Indigo refuses lose (plan 17.2).
@@ -75,6 +75,8 @@ for (const op of routes.keys()) Object.assign(defs, (await call("advanced", { to
 for (const t of Object.values(listed) as any[]) Object.assign(defs, t.inputSchema.$defs);
 const schemaOf = (op: string) => OP_TABLE.find((o: { name: string }) => o.name === op)?.inputSchema;
 const deref = (s: any): any => (s?.$ref ? defs[s.$ref.slice("#/$defs/".length)] : s?.anyOf ? s.anyOf[0] : s);
+// Each form a value can take (each branch of an anyOf), so the second form (a list of ids for one id) is broken too.
+const forms = (s: any): any[] => { s = s?.$ref ? defs[s.$ref.slice("#/$defs/".length)] : s; return s?.anyOf ? s.anyOf.flatMap(forms) : s ? [s] : []; };
 
 // A value that fits a schema, made at random: what an AI app might give. Text is an id that is there (or not), a
 // name or SMILES Indigo reads fast, a colour or a number.
@@ -96,11 +98,12 @@ function fit(s: any, rnd: () => number, depth = 0, some = 0.15): unknown {
 }
 // Every place in a schema a value goes (the keys, and the keys of a list's first item), with its schema.
 function places(s: any, at: (string | number)[] = [], depth = 0): [(string | number)[], any][] {
-  s = deref(s);
-  if (!s || depth > 2) return [];
-  if (s.type === "object") return Object.entries(s.properties ?? {}).flatMap(([k, p]) => [[[...at, k], deref(p)] as [(string | number)[], any], ...places(p, [...at, k], depth + 1)]);
-  if (s.type === "array") return places(s.items, [...at, 0], depth + 1);
-  return [];
+  if (depth > 2) return [];
+  return forms(s).flatMap((s) => {
+    if (s.type === "object") return Object.entries(s.properties ?? {}).flatMap(([k, p]) => [...forms(p).map((f) => [[...at, k], f] as [(string | number)[], any]), ...places(p, [...at, k], depth + 1)]);
+    if (s.type === "array") return places(s.items, [...at, 0], depth + 1);
+    return [];
+  });
 }
 const deep = (n: number, leaf: unknown, wrap: (x: unknown) => unknown) => { let v = leaf; for (let i = 0; i < n; i++) v = wrap(v); return v; };
 const MB = "x".repeat(1_000_000);
@@ -119,8 +122,9 @@ function breaks(s: any): [string, unknown][] {
 const setAt = (v: any, at: (string | number)[], x: unknown): unknown => {
   const root = structuredClone(v);
   let o = root;
-  for (const k of at.slice(0, -1)) { if (!o || typeof o !== "object") return root; o[k] ??= typeof at[at.indexOf(k) + 1] === "number" ? [] : {}; o = o[k]; }
   if (!o || typeof o !== "object") return root;
+  // A place in another form than the call's (a list where it gave one id) takes that form.
+  at.slice(0, -1).forEach((k, i) => { if (!o[k] || typeof o[k] !== "object") o[k] = typeof at[i + 1] === "number" ? [] : {}; o = o[k]; });
   if (x === undefined) delete o[at.at(-1)!]; else o[at.at(-1)!] = x;
   return root;
 };
@@ -143,9 +147,8 @@ async function base() {
 }
 
 // One generated call: it comes back (a throw from handle fails the check), as a result or an error; refused, it says
-// the fix in one line, under 100 ms, with the drawing as it was and no undo step; a crash caught inside a tool is
-// named. A call that changes the drawing is undone.
-// (step: an undo step that changes nothing.)
+// the fix in one line, under 100 ms, with the drawing as it was; a crash caught inside a tool is named. A call that
+// changes the drawing is undone. (step: the drawing set again as it was, here with no window.)
 type Outcome = "refused" | "done" | "crashed" | "slow" | "changed" | "step" | "long" | "lines";
 async function one(tool: string, args: unknown): Promise<{ outcome: Outcome; ms: number; said: string; lost: number }> {
   const before = d.host.doc(), json = JSON.stringify(before), sp = stack();
@@ -237,7 +240,7 @@ for (const ops of [Array.from({ length: 41 }, () => ({ op: "select", ids: [] }))
 { const o = await one("drawings", { action: "use", drawing: "not-open" }); if (o.outcome !== "refused") own.push(`${o.outcome}: use a drawing not open -> ${o.said}`); }
 assert.deepEqual(own, [], "the five tools' own arguments");
 // The smallest call R1 found that changed the drawing it said it had not: edit turned the structure, then could not
-// read its new text. Now the drawing goes back as it was, and no undo step is made.
+// read its new text. Now the drawing goes back as it was, and in the window its step goes (history.check.ts).
 { const o = await one("change", { operations: [{ op: "edit", ids: ["s2"], rotate: 30, structure: "x" }] }); assert.equal(o.outcome, "refused", o.said); }
 
 // ---- R9: text that tries to steer ----
@@ -283,11 +286,14 @@ const session: [string, string, (made: string[]) => unknown][] = [
   ["draw a SMILES Octet cannot read", "draw", () => ({ kind: "structures", structures: [{ text: "C1CC(=O" }] })],
   ["change refused by its schema", "change", () => ({ operations: [] })],
   ["change replace", "change", (m) => ({ operations: [{ op: "replace", structure: m[0], text: "toluene" }] })],
+  // A structure with a generic atom: Indigo refuses parts of reading it in full, and its InChI.
+  ["draw a generic structure", "draw", () => ({ kind: "structures", structures: [{ text: "*c1ccccc1" }] })],
   ["read full", "read", () => ({ detail: "full" })],
+  ["read inchi", "read", () => ({ format: "inchi" })],
   ["read file", "read", () => ({ format: "mol" })],
   ["change text", "change", () => ({ operations: [{ op: "text", text: "Scheme 1" }] })],
   ["clean up", "advanced", () => ({ tool: "run_command", args: { command: "clean_up" } })],
-  UNDO, UNDO, UNDO, UNDO, UNDO, UNDO, UNDO, UNDO,
+  UNDO, UNDO, UNDO, UNDO, UNDO, UNDO, UNDO, UNDO, UNDO,
 ];
 const kinds: Record<string, { calls: number; lost: number }> = {}, series: { call: number; indigo: number; heap: number; lost: number }[] = [];
 const sample = (k: number, lost: number) => { gc(); series.push({ call: k, indigo: memory.buffer.byteLength, heap: process.memoryUsage().heapUsed, lost }); };
@@ -309,12 +315,13 @@ const perCall = sessionLost / 300;
 console.log(`Indigo's stack lost by kind of call (48 bytes is one refusal): ${Object.entries(kinds).filter(([, v]) => v.lost).map(([k, v]) => `${k}: ${v.lost / v.calls} bytes a call`).join("; ") || "none"}.`);
 console.log(`At ${perCall.toFixed(1)} bytes a call, Indigo fails after about ${perCall ? Math.round(STACK_LIMIT / perCall) : "no limit of"} calls of this session.`);
 // Memory levels off: the second half of the session grows Indigo's memory by at most a tenth, and Node's heap by at
-// most a quarter. Known fault (plan 17.2), held to today's loss until its fix comes: the SMILES Indigo refuses loses
-// 48 bytes of its stack for good, once a round; nothing else does. With the fix this is 0.
+// most a quarter. Known fault (plan 17.2), held to today's loss until its fix comes: each round, the SMILES Indigo
+// refuses and the InChI of a generic structure lose 48 bytes of its stack for good; and the first full read of a
+// generic structure loses 144 bytes (three refusals), once (Octet keeps what it read). With the fix this is 0.
 const half = series.find((s) => s.call === 150)!, end = series.at(-1)!;
 assert.ok(end.indigo <= half.indigo * 1.1, `Indigo's memory levels off: ${half.indigo} at call 150, ${end.indigo} at 300`);
 assert.ok(end.heap <= half.heap * 1.25, `Node's heap levels off: ${half.heap} at call 150, ${end.heap} at 300`);
-assert.ok(sessionLost <= 48 * Math.ceil(300 / session.length), `Indigo's stack: ${sessionLost} bytes lost in 300 calls (plan 17.2)`);
+assert.ok(sessionLost <= 96 * Math.ceil(300 / session.length) + 144, `Indigo's stack: ${sessionLost} bytes lost in 300 calls (plan 17.2)`);
 
 // ---- R3, P1 and P2: size ----
 
@@ -347,6 +354,12 @@ d = drawing("paper", "Size");
 await call("draw", { kind: "structures", structures: alkanes });
 const big = (await call("read", { format: "cdxml" })).result!.structuredContent.text as string;
 await size(`a CDXML of 200 structures (${big.length} characters) to add_file`, "advanced", { tool: "add_file", args: { text: big } }, big.length <= 1_000_000 ? "done" : "refused");
+// Near add_file's limit: 750 structures as Octet writes them (about 930,000 characters).
+d = drawing("paper", "Size");
+for (let k = 0; k < 4; k++) await call("draw", { kind: "structures", structures: alkanes.slice(0, k < 3 ? 200 : 150) });
+const near = (await call("read", { format: "cdxml" })).result!.structuredContent.text as string;
+assert.ok(near.length > 800_000 && near.length <= 1_000_000, `a CDXML near the limit: ${near.length} characters`);
+await size(`a CDXML of 750 structures (${near.length} characters) to add_file`, "advanced", { tool: "add_file", args: { text: near } }, "done");
 await size("a 10 MB CDXML to add_file", "advanced", { tool: "add_file", args: { text: big.replace("</page>", `${"<t><s>padding</s></t>".repeat(Math.ceil(10_000_000 / 21))}</page>`) } }, "refused");
 console.log("R3 and P1, size: | Job | Characters sent | Result | Octet ms | Longest block ms | Reply characters |");
 for (const s of sizes) console.log(s);
