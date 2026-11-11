@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
-import { cellText, emptyRows, gridTsv, gridViews, setRole, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -168,6 +168,10 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.match(editor, /if \(role\) return changeGrid\(arrow, \(g, v\) => setRole\(g, v, key, role\)\);/);
   assert.match(editor, /ROLES\[\(ROLES\.indexOf\(gcol\?\.role \?\? "reactant"\) \+ 1\) % ROLES\.length\]/);
   assert.match(editor, /\{ arrow, typed: \{\}, roles: \{\} \}/, "Analyse stoichiometry makes a table with roles");
+  // Typing a reactant's mass or volume marks it (as Reactio Draw does); Mark as measured moves the mark, Clear takes it off.
+  assert.match(editor, /if \(field === "mass" \|\| field === "volume"\) return \{ taken: \{ \.\.\.rest, \[w\.key\]: field \} \};/);
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Mark as measured", "grid\.taken"[\s\S]*"Clear measured mark", "grid\.untaken"/);
+  assert.match(readFileSync(new URL("editor.css", import.meta.url), "utf8"), /\.stoich text\.taken \{\n  fill: var\(--error\);\n\}\n\.stoich line\.taken \{\n  stroke: var\(--error\);\n\}/, "the brand's red, as the page's theme gives it");
   assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\); return v && copyPlain\(gridTsv\(v\)\); \}/);
   assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
@@ -317,6 +321,16 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   near(cat.at('r:"HCl"').moles, 0.0005, "5 mol% of 10 mmol");
   assert.equal(formatAmount(0.05, "mol%"), "5.00 mol%");
   near(parseAmount("5 mol%", "equiv"), 0.05, "mol% typed");
+  // The amount measured out (Grid.taken): a reactant's Mass or Volume, drawn red and underlined (Editor.tsx takenLine).
+  // A change keeps marks and roles only for the columns the grid has, so neither grows past what readGrid reads.
+  const measured = grid([0, "→", 1], { "r:S0": { volume: 2, density: 1 } }, "r:S0", [], undefined, { taken: { "r:S0": "volume", "r:gone": "mass" }, roles: { "r:gone": "solvent" } });
+  const cell = (id: string) => cellText(measured.v, measured.v.cols[0], measured.v.rows.find((r) => r.id === id)!);
+  assert.deepEqual(cell("volume"), { text: "2.00 mL", typed: true, taken: true });
+  assert.deepEqual(cell("mass"), { text: "2.00 g", typed: false });
+  const kept = keptGrid({ arrow: 9, typed: { "r:S0": { volume: 2, density: 1 } }, taken: { "r:S0": "volume", "r:gone": "mass" }, roles: { "r:gone": "solvent" } }, measured.v);
+  assert.deepEqual([kept.taken, kept.roles], [{ "r:S0": "volume" }, {}]);
+  const marked: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, typed: { "r:A": { volume: 2 } }, taken: { "r:A": "volume" } }] };
+  for (const g of [parse(serialize(marked)).grids![0], fromCdxml(toCdxml(marked, DEFAULT_STYLE)).mol.grids![0]]) assert.deepEqual(g.taken, { "r:A": "volume" }, "a mark on Volume is kept");
   // A listed density (THF over the arrow) shows plain: bold only when typed.
   const listedGrid = grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", ["THF"]), thfCol = listedGrid.v.cols.find((c) => c.key === 'r:"THF"')!;
   assert.deepEqual(cellText(listedGrid.v, thfCol, listedGrid.v.rows.find((r) => r.id === "density")!), { text: "0.88 g/mL", typed: false });

@@ -154,7 +154,7 @@ export function gridViews(m: Mol, d: GridDeps) {
         y -= 0.5 * rh;
       }
     } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
-    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
+    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
   });
 }
 
@@ -163,14 +163,23 @@ export const ROLE_NAMES: Record<GridRole, string> = { reactant: "Reactant", cata
 // A column's role set: kept by its key. A table from an older Octet (no roles) first keeps each known solvent as a
 // reactant, so only the column the user changed changes.
 export function setRole(g: Grid, v: GridView, key: string, role: GridRole): Partial<Grid> {
-  const keys = new Set(v.all.filter((c) => !c.product).map((c) => c.key));
-  const roles: Record<string, GridRole> = Object.fromEntries(Object.entries(g.roles ?? Object.fromEntries(v.all.filter((c) => !c.product && c.solvent).map((c) => [c.key, "reactant" as const]))).filter(([k]) => keys.has(k)));
+  const roles: Record<string, GridRole> = g.roles ?? Object.fromEntries(v.all.filter((c) => !c.product && c.solvent).map((c) => [c.key, "reactant" as const]));
   return { roles: { ...roles, [key]: role }, ...(role === "solvent" && v.limiting === key ? { limiting: undefined } : {}) };
+}
+// A grid as the editor changes it: what was typed, the roles and the marks, each by the keys of the columns it has now
+// (keyColumns), so values matched by order are kept by key and nothing grows past what readGrid reads.
+export function keptGrid(g: Grid, v: GridView): Grid {
+  const keys = new Set(v.all.map((c) => c.key)), own = <T>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).filter(([k]) => keys.has(k)));
+  return { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting,
+    ...(g.roles ? { roles: own(g.roles) } : {}), ...(g.taken ? { taken: own(g.taken) } : {}) };
 }
 type GridRow = (typeof GRID_ROWS)[number];
 // A cell's text, and whether it was typed (typed values show bold, worked-out ones plain, as ChemDraw's grid does).
-export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow): { text: string; typed?: boolean } {
+// taken: the amount measured out, a reactant's Mass or Volume (Grid.taken), drawn red and underlined.
+export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow): { text: string; typed?: boolean; taken?: true } {
   const s = v.solved[c.key];
+  const fd = row.id === "mass" || row.id === "volume" ? row.id : undefined;
+  if (fd && !c.product && v.taken?.[c.key] === fd) return { text: formatAmount(s?.[fd], fd), typed: c.typed[fd] !== undefined, taken: true };
   if (row.id === "formula") return { text: c.formula };
   if (row.id === "role") return { text: c.product ? "Product" : ROLE_NAMES[c.role ?? "reactant"] };
   if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };

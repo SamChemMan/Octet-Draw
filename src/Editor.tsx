@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf, setRole } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf, keptGrid, setRole } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -6018,7 +6018,7 @@ export default function Editor() {
   const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => {
     const g = doc.grids?.find((x) => x.arrow === arrow), v = gridViews.find((x) => x.arrow === arrow);
     if (!g || !v) return;
-    const now: Grid = { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting };
+    const now = keptGrid(g, v);
     set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...now, ...change(now, v) } : x)) }, true);
   };
   // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
@@ -6042,6 +6042,13 @@ export default function Editor() {
     }
     if (!row.field) return;
     const field0 = row.field;
+    // A reactant's mass or volume typed is the amount measured out: the column's mark goes to it. Cleared, its mark goes.
+    const marked = (g: Grid, field?: Field): Partial<Grid> => {
+      if (w.product) return {};
+      const { [w.key]: was, ...rest } = g.taken ?? {};
+      if (field === "mass" || field === "volume") return { taken: { ...rest, [w.key]: field } };
+      return field === undefined && was === field0 ? { taken: rest } : {};
+    };
     changeGrid(w.arrow, (g, v) => {
       const typed = { ...(g.typed[w.key] ?? {}) };
       if (!text.trim()) delete typed[field0];
@@ -6057,14 +6064,15 @@ export default function Editor() {
         // A solvent's amount: a concentration typed stays while another solvent has no amount to take it.
         if (role === "solvent") {
           const open = v.all.some((c) => c.role === "solvent" && c.key !== w.key && !["mass", "moles", "volume", "equiv"].some((fd) => g.typed[c.key]?.[fd as Field] !== undefined));
-          return { typed: { ...g.typed, [w.key]: typed }, ...(open ? {} : { conc: undefined }) };
+          return { typed: { ...g.typed, [w.key]: typed }, ...(open ? {} : { conc: undefined }), ...marked(g, field) };
         }
         if (target || (!w.product && amount(field))) {
           const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (k[0] === "p" ? fd !== "mass" : !target || !amount(fd))))]));
-          return { typed: { ...others, [w.key]: typed } };
+          return { typed: { ...others, [w.key]: typed }, ...marked(g, field) };
         }
+        return { typed: { ...g.typed, [w.key]: typed }, ...marked(g, field) };
       }
-      return { typed: { ...g.typed, [w.key]: typed } };
+      return { typed: { ...g.typed, [w.key]: typed }, ...marked(g) };
     });
   }
   const contextOf = (): Context => {
@@ -6145,7 +6153,9 @@ export default function Editor() {
     }
     // A stoichiometry grid's cell picked.
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role };
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role,
+      ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
+      ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
@@ -7326,6 +7336,9 @@ export default function Editor() {
     if (command.startsWith("grid.") && gridPick) {
       const what = command.slice(5), { arrow, key, row } = gridPick;
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
+      // Mark as measured: the picked Mass or Volume is the amount measured out (one for each column); Clear takes it off.
+      if (what === "taken") return changeGrid(arrow, (g) => ({ taken: { ...g.taken, [key]: row as "mass" | "volume" } }));
+      if (what === "untaken") return changeGrid(arrow, (g) => { const { [key]: _, ...rest } = g.taken ?? {}; return { taken: rest }; });
       const role = ROLES.find((r) => what === `role.${r}`);
       if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
@@ -8833,6 +8846,11 @@ export default function Editor() {
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
   // when what it shows changes, so React passes over the rest of the drawing.
   const gridKey = gridViews.length ? gridViews : undefined;
+  // The line under an amount measured out (a cell's text, centred on x, its baseline at y; px).
+  const takenLine = (x: number, y: number, text: string, size: number, bold: boolean, f: number) => {
+    const w = formulaWidth(text, size, bold, false, fontStack(style.captionFont)) / 2;
+    return <line className="taken" x1={x - w} x2={x + w} y1={y + 0.15 * size} y2={y + 0.15 * size} strokeWidth={frame.line * f} />;
+  };
   const under = useMemo(() => (
     <>
       {/* Pictures from ChemDraw files, at the back, in their boxes (turned as ChemDraw turned them). One with no format
@@ -8892,6 +8910,7 @@ export default function Editor() {
       {arrows.some((a) => level(a) && isOrbital(a)) && orbitalsInk(arrows.filter((a) => level(a) && isOrbital(a)))}
       {gridViews.map((v) => {
         // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
+        // The amount measured out is red with a line under it, so it does not rest on colour alone (BRAND.md).
         const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
         const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L, ink = v.colour ? textInk(v.colour) : "var(--ink)";
         // As rows: its rules, its titles and names, then each cell's amount as gridText gives it.
@@ -8903,7 +8922,10 @@ export default function Editor() {
             {v.cells.map((cell) => {
               const c = v.cols.find((x) => x.key === cell.key), row = GRID_ROWS.find((x) => x.id === cell.row), t = c && row ? gridText(v, c, row) : undefined;
               return t?.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row) ? (
-                <text key={`${cell.row}${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
+                <Fragment key={`${cell.row}${cell.key}`}>
+                  <text x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
+                  {t.taken && takenLine(cell.x * L, baseline(cell.y), t.text, size, !!t.typed, v.f)}
+                </Fragment>
               ) : null;
             })}
           </g>
@@ -8916,7 +8938,10 @@ export default function Editor() {
             {v.rows.flatMap((row, k) => v.cols.map((c) => {
               const t = gridText(v, c, row);
               return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
-                <text key={`${row.id}${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                <Fragment key={`${row.id}${c.key}`}>
+                  <text x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                  {t.taken && takenLine(c.x * L, y(k), t.text, size, !!t.typed, v.f)}
+                </Fragment>
               ) : null;
             }))}
           </g>

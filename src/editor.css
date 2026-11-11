@@ -3846,6 +3846,14 @@ div.facts {
   vector-effect: non-scaling-stroke;
 }
 /* A stoichiometry grid's cell picked with Select. */
+/* The amount measured out in a stoichiometry grid: red text with a red line under it. */
+.stoich text.taken {
+  fill: var(--error);
+}
+.stoich line.taken {
+  stroke: var(--error);
+}
+
 .grid-pick {
   fill: var(--select-tint);
   stroke: var(--select);
