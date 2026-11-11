@@ -209,9 +209,10 @@ pub fn mcp_status(mcp: State<'_, Mcp>) -> Option<Info> {
 }
 
 // The session's drawing from now on: drawings use, and drawings new (open_window gives the session the window it made
-// before that window comes to the front, so no other session's first call takes it). False: no such session.
-pub fn give(app: &AppHandle, session: &str, drawing: &str) -> bool {
-    app.try_state::<Mcp>().and_then(|m| m.shared.sessions.lock().unwrap().get_mut(session).map(|s| s.drawing = Some(drawing.into()))).is_some()
+// before it builds that window, so no other session's first call takes it). The session's drawing before; None: no
+// such session.
+pub fn give(app: &AppHandle, session: &str, drawing: Option<String>) -> Option<Option<String>> {
+    app.try_state::<Mcp>().and_then(|m| m.shared.sessions.lock().unwrap().get_mut(session).map(|s| std::mem::replace(&mut s.drawing, drawing)))
 }
 
 // The commands below only take a lock, so they run off the main thread (async): there they waited behind the window
@@ -222,7 +223,7 @@ pub fn mcp_target(app: AppHandle, session: String, drawing: String) -> Result<()
     if !crate::windows::ours(&drawing) || app.get_webview_window(&drawing).is_none() {
         return Err("There is no such drawing.".into());
     }
-    give(&app, &session, &drawing).then_some(()).ok_or_else(|| "There is no such session.".into())
+    give(&app, &session, Some(drawing)).map(|_| ()).ok_or_else(|| "There is no such session.".into())
 }
 
 // The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
@@ -409,13 +410,13 @@ fn uses(s: &Session, label: &str) -> bool {
     s.drawing.as_deref() == Some(label) && (s.waiting > 0 || s.last.elapsed() < USING)
 }
 // Where a session's request goes, and whether the session takes that window as its drawing (decision 0021: an AI app
-// works in the user's open drawing). Its drawing while that is open; a drawing that closed is lost (the page says so)
-// and the request goes to the window in front, which it does not take. A session with no drawing sends the protocol's
-// requests and drawings to the window in front and takes nothing; its first other tool call takes the window in front,
-// unless another session works there (front_used): then the call is refused (Err, that window), so it never runs in
-// another session's drawing. Two sessions with no drawing that both call at once: the first through the sessions lock
-// takes the window in front, and the second is refused, with how to get a drawing of its own or share that one.
-fn route(own: Option<&str>, open: bool, front: Option<String>, front_used: bool, claims: bool) -> Result<(Option<String>, bool), String> {
+// works in the user's open drawing). Its drawing while that is open. A session with no drawing takes the window in
+// front at its first tool call that claims one (claims), unless another session works there (front_used): then the
+// call is refused (Err, that window), so it never runs in another session's drawing. Two sessions with no drawing that
+// both call at once: the first through the sessions lock takes the window in front, and the second is refused, with
+// how to get a drawing of its own or share that one. Every other request (the protocol's own, drawings, and any call
+// of a session whose drawing closed, which the page says is lost) takes nothing and goes to near (listening).
+fn route(own: Option<&str>, open: bool, front: Option<String>, near: Option<String>, front_used: bool, claims: bool) -> Result<(Option<String>, bool), String> {
     match (own, front) {
         (Some(d), _) if open => Ok((Some(d.to_string()), false)),
         (None, Some(f)) if claims && front_used => Err(f),
@@ -423,8 +424,17 @@ fn route(own: Option<&str>, open: bool, front: Option<String>, front_used: bool,
             let take = f.is_some();
             Ok((f, take))
         }
-        (_, f) => Ok((f, false)),
+        _ => Ok((near, false)),
     }
+}
+// Where a request that takes no drawing goes: the window in front if its page listens, else the newest window whose
+// page does. After another session's drawings new, the window in front is often that session's new window, whose page
+// may take seconds to start: such a request never waits for it (plan 17.5). None listens: the window in front.
+fn listening(front: Option<String>, ready: &HashMap<String, String>) -> Option<String> {
+    if front.as_ref().is_some_and(|f| ready.contains_key(f)) {
+        return front;
+    }
+    ready.keys().max_by_key(|l| (l.as_str() != "main", l.trim_start_matches("draw-").parse::<u64>().unwrap_or(0))).cloned().or(front)
 }
 fn taken(id: &serde_json::Value, label: &str) -> String {
     tool_error(id, &format!("Octet changed nothing. Another AI app works in the drawing in front ({label}). For a drawing of your own, call drawings with action new, then call again. To work in {label} with the other AI app, call drawings with action use and drawing {label}."))
@@ -563,6 +573,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     // client) acts on the window in front.
     let mut new_session = None;
     let front = crate::windows::front(app);
+    let near = listening(front.clone(), &shared.ready.lock().unwrap());
     let (client, session, window, lost, brief, unset) = {
         let mut sessions = shared.sessions.lock().unwrap();
         sessions.retain(|_, s| s.last.elapsed() < IDLE);
@@ -587,7 +598,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
             let (name, new) = (client_name(&message), random_hex(16).unwrap_or_default());
             sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
             new_session = Some(new.clone());
-            (name, Some(new), front, None, None, true)
+            (name, Some(new), near, None, None, true)
         } else if let Some(s) = sid.as_ref() {
             let front_used = front.as_deref().is_some_and(|f| sessions.iter().any(|(k, x)| k != s && uses(x, f)));
             let Some(session) = sessions.get_mut(s) else {
@@ -619,7 +630,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
             // and use still work. Reading a drawing's resource goes to it.
             let open = session.drawing.as_ref().is_some_and(|d| app.get_webview_window(d).is_some());
             let lost = session.drawing.clone().filter(|_| !open);
-            let (window, take) = match route(session.drawing.as_deref(), open, front, front_used, claims(method, &message)) {
+            let (window, take) = match route(session.drawing.as_deref(), open, front, near, front_used, claims(method, &message)) {
                 Ok(r) => r,
                 Err(label) => {
                     drop(sessions);
@@ -1140,21 +1151,21 @@ mod tests {
     // Plan 17.5: which window a session's request goes to, and whether the session takes it.
     #[test]
     fn a_session_never_lands_in_another_sessions_drawing() {
-        let f = || Some("draw-2".to_string());
+        // f: the window in front; n: where a request that takes no drawing goes (listening), here another window.
+        let (f, n) = (|| Some("draw-2".to_string()), || Some("draw-1".to_string()));
         // Its own drawing while it is open, whatever is in front.
-        assert_eq!(route(Some("draw-1"), true, f(), true, true), Ok((Some("draw-1".into()), false)));
-        // Its drawing closed: the window in front, taken by nothing (the page says the drawing is lost).
-        assert_eq!(route(Some("draw-1"), false, f(), false, true), Ok((f(), false)));
-        // No drawing yet: the protocol's requests and drawings go to the window in front and take nothing, also when
-        // another session works there.
-        assert_eq!(route(None, false, f(), false, false), Ok((f(), false)));
-        assert_eq!(route(None, false, f(), true, false), Ok((f(), false)));
+        assert_eq!(route(Some("draw-3"), true, f(), n(), true, true), Ok((Some("draw-3".into()), false)));
+        // Its drawing closed: taken by nothing (the page says the drawing is lost).
+        assert_eq!(route(Some("draw-3"), false, f(), n(), false, true), Ok((n(), false)));
+        // No drawing yet: the protocol's requests and drawings take nothing, also when another session works in front.
+        assert_eq!(route(None, false, f(), n(), false, false), Ok((n(), false)));
+        assert_eq!(route(None, false, f(), n(), true, false), Ok((n(), false)));
         // Its first other tool call takes the window in front, when no other session works there.
-        assert_eq!(route(None, false, f(), false, true), Ok((f(), true)));
+        assert_eq!(route(None, false, f(), n(), false, true), Ok((f(), true)));
         // When another session works there, the call is refused.
-        assert_eq!(route(None, false, f(), true, true), Err("draw-2".into()));
+        assert_eq!(route(None, false, f(), n(), true, true), Err("draw-2".into()));
         // No window: nothing to take.
-        assert_eq!(route(None, false, None, false, true), Ok((None, false)));
+        assert_eq!(route(None, false, None, None, false, true), Ok((None, false)));
         let call = |name: &str| serde_json::json!({ "method": "tools/call", "params": { "name": name } });
         assert!(claims("tools/call", &call("set_brief")) && claims("tools/call", &call("draw")) && claims("tools/call", &call("read")));
         assert!(!claims("tools/call", &call("drawings")));
@@ -1165,6 +1176,20 @@ mod tests {
         assert_eq!((&refused["id"], &refused["result"]["isError"]), (&serde_json::json!(4), &serde_json::json!(true)));
         let text = refused["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("drawings with action new") && text.contains("drawings with action use and drawing draw-2"), "{text}");
+    }
+
+    // A request that takes no drawing goes to the window in front when its page listens; else (another session's new
+    // window, still starting) to the newest window that listens, so it never waits for that page; with none, to the
+    // window in front, to wait for it.
+    #[test]
+    fn a_request_that_takes_no_drawing_never_waits_for_a_page_starting() {
+        let ready = |l: &[&str]| l.iter().map(|x| (x.to_string(), "p".to_string())).collect::<HashMap<_, _>>();
+        let f = || Some("draw-9".to_string());
+        assert_eq!(listening(f(), &ready(&["main", "draw-2", "draw-9"])), f());
+        assert_eq!(listening(f(), &ready(&["main", "draw-2", "draw-10"])), Some("draw-10".into()));
+        assert_eq!(listening(f(), &ready(&["main"])), Some("main".into()));
+        assert_eq!(listening(f(), &ready(&[])), f());
+        assert_eq!(listening(None, &ready(&[])), None);
     }
 
     // A session works in its drawing while it has a call under way or called in the last USING.

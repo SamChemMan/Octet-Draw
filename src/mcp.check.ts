@@ -45,7 +45,7 @@ const host: Host = {
   tidy: (x) => x, named: (t) => t in NAMES,
   begin: (step) => { steps.push(step); open++; }, end: (made) => { open--; shown = made; },
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
-  cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: async () => undefined,
+  cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
   reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f) => (f === "smiles" ? toSmiles(expandLabels(m)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
@@ -731,6 +731,22 @@ fresh();
   assert.deepEqual(Object.keys(free[7].result._meta["octet/times"]), ["sent", "got", "visibility", "focus", "start", "end", "wait", "work"]);
   assert.ok(!("_meta" in free[1].result) && !("_meta" in drawn.result));
   Object.assign(host, was);
+}
+// With no windows (headless, the web component), drawings new starts the new drawing in this page, in order: a read
+// sent straight after it reads the new drawing. The user is told, and a cancel puts the drawing back.
+fresh();
+{
+  const was = host.command;
+  host.command = (id) => { if (id.startsWith("new_")) host.set(EMPTY); return was(id); };
+  await call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
+  said = [];
+  const req = (name: string, args: unknown, from = as("s-1") as import("./mcp.ts").From) => handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }), () => host, "1.2.0", from).then((r) => JSON.parse(r).result);
+  const [made, read] = await Promise.all([req("drawings", { action: "new", for: "paper" }), req("read", {})]);
+  assert.deepEqual([made.isError, read.structuredContent.structures.length, said], [undefined, 0, ["Test opened a new drawing."]], JSON.stringify(read.structuredContent));
+  await call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
+  const before = m, stop = await req("drawings", { action: "new", for: "paper" }, { ...as("s-1"), cancelled: () => true });
+  assert.deepEqual([stop.isError, m === before, said.at(-1)], [true, true, "Test stopped. The drawing is as it was."], JSON.stringify(stop));
+  host.command = was;
 }
 
 // fill_experiment: refused off an experiment page; on one, the details and the grid's amounts by the grid's keys.

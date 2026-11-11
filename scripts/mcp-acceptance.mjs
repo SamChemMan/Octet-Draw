@@ -24,7 +24,8 @@ const { port, token } = info;
 const URL_ = `http://127.0.0.1:${port}/mcp`;
 
 // A client: one MCP session (initialize, then each call with its session id). It gives its brief first, as the
-// instructions ask (plan 3.1): the user's answers, a paper with no style of their own. brief false: none.
+// instructions ask (plan 3.1), in a new drawing: the user's answers, a paper with no style of their own. brief false:
+// none, and no drawing yet.
 async function client(name, brief = true) {
   let session, n = 0;
   const post = async (body) => {
@@ -40,7 +41,13 @@ async function client(name, brief = true) {
     const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
   };
-  if (brief) await call("set_brief", { destination: { kind: "paper" } });
+  // In a drawing of its own first: set_brief in the window in front is refused while another session works there (plan
+  // 17.5), and a session with no brief fails each scheme far from the cause.
+  if (brief) {
+    await call("drawings", { action: "new", for: "paper" });
+    const r = await call("set_brief", { destination: { kind: "paper" } });
+    if (r.isError) throw new Error(`${name}: set_brief was refused: ${r.text}`);
+  }
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const headers = () => ({ authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", "mcp-session-id": session });
   // Each server-sent event's message, as it comes: onEvent may return false to stop reading.

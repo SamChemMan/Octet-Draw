@@ -1309,7 +1309,9 @@ and no call may take over 15 s. The second check fails today.
 
 - **Where a session's calls go** (`mcp.rs` `route`). A session with a drawing: that drawing. A session with no drawing
   yet sends initialize, ping, the lists, prompts and `drawings` to the window in front and takes no drawing by them
-  (`drawings list` then gives no `using`). Its first other tool call (`set_brief` too) takes the window in front, as
+  (`drawings list` then gives no `using`). When the page in front has not started (often another session's new
+  window), they go to the newest window whose page listens (`listening`), so they never wait for another session's
+  new drawing. Its first other tool call (`set_brief` too) takes the window in front, as
   decision 0021 and mcp.md section 8 have an AI app work in the user's open drawing, **unless another session works
   there**: then Octet changes nothing and says so, with the two ways on ("For a drawing of your own, call drawings
   with action new, then call again. To work in draw-3 with the other AI app, call drawings with action use and drawing
@@ -1317,7 +1319,8 @@ and no call may take over 15 s. The second check fails today.
   an AI app left without ending it does not hold the user's drawing for the 12 hours sessions last. Two sessions with
   no drawing that call at once: the first through the sessions lock takes the window in front and the second is
   refused, so the second never acts in the first's drawing. `drawings new` gives the session its new window inside
-  `open_window`, before the window comes to the front, so no other session's first call can take it in between.
+  `open_window`, before the window is made, so no other session's first call can take it in between (if the window
+  cannot be made, the session has its drawing from before again).
 - **The page's queue** (`handle` in `mcp.ts`). The protocol's own requests and `drawings` are answered at once, outside
   the queue: they neither wait for the drawing to settle nor read it (so `drawings new` and `use` report no change,
   only the drawing the session uses now). Everything else runs in order, so a read sees each write whole.

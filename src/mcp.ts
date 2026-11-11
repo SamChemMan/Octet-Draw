@@ -44,7 +44,7 @@ export type Host = {
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
-  newWindow: (purpose: string, session?: string) => Promise<string | undefined>; // File > New For, always in a new window: its id (none where there are no windows); the session's drawing from then on
+  newWindow: (purpose: string, session?: string) => Promise<string | undefined> | undefined; // File > New For, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
   reaction: (arrow: number) => Reaction | undefined;
   ink: (atoms: number[]) => Box | undefined; // drawing units, y up
   textBox: (caption: number) => Box | undefined; // a caption's box as drawn, drawing units, y up
@@ -1635,19 +1635,25 @@ async function select(host: Host, a: { ids: string[] }): Promise<Result> {
 // (open_window gives it to the session): mcp.rs holds the session's next call until the new page has started (plan
 // 17.5), so nothing here waits for it. A client with no session has the new window in front.
 async function newDrawing(host: Host, a: { for: string }, ctx: Ctx): Promise<Result> {
-  // The window this call opened, by its id: two AI apps opening drawings at once each get their own.
-  const opened = await host.newWindow(a.for, ctx.session);
-  if (opened) return { text: `Octet opened a new drawing for ${a.for}: ${opened}. This session's calls go to it now.`, data: { opened } };
-  // No windows: this page, after the calls before it (drawings is answered outside the queue), as one undo step.
-  return queued(async () => {
+  // The window this call opened, by its id: two AI apps opening drawings at once each get their own. No windows (the
+  // web component, headless): this page, queued at once (newWindow gives nothing there, with no wait), so the calls
+  // sent after this one run in the new drawing; one undo step, said to the user, and a cancel puts the drawing back.
+  const opening = host.newWindow(a.for, ctx.session);
+  const here = () => queued(async (): Promise<Result> => {
+    const was = host.doc();
     host.begin(`mcp-${++steps}`);
     try {
       if (!host.command(`new_${a.for}`)) return { text: "Octet cannot open a new drawing now.", error: true };
       await host.settle();
+      await ctx.check();
       resetIds();
+      host.said(`${ctx.client} opened a new drawing.`);
       return { text: `Octet started a new drawing for ${a.for} in ${host.window().id}, which had nothing in it. This session's calls go to it.`, data: { opened: host.window().id } };
-    } finally { host.end(); }
+    } catch (e) { if (host.doc() !== was) host.set(was); throw e; } finally { host.end(); }
   });
+  if (!opening) return here();
+  const opened = await opening;
+  return opened ? { text: `Octet opened a new drawing for ${a.for}: ${opened}. This session's calls go to it now.`, data: { opened } } : here();
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's

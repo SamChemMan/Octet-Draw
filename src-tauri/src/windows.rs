@@ -105,16 +105,18 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     if crate::mcp::on(&app) {
         builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     }
+    // The session's before the window exists (the system may put it in front while it is made): another session with
+    // no drawing never takes it (mcp.rs route). If no window is made, the session has its drawing from before again.
+    let was = session.as_deref().and_then(|s| crate::mcp::give(&app, s, Some(label.clone())));
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
+        if let (Some(s), Some(was)) = (session.as_deref(), was) {
+            crate::mcp::give(&app, s, was);
+        }
         e.to_string()
     })?;
     #[cfg(windows)]
     crate::access_keys::install(&window);
-    // The session's before it is in front: another session with no drawing never takes it (mcp.rs route).
-    if let Some(s) = session {
-        crate::mcp::give(&app, &s, &label);
-    }
     let _ = window.set_focus();
     // In front from now, as far as Octet is concerned, even when another app has the focus (an AI app opened it).
     focused(&label);

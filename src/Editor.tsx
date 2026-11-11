@@ -6522,7 +6522,7 @@ export default function Editor() {
     doc: () => now.current, style: () => style, rendered: doc, gliding: !!glide,
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
     ready: async () => { await ready; await loadNames(); setLoaded(true); setNamesLoaded(true); for (const end = Date.now() + 3000; !mcpHost.current!.loaded && Date.now() < end;) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); }); },
-    newWindow: async (purpose, session) => (TAURI ? invoke<string>("open_window", { start: { new: purpose }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    newWindow: (purpose, session) => (TAURI ? invoke<string>("open_window", { start: { new: purpose }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
     loaded: loaded && namesLoaded,
     structure: (text) => structureFromText(text),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
