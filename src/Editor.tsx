@@ -2172,6 +2172,10 @@ export default function Editor() {
   };
   // The command Repeat runs again (see repeatLast).
   const lastRepeat = useRef<{ menu?: string; action?: string; rotate?: number; scale?: number }>(undefined);
+  // File > More Formats (Settings > Pro > More formats): the rare formats, one line each. A line is the command's id
+  // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
+  // The menu, the palette and Settings' shortcuts take each format from here.
+  const moreFormats: [string, string, React.ReactNode, () => void][] = [];
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
@@ -2191,6 +2195,7 @@ export default function Editor() {
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
+    ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
     save_as: () => (officeRef.current ? void saveCopy() : void save(true)),
@@ -2822,12 +2827,13 @@ export default function Editor() {
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
   // is built again with the user's shortcuts (Command or Ctrl ones; the page handles any other key itself).
-  // Settings > Online search: the Search menu is built only while it is on, so the list is read after it is set.
+  // Settings > Online search and Settings > Pro > More formats: the Search menu and File > More Formats are built only
+  // while they are on, so the list is read after they are set.
   const [menuReady, setMenuReady] = useState(0);
   useEffect(() => {
-    if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke<[string, string, string, string][]>("menu_items"))
-      .then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
-  }, [settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke("set_more_formats", { formats: settings.moreFormats ? moreFormats.map(([id, name]) => [id, name]) : null }))
+      .then(() => invoke<[string, string, string, string][]>("menu_items")).then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
+  }, [settings.onlineSearch, settings.moreFormats]); // eslint-disable-line react-hooks/exhaustive-deps
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -6919,6 +6925,7 @@ export default function Editor() {
     text_markup: ["Apply markup", "", <MarkdownLogo size={18} />], ...(expPage ? { experiment_details: ["Experiment details…", "", <Notebook size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
+    ...Object.fromEntries(moreFormats.map(([id, name, icon]): [string, [string, string, React.ReactNode]] => [id, [name, "", icon]])),
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
@@ -9296,6 +9303,8 @@ export default function Editor() {
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
           onlineSearch={settings.onlineSearch}
           onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
+          moreFormats={settings.moreFormats}
+          onMoreFormats={(moreFormats) => setSettings((s) => ({ ...s, moreFormats }))}
           rulerUnit={settings.rulerUnit}
           onRulerUnit={(rulerUnit) => setSettings((s) => ({ ...s, rulerUnit }))}
           selectColour={settings.selectColour}
