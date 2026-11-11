@@ -17,7 +17,14 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
-pub const PORT: u16 = 47681;
+// A dev build keeps a file and a port of its own (test plan R11), so it and the installed Octet run at once and
+// neither takes the other's port or writes over its key: an AI app given one Octet's relay or address reaches that
+// Octet.
+const fn own(dev: bool) -> (&'static str, u16) {
+    if dev { ("mcp-dev.json", 47682) } else { ("mcp.json", 47681) }
+}
+const INFO: &str = own(cfg!(debug_assertions)).0;
+pub const PORT: u16 = own(cfg!(debug_assertions)).1;
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024; // a request from the AI app
 const MAX_REPLY: usize = 24 * 1024 * 1024; // a reply from the page (a picture of the drawing)
@@ -116,7 +123,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 // Where the port and key are kept (only this user can read it), for Settings and the relay.
 fn info_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("mcp.json"))
+    app.path().app_data_dir().ok().map(|d| d.join(INFO))
 }
 
 fn random_hex(n: usize) -> Result<String, String> {
@@ -299,9 +306,11 @@ fn bundle(tools: Vec<BundleTool>) -> Result<Vec<u8>, String> {
         "keywords": ["chemistry", "chemical structures", "reactions", "drawing"],
         "compatibility": { "platforms": ["darwin", "win32"], "runtimes": { "node": ">=16.0.0" } },
     });
+    // The bundle's server reads the file of the Octet that made it: a dev build's bundle starts the dev build's relay.
+    let server = include_str!("mcpb.cjs").replace("mcp.json", INFO);
     let files: [(&str, &[u8]); 3] = [
         ("manifest.json", &serde_json::to_vec_pretty(&manifest).unwrap()),
-        ("server/index.cjs", include_bytes!("mcpb.cjs")),
+        ("server/index.cjs", server.as_bytes()),
         ("icon.png", include_bytes!("../icons/icon.png")),
     ];
     Ok(stored_zip(&files))
@@ -628,7 +637,7 @@ fn notifications(mut stream: TcpStream, shared: &Shared, sid: Option<String>) {
 
 // `Octet Draw --mcp`: one JSON-RPC message a line on standard input, each answer a line on standard output, through
 // the server of the Octet that runs. Nothing else goes to standard output (P4). It reads the port and key from
-// mcp.json for each request, so a new key or port changes nothing in the AI app. Each request has a thread of its own,
+// INFO for each request, so a new key or port changes nothing in the AI app. Each request has a thread of its own,
 // so a cancel goes through while a call runs; a call's progress and the drawings' updates come through as lines too.
 // When Octet is not open (or AI apps are off), the relay answers initialize itself with empty lists, tries Octet again
 // every 2 s, and when it answers says the lists changed, so the tools appear with no restart of the AI app (D17).
@@ -663,7 +672,7 @@ impl Relay {
         Arc::new(Relay { dir, out: Mutex::new(out), state: Mutex::default() })
     }
     fn info(&self) -> Option<Info> {
-        self.dir.as_ref().and_then(|d| std::fs::read(d.join("mcp.json")).ok()).and_then(|b| serde_json::from_slice(&b).ok())
+        self.dir.as_ref().and_then(|d| std::fs::read(d.join(INFO)).ok()).and_then(|b| serde_json::from_slice(&b).ok())
     }
     // One message on standard output, on one line.
     fn say(&self, line: &str) {
@@ -948,7 +957,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let dir = std::env::temp_dir().join(format!("octet-relay-test-{port}"));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mcp.json"), format!(r#"{{"port":{port},"token":"k3y","program":""}}"#)).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k3y","program":""}}"#)).unwrap();
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
             let mut head = String::new();
@@ -965,6 +974,29 @@ mod tests {
         let all = out.all();
         assert_eq!(all[0]["method"], "notifications/progress");
         assert_eq!(all[1]["id"], 7);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // Test plan R11: a dev build and the installed Octet share the data folder. Each reads only its own file, has its
+    // own port, and makes a bundle whose server reads that file. Both builds' names and ports are checked in every
+    // build. What the relay reads and what the bundle holds are checked for the build under test: for the installed
+    // Octet that is cargo test --release.
+    #[test]
+    fn a_dev_build_and_the_installed_octet_keep_apart() {
+        let dev = cfg!(debug_assertions);
+        let dir = std::env::temp_dir().join(format!("octet-relay-own-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let relay = Relay::new(Some(dir.clone()), Box::new(Lines::default()));
+        let token = || relay.info().map(|i| i.token);
+        std::fs::write(dir.join("mcp.json"), r#"{"port":47681,"token":"installed","program":""}"#).unwrap();
+        assert_eq!(token().as_deref(), if dev { None } else { Some("installed") }, "the installed Octet's file is not a dev build's");
+        std::fs::write(dir.join("mcp-dev.json"), r#"{"port":47682,"token":"dev","program":""}"#).unwrap();
+        assert_eq!(token().as_deref(), Some(if dev { "dev" } else { "installed" }));
+        assert_eq!((own(false), own(true)), (("mcp.json", 47681), ("mcp-dev.json", 47682)));
+        assert_eq!((INFO, PORT), own(dev));
+        let server = String::from_utf8_lossy(&bundle(vec![]).unwrap()).into_owned();
+        assert_eq!(server.contains(r#"join(dir, "mcp-dev.json")"#), dev);
+        assert_eq!(server.contains(r#"join(dir, "mcp.json")"#), !dev);
         let _ = std::fs::remove_dir_all(dir);
     }
     const KEY: &str = "k3y";

@@ -120,7 +120,9 @@ internet, but it is much larger. The brief asks for a small download, so the sma
 `.github/workflows/check.yml` runs on every push and pull request, and before each release:
 
 - `npm test`: the type check, then every `src/*.check.ts` file.
-- `cargo test` for the Rust code.
+- `cargo test` for the Rust code, as a debug build. Before a tag, run
+  `cargo test --release --manifest-path src-tauri/Cargo.toml mcp` on a Mac too: it checks the file that the installed
+  Octet's relay reads and the Claude Desktop bundle it makes. The debug run checks only that file's name and the port.
 - `npm audit` and `cargo audit` (REL-26). `src-tauri/.cargo/audit.toml` leaves out RUSTSEC-2024-0429 (see
   below).
 - Nothing users had in the last release is lost or made worse (decision 0024). `src/inventory.check.ts` (in
