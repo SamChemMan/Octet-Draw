@@ -33,7 +33,7 @@ import { store, type Store } from "./store";
 import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, DIALOGS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -530,7 +530,7 @@ export default function Editor() {
   const now = useRef(doc);
   now.current = doc;
   // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
-  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
+  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; indigo: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
   // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
   // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
   // 7 November 2026, decision 0024).
@@ -1829,7 +1829,7 @@ export default function Editor() {
       const opened = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
       // (A style file that is not a drawing is named so, not this file: --convert opens it first on its own.)
       let mol = opened;
-      if (styleText !== undefined) { let m; try { m = restyledFrom(opened, styleText); } catch { /* not a drawing */ } if (!m) return { failed: "This file has no document settings." }; mol = m; }
+      if (styleText) { let m; try { m = restyledFrom(opened, styleText); } catch { /* not a drawing */ } if (!m) return { failed: "This file has no document settings." }; mol = m; }
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
       // on the structures, or on everything else when there are none (text, arrows, pictures).
@@ -2737,13 +2737,14 @@ export default function Editor() {
   // Each request the app's MCP server sends to this window, answered by mcp.ts.
   useEffect(() => {
     if (!TAURI) return;
-    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null }>("mcp", (e) => {
+    // brief: the session's brief (set_brief), which the server keeps for it (mcp_brief keeps a new one).
+    const off = listen<{ id: number; body: string; client: string; session: string | null; lost: string | null; brief: string | null }>("mcp", (e) => {
       const p = e.payload;
       // With no window (--convert), a file that did not open answers each call with why, for Octet to name the file,
       // and each result says what Octet left out of it, as File > Open does.
       void started.current.then(({ failed, lost } = {}) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: (JSON.parse(p.body) as { id?: unknown }).id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
-        client: p.client, session: p.session ?? undefined, lost: p.lost,
-        progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }),
+        client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief,
+        progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
       }).then((body) => { if (!lost || !HEADLESS) return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body }));
     });
     void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE })).then((watched) => { if (watched) mcpWatched.current = true; });
@@ -2770,7 +2771,8 @@ export default function Editor() {
       else if ("tutorial" in s) startTutorial();
       else if ("recent" in s) openRecent({ path: s.recent });
       else if ("recovered" in s) openRecovered({ id: s.recovered, name: "", at: 0 });
-      else if ("text" in s) return load(undefined, s.text, s.name, s.style);
+      // (A structure file's text needs Indigo, as a file opened does.)
+      else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }
       else if ("picked" in s) openPicked(s.picked);
       else if ("object" in s) {
         // The object's drawing, read as a file from Open is: an empty one is a new object (Insert > Object).
@@ -6542,9 +6544,10 @@ export default function Editor() {
   mcpHost.current = {
     doc: () => now.current, style: () => style, rendered: doc, gliding: !!glide,
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
-    ready: async () => { await ready; await loadNames(); setLoaded(true); setNamesLoaded(true); for (const end = Date.now() + 3000; !mcpHost.current!.loaded && Date.now() < end;) await tick(); },
-    newWindow: async (purpose) => (TAURI ? invoke<string>("open_window", { start: { new: purpose } }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
-    loaded: loaded && namesLoaded,
+    // A file needs Indigo alone (names false): a window that has just opened (--convert) loads no names engine for it.
+    ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
+    newWindow: async (purpose, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text } }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    loaded: loaded && namesLoaded, indigo: loaded,
     structure: (text) => structureFromText(text),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
@@ -6621,7 +6624,10 @@ export default function Editor() {
     // A session's drawing changes without its window coming to the front (D1). A client with no session has the
     // window in front, so the window comes to the front.
     target: async (session, drawing) => { try { await (session ? invoke("mcp_target", { session, drawing }) : invoke("window_show", { label: drawing })); return true; } catch { return false; } },
-    headless: HEADLESS,
+    // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
+    // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
+    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),
+    windowless: () => HEADLESS,
     export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
   };
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.

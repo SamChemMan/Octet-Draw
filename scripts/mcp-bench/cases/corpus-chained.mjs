@@ -13,6 +13,8 @@ const chained = (id, start, products) => ({ name: "draw", arguments: { kind: "re
 const IDS = ["trowbridge2018-fig4b-10a", "gaunt2007-fig11d", "grocott2025-fig4e"];
 export default {
   about: "Three two-step corpus routes with their products written from earlier compounds by changes and named transformations",
+  // The brief: the corpus jobs were drawn on a paper page (A4, ACS Document 1996).
+  brief: { destination: { kind: "paper" } },
   calls: [
     chained(IDS[0], [{ text: "C1CC[NH:8]C1", number: "1" }, { text: "O=[C:1]1[CH2:2]CCCC1", number: "2" }],
       [[{ from: "2", changes: [{ at: "1", remove: true }, { do: "join", at: "1-8", with: "1" }, { bond: "1-2", to: "double" }] }], [{ from: "previous", changes: [{ bond: "1-2", to: "single" }, { at: "1", add: "CH2CHPh2" }], number: "10a" }]]),

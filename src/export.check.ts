@@ -168,10 +168,17 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(mol, svg, filePrefs\) \}\);/, "Export");
   assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(part, svg, \{ \.\.\.f, format \}\) \}\);/, "Quick export");
   assert.match(editor, /invoke<string>\("export_bytes", \{ export: exportRequest\(mol, svg, f\) \}\)/, "read");
-  assert.match(editor, /export: \(format\) => \{ if \(modal\(\) \|\| HEADLESS\) return false;/);
+  // (No dialog with no window: mcp.ts refuses Export and the dialog commands when windowless; mcp.check tests it.)
+  assert.ok(editor.includes("windowless: () => HEADLESS,"));
+  assert.ok(editor.includes("ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true);"));
+  assert.ok(editor.includes('dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path'));
   assert.match(editor, /if \(!TAURI \|\| HEADLESS\) return;\n    if \(!mainDirty\) \{ if \(keeper\.kept\)/);
   assert.ok(editor.includes('void off.then(() => (HEADLESS ? started.current : undefined)).then(() => invoke<boolean>("mcp_ready"'));
-  assert.match(editor, /started\.current\.then\(\(failed\) => \(failed && HEADLESS \?/);
+  // What it left out of the file comes with each result (--convert says it on the file's line); a structure file's
+  // text waits for Indigo before it opens.
+  assert.match(editor, /started\.current\.then\(\(\{ failed, lost \} = \{\}\) => \(failed && HEADLESS \?/);
+  assert.ok(editor.includes("r.result.structuredContent.lost = lost;"));
+  assert.ok(editor.includes('else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }'));
 }
 // A hidden page reads the user's settings and never writes them. (settings.ts does not load in Node.)
 {

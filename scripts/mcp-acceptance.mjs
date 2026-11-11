@@ -30,10 +30,11 @@ const URL_ = `http://127.0.0.1:${port}/mcp`;
 // How a call's progress comes: on an event stream from the server, or as lines on standard output.
 const STREAM = headless ? "standard output" : "text/event-stream";
 
-// A client: one MCP session (initialize, then each call with its session id). With --headless, the session of a
-// program of its own on standard input and output, with the same calls.
-async function client(name) {
-  if (headless) return lines(name);
+// A client: one MCP session (initialize, then each call with its session id). It gives its brief first, as the
+// instructions ask (plan 3.1): the user's answers, a paper with no style of their own. brief false: none. With
+// --headless, the session of a program of its own on standard input and output, with the same calls.
+async function client(name, brief = true) {
+  if (headless) return lines(name, brief);
   let session, n = 0;
   const post = async (body) => {
     const r = await fetch(URL_, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", ...(session ? { "mcp-session-id": session } : {}) }, body: JSON.stringify(body) });
@@ -48,6 +49,7 @@ async function client(name) {
     const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
   };
+  if (brief) await call("set_brief", { destination: { kind: "paper" } });
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const headers = () => ({ authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", "mcp-session-id": session });
   // Each server-sent event's message, as it comes: onEvent may return false to stop reading.
@@ -78,7 +80,7 @@ async function client(name) {
   const listen = async (onEvent) => { const c = new AbortController(), r = await fetch(URL_, { headers: { ...headers(), accept: "text/event-stream" }, signal: c.signal }); void events(r, onEvent).catch(() => {}); return () => c.abort(); };
   return { call, read, post, streamed, listen, get session() { return session; } };
 }
-async function lines(name) {
+async function lines(name, brief) {
   const p = stdio(headless, ["--headless", "--mcp"]);
   await p.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name, version: "1" } });
   p.send({ jsonrpc: "2.0", method: "notifications/initialized" });
@@ -87,6 +89,7 @@ async function lines(name) {
     const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
   };
+  if (brief) await call("set_brief", { destination: { kind: "paper" } });
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const post = (body) => (body.id === undefined ? p.send(body) : p.request(body));
   const streamed = async (tool, args, onProgress) => {
@@ -94,7 +97,8 @@ async function lines(name) {
     const stop = p.listen((m) => { if (m.method === "notifications/progress" && m.params.progressToken === `t${id}`) return onProgress?.(m.params, id); });
     const reply = await p.ask("tools/call", { name: tool, arguments: args }, (k) => { id = k; }, (k) => ({ progressToken: `t${k}` }));
     stop();
-    return { type: STREAM, reply };
+    // Answered on standard output: the reply came as a line of its own, and every line Octet wrote there is JSON.
+    return { type: p.bad.length ? `standard output with lines that are not JSON: ${p.bad[0]}` : reply?.id !== undefined ? STREAM : "no reply", reply };
   };
   const listen = async (onEvent) => p.listen(onEvent);
   return { call, read, post, streamed, listen };
@@ -254,6 +258,17 @@ const CASES = {
     const [rp, rq] = [await p.read(), await q.read()];
     check(rp.drawing.id === dp && same(rp.structures.map((s) => s.formula), ["C6H6"]), "session p drew in its drawing", JSON.stringify([rp.drawing.id, rp.structures.map((s) => s.formula)]));
     check(rq.drawing.id === dq && same(rq.structures.map((s) => s.formula), ["H2O"]), "session q drew in its drawing", JSON.stringify([rq.drawing.id, rq.structures.map((s) => s.formula)]));
+    // The brief is each session's own (test plan B4, B5): a new session has none, so a scheme waits for it, and its
+    // brief, once given, is kept for its calls in another drawing.
+    const n = await client("acceptance-n", false), scheme = { kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "acetic acid" }] }] };
+    await n.call("drawings", { action: "new", for: "paper" });
+    let r = await n.call("draw", scheme);
+    check(r.isError && r.text.startsWith("Octet needs the brief first. Ask the user these three questions, then call set_brief: 1."), "a new session's scheme waits for the brief", r.text.slice(0, 120));
+    r = await n.call("set_brief", { destination: { kind: "paper" } });
+    check(!r.isError, "set_brief", r.text);
+    await n.call("drawings", { action: "new", for: "paper" });
+    r = await n.call("draw", scheme);
+    check(!r.isError, "the brief is kept for the session's calls in its new drawing", r.text.slice(0, 120));
   },
   async 10(a) {
     console.log("10. A grid of 200 structures");
@@ -307,11 +322,12 @@ const CASES = {
     console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
-    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw with kind reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
+    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw_route for a reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
     r.send({ jsonrpc: "2.0", method: "notifications/initialized" });
     const tools = (await r.ask("tools/list")).result?.tools ?? [];
-    check(tools.length === 5 && JSON.stringify(tools).length < 14000, "the five tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);
+    check(tools.length === 6 && JSON.stringify(tools).length < 14000, "the six tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);
     const d = (await r.ask("tools/call", { name: "drawings", arguments: { action: "new", for: "paper" } })).result?.structuredContent?.opened;
+    await r.ask("tools/call", { name: "set_brief", arguments: { destination: { kind: "paper" } } });
     const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
     const some = (k) => ({ structures: Array.from({ length: k }, (_, i) => ({ text: names[i % names.length] })) });
     let res = await r.ask("tools/call", { name: "draw", arguments: { kind: "structures", ...some(60) }, _meta: { progressToken: "p" } });
@@ -337,7 +353,7 @@ const CASES = {
     writeFileSync(join(mine, "io.github.samchemman.octet-draw", "mcp-dev.json"), JSON.stringify(info));
     const changed = await until(() => c.notes.some((m) => m.method === "notifications/tools/list_changed"), 6000);
     const later = (await c.ask("tools/list")).result?.tools ?? [];
-    check(changed && later.length >= 20, "Octet found: the list changed and the tools are there", `${changed} ${later.length}`);
+    check(changed && ["draw", "change", "read"].every((n) => later.some((t) => t.name === n)), "Octet found: the list changed and the tools are there", `${changed} ${later.map((t) => t.name)}`);
     c.stop();
     // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. A dev build's bundle has mcp-dev.json in
     // place of mcp.json (bundle in mcp.rs). It runs in the real home, so the folder it works out must be the folder

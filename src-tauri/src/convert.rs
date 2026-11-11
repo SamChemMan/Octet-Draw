@@ -18,15 +18,6 @@ const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDE
 // The formats read gives in base64 (the rest it gives as the file's text).
 const BINARY: [&str; 8] = ["pdf", "png", "emf", "eps", "tif", "jpg", "gif", "cdx"];
 
-// A line on standard output or error. One that cannot be written (the reader closed it: | head) is let go, and the rest
-// of the files are still converted.
-macro_rules! say {
-    ($to:ident, $($line:tt)*) => {{
-        use std::io::Write;
-        let _ = writeln!(std::io::$to(), $($line)*);
-    }};
-}
-
 #[derive(Debug, PartialEq, Default)]
 pub struct Job {
     inputs: Vec<PathBuf>,
@@ -114,6 +105,9 @@ fn folder(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>, wrong: &mut Vec
 fn reads(ext: &str) -> bool {
     crate::open::DRAWINGS.contains(&ext) || (crate::STRUCTURES.contains(&ext) && ext != "txt")
 }
+fn reads_drawing(p: &Path) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| crate::open::DRAWINGS.contains(&e.to_ascii_lowercase().as_str()))
+}
 fn reason(e: &std::io::Error) -> String {
     match e.kind() {
         std::io::ErrorKind::NotFound => "There is no such file or folder.".into(),
@@ -144,10 +138,10 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
     for (p, why) in &wrong {
         say!(stderr, "{}: {why}", p.display());
     }
-    // A style from a drawing: read once, with Open's limits, and opened once as each file takes it. A file that is not
-    // a drawing, or has no style, ends the run here with its reason (each file would otherwise fail with the wrong one).
+    // A style from a drawing: read once, with Open's limits.
     let style_file = job.style.as_deref().map(Path::new).filter(|p| p.is_file());
-    let style_text = match style_file.map(|p| crate::open::read(p, &p.display().to_string())) {
+    // (Only a drawing: another file is read as structures, which have no style.)
+    let style_text = match style_file.map(|p| if reads_drawing(p) { crate::open::read(p, &p.display().to_string()) } else { Err("This file is not a drawing. --style takes a preset, or an Octet or ChemDraw drawing.".into()) }) {
         Some(Err(why)) => {
             say!(stderr, "{}: {why}", job.style.as_deref().unwrap_or_default());
             return 1;
@@ -155,9 +149,16 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
         Some(Ok(t)) => Some(t),
         None => None,
     };
-    if let Some(t) = &style_text {
-        if let Err(why) = hidden(app, json!({ "text": t, "name": "style", "style": t }), |w| crate::mcp::call(app, w, "read", json!({}))) {
-            say!(stderr, "{}: {why}", job.style.as_deref().unwrap_or_default());
+    // The style, tried once before any file: a file that is not a drawing or has no style, or a preset Octet does not
+    // have, ends the run here with its reason (each file would otherwise fail with it).
+    if let Some(style) = &job.style {
+        let start = style_text.as_ref().map_or(json!({ "new": "quick" }), |t| json!({ "text": t, "name": "style", "style": t }));
+        let tried = hidden(app, start, |w| match style_text {
+            Some(_) => crate::mcp::call(app, w, "read", json!({})).map(drop).map_err(|why| format!("Octet cannot take a style from this file. {why}")),
+            None => restyle(app, w, job, None),
+        });
+        if let Err(why) = tried {
+            say!(stderr, "{style}: {why}");
             return 1;
         }
     }
@@ -200,6 +201,14 @@ fn hidden<T>(app: &AppHandle, start: serde_json::Value, work: impl FnOnce(&str) 
     made
 }
 
+// A drawing in its new style: a drawing's style (`style`) it took as it opened; a preset is set here.
+fn restyle(app: &AppHandle, window: &str, job: &Job, style: Option<&str>) -> Result<(), String> {
+    if let Some(preset) = job.style.as_deref().filter(|_| style.is_none()) {
+        crate::mcp::call(app, window, "advanced", json!({ "tool": "set_style", "args": { "preset": preset } }))?;
+    }
+    Ok(())
+}
+
 // What the page could not keep of the file it opened, from a reply (the page adds it with no window).
 fn lost(reply: &serde_json::Value) -> Option<String> {
     reply["lost"].as_str().map(String::from)
@@ -213,9 +222,7 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
     let text = crate::open::read(path, name)?;
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     hidden(app, json!({ "text": text, "name": stem, "style": style }), |window| {
-        if let Some(preset) = job.style.as_deref().filter(|_| style.is_none()) {
-            crate::mcp::call(app, window, "advanced", json!({ "tool": "set_style", "args": { "preset": preset } }))?;
-        }
+        restyle(app, window, job, style)?;
         if job.each {
             return each(app, window, &job.to);
         }
@@ -322,6 +329,7 @@ mod tests {
         if cfg!(unix) {
             assert_eq!(wrong[1], (dir.join("pipe.cdxml"), "This is not a file.".to_string()));
         }
+        assert!(reads_drawing(Path::new("a.CDXML")) && reads_drawing(Path::new("b.oct")) && !reads_drawing(Path::new("notes.txt")) && !reads_drawing(Path::new("c.mol")));
         assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "inner/d.cdx"].map(|f| dir.join(f)));
         fs::remove_dir_all(&dir).unwrap();
     }

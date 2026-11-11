@@ -20,7 +20,7 @@ import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, pl
 import { experimentPage, newExperiment, newGrids } from "../../src/experiment.ts";
 import { interpret, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
-import { resetIds, type FileFormat, type Host } from "../../src/mcp.ts";
+import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
 import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
@@ -95,6 +95,11 @@ const reagent = (text: string) => reagentFormula(text, nameToSmiles, labelSmiles
 
 const warnOn = (t: string) => WARNING_TYPES.find((w) => w.id === t)!.on;
 const STEREO = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
+
+// Each AI app session's brief (set_brief), kept as Octet's window keeps it (src-tauri/src/mcp.rs): a new session has
+// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts).
+const briefs = new Map<string, string>();
+export const session = (client: string, id: string): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b) });
 
 /** A new drawing for a purpose (File > New For: paper, thesis, slides, poster, experiment, quick), as a Host with
  * Undo and Redo. Its ids start again from the first (mcp.ts resetIds), so the same calls give the same drawing. */
@@ -275,6 +280,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return structure(text);
     },
     export: () => false,
+    // (No command here opens a dialog: the stand-in for the editor has none.)
+    dialog: () => false, windowless: () => false,
     window: () => ({ id: "headless", name: title }),
     windows: async () => [],
     target: async (_session, id) => id === "headless",

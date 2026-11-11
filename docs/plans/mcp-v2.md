@@ -214,6 +214,76 @@ Before drawing, Octet works out whether the job fits the destination:
   a larger page. It never shrinks text below the destination's own size to make things fit.
 - Quick start has no page, so it gives no advice on fit.
 
+### 3.3 As built (step 2, 11 November 2026, branch `mcp/brief`)
+
+- **`set_brief`** is the sixth tool (last in `tools/list`), the operation `brief` in `OPS` (`setBrief` in `src/mcp.ts`),
+  with the arguments of 3.1. Its hints: not read-only, not destructive, idempotent (the same brief again changes
+  nothing and opens no undo step). Its reply: what changed since the last brief (B6), the style with its label and bond
+  sizes, the advice, then the brief as JSON (also its `structuredContent.brief`).
+- **Kept per session.** `From` (`src/mcp.ts`) has `brief` and `keep`. In the app, `Session.brief` in `mcp.rs` is sent
+  with each request as `brief`, and the page keeps a new one with `mcp_brief(session, brief)` (16 KB at most). Requests
+  with no session (an older client) share one, so they can still draw a scheme. In memory only: a new session, or Octet
+  started again, has none. `scripts/headless/host.ts` keeps them the same way (`session(client, id)`), and so does the
+  stand-in of `src/mcp.check.ts`.
+- **The refusal** comes after a call is routed and before its schema check (`needsBrief`): draw with kind reaction,
+  cycle or figure, or structures with more than one; a change with one of these, or with more than one structure
+  drawn in all. The text is exactly 3.1's, with nothing before it.
+- **Destination.** quick is `QUICK_STYLE` (page edges off, no purpose). paper, thesis, slides and poster are their
+  purposes (`purposeStyle`). notebook is the experiment purpose when the drawing is an experiment page, else paper's,
+  and the reply says how to open an experiment page. journal is the one preset whose name, or a journal named in its
+  brackets, starts with what is given (case, spaces and stops aside), so `ACS`, `Wiley`, `Thieme`, `Angewandte` and
+  `Synthesis` are presets; else it is refused with the nearest preset (by publisher, else ACS Document 1996) and
+  nothing changes (D9: so `JACS`, `Org. Lett.` and `Chem. Commun.` are asked about, as test plan D9 says). An empty
+  journal is refused. With a style from a file or the drawing, a journal gives only its column, and the reply says
+  the style is the user's own in place of the journal's. quick with columns or size_mm is refused (it has no page). columns is the journal's column
+  (`COLUMNS` in `docstyle.ts`: ACS1 and ACS2, Nature 89 and 183 mm, RSC 83 mm); a journal with none says to give
+  size_mm. size_mm is a page of that size (a named page when it is one).
+- **A style from a file** (`readOct`: CDXML, `.oct`, or an old `.octet` file) gives every value of its document style,
+  on the destination's page. Refused with the reason: text that is not a drawing's, a damaged file (the reader's own
+  words), and a CDXML whose document gives no style (no BondLength, LineWidth or LabelSize). Nothing is kept but the
+  brief (Sam's answer 5). `from_drawing` takes this session's drawing only: another drawing's style is in its own
+  window, so the reply says to read it with format cdxml and give that as from_file.
+- **Advice on fit (3.2).** `set_brief` gives the page's room inside its margins in bond lengths, and what of the drawing
+  runs past the page now, with the choices: more rows, split into schemes, two columns, a larger page. A draw that
+  does not fit says what it said before, with `set_brief` in place of `set_style` for a larger page. Quick start has
+  no page, so the layout check no longer names what runs past one (`layoutWarnings`, test plan L2): before, every
+  Quick start drawing was told to fix what lay past an A4 page that is not there.
+- **Instructions and prompts.** The instructions' second line asks the three questions and says one structure needs
+  none. draw_scheme, redraw_picture and fill_experiment start with the brief; journal_figure gives the journal through
+  `set_brief`.
+- **Room in `tools/list`.** `set_brief` is 1,409 characters; the list went from 13,995 to 13,994. What was cut, each
+  said elsewhere or moved behind help:
+  - `advanced`: the 13 preset names, the 13 page names and the 16 export formats. set_brief lists the journals by
+    their short names (made from `PRESETS`); help of set_style gives the presets and pages, and of export the formats.
+    "Octet redraws everything in it, and" went.
+  - `read`: "Results of draw and change already give ids, boxes and a layout check, so you seldom need to read" (the
+    instructions say it); "atoms lists atom and bond ids, for change", "picture adds a PNG", format's "The drawing as
+    this file's text, in place of the reading" and ids' "Read only these objects" (each said once, not twice); picture's
+    own description.
+  - `change`: "Also ops: draw (with kind), set_style, place_template, add_file, fill_experiment" (op's enum lists them)
+    is "draw: kind, and its arguments as draw takes them"; arrange's 12 values are "left, top, across, page and more";
+    highlight's "Octet's Highlight behind an atom, a bond, or all of a structure" (the instructions say it); the
+    letters after '$1.s[0]' (the sentence before gives them). How to add a step to a drawn scheme is in help of arrow,
+    and change says so.
+  - `draw`: "Give a compound's name when you know it, else a SMILES" (the instructions say it); the reaction and cycle
+    kinds say less, as steps' own description says each part.
+  - "Add a PNG of what changed" on draw, change and advanced (the instructions say it). drawings' wording is shorter.
+- **Open for Sam** (review of 11 November): (1) quick on a drawing that already has work or a preset replaces its
+  style and page with Quick start (undo brings them back). Should quick keep an open drawing's style and page, or
+  should the instructions say to give from_drawing to keep them? (2) add_file never needs a brief, even for a file
+  that is a whole scheme (3.1 exempts one structure from add_file). Should a file of more than one structure or a
+  reaction wait for the brief?
+- **Not built:** asking the user through MCP elicitation (step 7); carrying out emphasis and layout (kept with the
+  brief and said back: the AI app does them with draw and change).
+- **Benchmark.** Each case gives its brief first, counted as a call: its own (`brief` in the case), else the page it
+  starts on (every corpus job: paper, as drawn before). Every one of the 64 cases has one call more, sends 32
+  characters more (`{"destination":{"kind":"paper"}}`) and reads 231 more (the brief's reply). Nothing else moved:
+  failed calls, coerced, structures right, warnings and summaries are as they were. Times: `results.json` keeps each
+  case's lower time. The four main cases, the code before and after in turn, four rounds each at load 6 to 8 (the
+  quickest): `taxol-schemes` 2,579 and 2,517 ms, `taxol-chained` 1,754 and 1,761, `taxol-v1-job` 3,895 and 3,883,
+  `corpus-chained` 103 and 105. set_brief takes 0.03 ms on an empty drawing when nothing changes, 0.07 with a scheme
+  drawn, and about 0.7 ms when it sets a new page; a refused call 0.004 ms.
+
 ## 4. Compounds as changes to earlier compounds
 
 The biggest saving. In a synthesis, almost every compound is the one before with one change. v2 lets the AI say that.
@@ -413,6 +483,67 @@ Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. Wh
 - With `legend: "letters"`, long conditions go into a footnote under the scheme (a, b, c...) with short letters over
   the arrows, as the paper's figures do. That keeps arrows short and rows dense.
 - The reply is a summary: schemes drawn, compounds, warnings, check, and the advice if anything did not fit.
+
+### 5.4.1 As built (step 4, 11 November 2026, branch `mcp/brief`)
+
+- **`draw_route`** is the seventh tool (last in `tools/list`), the operation `route` (`drawRoute` in `src/mcp.ts`), with
+  the arguments of 5.4 and `keep_orientation` (left out of the listing: true unless set false, and `advanced` help of
+  draw_route gives it; the listing says each scheme needs start and steps and each step products). Each scheme is drawn by the reaction drawing that was there
+  (`drawReaction`: Clean Up Reaction's wrap, `across`, the page-fit sentence), one under another, with its title
+  before it and its note after it. One undo step: when a scheme cannot be drawn, nothing of the route is kept, and the
+  reply says which scheme. A route needs the brief, as a scheme does.
+- **A reaction is draw_route's.** `draw` no longer lists the reaction kind (its `start`, the reaction's step fields and
+  `keep_orientation` went, and its description says "A reaction or scheme is draw_route's"), but it still takes one,
+  so `change`'s `draw`, the acceptance script, the evals and the corpus jobs are as they were. A route of one scheme with
+  no title or letters is that reaction, and its reply is the reaction's.
+- **Room in `tools/list`** (13,994 to 13,991; the 14,000 check stays): `draw` is 4,002 (5,712) and `draw_route` 2,294.
+  `draw_route` lists its compounds as objects, "as draw takes it" (`draw` lists the compound's parts once). Moved to
+  the instructions, as two tools take compounds now: the generic group and metal sentence ('*c1ccccc1', '*[Pd]*').
+  Cut, each said by an argument's name or by help: the compound's text and from descriptions and the glosses in its
+  changes ("a group for a group", "a new group for the one on an atom"); edit's list of properties by kind (one line);
+  arrow's 15 kinds (now "reaction, equilibrium, curved, fishhook, line and more"); read's list of file formats (the
+  enum has them) and its atoms description; advanced's examples of commands, "The result's check names what no longer
+  fits" and "The user saves it where they choose"; drawings' "(its window stays behind)" and "as File > New For";
+  set_brief's "(one undo step)"; a cycle's and a figure's step and panel descriptions shortened. Instructions: 2,768 to
+  2,928 characters (the moved sentence, and draw_route named where a scheme is drawn).
+- **Numbers across schemes (test plan C9).** The route's numbers are one series. A compound `from` another with no
+  changes and no number is that compound, drawn again with its number (no warning, as before). A product with changes
+  and no `from` is from the compound before it (`previous`). A scheme that starts `from: 'previous'` starts from the
+  last product of the scheme before, by its number, else its id. Octet does not number compounds the AI app left
+  unnumbered: a co-reactant or a reagent drawn in a scheme often has none.
+- **Titles (L6).** Each is free text left-aligned over its scheme, `Scheme 1.` in bold as papers set it, and the
+  scheme starts 3 bond lengths under it, as new work does: further than conditions sit from their arrow (`NEAR`,
+  reaction.ts) or a name from its structure (`NAMED`), so the reaction reader never takes it, and the user's Clean Up
+  Reaction afterwards leaves it where it is (headless.check). CDXML has no flag that keeps text out of a reaction:
+  ChemDraw's scheme names the steps' objects and the title is in none, and Octet reads a file's reactions by where
+  things are, so the distance is what keeps it apart. A title moved by hand onto an arrow becomes its conditions, as any
+  text does.
+- **Wrapping and balance (L2, L4).** Clean Up Reaction's wrap now puts no product alone on the last line where a line
+  before can be the short one (reaction.ts: the fewest lines, then a last line of more than one structure, then the
+  narrowest widest line), for the user's Clean Up Reaction too. Only the last line is judged so: a line before it is
+  chosen by width alone, so a row that ends with a product alone whatever is done breaks as evenly as before. Found on the way: a scheme whose products the
+  orientation turn stood upright (alkyl chains) left gaps wider than a reaction's between them, so Clean Up Reaction
+  read it as two reactions, did not wrap it and it ran off the page. After the turn each product keeps its left edge
+  and what comes after it moves as far as it grew or shrank (`respaced`). This fixed grocott2025-fig4e (7 warnings to
+  0) and changed nothing else in the benchmark.
+- **legend: letters (S8).** Each step with conditions gets its label, else the next letter after those used (a, b, c;
+  a label 'b, c' goes on to d; a label whose letters do not go on from the last, such as 'i', is the step's own and the
+  next is still the next letter), on its arrow, and its conditions as text, in order, in a note under the scheme:
+  "Reagents and conditions: (a) ...; (b) ...". A structure at an arrow stays there.
+- **Fit (plan 3.2).** The reply says the first scheme wider than the page (a line that cannot break: a larger page or
+  landscape, or a starting material in above) and the first that runs past the bottom (draw the schemes from it on in
+  a new drawing, or a larger page). Quick start draws with no advice. Octet does not split a route across pages itself.
+- **Branches (S4, S5).** A schemes list draws a convergent route as a scheme for each branch and one that starts with
+  the compounds they make (from their numbers), and a divergent one as a scheme for each branch from the shared
+  compound. When a scheme does not start from the last product of the one before, the reply says that Octet drew each
+  branch as a scheme of its own, under the one before, with a shared compound drawn again under its number, and does
+  not join branches with arrows. Nothing joins them: Clean Up Reaction does not lay out a route with two branches.
+- **Benchmark.** `taxol-route` (Quick start) and `taxol-route-paper`: set_brief, one draw_route with the three titled
+  schemes of `taxol/route.json` (a product from the compound before gives no `from`; 7 and 13 start their schemes by
+  `from` alone), one read. Each multi-step corpus job is also a case `route-...`: one draw_route with its figure as the
+  title, the same structures right and warnings as the job.
+- **Left:** compound 12 of the taxol route has two labels that meet (`s12.2`, `s12.14`), as in `taxol-chained`, so the
+  check is not clean on Quick start (its changes draw it so: compound.ts). The window was not tried.
 
 ### 5.5 As built (step 5, 11 November 2026, branch `mcp/tools`)
 
@@ -846,7 +977,22 @@ benchmark runner should time only the MCP part.
 | | | | taxol-schemes | 3 | 0 | 4,490 | 2,208 | 2,481 | 19 of 19 | 40 |
 | | | | taxol-v1-job | 33 | 0 | 16,010 | 169,892 | 3,713 | 19 of 19 | 9 |
 | | | | corpus-chained | 3 | 0 | 1,781 | 1,232 | 105 | 6 of 6 | 2 |
+| 2: the brief (11 Nov, `mcp/brief`) | 13,994 (4,000), 6 tools | 2,768 | taxol-chained | 4 | 0 | 3,731 | 3,050 | 1,776 | 19 of 19 | 40 |
+| | | | taxol-schemes | 4 | 0 | 4,522 | 2,439 | 2,481 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 34 | 0 | 16,042 | 170,123 | 3,713 | 19 of 19 | 9 |
+| | | | corpus-chained | 4 | 0 | 1,813 | 1,463 | 105 | 6 of 6 | 2 |
+| 4: draw_route (11 Nov, `mcp/brief`) | 13,991 (4,000), 7 tools | 2,928 | taxol-route (Quick start) | 3 | 0 | 3,606 | 5,052 | 1,842 | 19 of 19 | 0 |
+| | | | taxol-route-paper | 3 | 0 | 3,606 | 5,528 | 1,804 | 19 of 19 | 40 |
+| | | | taxol-chained | 4 | 0 | 3,731 | 3,053 | 1,776 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 34 | 0 | 16,042 | 170,123 | 3,713 | 19 of 19 | 9 |
 
+- Step 4 against the targets of section 15 (`taxol-route`, against `taxol-v1-job`): 3 calls (34), 0 failed (0; 6 in
+  v1), 3,606 characters written (16,042; draw_route's arguments are 3,572), largest reply 2,690 characters, the route's
+  on a paper page (465 KB in the v1 run), `tools/list` 3,997 tokens, Octet 1.8 s for the whole route (3.7 s). No
+  moves: the one read is the check. The draw_route call takes what the three draw calls of `taxol-chained` take: in
+  turn, four rounds at load 5 to 9 (the quickest of three each), `taxol-route` 1,773 to 1,862 ms and `taxol-chained`
+  1,754 to 1,866 on the code before and 1,805 to 1,845 after. The new respacing after the orientation turn takes 0.3
+  ms for the 17 products of the three schemes.
 - 3b (named transformations): `taxol-chained` has 18 of its 21 structures written `from` another; only 2 and 8 (each
   scheme's new skeleton) and taxol 1 (its side chain is a reagent, not an earlier compound) are text. The 18 take
   1,581 characters where they took 2,399 (66%); the job sends 3,645 where `taxol-schemes` sends 4,436 (82%), and
@@ -1141,6 +1287,24 @@ first, then merge the rest: `git merge -s ours 38674b3`, then `git merge release
 stay private, and the repository is public. Nothing on `release-1.2-mcp` or `mcp/*` is pushed until Sam says how
 they come out.
 
+### 17.5 Several AI sessions at once (found 11 November 2026, to fix with step 8)
+
+In the eval run of 11 November, 8 agents worked at once in one Octet. A call that takes 0.1 to 2 s alone took up to
+114 s, and a new drawing timed out three times. Traced from the code (nothing a call waits on stops when its window
+is behind others: `settle`, `ready` and the new-drawing wait already use message polls, not timers or frames):
+
+| Cause | Proven? | Smallest fix |
+|---|---|---|
+| A session with no drawing yet is given the last window opened (`mcp.rs` `serve`, `windows::front`). So every session's first calls run in one page, one after another, and **a tool that session calls before it makes its own drawing acts on another session's drawing.** | From the code | Do not give a session a drawing on protocol methods or on `drawings`; only on its first other call. Answer initialize, ping, tools/list, prompts, resources/list and `drawings` outside the page's queue (`handle` in `mcp.ts`). |
+| A new drawing polls the window list for 8 s with no pause, from every waiting page, on the app's main thread. Eight windows starting at once need longer. | From the code | Return when `open_window` gives the label and the session's target is set. Rust's 15 s wait for the page then covers start-up. |
+| A request sent to a page that is not ready after 15 s is lost, and the call waits the whole 120 s. | From the code | Answer at once: "The drawing is still starting. Call again." |
+| Reply, progress, cancel, ready, target and window-list commands run on the app's main thread, with window making. | Structure from the code, size not measured | Mark them `#[tauri::command(async)]`: each only takes a lock. |
+| WebKit slows the page of a covered window (App Nap, background role), though windows are built with background throttling off when AI apps are on. Home is not. | Likely, needs a measurement in the app | For a window with a call in flight, turn window occlusion detection off (a private WKWebView setting, guarded) and back on after. |
+
+Test with no one watching: `scripts/mcp-acceptance.mjs` with 1, 2, 4 and 8 clients at once and Octet behind another
+app. Each makes a drawing, draws, restyles and reads. Every session must end in its own drawing, none may time out,
+and no call may take over 15 s. The second check fails today.
+
 ## 18. Scripting (#89) and batch conversion (#91)
 
 Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
@@ -1232,16 +1396,88 @@ Tests are in `mcp-v2-tests.md`, section 15.
 - `read` with a format takes every format Export writes. The pictures come from `exportRequest` (Editor.tsx), the
   request Export and Quick export send, through `export_bytes` (export.rs), which runs Export's own `file_of` and
   writes nothing. Options: `dpi`, `transparent`, `width_mm` (the whole picture, margin included, that wide). They
-  are left out of tools/list (unlisted) and named in read's description; tools/list went from 13,995 to 13,988
-  characters.
+  are left out of tools/list (unlisted). After the merge with set_brief and draw_route, tools/list had 2 characters to
+  spare, so it lists only the 8 formats read had before (the rest are `quiet`: taken, not listed), and `advanced
+  help` of `file` names every format and the options. read's description points there.
 - `--convert` (convert.rs): each file is read with File > Open's limits (`open::read`), opened in a hidden window as a
   window opened with a file's text, restyled (`--style`: a preset through `set_style`, or a drawing's file as File >
   Apply Settings From File), then made with `read` and written as Export writes it. `--to sdf --each` reads each
   structure as a MOL and adds its number as `> <Number>`. A file that is there gets ` 2`, ` 3` and on in its name.
-- Windows: `--convert` attaches to the console it was started from when it has no output of its own. A window program
-  typed at cmd.exe's prompt or in PowerShell is not waited for (a batch file waits), so there the exit code needs
-  `start /wait` or `Start-Process -Wait`. Not run: there is no Windows here. The console code compiles for Windows on
-  its own; the whole program does not build for Windows on this Mac (ring needs a Windows C toolchain).
+- After review: `--convert` reads only regular files (a named pipe, a device or a folder walked to: refused or left
+  out), and at most 64 MB of one, whatever its size said first (`read_text_or_cdx`). A folder gives the drawings
+  File > Open opens and the files Import a Structure reads (`open::DRAWINGS` and `STRUCTURES`, one list each; File >
+  Open's filter uses `open::DRAWINGS` too). Two inputs with the same name never write over each other, with or without
+  `--overwrite`: the second gets a number. `--style` is tried once before any file: a file that is not a drawing, a
+  drawing Octet cannot read, or a preset it does not have ends the run with its reason and exit code 1. What File >
+  Open says it left out is said on the file's line. A structure file's text waits for Indigo before it opens.
+- `--headless` and `--convert` count wherever they are in the arguments; `--mcp --headless` is never the relay.
+  `--headless` takes only `--mcp`, and `--convert` takes no `--headless`: anything else is refused with the usage line
+  and exit code 2. No line goes out with `println!` or `eprintln!` on these paths (they panic when the reader has
+  gone, as `| head` does): `say!` lets a line it cannot write go. With no window, run_command refuses a command that
+  opens a dialog or a box to type in (its menu name ends in "…", Save on a drawing with no file, a step's text above or
+  below its arrow), and Export, each saying to use read with a format. A second initialize on standard input keeps
+  the session (its brief and its drawing). `drawings new` takes a file's `text` (unlisted, in advanced help of `new`;
+  at most 1,000,000 characters, as `add_file`),
+  which opens in a window of its own in its own style.
+- Windows: not run (there is no Windows here; the whole program does not build for Windows on this Mac, as ring needs
+  a Windows C toolchain). What the code assumes: the release build is a window program (`windows_subsystem`); with
+  no standard output of its own (GetStdHandle gives 0) `--convert` and `--headless` attach to the parent's console
+  (AttachConsole), and a pipe or file it was given stays as it is; Rust's standard output looks up its handle on each
+  write, so the lines after AttachConsole go to that console; a hidden WebView2 window runs its page's timers and
+  answers calls; with no window Octet does not start the Octet Drawing class object (no Office object is served).
+  To try on Windows, from cmd.exe and from PowerShell:
+  1. `"Octet Draw.exe" --convert a.cdxml --to pdf`: the lines show in the console; `echo %ERRORLEVEL%` after
+     `start /wait "" "Octet Draw.exe" --convert ...` is 0, and 1 with a bad file.
+  2. The same piped and redirected: `... | more`, `... > out.txt 2> err.txt`, and `... | findstr /n .` with the
+     reader ended early: no crash dialog, nothing in `%LOCALAPPDATA%\io.github.samchemman.octet-draw\logs\crash.log`.
+  3. `node scripts/mcp-acceptance.mjs --headless "C:\Program Files\Octet Draw\Octet Draw.exe"`: the cases pass as
+     on the Mac, with no window, no taskbar button and no tray icon at any time.
+  4. With Octet open and Word open: `--headless --mcp` and `--convert` change nothing in the open Octet, and Word's
+     Insert > Object > Octet Drawing still starts or uses the open Octet, never the headless one.
+  5. A folder of 200 files: time a file, and memory in Task Manager (Octet and its msedgewebview2 processes).
+  6. Paths with spaces and non-ASCII letters, a UNC path (`\\server\share\a.cdxml`) and a file another program
+     holds open.
 - `.oct` now keeps a stereocentre's ChemDraw configuration (`kept`, file.ts): without it, 15 of the 68 corpus files
   lost Geometry and BondOrdering through `.oct` and back.
 
+## 19. Speed for the AI model (Sam, 11 November 2026)
+
+Sam: "Octet-side speed seems to be the fastest bit by a mile. Optimise for AI models. Change the way they communicate
+with Octet. Build whatever it takes on the Octet side to make this really good."
+
+### 19.1 What a job costs the model (measured)
+
+`scripts/mcp-evals/aicost.py` reads the eval agents' logs. The 21 train cases on the five tools, agents on Opus 5.5:
+
+| | A job, median | All 21 |
+|---|---|---|
+| Model turns | 10 | 239 |
+| Output tokens | 3,363 | 85,267 |
+| Seconds | 28 | 684 |
+| Octet's own time | under 1 s | 15.7 s |
+
+A one-reaction job is about 3,000 output tokens, and its tool arguments are about 70 of them. So the model's cost
+is its turns and its thinking, not the characters it sends, except on a long route. About half the turns in that run
+were the eval harness itself (printing the tools, setting the case up, writing the answer to a file).
+
+### 19.2 What to change, in order of what it should save
+
+1. **One call a job, and no need to look again.** Each extra call is a model turn. So: the brief can be given inside
+   the first drawing call; the reply says enough to answer the user (what was drawn, how each compound was read, the
+   check), and the instructions say not to read back or ask for a picture when the check is clean.
+2. **Nothing to decide.** The eval agents' notes are a list of decisions the tools make them take: reagent or
+   reactant, where amounts go, which field each condition is, over or under the arrow. A line notation takes them
+   away: one reaction a line as a chemist types it, with the conditions as one free list that Octet sorts
+   (`src/notation.ts`, in build).
+3. **Say a structure once.** Compounds from earlier ones (built), a scope as one core and its variations, a compound
+   from a name in Octet's dictionary with changes.
+4. **Nothing refused that has one meaning** (built: section 6), and a refusal that names the nearest right form.
+5. **A small first read** (built: the tool list is about 4,000 tokens).
+
+### 19.3 How it is measured
+
+A lab with no window (`scripts/mcp-evals/`, in build): a headless server that speaks the app's protocol, a lean
+harness in which the model's turns are the job's own, speed jobs with exact checks, and a cost report (turns, tool
+calls, output tokens, characters sent and read, seconds) kept and compared like `scripts/mcp-bench/results.json`.
+Each change above is kept only if a small, a middle and a large model each do the jobs in fewer turns and tokens with
+no fewer passes.

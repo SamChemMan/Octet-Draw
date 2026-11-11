@@ -60,7 +60,7 @@ pub fn tree(svg: &str) -> Result<usvg::Tree, String> {
     // usvg reads <image> files from disk by default. The picture holds only what the page drew.
     opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
     usvg::Tree::from_str(svg, &opt).map_err(|e| {
-        eprintln!("usvg: {e}");
+        say!(stderr, "usvg: {e}");
         "Octet cannot draw this picture.".to_string()
     })
 }

@@ -53,6 +53,7 @@ struct Shared {
     sessions: Mutex<HashMap<String, Session>>,
     ready: Mutex<HashMap<String, String>>, // each window's page that listens, by the page's own id
     open: Mutex<Option<(f64, Instant)>>,   // the rate limit for initialize and for requests with no session, all apps together
+    loose: Mutex<Option<String>>,          // the brief of the requests with no session (an older client), all of them together
 }
 
 // A drawing resource's URI as Octet gives it (octet://drawing/{window}, /cdxml or /png), and the window it names.
@@ -103,10 +104,12 @@ enum Msg {
 // called. A session with no drawing takes the window in front at its first call; a window coming to the front later
 // does not move it.
 // stream: its event stream for notifications (GET); subs: the drawing URIs it subscribed to; bucket: its calls left this
-// second (D16), and when it was last filled; waiting: its calls under way.
+// second (D16), and when it was last filled; waiting: its calls under way. brief: the user's answers to set_brief's
+// three questions (plan 3.1), as the page wrote them (JSON), sent with each request; none until set_brief.
 struct Session {
     client: String,
     drawing: Option<String>,
+    brief: Option<String>,
     last: Instant,
     stream: Option<(u64, mpsc::Sender<String>)>, // the stream's own number, and where its notifications go
     subs: HashSet<String>,
@@ -157,6 +160,7 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
         stop.store(u64::MAX, Ordering::SeqCst);
         let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, was.port)); // wakes the accept loop
         mcp.shared.sessions.lock().unwrap().clear();
+        *mcp.shared.loose.lock().unwrap() = None;
     }
     if !on {
         return Ok(None);
@@ -212,6 +216,22 @@ pub fn mcp_target(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing:
         None => return Err("There is no such session.".into()),
     }
     Ok(())
+}
+
+// The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
+// request that has none. Kept in memory only: a new session starts with none.
+#[tauri::command]
+pub fn mcp_brief(mcp: State<'_, Mcp>, session: Option<String>, brief: String) -> Result<(), String> {
+    if brief.len() > 16 * 1024 {
+        return Err("The brief is too long.".into());
+    }
+    match session {
+        Some(s) => mcp.shared.sessions.lock().unwrap().get_mut(&s).map(|x| x.brief = Some(brief)).ok_or_else(|| "There is no such session.".to_string()),
+        None => {
+            *mcp.shared.loose.lock().unwrap() = Some(brief);
+            Ok(())
+        }
+    }
 }
 
 // A page listens for requests now. A new page in a window (reloaded) has lost the requests the old one had: they end
@@ -487,17 +507,17 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
         cancel(shared, &message, sid.as_deref());
         return respond(&mut stream, "202 Accepted", "", None);
     };
-    let (client, session, window, lost) = match route(app, shared, id, method, &message, sid.as_deref(), true) {
+    let (client, session, window, lost, brief) = match route(app, shared, id, method, &message, sid.as_deref(), true) {
         Routed::Answer(r) => return respond(&mut stream, "200 OK", &r, None),
         Routed::Unknown => return respond(&mut stream, "404 Not Found", "", None),
-        Routed::Call { client, session, window, lost } => (client, session, window, lost),
+        Routed::Call { client, session, window, lost, brief } => (client, session, window, lost, brief),
     };
     let new_session = session.as_deref().filter(|_| method == "initialize");
     let Some(window) = window else {
         finished(shared, session.as_deref());
         return respond(&mut stream, "200 OK", &error_reply(Some(id), -32603, "Octet has no window open."), None);
     };
-    let sent = send(app, shared, &window, id, &body, &client, session.as_deref(), lost);
+    let sent = send(app, shared, &window, id, &body, &client, session.as_deref(), lost, brief);
     // A call that asks for progress is answered as an event stream: its progress as it goes, then its reply.
     let reply = match sent {
         Some(sent) if message.pointer("/params/_meta/progressToken").is_some() => {
@@ -528,11 +548,12 @@ fn cancel(shared: &Shared, message: &serde_json::Value, sid: Option<&str>) {
 }
 
 // Where a request goes (route), for the server and for `--headless --mcp`: an answer here, a session Octet does not
-// know, or a call to a drawing window, with the AI app's name, its session, the window and the drawing it lost.
+// know, or a call to a drawing window, with the AI app's name, its session, the window, the drawing it lost and its
+// brief (set_brief).
 enum Routed {
     Answer(String),
     Unknown,
-    Call { client: String, session: Option<String>, window: Option<String>, lost: Option<String> },
+    Call { client: String, session: Option<String>, window: Option<String>, lost: Option<String>, brief: Option<String> },
 }
 
 // Initialize starts a session; a later request names its session, and one Octet does not know (ended, idle, or from
@@ -560,10 +581,10 @@ fn route(app: &AppHandle, shared: &Shared, id: &serde_json::Value, method: &str,
             sessions.remove(&oldest);
         }
         let (name, new) = (client_name(message), random_hex(16).unwrap_or_default());
-        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
-        return Routed::Call { client: name, session: Some(new), window: front, lost: None };
+        sessions.insert(new.clone(), Session { client: name.clone(), drawing: None, brief: None, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 });
+        return Routed::Call { client: name, session: Some(new), window: front, lost: None, brief: None };
     }
-    let Some(s) = sid else { return Routed::Call { client: "An AI app".into(), session: None, window: front, lost: None } };
+    let Some(s) = sid else { return Routed::Call { client: "An AI app".into(), session: None, window: front, lost: None, brief: shared.loose.lock().unwrap().clone() } };
     let Some(session) = sessions.get_mut(s) else { return Routed::Unknown };
     session.last = Instant::now();
     // The rate limit (D16): RATE calls a second, MOST_WAITING under way at once.
@@ -593,7 +614,7 @@ fn route(app: &AppHandle, shared: &Shared, id: &serde_json::Value, method: &str,
     }
     let named = drawing_uri(app, uri).filter(|_| method == "resources/read").map(String::from);
     session.waiting += 1;
-    Routed::Call { client: session.client.clone(), session: Some(s.to_string()), window: named.or(open).or(front), lost }
+    Routed::Call { client: session.client.clone(), session: Some(s.to_string()), window: named.or(open).or(front), lost, brief: session.brief.clone() }
 }
 
 // A call routed to a session has ended: it no longer counts against the session's calls under way.
@@ -605,7 +626,7 @@ const WAITED: &str = "Octet did not answer in time.";
 
 // Sends a request to a window's page, once the page listens (a window that has just opened, File > New: up to 15 s).
 // None when the window cannot be sent to.
-fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>) -> Option<(u64, mpsc::Receiver<Msg>)> {
+fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, body: &[u8], client: &str, session: Option<&str>, lost: Option<String>, brief: Option<String>) -> Option<(u64, mpsc::Receiver<Msg>)> {
     let start = Instant::now();
     while !shared.ready.lock().unwrap().contains_key(window) && start.elapsed() < Duration::from_secs(15) {
         std::thread::sleep(Duration::from_millis(50));
@@ -613,7 +634,7 @@ fn send(app: &AppHandle, shared: &Shared, window: &str, id: &serde_json::Value, 
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::channel();
     shared.pending.lock().unwrap().insert(n, Pending { window: window.to_string(), rid: id.clone(), session: session.map(String::from), tx, cancelled: false });
-    if app.emit_to(window, "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(body), "client": client, "session": session, "lost": lost })).is_err() {
+    if app.emit_to(window, "mcp", serde_json::json!({ "id": n, "body": String::from_utf8_lossy(body), "client": client, "session": session, "lost": lost, "brief": brief })).is_err() {
         shared.pending.lock().unwrap().remove(&n);
         return None;
     }
@@ -671,7 +692,7 @@ pub fn call(app: &AppHandle, window: &str, tool: &str, args: serde_json::Value) 
     let shared = &app.state::<Mcp>().shared;
     let id = serde_json::json!(1);
     let body = serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": tool, "arguments": args } }).to_string();
-    let sent = send(app, shared, window, &id, body.as_bytes(), "Octet Draw", None, None).ok_or(WAITED)?;
+    let sent = send(app, shared, window, &id, body.as_bytes(), "Octet Draw", None, None, None).ok_or(WAITED)?;
     let reply: serde_json::Value = serde_json::from_str(&answer(shared, sent, &id, |_| true)).map_err(|e| e.to_string())?;
     let said = || reply.pointer("/result/content/0/text").or(reply.pointer("/error/message")).and_then(|t| t.as_str()).unwrap_or(WAITED).to_string();
     match reply.get("result") {
@@ -701,7 +722,7 @@ pub fn stdio(app: &AppHandle) {
             cancel(&shared, &message, sid.as_deref());
             continue;
         };
-        let (client, session, window, lost) = match route(app, &shared, id, method, &message, sid.as_deref(), false) {
+        let (client, session, window, lost, brief) = match route(app, &shared, id, method, &message, sid.as_deref(), false) {
             Routed::Answer(r) => {
                 say(&out, &r);
                 continue;
@@ -710,16 +731,18 @@ pub fn stdio(app: &AppHandle) {
                 say(&out, &error_reply(Some(id), -32001, "This session has ended. Send initialize again."));
                 continue;
             }
-            Routed::Call { client, session, window, lost } => (client, session, window, lost),
+            Routed::Call { client, session, window, lost, brief } => (client, session, window, lost, brief),
         };
-        if method == "initialize" {
+        // One program on standard input and output is one session: initialize again answers, and keeps the session
+        // (its brief and its drawing) as it was.
+        if method == "initialize" && sid.is_none() {
             let (tx, rx) = mpsc::channel::<String>();
             if let Some(s) = session.as_ref().and_then(|s| shared.sessions.lock().unwrap().get_mut(s).map(|x| x.stream = Some((NEXT.fetch_add(1, Ordering::Relaxed), tx)))) { s }
             let out = out.clone();
             std::thread::spawn(move || rx.iter().for_each(|note| say(&out, &note)));
             sid = session.clone();
         }
-        let sent = window.as_deref().map(|w| send(app, &shared, w, id, line.as_bytes(), &client, session.as_deref(), lost));
+        let sent = window.as_deref().map(|w| send(app, &shared, w, id, line.as_bytes(), &client, session.as_deref(), lost, brief));
         let (shared, out, id) = (shared.clone(), out.clone(), id.clone());
         waiting.push(std::thread::spawn(move || {
             let reply = match sent {

@@ -12,6 +12,15 @@ use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem,
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 
+// A line on standard output or error (--convert, --headless and their errors). One that cannot be written (the reader
+// closed it: | head) is let go: println! would panic there.
+macro_rules! say {
+    ($to:ident, $($line:tt)*) => {{
+        use std::io::Write;
+        let _ = writeln!(std::io::$to(), $($line)*);
+    }};
+}
+
 // Alt and a menu's access key on Windows, from the web view to the menu bar.
 #[cfg(windows)]
 mod access_keys;
@@ -298,7 +307,7 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
-const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
+const OPEN: (&str, &[&str]) = ("Drawings", &open::DRAWINGS);
 // File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
 // and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
 const OPEN_ALL: (&str, &[&str]) = ("Drawings, spectra and templates", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc", "ctp", "cts"]);
@@ -1090,7 +1099,7 @@ fn main() {
         Ok(Start::Convert(job)) => Some(job),
         Ok(_) => None,
         Err(e) => {
-            eprintln!("{e}");
+            say!(stderr, "{e}");
             std::process::exit(2)
         }
     };
@@ -1153,13 +1162,15 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
-            // Octet it started is short (decision 0023).
+            // Octet it started is short (decision 0023). Octet with no window serves no Office object.
             #[cfg(windows)]
-            ole::win::start(handle, embedding);
+            if !headless {
+                ole::win::start(handle, embedding);
+            }
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
             let cwd = std::env::current_dir().unwrap_or_default();
             if !embedding && !headless {
@@ -1197,7 +1208,7 @@ fn main() {
                                 0
                             }
                             Err(e) => {
-                                eprintln!("{e}");
+                                say!(stderr, "{e}");
                                 1
                             }
                         },
