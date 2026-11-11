@@ -10,10 +10,10 @@
 import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD,
+  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
-  type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
+  type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, units } from "./labels.ts";
 import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
@@ -485,6 +485,43 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face })));
       }));
       put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined, scale: ownScale(sh) }) }, kids.join("")), 0, box, sh.id);
+    } else if (sh.kind === "gel" || sh.kind === "plasmid") {
+      // A gel or plasmid map as the lines, bands, arrows and text ChemDraw shows, laid out as Octet draws it, with the
+      // object itself in Octet's data (as a table).
+      const size = (sh.size ?? style.captionSize * (sh.kind === "gel" ? 0.8 : 1)) * f, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0), kids: string[] = [];
+      const text = (s: string, q: P, align: "left" | "centre" | "right", turn?: number, bold?: boolean) => {
+        const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
+        kids.push(el("t", { id: fresh(), p: pt(at(q)), Z: Z(), color: ink, CaptionJustification: just, Justification: just, LineHeight: "auto", RotationAngle: rotationAngle(turn), Octet: DERIVED }, run(s, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face: face | (bold ? 1 : 0) })));
+      };
+      const rule = (a: P, b: P, w = mine) => kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt(at(a))} ${pt(at(b))}`, Z: Z(), color: ink, GraphicType: "Line", ...w, Octet: DERIVED }));
+      const rect = (a: P, b: P) => kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt(at(b))} ${pt(at(a))}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: "Plain", ...mine, Octet: DERIVED }));
+      // A closed outline: filled (CurveType 128) unless hollow, shaded (256), dashed (2), bold (4) or doubled (512).
+      const outline = (q: P[], c: string | undefined, bits: number) => kids.push(el("curve", { id: fresh(), Z: Z(), color: colour(c), FillType: bits & 128 ? "Solid" : bits & 256 ? "Shaded" : undefined, CurveType: bits | 1, Closed: "yes",
+        CurvePoints: q.map(at).flatMap((p) => [p, p, p]).map(pt).join(" "), ...mine, Octet: DERIVED }));
+      if (sh.kind === "gel") {
+        const t = tlcLayout(sh), tlc = sh.tlc, hide = new Set(tlc?.hide ?? []), well = t.size({ lane: 0, rf: 0 }).rx, turn = namesTurn(sh, (n) => widthOf(n, size) / B) ? 45 : undefined;
+        if (!hide.has("border")) rect([t.x0, t.y1], [t.x1, t.y0]);
+        if (!hide.has("origin")) for (let k = 0; k < t.lanes; k++) rect([t.lane(k) - well, t.wells[0]], [t.lane(k) + well, t.wells[1]]);
+        if (!hide.has("names")) (tlc?.names ?? []).slice(0, t.lanes).forEach((n, k) => n && text(n, [t.lane(k), t.y1 + 0.15 * t.f], turn ? "left" : "centre", turn));
+        const scale = hide.has("scale") ? [] : gelScale(sh, size / B);
+        for (const n of scale) { const v = t.at(bandRf(tlc, n)); rule([t.x0 - 0.12 * t.f, v], [t.x0, v]); text(sizeText(n), [t.x0 - 0.18 * t.f, v - (0.35 * size) / B], "right"); }
+        if (scale.length) text(tlc?.unit ?? "kDa", [t.x0 - 0.18 * t.f, t.y1 + 0.15 * t.f], "right");
+        for (const x of tlc?.spots ?? []) {
+          if (x.rf < 0 || x.rf > 1) continue;
+          const bits = spotType(x) & ~(x.style === "shaded" ? 128 : 0);
+          outline(spotPath(t, x), x.colour ?? sh.colour, bits);
+          if (tlc?.rf || x.showRf) text(sizeText(bandSize(tlc, x.rf)), [t.lane(x.lane) + t.size(x).rx + 0.1 * t.f, t.at(x.rf) - 0.12 * t.f], "left");
+        }
+      } else {
+        const m = plasmidLayout(sh, (1.2 * size) / B), pl = sh.plasmid, c = at(m.c), R = m.R * B;
+        kids.push(el("graphic", { id: fresh(), BoundingBox: `${pt([c[0] + R, c[1]])} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: "Circle", Center3D: pt3(c), MajorAxisEnd3D: pt3([c[0] + R, c[1]]), MinorAxisEnd3D: pt3([c[0], c[1] + R]), ...mine, Octet: DERIVED }));
+        m.regions.forEach((r, k) => outline(r.path, pl?.regions[k].colour ?? sh.colour, 128));
+        m.markers.forEach((x) => rule(x.tick[0], x.tick[1]));
+        for (const x of m.labels) { rule(x.from, x.to, { LineWidth: fmt(((sh.width ?? line) * f) / 2) }); text(x.text, x.at, x.anchor === "start" ? "left" : "right"); }
+        if (pl?.name) text(pl.name, [m.c[0], m.c[1] + (0.15 * size) / B], "centre", undefined, true);
+        text(`${pl?.bp ?? 0} bp`, [m.c[0], m.c[1] - ((pl?.name ? 0.95 : 0.35) * size) / B], "centre");
+      }
+      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: ink, ...mine, Octet: priv({ kind: sh.kind, tlc: sh.tlc, plasmid: sh.plasmid, font: sh.font, size: sh.size, face: face || undefined, scale: ownScale(sh) }) }, kids.join("")), 0, box, sh.id);
     }
   }
 
@@ -1183,6 +1220,46 @@ function fontOf(name?: string): { font?: string; bold?: true; italic?: true } {
   return { font, ...(/\b(Bold|Black|Heavy)\b/i.test(name) ? { bold: true as const } : {}), ...(/\b(Italic|Oblique)\b/i.test(name) ? { italic: true as const } : {}) };
 }
 
+// A TLC plate's or gel's lanes and spots, if they are sound. A gel's band may lie outside its range (rf outside 0 to
+// 1, up to 100); its lane names are up to 40 characters, and its range runs up from above 0 to at most 10⁹.
+export function readPlate(v: unknown, gel = false): Tlc | undefined {
+  const t = v as { lanes?: unknown; spots?: unknown; rf?: unknown; origin?: unknown; front?: unknown; hide?: unknown; ticks?: unknown; transparent?: unknown; names?: unknown; unit?: unknown; range?: unknown };
+  const frac = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 0.9), len = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 5);
+  const rf = (n: unknown) => typeof n === "number" && (gel ? Math.abs(n) <= 100 : n >= 0 && n <= 1);
+  const size = (n: unknown) => typeof n === "number" && n > 0 && n <= 1e9, range = t?.range as unknown[];
+  if (typeof t !== "object" || !t || !Number.isInteger(t.lanes) || (t.lanes as number) < 1 || (t.lanes as number) > 40 || !Array.isArray(t.spots) || t.spots.length > 400
+    || !frac(t.origin) || !frac(t.front) || (t.hide !== undefined && !(Array.isArray(t.hide) && t.hide.every((h) => ["origin", "front", "border", "names", "scale"].includes(h))))
+    || (t.names !== undefined && !(gel && Array.isArray(t.names) && t.names.length <= 40 && t.names.every((n) => typeof n === "string" && n.length <= 40 && !/[\u0000-\u001f]/.test(n))))
+    || (t.unit !== undefined && !(gel && (t.unit === "kDa" || t.unit === "bp"))) || (t.range !== undefined && !(gel && Array.isArray(range) && range.length === 2 && range.every(size) && (range[0] as number) < (range[1] as number)))) return undefined;
+  const spots = (t.spots as Record<string, unknown>[]).filter((x) => Number.isInteger(x?.lane) && (x.lane as number) >= 0 && (x.lane as number) < (t.lanes as number) && rf(x.rf)
+    && (x.colour === undefined || (typeof x.colour === "string" && /^#[0-9a-f]{6}$/i.test(x.colour))) && (x.style === undefined || x.style === "hollow" || x.style === "shaded")
+    && len(x.w) && len(x.h) && len(x.tail) && [x.showRf, x.dashed, x.bold, x.doubled].every((f) => f === undefined || f === true));
+  if (spots.length !== t.spots.length) return undefined;
+  return {
+    lanes: t.lanes as number,
+    spots: spots.map((x) => ({ lane: x.lane as number, rf: x.rf as number, ...Object.fromEntries(["colour", "style", "dashed", "bold", "doubled", "w", "h", "tail", "showRf"].filter((k) => x[k] !== undefined).map((k) => [k, x[k]])) }) as Tlc["spots"][number]),
+    ...(t.rf === true ? { rf: true } : {}), ...(t.origin !== undefined ? { origin: t.origin as number } : {}), ...(t.front !== undefined ? { front: t.front as number } : {}),
+    ...(t.hide ? { hide: t.hide as Tlc["hide"] } : {}), ...(t.ticks === true ? { ticks: true } : {}), ...(t.transparent === true ? { transparent: true } : {}),
+    ...(t.names ? { names: [...t.names as string[]] } : {}), ...(t.unit ? { unit: t.unit as "kDa" | "bp" } : {}), ...(t.range ? { range: [range[0], range[1]] as [number, number] } : {}),
+  };
+}
+// A plasmid map, if it is sound: 1 to 10⁸ base pairs, up to 200 regions and 200 markers inside them, names up to 80
+// characters.
+export function readPlasmid(v: unknown): Plasmid | undefined {
+  const p = v as { bp?: unknown; name?: unknown; regions?: unknown; markers?: unknown }, bp = p?.bp as number;
+  const name = (n: unknown) => typeof n === "string" && n.length <= 80 && !/[\u0000-\u001f]/.test(n), at = (n: unknown) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= bp;
+  const colour = (c: unknown) => c === undefined || (typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c));
+  if (typeof p !== "object" || !p || !Number.isInteger(bp) || bp < 1 || bp > 1e8 || (p.name !== undefined && !name(p.name)) || !Array.isArray(p.regions) || p.regions.length > 200 || !Array.isArray(p.markers) || p.markers.length > 200) return undefined;
+  const regions = p.regions as Record<string, unknown>[], markers = p.markers as Record<string, unknown>[];
+  if (!regions.every((r) => typeof r === "object" && r && at(r.start) && at(r.end) && (r.name === undefined || name(r.name)) && (r.dir === undefined || r.dir === "reverse" || r.dir === "none") && colour(r.colour))
+    || !markers.every((m) => typeof m === "object" && m && at(m.at) && name(m.name) && colour(m.colour))) return undefined;
+  return {
+    bp, ...(p.name ? { name: p.name as string } : {}),
+    regions: regions.map((r) => ({ start: r.start as number, end: r.end as number, ...(r.name ? { name: r.name as string } : {}), ...(r.dir ? { dir: r.dir as "reverse" | "none" } : {}), ...(r.colour ? { colour: r.colour as string } : {}) })),
+    markers: markers.map((m) => ({ at: m.at as number, name: m.name as string, ...(m.colour ? { colour: m.colour as string } : {}) })),
+  };
+}
+
 // A table from Octet's own data, if it is sound (the same limits as Octet's file format).
 function readTable(v: unknown): Table | undefined {
   const t = v as Record<string, unknown>, list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
@@ -1374,6 +1451,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     switch (x.name) {
       case "group":
         if (p?.kind === "table") return readTableGroup(x, p, group);
+        if (p?.kind === "gel" || p?.kind === "plasmid") return readObjectGroup(x, p, group);
         { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
@@ -2209,6 +2287,15 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (!table || !box) return lose("table");
     const sh: Shape & { z: number } = { id: newId(x), kind: "table", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), table, z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
     if (p.dashed === true) sh.dashed = true;
+    if (colour) sh.colour = colour;
+    addShape(sh, x, group);
+  }
+
+  // A gel or plasmid map Octet wrote: the object from Octet's data, its box from the group's.
+  function readObjectGroup(x: Xml, p: Record<string, unknown>, group?: G) {
+    const gel = p.kind === "gel", tlc = gel ? readPlate(p.tlc, true) : undefined, plasmid = gel ? undefined : readPlasmid(p.plasmid), box = reals(x.attrs.BoundingBox, 4), colour = colourOf(x.attrs.color);
+    if (!(tlc ?? plasmid) || !box) return lose(gel ? "gel" : "plasmid map");
+    const sh: Shape & { z: number } = { id: newId(x), kind: gel ? "gel" : "plasmid", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), ...(tlc ? { tlc } : { plasmid }), z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
     if (colour) sh.colour = colour;
     addShape(sh, x, group);
   }

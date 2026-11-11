@@ -66,7 +66,7 @@ assert.match(editor, /centre_view: \["Centre in window", `⌥\$\{MOD\}\/`/);
 // From a key the view moves at once; from the pointer it glides (moveView).
 assert.match(editor, /if \(performance\.now\(\) - keyAt\.current > 500\) return moveView\(to\);/);
 // Every Actions panel that has Centre on Page, and the atom, bond, grid and spot ones, offer Centre in Window too.
-assert.equal(actions.match(/\bcentre, inWindow\b|\binWindow, centre\b/g)?.length, 5); // the object list, the drawing, captions and both shape panels
+assert.equal(actions.match(/\bcentre, inWindow\b|\binWindow, centre\b/g)?.length, 7); // the object list, the drawing, captions, and the TLC plate's, gel's, plasmid map's and table's panels
 assert.equal(actions.match(/whole, inWindow, keep/g)?.length, 2);
 assert.match(actions, /"grid\.layout"\), inWindow, del\)/);
 assert.match(actions, /"spot\.rf"\), inWindow, del\)/);

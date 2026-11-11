@@ -316,7 +316,7 @@ export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 18
 // fill: shaded (lit from the top left) or solid in the colour. shadow: a grey shadow down and to the right, with the
 // shape filled white over it. side: one bracket only. mark: a sign at a bracket's top right (‡, †, a charge, n).
 // picture: a picture from a ChemDraw file (its embedded PNG, PDF, TIFF and so on), drawn in its box and written back.
-export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table" | "picture";
+export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "gel" | "plasmid" | "table" | "picture";
 // A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
 // rules only) or a full grid.
 // widths and heights: every column's width and every row's height once a border has been dragged (bond lengths; a
@@ -339,7 +339,18 @@ export type Curve = { points: CurvePoint[]; closed?: boolean };
 // the plate, from the bottom and the top), and parts hidden, as ChemDraw's TLC tool.
 // ticks: Rf ticks along both sides (ChemDraw's Show Side Ticks). transparent: what is behind the plate shows through
 // it (ChemDraw's Transparent); otherwise the plate is the page's colour.
-export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[]; ticks?: true; transparent?: true };
+// A gel is a plate too, as ChemDraw's Gel Electrophoresis tool: its wells at the top are its origin and its bands run
+// down the lanes. A band's rf is how far it ran, from its size on a log scale across the gel's range (the sizes at rf
+// 1 and rf 0, kDa or bp), so it may fall outside 0 to 1 and is then not drawn. names: each lane's name. The wells are
+// hidden as "origin"; "names" and "scale" hide the lane names and the size scale.
+export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border" | "names" | "scale")[]; ticks?: true; transparent?: true;
+  names?: string[]; unit?: "kDa" | "bp"; range?: [number, number] };
+// A plasmid map, as ChemDraw's: its length in base pairs and name, its regions and its markers. A region runs from
+// its start to its end base pair (through 1 when the end comes first), with its arrowhead at the end (unset), at the
+// start (reverse) or none. A marker names one base pair.
+export type Region = { start: number; end: number; name?: string; dir?: "reverse" | "none"; colour?: string };
+export type Marker = { at: number; name: string; colour?: string };
+export type Plasmid = { bp: number; name?: string; regions: Region[]; markers: Marker[] };
 // A spot: its lane and Rf, and when set by hand its colour, style, half-width and half-height, the smear below it
 // (bond lengths), and its own Rf label. style is its fill (unset: filled); dashed and bold are its outline's, and
 // doubled draws a second outline round it (ChemDraw's spot styles: Filled, Hollow, Dashed, Bold, Doubled).
@@ -347,16 +358,16 @@ export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow"
 // faded: a fill fading to nothing at the bottom right (as a closed curve's).
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
-  fill?: "shaded" | "solid" | "faded"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
+  fill?: "shaded" | "solid" | "faded"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table; plasmid?: Plasmid;
   shade?: Shade; // a shadow's look, when it differs from SHADE
   boldLine?: true; // the outline in the bold width (ChemDraw's Bold line)
   picture?: Record<string, string>; // a picture's data as CDXML holds it: each format's bytes in hex, and its turn
   order?: number; // draw order (order.ts)
-  angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates, tables or pictures)
+  angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not plates, plasmid maps, tables or pictures)
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
   radius?: number; // a rounded box's corner radius in bond lengths, from ChemDraw's CornerRadius; unset is 0.3
-  // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
-  // style (an Rf value is 0.8 of its size). The scale multiplies the size.
+  // The text of a table's cells, a plate's Rf values or sizes, or a plasmid map's labels, as the Text menu sets it;
+  // unset is the document's caption style (a plate's text is 0.8 of its size). The scale multiplies the size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for a pair of brackets (ChemDraw's IgnoreWarnings): its problem is not marked
   polymer?: Polymer; // a pair of brackets' meaning (ChemDraw's Bracket Properties)
@@ -378,9 +389,11 @@ export type Polymer = { usage: BracketUsage; label?: string; order?: number; pat
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
-// Boxes, ovals, highlights and brackets turn with a selection, as ChemDraw's graphics do. TLC plates, tables and
-// pictures stay upright and move by their middle (ChemDraw cannot turn a table; Octet keeps a picture as ChemDraw had it).
-export const turns = (sh: Pick<Shape, "kind">) => sh.kind !== "tlc" && sh.kind !== "table" && sh.kind !== "picture";
+// Boxes, ovals, highlights and brackets turn with a selection, as ChemDraw's graphics do. Plates, plasmid maps, tables
+// and pictures stay upright and move by their middle (ChemDraw cannot turn a table; Octet keeps a picture as ChemDraw had it).
+export const turns = (sh: Pick<Shape, "kind">) => sh.kind !== "tlc" && sh.kind !== "gel" && sh.kind !== "plasmid" && sh.kind !== "table" && sh.kind !== "picture";
+// A TLC plate or a gel: lanes and spots (a gel's bands).
+export const isPlate = (sh: Pick<Shape, "kind">) => sh.kind === "tlc" || sh.kind === "gel";
 // A point turned about c by degrees, anticlockwise (drawing units, y up).
 export const turnPoint = (q: [number, number], c: [number, number], degrees: number): [number, number] => {
   const r = (degrees * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), dx = q[0] - c[0], dy = q[1] - c[1];
@@ -428,7 +441,7 @@ export function settleShape(sh: Shape): Shape {
   if (!isBracket(sh) && near(Math.abs(a), 90)) return quarter(out, Math.sign(a));
   return { ...out, angle: Math.round(a * 1e6) / 1e6 };
 }
-export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"];
+export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "gel", "plasmid", "table", "picture"];
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
@@ -2150,6 +2163,8 @@ function uprightPaths(sh: Shape, k: number, bond: number): P[][] {
     Array.from({ length: n + 1 }, (_, i) => [c[0] + r[0] * Math.cos(a0 + ((a1 - a0) * i) / n), c[1] + r[1] * Math.sin(a0 + ((a1 - a0) * i) / n)] as P);
   switch (sh.kind) {
     case "oval": return [arc([(x0 + x1) / 2, (y0 + y1) / 2], [w / 2, h / 2], 0, 2 * Math.PI, 72)];
+    // A plasmid map's ring.
+    case "plasmid": { const R = plasmidLayout(sh, 0).R * k; return [arc([(x0 + x1) / 2, (y0 + y1) / 2], [R, R], 0, 2 * Math.PI, 96)]; }
     case "rounded": {
       const r = Math.min((sh.radius ?? 0.3) * bond, w / 2, h / 2);
       return [[...arc([x1 - r, y0 + r], [r, r], -Math.PI / 2, 0), ...arc([x1 - r, y1 - r], [r, r], 0, Math.PI / 2), ...arc([x0 + r, y1 - r], [r, r], Math.PI / 2, Math.PI), ...arc([x0 + r, y0 + r], [r, r], Math.PI, 1.5 * Math.PI), [x1 - r, y0]]];
@@ -2292,23 +2307,114 @@ export function orbitalPaths(a: Arrow, k: number): { path: P[]; second: boolean 
   }
 }
 
-// A TLC plate's layout (drawing units): its box, the origin and solvent front heights, each lane's middle, and
-// where a spot of a given Rf sits.
+// A plate's layout (drawing units): its box, the origin and solvent front heights (a gel's wells and the bottom of its
+// range), each lane's middle, where a spot of a given Rf sits, and the Rf a press at a height gives (to 0.01, or a
+// gel's size to two figures).
 export const TLC_ORIGIN = 0.12, TLC_FRONT = 0.1; // the origin's height and the front's depth, as fractions of the plate
+export const GEL_WELLS = 0.1, GEL_FOOT = 0.04; // a gel's wells' depth and the bottom of its range, as fractions of the gel
 export function tlcLayout(sh: Shape) {
-  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
-  const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = y0 + (y1 - y0) * (sh.tlc?.origin ?? TLC_ORIGIN), front = y1 - (y1 - y0) * (sh.tlc?.front ?? TLC_FRONT);
+  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]), gel = sh.kind === "gel";
+  const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = gel ? y1 - (y1 - y0) * GEL_WELLS : y0 + (y1 - y0) * (sh.tlc?.origin ?? TLC_ORIGIN), front = gel ? y0 + (y1 - y0) * GEL_FOOT : y1 - (y1 - y0) * (sh.tlc?.front ?? TLC_FRONT);
   const lane = (k: number) => x0 + ((x1 - x0) * (k + 0.5)) / lanes;
   const width = (x1 - x0) / lanes;
-  // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15; drawn
-  // times the plate's scale.
-  const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min((0.3 * width) / f, 0.34)) * f, ry: (x.h ?? 0.15) * f });
-  return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, at: (rf: number) => origin + (front - origin) * rf };
+  // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15 (a band
+  // 38% of a lane, at most 0.6, by 0.06); drawn times the plate's scale.
+  const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min(((gel ? 0.38 : 0.3) * width) / f, gel ? 0.6 : 0.34)) * f, ry: (x.h ?? (gel ? 0.06 : 0.15)) * f });
+  const snap = (y: number) => { const rf = Math.min(1, Math.max(0, (y - origin) / (front - origin))); return gel ? bandRf(sh.tlc, Number(bandSize(sh.tlc, rf).toPrecision(2))) : Math.round(rf * 100) / 100; };
+  // A gel's wells: the top and bottom of each, as wide as a band.
+  const wells = [y1 - (y1 - y0) * 0.035, y1 - (y1 - y0) * 0.07];
+  return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, gel, snap, wells, at: (rf: number) => origin + (front - origin) * rf };
 }
-// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail. grow: how far out
-// (a doubled spot's second outline).
+// A gel's sizes: kDa for proteins, bp for DNA. Each unit's range (the sizes at the bottom and the top) and the ladder a
+// new gel has in its first lane.
+export const GEL: Record<"kDa" | "bp", { range: [number, number]; ladder: number[] }> = {
+  kDa: { range: [5, 400], ladder: [250, 150, 100, 75, 50, 37, 25, 20, 15, 10] },
+  bp: { range: [300, 15000], ladder: [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500] },
+};
+export const gelRange = (t?: Tlc): [number, number] => t?.range ?? GEL[t?.unit ?? "kDa"].range;
+// A band's Rf from its size, and its size from its Rf: log size falls in step with how far the band runs.
+export const bandRf = (t: Tlc | undefined, size: number) => { const [lo, hi] = gelRange(t); return Math.log(hi / size) / Math.log(hi / lo); };
+export const bandSize = (t: Tlc | undefined, rf: number) => { const [lo, hi] = gelRange(t); return hi * (lo / hi) ** rf; };
+// A size as shown: three figures at most (37.5, 150, 10000).
+export const sizeText = (n: number) => String(Number(n.toPrecision(3)));
+// A gel's scale: the sizes of its first lane's bands (its ladder), or 1, 2 and 5 times the powers of ten in its range;
+// from the top down, each at least gap (a line of its text) below the last one kept.
+export function gelScale(sh: Shape, gap: number): number[] {
+  const t = sh.tlc, [lo, hi] = gelRange(t), ladder = (t?.spots ?? []).filter((x) => x.lane === 0 && x.rf >= 0 && x.rf <= 1).map((x) => bandSize(t, x.rf)), all: number[] = [];
+  if (ladder.length) all.push(...[...new Set(ladder.map((n) => Number(n.toPrecision(3))))].sort((a, b) => b - a));
+  else for (let p = 10 ** Math.ceil(Math.log10(hi)); p >= lo / 10 && all.length < 40; p /= 10) for (const m of [5, 2, 1]) if (m * p >= lo && m * p <= hi) all.push(m * p);
+  const at = tlcLayout(sh).at, out: number[] = [];
+  for (const n of all) if (!out.length || at(bandRf(t, out[out.length - 1])) - at(bandRf(t, n)) >= gap) out.push(n);
+  return out;
+}
+// Whether a gel's lane names are turned 45°: when one is wider than its lane. width: a name's width (drawing units).
+export const namesTurn = (sh: Shape, width: (name: string) => number) => (sh.tlc?.names ?? []).some((n) => width(n) > 0.9 * tlcLayout(sh).width);
+// A plasmid map's layout (drawing units), worked out from its base pairs: the ring in the middle of its box with base
+// pair 1 at the top and the rest clockwise, each region as an arrow along the ring (one that overlaps another goes out
+// on a track of its own), each marker as a tick across the ring, and every name outside the ring, spread so no two
+// overlap and joined to its place by a leader. line: a label's line height.
+export const PLASMID_BAND = 0.1, PLASMID_TRACK = 0.3; // a region's half-width, and the step out to the next track
+export function plasmidLayout(sh: Shape, line: number) {
+  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const p = sh.plasmid ?? { bp: 1000, regions: [], markers: [] }, bp = Math.max(1, p.bp), f = scaleOf(sh), c: P = [(x0 + x1) / 2, (y0 + y1) / 2];
+  const angle = (b: number) => Math.PI / 2 - (2 * Math.PI * (b - 1)) / bp, at = (b: number, r: number): P => [c[0] + r * Math.cos(angle(b)), c[1] + r * Math.sin(angle(b))];
+  // Each region's run (base pairs past its start), and its track: the first one where it overlaps no region already there.
+  const run = (r: Region) => (((r.end - r.start) % bp) + bp) % bp, tracks: number[] = [], taken: [number, number][][] = [];
+  const meets = (a: [number, number], b: [number, number]) => [0, bp, -bp].some((o) => a[0] < b[0] + b[1] + o && b[0] + o < a[0] + a[1]);
+  p.regions.map((_, k) => k).sort((a, b) => p.regions[a].start - p.regions[b].start || run(p.regions[b]) - run(p.regions[a])).forEach((k) => {
+    const span: [number, number] = [p.regions[k].start, run(p.regions[k]) + 1];
+    let t = 0;
+    while (taken[t]?.some((o) => meets(o, span))) t++;
+    (taken[t] ??= []).push(span);
+    tracks[k] = t;
+  });
+  const hw = PLASMID_BAND * f, step = PLASMID_TRACK * f, outer = Math.max(0, taken.length - 1) * step + hw;
+  // The ring leaves room round it for the names (1.4 bond lengths), whatever their size.
+  const R = Math.max(0.4 * f, Math.min(x1 - x0, y1 - y0) / 2 - outer - 1.4 * f);
+  // A region's outline: the band along its arc, narrowing to a head at its end (or start) as long as its run allows.
+  const ray = (a: number, r: number): P => [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
+  const arc = (a0: number, a1: number, r: number): P[] => { const n = Math.max(1, Math.ceil((Math.abs(a1 - a0) / (2 * Math.PI)) * 120)); return Array.from({ length: n + 1 }, (_, i) => ray(a0 + ((a1 - a0) * i) / n, r)); };
+  const regions = p.regions.map((g, k) => {
+    const r = R + tracks[k] * step, a0 = angle(g.start), a1 = a0 - (2 * Math.PI * (run(g) + 1)) / bp, head = Math.min((2.4 * hw) / r, Math.abs(a1 - a0) / 2);
+    const path = g.dir === "none" ? [...arc(a0, a1, r + hw), ...arc(a1, a0, r - hw)]
+      : g.dir === "reverse" ? [...arc(a0 - head, a1, r + hw), ...arc(a1, a0 - head, r - hw), ray(a0 - head, r - 1.8 * hw), ray(a0, r), ray(a0 - head, r + 1.8 * hw)]
+      : [...arc(a0, a1 + head, r + hw), ray(a1 + head, r + 1.8 * hw), ray(a1, r), ray(a1 + head, r - 1.8 * hw), ...arc(a1 + head, a0, r - hw)];
+    return { path, mid: (a0 + a1) / 2, edge: r + hw };
+  });
+  const markers = p.markers.map((m) => ({ tick: [at(m.at, R - 1.2 * hw), at(m.at, R + outer + 0.6 * hw)] as [P, P], mid: angle(m.at), edge: R + outer + 0.6 * hw }));
+  // The names, each at its place's angle on a circle outside the ring, then spread down each side (and back up from
+  // the bottom) to a line apart, and slid round the circle to their new heights.
+  const RL = R + outer + 0.35 * f, labels = [
+    ...p.regions.flatMap((g, k) => (g.name ? [{ text: g.name, a: regions[k].mid, edge: regions[k].edge, region: k, marker: -1 }] : [])),
+    ...p.markers.map((m, k) => ({ text: `${m.name} (${m.at})`, a: markers[k].mid, edge: markers[k].edge, region: -1, marker: k })),
+  ].map((x) => ({ ...x, right: Math.cos(x.a) >= -1e-9, y: c[1] + RL * Math.sin(x.a) }));
+  for (const side of [true, false]) {
+    const list = labels.filter((x) => x.right === side).sort((a, b) => b.y - a.y), low = c[1] - RL - line;
+    for (let i = 1; i < list.length; i++) list[i].y = Math.min(list[i].y, list[i - 1].y - line);
+    for (let i = list.length - 1; i >= 0; i--) list[i].y = Math.max(list[i].y, i === list.length - 1 ? low : list[i + 1].y + line);
+  }
+  return {
+    c, R, bp, f, angle, at, regions, markers, hw,
+    labels: labels.map((x) => {
+      const dy = x.y - c[1], dx = Math.sqrt(Math.max(0, RL * RL - dy * dy)) * (x.right ? 1 : -1), to: P = [c[0] + dx + (x.right ? 0.05 : -0.05) * f, x.y];
+      return { ...x, anchor: x.right ? "start" as const : "end" as const, at: [to[0] + (x.right ? 0.08 : -0.08) * f, x.y - 0.32 * line] as P, from: [c[0] + x.edge * Math.cos(x.a), c[1] + x.edge * Math.sin(x.a)] as P, to };
+    }),
+  };
+}
+// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail (a gel's band: a bar
+// with round ends, its lower edge drawn out by the tail). grow: how far out (a doubled spot's second outline).
 export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot, grow = 0): [number, number][] {
   const cx = t.lane(x.lane), cy = t.at(x.rf), size = t.size(x), [rx, ry] = [size.rx + grow, size.ry + grow], tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
+  if (t.gel) {
+    const r = Math.min(rx, ry), corner = (ax: number, ay: number, a0: number) => { for (let i = 0; i <= 8; i++) { const a = a0 + (Math.PI / 2) * (i / 8); out.push([ax + r * Math.cos(a), ay + r * Math.sin(a)]); } };
+    const narrow = tail ? 0.15 * rx * Math.min(1, tail / (ry * 4)) : 0;
+    corner(cx + rx - r, cy + ry - r, 0);
+    corner(cx - rx + r, cy + ry - r, Math.PI / 2);
+    corner(cx - rx + r + narrow, cy - ry + r - tail, Math.PI);
+    corner(cx + rx - r - narrow, cy - ry + r - tail, 1.5 * Math.PI);
+    out.push(out[0]);
+    return out;
+  }
   for (let i = 0; i <= n; i++) {
     const a = (Math.PI * 2 * i) / n, sin = Math.sin(a);
     // The lower half stretches down by the tail, narrowing a little, so a smear reads as a streak.

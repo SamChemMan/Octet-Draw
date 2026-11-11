@@ -22,13 +22,13 @@ import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, probl
 import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
-  addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, newGel, addBands, setRange, withLadder, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
-import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
+import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
@@ -87,7 +87,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -810,6 +810,9 @@ export default function Editor() {
   const shapeFrom = (from: P, to: P): Omit<Shape, "id"> | undefined => {
     // A TLC plate gets a lane for about every 1.6 bond lengths of its width.
     if (tool === "tlc") return { kind: "tlc", from, to, tlc: { lanes: Math.max(1, Math.round(Math.abs(to[0] - from[0]) / 1.6)), spots: [] } };
+    // A gel gets a lane for about every 1.2 bond lengths, its first a ladder; a plasmid map 5000 base pairs.
+    if (tool === "gel") return newGel(from, to);
+    if (tool === "plasmid") return { kind: "plasmid", from, to, plasmid: { bp: 5000, regions: [], markers: [] } };
     // A table gets a column for about every 2.2 bond lengths of its width and a row for every 0.9 of its height.
     if (tool === "table") {
       const cols = Math.max(2, Math.min(12, Math.round(Math.abs(to[0] - from[0]) / 2.2))), rows = Math.max(2, Math.min(40, Math.round(Math.abs(to[1] - from[1]) / 0.9)));
@@ -3073,7 +3076,10 @@ export default function Editor() {
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string }
+    | { kind: "bands"; plate: number; lane: number; value: string } | { kind: "range"; plate: number; low: string; high: string } | { kind: "lane"; plate: number; lane: number; value: string }
+    | { kind: "plasmid"; shape: number; name: string; bp: string } | { kind: "region"; shape: number; index?: number; name: string; start: string; end: string; dir: "" | "reverse" | "none" }
+    | { kind: "marker"; shape: number; index?: number; name: string; at: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
@@ -3409,9 +3415,10 @@ export default function Editor() {
   // A highlight, picture or filled shape a point is inside, as drawn: a press anywhere on it picks it (Sam, 28 October
   // 2026: a shaded circle drags from its middle, as from its line).
   const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "highlight" || sh.kind === "picture" || !!sh.fill) && inDrawn(sh, p))?.id;
-  // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
-  const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
-    && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
+  // The TLC plate or gel a point is on, and a click on it: a spot in that lane at that height, or off again if one is
+  // there. The plasmid map a point is on.
+  const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => isPlate(sh) && inShape(sh, p));
+  const plasmidAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "plasmid" && inShape(sh, p));
   // TLC plates, as ChemDraw's TLC tool: the spot or line under a point, and a press on the plate. A press on a spot
   // drags it (Option: a copy of it; Shift: its size); on the origin or front, moves that line; anywhere else on the
   // plate, adds a spot there. A spot pressed and not moved is picked, for its colour, style and size.
@@ -3432,18 +3439,20 @@ export default function Editor() {
     const t = tlcLayout(sh);
     return (sh.tlc?.spots ?? []).findIndex((x) => (sh.tlc?.rf || x.showRf) && p[0] >= t.lane(x.lane) + t.size(x).rx && p[0] <= t.lane(x.lane) + t.size(x).rx + 0.8 * t.f && Math.abs(p[1] - t.at(x.rf) + 0.05 * t.f) < 0.2 * t.f);
   };
-  // A spot is hit within 4 px of its edge (its tail included), the nearest one first.
+  // A spot is hit within 4 px of its edge (its tail included), the nearest one first; a gel's band outside its range
+  // is not drawn, so not hit.
   const spotHit = (sh: Shape, p: P) => {
     const t = tlcLayout(sh), slack = 4 / (views.get().zoom * L);
     const fit = (sh.tlc?.spots ?? []).map((x, i) => {
       const { rx, ry } = t.size(x), dx = (p[0] - t.lane(x.lane)) / (rx + slack), dy = p[1] - t.at(x.rf), below = dy < 0 ? Math.max(0, -dy - (x.tail ?? 0) * t.f) : dy;
-      return { i, d: Math.hypot(dx, below / (ry + slack)) };
+      return { i, d: x.rf < 0 || x.rf > 1 ? Infinity : Math.hypot(dx, below / (ry + slack)) };
     }).filter((f) => f.d <= 1).sort((p1, q) => p1.d - q.d);
     return fit[0]?.i ?? -1;
   };
+  // A gel's wells and the bottom of its range stay where its layout puts them.
   const lineHit = (sh: Shape, p: P): "origin" | "front" | undefined => {
     const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
-    return Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
+    return t.gel ? undefined : Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
   };
   const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
     setSelection(new Set());
@@ -3457,8 +3466,7 @@ export default function Editor() {
     const line = lineHit(sh, p);
     if (line) return setDrag({ kind: "tlcline", plate: sh.id, which: line, base: doc, working: doc });
     const lane = Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width)));
-    const rf = Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100;
-    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { lane, rf }] } }), true);
+    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { lane, rf: t.snap(p[1]) }] } }), true);
     setSpotPick({ plate: sh.id, index: spots.length });
     void screen;
   };
@@ -3472,6 +3480,43 @@ export default function Editor() {
     const sh = m.shapes?.find((x) => x.id === plate);
     if (!sh?.tlc) return m;
     return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? (whole ? change(x) as Spot : { ...x, ...change(x) }) : x)) } });
+  };
+  // Set Rf… (a gel band's Set the Size…), as ChemDraw's: its Rf or size typed in.
+  const setRf = (plate: number, index: number) => {
+    const sh = doc.shapes?.find((x) => x.id === plate), x = sh?.tlc?.spots[index];
+    return x && setDialog({ kind: "rf", plate, index, value: sh!.kind === "gel" ? sizeText(bandSize(sh!.tlc, x.rf)) : String(x.rf) });
+  };
+  // A gel's lane name under a point: in the strip over its lane, as tall as a name turned.
+  const laneNameAt = (p: P) => {
+    const sh = [...(shown.shapes ?? [])].reverse().find((x) => { if (x.kind !== "gel" || x.tlc?.hide?.includes("names")) return false; const t = tlcLayout(x); return p[0] >= t.x0 && p[0] <= t.x1 && p[1] > t.y1 && p[1] < t.y1 + 1.2 * t.f; });
+    if (!sh) return undefined;
+    const t = tlcLayout(sh);
+    return { plate: sh, lane: Math.min(t.lanes - 1, Math.floor((p[0] - t.x0) / t.width)) };
+  };
+  // The part of a plasmid map under a point: a region (its arrow or name), a marker (its tick or name), or its middle.
+  const plasmidPart = (sh: Shape, p: P): { region?: number; marker?: number; centre?: true } => {
+    const size = (sh.size ?? style.captionSize) * pt * scaleOf(sh), m = plasmidLayout(sh, (1.2 * size) / L), slack = 4 / (views.get().zoom * L), h = size / L;
+    const width = (text: string) => formulaWidth(text, size, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
+    const label = m.labels.find((x) => Math.abs(p[1] - x.y) < 0.6 * h && (x.anchor === "start" ? p[0] >= x.at[0] - slack && p[0] <= x.at[0] + width(x.text) + slack : p[0] <= x.at[0] + slack && p[0] >= x.at[0] - width(x.text) - slack));
+    if (label) return label.region >= 0 ? { region: label.region } : { marker: label.marker };
+    const marker = m.markers.findIndex((x) => distToPath(p, x.tick) < 2 * slack);
+    if (marker >= 0) return { marker };
+    const region = m.regions.findIndex((x) => inPolygon(p, x.path));
+    if (region >= 0) return { region };
+    return Math.hypot(p[0] - m.c[0], p[1] - m.c[1]) < 0.8 * m.R ? { centre: true } : {};
+  };
+  // A plasmid map's dialog for a part: a region or marker to change (or, at -1, to add), or its name and length.
+  const openPart = (sh: Shape, part: ReturnType<typeof plasmidPart>) => {
+    const pl = sh.plasmid ?? { bp: 5000, regions: [], markers: [] };
+    if (part.centre) return setDialog({ kind: "plasmid", shape: sh.id, name: pl.name ?? "", bp: String(pl.bp) });
+    if (part.region !== undefined) {
+      const r = pl.regions[part.region] ?? { start: 1, end: Math.max(1, Math.round(pl.bp / 4)) };
+      return setDialog({ kind: "region", shape: sh.id, ...(part.region >= 0 ? { index: part.region } : {}), name: r.name ?? "", start: String(r.start), end: String(r.end), dir: r.dir ?? "" });
+    }
+    if (part.marker !== undefined) {
+      const x = pl.markers[part.marker] ?? { at: 1, name: "" };
+      return setDialog({ kind: "marker", shape: sh.id, ...(part.marker >= 0 ? { index: part.marker } : {}), name: x.name, at: String(x.at) });
+    }
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
   const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
@@ -3669,7 +3714,7 @@ export default function Editor() {
     if (arrow !== undefined) return { arrow };
     const arc = cycleAt(p);
     if (arc) return { cycle: arc.cycle, step: arc.step, ...(arc.branch !== undefined ? { branch: arc.branch, part: arc.part } : {}) };
-    const inside = t.bond === undefined ? (tool === "select" ? highlightAt(p) ?? plateAt(p)?.id : undefined) ?? (tool === "select" || tool === "orbital" ? orbitalAt(p) : undefined) : undefined;
+    const inside = t.bond === undefined ? (tool === "select" ? highlightAt(p) ?? plateAt(p)?.id ?? plasmidAt(p)?.id : undefined) ?? (tool === "select" || tool === "orbital" ? orbitalAt(p) : undefined) : undefined;
     return inside !== undefined ? { arrow: inside } : t;
   };
   // Curved arrows start and end on atoms and bond middles, where electrons are.
@@ -4612,7 +4657,7 @@ export default function Editor() {
     // On a warning's red mark, its atom, bond or brackets, as ChemDraw's right-click on the red box.
     const p = toDoc(e.clientX, e.clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
     const t: Hover = mark ? (mark.shape !== undefined ? { arrow: mark.shape } : { atom: mark.atom, bond: mark.bond }) : under, free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
-    const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "tlc")) ? plateAt(p) : undefined;
+    const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && isPlate(x))) ? plateAt(p) : undefined;
     if (plate) {
       const k = spotHit(plate, p);
       setSelection(new Set());
@@ -4675,8 +4720,8 @@ export default function Editor() {
     // out of the selection (pressMods.alt); Ctrl-click on Windows and Linux adds to it, as Shift-click does.
     const copy = copyDrag(e);
     pressCtrlCopy.current = !MAC && e.ctrlKey;
-    // A press on a TLC plate's lane makes it the lane the plate's lane actions act on.
-    const lanePlate = tool === "select" || tool === "tlc" ? plateAt(p) : undefined;
+    // A press on a TLC plate's or gel's lane makes it the lane the plate's lane actions act on.
+    const lanePlate = tool === "select" || tool === "tlc" || tool === "gel" ? plateAt(p) : undefined;
     if (lanePlate) setLanePick({ plate: lanePlate.id, lane: laneOf(lanePlate, p) });
     if (hovers.get().key) setHover(t); // a press takes over from the keyboard hotspot
     // The crosshair's middle drags it, whatever tool is in hand (a structure or object there comes first).
@@ -4781,8 +4826,10 @@ export default function Editor() {
     // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
     const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
     if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
-    // With the TLC tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
-    if (tool === "tlc" && plateAt(p)) {
+    // A gel's lane names take a double-click, not a new gel.
+    if (tool === "gel" && laneNameAt(p)) return setDrag({ kind: "click", at: p, start: screen, target: t });
+    // With the TLC or Gel tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
+    if ((tool === "tlc" || tool === "gel") && plateAt(p)) {
       const sh = plateAt(p)!;
       if (spotHit(sh, p) >= 0 || lineHit(sh, p)) spotAt(sh, p, screen, e.altKey, e.shiftKey);
       else setDrag({ kind: "click", at: p, start: screen, target: t });
@@ -4819,7 +4866,7 @@ export default function Editor() {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
     }
-    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
+    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
     // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
     const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
@@ -4974,7 +5021,7 @@ export default function Editor() {
           })
           : editSpot(drag.base, drag.plate, drag.index, () => ({
             lane: Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width))),
-            rf: Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100,
+            rf: t.snap(p[1]),
           }));
         return setDrag({ ...drag, working, moved: true });
       }
@@ -5870,7 +5917,7 @@ export default function Editor() {
     if (plate && spot) {
       // The sizes shown are the sizes drawn, at the plate's scale.
       const t = tlcLayout(plate), { rx, ry } = t.size(spot);
-      return { kind: "spot", style: spot.style ?? "filled", dashed: !!spot.dashed, bold: !!spot.bold, doubled: !!spot.doubled, w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond };
+      return { kind: "spot", style: spot.style ?? "filled", dashed: !!spot.dashed, bold: !!spot.bold, doubled: !!spot.doubled, w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond, ...(t.gel ? { unit: plate.tlc?.unit ?? "kDa" } : {}) };
     }
     // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
     // lines' width.
@@ -5886,7 +5933,8 @@ export default function Editor() {
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
-        ...(first.kind === "table" || first.kind === "tlc" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (first.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) } } : {}),
+        ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
+        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
     // Arrows picked on their own.
@@ -7119,7 +7167,7 @@ export default function Editor() {
       const [, what, arg] = command.split("."), at = (change: Parameters<typeof editSpot>[3]) => set(editSpot(doc, spotPick.plate, spotPick.index, change), true, `spot-${what}`);
       if (what === "style") return set(editSpot(doc, spotPick.plate, spotPick.index, (x) => restyleSpot(x, arg, !(arg === "dashed" || arg === "bold" || arg === "doubled") || !x[arg]), true), true);
       // Set Rf…: its Rf typed in (the spot moves to it).
-      if (what === "setrf") { const x = doc.shapes?.find((y) => y.id === spotPick.plate)?.tlc?.spots[spotPick.index]; return x && setDialog({ kind: "rf", plate: spotPick.plate, index: spotPick.index, value: String(x.rf) }); }
+      if (what === "setrf") return setRf(spotPick.plate, spotPick.index);
       // The size shown is the size drawn; the spot keeps it over its plate's scale.
       if (what === "w" || what === "h" || what === "tail") return at(() => ({ [what]: Number(arg) / 100 / scaleOf(doc.shapes?.find((x) => x.id === spotPick.plate) ?? {}) }));
       if (what === "rf") return at((x) => ({ showRf: x.showRf ? undefined : true }));
@@ -7155,7 +7203,14 @@ export default function Editor() {
       // Show Side Ticks and Transparent, as ChemDraw's plate menu.
       if (what === "ticks" || what === "transparent") return each((x) => ({ tlc: { ...x.tlc!, [what]: !x.tlc?.[what] || undefined } }));
       // A plate's origin, front or border shown or hidden, and one style for all its spots.
-      if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as "origin" | "front" | "border"; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
+      if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as NonNullable<Tlc["hide"]>[number]; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
+      // A gel's bands typed in at the lane last pressed (or its last lane), its range, and its first lane given the other
+      // unit's ladder. A plasmid map's regions and markers added, and its name and length.
+      const gel = doc.shapes?.find((x) => ids.has(x.id) && x.kind === "gel"), map = doc.shapes?.find((x) => ids.has(x.id) && x.kind === "plasmid");
+      if (what === "bands" && gel) { const n = gel.tlc?.lanes ?? 1; return setDialog({ kind: "bands", plate: gel.id, lane: lanePick?.plate === gel.id ? Math.min(n - 1, lanePick.lane) : n - 1, value: "" }); }
+      if (what === "range" && gel) { const [lo, hi] = gelRange(gel.tlc); return setDialog({ kind: "range", plate: gel.id, low: String(lo), high: String(hi) }); }
+      if (what === "ladder") return each((x) => (x.kind === "gel" ? { tlc: withLadder(x.tlc ?? { lanes: 1, spots: [] }, x.tlc?.unit === "bp" ? "kDa" : "bp") } : {}));
+      if ((what === "region" || what === "marker" || what === "plasmid") && map) return openPart(map, what === "plasmid" ? { centre: true } : { [what]: -1 });
       // Every spot's style at once (a toggle goes on unless every spot has it already).
       if (what === "spots") return each((x) => {
         const spots = x.tlc?.spots ?? [], on = !spots.every((y) => (arg === "dashed" || arg === "bold" || arg === "doubled") && y[arg]);
@@ -7300,13 +7355,14 @@ export default function Editor() {
         const runs = (a: Atom) => { if (!a.runs || what === "size" || what === "font" || what === "align") return {}; const r = without(a.runs, what === "plain" ? ["bold", "italic", "underline"] : [what]); return { runs: styled(r) ? r : undefined }; };
         return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change), ...runs(a) } : a)) }, true);
       }
-      // On picked tables and TLC plates, the same styles set their text (the cells, or the Rf values), as in ChemDraw.
-      const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || x.kind === "tlc")) : [];
+      // On picked tables, plates and plasmid maps, the same styles set their text (the cells, Rf values, sizes or
+      // names), as in ChemDraw.
+      const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || isPlate(x) || x.kind === "plasmid")) : [];
       if (texts.length && ["bold", "italic", "underline", "plain", "font", "size"].includes(what)) {
         const first = texts[0], ids = new Set(texts.map((x) => x.id));
         const change = (x: Shape): Partial<Shape> => what === "plain" ? { bold: undefined, italic: undefined, underline: undefined }
           : what === "font" ? { font: arg === style.captionFont ? undefined : arg }
-          : what === "size" ? { size: Number(arg) === (x.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
+          : what === "size" ? { size: Number(arg) === (isPlate(x) ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
         return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...change(x) } : x)) }, true);
       }
@@ -7464,7 +7520,7 @@ export default function Editor() {
     }
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
-    if (tool === "tlc" && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
+    if ((tool === "tlc" || tool === "gel") && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
     // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
     // round; one like it but changed goes back to the tool's own; any other becomes the tool's kind.
     const clicked = tool === "arrow" && t.arrow !== undefined ? doc.arrows?.find((a) => a.id === t.arrow && (straightArrow(a) || curved(a)) && a.kind !== "arc") : undefined;
@@ -7639,9 +7695,11 @@ export default function Editor() {
         // Too small to be a shape is a click. A circle needs only a radius; anything else both a width and a height.
         const round = tool === "shape" && "circle" in shapePick && shapePick.circle;
         const tiny = !drag.to || (round ? Math.hypot(drag.to[0] - drag.from[0], drag.to[1] - drag.from[1]) < 0.1 : Math.abs(drag.to[0] - drag.from[0]) < 0.1 || Math.abs(drag.to[1] - drag.from[1]) < 0.1);
-        // A click with the Table tool makes a table of four columns and six rows there.
-        const to = tiny && tool === "table" ? [drag.from[0] + 8.8, drag.from[1] - 5.4] as P : drag.to;
-        if ((tiny && tool !== "table") || !to) return click(drag.target, drag.from);
+        // A click with the Table tool makes a table of four columns and six rows there; with the Gel or Plasmid map
+        // tool, a gel of five lanes or a map.
+        const size = tool === "table" ? [8.8, 5.4] : tool === "gel" ? [6, 6] : tool === "plasmid" ? [7, 7] : undefined;
+        const to = tiny && size ? [drag.from[0] + size[0], drag.from[1] - size[1]] as P : drag.to;
+        if ((tiny && !size) || !to) return click(drag.target, drag.from);
         const sh = shapeFrom(drag.from, to);
         if (!sh) return;
         const [mol, id] = addShape(doc, sh);
@@ -8326,8 +8384,8 @@ export default function Editor() {
   };
   // A shape's fill: a highlight, a solid, shaded or faded fill, or a shadow.
   const shapeFill = (sh: Shape) => {
-    // A TLC plate is the page's colour, as ChemDraw's, unless it is Transparent.
-    if (sh.kind === "tlc" && !sh.tlc?.transparent) { const t = tlcLayout(sh); return <rect key={`f${sh.id}`} x={t.x0 * L} y={-t.y1 * L} width={(t.x1 - t.x0) * L} height={(t.y1 - t.y0) * L} fill="var(--canvas)" />; }
+    // A TLC plate or gel is the page's colour, as ChemDraw's, unless it is Transparent.
+    if (isPlate(sh) && !sh.tlc?.transparent) { const t = tlcLayout(sh); return <rect key={`f${sh.id}`} x={t.x0 * L} y={-t.y1 * L} width={(t.x1 - t.x0) * L} height={(t.y1 - t.y0) * L} fill="var(--canvas)" />; }
     if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
     const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L * scaleOf(sh);
     if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
@@ -8400,18 +8458,27 @@ export default function Editor() {
   const laneMark = lanePick && picked.has(lanePick.plate) ? lanePick : undefined;
   const tlcInk = (sh: Shape) => {
     // A plate's origin line, dashed solvent front, side ticks (every 0.1 Rf, longer at 0, 0.5 and 1), spots, and their
-    // Rf values when shown. The lane its actions act on is marked while the plate is picked.
+    // Rf values when shown. The lane its actions act on is marked while the plate is picked. A gel's wells, lane names
+    // above it and size scale down its left side, its bands, and their sizes when shown.
     const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []), w = lined(sh.width).line * t.f;
     const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined, path = (q: [number, number][]) => "M" + q.map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z";
-    const ticks = sh.tlc?.ticks && Array.from({ length: 11 }, (_, k) => { const at = y(t.at(k / 10)), n = (k % 5 ? 0.09 : 0.16) * L * t.f; return `M${t.x0 * L} ${at}h${n}M${t.x1 * L} ${at}h${-n}`; }).join("");
+    const ticks = !t.gel && sh.tlc?.ticks && Array.from({ length: 11 }, (_, k) => { const at = y(t.at(k / 10)), n = (k % 5 ? 0.09 : 0.16) * L * t.f; return `M${t.x0 * L} ${at}h${n}M${t.x1 * L} ${at}h${-n}`; }).join("");
+    const text = (sh.size ?? style.captionSize * 0.8) * pt * t.f, face = textFace(sh, text), well = t.size({ lane: 0, rf: 0 }).rx, scale = t.gel && !hide.has("scale") ? gelScale(sh, text / L) : [];
+    const turn = t.gel && namesTurn(sh, (n) => formulaWidth(n, text, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L);
     return (
       <g key={`tlc${sh.id}`} className="tlc">
         {laneMark?.plate === sh.id && laneMark.lane < t.lanes && <rect className="lane-picked" x={(t.x0 + t.width * laneMark.lane) * L} y={y(t.y1)} width={t.width * L} height={(t.y1 - t.y0) * L} />}
         {ticks && <path d={ticks} stroke={ink} strokeWidth={w} fill="none" />}
-        {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={w} />}
-        {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L * t.f} y2={y(t.origin) + 0.08 * L * t.f} stroke={ink} strokeWidth={w} />)}
-        {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={w} strokeDasharray={`${0.12 * L * t.f} ${0.08 * L * t.f}`} />}
+        {!t.gel && !hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={w} />}
+        {!t.gel && !hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L * t.f} y2={y(t.origin) + 0.08 * L * t.f} stroke={ink} strokeWidth={w} />)}
+        {!t.gel && !hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={w} strokeDasharray={`${0.12 * L * t.f} ${0.08 * L * t.f}`} />}
+        {t.gel && !hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <rect key={`w${k}`} x={(t.lane(k) - well) * L} y={y(t.wells[0])} width={2 * well * L} height={(t.wells[0] - t.wells[1]) * L} fill="none" stroke={ink} strokeWidth={w} />)}
+        {t.gel && !hide.has("names") && (sh.tlc?.names ?? []).slice(0, t.lanes).map((n, k) => <text key={`n${k}`} x={t.lane(k) * L} y={y(t.y1 + 0.15 * t.f)} textAnchor={turn ? "start" : "middle"} transform={turn ? `rotate(-45 ${t.lane(k) * L} ${y(t.y1 + 0.15 * t.f)})` : undefined} fill={ink} style={face}>{n}</text>)}
+        {scale.length > 0 && <path d={scale.map((n) => `M${t.x0 * L} ${y(t.at(bandRf(sh.tlc, n)))}h${-0.12 * L * t.f}`).join("")} stroke={ink} strokeWidth={w} fill="none" />}
+        {scale.map((n) => <text key={`s${n}`} x={(t.x0 - 0.18 * t.f) * L} y={y(t.at(bandRf(sh.tlc, n))) + 0.35 * text} textAnchor="end" fill={ink} style={face}>{sizeText(n)}</text>)}
+        {scale.length > 0 && <text x={(t.x0 - 0.18 * t.f) * L} y={y(t.y1 + 0.15 * t.f)} textAnchor="end" fill={ink} style={face}>{sh.tlc?.unit ?? "kDa"}</text>}
         {(sh.tlc?.spots ?? []).map((x, i) => {
+          if (x.rf < 0 || x.rf > 1) return null; // a gel's band outside its range
           // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left); its
           // outline dashed (and hollow) or bold; doubled, with a second outline round it, clear of the first by its width and
           // two line widths.
@@ -8423,10 +8490,30 @@ export default function Editor() {
               <path d={d} fill={!filled ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={!filled || x.bold ? c : undefined} strokeWidth={sw} strokeDasharray={x.dashed ? `${3 * sw} ${2 * sw}` : undefined} />
               {x.doubled && <path d={path(spotPath(t, x, grow))} fill="none" stroke={c} strokeWidth={sw} />}
               {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt * t.f)}>{x.rf.toFixed(2)}</text>}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={face}>{t.gel ? sizeText(bandSize(sh.tlc, x.rf)) : x.rf.toFixed(2)}</text>}
             </g>
           );
         })}
+      </g>
+    );
+  };
+  // A plasmid map's regions, markers, names with their leaders, and its name and length in the middle (its ring is
+  // its outline).
+  const plasmidInk = (sh: Shape) => {
+    const size = (sh.size ?? style.captionSize) * pt * scaleOf(sh), m = plasmidLayout(sh, (1.2 * size) / L), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", w = lined(sh.width).line * m.f, face = textFace(sh, size);
+    const p = sh.plasmid;
+    return (
+      <g key={`plasmid${sh.id}`} className="plasmid">
+        {m.regions.map((r, k) => <path key={`r${k}`} d={toPath([r.path.map(([px, py]): P => [px * L, -py * L])])} fill={p?.regions[k].colour ? textInk(p.regions[k].colour!) : ink} />)}
+        {m.markers.map((x, k) => <line key={`m${k}`} x1={x.tick[0][0] * L} y1={y(x.tick[0][1])} x2={x.tick[1][0] * L} y2={y(x.tick[1][1])} stroke={p?.markers[k].colour ? textInk(p.markers[k].colour!) : ink} strokeWidth={w} />)}
+        {m.labels.map((x, k) => (
+          <Fragment key={`l${k}`}>
+            <line x1={x.from[0] * L} y1={y(x.from[1])} x2={x.to[0] * L} y2={y(x.to[1])} stroke={ink} strokeWidth={w / 2} />
+            <text x={x.at[0] * L} y={y(x.at[1])} textAnchor={x.anchor} fill={ink} style={face}>{x.text}</text>
+          </Fragment>
+        ))}
+        {p?.name && <text x={m.c[0] * L} y={y(m.c[1]) - 0.15 * size} textAnchor="middle" fill={ink} style={{ ...face, fontWeight: "bold" }}>{p.name}</text>}
+        <text x={m.c[0] * L} y={y(m.c[1]) + (p?.name ? 0.95 : 0.35) * size} textAnchor="middle" fill={ink} style={face}>{`${p?.bp ?? 0} bp`}</text>
       </g>
     );
   };
@@ -8456,8 +8543,9 @@ export default function Editor() {
   // A shape's lines: its outline, a TLC plate's lines and spots, a table's lines and text, and a bracket's sign.
   const shapeLines = (sh: Shape) => (
     <Fragment key={`sl${sh.id}`}>
-      {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, lined(sh.width), () => toPath(shapeInk(sh, lined(sh.width), L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
-      {sh.kind === "tlc" && tlcInk(sh)}
+      {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(isPlate(sh) && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, lined(sh.width), () => toPath(shapeInk(sh, lined(sh.width), L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
+      {isPlate(sh) && tlcInk(sh)}
+      {sh.kind === "plasmid" && plasmidInk(sh)}
       {sh.kind === "table" && tableInk(sh)}
       {sh.mark && isBracket(sh) && (() => {
         const m = markAt(sh, L);
@@ -8731,8 +8819,14 @@ export default function Editor() {
           const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (plate) {
             const q = toDoc(e.clientX, e.clientY), k = spotHit(plate, q) >= 0 ? spotHit(plate, q) : rfAt(plate, q);
-            if (k >= 0) return setDialog({ kind: "rf", plate: plate.id, index: k, value: String(plate.tlc!.spots[k].rf) });
+            if (k >= 0) return setRf(plate.id, k);
           }
+          // Double-click a gel's lane name to type it, a plasmid map's region or marker to change it, or its middle for
+          // its name and length.
+          const named = tool !== "erase" ? laneNameAt(toDoc(e.clientX, e.clientY)) : undefined;
+          if (named) return setDialog({ kind: "lane", plate: named.plate.id, lane: named.lane, value: named.plate.tlc?.names?.[named.lane] ?? "" });
+          const map = tool !== "erase" ? plasmidAt(toDoc(e.clientX, e.clientY)) : undefined;
+          if (map) return openPart(map, plasmidPart(map, toDoc(e.clientX, e.clientY)));
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (table) return openCell(table, toDoc(e.clientX, e.clientY));
@@ -9526,16 +9620,96 @@ export default function Editor() {
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={hiddenHere()} warned={selectedOf(found).length} grouping={grouping}
           layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}</Exit>
-      <Exit>{dialog?.kind === "rf" && (
-        // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.
-        <Dialog title="Set Rf" action="Set" onClose={() => setDialog(undefined)}
-          onAction={() => { const v = Number(dialog.value); if (v >= 0 && v <= 1) set(editSpot(doc, dialog.plate, dialog.index, () => ({ rf: Math.round(v * 1000) / 1000 })), true); setDialog(undefined); }}>
-          <label className="dialog-row">
-            <span>Rf</span>
-            <NumberField label="Rf" min={0} max={1} step={0.01} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
-          </label>
+      <Exit>{dialog?.kind === "rf" && (() => {
+        // Set Rf…, as ChemDraw's: the spot moves to the Rf typed. A gel's band moves to the size typed (Set Size…).
+        const gel = doc.shapes?.find((x) => x.id === dialog.plate && x.kind === "gel"), unit = gel?.tlc?.unit ?? "kDa";
+        return (
+          <Dialog title={gel ? "Set the size" : "Set Rf"} action="Set" onClose={() => setDialog(undefined)}
+            onAction={() => { const v = Number(dialog.value); if (gel ? v > 0 : v >= 0 && v <= 1) set(editSpot(doc, dialog.plate, dialog.index, () => ({ rf: gel ? bandRf(gel.tlc, v) : Math.round(v * 1000) / 1000 })), true); setDialog(undefined); }}>
+            <label className="dialog-row">
+              <span>{gel ? "Size" : "Rf"}</span>
+              {gel ? <NumberField label="Size" unit={unit} min={0.001} max={1e9} step={1} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
+                : <NumberField label="Rf" min={0} max={1} step={0.01} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />}
+            </label>
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "bands" && (() => {
+        // Add Bands…, as ChemDraw's: sizes typed with spaces between, each a band in the lane at its size.
+        const gel = doc.shapes?.find((x) => x.id === dialog.plate), sizes = dialog.value.split(/[\s,;]+/).filter(Boolean).map(Number), ok = sizes.length > 0 && sizes.every((n) => n > 0 && n <= 1e9);
+        return (
+          <Dialog title={`Add bands to lane ${gel?.tlc?.names?.[dialog.lane] || dialog.lane + 1}`} action="Add" disabled={!ok} onClose={() => setDialog(undefined)}
+            onAction={() => { if (ok && gel) set(updateShape(doc, gel.id, { tlc: addBands(gel.tlc ?? { lanes: 1, spots: [] }, dialog.lane, sizes) }), true); setDialog(undefined); }}>
+            <label className="dialog-row"><span>Sizes</span><span className="unit-field text"><input aria-label="Sizes" value={dialog.value} placeholder="75 50 25" maxLength={400} spellCheck={false} inputMode="decimal"
+              onChange={(e) => setDialog({ ...dialog, value: e.target.value.replace(/[^\d.\s,;]/g, "") })} /><span className="unit">{gel?.tlc?.unit ?? "kDa"}</span></span></label>
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "range" && (() => {
+        // Set Range…, as ChemDraw's: the sizes at the bottom and top of the gel. Bands keep their sizes; ones outside the
+        // range are not drawn.
+        const gel = doc.shapes?.find((x) => x.id === dialog.plate), lo = Number(dialog.low), hi = Number(dialog.high), ok = lo > 0 && hi > lo && hi <= 1e9, unit = gel?.tlc?.unit ?? "kDa";
+        return (
+          <Dialog title="Set the range" action="Set" disabled={!ok} onClose={() => setDialog(undefined)}
+            onAction={() => { if (ok && gel) set(updateShape(doc, gel.id, { tlc: setRange(gel.tlc ?? { lanes: 1, spots: [] }, [lo, hi]) }), true); setDialog(undefined); }}>
+            <label className="dialog-row"><span>Smallest</span><NumberField label="Smallest" unit={unit} min={0.001} max={1e9} step={1} value={lo} onChange={(n) => setDialog({ ...dialog, low: String(n) })} /></label>
+            <label className="dialog-row"><span>Largest</span><NumberField label="Largest" unit={unit} min={0.001} max={1e9} step={1} value={hi} onChange={(n) => setDialog({ ...dialog, high: String(n) })} /></label>
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "lane" && (
+        <Dialog title="Lane name" action="Set" onClose={() => setDialog(undefined)}
+          onAction={() => { const gel = doc.shapes?.find((x) => x.id === dialog.plate); if (gel?.tlc) set(updateShape(doc, gel.id, { tlc: { ...gel.tlc, names: Array.from({ length: gel.tlc.lanes }, (_, k) => (k === dialog.lane ? dialog.value.trim() : gel.tlc!.names?.[k] ?? "")) } }), true); setDialog(undefined); }}>
+          <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.value} maxLength={40} spellCheck={false} onChange={(e) => setDialog({ ...dialog, value: e.target.value })} /></span></label>
         </Dialog>
       )}</Exit>
+      <Exit>{dialog?.kind === "plasmid" && (() => {
+        // A plasmid map's name and length (ChemDraw's Insert Plasmid Map): a shorter map keeps what still fits on it.
+        const bp = Math.round(Number(dialog.bp)), ok = bp >= 1 && bp <= 1e8;
+        return (
+          <Dialog title="Plasmid map" action="Apply" disabled={!ok} onClose={() => setDialog(undefined)}
+            onAction={() => {
+              const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid;
+              if (ok && pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, bp, name: dialog.name.trim() || undefined, regions: pl.regions.filter((r) => r.start <= bp).map((r) => ({ ...r, end: Math.min(bp, r.end) })), markers: pl.markers.filter((m) => m.at <= bp) } }), true);
+              setDialog(undefined);
+            }}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            <label className="dialog-row"><span>Length</span><NumberField label="Length" unit="bp" min={1} max={1e8} step={1} value={Number(dialog.bp)} onChange={(n) => setDialog({ ...dialog, bp: String(n) })} /></label>
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "region" && (() => {
+        // A region, as ChemDraw's Regions: its name, first and last base pair, and which way its arrow points.
+        const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid, start = Math.round(Number(dialog.start)), end = Math.round(Number(dialog.end));
+        const ok = !!pl && start >= 1 && end >= 1 && start <= pl.bp && end <= pl.bp && (dialog.index !== undefined || pl.regions.length < 200), edit = dialog.index !== undefined;
+        const put = (regions: Region[]) => { if (pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, regions } }), true); setDialog(undefined); };
+        const region: Region = { start, end, ...(dialog.name.trim() ? { name: dialog.name.trim() } : {}), ...(dialog.dir ? { dir: dialog.dir } : {}), ...(edit && pl?.regions[dialog.index!]?.colour ? { colour: pl.regions[dialog.index!].colour } : {}) };
+        return (
+          <Dialog title={edit ? "Region" : "Add a region"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
+            alt={edit && pl ? { label: "Delete", onClick: () => put(pl.regions.filter((_, k) => k !== dialog.index)) } : undefined}
+            onAction={() => (ok && pl ? put(edit ? pl.regions.map((r, k) => (k === dialog.index ? region : r)) : [...pl.regions, region]) : setDialog(undefined))}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            <label className="dialog-row"><span>Start</span><NumberField label="Start" unit="bp" min={1} max={pl?.bp ?? 1} step={1} value={Number(dialog.start)} onChange={(n) => setDialog({ ...dialog, start: String(n) })} /></label>
+            <label className="dialog-row"><span>End</span><NumberField label="End" unit="bp" min={1} max={pl?.bp ?? 1} step={1} value={Number(dialog.end)} onChange={(n) => setDialog({ ...dialog, end: String(n) })} /></label>
+            <div className="dialog-row"><span>Arrow</span><Segmented label="Arrow" value={dialog.dir} onChange={(dir) => setDialog({ ...dialog, dir })} options={[["", "Forward"], ["reverse", "Reverse"], ["none", "None"]]} /></div>
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "marker" && (() => {
+        // A marker, as ChemDraw's Markers: its name and base pair.
+        const sh = doc.shapes?.find((x) => x.id === dialog.shape), pl = sh?.plasmid, at = Math.round(Number(dialog.at)), edit = dialog.index !== undefined;
+        const ok = !!pl && !!dialog.name.trim() && at >= 1 && at <= pl.bp && (edit || pl.markers.length < 200);
+        const put = (markers: Marker[]) => { if (pl) set(updateShape(doc, dialog.shape, { plasmid: { ...pl, markers } }), true); setDialog(undefined); };
+        const marker: Marker = { at, name: dialog.name.trim(), ...(edit && pl?.markers[dialog.index!]?.colour ? { colour: pl.markers[dialog.index!].colour } : {}) };
+        return (
+          <Dialog title={edit ? "Marker" : "Add a marker"} action={edit ? "Apply" : "Add"} disabled={!ok} onClose={() => setDialog(undefined)}
+            alt={edit && pl ? { label: "Delete", onClick: () => put(pl.markers.filter((_, k) => k !== dialog.index)) } : undefined}
+            onAction={() => (ok && pl ? put(edit ? pl.markers.map((m, k) => (k === dialog.index ? marker : m)) : [...pl.markers, marker]) : setDialog(undefined))}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            <label className="dialog-row"><span>Position</span><NumberField label="Position" unit="bp" min={1} max={pl?.bp ?? 1} step={1} value={Number(dialog.at)} onChange={(n) => setDialog({ ...dialog, at: String(n) })} /></label>
+          </Dialog>
+        );
+      })()}</Exit>
       <Exit>{dialog?.kind === "details" && (
         // An experiment's details (experiment.ts), kept as the document's annotations.
         <Dialog title="Experiment details" action="Save" onClose={() => setDialog(undefined)}
