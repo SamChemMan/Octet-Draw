@@ -2335,13 +2335,13 @@ export const gelRange = (t?: Tlc): [number, number] => t?.range ?? GEL[t?.unit ?
 // A band's Rf from its size, and its size from its Rf: log size falls in step with how far the band runs.
 export const bandRf = (t: Tlc | undefined, size: number) => { const [lo, hi] = gelRange(t); return Math.log(hi / size) / Math.log(hi / lo); };
 export const bandSize = (t: Tlc | undefined, rf: number) => { const [lo, hi] = gelRange(t); return hi * (lo / hi) ** rf; };
-// A size as shown: three figures at most (37.5, 150, 10000).
-export const sizeText = (n: number) => String(Number(n.toPrecision(3)));
+// A size as shown: four figures at most (37.5, 2686, 10000).
+export const sizeText = (n: number) => String(Number(n.toPrecision(4)));
 // A gel's scale: the sizes of its first lane's bands (its ladder), or 1, 2 and 5 times the powers of ten in its range;
 // from the top down, each at least gap (a line of its text) below the last one kept.
 export function gelScale(sh: Shape, gap: number): number[] {
   const t = sh.tlc, [lo, hi] = gelRange(t), ladder = (t?.spots ?? []).filter((x) => x.lane === 0 && x.rf >= 0 && x.rf <= 1).map((x) => bandSize(t, x.rf)), all: number[] = [];
-  if (ladder.length) all.push(...[...new Set(ladder.map((n) => Number(n.toPrecision(3))))].sort((a, b) => b - a));
+  if (ladder.length) all.push(...[...new Set(ladder.map((n) => Number(n.toPrecision(4))))].sort((a, b) => b - a));
   else for (let p = 10 ** Math.ceil(Math.log10(hi)); p >= lo / 10 && all.length < 40; p /= 10) for (const m of [5, 2, 1]) if (m * p >= lo && m * p <= hi) all.push(m * p);
   const at = tlcLayout(sh).at, out: number[] = [];
   for (const n of all) if (!out.length || at(bandRf(t, out[out.length - 1])) - at(bandRf(t, n)) >= gap) out.push(n);
@@ -2382,31 +2382,41 @@ export function plasmidLayout(sh: Shape, line: number) {
     return { path, mid: (a0 + a1) / 2, edge: r + hw };
   });
   const markers = p.markers.map((m) => ({ tick: [at(m.at, R - 1.2 * hw), at(m.at, R + outer + 0.6 * hw)] as [P, P], mid: angle(m.at), edge: R + outer + 0.6 * hw }));
-  // The names, each at its place's angle on a circle outside the ring, then spread down each side (and back up from
-  // the bottom) to a line apart, and slid round the circle to their new heights.
+  // The names, each at its place's angle on a circle outside the ring, then spread a line apart down each side: names
+  // that would overlap go in a block centred on where they would be, and blocks that then meet join, as long as any
+  // do. Each then slides round the circle to its new height.
   const RL = R + outer + 0.35 * f, labels = [
     ...p.regions.flatMap((g, k) => (g.name ? [{ text: g.name, a: regions[k].mid, edge: regions[k].edge, region: k, marker: -1 }] : [])),
     ...p.markers.map((m, k) => ({ text: `${m.name} (${m.at})`, a: markers[k].mid, edge: markers[k].edge, region: -1, marker: k })),
   ].map((x) => ({ ...x, right: Math.cos(x.a) >= -1e-9, y: c[1] + RL * Math.sin(x.a) }));
   for (const side of [true, false]) {
-    const list = labels.filter((x) => x.right === side).sort((a, b) => b.y - a.y), low = c[1] - RL - line;
-    for (let i = 1; i < list.length; i++) list[i].y = Math.min(list[i].y, list[i - 1].y - line);
-    for (let i = list.length - 1; i >= 0; i--) list[i].y = Math.max(list[i].y, i === list.length - 1 ? low : list[i + 1].y + line);
+    const blocks = labels.filter((x) => x.right === side).sort((a, b) => b.y - a.y).map((x) => ({ list: [x], top: x.y }));
+    for (let k = 1; k < blocks.length; k++) {
+      const a = blocks[k - 1], b = blocks[k];
+      if (a.top - a.list.length * line >= b.top - 1e-9) continue;
+      // b joins a: the block is centred on the mean of where its names would be.
+      a.list.push(...b.list);
+      a.top = a.list.reduce((sum, x) => sum + x.y, 0) / a.list.length + ((a.list.length - 1) * line) / 2;
+      blocks.splice(k, 1);
+      k = Math.max(0, k - 2);
+    }
+    for (const b of blocks) b.list.forEach((x, k) => { x.y = b.top - k * line; });
   }
   return {
     c, R, bp, f, angle, at, regions, markers, hw,
     labels: labels.map((x) => {
-      const dy = x.y - c[1], dx = Math.sqrt(Math.max(0, RL * RL - dy * dy)) * (x.right ? 1 : -1), to: P = [c[0] + dx + (x.right ? 0.05 : -0.05) * f, x.y];
+      // Off the top or bottom of the circle, a name keeps its place's distance across.
+      const dy = x.y - c[1], dx = Math.max(Math.sqrt(Math.max(0, RL * RL - dy * dy)), Math.abs(RL * Math.cos(x.a))) * (x.right ? 1 : -1), to: P = [c[0] + dx + (x.right ? 0.05 : -0.05) * f, x.y];
       return { ...x, anchor: x.right ? "start" as const : "end" as const, at: [to[0] + (x.right ? 0.08 : -0.08) * f, x.y - 0.32 * line] as P, from: [c[0] + x.edge * Math.cos(x.a), c[1] + x.edge * Math.sin(x.a)] as P, to };
     }),
   };
 }
 // A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail (a gel's band: a bar
-// with round ends, its lower edge drawn out by the tail). grow: how far out (a doubled spot's second outline).
+// with rounded corners, its lower edge drawn out by the tail). grow: how far out (a doubled spot's second outline).
 export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot, grow = 0): [number, number][] {
   const cx = t.lane(x.lane), cy = t.at(x.rf), size = t.size(x), [rx, ry] = [size.rx + grow, size.ry + grow], tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
   if (t.gel) {
-    const r = Math.min(rx, ry), corner = (ax: number, ay: number, a0: number) => { for (let i = 0; i <= 8; i++) { const a = a0 + (Math.PI / 2) * (i / 8); out.push([ax + r * Math.cos(a), ay + r * Math.sin(a)]); } };
+    const r = Math.min(rx, ry) / 2, corner = (ax: number, ay: number, a0: number) => { for (let i = 0; i <= 8; i++) { const a = a0 + (Math.PI / 2) * (i / 8); out.push([ax + r * Math.cos(a), ay + r * Math.sin(a)]); } };
     const narrow = tail ? 0.15 * rx * Math.min(1, tail / (ry * 4)) : 0;
     corner(cx + rx - r, cy + ry - r, 0);
     corner(cx - rx + r, cy + ry - r, Math.PI / 2);

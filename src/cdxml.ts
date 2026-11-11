@@ -510,7 +510,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
           if (x.rf < 0 || x.rf > 1) continue;
           const bits = spotType(x) & ~(x.style === "shaded" ? 128 : 0);
           outline(spotPath(t, x), x.colour ?? sh.colour, bits);
-          if (tlc?.rf || x.showRf) text(sizeText(bandSize(tlc, x.rf)), [t.lane(x.lane) + t.size(x).rx + 0.1 * t.f, t.at(x.rf) - 0.12 * t.f], "left");
+          if (tlc?.rf || x.showRf) text(sizeText(bandSize(tlc, x.rf)), [t.lane(x.lane), t.at(x.rf) + t.size(x).ry + 0.08 * t.f], "centre");
         }
       } else {
         const m = plasmidLayout(sh, (1.2 * size) / B), pl = sh.plasmid, c = at(m.c), R = m.R * B;

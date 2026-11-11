@@ -12,7 +12,7 @@ import {
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, EyeClosed, BellSlash, ArrowsInLineVertical, BracketsRound, TreeStructure, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, StarFour, TextTSlash,
-  ListPlus, MapPin, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Scales,
+  ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Scales,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -91,7 +91,8 @@ export type Context =
   // groups: the and and or group numbers its structure uses, and the lowest new one of each.
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean }
-  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string }; // unit: a gel's band, its sizes' unit
+  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string } // unit: a gel's band, its sizes' unit
+  | { kind: "part"; region: boolean }; // a plasmid map's region (or marker) picked on it
 
 type Props = {
   open: boolean;
@@ -482,6 +483,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.rgroup) items.push(it(<TreeStructure size={18} />, "R-Logic…", "rlogic"));
       items.push(...turnsAndFlips, ...objects, ...order, keep, del);
       break;
+    case "part":
+      items.push(it(<Pencil size={18} />, context.region ? "Edit the region…" : "Edit the marker…", "part.edit"), inWindow, del);
+      break;
     case "spot":
       items.push(context.unit ? it(<Scales size={18} />, "Set the size…", "spot.setrf") : it(<Percent size={18} />, "Set Rf…", "spot.setrf"),
         context.unit ? it(<span className="glyph-text">{context.unit}</span>, context.rf ? "Hide its size" : "Show its size", "spot.rf") : it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), inWindow, del);
@@ -692,6 +696,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     grid: "Stoichiometry grid",
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
     spot: context.kind === "spot" && context.unit ? "Band" : "TLC spot",
+    part: context.kind === "part" && context.region ? "Region" : "Marker",
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
     line: "Line",
   }[context.kind];

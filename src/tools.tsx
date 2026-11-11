@@ -318,12 +318,12 @@ export const GelGlyph = () => (
   </Icon>
 );
 
-// A plasmid map: its ring with a region's arrow along it.
+// A plasmid map: its ring, a region along it and a marker across it.
 export const PlasmidGlyph = () => (
   <Icon>
-    <circle cx={128} cy={128} r={84} />
-    <path d="M60.3,77.8 A84,84 0 0 1 149.7,46.8" strokeWidth={32} strokeLinecap="butt" />
-    <polygon points="146,22 186,64 136,72" fill="currentColor" strokeWidth={8} />
+    <circle cx={128} cy={128} r={80} />
+    <path d="M179.4,66.7 A80,80 0 0 1 189.3,179.4" strokeWidth={32} strokeLinecap="butt" />
+    <line x1={71.6} y1={107.5} x2={34} y2={93.8} />
   </Icon>
 );
 

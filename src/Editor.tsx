@@ -3434,10 +3434,12 @@ export default function Editor() {
     const k = laneOf(sh, p);
     return Math.abs(p[0] - t.lane(k)) < near ? k : undefined;
   };
-  // The spot whose Rf value (shown) is under a point.
+  // The spot whose Rf value (shown) is under a point; a gel band's size is over the band.
   const rfAt = (sh: Shape, p: P) => {
     const t = tlcLayout(sh);
-    return (sh.tlc?.spots ?? []).findIndex((x) => (sh.tlc?.rf || x.showRf) && p[0] >= t.lane(x.lane) + t.size(x).rx && p[0] <= t.lane(x.lane) + t.size(x).rx + 0.8 * t.f && Math.abs(p[1] - t.at(x.rf) + 0.05 * t.f) < 0.2 * t.f);
+    return (sh.tlc?.spots ?? []).findIndex((x) => (sh.tlc?.rf || x.showRf) && x.rf >= 0 && x.rf <= 1 && (t.gel
+      ? Math.abs(p[0] - t.lane(x.lane)) <= t.size(x).rx && p[1] >= t.at(x.rf) + t.size(x).ry && p[1] <= t.at(x.rf) + t.size(x).ry + 0.45 * t.f
+      : p[0] >= t.lane(x.lane) + t.size(x).rx && p[0] <= t.lane(x.lane) + t.size(x).rx + 0.8 * t.f && Math.abs(p[1] - t.at(x.rf) + 0.05 * t.f) < 0.2 * t.f));
   };
   // A spot is hit within 4 px of its edge (its tail included), the nearest one first; a gel's band outside its range
   // is not drawn, so not hit.
@@ -3470,7 +3472,16 @@ export default function Editor() {
     setSpotPick({ plate: sh.id, index: spots.length });
     void screen;
   };
+  // A plasmid map's region or marker picked on it, for its colour, Edit and Delete, as a spot on its plate.
+  const [featurePick, setFeaturePick] = useState<{ map: number; region?: number; marker?: number }>();
+  const pickPart = (sh: Shape, p: P) => {
+    const { region, marker } = plasmidPart(sh, p);
+    setSelection(new Set());
+    setPicked(new Set([sh.id]));
+    setFeaturePick(region !== undefined || marker !== undefined ? { map: sh.id, region, marker } : undefined);
+  };
   useEffect(() => {
+    if (featurePick && (!picked.has(featurePick.map) || picked.size !== 1)) setFeaturePick(undefined);
     if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined);
     if (lanePick && !picked.has(lanePick.plate)) setLanePick(undefined);
   }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3517,6 +3528,13 @@ export default function Editor() {
       const x = pl.markers[part.marker] ?? { at: 1, name: "" };
       return setDialog({ kind: "marker", shape: sh.id, ...(part.marker >= 0 ? { index: part.marker } : {}), name: x.name, at: String(x.at) });
     }
+  };
+  // A plasmid map's picked region or marker changed (or, with no result, taken away).
+  const editPart = (part: { map: number; region?: number; marker?: number }, change: <T extends Region | Marker>(x: T) => T | undefined): Mol => {
+    const pl = doc.shapes?.find((x) => x.id === part.map)?.plasmid;
+    if (!pl) return doc;
+    const each = <T extends Region | Marker>(list: T[], k?: number) => list.flatMap((x, j) => (j === k ? [change(x)].filter((y): y is T => !!y) : [x]));
+    return updateShape(doc, part.map, { plasmid: { ...pl, regions: each(pl.regions, part.region), markers: each(pl.markers, part.marker) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
   const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
@@ -4658,13 +4676,15 @@ export default function Editor() {
     const p = toDoc(e.clientX, e.clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
     const t: Hover = mark ? (mark.shape !== undefined ? { arrow: mark.shape } : { atom: mark.atom, bond: mark.bond }) : under, free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
     const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && isPlate(x))) ? plateAt(p) : undefined;
+    const map = !plate && free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "plasmid")) ? plasmidAt(p) : undefined;
     if (plate) {
       const k = spotHit(plate, p);
       setSelection(new Set());
       setPicked(new Set([plate.id]));
       setSpotPick(k >= 0 ? { plate: plate.id, index: k } : undefined);
       setLanePick({ plate: plate.id, lane: laneOf(plate, p) });
-    } else {
+    } else if (map) pickPart(map, p);
+    else {
       const found: Hover = free && t.arrow === undefined ? { arrow: highlightAt(p) ?? orbitalAt(p) } : t;
       const atoms = atomsOf(doc, found), items = itemsOf(found), cycle = doc.cycles?.find((c) => c.id === found.cycle), [own, text] = cycle ? cycleParts(cycle) : [[], []];
       const on = atoms.length || items.length ? atoms.every((i) => selection.has(i)) && items.every((x) => picked.has(x)) : selection.size > 0 && onSelection(doc, selection, p);
@@ -4826,8 +4846,10 @@ export default function Editor() {
     // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
     const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
     if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
-    // A gel's lane names take a double-click, not a new gel.
+    // A gel's lane names take a double-click, not a new gel; with the Plasmid map tool, a press on a map picks it, with
+    // the region or marker under the pointer.
     if (tool === "gel" && laneNameAt(p)) return setDrag({ kind: "click", at: p, start: screen, target: t });
+    if (tool === "plasmid" && plasmidAt(p)) { pickPart(plasmidAt(p)!, p); return setDrag({ kind: "click", at: p, start: screen, target: t }); }
     // With the TLC or Gel tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if ((tool === "tlc" || tool === "gel") && plateAt(p)) {
       const sh = plateAt(p)!;
@@ -5748,6 +5770,7 @@ export default function Editor() {
     if (context.kind === "shape" && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
+    if (context.kind === "part" && featurePick) { const pl = doc.shapes?.find((x) => x.id === featurePick.map)?.plasmid; return { value: (featurePick.region !== undefined ? pl?.regions[featurePick.region] : pl?.markers[featurePick.marker!])?.colour ?? "#000000" }; }
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
     if (context.kind === "grid") return { value: doc.grids?.find((g) => g.arrow === gridPick?.arrow)?.colour ?? "#000000" };
     // A bond alone takes its own colour (the colour action sets the bond only), so its row shows the bond's.
@@ -5919,6 +5942,9 @@ export default function Editor() {
       const t = tlcLayout(plate), { rx, ry } = t.size(spot);
       return { kind: "spot", style: spot.style ?? "filled", dashed: !!spot.dashed, bold: !!spot.bold, doubled: !!spot.doubled, w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond, ...(t.gel ? { unit: plate.tlc?.unit ?? "kDa" } : {}) };
     }
+    // A plasmid map's region or marker picked on it.
+    const map = featurePick && !selection.size && picked.size === 1 && picked.has(featurePick.map) ? doc.shapes?.find((x) => x.id === featurePick.map)?.plasmid : undefined;
+    if (map && (featurePick!.region !== undefined ? map.regions[featurePick!.region] : map.markers[featurePick!.marker!])) return { kind: "part", region: featurePick!.region !== undefined };
     // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
     // lines' width.
     const tableContext = (sh: Shape) => {
@@ -6016,7 +6042,7 @@ export default function Editor() {
     stillPanels.current.set(name, made);
     return made;
   };
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
@@ -7089,6 +7115,7 @@ export default function Editor() {
       if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
+      if (context.kind === "part" && featurePick) return set(editPart(featurePick, (x) => ({ ...x, colour: ink })), true);
       if (context.kind === "cycle" && context.side && branchPick) return set(setBranch(doc, branchPick.cycle, branchPick.branch, { colour: ink }), true);
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
       return set({
@@ -7135,6 +7162,7 @@ export default function Editor() {
     if (command.startsWith("flip_bond:")) { const k = Number(command.slice(10)); return doc.bonds[k] && set(flipBond(doc, k), true); }
     if (command.startsWith("align.")) return glideTo(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"));
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
+    if (command === "delete" && context.kind === "part") return runAction("part.delete");
     // A cycle's side arrow picked goes with its text (its structures stay); a step picked loses its arc.
     if (command === "delete" && context.kind === "cycle" && context.side) return cycleAction("side.remove");
     if (command === "delete" && context.kind === "cycle" && context.step && stepPick) return set(hideArc(stepPick.cycle, stepPick.step), true);
@@ -7161,6 +7189,13 @@ export default function Editor() {
       const [, what, arg] = command.split(".");
       if (what === "atom") { const i = [...selection][0]; return set(setEnhanced(doc, [i], doc.atoms[i].enhanced === arg ? undefined : arg), true); }
       return set(setEnhanced(doc, stereocentres(doc, selection), what === "racemic" ? "&1" : what === "relative" ? "or1" : undefined), true);
+    }
+    // A picked region or marker on its plasmid map: its dialog, or removal.
+    if (command.startsWith("part.") && featurePick) {
+      const sh = doc.shapes?.find((x) => x.id === featurePick.map);
+      if (command === "part.edit") return sh && openPart(sh, featurePick);
+      setFeaturePick(undefined);
+      return set(editPart(featurePick, () => undefined), true);
     }
     // A picked TLC spot: style, size (hundredths of a bond length), tail, its own Rf, removal.
     if (command.startsWith("spot.") && spotPick) {
@@ -7697,7 +7732,7 @@ export default function Editor() {
         const tiny = !drag.to || (round ? Math.hypot(drag.to[0] - drag.from[0], drag.to[1] - drag.from[1]) < 0.1 : Math.abs(drag.to[0] - drag.from[0]) < 0.1 || Math.abs(drag.to[1] - drag.from[1]) < 0.1);
         // A click with the Table tool makes a table of four columns and six rows there; with the Gel or Plasmid map
         // tool, a gel of five lanes or a map.
-        const size = tool === "table" ? [8.8, 5.4] : tool === "gel" ? [6, 6] : tool === "plasmid" ? [7, 7] : undefined;
+        const size = tool === "table" ? [8.8, 5.4] : tool === "gel" ? [6, 6] : tool === "plasmid" ? [10, 10] : undefined;
         const to = tiny && size ? [drag.from[0] + size[0], drag.from[1] - size[1]] as P : drag.to;
         if ((tiny && !size) || !to) return click(drag.target, drag.from);
         const sh = shapeFrom(drag.from, to);
@@ -8490,7 +8525,10 @@ export default function Editor() {
               <path d={d} fill={!filled ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={!filled || x.bold ? c : undefined} strokeWidth={sw} strokeDasharray={x.dashed ? `${3 * sw} ${2 * sw}` : undefined} />
               {x.doubled && <path d={path(spotPath(t, x, grow))} fill="none" stroke={c} strokeWidth={sw} />}
               {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={face}>{t.gel ? sizeText(bandSize(sh.tlc, x.rf)) : x.rf.toFixed(2)}</text>}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && (t.gel
+                // A band's size above it, as ChemDraw's Show Size.
+                ? <text x={t.lane(x.lane) * L} y={y(t.at(x.rf) + t.size(x).ry + grow + 0.08 * t.f)} textAnchor="middle" fill={c} style={face}>{sizeText(bandSize(sh.tlc, x.rf))}</text>
+                : <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={face}>{x.rf.toFixed(2)}</text>)}
             </g>
           );
         })}
@@ -8505,7 +8543,15 @@ export default function Editor() {
     return (
       <g key={`plasmid${sh.id}`} className="plasmid">
         {m.regions.map((r, k) => <path key={`r${k}`} d={toPath([r.path.map(([px, py]): P => [px * L, -py * L])])} fill={p?.regions[k].colour ? textInk(p.regions[k].colour!) : ink} />)}
-        {m.markers.map((x, k) => <line key={`m${k}`} x1={x.tick[0][0] * L} y1={y(x.tick[0][1])} x2={x.tick[1][0] * L} y2={y(x.tick[1][1])} stroke={p?.markers[k].colour ? textInk(p.markers[k].colour!) : ink} strokeWidth={w} />)}
+        {featurePick?.map === sh.id && featurePick.region !== undefined && m.regions[featurePick.region] && <path className="spot-picked" d={toPath([m.regions[featurePick.region].path.map(([px, py]): P => [px * L, -py * L])])} fill="none" vectorEffect="non-scaling-stroke" />}
+        {featurePick?.map === sh.id && featurePick.marker !== undefined && m.markers[featurePick.marker] && <circle className="spot-picked" cx={m.markers[featurePick.marker].tick[1][0] * L} cy={y(m.markers[featurePick.marker].tick[1][1])} r={0.12 * L * m.f} fill="none" vectorEffect="non-scaling-stroke" />}
+        {/* Each marker's tick cuts through the regions under it, so it shows on a region of its own colour. */}
+        {m.markers.map((x, k) => (
+          <Fragment key={`m${k}`}>
+            <line x1={x.tick[0][0] * L} y1={y(x.tick[0][1])} x2={x.tick[1][0] * L} y2={y(x.tick[1][1])} stroke="var(--canvas)" strokeWidth={3 * w} />
+            <line x1={x.tick[0][0] * L} y1={y(x.tick[0][1])} x2={x.tick[1][0] * L} y2={y(x.tick[1][1])} stroke={p?.markers[k].colour ? textInk(p.markers[k].colour!) : ink} strokeWidth={w} />
+          </Fragment>
+        ))}
         {m.labels.map((x, k) => (
           <Fragment key={`l${k}`}>
             <line x1={x.from[0] * L} y1={y(x.from[1])} x2={x.to[0] * L} y2={y(x.to[1])} stroke={ink} strokeWidth={w / 2} />
@@ -8726,7 +8772,7 @@ export default function Editor() {
         <CaptionText key={`c${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, featurePick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
@@ -8748,7 +8794,7 @@ export default function Editor() {
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />]);
     things.sort((a, b) => a[0] - b[0]);
     return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
-  }, [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, frame, darkPaper, draggedSpot, spotPick, featurePick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The selection's colour, when the user has picked their own (editor.css, data-select), with its tints.
   const ownSelect = settings.selectColour !== SELECT_DEFAULT ? settings.selectColour : undefined;
