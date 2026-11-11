@@ -620,8 +620,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), ["L", "Ar"]);
   assert.match(text(await call("draw_structures", { structures: [{ text: "*[Pd]*", labels: ["L"] }] })), /has 2 \* but 1 labels/);
   // C6: a label Octet reads no group in, and that stands in for none, is named in the result of every tool that takes
-  // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in (L, Ar, R1) and a label written round one
-  // (OR, NHPG) are not named. Ar stays a generic group: it is no phenyl.
+  // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in
+  // (L, Ar, R1) and a label written round one (OR, NHPG) are not named. Ar stays a generic group: it is no phenyl.
   fresh();
   out = await call("draw_structures", { structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
   assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
@@ -649,6 +649,56 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   out = await call("replace_structure", { structure: (await read()).structures[0].id, text: "a file with the label Xyz" });
   host.structure = structure;
   assert.match(text(out), /^Replaced .* Octet does not know the label Xyz: it is drawn as text\. One undo step\./);
+  // edit says it too, for a label it sets on an atom. A label Octet reads gets no such sentence.
+  fresh();
+  await call("draw_structures", { structures: [{ text: "CCO" }] });
+  const atom = async (structure: number, n: number) => `${(await read()).structures[structure].id}.${n}`;
+  assert.match(text(await call("edit", { ids: [await atom(0, 1)], label: "Xyz" })), /^Changed s\d+\.1: label\. Octet does not know the label Xyz: it is drawn as text\. One undo step\./);
+  assert.match(text(await call("edit", { ids: [await atom(0, 1)], label: "OTBS" })), /^Changed s\d+\.1: label\. One undo step\./);
+  // Capitals that spell no group are named, and never read as deuterium or tritium (OTPS is in the test plan's C6).
+  fresh();
+  out = await call("draw_structures", { structures: [{ text: "*c1ccccc1", labels: ["OTPS"] }, { text: "*c1ccccc1", labels: ["BHT"] }, { text: "*c1ccccc1", labels: ["4-OPh"] }] });
+  assert.match(text(out), /Octet does not know the labels OTPS, BHT, 4-OPh: they are drawn as text\./);
+  assert.deepEqual((await read()).structures.map((x: { formula: string; inchiKey?: string }) => [x.formula, x.inchiKey]), [["C6H5", undefined], ["C6H5", undefined], ["C6H5", undefined]]);
+  // A label is kept from its attachment atom, whichever side an AI app wrote it for (the * of '*c1ccccc1' is on the
+  // left, that of 'c1ccccc1*' on the right), so Octet draws it towards its bond on both. NC for a * is the nitrile
+  // written from the left. A phenyl with its positions, and a label already from its attachment atom, stay as given.
+  const given = ["MeO", "pinB", "F3C", "t-BuO", "O2N", "H2N", "NC", "4-ClC6H4", "n-C8H17", "OMe", "CN"], kept = ["OMe", "Bpin", "CF3", "Ot-Bu", "NO2", "NH2", "CN", "4-ClC6H4", "n-C8H17", "OMe", "CN"];
+  for (const smiles of ["*c1ccccc1", "c1ccccc1*"]) {
+    fresh();
+    out = await call("draw_structures", { structures: given.map((l) => ({ text: smiles, labels: [l] })) });
+    assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));
+    assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), kept, smiles);
+    const got = (await read()).structures.map((x: { formula: string }) => x.formula);
+    assert.deepEqual([got[0], got[6], got[10]], ["C7H8O", "C7H5N", "C7H5N"], `MeO, NC and CN on ${smiles}`);
+    assert.ok(!toSmiles(expandLabels(m)).includes("[C-]"), "NC for a * is no isocyanide");
+  }
+  // A label on an atom of a molecule, and one set with edit, are kept the same way.
+  fresh();
+  await call("draw_structures", { structures: [{ molecule: { atoms: [{ label: "MeO", x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], bonds: [{ from: 0, to: 1 }, { from: 1, to: 2 }] } }] });
+  await call("edit", { ids: [await atom(0, 3)], label: "HO2C" });
+  assert.deepEqual(m.atoms.map((a) => a.text), ["OMe", undefined, "CO2H"]);
+  // Ar on an atom with a bond is an aryl group in a molecule too, and with edit: argon has no bonds. Alone it is argon.
+  fresh();
+  await call("draw_structures", { structures: [{ molecule: { atoms: [{ label: "Ar", x: 0, y: 0 }, { label: "Br", x: 1, y: 0 }], bonds: [{ from: 0, to: 1 }] } }, { molecule: { atoms: [{ label: "Ar", x: 0, y: 0 }] } }, { text: "CBr" }] });
+  await call("edit", { ids: [await atom(2, 1)], label: "Ar" });
+  assert.deepEqual((await read()).structures.map((x: { formula: string }) => x.formula), ["Br", "Ar", "Br"]);
+  assert.deepEqual(m.atoms.map((a) => a.text ?? a.label), ["Ar", "Br", "Ar", "Ar", "Br"]);
+  // A salt in a label is one compound with one formula, and no warning: BF3K is a borate and its potassium ion.
+  fresh();
+  await call("draw_structures", { structures: [{ text: "BrC*", labels: ["BF3K"] }, { text: "*c1ccccc1", labels: ["H"] }] });
+  assert.deepEqual((await read()).structures.map((x: { formula: string }) => x.formula), ["CH2BBrF3K", "C6H6"]);
+  assert.deepEqual(problems(m), []);
+  // Every example Octet gives an AI app of a SMILES with * and its labels (the instructions, each tool's description
+  // and its arguments') is drawn with no label Octet does not know.
+  const told = `${(await send("initialize", { protocolVersion: "2025-06-18" })).result.instructions} ${JSON.stringify((await send("tools/list")).result.tools)}`;
+  const examples = [...told.matchAll(/'([^' ]*\*[^' ]*)'[^'[\]]*\[((?:'[^']*'(?:, ?)?)+)\]/g)].map((x) => ({ text: x[1], labels: [...x[2].matchAll(/'([^']*)'/g)].map((l) => l[1]) }));
+  assert.ok(examples.length >= 3 && examples.some((e) => e.labels.includes("MIV")) && examples.some((e) => e.labels.includes("Ar")), JSON.stringify(examples));
+  for (const e of examples) {
+    fresh();
+    out = await call("draw_structures", { structures: [e] });
+    assert.ok(!out.isError && !/does not know/.test(text(out)), `${JSON.stringify(e)}: ${text(out)}`);
+  }
 }
 
 // F4: draw_figure. Panels, rows, numbers, captions, side text and brackets, as one undo step; the ids by place.

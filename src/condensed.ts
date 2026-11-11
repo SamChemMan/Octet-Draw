@@ -74,7 +74,7 @@ function tokenise(text: string, depth = 0): Token[] | undefined {
       const body = text.slice(i + 1, j);
       i = j + 1;
       const n = count();
-      if (/^=|^(?:O|S|Se)$/.test(body)) { // (=O), and (O) or (S) as chemists write it (C(O)OMe, P(O)Ph2): a double-bonded branch
+      if (/^=|^[OS]$/.test(body)) { // (=O), and (O) or (S) as chemists write it (C(O)OMe, P(O)Ph2): a double-bonded branch
         const inner = tokenise(body.replace("=", ""), depth + 1);
         if (!inner || inner.length !== 1 || inner[0].t !== "atom") return undefined;
         for (let k = 0; k < n; k++) out.push({ t: "branch" }, structuredClone(inner[0]));

@@ -111,9 +111,12 @@ function firstAtom(text: string) {
 // atom is counted (C6H4): its hydrogens are shared out, so Octet cannot tell.
 function labelHydrogens(text: string): number | undefined {
   const us = units(text);
-  // A label written from the left is read from its end (Et3N), as labelSmiles reads it.
-  if (fromEnd(us)) return us[us.length - 2].text === "H" ? Number(us[us.length - 2].count ?? 1) : 0;
+  // A label written from the left is read from its end (Et3N), as labelSmiles reads it: the hydrogens are written
+  // after its last atom (t-BuNH) or before it (BocHN).
+  if (fromEnd(us)) { const h = us[us.length - 1].text === "H" ? us[us.length - 1] : us[us.length - 2]; return h.text === "H" ? Number(h.count ?? 1) : 0; }
   const first = us.findIndex((u) => !(u.kind === "element" && u.text === "H"));
+  // A label that is only hydrogen has no other atom to write hydrogens on.
+  if (first < 0) return 0;
   if (us[first]?.count && us[first].count !== "1") return undefined;
   const h = us[first + 1]?.text === "H" ? us[first + 1] : first === 1 ? us[0] : undefined;
   return h ? Number(h.count ?? 1) : 0;

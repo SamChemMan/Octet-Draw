@@ -12,7 +12,7 @@ import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide } from "./cycle.ts";
-import { chemicalText, labelSmiles, standsIn, units } from "./labels.ts";
+import { attachmentFirst, chemicalText, labelSmiles, standsIn, units } from "./labels.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, parseAmount, reagentName, type Field } from "./stoich.ts";
 import { PRESETS, PAGES, pageSize, presetAt, type DocStyle, type PageName } from "./docstyle.ts";
@@ -436,7 +436,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_figure", title: "Draw a figure", hints: ADD, outputSchema: CHANGE, done: "drew a figure",
-    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. The result gives each part's id by place, and its box. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
+    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. The result gives each part's id by place, and its box. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
     inputSchema: obj({ panels: list(PANEL, 8, 1), number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true, description: "{O: '#C42B2B', OSiPh3: '#E0352B'}" }, width: num(5, 300, "Bond lengths; by default the page inside its margins (about 35 on A4 in ACS style)"), ...placing("at") }, ["panels"]),
     run: drawFigure, place: true,
   },
@@ -513,10 +513,28 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
   if (!mapped) return mol;
   return pickPart(clearScheme(alignByMap(mapped, steps), r.atoms), [...r.atoms]);
 }
+// A label an AI app gives, as Octet keeps one: from its attachment atom, so that it is drawn the right way round on
+// either side of its bond (MeO as OMe: labels.ts attachmentFirst). NC is the nitrile written from the left (NC–R), as
+// an AI app copies it from a picture: Octet's own reading of NC, bond on N, is an isocyanide.
+const kept = (label: string) => (label === "NC" ? "CN" : attachmentFirst(label));
+// An atom with the label an AI app gives it, set as the editor sets a typed label. Ar on an atom with a bond is an
+// aryl group, as it is for a *: argon has no bonds.
+function labelled(m: Mol, i: number, label: string): Mol {
+  const text = kept(label);
+  return text === "Ar" && m.bonds.some((b) => b.atoms.includes(i)) ? { ...m, atoms: m.atoms.map((x, k) => (k === i ? { ...x, label: "*", text, runs: undefined } : x)) } : setLabel(m, i, text);
+}
+// A sentence for a result that names each label Octet reads no group in and that stands in for none (R, X, Ar, OR),
+// so no reply is silent on a group Octet did not read. A label set as text only, or of more than one word, is not
+// chemistry by design: it is not named.
+function unreadNote(atoms: Atom[]): string {
+  const unread = [...new Set(atoms.flatMap((x) => {
+    const t = x.text && x.chemical !== false ? chemicalText(x.text, x.runs)! : "";
+    return t && !/\s/.test(t) && !labelSmiles(t) && !units(t).some((u) => standsIn(u.text)) ? [x.text!] : [];
+  }))];
+  return unread.length ? ` Octet does not know the label${unread.length > 1 ? "s" : ""} ${unread.join(", ")}: ${unread.length > 1 ? "they are" : "it is"} drawn as text.` : "";
+}
 // Each compound read; the texts Octet cannot read (failed); what is wrong with the rest (wrong: a molecule with a
-// bond to no atom, labels that do not fit the *s); and a sentence for the result (note) that names each label Octet
-// reads no group in and that stands in for none (R, X, Ar, OR), so no reply is silent on a group Octet did not read.
-// A label set as text only, or of more than one word, is not chemistry by design: it is not named.
+// bond to no atom, labels that do not fit the *s); and unreadNote for all of them (note).
 async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[]; note: string }> {
   await host.ready();
   const ok: Read[] = [], failed: string[] = [], wrong: string[] = [];
@@ -540,7 +558,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
       if (stars.length !== it.labels.length) { wrong.push(`"${text.slice(0, 60)}" has ${stars.length} * but ${it.labels.length} labels were given.`); continue; }
       // Each stays a generic group (a * atom) with the label written on it: Ar is an aryl here, not argon.
-      const at = new Map(stars.map((i, j) => [i, clean(it.labels![j])]));
+      const at = new Map(stars.map((i, j) => [i, kept(clean(it.labels![j]))]));
       mol = { ...mol, atoms: mol.atoms.map((x, i) => (at.get(i) ? { ...x, text: at.get(i) } : x)) };
     }
     if (hinted(it)) {
@@ -550,11 +568,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     }
     ok.push({ mol: asLike(mol), text, number, named: host.named(text) });
   }
-  const unread = [...new Set(ok.flatMap((s) => s.mol.atoms.flatMap((x) => {
-    const t = x.text && x.chemical !== false ? chemicalText(x.text, x.runs)! : "";
-    return t && !/\s/.test(t) && !labelSmiles(t) && !units(t).some((u) => standsIn(u.text)) ? [x.text!] : [];
-  })))];
-  return { ok, failed, wrong, note: unread.length ? ` Octet does not know the label${unread.length > 1 ? "s" : ""} ${unread.join(", ")}: ${unread.length > 1 ? "they are" : "it is"} drawn as text.` : "" };
+  return { ok, failed, wrong, note: unreadNote(ok.flatMap((s) => s.mol.atoms)) };
 }
 // Runs as Octet keeps them (TextRun): control characters out (spaces kept), each colour #rrggbb; or what is wrong.
 function runsOf(r: RunIn[]): TextRun[] | string {
@@ -582,7 +596,7 @@ function fromMolecule(x: MoleculeIn): Mol | string {
     const runs = a.runs && runsOf(a.runs);
     if (typeof runs === "string") return `molecule: atom ${i}: ${runs}.`;
     const label = runs ? plain(runs) : clean(a.label ?? "");
-    if (label) m = setLabel(m, i, label);
+    if (label) m = runs ? setLabel(m, i, label) : labelled(m, i, label);
     // Runs keep their styles on a written label (an M with a superscript IV).
     if (runs && runs.some((r) => Object.keys(r).length > 1)) m = { ...m, atoms: m.atoms.map((y, k) => (k === i ? { ...y, text: label, runs } : y)) };
     if (a.charge || a.colour) m = { ...m, atoms: m.atoms.map((y, k) => (k === i ? { ...y, ...(a.charge ? { charge: a.charge } : {}), ...(a.colour ? { colour: a.colour } : {}) } : y)) };
@@ -1332,14 +1346,15 @@ async function edit(host: Host, a: Edit): Promise<Result> {
   });
   const STYLE = ["bold", "italic", "underline", "size", "font"];
   // scale and ring_fill go through the Actions panel's own actions, on everything they fit, once all else is done.
-  const scaled = { atoms: new Set<number>(), items: new Set<number>() }, filled = new Set<number>();
+  const scaled = { atoms: new Set<number>(), items: new Set<number>() }, filled = new Set<number>(), relabelled: Atom[] = [];
   for (const id of a.ids) {
     const bond = bondOf(m, id, host), atom = bond === undefined ? atomOf(m, id, host) : undefined, structure = atom === undefined && bond === undefined ? structureOf(m, id, host) : undefined;
     const n = Number(/^[tac](\d+)$/.exec(id)?.[1]), caption = m.captions?.find((c) => c.id === n && id.startsWith("t")), arrow = m.arrows?.find((x) => x.id === n && id.startsWith("a")), shape = m.shapes?.find((x) => x.id === Number(/^b(\d+)$/.exec(id)?.[1]));
     if (atom !== undefined) {
       const use = fits(id, ["label", "runs", "charge", "isotope", "radical", "lone_pairs", "bars", "enhanced", "align", "colour", "highlight", "atom_number", "hidden", "chemical", "label_angle", "query", "scale", "ring_fill", "ignore_warnings", ...STYLE]);
-      if (use.includes("label") && a.label!.trim()) m = setLabel(m, atom, clean(a.label!));
+      if (use.includes("label") && a.label!.trim()) m = labelled(m, atom, clean(a.label!));
       if (use.includes("runs") && runs) { const t = plain(runs); m = setLabel(m, atom, t); m = { ...m, atoms: m.atoms.map((x, k) => (k === atom ? { ...x, text: t, runs } : x)) }; }
+      if (use.includes("label") || use.includes("runs")) relabelled.push(m.atoms[atom]);
       const change: Partial<Atom> = textOf(use);
       if (use.includes("charge")) change.charge = Math.max(-8, Math.min(8, Math.round(a.charge!))) || undefined;
       if (use.includes("isotope")) change.isotope = a.isotope! >= 1 && a.isotope! <= 300 ? Math.round(a.isotope!) : undefined;
@@ -1453,7 +1468,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
     await host.settle();
   }
   if (scaled.atoms.size || scaled.items.size || filled.size) { host.select([], []); await host.settle(); }
-  return { text: `Changed ${done.join(", ")}: ${props.join(", ")}.${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${UNDO}` };
+  return { text: `Changed ${done.join(", ")}: ${props.join(", ")}.${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${unreadNote(relabelled)}${UNDO}` };
 }
 const ARROW_KINDS_IN = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
 const SHAPE_KINDS_IN = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"];

@@ -1748,8 +1748,9 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
     if (polymer) { out.push(polymer); continue; }
     const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
     const abbreviation = cite && entries.length === 1 ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
-    // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
-    if (entries.length > 1 && part.atoms.some((a) => a.centre)) {
+    // A structure held together by multi-centre attachments (ferrocene), or with a label that is a salt (BF3K, a
+    // borate and its potassium ion), is one compound: its pieces are added together.
+    if (entries.length > 1) {
       const total: Record<string, number> = {};
       for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
       out.push({ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) });
