@@ -86,3 +86,18 @@ generic labels goes only to Reaxys.
   Octet yet, because their link forms are not tested.
 - "Google Scholar", "Google Patents" and "SciFinder" are trademarks of Google and CAS, used here only to name the
   sites.
+
+## Update, 11 November 2026: the Properties panel asks PubChem for CAS numbers
+
+Issue #121: the Properties panel has a CAS number row. Octet looks each structure up by its standard InChIKey in its
+dictionary (data/names, offline). For a structure the dictionary does not have, with Online search on, Octet asks
+PubChem's PUG REST service for the compound's synonyms and shows the first CAS number in them, which is PubChem's
+main one (`src-tauri/src/pubchem.rs`, `pubchem_cas`).
+
+This is the first PubChem request the user does not start with a key or a button. It runs only while the Properties
+panel is open, after the drawing has been still for a second, one structure at a time and at most one request a
+second, and once for each structure in a session. Only the InChIKey goes, to a fixed address, and Octet reads only
+a CAS number with a right check digit from the answer (at most 64 KB). With no network, or Online search off, the
+row shows only the dictionary's numbers and no message. An InChIKey cannot be turned back into a structure, but
+PubChem sees which compounds the user draws, so users who may not send unpublished structures to third parties
+can turn Online search off. Open for Sam: keep this automatic, or ask PubChem only when the user clicks the row.

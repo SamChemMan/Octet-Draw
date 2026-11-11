@@ -27,10 +27,13 @@ const JOBACK = "Joback group contributions (Joback and Reid, Chem. Eng. Commun. 
 const CRIPPEN = "Wildman–Crippen atom contributions (Wildman and Crippen, J. Chem. Inf. Comput. Sci. 1999, 39, 868), calculated by Indigo.";
 
 // The rows, in ChemDraw's two windows' order: analysis and tPSA (calculated from the structure), then the predicted
-// physical properties, then the predicted medicinal chemist's.
+// physical properties, then the predicted medicinal chemist's. The CAS number (in neither window) goes after the
+// formula.
 export const PROPERTY_ROWS: Row[][] = [
   [
     { key: "formula", name: "Formula", method: "Molecular formula of the drawn structure, with its implicit hydrogens (Indigo).", value: (s) => s.formula },
+    // Looked up after the panel has drawn (withCas), so it has no value here.
+    { key: "cas", name: "CAS number", method: "Looked up by the structure's standard InChIKey in Octet's dictionary (Wikidata and the FDA's UNII list). With Online search on, PubChem gives the numbers the dictionary does not have.", value: () => undefined },
     { key: "exact", name: "Exact mass", method: "Monoisotopic mass: the most abundant isotope of each element (Indigo).", value: (s, _, d) => (Number.isFinite(s.exact) ? massText(s, "exact", d ?? 4) : undefined) },
     { key: "weight", name: "Molecular weight", method: "Average mass from the standard atomic weights (Indigo).", value: (s, _, d) => massText(s, "weight", d ?? 2) },
     { key: "mz", name: "m/z", method: "Isotope pattern from the isotope masses and abundances in NIST Atomic Weights and Isotopic Compositions (Coursey et al., NIST, 2015); the six most intense peaks, relative to the largest.",
@@ -62,6 +65,12 @@ export function propertyValues(structures: Structure[], calc?: (s: Structure, g:
   return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k], places)) })).filter((r) => r.values.some((v) => v !== undefined)));
 }
 export type PropertyValues = ReturnType<typeof propertyValues>;
+// The values with each structure's CAS number in the CAS row, in its place. No row when no structure has a number.
+export function withCas(values: PropertyValues, cas: (string | undefined)[]): PropertyValues {
+  const count = values.flat()[0]?.values.length ?? 0, numbers = Array.from({ length: count }, (_, k) => cas[k]);
+  if (!numbers.some(Boolean)) return values;
+  return values.map((g, i) => (i ? g : PROPERTY_ROWS[0].flatMap((r) => (r.key === "cas" ? [{ ...r, values: numbers }] : g.filter((x) => x.key === r.key)))));
+}
 
 // The text Add to drawing writes for the rows with these keys: each row's name and value on a line, the formula's
 // counts as subscripts. k: one structure's values; unset, every structure's, separated by semicolons as in the panel.

@@ -245,6 +245,12 @@ export class NameTable {
   smiles(n: number): string | undefined {
     return n < 0 ? undefined : this.text(...this.fieldOf(n, 0));
   }
+  // Compound n's CAS numbers, in the table's order.
+  casNumbers(n: number): string[] {
+    const out: string[] = [];
+    if (n >= 0) this.each(this.fieldOf(n, 2), (a, b) => out.push(this.text(a, b)));
+    return out;
+  }
 
   // ——— Suggestions ———
   // Built in a worker thread when there is one (nametable.worker.ts), so the page does no more work than the lookups

@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
@@ -39,7 +39,7 @@ import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackCh
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
-import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
+import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -94,7 +94,7 @@ import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
-import { casProblem, nameList } from "./dictionary";
+import { casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
 import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
 import { NUCLEIC, nucleicProblem } from "./nucleic";
@@ -300,6 +300,8 @@ function calc(s: Structure, g: Graph) {
   if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
   return calculated.get(s);
 }
+// PubChem's CAS number for each InChIKey the Properties panel has asked for, once a session (null: none, or asking).
+const pubchemCas = new Map<string, string | null>();
 // A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
 // of colour or fill, and undo find them again at once. Kept by the bonds themselves too (which atoms each joins), so a
 // command that makes a new bond list with the same bonds (Rotate 180°, Flip) finds them at once: for 885 atoms that
@@ -6099,7 +6101,7 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [sweep, selection]);
   const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
-  const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues }>(undefined);
+  const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[] }>(undefined);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
@@ -6108,19 +6110,56 @@ export default function Editor() {
     const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : own ? [...own].sort((a, b) => a - b) : chem.mol.atoms.map((_, i) => i);
     const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
-    const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
+    const kept = groups.map((g, k) => ({ g, atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
+    // base and each structure's atoms in it, for the CAS row (a polymer has no CAS number).
+    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)) };
   }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
+  // The CAS row: each structure's number by its InChIKey, from the dictionary once the names engine has loaded it. It
+  // is looked up after the panel has drawn, 8 ms at a time with the window free between (and not while a glide runs),
+  // so an edit never waits for it, and the row keeps the numbers it had until then. For a structure the dictionary
+  // does not have, PubChem's number, when Settings > Online search is on: asked once the drawing has been still for a
+  // second, one structure a second, each once a session. With no network it has no number, and nothing shows.
+  const [casNumbers] = useState(() => store<(string | undefined)[]>([]));
+  const casLook = useRef<() => void>(undefined); // the lookup for the panel as it is now: PubChem's answer runs it
+  useEffect(() => {
+    if (!properties || !namesLoaded) return void casNumbers.set([]);
+    const online = TAURI && settings.onlineSearch, { parts, base } = properties, keys: (string | undefined)[] = [];
+    let timer = 0;
+    const look = () => {
+      clearTimeout(timer);
+      if (glidingNow.current) { timer = window.setTimeout(look, 100); return; }
+      const t0 = performance.now();
+      while (keys.length < parts.length && performance.now() - t0 < 8) { const g = parts[keys.length]; keys.push(g && drawnInchiKey(subset(base, new Set(g)))); }
+      if (keys.length < parts.length) { timer = window.setTimeout(look); return; }
+      casNumbers.set(keys.map((k) => (k ? dictionaryCas(k) ?? (online ? pubchemCas.get(k) ?? undefined : undefined) : undefined)));
+      const ask = online ? keys.find((k) => k && !pubchemCas.has(k) && !dictionaryCas(k)) : undefined;
+      if (ask) timer = window.setTimeout(() => {
+        pubchemCas.set(ask, null);
+        invoke<string | null>("pubchem_cas", { key: ask }).then((cas) => void pubchemCas.set(ask, cas), () => {}).finally(() => casLook.current?.());
+      }, 1000);
+    };
+    casLook.current = look;
+    // After the frame is drawn: a timer set in the frame's callback runs once the frame is on screen. A PubChem answer
+    // can run look before then, so its timer goes first (or that structure would be asked for twice).
+    const frame = requestAnimationFrame(() => { clearTimeout(timer); timer = window.setTimeout(look); });
+    return () => { casLook.current = undefined; cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [properties, namesLoaded, settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live values (Add to drawing): a moment after the drawing last changes, each caption's rows are worked out again for
   // its structure (liveValues), so no pointer move works them out. Never during a drag, a glide or typing. They go into
   // the change's own undo step (amend), so Undo never stops at them, and Space still picks what the change added.
+  // A caption with a CAS row waits for the dictionary, so its number stays while the names engine loads. Its number is
+  // the dictionary's, else the PubChem answer this session has for the structure.
   useEffect(() => {
     if (!loaded || gliding || drag || writing || !doc.captions?.some((c) => c.property?.attrs.rows)) return;
+    const cas = doc.captions.some((c) => c.property?.attrs.rows?.split(" ").includes("cas"));
+    if (cas && !namesLoaded) return;
     const t = setTimeout(() => {
       const next = liveValues(doc, (atoms, places) => {
-        const found = structures(subset(doc, new Set(atoms)))?.filter((s): s is Structure => !!s);
-        return found?.length ? propertyValues(found, calc, places) : undefined;
+        const part = subset(doc, new Set(atoms)), found = structures(part)?.filter((s): s is Structure => !!s);
+        if (!found?.length) return undefined;
+        const values = propertyValues(found, calc, places), key = cas && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
+        return key ? withCas(values, [dictionaryCas(key) ?? pubchemCas.get(key) ?? undefined]) : values;
       });
       if (next === doc) return;
       if (added.current?.mol === doc) added.current = { ...added.current, mol: next };
@@ -6128,7 +6167,7 @@ export default function Editor() {
       dispatch({ type: "amend", mol: next });
     }, 250);
     return () => clearTimeout(t);
-  }, [doc, loaded, gliding, drag, writing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doc, loaded, gliding, drag, writing, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
   const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
@@ -6827,10 +6866,11 @@ export default function Editor() {
   function addProperties() {
     if (!properties) return;
     const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k)), groups = fragments(doc);
+    const values = withCas(properties.values, casNumbers.get());
     let m = doc, id = 0;
     const items: number[] = [];
     properties.atoms.forEach((atoms, k) => {
-      const runs = propertyRuns(properties.values, chosen, k);
+      const runs = propertyRuns(values, chosen, k);
       if (!runs.length) return;
       const clean = normalise(runs), text = { text: plainOf(clean), ...(styled(clean) ? { runs: clean } : {}) };
       // A caption that counts as chemistry is an atom after the drawing's (chem): its values go under the caption.
@@ -9611,9 +9651,9 @@ export default function Editor() {
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
           onClose={() => closePanel("ms")} />
       )}</Live>}</Exit>
-      <Exit>{settings.properties && properties && (
+      <Exit>{settings.properties && properties && <Live store={casNumbers}>{(cas) => (
         <Properties
-          values={properties.values}
+          values={withCas(properties.values, cas)}
           chosen={settings.propertyRows}
           onChoose={(key) => setSettings((s) => ({ ...s, propertyRows: s.propertyRows.includes(key) ? s.propertyRows.filter((k) => k !== key) : [...s.propertyRows, key] }))}
           onCopy={(text) => runAction(`copy_text:${text}`)}
@@ -9623,7 +9663,7 @@ export default function Editor() {
           decimals={settings.decimals}
           onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
         />
-      )}</Exit>
+      )}</Live>}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();
         return (
