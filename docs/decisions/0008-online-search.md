@@ -65,3 +65,24 @@ Reaxys's website keeps its Query Builder form in the browser and, on a link, sea
 Decision 0015: with Online search on, Name to Structure asks PubChem's PUG REST service for a name or InChIKey that
 nothing offline reads, when the user presses Return. Octet makes that connection itself (`src-tauri/src/pubchem.rs`),
 with the updater's HTTPS client, to a fixed address. Only the typed text goes. Off, Octet asks nothing.
+
+## Update, 11 November 2026: Search SciFinder, Search Google Scholar and Search Google Patents
+
+Issues 113 and 115. The same rules apply: a press only, one search a second, Online search off hides them and the
+app refuses them, no logos, fixed hosts in `src-tauri/src/search.rs`. Each opens in the user's browser. A query with
+generic labels goes only to Reaxys.
+
+- Search SciFinder (the Search menu, the Actions panel and the palette): CAS publishes no address that carries a
+  structure. Its Structure Search API needs a client ID that CAS gives to partners. So Octet opens
+  `https://scifinder-n.cas.org/` and puts the selection's SMILES on the clipboard. CAS Draw's Add to Editor reads
+  SMILES, so the user pastes it there and chooses the search type in SciFinder. Nothing goes to CAS until the user
+  pastes. A one-press search needs a CAS client ID.
+- Search Google Scholar: Google Scholar has no structure search. Octet sends each structure's checked name as a
+  phrase in quotes, or its InChIKey when Octet has no name for it, to Google in `scholar.google.com/scholar?q=`.
+- Search Google Patents: Octet sends the selection's InChIKey to Google in `patents.google.com/?q=`. Google's
+  chemistry search reads an InChIKey as that structure, so this finds the same structure in patents. Google Patents
+  is free, needs no account, covers patents from many offices and documents its chemistry search syntax. SureChEMBL
+  documents no address that carries a structure. Substructure (`SSS=`) and similarity (`~`) searches are not in
+  Octet yet, because their link forms are not tested.
+- "Google Scholar", "Google Patents" and "SciFinder" are trademarks of Google and CAS, used here only to name the
+  sites.

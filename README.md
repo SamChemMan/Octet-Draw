@@ -91,8 +91,12 @@ It goes online only in these cases:
   when you press it.
 - **Search PubChem** opens PubChem (the US National Library of Medicine) in your browser with the selected
   structure in the address, only when you press it.
+- **Search SciFinder** opens SciFinder (CAS) in your browser and copies the selected structure's SMILES. Nothing
+  goes to CAS until you paste it there.
+- **Search Google Scholar** and **Search Google Patents** open Google in your browser with the selected structure's
+  name or InChIKey in the address, only when you press them.
 
-The structure stays in your browser's history. To hide both searches, turn off
+The structure stays in your browser's history. To hide the searches, turn off
 Settings > Import and export > Online search. See
 [decision 0008](docs/decisions/0008-online-search.md).
 

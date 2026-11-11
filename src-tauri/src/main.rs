@@ -994,6 +994,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
+        &sep()?,
+        &item("search_scifinder", "Search SciFinder", "")?,
+        &sep()?,
+        &item("search_scholar", "Search Google Scholar", "")?,
+        &item("search_patents", "Search Google Patents", "")?,
     ])?;
     // Window: Minimize and Full Screen where the system has them (GTK on Linux has neither, Windows has no full screen
     // item), then the open drawings. The Mac lists the windows itself (set_bar); Windows and Linux list them here.

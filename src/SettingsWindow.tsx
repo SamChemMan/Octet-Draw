@@ -70,7 +70,7 @@ type Props = {
   onLabelReturnNewLine: (on: boolean) => void;
   panelMenus: boolean; // the Actions panel's sets as menus, not sections
   onPanelMenus: (menus: boolean) => void;
-  onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008)
+  onlineSearch: boolean; // The online searches are offered (decision 0008)
   onOnlineSearch: (on: boolean) => void;
   moreFormats: boolean; // File > More Formats is in the File menu
   onMoreFormats: (on: boolean) => void;
@@ -606,8 +606,8 @@ export function SettingsWindow(p: Props) {
         <Switch on={p.warningTypes[w.id] ?? w.on} label={w.name} onChange={(on) => p.onWarningTypes({ ...p.warningTypes, [w.id]: on })} />
       ))),
       d("general", "Check Structure", "Check when copying or exporting", "check structure copy export clipboard warnings", <Switch on={p.checkCopy} label="Check when copying or exporting" onChange={p.onCheckCopy} />),
-      // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
-      d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
+      // Off hides the online searches everywhere (decision 0008).
+      d("files", "Online", "Online search", "online search reaxys pubchem scifinder google scholar patents internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
       // On shows File > More Formats, with the rare formats to import and export.
       d("pro", "File menu", "More formats", "more formats rare file import export open save menu submenu extra", <Switch on={p.moreFormats} label="More formats" onChange={p.onMoreFormats} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
