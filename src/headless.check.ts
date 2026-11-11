@@ -545,6 +545,19 @@ try {
     assert.ok(!(await call("draw", salt(tosylate))).isError);
     assert.deepEqual(await failed("paper-three-step"), tosylate ? [] : ["a tosylate with each salt drawn as its cation"]);
   }
+  // The models' own lines for the three-step jobs (round 3b, where 10 of 12 tries lost 11a): Haiku's start line with a
+  // + and no arrow (read as one salt 11a), and Opus's and Haiku's 11a among the first step's conditions (drawn as text).
+  // Each draws 11a as a starting material in one call, check clean, and meets the judge's checks.
+  const H = `piribedil + but-3-en-1-yl tosylate (11a)
+-> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a)
+-> c1cnc(nc1)N1CC[N+](CCCCB2C3CCCC2CCC3)(Cc2ccc3OCOc3c2)CC1.Cc1ccc(cc1)S(=O)(=O)[O-] (13a), 9-BBN–H
+-> c1cnc(nc1)N1CCN(CCCCCc2ccc3OCOc3c2)CC1 (14a), SPhos·Pd-G3, t-BuOK, 47%`, O = H.replace(" + but-3-en-1-yl tosylate (11a)", "").replace("[O-] (12a)", "[O-] (12a), Cc1ccc(cc1)S(=O)(=O)OCCC=C (11a)");
+  for (const l of [H, O, O.replace("Cc1ccc(cc1)S(=O)(=O)OCCC=C", "but-3-en-1-yl tosylate")]) {
+    d = drawing("paper", "Round 3c");
+    const r = (await call("draw", { lines: l, brief: "quick" })).structuredContent;
+    assert.ok(r.check === "clean" && r.compounds.length === 5 && r.compounds.some((c: string) => /^11a s\d+ C11H14O3S\b/.test(c)), JSON.stringify(r));
+    assert.deepEqual(await failed("paper-three-step"), [], l);
+  }
   d = drawing("paper", "A scope from names");
   const R = "CCCC(CC(c1ccccc1)c1ccccc1)";
   const scope = { "7a": "N1CCC(CC1)c1ccccc1", "7b": "N1CCC(CC1)C(F)(F)F", "7c": "N1CCN(CC1)C(=O)OC(C)(C)C", "7d": "N1C[C@@H](C)O[C@@H](C)C1", "7e": "N1C[C@H]2C[C@H]2C1", "7f": "N1CC2CC(C1)c1ccccc12", "7g": "N1C2CCC1CC(=O)C2", "7h": "N1CC(OC)C1", "7i": "N(CC)C1CCCCC1", "7j": "N(C)CCOC", "7k": "N(C)C" };

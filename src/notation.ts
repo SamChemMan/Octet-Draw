@@ -7,15 +7,17 @@
 // Anything with one meaning is read; anything with two is refused with both named. Nothing here touches the drawing.
 import { isElement } from "./labels.ts";
 import { NAMED, TO, WITH } from "./named.ts";
+import { looksLikeSmiles } from "./names.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
-// them: a route from a lone numbered compound, and a second scheme from it by its number with lettered parts on one
-// arrow; a scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+// them: a route from its starting materials on a line of their own (the second one joined by +, as models put it with
+// the conditions when the example did), and a second scheme from it by its number with lettered parts on one arrow; a
+// scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
 export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Biaryl 3
-4-bromoanisole (2)
--> 4-methoxybiphenyl (3), PhB(OH)2, Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
+4-bromoanisole (2) + PhB(OH)2
+-> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
 # Triflate 4
 3 -> 3[OMe>OTf] (4), (a) BBr3, CH2Cl2, −78 °C, 78%; (b) Tf2O, pyridine, 90%
 
@@ -35,7 +37,7 @@ type Compound = { text?: string; labels?: string[]; from?: string; changes?: Cha
 type Change = Record<string, unknown>;
 type Side = "above" | "below";
 type Line = string | Compound;
-type Step = { products: Compound[]; label?: string; arrow?: string; reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string; above?: Line[]; below?: Line[] };
+type Step = { products: Compound[]; more?: Compound[]; label?: string; arrow?: string; reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string; above?: Line[]; below?: Line[] };
 type Op = { tool: string; args: Record<string, unknown> };
 // A reaction as read: its compounds, and each arrow with what follows its products, read once Octet knows whether the
 // chain is a cycle. asides: what goes in or out written against a compound (cat +ArBr), with the step (-1 the start)
@@ -318,6 +320,13 @@ function conditions(s: string, known: Set<string>, cycle: boolean): Omit<Step, "
     // A part taken away (− H2O, − e−) goes under the arrow, and one added (+ H+) over it, each as written.
     if (/^[-−](?=\s|\D)/.test(t) && !/^[-−]\s*\d/.test(t)) { free("below", "less", t); continue; }
     if (/^\+/.test(t)) { free("above", "more", t); continue; }
+    // A compound with its number ((12a), but-3-en-1-yl tosylate (11a)) is one of the scheme's, not a reagent's name; a
+    // SMILES with no number is drawn too, as its text over an arrow says nothing to a reader (round 3c). Only one with a
+    // double or triple bond or an aromatic ring closed, and no count after a bracket: a formula or an abbreviation can
+    // look like one (NBS, SOCl2, Boc2O, Cs2CO3, [Zn](SO2CF3)2). A number is the scheme's only after a reagent, when it
+    // is no amount (NaH (2eq), H2 (1atm), rt (16h) stay conditions) and no compound has it yet (Pd2(dba)3 (2) after 2).
+    const c = /[)\]]$/.test(t) || looksLikeSmiles(t) ? compound(t, known) : undefined;
+    if (c && typeof c !== "string" && c.text !== undefined && (c.number ? REFERENCE.test(c.number) && !/^\d+(?:h|min|d|s|eq|atm|bar|vol)$/.test(c.number) && !known.has(c.number) && kindOf(c.text) === "reagents" :/[=#]|[a-z](\d).*\1/.test(c.text) && !/\)\d/.test(c.text) && looksLikeSmiles(c.text))) { (out.more ??= []).push(c); continue; }
     const k = kindOf(t);
     if (k === "below") { free("below", k, t); continue; }
     last = undefined;
@@ -392,7 +401,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (no) return `Line ${x.at}: ${no}`;
   }
   const known = new Set<string>(), ops: Op[] = [];
-  let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound | undefined;
+  let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound[] | undefined;
   const add = (c: Compound, at: number) => { if (c.number) known.add(c.number); if (c.text !== undefined && where && !where.has(written(c as { text: string }))) where.set(written(c as { text: string }), at); };
   // What is wrong with a line, with the line as Octet would have it when it can work that out (fixed).
   const wrong = (at: number, why: string) => { const l = all.find((x) => x.at === at)?.line, [no, from, to] = why.split("\u0000"); return `Line ${at}: ${no}${from !== undefined && l?.includes(from) ? `. Write: ${l.replace(from, to)}` : ""}`; };
@@ -460,9 +469,13 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       ops.push(...c.heads.map((h) => ({ tool: "text", args: { text: h } })));
       free(c.defs);
       const steps: Step[] = [];
-      for (const s of c.steps) {
-        const x = conditions(s.conditions, known, false);
-        if (typeof x === "string") return wrong(s.line, x);
+      for (const [k, s] of c.steps.entries()) {
+        const read = conditions(s.conditions, known, false);
+        if (typeof read === "string") return wrong(s.line, read);
+        // A compound among a step's conditions: with its number, a starting material of the first step, else drawn
+        // over its arrow as an added reactant is.
+        const { more, ...x } = read as Step;
+        for (const y of more ?? []) { add(y, s.line); if (!k && y.number) c.start.push(y); else (s.added ??= []).push(y); }
         for (const y of [...((x as Step).above ?? []), ...((x as Step).below ?? [])]) if (typeof y !== "string") add(y, s.line);
         steps.push({ ...x, ...(s.added ? { above: [...s.added, ...((x as Step).above ?? [])] } : {}), ...(s.arrow !== "reaction" ? { arrow: s.arrow } : {}), products: s.products } as Step);
       }
@@ -487,7 +500,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       }
     }
   };
-  for (const { line: typed, at } of all) {
+  for (const [i, { line: typed, at }] of all.entries()) {
     let line = typed;
     const was = lone;
     lone = undefined;
@@ -528,12 +541,12 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       if (!parts[0]) {
         // A compound alone on the line before (the first of its panel, under its title) is the start.
         const p = grid?.[grid.length - 1];
-        if (!chain && was && p?.rows.length === 1 && p.rows[0][0] === was) {
+        if (!chain && was && p?.rows.length === 1 && p.rows[0] === was) {
           grid!.pop();
           if (!grid!.length) grid = undefined;
           const no = flush();
           if (no) return no;
-          chain = begin([was], p.heads.map((h) => head(h)[2]));
+          chain = begin(was, p.heads.map((h) => head(h)[2]));
         }
         if (!chain) return `Line ${at} starts with an arrow, but there is no compound before it to go on from: write the starting material first`;
         reactants = chain.steps.length ? chain.steps[chain.steps.length - 1].products : chain.start;
@@ -581,7 +594,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (chain) { const no = flush(); if (no) return no; }
     grid ??= [{ heads, rows: [] }];
     heads = [];
-    const row: Cell[] = [], rows = grid[grid.length - 1].rows;
+    // Compounds joined by + with an arrow at the start of the next line are its starting materials, as A + B -> C
+    // has them (a salt is one SMILES with a dot, or one name).
+    const row: Cell[] = [], rows = grid[grid.length - 1].rows, starts = !core && / \+ /.test(line) && !line.includes("|") && !!arrowAt(all[i + 1]?.line ?? "", 0);
     for (const { text: t0 } of cut(line, (i) => (line[i] === "|" || (line[i] === ";" && core?.next.test(line.slice(i + 1, i + 40))) ? 1 : 0))) {
       let t = t0.trim().replace(/^then\s+/i, "");
       if (!t) continue;
@@ -603,12 +618,13 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         c = compound(core.text.replace(/\{([^{}]+)\}/g, (_, k: string) => `{${values.get(k.trim()) ?? k}}`), known);
         // (Marked in where with =: a group given here that is no label is a structure, joined in its place.)
         if (typeof c !== "string") { c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) }; where?.set(`=${written(c as { text: string })}`, at); }
-      } else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
+      } else if (starts) { const made = compounds(t, [], at); if (typeof made === "string") return made; row.push(...made); continue; }
+      else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
       if (typeof c === "string") return wrong(at, c);
       row.push(c); add(c, at);
     }
     rows.push(row);
-    if (rows.length === 1 && row.length === 1 && !("note" in row[0])) lone = row[0];
+    if (rows.length === 1 && (row.length === 1 || starts) && !row.some((x) => "note" in x)) lone = row as Compound[];
   }
   const no = flush();
   if (no) return no;
