@@ -641,4 +641,29 @@ else {
   assert.ok(fragments(t).slice(0, 2).every((g) => ink(t)(g)[1] > 0), "the first line's structures are above their arrow's level");
   for (const id of ids) assert.deepEqual(find(t, id).arrows, ids);
 }
+// A caption under a structure, wider than it (an AI app's "single diastereomer, 85%" under compound 2). Clean Up
+// Reaction gives the caption room, so the structure's atoms stand further than REACH from the arrow each side. The
+// row is still one reaction of two steps from either arrow, and a second Clean Up Reaction moves nothing. With a
+// short caption the atoms are a gap from each arrow, as before.
+for (const caption of ["85%", "single diastereomer, 85%, used crude"]) {
+  let t: Mol = { ...EMPTY, style: readStyle({}) }, x = 0;
+  const ids: number[] = [];
+  for (let k = 0; k < 3; k++) {
+    const ring = t.atoms.length, under = [0, 1, 2, 3, 4, 5].map((i) => ring + i);
+    t = addRing(t, 6, true, { point: [x, 0] });
+    t = addCaption(t, { text: String(k + 1), x: 0, y: 0, bold: true, under })[0];
+    if (k === 1) t = addCaption(t, { text: caption, x: 0, y: 0, under })[0];
+    if (k === 2) break;
+    let id: number;
+    [t, id] = addArrow(t, { kind: "reaction", from: [x + 2.5, 0], to: [x + 5.5, 0] });
+    ids.push(id);
+    x += 8;
+  }
+  const once = cleanAll(t, () => true).mol, d = drawn(once), rings = fragments(once).map((g) => d.ink(g)!), [first, second] = ids.map((id) => d.arrows.find((a) => a.id === id)!);
+  const apart = [rings[1][0] - first.to[0], second.from[0] - rings[1][2]];
+  assert.ok(caption.length < 5 ? apart.every((v) => Math.abs(v - gap) < 0.3) : apart.every((v) => v > 3.5), `${caption}: the atoms ${apart.map((v) => v.toFixed(1))} from the arrows`);
+  for (const id of ids) assert.deepEqual(findReaction(once, id, d.arrows, d.ink, d.captionBox)?.arrows, ids, `${caption}: one reaction from arrow ${id}`);
+  const twice = cleanAll(once, () => true).mol;
+  assert.deepEqual(twice.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), once.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), `${caption}: a second clean-up moves nothing`);
+}
 console.log("reaction.check: ok");

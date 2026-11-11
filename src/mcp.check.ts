@@ -10,7 +10,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandLabels, mapReaction, parseStructure, ready, toSmiles } = await import("./chem.ts");
+const { analyse, expandLabels, mapReaction, parseStructure, ready, toMolfile, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
@@ -48,10 +48,23 @@ const host: Host = {
 };
 let n = 0;
 const send = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }), () => host, "1.2.0", { client: "Test", session: "s-1" }));
-const call = async (name: string, args: unknown) => (await send("tools/call", { name, arguments: args })).result as { content: { type: string; text?: string; data?: string }[]; isError?: true };
+// A value against a tool's outputSchema (the parts of JSON Schema the tools use).
+const fits = (s: any, v: any): boolean => !s?.type || (s.type === "object" ? !!v && typeof v === "object" && !Array.isArray(v) && (s.required ?? []).every((k: string) => v[k] !== undefined) && Object.entries(s.properties ?? {}).every(([k, p]) => v[k] === undefined || fits(p, v[k])) : s.type === "array" ? Array.isArray(v) && v.every((x) => fits(s.items, x)) : typeof v === s.type);
+// The most characters a reply has when nothing more was asked for (no detail: full, atoms, picture or file): test plan P2.
+const MOST = 20_000;
+// Every call in these checks: its structuredContent fits the tool's outputSchema (the specification's MUST), and a
+// default reply is at most MOST characters.
+const call = async (name: string, args: any) => {
+  const asked = JSON.stringify(args ?? null), out = (await send("tools/call", { name, arguments: args })).result as { content: { type: string; text?: string; data?: string }[]; isError?: true; structuredContent?: any };
+  if (out.structuredContent) assert.ok(fits(TOOL_TABLE.find((t) => t.name === name)!.outputSchema, out.structuredContent), `${name}: structuredContent does not fit its outputSchema: ${JSON.stringify(out.structuredContent).slice(0, 300)}`);
+  const size = out.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
+  if (name !== "get_file" && !/"detail":"full"|"atoms":true/i.test(asked)) assert.ok(size <= MOST, `${name}: a default reply of ${size} characters`);
+  return out;
+};
 const text = (r: { content: { text?: string }[] }) => r.content[0].text!;
 const fresh = () => { m = EMPTY; steps = []; said = []; picked = { atoms: [], items: [] }; experiment = false; };
-const read = async () => JSON.parse(text(await call("read_drawing", {})));
+// The drawing in full (a read's default is the summary, checked on its own below).
+const read = async () => JSON.parse(text(await call("read_drawing", { detail: "full" })));
 
 // The protocol: initialize answers the version asked for (or the newest), with Octet's instructions.
 let r = await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "x", version: "1" } });
@@ -111,6 +124,23 @@ const refused: [string, unknown, RegExp][] = [
   ["run_command", { command: "quit" }, /no command quit/],
   ["set_style", { preset: "Comic Sans" }, /not one of/],
   ["read_drawing", [], /not an object/],
+  // The look-alikes of the lenient readings (test plan R2): each has no meaning, or more than one, and stays refused.
+  ["draw_structures", { structures: [{ text: "benzene", number: true }] }, /structures\[0\]\.number: not text/],
+  ["draw_structures", { structures: [{ text: "benzene", number: [13] }] }, /structures\[0\]\.number: not text/],
+  ["draw_structures", { structures: [{ text: "benzene", number: 1234567890123 }] }, /number: longer than 12/],
+  ["draw_structures", { structures: [{ text: "benzene", number: "1 (paclitaxel) x" }] }, /number: longer than 12/],
+  ["draw_structures", { structures: [{ text: "benzene", labels: [13] }] }, /labels\[0\]: not text/],
+  ["draw_structures", {}, /structures is missing/],
+  ["set_number", { structure: 13, number: "1" }, /structure: not text/],
+  ["get_file", { format: "molfile" }, /format: not one of cdxml, mol, mol2000, sdf, rxn, smiles, inchi, cdx/],
+  ["get_file", { format: "..mol" }, /format: not one of/],
+  ["get_file", { format: "m ol" }, /format: not one of/],
+  ["get_file", { format: "constructor" }, /format: not one of/],
+  ["get_file", { format: 5 }, /format: not text/],
+  ["get_file", {}, /format is missing/],
+  ["read_drawing", { detail: "long" }, /detail: not one of summary, full/],
+  ["new_drawing", { for: "book" }, /for: not one of paper, thesis, slides, poster, experiment, quick/],
+  ["new_drawing", { for: null }, /for: not text/],
 ];
 for (const [name, args, why] of refused) {
   const out = await call(name, args);
@@ -124,7 +154,7 @@ assert.equal(steps.length, 0);
 fresh();
 let out = await call("draw_reaction", { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] });
 assert.ok(!out.isError, text(out));
-assert.match(text(out), /acetic acid \+ ethanol → ethyl acetate \(1\) \+ water/);
+assert.equal(text(out).split("\n")[0], "Drew the reaction. Octet laid it out with Clean Up Reaction. One undo step.");
 assert.equal(steps.length, 1);
 assert.equal(open, 0);
 assert.deepEqual(said, ["Test drew a reaction."]);
@@ -224,7 +254,8 @@ assert.deepEqual(m.captions!.filter((x) => x.on || x.text === "1").map((x) => x.
 // A warning reaches the AI app: carbon with five bonds, in the drawing's result and in read_drawing.
 fresh();
 out = await call("draw_structures", { structures: [{ text: "CC(C)(C)(C)C" }] });
-assert.match(text(out), /Octet warns: .*(five|5) bonds/i);
+assert.match(out.structuredContent.warnings.join(), /(five|5) bonds/i);
+assert.match(text(out), /"warnings":\[".*(five|5) bonds/i);
 assert.match((await read()).warnings[0].message, /five bonds|5 bonds/i);
 
 // Deleting a reaction's structures takes the plus sign between them.
@@ -248,10 +279,11 @@ await call("set_number", { structure: d.structures[0].id, number: "" });
 assert.deepEqual((await read()).structures.map((s: { number?: string }) => s.number), [undefined, "8"]);
 assert.equal((await read()).drawing.id, "draw-1");
 
-// Results (D9): structuredContent with the drawing, what was made, changed and deleted, and the names given.
+// Results (D9), with detail: full: structuredContent with the drawing, what was made, changed and deleted, and the
+// names given.
 fresh();
 type Change = { drawing: { id: string }; made: string[]; changed: string[]; deleted: string[]; names?: { given: string; formula?: string }[]; warnings: string[] };
-let sc = (await call("draw_structures", { structures: [{ text: "benzene", number: "1" }, { text: "water" }] }) as unknown as { structuredContent: Change }).structuredContent;
+let sc = (await call("draw_structures", { structures: [{ text: "benzene", number: "1" }, { text: "water" }], detail: "full" }) as unknown as { structuredContent: Change }).structuredContent;
 assert.equal(sc.drawing.id, "draw-1");
 assert.equal(sc.made.filter((x) => x.startsWith("s")).length, 2);
 assert.ok(sc.made.some((x) => x.startsWith("t")), "the number is made too");
@@ -259,7 +291,7 @@ assert.deepEqual(sc.names!.map((x) => [x.given, x.formula]), [["benzene", "C6H6"
 d = await read();
 const [benzene, water] = d.structures.map((s: { id: string }) => s.id);
 // A compound number is an id too (T6).
-sc = (await call("delete", { ids: ["1"] }) as unknown as { structuredContent: Change }).structuredContent;
+sc = (await call("delete", { ids: ["1"], detail: "full" }) as unknown as { structuredContent: Change }).structuredContent;
 assert.ok(sc.deleted.includes(benzene) && !sc.deleted.includes(water), JSON.stringify(sc));
 // Ids are never given again (D5): a new structure after a delete gets a new id, and the one left keeps its own.
 sc = (await call("draw_structures", { structures: [{ text: "toluene" }] }) as unknown as { structuredContent: Change }).structuredContent;
@@ -459,7 +491,8 @@ assert.match(r.result.messages[0].content.text, /draw_reaction[\s\S]*Benzaldehyd
 assert.equal((await send("prompts/get", { name: "nope" })).error.code, -32602);
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: {} })).error.code, -32602, "a missing argument");
 assert.equal((await send("prompts/get", { name: "draw_scheme", arguments: { text: "x".repeat(20_001) } })).error.code, -32602, "too long");
-assert.ok((await send("prompts/get", { name: "check_drawing" })).result.messages[0].content.text.includes("read_drawing"));
+// (The default read has no SMILES, and the chemistry cannot be judged from formulas: the prompt asks for them.)
+assert.ok((await send("prompts/get", { name: "check_drawing" })).result.messages[0].content.text.includes("read_drawing with smiles: true"));
 
 // Resources (D12): the drawings, and this drawing as JSON, CDXML and a picture; another drawing is not found.
 host.windows = async () => [{ id: "draw-1", name: "Untitled", edited: true }];
@@ -483,9 +516,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const res = (await call("draw_structures", { structures: [{ text: "benzene" }, { text: "toluene" }], picture: true })) as unknown as { structuredContent: Change & { boxes: Record<string, number[]> }; content: { type: string; text?: string }[] };
   const sc = res.structuredContent, d = await read();
   assert.deepEqual(Object.keys(sc.boxes).sort(), [...sc.made].sort());
-  // A number is in its structure's box: the result gives no box of its own for it.
-  const numbered = (await call("draw_structures", { structures: [{ text: "phenol", number: "4" }] })) as unknown as { structuredContent: Change & { boxes: Record<string, number[]> } };
-  assert.ok(numbered.structuredContent.made.some((id) => id.startsWith("t")) && Object.keys(numbered.structuredContent.boxes).every((id) => id.startsWith("s")), JSON.stringify(numbered.structuredContent));
+  // A number is in its structure's box: the result gives no box of its own for it, and lists it as made only in full.
+  for (const full of [true, false]) {
+    const numbered = (await call("draw_structures", { structures: [{ text: "phenol", number: "4" }], ...(full ? { detail: "full" } : {}) })) as unknown as { structuredContent: Change & { boxes: Record<string, number[]> } };
+    assert.ok(numbered.structuredContent.made.some((id) => id.startsWith("t")) === full && Object.keys(numbered.structuredContent.boxes).every((id) => id.startsWith("s")), JSON.stringify(numbered.structuredContent));
+  }
   for (const st of d.structures) assert.deepEqual(sc.boxes[st.id], st.box, st.id);
   assert.equal(res.content[1].type, "image");
   const [, crop, longest] = crops[0] as [unknown, number[], number];
@@ -535,7 +570,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(tb.at[0] > ref.box[2], JSON.stringify(tb));
   assert.ok((await call("move", { ids: [t], dx: 1, to: [0, 0] })).isError);
   assert.ok((await call("move", { ids: [t] })).isError);
-  mv = await call("move", { ids: [ref.id], to: [0, 0] });
+  mv = await call("move", { ids: [ref.id], to: [0, 0], detail: "full" });
   const moved = (mv as unknown as { structuredContent: { boxes: Record<string, number[]> } }).structuredContent.boxes[ref.id];
   assert.ok(near((moved[0] + moved[2]) / 2, 0) && near((moved[1] + moved[3]) / 2, 0), JSON.stringify(moved));
 }
@@ -603,7 +638,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     { tool: "add_text", args: { text: "Figure 1", below: "$1.s[0]", align: "left" } },
     { tool: "edit", args: { ids: ["$2.t[0]"], bold: true, picture: true } },
     { tool: "add_shape", args: { kind: "box", around: ["$1.s"] } },
-  ] });
+  ], detail: "full" });
   assert.ok(!out.isError, text(out));
   assert.equal(steps.length, 1, "one undo step");
   assert.match(text(out), /Did 4 steps as one undo step:\n1\. Drew 2 structures/);
@@ -618,6 +653,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     [[{ tool: "edit", args: { ids: ["$1.s[0]"], colour: "#ff0000" } }], /Step 1 \(edit\) names step 1/],
     [[{ tool: "batch", args: {} }], /steps\[0\]\.tool: not one of/],
     [[{ tool: "draw_structures", args: { structures: [{ text: 5 }] } }], /Step 1 \(draw_structures\): structures\[0\]\.text: not text/],
+    // "$1.made" where one id is needed, when step 1 made two top-level objects: no one meaning, so refused as before.
+    [[{ tool: "draw_structures", args: { structures: [{ text: "water" }, { text: "benzene" }] } }, { tool: "add_text", args: { text: "x", below: "$1.made" } }], /Step 2 \(add_text\): \$1\.made names 2 objects here: give one, as \$1\.made\[0\]/],
+    [[{ tool: "draw_structures", args: { structures: [{ text: "water" }, { text: "benzene" }] } }, { tool: "add_text", args: { text: "x", below: "$1.s" } }], /Step 2 \(add_text\): \$1\.s names 2 objects here/],
     [Array(41).fill({ tool: "delete", args: { ids: ["s1"] } }), /more than 40/],
     [[{ tool: "draw_structures", args: { structures: [{ text: "water" }] } }, { tool: "draw_structures", args: { structures: [{ text: "not a compound at all" }] } }], /Step 2 \(draw_structures\) failed: Octet drew nothing/],
   ];
@@ -654,7 +692,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const c = m.captions!.at(-1)!;
   assert.equal(c.text, "M = CeIV");
   assert.deepEqual(c.runs!.map((r) => [r.text, r.colour, r.script]), [["M = ", undefined, undefined], ["Ce", "#6B35B8", undefined], ["IV", undefined, "super"]]);
-  assert.deepEqual(JSON.parse(text(await call("read_drawing", {}))).text.at(-1).runs.length, 3);
+  assert.deepEqual((await read()).text.at(-1).runs.length, 3);
   out = await call("edit", { ids: [`t${c.id}`], runs: [{ text: "M = Tb", bold: true }] });
   assert.equal(m.captions!.at(-1)!.text, "M = Tb");
   assert.ok((await call("edit", { ids: [`t${c.id}`], runs: [{ text: "x", colour: "red" }] })).isError);
@@ -696,7 +734,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const out = await call("draw_figure", { panels: [
     { title: "A  Siloxides", subtitle: "Mazzanti et al.", frame: "fill", fill: "#EEF2F8", rows: [[{ structure: "benzene", number: "S-1", caption: "M = Ce, Tb" }, { text: "and" }, { structure: "toluene", number: "S-2", brackets: "brackets", mark: "n" }]] },
     { title: [{ text: "B ", bold: true }, { text: "Phenols", colour: "#213C99" }], rows: [[{ structure: "phenol" }]] },
-  ] });
+  ], detail: "full" });
   assert.ok(!out.isError, text(out));
   assert.equal(steps.length, 1);
   const fig = (out as unknown as { structuredContent: { figure: { title?: string; frame?: string; rows: { structure?: string; brackets?: string; text?: string }[][] }[] } }).structuredContent.figure;
@@ -853,11 +891,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(Math.max(...xs) - Math.min(...xs) < 0.05, xs.join(", "));
 }
 
-// From the round 2 evals: a batch step's picture: true gives the batch a picture, and a step's data (a figure's ids,
-// a table) comes back with the step.
+// From the round 2 evals: a batch step's picture: true gives the batch a picture, and with detail: full (the step's
+// is the batch's too) a step's data (a figure's ids, a table) comes back with the step.
 {
   fresh();
-  const r = await call("batch", { steps: [{ tool: "draw_figure", args: { panels: [{ rows: [[{ structure: "benzene" }]] }], picture: true } }] });
+  const r = await call("batch", { steps: [{ tool: "draw_figure", args: { panels: [{ rows: [[{ structure: "benzene" }]] }], picture: true, detail: "full" } }] });
   assert.ok(!r.isError, text(r));
   assert.ok(r.content.some((c) => c.type === "image"), "the step's picture");
   assert.ok((r as any).structuredContent.steps[0].figure, JSON.stringify((r as any).structuredContent.steps[0]));
@@ -947,7 +985,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(g2.every((i) => m.atoms[i].ignoreWarnings) && m.atoms[0].ignoreWarnings, "Display Warnings off");
   // A problem on an atom with Display Warnings off is not a warning (as the window hides it).
   r = await call("edit", { ids: [`${s2}.1`], charge: 3 });
-  assert.ok(!JSON.parse(text(await call("read_drawing", {}))).warnings.some((w: { atom?: string }) => w.atom === `${s2}.1`), "hidden problem not listed");
+  assert.ok(!JSON.parse(text(await call("read_drawing", {}))).warnings.some((w: { at?: string }) => w.at === `${s2}.1`), "hidden problem not listed");
   // Text: conditions on an arrow (Add conditions above), kept on it; freed again with arrow none.
   fresh();
   r = await call("draw_reaction", { start: [{ text: "toluene" }], steps: [{ products: [{ text: "phenol" }] }] });
@@ -1074,6 +1112,314 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   [ga, gb] = fragments(m);
   assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `like: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
   assert.match(text(await call("draw_structures", { structures: [{ text: "benzene", like: "s99" }] })), /no structure s99/);
+}
+
+// Lenient arguments (R5, plan section 6): a form with one meaning is read as the form the tool takes, and the reply
+// says so in a line after the result (and in structuredContent.coerced). The look-alikes are in the refusals above.
+{
+  type Out = { content: { type: string; text?: string }[]; isError?: true; structuredContent?: { coerced?: string[]; made: string[] } };
+  const lenient = async (name: string, args: unknown) => (await call(name, args)) as unknown as Out;
+  const notes = (o: Out) => o.content.slice(1).flatMap((c) => (c.type === "text" ? c.text!.split("\n") : []));
+  const under = () => m.captions!.filter((c) => c.under).map((c) => [c.text, !!c.bold]);
+  // A number for a compound number, or for an atom's number, is its text.
+  fresh();
+  let o = await lenient("draw_structures", { structures: [{ text: "benzene", number: 13 }, { text: "water", number: 2 }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(under(), [["13", true], ["2", true]]);
+  assert.deepEqual(notes(o), ["Read number 13 as text, and 1 more the same way."]);
+  // Only a whole number from 0 up: 2.5, -3 and 1e21 (which would be drawn as 1e+21) are no compound number.
+  for (const number of [2.5, -3, 1e21]) { const no = await lenient("draw_structures", { structures: [{ text: "water", number }] }); assert.ok(no.isError && /structures\[0\]\.number: not text/.test(text(no)), `${number}: ${text(no)}`); }
+  assert.equal(under().length, 2);
+  assert.deepEqual(o.structuredContent!.coerced, notes(o));
+  assert.ok(!text(o).includes("Read number"), "the result's own text is as it was");
+  const benzene = o.structuredContent!.made[0];
+  o = await lenient("set_number", { structure: "13", number: 14 });
+  assert.deepEqual([under()[0], notes(o)], [["14", true], ["Read number 14 as text."]]);
+  o = await lenient("edit", { ids: ["14"], number: 15 });
+  assert.deepEqual([under()[0], notes(o)], [["15", true], ["Read number 15 as text."]]);
+  o = await lenient("edit", { ids: [`${benzene}.1`], atom_number: 1 });
+  assert.deepEqual([m.atoms[0].number, notes(o)], ["1", ["Read atom_number 1 as text."]]);
+  // A call in the form the tool takes says nothing more.
+  assert.equal((await call("set_number", { structure: "15", number: "16" })).content.length, 1);
+
+  // An enum's value in other letters, after a dot, or by another of its names; a read's text stays its JSON.
+  // The line quotes the value without the spaces, tabs and line breaks round it: one line a reading.
+  for (const format of ["SMILES", ".smiles", " Smiles ", "smi", "\tSMILES\n"]) {
+    o = await lenient("get_file", { format });
+    assert.equal(text(o), "C1C=CC=CC=1.O", format);
+    assert.deepEqual(notes(o), [`Read format ${format.trim()} as smiles.`]);
+  }
+  for (const [detail, full] of [["short", false], ["brief", false], ["Summary", false], ["FULL", true]] as const) {
+    o = await lenient("read_drawing", { detail });
+    assert.equal("captions" in JSON.parse(text(o)), full, detail);
+    assert.deepEqual(notes(o), [`Read detail ${detail} as ${full ? "full" : "summary"}.`]);
+  }
+  o = await lenient("read_drawing", { detail: "summary" });
+  assert.ok(!o.isError && o.content.length === 1 && !("captions" in JSON.parse(text(o))), "summary is the listed value");
+  o = await lenient("export", { format: "JPEG" });
+  assert.match(text(o), /JPG chosen/);
+  assert.deepEqual(notes(o), ["Read format JPEG as jpg."]);
+  o = await lenient("set_style", { preset: "nature" });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual([m.style?.preset, notes(o)], ["Nature", ["Read preset nature as Nature."]]);
+
+  // A required argument left out takes its default: new_drawing {} is for quick.
+  commands = [];
+  o = await lenient("new_drawing", {});
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual([commands, notes(o)], [["new_quick"], ['No "for" was given: read as quick.']]);
+  o = await lenient("new_drawing", { for: ".Paper" });
+  assert.deepEqual([commands, notes(o)], [["new_quick", "new_paper"], ["Read for .Paper as paper."]]);
+
+  // "1 (taxol)" as a compound number is number 1 with the caption taxol, under the number. A caption can be given too.
+  fresh();
+  o = await lenient("draw_reaction", { start: [{ text: "ethanol", number: "2", caption: "from 3" }], steps: [{ products: [{ text: "water", number: "1 (paclitaxel)" }] }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(under(), [["2", true], ["from 3", false], ["1", true], ["paclitaxel", false]]);
+  assert.deepEqual(notes(o), ["Read number 1 (paclitaxel) as number 1 with the caption paclitaxel."]);
+  assert.deepEqual((await read()).structures.map((x: { number: string }) => x.number), ["2", "1"]);
+  // The summary has each caption on its structure's row, and not as free text.
+  const rows = (await lenient("read_drawing", {})).structuredContent as unknown as { structures: { number: string; caption?: string }[]; text?: unknown };
+  assert.deepEqual([rows.structures.map((x) => [x.number, x.caption]), rows.text], [[["2", "from 3"], ["1", "paclitaxel"]], undefined]);
+  // replace_structure keeps the text under the structure, the caption too, and says so.
+  o = await lenient("replace_structure", { structure: "1", text: "toluene" });
+  assert.match(text(o), /^Replaced 1, which keeps its number 1 and its caption\./);
+  assert.deepEqual(under(), [["2", true], ["from 3", false], ["1", true], ["paclitaxel", false]]);
+  assert.ok(m.captions!.filter((c) => c.text === "1" || c.text === "paclitaxel").every((c) => c.under!.every((i) => m.atoms[i].label === "C") && c.under!.length === 7), "under the new structure");
+  // A number with spaces or a line break round it: the line is one line.
+  o = await lenient("draw_structures", { structures: [{ text: "water", number: " 6 (wet)\n" }] });
+  assert.deepEqual([under().slice(-2), notes(o)], [[["6", true], ["wet", false]], ["Read number 6 (wet) as number 6 with the caption wet."]]);
+  // In a figure the caption is the item's own; an item that has one keeps its number as given.
+  fresh();
+  o = await lenient("draw_figure", { panels: [{ rows: [[{ structure: "benzene", number: "4 (minor)" }, { structure: "water", number: "5 (a)", caption: "given" }]] }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(m.captions!.map((c) => c.text).sort(), ["4", "5 (a)", "given", "minor"]);
+  assert.deepEqual(notes(o), ["Read number 4 (minor) as number 4 with the caption minor."]);
+  // Look-alikes stay one number: no space, two brackets, and set_number, which has no caption to give.
+  fresh();
+  o = await lenient("draw_structures", { structures: [{ text: "benzene", number: "1(taxol)" }, { text: "water", number: "2 (a) (b)" }] });
+  assert.deepEqual([under(), notes(o)], [[["1(taxol)", true], ["2 (a) (b)", true]], []]);
+  o = await lenient("set_number", { structure: "1(taxol)", number: "1 (taxol)" });
+  assert.deepEqual([under()[0], notes(o)], [["1 (taxol)", true], []]);
+
+  // "$1.made" where one id is needed: the one top-level object step 1 made (its number belongs to it).
+  fresh();
+  o = await lenient("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "benzene", number: 1 }] } }, { tool: "add_text", args: { text: "β-lactam", below: "$1.made" } }] });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual(notes(o), ["Read number 1 as text.", `Read $1.made as ${o.structuredContent!.made[0]}.`]);
+  assert.ok(m.captions!.some((c) => c.text === "β-lactam" && !c.under));
+
+  // A MOL file's text as a structure (V3000 and V2000, as get_file writes them, and with Windows line ends) is read
+  // as that file. With its spaces made one it is no MOL file, and is refused.
+  fresh();
+  await call("draw_structures", { structures: [{ text: "benzene", number: "2" }] });
+  const v3000 = toMolfile(parseStructure("Cc1ccccc1")), v2000 = toMolfile(parseStructure("Oc1ccccc1"), true);
+  assert.ok(/V3000/.test(v3000) && /V2000/.test(v2000) && / {2}/.test(v2000));
+  for (const [file, formula] of [[v3000, "C7H8"], [v2000, "C6H6O"], [v3000.replace(/\n/g, "\r\n"), "C7H8"]]) {
+    o = await lenient("replace_structure", { structure: "2", text: file });
+    assert.ok(!o.isError, text(o));
+    assert.deepEqual([(await read()).structures.map((x: { formula: string; number: string }) => [x.formula, x.number]), notes(o)], [[[formula, "2"]], []]);
+  }
+  o = await lenient("draw_structures", { structures: [{ text: v2000 }] });
+  assert.ok(!o.isError, text(o));
+  assert.ok(!(await call("draw_structures", { structures: [{ text: " benzene\n" }] })).isError, "a name with a line break after it is a name, not a file");
+  o = await lenient("replace_structure", { structure: "2", text: v2000.replace(/ {2,}/g, " ") });
+  assert.ok(o.isError && /cannot read/.test(text(o)), text(o));
+
+  // One compound drawn twice with one number (a scheme's product that starts the next scheme) is no warning; two
+  // compounds with one number are.
+  fresh();
+  await call("draw_reaction", { start: [{ text: "ethanol" }], steps: [{ products: [{ text: "benzene", number: "7" }] }] });
+  await call("draw_reaction", { start: [{ text: "benzene", number: "7" }], steps: [{ products: [{ text: "toluene", number: "8" }] }] });
+  const twice = async () => (await read()).warnings.map((w: { message: string }) => w.message).filter((t: string) => /Compound number/.test(t));
+  assert.deepEqual(await twice(), []);
+  await call("set_number", { structure: "8", number: "7" });
+  assert.deepEqual(await twice(), ["Compound number 7 is on more than one structure."]);
+
+  // The schemas keep each reading to one meaning: no two values of an enum are the same in other letters, another
+  // name is in small letters, is no value itself and names a value, and a default is a value of a required argument.
+  // tools/list gives none of this: an AI app is told the one form.
+  const walk = (s: any, at: string): void => {
+    if (!s || typeof s !== "object") return;
+    if (Array.isArray(s.enum)) {
+      const small = s.enum.map((e: string) => e.toLowerCase());
+      assert.equal(new Set(small).size, small.length, at);
+      for (const [k, v] of Object.entries(s.also ?? {})) assert.ok(k === k.trim().toLowerCase() && !small.includes(k) && s.enum.includes(v), `${at}: ${k}`);
+      if (s.default !== undefined) assert.ok(s.enum.includes(s.default), at);
+    }
+    if (s.type === "object") for (const [k, p] of Object.entries(s.properties) as [string, any][]) if (p.default !== undefined) assert.ok(s.required.includes(k), `${at}.${k}`);
+    for (const [k, v] of Object.entries(s)) walk(v, `${at}.${k}`);
+  };
+  for (const t of TOOL_TABLE) walk(t.inputSchema, t.name);
+  assert.ok(!/"(numeral|also|default)":/.test(JSON.stringify(tools)));
+  assert.ok((tools.find((t) => t.name === "new_drawing")!.inputSchema as unknown as { required: string[] }).required.includes("for"));
+}
+
+// Short replies (R6, plan section 10). A write result is its sentence, the top-level objects made with their boxes,
+// the new chemical warnings and the layout check; a read is a summary. detail: full gives all the data, as before.
+{
+  const ask = async (name: string, args: unknown) => (await call(name, args)) as { content: { type: string; text?: string }[]; isError?: true; structuredContent: Record<string, any> };
+  const ESTER = { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", yield: "90%", products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] };
+  fresh();
+  let o = await ask("draw_reaction", ESTER), sc = o.structuredContent;
+  assert.deepEqual(Object.keys(sc), ["done", "made", "boxes", "warnings", "check"]);
+  assert.equal(sc.done, "Drew the reaction. Octet laid it out with Clean Up Reaction. One undo step.", "what was done in a few words: no compound's name, no conditions again");
+  // made: the four structures, the two plus signs and the arrow. The number and the conditions belong to those.
+  const owned = m.captions!.filter((c) => c.under || c.on).map((c) => `t${c.id}`);
+  assert.equal(sc.made.map((id: string) => id[0]).join(""), "sssstta");
+  assert.ok(owned.length === 4 && !owned.some((id) => sc.made.includes(id)), JSON.stringify([owned, sc.made]));
+  assert.deepEqual(Object.keys(sc.boxes), sc.made);
+  assert.ok(Object.values(sc.boxes as Record<string, number[]>).flat().every((v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-9), "boxes to 0.1");
+  // The text is the sentence, then the same data once: an AI app reads the text or structuredContent, not both.
+  assert.equal(text(o), `${sc.done}\n${JSON.stringify({ ...sc, done: undefined })}`);
+  assert.equal(o.content.length, 1);
+  assert.ok(text(o).length < 400, `a reaction's reply: ${text(o).length} characters`);
+  // The read's summary: each structure's id, number and formula, the route by number (by id with no number) with the
+  // arrow's conditions, the check and the warnings. No boxes, SMILES, names or captions.
+  const firstIds = sc.made.slice(0, 4), arrowId = sc.made[6];
+  o = await ask("read_drawing", {});
+  assert.deepEqual(o.structuredContent, {
+    drawing: { id: "draw-1", title: "Untitled" }, style: "ACS Document 1996", page: "A4",
+    structures: [{ id: firstIds[0], formula: "C2H4O2" }, { id: firstIds[1], formula: "C2H6O" }, { id: firstIds[2], number: "1", formula: "C4H8O2" }, { id: firstIds[3], formula: "H2O" }],
+    reactions: [{ route: `${firstIds[0]} + ${firstIds[1]} -> 1 + ${firstIds[3]}`, conditions: { [arrowId]: "H2SO4 (cat.); reflux; 90%" } }],
+    check: "clean", warnings: [],
+  });
+  assert.ok(text(o).length < 450, `a reaction's summary: ${text(o).length} characters`);
+  // smiles: true adds each SMILES; ids reads only those; atoms adds the atoms and bonds; a drawing as a resource is the summary.
+  o = await ask("read_drawing", { smiles: true, ids: ["1"] });
+  assert.deepEqual(o.structuredContent.structures, [{ id: firstIds[2], number: "1", formula: "C4H8O2", smiles: "CCOC(=O)C" }]);
+  assert.equal(o.structuredContent.reactions.length, 1);
+  o = await ask("read_drawing", { atoms: true, ids: [firstIds[3]] });
+  assert.deepEqual(Object.keys(o.structuredContent.structures[0]), ["id", "formula", "atoms", "bonds"]);
+  assert.deepEqual(JSON.parse((await send("resources/read", { uri: "octet://drawing/draw-1" })).result.contents[0].text), (await ask("read_drawing", {})).structuredContent);
+  // detail: full reads everything, as a read did before.
+  const all = await read();
+  assert.deepEqual(Object.keys(all.structures[2]), ["id", "smiles", "formula", "source", "number", "atoms", "box"]);
+  assert.ok(all.captions.length === 6 && all.pageBox && all.reactions[0].steps[0].fields.reagents && all.arrows.length === 1, JSON.stringify(Object.keys(all)));
+  // detail: full on a write: the drawing, every id made (the number and conditions too), changed and deleted, and
+  // Octet's reading of each name. Other letters for it are read as it; another word is refused.
+  fresh();
+  o = await ask("draw_reaction", { ...ESTER, detail: "FULL" });
+  sc = o.structuredContent;
+  assert.deepEqual(Object.keys(sc), ["drawing", "done", "made", "changed", "deleted", "boxes", "names", "warnings", "check", "coerced"]);
+  assert.equal(sc.made.length, 11);
+  assert.deepEqual(sc.names.map((x: { given: string }) => x.given), ["acetic acid", "ethanol", "ethyl acetate", "water"]);
+  assert.deepEqual(sc.coerced, ["Read detail FULL as full."]);
+  o = await ask("delete", { ids: ["1"], detail: "long" });
+  assert.ok(o.isError && /detail: not one of summary, full/.test(text(o)), text(o));
+  assert.ok((await call("batch", { steps: [{ tool: "delete", args: { ids: ["1"], detail: "long" } }] })).isError);
+  // A batch is short too: each step's sentence and the top-level objects made. Its steps' ids come with detail: full.
+  o = await ask("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "benzene", number: "9" }] } }, { tool: "add_text", args: { text: "note", below: "$1.s[0]" } }] });
+  assert.deepEqual([Object.keys(o.structuredContent), o.structuredContent.made.map((id: string) => id[0])], [["done", "made", "boxes", "warnings", "check"], ["s", "t"]]);
+  assert.match(text(o), /^Did 2 steps as one undo step:\n1\. Drew 1 structure in 1 row of 1\.\n2\. /);
+  // tools/list gives detail on the read only (23 more copies would be 1,200 characters in every chat): the
+  // instructions say it once, and every tool whose result is a change takes it.
+  assert.deepEqual(tools.filter((t) => "detail" in (t.inputSchema as unknown as { properties: object }).properties).map((t) => t.name), ["read_drawing"]);
+  assert.equal(TOOL_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 24);
+  assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
+  assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
+  // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a
+  // compound's caption is named where its number is.
+  const described = (name: string) => tools.find((t) => t.name === name)!.description;
+  assert.ok(/detail: full lists what changed\.$/.test(described("run_command")) && !/The result lists/.test(described("run_command")));
+  assert.ok(/caption \(text under the number\)/.test(described("draw_structures")) && /number, caption and the hints/.test(described("draw_reaction")) && /\(id, number, caption, formula\)/.test(described("read_drawing")));
+  // A reaction's plus signs are made, with their boxes: each has its own place, so a move of what a call made takes
+  // all of the reaction (a plus sign left out of made would stay behind).
+  fresh();
+  o = await ask("draw_reaction", ESTER);
+  const plusAt = () => m.captions!.filter((c) => c.text === "+").map((c) => Math.round(c.y * 10) / 10), level = plusAt();
+  assert.ok(!(await ask("move", { ids: o.structuredContent.made, dy: -5 })).isError);
+  assert.deepEqual([level.length, plusAt()], [2, level.map((y) => y - 5)]);
+  // A batch step that asks for detail: full gets the layout's new warnings only, as a call does: the warnings there
+  // were before the batch are not new. (A short result does not work the layout's warnings out at all.)
+  fresh();
+  await ask("draw_structures", { structures: [{ text: "phenol" }], at: [-900, 900] });
+  o = await ask("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "water" }], at: [0, 0], detail: "full" } }] });
+  assert.deepEqual([o.structuredContent.warnings, /Octet warns/.test(o.structuredContent.done)], [[], false]);
+  o = await ask("batch", { steps: [{ tool: "draw_structures", args: { structures: [{ text: "water" }], at: [900, 900], detail: "full" } }] });
+  assert.ok(o.structuredContent.warnings.length === 1 && /runs past the page's right and top edge/.test(o.structuredContent.warnings[0]), JSON.stringify(o.structuredContent.warnings));
+
+  // The sentence names a compound only where Octet read a name as another name (decision 0021, misread names): the
+  // name given, the formula and Octet's own name. A SMILES is drawn as given: it has no name in the sentence, and
+  // Octet does not work one out for it (naming takes time) until detail: full asks for every name.
+  const name = host.name;
+  let namings = 0;
+  host.name = (x) => { namings++; return { C9H8O4: "2-acetyloxybenzoic acid", C8H10N4O2: "Caffeine", C7H6O3: "2-hydroxybenzoic acid" }[analyse(x)?.[0]?.formula ?? ""] ?? `${"a".repeat(130)}ne`; };
+  Object.assign(NAMES, { aspirin: "CC(=O)Oc1ccccc1C(=O)O", caffeine: "Cn1cnc2c1c(=O)n(C)c(=O)n2C", ...Object.fromEntries(Array.from({ length: 14 }, (_, k) => [`alkane ${k}`, "C".repeat(k + 11)])) });
+  fresh();
+  o = await ask("draw_structures", { structures: [{ text: "aspirin" }, { text: "caffeine" }, { text: "OC(=O)c1ccccc1O" }] });
+  assert.equal(o.structuredContent.done, "Drew 3 structures in 1 row of 3. Octet read the names as: aspirin (C9H8O4; Octet's name: 2-acetyloxybenzoic acid). One undo step.");
+  assert.equal(namings, 2, "the two names, not the SMILES");
+  o = await ask("draw_structures", { structures: [{ text: "OC(=O)c1ccccc1O" }], detail: "full" });
+  assert.deepEqual([namings, o.structuredContent.names], [3, [{ given: "OC(=O)c1ccccc1O", octet: "2-hydroxybenzoic acid", formula: "C7H6O3" }]]);
+  // A batch joins its steps' sentences: 40 steps of 12 such names are 80,000 characters. The default reply is cut to
+  // fit the limit and says so; detail: full gives all of it.
+  const many = { steps: Array.from({ length: 40 }, () => ({ tool: "draw_structures", args: { structures: Array.from({ length: 12 }, (_, k) => ({ text: `alkane ${k}` })) } })) };
+  o = await ask("batch", many);
+  const size = o.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
+  assert.ok(size <= MOST && size > MOST - 100, `a batch of 40 steps: ${size} characters`);
+  assert.ok(/^Did 40 steps as one undo step:\n1\. Drew 12 structures in 3 rows of 5\. Octet read the names as: alkane 0 .*… \(cut: detail: full gives all of it\)$/s.test(o.structuredContent.done) && text(o).startsWith(`${o.structuredContent.done}\n{"made":[`), o.structuredContent.done.slice(-200));
+  fresh();
+  o = await ask("batch", { steps: many.steps.map((st) => ({ ...st, args: { ...st.args, detail: "full" } })) });
+  assert.ok(/^40\. Drew 12 structures .*alkane 11 \(C22H46; Octet's name: a{120}…\)\./.test(o.structuredContent.done.split("\n")[40]) && !o.structuredContent.done.includes("(cut:"), "detail: full gives every step");
+  // Twelve names at most in a sentence, each of Octet's cut at 120 characters, and how many more there are.
+  fresh();
+  o = await ask("draw_structures", { structures: Array.from({ length: 14 }, (_, k) => ({ text: `alkane ${k}` })) });
+  assert.match(o.structuredContent.done, /^Drew 14 structures in 3 rows of 5\. Octet read the names as: alkane 0 \(C11H24; Octet's name: a{120}…\), .*alkane 11 \(C22H46; Octet's name: a{120}…\), and 2 more \(detail: full gives each\)\. One undo step\.$/);
+  host.name = name;
+
+  // A route's arrows by kind; a number that is on two structures, or is an id's form, gives way to the id.
+  fresh();
+  o = await ask("draw_reaction", { start: [{ text: "benzene", number: "1" }], steps: [{ arrow: "equilibrium", products: [{ text: "toluene", number: "s9" }] }, { arrow: "retro", products: [{ text: "phenol", number: "1" }] }, { arrow: "resonance", products: [{ text: "water", number: "4a" }] }, { arrow: "nogo", products: [{ text: "ethanol" }] }] });
+  const [b1, t2, p3, , e5] = o.structuredContent.made;
+  sc = (await ask("read_drawing", {})).structuredContent;
+  assert.equal(sc.reactions[0].route, `${b1} <=> ${t2} => ${p3} <-> 4a -/-> ${e5}`);
+  // An arrow with no conditions is still in conditions, with "": its id is how add_text and edit name it, and a
+  // reaction's arrows are listed nowhere else in a summary.
+  assert.deepEqual(sc.reactions[0].conditions, Object.fromEntries(o.structuredContent.made.filter((id: string) => id[0] === "a").map((id: string) => [id, ""])));
+  assert.equal(Object.keys(sc.reactions[0].conditions).length, 4);
+  assert.deepEqual(sc.warnings, [{ message: "Compound number 1 is on more than one structure." }]);
+
+  // A salt's two ions under one number are one compound: the route names both by the number (a number counts once
+  // for each time it is drawn, not once for each structure under it).
+  fresh();
+  await ask("draw_reaction", { start: [{ text: "[Na+].[Cl-]", number: "5" }], steps: [{ products: [{ text: "water", number: "6" }] }] });
+  assert.match((await ask("read_drawing", {})).structuredContent.reactions[0].route, /^5 (\+ 5 )?-> 6$/);
+
+  // Warnings: a short reply gives the first ten, each at its atom in a read, and how many more there are. The
+  // layout is in the check, by id, and not in the warnings again.
+  fresh();
+  o = await ask("draw_structures", { structures: [{ text: Array(12).fill("CC(C)(C)(C)C").join(".") }, { text: "toluene" }], at: [900, 900] });
+  assert.deepEqual([o.structuredContent.warnings.length, o.structuredContent.more], [10, { warnings: 2 }]);
+  assert.ok(o.structuredContent.check.off_page.length && !/page/.test(o.structuredContent.warnings.join()), JSON.stringify(o.structuredContent.check));
+  sc = (await ask("read_drawing", {})).structuredContent;
+  assert.deepEqual([sc.warnings.length, sc.more, sc.warnings[0].at], [10, { warnings: 2 }, `${o.structuredContent.made[0]}.2`]);
+  assert.deepEqual(sc.check, o.structuredContent.check);
+  assert.ok(!sc.warnings.some((w: { message: string }) => /page/.test(w.message)));
+  // Read by id, the check is of those ids.
+  assert.equal((await ask("read_drawing", { ids: ["s999"] })).isError, true);
+  const lone = await ask("draw_structures", { structures: [{ text: "water" }], at: [0, 0] });
+  assert.equal((await ask("read_drawing", { ids: lone.structuredContent.made })).structuredContent.check, "clean");
+  // With detail: full a write's warnings are all of them, the layout's too, and the sentence gives the first ten.
+  o = await ask("draw_structures", { structures: [{ text: "phenol" }], at: [-900, 900], detail: "full" });
+  assert.match(o.structuredContent.done, /Octet warns: .*runs past the page's left and top edge/);
+  assert.ok(o.structuredContent.warnings.some((w: string) => /runs past the page/.test(w)));
+
+  // No default reply is over 20,000 characters, whatever is drawn (every call in this file is held to it too). A
+  // result lists 200 objects made at most; a read cuts its longest lists. more says how many each left out.
+  fresh();
+  o = await ask("add_file", { text: Array(250).fill("C").join(".") });
+  assert.deepEqual([o.structuredContent.made.length, Object.keys(o.structuredContent.boxes).length, o.structuredContent.more], [200, 200, { made: 50 }]);
+  o = await ask("read_drawing", {});
+  assert.equal(o.structuredContent.structures.length, 250);
+  m = { ...m, captions: Array.from({ length: 3000 }, (_, k) => ({ id: 5000 + k, text: `A note ${k} `.repeat(40), x: 0, y: -10 - k })) };
+  o = await ask("read_drawing", {});
+  sc = o.structuredContent;
+  assert.ok(text(o).length <= MOST && text(o).length > MOST / 2, `${text(o).length} characters`);
+  assert.ok(sc.text.length > 20 && sc.structures.length > 20 && sc.text.length + sc.more.text === 3000 && sc.structures.length + (sc.more.structures ?? 0) === 250, JSON.stringify(sc.more));
+  assert.ok(sc.text[0].text.length === 201 && sc.text[0].text.endsWith("…"), "free text in a summary is cut at 200 characters");
+  assert.equal(sc.more.rest, "detail: full reads all", "a cut read says how to read the rest");
+  assert.ok(text(await ask("read_drawing", { detail: "full" })).length > 10 * MOST, "detail: full reads all of it");
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

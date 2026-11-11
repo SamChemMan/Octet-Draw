@@ -1022,6 +1022,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const ink = (atoms: number[]): Box => { const xs = atoms.map((i) => mol.atoms[i].location[0]), ys = atoms.map((i) => mol.atoms[i].location[1]); return [Math.min(...xs) - 0.3, Math.min(...ys) - 0.3, Math.max(...xs) + 0.3, Math.max(...ys) + 0.3]; };
   const captionBox = (id: number): Box | undefined => {
     const c = captions.find((x) => x.id === id), size = (c?.size ?? style.captionSize) / B;
+    // Text under a structure, as wide as its widest line: the reader counts the gap to an arrow from it (no height:
+    // it is written under the atoms, below).
+    const under = c?.under?.filter((i) => i < mol.atoms.length);
+    if (under?.length) { const b = ink(under), w = Math.max(...c!.text.split("\n").map((l) => widthOf(l, c!.size ?? style.captionSize))) / B, x = (b[0] + b[2]) / 2; return [x - w / 2, b[1], x + w / 2, b[1]]; }
     if (!c || c.under || c.on || c.cycle) return undefined;
     const w = widthOf(c.text, c.size ?? style.captionSize) / B, x0 = c.align === "left" ? c.x : c.align === "right" ? c.x - w : c.x - w / 2;
     return [x0, c.y - 0.2 * size, x0 + w, c.y + 0.7 * size];

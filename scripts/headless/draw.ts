@@ -1,8 +1,8 @@
 // Run: node scripts/headless/draw.ts [--jobs N] [--out DIR] [--for PURPOSE] FILE...
 // Octet with no window (host.ts): each input is drawn in a new drawing with the AI apps' tools (src/mcp.ts), and
 // comes out as NAME.cdxml (get_file's CDXML, as Export writes it) and NAME.drawn.json (each call's result, and
-// read_drawing's reading: SMILES, InChI and InChIKey, sources, names, compound numbers, each reaction step's
-// conditions, Octet's warnings). Each input starts from the first ids, so the same input gives the same files.
+// read_drawing's full reading: SMILES, InChI and InChIKey, sources, names, compound numbers, each reaction step's
+// conditions, Octet's warnings). A call's result is short unless the call asks for detail: full. Each input starts from the first ids, so the same input gives the same files.
 // An input is a .json file: a list of tool calls ([{"name": "draw_reaction", "arguments": {...}}, ...]), or one
 // draw_reaction argument ({"start": [...], "steps": [...]}). A .jsonl file holds one input a line (NAME-1, NAME-2, ...).
 // Inputs are drawn in parallel, one worker thread a core (--jobs sets how many); each worker loads Indigo and the
@@ -79,7 +79,7 @@ if (isMainThread) {
         // The result's text without the JSON after it, which is its structuredContent (data).
         results.push({ tool: c.name, text: text.split("\n")[0], ...(r.result?.structuredContent ? { data: r.result.structuredContent } : {}), ...(r.result?.isError || r.error ? { error: true } : {}) });
       }
-      const reading = (await call({ name: "read_drawing", arguments: {} })).result.structuredContent, file = (await call({ name: "get_file", arguments: { format: "cdxml" } })).result;
+      const reading = (await call({ name: "read_drawing", arguments: { detail: "full" } })).result.structuredContent, file = (await call({ name: "get_file", arguments: { format: "cdxml" } })).result;
       if (file.isError) throw new Error(file.content[0].text);
       writeFileSync(join(input.dir, `${input.name}.cdxml`), file.structuredContent.text);
       writeFileSync(join(input.dir, `${input.name}.drawn.json`), JSON.stringify({ name: input.name, results, drawing: reading }, null, 1));

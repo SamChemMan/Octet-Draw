@@ -79,17 +79,38 @@ assert.equal((await call("get_file", { format: "cdxml" })).structuredContent.tex
 const bad = await call("draw_reaction", { start: [{ text: "benzaldehyde" }], steps: [{ products: [{ text: "flurbleglorp" }] }] });
 assert.ok(bad.isError && /flurbleglorp/.test(bad.content[0].text));
 
+// A caption under a compound, much wider than it ("2 (…)" as a number is number 2 with that caption). Clean Up
+// Reaction gives the caption room, and the scheme still reads back as one route, with the caption on its compound;
+// the CDXML's scheme has both steps whole.
+d = drawing("paper", "Caption");
+const wide = await call("draw_reaction", { start: [{ text: "benzene", number: "1" }], steps: [{ reagents: ["Br2"], products: [{ text: "bromobenzene", number: "2 (not isolated, used crude in the next step)" }] }, { reagents: ["Mg"], products: [{ text: "CCN", number: "3" }] }] });
+assert.equal(wide.structuredContent.check, "clean");
+const summed = (await call("read_drawing", {})).structuredContent;
+assert.deepEqual(summed.reactions.map((r: { route: string }) => r.route), ["1 -> 2 -> 3"]);
+assert.deepEqual([summed.structures[1].number, summed.structures[1].caption, summed.text], ["2", "not isolated, used crude in the next step", undefined]);
+const stepsOut: string[] = (await call("get_file", { format: "cdxml" })).structuredContent.text.match(/<step[^>]*>/g) ?? [];
+assert.ok(stepsOut.length === 2 && stepsOut.every((x) => /ReactionStepReactants/.test(x) && /ReactionStepProducts/.test(x)), stepsOut.join(" "));
+
+// A grid of structures with captions of two lines, and with a caption wider than its structure: each cell has room
+// for the text under its structure, so nothing overlaps.
+for (const caption of ["85%, 92% ee\nwhite solid", "a rather long caption here"]) {
+  d = drawing("paper", "Grid");
+  const grid = await call("draw_structures", { structures: ["benzene", "toluene", "phenol", "aniline", "pyridine", "water"].map((text, k) => ({ text, number: `${k + 1}`, caption })), columns: 3 });
+  assert.equal(grid.structuredContent.check, "clean", JSON.stringify(grid.structuredContent.check));
+}
+
 // Atoms, arrows and shapes by id: a charge, a curved arrow from a lone pair, brackets with a mark.
 d = drawing("paper", "Ids");
 await call("draw_structures", { structures: [{ text: "acetone" }] });
 for (const [name, args] of [["edit", { ids: ["s1.2"], charge: 1 }], ["add_arrow", { kind: "curved", from: "s1.4:pair", to: "s1.2-4" }], ["add_shape", { kind: "brackets", around: ["s1"], mark: "‡" }]] as const)
   assert.ok(!(await call(name, args)).isError, name);
-const ids = (await call("read_drawing", { atoms: true })).structuredContent;
+const ids = (await call("read_drawing", { atoms: true, detail: "full" })).structuredContent;
 assert.equal(ids.structures[0].smiles, "C[C+](C)=O");
 assert.deepEqual([ids.arrows.map((a: { kind: string }) => a.kind), ids.shapes.map((s: { kind: string; mark: string }) => [s.kind, s.mark])], [["curved"], [["brackets", "‡"]]]);
 
 // The layout faults of the taxol run (docs/plans/mcp-v2.md, section 17), each as an AI app meets it.
 type Wrote = { isError?: true; structuredContent: { made: string[]; changed: string[]; boxes: Record<string, number[]>; check: "clean" | { overlaps?: string[][]; off_page?: string[] } } };
+// (changed is in a full result only: a call whose changed is read asks for detail: full.)
 // The box of what a call made, and whether Octet's own check finds it clear of everything and on the page.
 const span = (w: Wrote) => { const b = w.structuredContent.made.flatMap((id) => (w.structuredContent.boxes[id] ? [w.structuredContent.boxes[id]] : [])); return [Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1])), Math.max(...b.map((x) => x[2])), Math.max(...b.map((x) => x[3]))]; };
 const fits = (w: Wrote) => { const c = w.structuredContent.check; return c === "clean" || (!c.overlaps && !c.off_page); };
@@ -105,11 +126,11 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(fits(one), JSON.stringify(one.structuredContent.check));
   assert.ok(Math.abs(b1[3] - top) < 0.11, `the first scheme starts at the top margin: ${b1[3]}, ${top}`);
   assert.ok(Math.abs(b1[0] - left) < 0.11 || Math.abs(b1[0] + b1[2]) < 0.11, `at the left margin, or in the middle of the page when it is wider than the margins: ${b1}`);
-  const two: Wrote = await call("draw_reaction", route(8)), b2 = span(two);
+  const two: Wrote = await call("draw_reaction", { ...route(8), detail: "full" }), b2 = span(two);
   assert.ok(fits(two), JSON.stringify(two.structuredContent.check));
   assert.deepEqual(two.structuredContent.changed, [], "the first scheme is as it was");
   assert.ok(Math.abs(b1[1] - 3 - b2[3]) < 0.21, `the second scheme starts 3 bond lengths under the first: ${b2[3]}, ${b1[1]}`);
-  const both = (await call("read_drawing", {})).structuredContent;
+  const both = (await call("read_drawing", { detail: "full" })).structuredContent;
   assert.deepEqual(both.reactions.map((r: { steps: unknown[] }) => r.steps.length), [6, 6], "two reactions of six steps");
 }
 {
@@ -119,7 +140,7 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   const short = (n: number) => ({ start: [{ text: "benzaldehyde", number: String(n) }], steps: [{ reagents: ["NaBH4"], solvents: ["MeOH"], products: [{ text: "benzyl alcohol", number: String(n + 1) }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide", number: String(n + 2) }] }] });
   const one: Wrote = await call("draw_reaction", short(1)), title = "Scheme 1. Synthesis of benzyl bromide";
   const text: Wrote = await call("add_text", { text: title, below: one.structuredContent.made[0], align: "left", bold: true }), was = text.structuredContent.boxes[text.structuredContent.made[0]];
-  const two: Wrote = await call("draw_reaction", short(4));
+  const two: Wrote = await call("draw_reaction", { ...short(4), detail: "full" });
   assert.ok(fits(two), JSON.stringify(two.structuredContent.check));
   assert.deepEqual(two.structuredContent.changed, [], "the title and the first scheme are as they were");
   assert.ok(Math.abs(was[1] - 3 - span(two)[3]) < 0.21, "the second scheme starts 3 bond lengths under the title's box");
@@ -142,7 +163,7 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(s4[3] < s3[1], "the steps after it wrap");
   assert.ok(fits(wide), JSON.stringify(wide.structuredContent.check));
   // set_style puts a drawing across the page by the same rule: with the same preset, the scheme stays in the middle.
-  const styled: Wrote = await call("set_style", { preset: "ACS Document 1996" });
+  const styled: Wrote = await call("set_style", { preset: "ACS Document 1996", detail: "full" });
   assert.ok(!styled.structuredContent.changed.includes("s1") && fits(styled), `set_style moved the scheme: ${JSON.stringify(styled.structuredContent)}`);
   // A reaction of one step wider than the page cannot wrap or fit: it starts at the left margin, so only its end is
   // past the page (in the middle of the page, both ends would be).

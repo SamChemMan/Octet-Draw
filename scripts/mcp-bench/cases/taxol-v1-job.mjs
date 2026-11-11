@@ -2,6 +2,8 @@
 // of that chat's calls was kept, so this is rebuilt from the plan's notes: the six kinds of refused call, the check
 // grid of all 20 compounds, the style and page changed three times, the three schemes, their titles, and the reads
 // and row moves that fixed the layout. The v2 form of the same job is taxol-route.
+// Since Octet reads arguments leniently (plan section 6), the six calls go through, each marked "v1 refused" below, and
+// the call after each one, which was the AI app's second try, does the same thing again.
 import { readFileSync } from "node:fs";
 const json = (f) => JSON.parse(readFileSync(new URL(`../taxol/${f}.json`, import.meta.url), "utf8"));
 const structures = json("structures"), schemes = ["scheme1", "scheme2", "scheme3"].map(json);
@@ -11,21 +13,22 @@ const TITLES = ["Scheme 1. The C-ring aldehyde 7", "Scheme 2. The ABC ring syste
 export default {
   about: "Nicolaou's taxol synthesis as v1 was used for it: about 35 calls, 6 refused, most of the rest checking and fixing (rebuilt from the plan's notes)",
   calls: [
-    { name: "new_drawing", arguments: {} }, // refused: for is missing
+    { name: "new_drawing", arguments: {} }, // v1 refused: for is missing
     { name: "new_drawing", arguments: { for: "paper" } },
     { name: "set_style", arguments: { preset: "Nature" } },
-    { name: "draw_structures", arguments: grid(Number) }, // refused: number is not text
+    { name: "draw_structures", arguments: grid(Number) }, // v1 refused: number is not text
     { name: "draw_structures", arguments: grid(String) },
-    { name: "read_drawing", arguments: { detail: "summary" } }, // refused: not one of short, full
+    { name: "read_drawing", arguments: { detail: "summary" } }, // v1 refused: not one of short, full
     { name: "read_drawing", arguments: {} },
-    { name: "get_file", arguments: (r) => ({ format: "MOL", ids: [r[4].made[0]] }) }, // refused: not one of cdxml, mol, ...
+    { name: "get_file", arguments: (r) => ({ format: "MOL", ids: [r[4].made[0]] }) }, // v1 refused: not one of cdxml, mol, ...
     { name: "get_file", arguments: (r) => ({ format: "mol", ids: [r[4].made[0]] }) },
-    { name: "replace_structure", arguments: (r) => ({ structure: r[4].made[0], text: r[8].text }) }, // refused: Octet cannot read its own MOL text
-    { name: "delete", arguments: (r) => ({ ids: made(4)(r) }) },
+    { name: "replace_structure", arguments: (r) => ({ structure: r[4].made[0], text: r[8].text }) }, // v1 refused: Octet cannot read its own MOL text
+    // The check grid goes: both times it was drawn, and the structure that replaced the first of the second grid.
+    { name: "delete", arguments: (r) => ({ ids: [...made(3)(r), ...made(4)(r).slice(1), ...made(9)(r)] }) },
     { name: "set_style", arguments: { page: "A3" } },
     { name: "set_style", arguments: { page: "A3", landscape: true } },
     ...schemes.map((arguments_) => ({ name: "draw_reaction", arguments: arguments_ })),
-    { name: "batch", arguments: { steps: [{ tool: "draw_structures", args: { structures: [{ text: structures[20], number: "20" }] } }, { tool: "add_text", args: { text: "β-lactam", below: "$1.made" } }] } }, // refused: $1.made names 2 objects
+    { name: "batch", arguments: { steps: [{ tool: "draw_structures", args: { structures: [{ text: structures[20], number: "20" }] } }, { tool: "add_text", args: { text: "β-lactam", below: "$1.made" } }] } }, // v1 refused: $1.made names 2 objects
     ...schemes.flatMap((_, k) => [
       { name: "add_text", arguments: (r) => ({ text: TITLES[k], bold: true, above: made(13 + k)(r)[0] }) },
       { name: "read_drawing", arguments: { detail: "full" } },

@@ -118,9 +118,9 @@ const CASES = {
   async 1(a) {
     console.log("1. Compound 5 with a carbon of six bonds: warned, then fixed");
     const made = await a.call("new_drawing", { for: "paper" });
-    check(!made.isError && made.structuredContent?.drawing, "new_drawing gives the drawing", made.text);
+    check(!made.isError && made.structuredContent?.opened, "new_drawing gives the drawing", made.text);
     const r = await a.call("draw_structures", { structures: [{ text: "OC(=O)C(C)(C)(C)(C)c1ccccc1", number: "5" }] });
-    check(/Octet warns: .*6 bonds/.test(r.text), "the result names the warning", r.text);
+    check(r.structuredContent?.warnings?.some((w) => /6 bonds/.test(w)), "the result names the warning", r.text);
     let d = await a.read();
     check(d.experiment === undefined && !(d.reagentTables ?? []).length, "a paper drawing is not an experiment page", JSON.stringify(d.experiment));
     check(d.warnings.length === 1 && d.warnings[0].structure === d.structures[0].id, "read_drawing gives the warning on the structure", JSON.stringify(d.warnings));
@@ -364,7 +364,7 @@ const CASES = {
     console.log("16. A mechanism: a charge set, curly arrows from a lone pair and a bond, brackets with a mark");
     await a.call("new_drawing", { for: "paper" });
     await a.call("draw_structures", { structures: [{ text: "[OH-]" }, { text: "CBr" }] });
-    const full = async () => (await a.call("read_drawing", { atoms: true })).structuredContent;
+    const full = async () => (await a.call("read_drawing", { atoms: true, detail: "full" })).structuredContent;
     let d = await full();
     const [oh, mebr] = d.structures, o = oh.atoms.find((x) => x.label === "O"), c = mebr.atoms.find((x) => x.label === "C"), cbr = mebr.bonds[0];
     check(o?.charge === -1, "hydroxide drawn with its charge", JSON.stringify(oh.atoms));
@@ -398,7 +398,7 @@ const CASES = {
       { tool: "draw_structures", args: { structures: [{ text: "toluene", number: "2" }], right_of: "$1.s[0]", gap: 2 } },
       { tool: "add_text", args: { runs: [{ text: "Figure 1. ", bold: true }, { text: "Two arenes" }], below: "$1.s", align: "left" } },
       { tool: "add_shape", args: { kind: "rounded", around: ["$1.s[0]", "$2.s[0]", "$3.t[0]"], fill: "solid", colour: "#EEF2F8" } },
-    ], picture: true });
+    ], picture: true, detail: "full" });
     check(!r.isError, "the batch draws", r.text);
     check(r.ms < 2000, "in under 2 s", `${r.ms} ms`);
     const sc = r.structuredContent, [s1, s2] = sc.steps.slice(0, 2).map((x) => x.s[0]);
@@ -449,7 +449,7 @@ const CASES = {
         { text: "when M = Ce, Pr\nR3 = tBu3" },
         { structure: "CCN(CC)P(=N[Tb])(N(CC)CC)N(CC)CC", number: "I-2", brackets: "brackets", mark: "n" },
       ]] },
-    ], colour_by_element: true, picture: true });
+    ], colour_by_element: true, picture: true, detail: "full" });
     check(!r.isError, "draw_figure draws", r.text);
     check(r.ms < 3000, "in under 3 s", `${r.ms} ms`);
     const fig = r.structuredContent?.figure, d = await a.read();
