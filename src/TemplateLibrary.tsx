@@ -15,10 +15,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
-import { measure, STYLE } from "./chem";
+import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, loadMore, type LibraryItem } from "./library";
-import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
+import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, labelTurn, markAt, placeCaptions, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
+import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
 import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type TemplateSize, type TemplateTool } from "./templates";
@@ -84,12 +85,14 @@ export const setItems = (sets: string[], key: (set: string) => string, fresh: st
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
 // Thumbnails are drawn once for each structure and size (a template edited is a new structure, and is drawn again).
 // Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
-type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string; side: number; line: number };
+type Mark = ReturnType<typeof markAt> & { text: string };
+type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; words: Placed[]; marks: Mark[]; view: string; side: number; line: number };
 const thumbs = new Map<string, Drawn>();
 const Thumb = ({ item, px }: { item: LibraryItem; px?: number }) => <StructureThumb id={item.kind} mol={item.mol} px={px} />;
 // A structure drawn as a thumbnail in a style (STYLE, or STYLE with heavier lines).
 // A template's arrows, pen curves and shapes show as they draw on the page (a closed curve's fill behind the lines),
-// a highlight as its edge, an orbital as its axis, and its text as its words.
+// a highlight as its edge, an orbital as its axis, its text as the page sets it (beside its arrow, under its structure
+// or where it was put, in its runs) and a bracket's mark at its corner.
 function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const L = style.bond, drawing = render(mol, style, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
   const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
@@ -100,11 +103,13 @@ function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const spots = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (x.tlc?.spots ?? []).map((s) => spotPath(plates[k], s).map(at) as [number, number][]));
   const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, style, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, style, L))), ...across, ...spots];
   const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
-  const words: Label[] = (mol.captions ?? []).filter((c) => !c.under && !c.on).map((c) => { const [x, y] = at([c.x, c.y]); return { text: c.text, x, y, size: (c.size ?? 10) * (4 / 3) }; });
-  const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
+  const words = placeCaptions(mol, drawing, (t, c) => textWidth(t, (c.size ?? CAPTION_PT) * (4 / 3), c.bold, c.italic, fontStack(c.font ?? "Arial")), arrows);
+  const marks: Mark[] = (mol.shapes ?? []).filter((x) => x.mark && isBracket(x)).map((x) => ({ ...markAt(x, L), text: x.mark! }));
+  const points = [...ink, ...fills, ...words.map((w): [number, number][] => [[w.box[0], w.box[1]], [w.box[2], w.box[3]]]), marks.map((m): [number, number] => [m.x, m.y])].flat();
+  const xs = points.map((q) => q[0]), ys = points.map((q) => q[1]);
   const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  return { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}`, side, line: style.line };
+  return { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: drawing.labels, words, marks, view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}`, side, line: style.line };
 }
 // Any structure as a thumbnail, drawn once per id, structure and size. px: the side it is shown at. A line is its fill
 // and its outline, so it shows twice its width; at a size where that is under a pixel (a small size, or a big structure
@@ -124,6 +129,12 @@ export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: num
       {t.fills.map((f, i) => <path key={i} d={f.d} fill={f.colour ?? "currentColor"} />)}
       <path d={t.d} fill="currentColor" stroke="currentColor" strokeWidth={t.line} />
       {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
+      {t.words.map((c) => (
+        <text key={`w${c.id}`} textAnchor={c.anchor} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} fill="currentColor" style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${fontStack(c.font ?? "Arial")}` }}>
+          {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, 4 / 3, false) : l.text}</tspan>)}
+        </text>
+      ))}
+      {t.marks.map((m, i) => <text key={`m${i}`} x={m.x} y={m.y} textAnchor={m.anchor} fill="currentColor" style={{ font: `${CAPTION_PT * (4 / 3)}px ${fontStack("Arial")}` }}>{m.text}</text>)}
     </svg>
   );
 }
