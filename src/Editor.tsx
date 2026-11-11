@@ -9563,7 +9563,8 @@ export default function Editor() {
       }}</Live>}
       {cell && <Live store={views}>{(view) => {
         // The cell box sits over the cell, in the table's font at the current zoom. Tab and Shift-Tab move along the
-        // row, Enter and the up and down arrows move down and up a column, and Tab past the last cell adds a row.
+        // row, Enter and the up and down arrows move down and up a column (Shift+Enter up, as in the reagent table), and
+        // Tab past the last cell adds a row.
         const sh = doc.shapes?.find((x) => x.id === cell.id);
         if (!sh?.table) return null;
         const t = tableLayout(sh, cellWidth(sh), style.captionSize), z = view.zoom, size = (sh.size ?? style.captionSize) * pt * t.f * z, cols = t.cols;
@@ -9591,8 +9592,8 @@ export default function Editor() {
                 if (!e.shiftKey && j % cols === 0 && cols > 1 && (sh.table!.cells[j / cols]?.[0] ?? String(j / cols)) === String(j / cols)) j++;
                 return commitCell([Math.floor(j / cols), j % cols]);
               }
-              if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); return cell.r + 1 < t.rows ? commitCell([cell.r + 1, cell.c]) : commitCell(); }
-              if (e.key === "ArrowUp") { e.preventDefault(); return commitCell([Math.max(0, cell.r - 1), cell.c]); }
+              if ((e.key === "Enter" && !e.shiftKey) || e.key === "ArrowDown") { e.preventDefault(); return cell.r + 1 < t.rows ? commitCell([cell.r + 1, cell.c]) : commitCell(); }
+              if (e.key === "ArrowUp" || e.key === "Enter") { e.preventDefault(); return commitCell([Math.max(0, cell.r - 1), cell.c]); }
               if (e.key === "Escape") { e.preventDefault(); return commitCell(); }
             }}
             onBlur={(e) => { if (!inMap(e.relatedTarget)) commitCell(); }}
