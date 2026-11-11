@@ -16,16 +16,17 @@ import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker } from "node:worker_threads";
 
 if (!isMainThread) {
-  // One session: its drawing, as the app keeps one for a session.
+  // One session: its drawing and its brief (set_brief), as the app keeps them for a session.
   const { load, drawing } = await import("../headless/host.ts");
   const { handle } = await import("../../src/mcp.ts");
   const version = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
   void load();
   const d = drawing(), stopped = new Set<number>();
+  let brief: string | undefined;
   parentPort!.on("message", async (m: { n: number; body?: string; client?: string; session?: string; cancel?: boolean }) => {
     if (m.cancel) { stopped.add(m.n); return; }
     // cancelled answers after the messages waiting, so a notifications/cancelled sent during the call is seen.
-    const from = { client: m.client, session: m.session, progress: (note: string) => parentPort!.postMessage({ n: m.n, progress: note }), cancelled: () => new Promise<boolean>((ok) => setImmediate(() => ok(stopped.has(m.n)))) };
+    const from = { client: m.client, session: m.session, brief, keep: (b: string) => { brief = b; }, progress: (note: string) => parentPort!.postMessage({ n: m.n, progress: note }), cancelled: () => new Promise<boolean>((ok) => setImmediate(() => ok(stopped.has(m.n)))) };
     parentPort!.postMessage({ n: m.n, reply: await handle(m.body!, () => d.host, version, from) });
   });
 } else {

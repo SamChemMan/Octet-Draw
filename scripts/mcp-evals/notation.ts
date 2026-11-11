@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 // As run.ts: Indigo's wasm as first compiled, so the process ends when the work does.
 if (!process.execArgv.includes("--liftoff-only")) process.exit(spawnSync(process.execPath, ["--liftoff-only", ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" }).status ?? 1);
 
-const { load, drawing } = await import("../headless/host.ts");
+const { load, drawing, session } = await import("../headless/host.ts");
 const { NOTATION, callOf, fromLines } = await import("../../src/notation.ts");
 type Want = { smiles: Record<string, string>; arrows?: string[]; words?: string[]; cycle?: true };
 const JOBS: { id: string; job: string; want: Want }[] = [
@@ -34,14 +34,17 @@ async function check(answers: Record<string, string>) {
   const { handle } = await import("../../src/mcp.ts");
   const { parseStructure, toInchiKey } = await import("../../src/chem.ts");
   await load();
-  let right = 0;
+  let right = 0, d = drawing("paper");
+  // One session for the jobs, with the brief given once (plan 3.1): a paper.
+  const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", session("Notation test", "notation"))).result;
+  await call("set_brief", { destination: { kind: "paper" } });
   console.log("| Job | Right | Why not |\n|---|---|---|");
   for (const { id, want } of JOBS) {
     // A model's answer, without the code fence it may put round it.
     const text = (answers[id] ?? "").replace(/^```\w*\n?|\n?```$/g, "").trim(), r = fromLines({ lines: text }), wrong: string[] = [];
     if (typeof r === "string") wrong.push(`read: ${r}`);
     else {
-      const d = drawing("paper"), call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", { client: "Notation test" })).result;
+      d = drawing("paper");
       const done = await call(...callOf(r));
       if (done.isError) wrong.push(`drawn: ${done.content[0].text}`);
       else {

@@ -1,7 +1,8 @@
 // The speed jobs (Sam, 11 November 2026: make Octet's tools faster for AI models): what a drawing job costs the model,
 // measured with the lean harness (brief.mjs, call.mjs, judge.mjs; README in brief.mjs). In the cases.mjs form: id,
 // prompt, for, setup, check, and brief: the simulated user's answers to Octet's three questions, which brief.mjs puts
-// in the user's message. Two kinds:
+// in the user's message (a paper, with no particular journal, when a job has none). A setup that draws a scheme or
+// more than one structure gives its own brief first, as the user did when they drew it. Two kinds:
 //   say    the user's message gives everything (names or SMILES, conditions, numbers): only the cost of telling Octet
 //   paper  the same drawing jobs as a paper gives them (prose and compound numbers): the model works out the structures
 // The chemistry is from the benchmark's corpus (scripts/mcp-bench/corpus, the papers it cites) and the Nicolaou taxol
@@ -100,15 +101,16 @@ export const SPEED = [
     } },
   { id: "say-fix", kind: "say",
     // The ketol drawn as its enantiomer; the user names the one thing to fix.
-    setup: [["draw", { kind: "reaction", start: [{ text: TRIKETONE, number: "1" }], steps: [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: "C[C@@]12CCC(=O)C[C@]1(O)CCC2=O", number: "2" }] }] }]],
+    setup: [["set_brief", { destination: { kind: "paper" } }], ["draw", { kind: "reaction", start: [{ text: TRIKETONE, number: "1" }], steps: [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: "C[C@@]12CCC(=O)C[C@]1(O)CCC2=O", number: "2" }] }] }]],
     prompt: say(`In my open drawing, ketol 2 is the wrong enantiomer. It must be ${KETOL}. Fix only that.`),
     check: ({ d, key }) => [...CHECK.oneStep({ d, key }), layout(d)[1], [!find(d, key("C[C@@]12CCC(=O)C[C@]1(O)CCC2=O")), "the wrong enantiomer is gone"], [d.structures.length === 2, "two structures", String(d.structures.length)]] },
   { id: "say-restyle", kind: "say",
-    setup: [["draw", { kind: "reaction", start: [{ text: TRIKETONE, number: "1" }], steps: [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: KETOL, number: "2" }] }] }]],
+    setup: [["set_brief", { destination: { kind: "paper" } }], ["draw", { kind: "reaction", start: [{ text: TRIKETONE, number: "1" }], steps: [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: KETOL, number: "2" }] }] }]],
+    brief: ["No, I have no preferred style.", "A paper in Angewandte Chemie.", "Nothing to emphasise."],
     prompt: "Restyle my open drawing for Angewandte Chemie.",
     check: ({ d, key }) => [[d.style === "Wiley (Angewandte)", "the style is Wiley (Angewandte)", d.style], ...CHECK.oneStep({ d, key }), layout(d)[1]] },
   { id: "say-question", kind: "say",
-    setup: [["draw", { kind: "structures", structures: [{ text: TAXOL[18], number: "18" }, { text: TAXOL[19], number: "19" }] }]],
+    setup: [["set_brief", { destination: { kind: "paper" } }], ["draw", { kind: "structures", structures: [{ text: TAXOL[18], number: "18" }, { text: TAXOL[19], number: "19" }] }]],
     prompt: "What is the molecular formula of compound 19 in my open drawing, and how many stereocentres does it have?",
     check: ({ d, answer }) => { const a = sub(answer).replace(/\s/g, ""); return [[a.includes("C31H46O10Si"), "the answer gives C31H46O10Si", answer.slice(0, 200)], [/\b(8|eight)\s+(stereo|chiral)|stereocent\w*\s*[:=]?\s*(8|eight)\b/i.test(answer), "the answer gives 8 stereocentres"], [d.structures.length === 2, "the drawing is as it was", String(d.structures.length)]]; } },
 

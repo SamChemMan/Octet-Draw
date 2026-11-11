@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("notation.check: skipped (no OPSIN build)"); process.exit(0); }
-const { load, drawing } = await import("../scripts/headless/host.ts");
+const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
 const { callOf, fromLines, NOTATION } = await import("./notation.ts");
 await load();
@@ -16,9 +16,12 @@ await load();
 const words = (t: string) => t.split(/[\s,;]+/).filter(Boolean);
 // What a drawing shows: each structure by its number and InChIKey; each arrow's kind with the words and structures
 // over and under it (line breaks and the order of items aside); and every other text.
+// Each drawing is in one session, whose brief (plan 3.1) is given once: these drawings are for a paper.
+let d = drawing("paper");
+const call = async (n: string, a: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: n, arguments: a } }), () => d.host, "1", session("Check", "notation"))).result;
+assert.ok(!(await call("set_brief", { destination: { kind: "paper" } })).isError);
 async function shown(name: string, args: unknown) {
-  const d = drawing("paper");
-  const call = async (n: string, a: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: n, arguments: a } }), () => d.host, "1", { client: "Check" })).result;
+  d = drawing("paper");
   const r = await call(name, args);
   if (r.isError) return { refused: r.content[0].text };
   const full = (await call("read", { detail: "full" })).structuredContent, m = d.host.doc();

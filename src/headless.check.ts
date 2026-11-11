@@ -499,7 +499,8 @@ try {
   assert.match(costOf(join(dir, "none.jsonl")).stdout, /\| Total \(2\) \| 0 \| 2 \| 2 \| - \| 0 \| 600 \| 200 \| - \| - \| 20 \|/);
 
   // The MCP server for evals (scripts/mcp-evals/headless.ts), with the evals' client in a process of its own (here,
-  // fetch reaches no network): two AI apps at once, each in a drawing of its own with its own ids; a picture asked for
+  // fetch reaches no network): two AI apps at once, each in a drawing of its own with its own ids and its own brief (b
+  // gives one and draws two structures; a, with none, is asked for it); a picture asked for
   // is said to be missing, and only then; a wrong key, a protocol version the app refuses, and a session after DELETE,
   // are refused. A DELETE during a call answers it, on its event stream when it has one, so no call waits for ever.
   const env = { ...process.env, OCTET_MCP_INFO: join(dir, "mcp.json") };
@@ -507,6 +508,7 @@ try {
   try {
     const client = `import { connect } from ${JSON.stringify(new URL("../scripts/mcp-evals/octet.mjs", import.meta.url).href)};
       const [a, b] = await Promise.all([connect("a"), connect("b")]);
+      const briefed = [!!(await b.call("set_brief", { destination: { kind: "paper" } })).isError, !!(await a.call("draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] })).isError];
       await Promise.all([a.call("draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }] }), b.call("draw", { kind: "structures", structures: [{ text: "toluene", number: "1" }, { text: "phenol", number: "2" }] })]);
       const picture = (await a.call("read", { picture: true })).content.map((c) => c.text?.startsWith("No picture") ? "none" : c.type);
       const [da, db] = await Promise.all([a.read(), b.read()]);
@@ -521,10 +523,10 @@ try {
       await new Promise((r) => setTimeout(r, 20));
       await fetch(url, { method: "DELETE", headers: head });
       const stopped = (await calls).map((t) => /Octet stopped/.test(t) ? (t.startsWith("event:") ? "stream" : "json") : t.slice(0, 80));
-      console.log(JSON.stringify({ a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError, small, version, stopped }));`;
+      console.log(JSON.stringify({ briefed, a: da.structures.map((s) => [s.id, s.formula]), b: db.structures.map((s) => [s.id, s.formula]), picture, wrong, ended, after: (await a.call("read", {})).isError, small, version, stopped }));`;
     const out = spawnSync(process.execPath, ["--input-type=module", "-e", client], { env, encoding: "utf8", timeout: 60_000 });
     assert.equal(out.status, 0, out.stderr);
-    assert.deepEqual(JSON.parse(out.stdout), { a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true, small: 1, version: 400, stopped: ["json", "stream"] });
+    assert.deepEqual(JSON.parse(out.stdout), { briefed: [false, true], a: [["s1", "C6H6"]], b: [["s1", "C7H8"], ["s2", "C6H6O"]], picture: ["text", "none"], wrong: 401, ended: 200, after: true, small: 1, version: 400, stopped: ["json", "stream"] });
   } finally { server.kill(); }
 } finally { rmSync(dir, { recursive: true, force: true }); }
 
@@ -535,6 +537,12 @@ try {
   const { SPEED } = await import(new URL("../scripts/mcp-evals/speed.mjs", import.meta.url).href);
   const key = (s: string) => toInchiKey(parseStructure(s)), loose = (s: string) => key(s).split("-")[0];
   const failed = async (job: string, answer = "") => SPEED.find((j: { id: string }) => j.id === job).check({ d: (await call("read", { detail: "full" })).structuredContent, answer, key, loose }).filter(([ok]: [boolean]) => !ok).map(([, what]: [boolean, string]) => what);
+  // Each job's setup runs in a new session, with no brief yet, and none of its calls is refused: a setup that draws a
+  // scheme or more than one structure gives its brief first.
+  for (const j of SPEED.filter((j: { setup?: unknown }) => j.setup)) {
+    d = drawing("paper", j.id);
+    for (const [tool, args] of j.setup) assert.ok(!JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }), () => d.host, "1", session("Check", `setup ${j.id}`))).result.isError, `${j.id}: ${tool}`);
+  }
   const TS = "Cc1ccc(cc1)S(=O)(=O)[O-]", salt = (tosylate: boolean) => ({ kind: "reaction", start: [{ text: "piribedil" }, { text: "Cc1ccc(cc1)S(=O)(=O)OCCC=C", number: "11a" }], steps: [
     { products: [{ text: "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "12a" }, ...(tosylate ? [{ text: TS }] : [])] },
     { reagents: ["9-BBN–H"], products: [{ text: "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1", number: "13a" }, ...(tosylate ? [{ text: TS }] : [])] },

@@ -5,13 +5,15 @@
 //   node scripts/mcp-evals/judge.mjs JOB [ANSWER]      checks the drawing (and the answer file) and prints one JSON line
 //   node scripts/mcp-evals/cost.mjs LOGS JUDGED        what each job cost the model (cost.mjs says more)
 // The first message holds what an AI app gives its model: Octet's instructions and its tools as tools/list gives them
-// (whatever tools the server lists), then the user's message, with the brief's answers when the job has them. The job's
-// state (its session and calls) is in out/lean/.
+// (whatever tools the server lists), then the user's message, with the user's answers to Octet's three questions (the
+// job's own, else a paper with no particular journal). The model calls set_brief itself: that call is part of the job's
+// cost. The job's state (its session and calls) is in out/lean/.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { connect } from "./octet.mjs";
 import { SPEED } from "./speed.mjs";
 
+const PAPER = ["No, I have no preferred style.", "A paper, no particular journal.", "Nothing to emphasise."];
 const LEAN = fileURLToPath(new URL("out/lean/", import.meta.url)), CALL = fileURLToPath(new URL("call.mjs", import.meta.url));
 const job = SPEED.find((c) => c.id === process.argv[2]);
 if (!job) throw new Error(`No job ${process.argv[2]}. The jobs: ${SPEED.map((c) => c.id).join(", ")}`);
@@ -38,4 +40,4 @@ Octet's tools:
 ${tools.map((t) => JSON.stringify({ name: t.name, description: t.description, input_schema: t.inputSchema })).join("\n")}
 
 The user's message:
-${job.prompt}${job.brief ? `\n\nIf you need them, my answers to Octet's three questions: ${job.brief.map((a, k) => `${k + 1}. ${a}`).join(" ")}` : ""}`);
+${job.prompt}\n\nIf you need them, my answers to Octet's three questions: ${(job.brief ?? PAPER).map((a, k) => `${k + 1}. ${a}`).join(" ")}`);
