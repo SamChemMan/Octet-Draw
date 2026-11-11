@@ -7,7 +7,8 @@
 // - The Lab group (glassware and lamps) is drawn in lab.mjs and glassware.mjs, Lab equipment in equipment.mjs,
 //   Biomolecules and Cells in bio.mjs, BioArt, Anatomy, Organisms and Bugs in life.mjs, and Symbols in symbols.mjs (all
 //   through art.mjs); coordination geometries, cages and carbon allotropes are worked out in polyhedra.mjs, and
-//   macrocyclic hosts in hosts.mjs.
+//   macrocyclic hosts in hosts.mjs. The Photochemistry set is made of Octet's own lines, arrows, text and brackets in
+//   photochem.mjs.
 // Nothing comes from another program's files.
 import { readFileSync, writeFileSync } from "node:fs";
 import { HBOND } from "../../src/render.ts";
@@ -22,6 +23,7 @@ import { EQUIPMENT } from "./equipment.mjs";
 import { BIOMOLECULES, CELLS } from "./bio.mjs";
 import { ANATOMY, BIOART, BUGS, ORGANISMS } from "./life.mjs";
 import { SYMBOLS } from "./symbols.mjs";
+import { PHOTOCHEM } from "./photochem.mjs";
 
 const root = new URL("../../", import.meta.url);
 const pack = readFileSync(new URL("src/vendor/opsin/opsin-data.bin", root));
@@ -405,6 +407,7 @@ out.push({ name: "Carbon", items: CARBON });
 out.push({ name: "Cp and arene rings", items: CP_RINGS });
 out.push({ name: "Metallocenes", items: METALLOCENES });
 out.push({ name: "Paddlewheels", items: PADDLEWHEELS.map(([name, metal, r, more]) => entry(name, more.also, { mol: paddlewheel(metal, r, more) })) });
+out.push({ name: "Photochemistry", items: PHOTOCHEM });
 out.push({ name: "Lab", items: [...LAB, TLC, ...GLASSWARE] });
 out.push({ name: "Lab equipment", items: EQUIPMENT });
 out.push({ name: "Biomolecules", items: BIOMOLECULES });

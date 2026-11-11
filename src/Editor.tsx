@@ -83,6 +83,7 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
+import { inkOn, richSpans } from "./richspans";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
@@ -412,25 +413,6 @@ function structurePaths(d: Drawing): [string, string][] {
     inkPaths.set(d, paths);
   }
   return paths;
-}
-
-// A colour as drawn on the paper: black ink is white on dark paper.
-const inkOn = (dark: boolean, c: string) => (dark && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
-// A line of rich text as tspans: each run in its style, a subscript 0.212 em down and a superscript 0.33 em up at
-// 75% size (as atom labels), each run starting from where the last one left the baseline. A run's own colour draws as
-// the rest of the drawing does on dark paper (inkOn).
-function richSpans(runs: TextRun[], size: number, PT: number, dark: boolean) {
-  let shift = 0;
-  return runs.map((r, k) => {
-    const to = r.script === "sub" ? 0.212 * size : r.script === "super" ? -0.33 * size : 0, dy = to - shift;
-    shift = to;
-    const px = r.size ? r.size * PT : size;
-    return (
-      <tspan key={k} dy={dy || undefined} fill={r.colour && inkOn(dark, r.colour)} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
-        {r.text}
-      </tspan>
-    );
-  });
 }
 
 // Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).

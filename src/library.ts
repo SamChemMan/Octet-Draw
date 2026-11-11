@@ -32,12 +32,17 @@ const RENAMED: Record<string, string> = { bipy: "bpy", terpy: "tpy", pybox: "PyB
 // Clip art: a template with no atoms (Lab, Cells, Symbols and the other drawn sets), as against a structure. A set is
 // clip art when all its templates are (ART_SETS, by name). The library, View > Templates and the command palette keep
 // the two apart.
-export const isArt = (t: LibraryItem) => !t.mol.atoms.length;
+// The Photochemistry set has no atoms either, but it is notation for schemes (light and heat on an arrow, state labels,
+// a Jablonski diagram), so it shows with the structures.
+const NOTATION_SETS = new Set(["Photochemistry"]), notation = new Set<string>();
+export const isArt = (t: LibraryItem) => !t.mol.atoms.length && !notation.has(t.kind);
 export const ART_SETS = new Set<string>();
 const byKind = new Map<string, LibraryItem>();
 const index = () => {
   for (const c of LIBRARY) for (const t of c.items) byKind.set(t.kind, t);
   for (const [from, to] of Object.entries(RENAMED)) { const t = byKind.get(`lib:${to}`); if (t) byKind.set(`lib:${from}`, t); }
+  notation.clear();
+  for (const c of LIBRARY) if (NOTATION_SETS.has(c.name)) for (const t of c.items) notation.add(t.kind);
   ART_SETS.clear();
   for (const c of LIBRARY) if (c.items.every(isArt)) ART_SETS.add(c.name);
 };
