@@ -76,7 +76,7 @@ import { createPortal, flushSync } from "react-dom";
 import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { formatAmount, parseAmount, reagentFormula, type Field } from "./stoich";
+import { parseAmount, reagentFormula, type Field } from "./stoich";
 import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridViews as gridViewsOf } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -6001,19 +6001,6 @@ export default function Editor() {
     const page = experimentPage(purposeOf(settings, saved.style?.purpose)?.kind, saved.style?.purpose, saved.annotations) && Object.keys(details).length > 0;
     invoke("experiment_note", { path: file.path, experiment: page ? { details, ...(y !== undefined && y >= 0 && y <= 100 ? { yield: y } : {}) } : null }).catch(() => {});
   }, [file, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A cell's text, and whether it was typed.
-  const gridText = (v: GridView, c: GridView["cols"][number], row: (typeof GRID_ROWS)[number]): { text: string; typed?: boolean } => {
-    const s = v.solved[c.key];
-    if (row.id === "formula") return { text: c.formula };
-    if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
-    if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
-    if (row.product !== c.product && row.product !== undefined) return { text: "" };
-    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass"), typed: c.typed.mass !== undefined };
-    if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
-    if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
-    if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
-    return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
-  };
   // The grid cell under a point (drawing units), if any.
   const gridCellAt = (p: P) => {
     for (const v of gridViews) {
@@ -6145,7 +6132,7 @@ export default function Editor() {
     }
     // A stoichiometry grid's cell picked.
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts };
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0 };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
@@ -7327,6 +7314,8 @@ export default function Editor() {
       const what = command.slice(5), { arrow, key, row } = gridPick;
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
+      // Hide empty rows: every row with nothing in the columns shown (as rows, every quantity with nothing in it).
+      if (what === "hide.empty") return changeGrid(arrow, (g, v) => ({ hidden: { ...g.hidden, rows: [...(g.hidden?.rows ?? []), ...emptyRows(v)] } }));
       setGridPick(undefined);
       if (what === "layout") return changeGrid(arrow, (g) => ({ layout: g.layout ? undefined : "rows" }));
       // As rows (Grid.layout), a row is a component and a column a quantity: Hide row hides what shows as a row.

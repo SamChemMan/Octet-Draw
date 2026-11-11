@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
-import { gridViews, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridViews, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -113,6 +113,9 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.match(editor, /if \(what === "layout"\) return changeGrid\(arrow, \(g\) => \(\{ layout: g\.layout \? undefined : "rows" \}\)\);/);
   assert.match(editor, /hideKey = what === \(rowsLayout \? "hide\.row" : "hide\.col"\)/);
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Show as columns" : "Show as rows", "grid\.layout"/);
+  // Hide empty rows (as rows, Hide empty columns): the empty rows join the hidden ones, which Show all brings back.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Hide empty columns" : "Hide empty rows", "grid\.hide\.empty"/);
+  assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
 // A line of conditions splits at commas outside brackets; the atmosphere's gas is not a reagent.
 assert.deepEqual(conditionItems("toluene/EtOH/H2O (4:1:1, 30 mL), 80 °C; 12 h"), ["toluene/EtOH/H2O (4:1:1, 30 mL)", "80 °C", "12 h"]);
@@ -182,7 +185,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
       captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
     };
     const v = gridViews(m, deps)[0];
-    return { keys: v.all.map((c) => c.key), rows: v.rows.map((row) => row.id), at: (key: string) => v.solved[key] };
+    return { v, keys: v.all.map((c) => c.key), rows: v.rows.map((row) => row.id), at: (key: string) => v.solved[key] };
   };
   // 2 A + B → C, B limiting at 10 mmol: 20 mmol of A at 2 eq., 10 mmol of C. The 2 has no column.
   const bLim = grid(["2", 0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1");
@@ -223,6 +226,12 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   const liquid = grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 }, "r:S1": { equiv: 2, density: 0.8 } });
   near(liquid.at("r:S1").mass, 2, "its mass");
   near(liquid.at("r:S1").volume, 2.5, "its volume");
+  // Hide empty rows: an empty table keeps Formula, MW and Limiting?, and Equivalents for the product's 1.00 (as
+  // ChemDraw's product column has it). Show all brings the rest back (it clears hidden).
+  const empty = grid([0, "→", 1], {});
+  assert.deepEqual(empty.rows.filter((id) => !emptyRows(empty.v).includes(id)), ["formula", "mw", "limiting", "equiv"]);
+  assert.equal(cellText(empty.v, empty.v.cols[1], empty.v.rows.find((row) => row.id === "equiv")!).text, "1.00");
+  assert.ok(!emptyRows(liquid.v).includes("volume") && emptyRows(liquid.v).includes("yield"), "a row with a value stays");
 }
 // Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
 // Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.
@@ -250,7 +259,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(parse(serialize(m)).grids![0].typed, { "p:C": { mass: 5 } }, "kept in Octet's file");
   assert.deepEqual(fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.grids![0].typed, { "p:C": { mass: 5 } }, "and in CDXML");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /if \(row\.id === "expected"\) return \{ text: formatAmount\(s\?\.expectedMass, "mass"\), typed: c\.typed\.mass !== undefined \};/, "shown bold when typed");
+  assert.match(readFileSync(new URL("gridview.ts", import.meta.url), "utf8"), /if \(row\.id === "expected"\) return \{ text: formatAmount\(s\?\.expectedMass, "mass"\), typed: c\.typed\.mass !== undefined \};/, "shown bold when typed");
   assert.match(editor, /\(gc\.row !== "expected" \|\| gc\.product\)/, "a product's Expected mass can be typed in");
   // One value sets the scale: a mass wanted clears the reactants' amounts and every other product's mass wanted.
   assert.match(editor, /filter\(\(\[fd\]\) => \(k\[0\] === "p" \? fd !== "mass" : !target \|\| !amount\(fd\)\)\)/, "one value sets the scale");

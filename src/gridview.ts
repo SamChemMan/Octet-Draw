@@ -4,7 +4,7 @@
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Box, type Grid, type Mol } from "./render.ts";
-import { coefficient, conditionItems, inert, keyColumns, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
+import { coefficient, conditionItems, formatAmount, inert, keyColumns, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 
@@ -131,3 +131,22 @@ export function gridViews(m: Mol, d: GridDeps) {
     return [{ arrow: g.arrow, all, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules }];
   });
 }
+
+export type GridView = ReturnType<typeof gridViews>[number];
+type GridRow = (typeof GRID_ROWS)[number];
+// A cell's text, and whether it was typed (typed values show bold, worked-out ones plain, as ChemDraw's grid does).
+export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow): { text: string; typed?: boolean } {
+  const s = v.solved[c.key];
+  if (row.id === "formula") return { text: c.formula };
+  if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
+  if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
+  if (row.product !== c.product && row.product !== undefined) return { text: "" };
+  if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass"), typed: c.typed.mass !== undefined };
+  if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
+  if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
+  if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
+  return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
+}
+// Hide empty rows: the rows shown with no value in any column shown.
+export const emptyRows = (v: GridView) => v.rows.filter((row) => !v.cols.some((c) => cellText(v, c, row).text)).map((row) => row.id);
+
