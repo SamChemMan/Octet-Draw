@@ -1,13 +1,13 @@
 // Run: node src/photochem.check.ts. The library's Photochemistry set (tools/library/photochem.mjs): Octet's own
 // arrows, text and brackets in the Lab group's style (the document's line width and caption style, no colour of their
 // own), radiative transitions straight and radiationless ones wavy, and each template placed whole and back the same
-// from CDXML and from a .oct file.
+// from CDXML, CDX and a .oct file.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addRing, addTemplate, EMPTY, withCaptionAtoms } from "./edit.ts";
-import { readOct, writeOct } from "./oct.ts";
+import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
 import type { Arrow, Caption, Mol } from "./render.ts";
 
 const more: { sets: { name: string; items: { name: string; also?: string; mol: Mol }[] }[] } = JSON.parse(readFileSync(new URL("./library-more.json", import.meta.url), "utf8"));
@@ -70,11 +70,12 @@ for (const { name, mol } of set) {
   const moved = { ...mol, arrows: mol.arrows?.map((a) => ({ ...a, from: [a.from[0] + 10, a.from[1] + 5], to: [a.to[0] + 10, a.to[1] + 5] })) as Arrow[],
     captions: mol.captions?.map((c) => ({ ...c, x: c.x + 10, y: c.y + 5 })), shapes: mol.shapes?.map((x) => ({ ...x, from: [x.from[0] + 10, x.from[1] + 5], to: [x.to[0] + 10, x.to[1] + 5] })) } as Mol;
   assert.deepEqual(look(placed), look(moved), `${name} is placed whole`);
-  // CDXML (as ChemDraw reads it) and a .oct file give it back: arrows and their heads and waves, text in its runs and
-  // style, conditions on their arrows, the brackets' mark and the group.
+  // CDXML (as ChemDraw reads it), CDX and a .oct file give it back: arrows and their heads and waves, text in its runs
+  // and style, conditions on their arrows, the brackets' mark and the group.
   const cdxml = fromCdxml(toCdxml(placed, DEFAULT_STYLE));
   assert.deepEqual(cdxml.lost, {}, name);
   assert.deepEqual(look(cdxml.mol), look(placed), `${name} through CDXML`);
+  assert.deepEqual(look(readCdx(writeCdx(placed, DEFAULT_STYLE)).mol), look(placed), `${name} through CDX`);
   assert.deepEqual(look(readOct(writeOct(placed, DEFAULT_STYLE)).mol), look(placed), `${name} through .oct`);
 }
-console.log(`photochem.check: ${set.length} Photochemistry templates in the document's style, placed whole and back the same from CDXML and .oct ok`);
+console.log(`photochem.check: ${set.length} Photochemistry templates in the document's style, placed whole and back the same from CDXML, CDX and .oct ok`);

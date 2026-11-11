@@ -18,7 +18,9 @@ const HV = { text: "hν", italic: true };
 
 // A template's objects, each with the next id: text (runs, or one run whose style is the caption's own), lines and
 // arrows, and brackets. on: the text is the conditions of that arrow, on the side given (above is left of a steep
-// arrow); otherwise it is centred on (x, y), or set by align.
+// arrow); otherwise it is centred on (x, y), or set by align. Places are kept to 0.0001 bond length (L/2 is 1.0825),
+// so the library holds no floating-point noise.
+const r4 = (v) => Math.round(v * 1e4) / 1e4 + 0, p4 = (q) => q.map(r4);
 function parts() {
   let id = 0;
   const mol = { atoms: [], bonds: [], arrows: [], captions: [], shapes: [] };
@@ -27,11 +29,11 @@ function parts() {
     text(runs, x, y, more = {}) {
       const [one] = runs, text = runs.map((r) => r.text).join("");
       const style = runs.length === 1 ? (({ text: _, ...own }) => own)(one) : { runs };
-      mol.captions.push({ id: ++id, text, x, y: more.on ? y : y - CAP, ...style, ...more });
+      mol.captions.push({ id: ++id, text, x: r4(x), y: r4(more.on ? y : y - CAP), ...style, ...more });
       return id;
     },
-    arrow(kind, from, to, more = {}) { mol.arrows.push({ id: ++id, kind, from, to, ...more }); return id; },
-    shape(kind, from, to, more = {}) { mol.shapes.push({ id: ++id, kind, from, to, ...more }); return id; },
+    arrow(kind, from, to, more = {}) { mol.arrows.push({ id: ++id, kind, from: p4(from), to: p4(to), ...more }); return id; },
+    shape(kind, from, to, more = {}) { mol.shapes.push({ id: ++id, kind, from: p4(from), to: p4(to), ...more }); return id; },
   };
 }
 // The parts as a template: lists with nothing in them left out, one group of all of them when asked.
