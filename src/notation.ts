@@ -13,7 +13,7 @@ import { conditionKind, solvent } from "./stoich.ts";
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
 // them: a route from its starting materials on a line of their own (the second one joined by +, as models put it with
 // the conditions when the example did), and a second scheme from it by its number with lettered parts on one arrow; a
-// scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+// scope with an amine joined by its name; a grid; a cycle one step a line; then one line of marks.
 export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Biaryl 3
 4-bromoanisole (2) + PhB(OH)2
@@ -21,7 +21,7 @@ export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Triflate 4
 3 -> 3[OMe>OTf] (4), (a) BBr3, CH2Cl2, −78 °C, 78%; (b) Tf2O, pyridine, 90%
 
-{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=morpholin-4-yl (5b) 85%
+{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=morpholine (5b) 85%
 
 anisole (6a) 51% | toluene (6b) 54%
 
@@ -31,7 +31,7 @@ Pd(0)L2 (1)
 -> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name. | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at its NH). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -607,8 +607,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         t = t.replace(/^(.*=\s*\S+)\s+(\d{1,4}[a-z]{0,3}['′″]*)(?=\s|$)/, "$1 ($2)");
         const tail = /\s(?=[([]|\*\*|")|$/.exec(t)!, own = compound(`x${t.slice(tail.index)}`, known), values = new Map<string, string>();
         if (typeof own === "string") return wrong(at, own);
-        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=.
-        const given = t.slice(0, tail.index).replace(/\s*=\s*/g, "=");
+        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=. Words in
+        // brackets before the number are the last group's (R=3-azabicyclo[3.1.0]hexane (cis) (7e)).
+        const given = (t.slice(0, tail.index) + (own.text?.slice(1) ?? "")).replace(/\s*=\s*/g, "=");
         for (const kv of cut(given, (i) => sepAt(given, i)).flatMap((x) => x.text.split(/\s+(?=[^\s=]+=)/)).map((x) => x.trim()).filter(Boolean)) {
           const m = /^([^=]+)=(.+)$/.exec(kv), k = m?.[1].trim();
           if (!m || !core.slots.includes(k!)) return `Line ${at}: "${kv.slice(0, 40)}" is not a group of the core (${core.slots.join(", ")}): write R=Me`;

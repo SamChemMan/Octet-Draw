@@ -103,6 +103,9 @@ assert.deepEqual((await send("ping")).result, {});
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
 assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
+// Claude Code loads draw, change and read at once (alwaysLoad), as nearly every job calls them; the others wait for a
+// tool search, which cost a turn before the first call (plan 19).
+assert.deepEqual(tools.map((t) => (t as { _meta?: unknown })._meta), [...Array(3).fill({ "anthropic/alwaysLoad": true }), undefined, undefined, undefined]);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
 for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_command", "structures", "help"]) assert.equal((await send("tools/call", { name, arguments: {} })).error.code, -32602, name);
@@ -249,7 +252,7 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   assert.equal(m.style, undefined, "no call changed the drawing's style");
   assert.equal(steps.length, 6);
   // The server instructions ask the three questions in their first lines, so an AI app asks before its first call.
-  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions, unless they have answered them: ${QUESTIONS.split(": ").slice(1).join(": ")} Give the answers as draw's brief in the same call that draws`));
+  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions unless answered: ${QUESTIONS.split(": ").slice(1).join(": ")} Give the answers as brief in the draw call`));
   // The brief inside the first drawing call (plan 19.2): draw's brief, in a line or as set_brief's object, is set as
   // set_brief sets it, in the same undo step, said in a line before the result, and kept for the session. A brief Octet
   // refuses changes and keeps nothing. With no brief anywhere a scheme is refused with the three questions, as before.
@@ -374,6 +377,8 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     const ins = async (elicit: boolean) => (JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "initialize", params: { capabilities: {} } }), () => host, "1.2.0", { ...as("s-1"), ...(elicit ? { elicit: async () => "" } : {}) })).result.instructions as string).split("\n");
     const [plain, form2] = [await ins(false), await ins(true)];
     assert.deepEqual([form2.length, form2.filter((l, k) => l !== plain[k]).length], [plain.length, 1]);
+    // (Within the 2,048 characters an AI app keeps, as the others are.)
+    assert.ok(form2.join("\n").length <= 2048, `${form2.join("\n").length}`);
     assert.equal(form2[1], "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.");
     // The prompts say the same: for an AI app that takes elicitation they only call, and give a brief only for answers
     // the user has given, the prompt's own among them (fill_experiment's notebook, journal_figure's journal), so Octet's
@@ -1535,7 +1540,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to\./);
   // A clean check is a sentence or two to the user, with only what differs from what they asked: models answered with
   // 150 to 300 tokens that repeated every compound, the most of a plain job's time.
-  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks\./);
+  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two, only what differs from their request; no read or picture unless asked how it looks\./);
   // What the compounds list says, a name in it a rule (Octet read the compound as another), and the =id of a repeat.
   assert.match(ins, /^Octet Draw is .* These tools draw in the user's open drawing and read it\.\n[^]*The reply lists each compound as Octet read it \(number, id, formula or =id if drawn again; a name only if read as another\)/);
   // Round 3b: given every compound's SMILES, Haiku tried to write them as changes ("write each compound once ... a
@@ -1543,7 +1548,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, as a change to an earlier one \(3\[OBn>OTES\]\), which keeps stereocentres\./);
   // (A group is highlighted with highlight too: a shape is a frame or panel.)
   assert.match(ins, /To highlight an atom, bond, group or structure, use change's edit with highlight/);
-  assert.ok(ins.length <= 2162, `${ins.length}`);
+  // Claude Code before 2.1.296 cut a server's instructions at 2,048 characters: at 2,157 it lost the help line.
+  assert.ok(ins.length <= 2048, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
   const gone = /\b(read_drawing|draw_structures|draw_reaction|draw_cycle|draw_figure|replace_structure|add_text|new_drawing|list_drawings|use_drawing|set_number|get_file|add_arrow|add_shape)\b/;

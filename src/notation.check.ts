@@ -41,6 +41,9 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 // It goes in the tool list, which is 14,000 characters in all (610 before it said a step's label and a name changed,
 // in the room draw_route's listing left).
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
+// Round 4: the scope's example names an amine whole, and says where it joins: a model given "the products R2N–X from
+// these amines" had written every product out as SMILES.
+assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at its NH\)/);
 // Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
@@ -75,10 +78,25 @@ assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATIO
 {
   const one = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=N1CCC(CC1)c1ccccc1 (8a) | R=4-phenylpiperidine (8b) | R=L (8c)\nR=N1CCOCC1 (8d) | R=morpholino (8e) | R=C1CC1 (8f) | R=cyclopropyl (8g) | R=methyl (8h)" })) as { structures: string[] };
   assert.deepEqual(one.structures, ["8a=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8b=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8c=undefined", "8d=AKQWEDMTPCAESO-UHFFFAOYSA-N", "8e=AKQWEDMTPCAESO-UHFFFAOYSA-N", "8f=SWHHCKFQUJBPPQ-UHFFFAOYSA-N", "8g=SWHHCKFQUJBPPQ-UHFFFAOYSA-N", "8h=GNKZMNRKLCTJAY-UHFFFAOYSA-N"]);
-  const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b)" })) as { refused: string };
-  assert.match(two.refused, /Line 2: piperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first/);
-  const three = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=cyclopropy (9b)" })) as { refused: string };
-  assert.match(three.refused, /Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first/);
+  // Round 4: two N–H that are the same (piperazine) join at either. Two that differ, and a word Octet cannot join, leave
+  // that compound out with its line and what to give, as a name Octet cannot read does; the rest is drawn.
+  let said = "";
+  const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b) | R=2-methylpiperazine (9c) | R=cyclopropy (9d)" }, undefined, (r) => (said = r.content[0].text))) as { structures: string[] };
+  assert.deepEqual(two.structures, ["9a=NTPLXRHDUXRPNE-UHFFFAOYSA-N", "9b=KPXVKKBJROCIJB-UHFFFAOYSA-N"]);
+  assert.match(said, /^Drew 2 structures .* Line 2: 2-methylpiperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first\. Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first\./);
+}
+// Round 4: paper-scope (scripts/mcp-evals/speed.mjs) as one scope, the shared part once and R= each amine as the user
+// named it: both models had written the twelve products out as SMILES. Each is the structure the job's check wants (7f
+// with no stereo: its name gives none and its bridge allows one). It takes a name with a second N that has no H
+// (1-Boc-piperazine), stereo from a name (cis-2,6-dimethylmorpholine, and "(cis)" after one), acyclic amines, a new row
+// and a whole compound among the R= cells.
+{
+  const scope = JSON.parse(readFileSync(new URL("../scripts/mcp-bench/corpus/trowbridge2018.json", import.meta.url), "utf8")).jobs.find((j: { id: string }) => j.id === "trowbridge2018-fig4a-amines").expect.smiles as Record<string, string>;
+  const want = (await shown("draw", { structures: Object.entries(scope).map(([number, text]) => ({ text, number })) })) as { structures: string[] };
+  const got = (await shown("draw", { lines: `{R}C(CCC)CC(c1ccccc1)c1ccccc1: R=4-phenylpiperidine (7a) 51% | R=4-(trifluoromethyl)piperidine (7b) 54% | R=1-Boc-piperazine (7c) 38% | R=cis-2,6-dimethylmorpholine (7d) 60% | R=3-azabicyclo[3.1.0]hexane (cis) (7e) 25% | R=2,3,4,5-tetrahydro-1H-1,5-methano-3-benzazepine (7f) 38%
+R=nortropinone (7g) 34% | R=3-methoxyazetidine (7h) 81% | R=N-ethylcyclohexylamine (7i) 69% | R=N-(2-methoxyethyl)methylamine (7j) 86% | R=dimethylamine (7k) 88% | benzyl (2S,4S)-2-tert-butyl-5-oxo-4-[2-(2,2,6,6-tetramethylpiperidin-1-yl)ethyl]-1,3-oxazolidine-3-carboxylate (7l) 61% (>20:1 d.r.)` })) as { structures: string[] };
+  const loose = (x: string) => (x.startsWith("7f=") ? x.slice(0, 17) : x);
+  assert.deepEqual(got.structures.map(loose), want.structures.map(loose));
 }
 
 // ---- The paper corpus and the taxol route, as notation ----

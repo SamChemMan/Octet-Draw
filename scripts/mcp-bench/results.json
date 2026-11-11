@@ -1,7 +1,7 @@
 {
  "tools": 6,
- "toolsList": 12429,
- "instructions": 2160,
+ "toolsList": 12566,
+ "instructions": 2046,
  "cases": {
   "corpus-chained": {
    "calls": 4,

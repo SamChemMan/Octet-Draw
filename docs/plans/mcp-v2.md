@@ -1954,3 +1954,28 @@ tries ("compound 11a is drawn", "an arrow from 11a to 12a"), where round 3 passe
 - **NOTATION's route** starts `4-bromoanisole (2) + PhB(OH)2` and then `-> 4-methoxybiphenyl (3), Pd(PPh3)4 ...`:
   the second reactant is a starting material (models had copied it into the conditions). 765
   characters; tools/list 12,429. The 36 replayed answers still score 35.
+
+### 19.8 As built (round 4, 11 November 2026, branch `mcp/ai4`)
+
+What the model spends: its turns and its thinking. A job given as names (paper-*) cost 2 to 6 times the same job as
+SMILES, because the model worked out every SMILES itself.
+
+- **draw, change and read load at once.** Claude Code defers every MCP tool until the model searches for it (a turn
+  before the first call) unless the tool's tools/list entry has `_meta: {"anthropic/alwaysLoad": true}`. These three
+  have it (`ALWAYS_LOADED`); drawings, advanced and set_brief do not. mcp.rs passes the page's tools/list through
+  unchanged, and gives none while Octet is closed.
+- **Instructions in 2,048 characters** (2,046 from 2,157; for an AI app that takes elicitation 1,867 from 1,944):
+  Claude Code before 2.1.296 cut them at 2,048 and lost the help line. The same instructions, in fewer words.
+- **A scope from the user's names.** paper-scope as one scope (the shared part once, R= each amine as the user named
+  it, 7l whole in the grid, two rows of six) draws the twelve structures its check wants. For that: a group's name can
+  be past 40 characters (labels take 300, as text does); words in brackets before a scope compound's number stay with
+  its group (`R=3-azabicyclo[3.1.0]hexane (cis) (7e)`); a name with `(cis)` or `(trans)` after it reads as with it
+  before (Name to Structure too); two N–H that are the same (piperazine) join at either. A group that cannot join (two
+  N–H that differ, a word Octet cannot read) leaves out that compound only, with its line and "give it as a SMILES";
+  the rest is drawn, as a name Octet cannot read is.
+- **NOTATION** shows `R=morpholine (5b)` and says "R= takes a label, SMILES or name (an amine joins at its NH)": 788
+  characters from 765. tools/list 12,566 from 12,429 (111 of it the three `_meta`). The 36 replayed answers still score
+  35.
+- **Names for whole compounds:** no words added. paper-three-step gives names and Opus kept them; paper-five-step
+  describes each compound as a change to the one before, which instruction 3 already covers. Whether the scope change
+  moves the models is for the main session's runs.

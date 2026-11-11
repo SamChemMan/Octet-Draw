@@ -221,7 +221,7 @@ type Geometry = keyof typeof GEOMETRIES;
 // The hints as a compound takes them (R2), in every kind of draw.
 const ORIENT = { up: str(40), down: str(40), left: str(40), right: str(40), rotate: num(-360, 360), flip: pick(["horizontal", "vertical"]), geometry: pick(Object.keys(GEOMETRIES)), colours: { type: "object", properties: {}, additionalProperties: true, description: "{label or element: '#rrggbb'}" }, like: str(40, "Drawn the same way round as this structure (an id such as s3), by the atoms they share") } as const;
 // A compound's changes to the one it is from (compound.ts reads each: a tool's list stays short).
-const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20), LABELS = { ...list(str(40), 20), description: "One for each *, in order" };
+const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20), LABELS = { ...list(str(MAX_TEXT), 20), description: "One for each *, in order" };
 const COMPOUND = define("compound", obj({
   text: structureText,
   molecule: MOLECULE,
@@ -764,15 +764,15 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's computer. These tools draw in the user's open drawing and read it.
-- Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
-- Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
+const INSTRUCTIONS = `Octet Draw is the user's chemical drawing app. These tools draw in the user's open drawing and read it.
+- Before a scheme, route, figure, cycle or grid, ask the user these three questions unless answered: ${QUESTIONS} Give the answers as brief in the draw call ('quick' for no preference). One structure needs none.
+- Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (# titles), a grid or scope, or a catalytic cycle.
 - Write each compound as the name or SMILES you have (copy the user's); only with neither, as a change to an earlier one (3[OBn>OTES]), which keeps stereocentres. A generic group or metal ligand is {R} ({L}[Pd]{L}).
 - Do not sort conditions: list them after the product in any order. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
-- The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), its warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
-- To match a picture, turn a compound with hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
-- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
-- Each call is one undo step. Never delete the user's work unless they ask.
+- The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, only what differs from their request; no read or picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
+- To match a picture, give a compound hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
+- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only if asked.
+- Each call is one undo step. Never delete the user's work unless asked.
 - advanced help gives the arguments of every draw kind, change op and tool.`;
 // The instructions for an AI app that takes elicitation (plan 3.1; mcp.rs reads that from its initialize): Octet asks
 // the user the brief's questions itself, so the AI app does not spend a turn on them. Only the bullet that asks them
@@ -835,7 +835,8 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 // bond to no atom, labels that do not fit the *s).
 // lost: the place in items of each that failed. where: the line each name or SMILES of the line notation is on, which
 // names it as the lines wrote it.
-type Failed = { text: string; line?: number };
+// why: what is wrong with it, said in place of "cannot read" (a scope's group Octet cannot join).
+type Failed = { text: string; line?: number; why?: string };
 async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
   await host.ready();
   const ok: Read[] = [], failed: Failed[] = [], wrong: string[] = [], lost: number[] = [];
@@ -900,7 +901,8 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
       // A scope's group by lines (R=) that is no label Octet reads is that structure, joined in its place.
       const line = where?.get(`=${written(it as { text: string })}`), joined = line ? [...at].map(([i, v]) => [i, group(host, v)] as const).filter(([, g]) => g) : [];
       const no = joined.find(([, g]) => typeof g === "string");
-      if (no) { wrong.push(`Line ${line}: ${no[1]}`); continue; }
+      // (One that cannot join is left out, as a name Octet cannot read is, and the rest is drawn.)
+      if (no) { failed.push({ text: short(at.get(no[0])!, 60), line, why: no[1] as string }); lost.push(k); continue; }
       if (joined.length) mol = host.tidy(joined.reduce((x, [i, g]) => expandLabel(x, i, g as Mol), mol));
     }
     if (hinted(it)) {
@@ -917,7 +919,8 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
 // SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
 // name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
-// (4-phenylpiperidine). Two N–H, and a word Octet cannot join, are refused. Undefined: it stays a label (L, Nu, dppf).
+// (4-phenylpiperidine), or by either of two N–H that are the same (piperazine). Two N–H that differ, and a word Octet
+// cannot join, are refused. Undefined: it stays a label (L, Nu, dppf).
 function group(host: Host, v: string): Mol | string | undefined {
   const smiles = looksLikeSmiles(v);
   if (!(smiles && /(\d).*\1/.test(v)) && (labelSmiles(v) || isGeneric(v))) return undefined;
@@ -929,7 +932,8 @@ function group(host: Host, v: string): Mol | string | undefined {
     return /[a-z]{3}/.test(v) ? `Octet cannot join ${v}: give it as a SMILES, its joining atom first` : undefined;
   }
   const m = host.structure(v)!, used = bondOrders(m), nh = m.atoms.flatMap((a, i) => (a.label === "N" && hydrogens("N", a.charge ?? 0, used[i]) > 0 ? [i] : []));
-  if (nh.length > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
+  const on = (i: number) => host.inchi({ atoms: [...m.atoms, { label: "C", location: m.atoms[i].location }], bonds: [...m.bonds, { type: 1, atoms: [i, m.atoms.length] }] }).key;
+  if (nh.length > 1 && new Set(nh.map(on)).size > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
   return nh.length ? first(m, nh[0]) : undefined;
 }
 // m with atom k first, and atom drop left out.
@@ -1111,7 +1115,7 @@ function readAs(host: Host, list: Read[], ctx?: Ctx): string {
 // Octet's reading of each name given (D9).
 const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own, formula } = about(host, x.mol); return { given: short(x.text, 80), ...(own ? { octet: own } : {}), ...(formula ? { formula } : {}) }; });
 // A name of the line notation is named as the lines wrote it, with its line.
-const failedNote = (failed: Failed[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f.text}"${f.line ? ` (line ${f.line})` : ""}`).join(", ")}${failed.every((f) => f.line) ? " as a structure." : ": give a SMILES instead (with * for a generic group such as L or R, and its labels)."}${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f.text)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
+const failedNote = (all: Failed[], more: string[] = [], failed = all.filter((f) => !f.why), wrong = [...all.flatMap((f) => (f.why ? [`Line ${f.line}: ${f.why}.`] : [])), ...more]) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f.text}"${f.line ? ` (line ${f.line})` : ""}`).join(", ")}${failed.every((f) => f.line) ? " as a structure." : ": give a SMILES instead (with * for a generic group such as L or R, and its labels)."}${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f.text)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
 const UNDO = " One undo step.";
 
 async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number } & Placement, ctx: Ctx): Promise<Result> {
@@ -3131,7 +3135,9 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (part === "cdxml") { const text = await h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
-    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false } })) });
+    // Claude Code defers every MCP tool until the model searches for it, a turn before the first call, unless the tool
+    // asks to load at once (ALWAYS_LOADED, plan 19).
+    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false }, ...(ALWAYS_LOADED.includes(t.name) ? { _meta: { "anthropic/alwaysLoad": true } } : {}) })) });
     case "tools/call": {
       const named = TOOLS.find((t) => t.name === msg.params?.name), given = msg.params?.arguments ?? {};
       if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
@@ -3304,6 +3310,8 @@ function whole(s: ObjSchema, pieces: Record<string, Schema> = DEFS) {
 const reply = (id: Message["id"], result?: unknown, error?: { code: number; message: string }) => JSON.stringify({ jsonrpc: "2.0", id, ...(error ? { error } : { result }) });
 
 export const TOOL_NAMES = TOOLS.filter((t) => !t.hidden).map((t) => t.name);
+// The tools tools/list asks an AI app to load at once (Claude Code's alwaysLoad): not drawings, advanced or set_brief.
+const ALWAYS_LOADED = ["draw", "change", "read"];
 // The tools as tools/list gives them (D11). A tool's hints and outputSchema are made from its operations': it is
 // read-only when all are, destructive when one is, idempotent when all are, and its result is a change when all are.
 // (All four hints are said outright. openWorldHint is false for every tool: Octet reaches nothing outside itself.)
