@@ -300,7 +300,8 @@ The AI needs to name a place without atom ids. Three ways, in this order:
   `compound.ts` checks itself, so `tools/list` did not grow with the feature. Its descriptions then added 286
   characters (the review of 11 November).
 - **Left for step 5:** the change forms typed in the schema (they are in `draw_structures`' description only: typing
-  them is about 1,500 characters over the 52,000 that `mcp.check.ts` allows, and 132 are left); the evals, which
+  them is about 1,500 characters over the 52,000 that `mcp.check.ts` allows, and 936 are left since wave A was
+  merged, 15.1); the evals, which
   have not been run on `from` and `changes`; and the idempotent hint of `replace_structure` and `edit`, which is
   wrong for changes alone on a structure named by its number (a second call makes the change again, as `edit`'s
   `rotate` does). Merge this branch before others that add to a description.
@@ -564,6 +565,13 @@ Built on 11 November 2026 (the result in `answer`, and `summary`, in `mcp.ts`):
   most). A SMILES or a file is drawn as given: it gets no name, and Octet does not work one out (12 ms a compound)
   until `detail: "full"` asks. A sentence too long for the 20,000 limit (a batch of 40 steps, each with 12 such
   names, was 71,000 characters) is cut to fit, and ends "(cut: detail: full gives all of it)".
+- **A compound's note** (4.2.1: what its changes did at each stereocentre, a group Octet cannot read, a numbered atom
+  with no hydrogens) is in the sentence too, after the names read another way, with how the compound was given and
+  its number: "Octet notes: from 7 (8) [Atom 7 is no longer a stereocentre.]". `replace_structure` and `edit` with
+  changes name the new compound, as the name is how an AI app sees that the change is the one it meant: "Replaced s1
+  with (2S)-butan-2-ol [Atom 7 keeps its configuration (S).], now s2, which keeps its number 1." With text they name
+  it only when Octet read the name another way. (Wave A, 11 November: lenient arguments and short replies merged
+  with compounds as changes.)
 - **`detail: "full"`** gives the data as it was before this step: the drawing, every id made, changed and deleted,
   their boxes, `names`, a figure's or a batch's ids by step, and the layout's warnings in words. Checked on both
   benchmark cases against the replies before: the same but for the sentence. A batch step's `detail` is the batch's.
@@ -701,6 +709,9 @@ benchmark runner should time only the MCP part.
 | The layout faults of section 17 (11 Nov, `mcp/layout`) | the same | the same | taxol-chained | 3 | 0 | 3,887 | 14,849 | 2,192 | 19 of 19 | 42 |
 | | | | taxol-schemes | 3 | 0 | 4,436 | 14,823 | 2,569 | 18 of 19 | 42 |
 | | | | taxol-v1-job | 33 | 6 | 15,295 | 275,602 | 3,565 | 18 of 19 | 11 |
+| Wave A merged: 1, 3a, the layout faults, the dev build and the overlay (11 Nov, `mcp/integrate`) | 59,857 (17,100), 26 tools | 2,487 | taxol-chained | 3 | 0 | 3,887 | 2,411 | 2,140 | 19 of 19 | 40 |
+| | | | taxol-schemes | 3 | 0 | 4,436 | 2,090 | 2,569 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 33 | 0 | 15,490 | 169,663 | 3,867 | 19 of 19 | 9 |
 
 - `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
   4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
@@ -762,6 +773,30 @@ benchmark runner should time only the MCP part.
 - The 60 corpus jobs with the layout faults fixed: 162 warnings (181 before; no job has more) and 110,236 characters
   read (112,152 before). 41 jobs read 1 to 33 characters more: work starts at the top of the page, where a coordinate
   has one more digit.
+- Wave A merged (`mcp/integrate`: `mcp/layout`, `mcp/args`, `mcp/dev` and `mcp/overlay` on `release-1.2-mcp`). No
+  case has fewer structures right, more refused calls or more warnings than on any of the three branches that
+  measured it.
+  - The three schemes have 40 warnings, all of them scheme 3 under the page's bottom edge (Octet lists 40 at most).
+    The two for the numbers 7 and 13 on two structures are gone. They read as three reactions of 5, 5 and 7 steps.
+  - `taxol-v1-job` has 9 warnings (17 at step 0, 23 with step 1 alone, 11 with the layout faults alone). After its
+    three schemes and the β-lactam it has none: all 9 come from the row moves that follow, which are v1's fixes
+    replayed on a drawing that no longer needs them. It sends 8 characters more than with step 1 alone: the MOL text
+    it sends back has one more digit in some coordinates, as the grid is at the top of the page.
+  - The 60 corpus jobs: 225 of 240 right, 1 refused call, 162 warnings, 30,476 characters read and 36,631 in the
+    default reads of the finished drawings. With step 1 alone they read 30,402 and 36,658.
+  - The tools as an AI app gives them to its model were 52,055 characters with step 1 and 3a together, over the
+    52,000 that `mcp.check.ts` allows. They are 51,064: text that can be runs is listed once in `draw_figure`
+    (`$defs.rich`, 862 shorter) and an arrow's end once in `add_arrow` (`$defs.place`, 129 shorter). `$defs` can give
+    no more: each tool's schema stands alone, and the molecule comes once in each of the four tools that take it.
+    936 characters are left (section 16).
+  - Times: `results.json` keeps, for each case, the lowest of the times the three branches kept and three
+    `--write` runs of the merged code (load 6 to 8 on the Mac). 15 of the 63 keep a branch's time. `taxol-v1-job`
+    keeps step 1's 3,867 ms, as only that branch has the job with no call refused (measured here: 3,948 to 4,058).
+    Replayed by two codes in one process in turn (each call's quickest of 5): the schemes 2,747 ms merged and 2,726
+    with step 1 alone, the chained schemes 2,338 merged and 2,354 with the layout faults alone, the whole job 4,131
+    merged and 4,042 with step 1 alone at load 7 to 13. The job's two grids, 12 times each at load 27: 334.5 and
+    353.9 ms merged, 337.3 and 351.7 with step 1 alone. No slower code was found, and the noise was 2 to 4%. Run
+    `--write` once more on a quiet Mac.
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -797,6 +832,7 @@ From the review of step 1 (11 November 2026). Each has a default that is built, 
    the 23 tools, which takes what an AI app gives its model past the 52,000 check. Three ways: list it and
    find the characters (taking "Add a PNG of what changed" off the 20 write tools and saying it once in the
    instructions gives back 840); raise the limit; or leave it until step 5 merges the tools. Built: left until step 5.
+   Since wave A the tools are 51,064 characters, so 936 are left: still too few to list it.
 2. **Any text in brackets after a number becomes a caption** (section 6): `"7 (85%)"` is number 7 with `85%` under
    it, `"5 (R)"` is number 5 with `R`, `"2a (R = Me)"` is 2a with `R = Me`. Before, each was drawn whole as the bold
    number. Is that right for a yield and for a descriptor, or should only a name be split off? Built: all are split,
@@ -808,10 +844,24 @@ From the review of step 1 (11 November 2026). Each has a default that is built, 
    same on `release-1.2-mcp`, and the reading is Name to Structure's own, so it is not changed here. Should a text
    that is a valid SMILES of plain atoms win over an abbreviation?
 
+From the merge of wave A (11 November 2026). Each has a default that is built:
+
+1. **Room under the 52,000 check: 936 characters.** `$defs` is used up (15.1). More room needs one of: open
+   objects (`colours`, a change, a batch step's `args`) listed as `{"type": "object"}` with no empty `properties`
+   and no `additionalProperties: true`, which means the same in JSON Schema (about 540); the picture argument's
+   description said once in the instructions (840, and the instructions grow); or step 5's tool merge. Built: none.
+2. **The words for a compound's note in a short result** (section 10): "Octet notes: from 7 (8) [Atom 7 is no longer
+   a stereocentre.]". The compound goes by how it was given (`from 7`). Octet's name for it is left out, as a short
+   result names no compound. Built: so.
+3. **What a call made comes into view, and the overlay's molecule is in the middle of the window** (section 9). With
+   both merged, the molecule's ground may lie over the new work for up to 8 s. Not seen in the app.
+
 ## 17. Known issues to fix along the way (from the taxol run)
 
-- `replace_structure` refuses MOL text that `get_file` wrote (section 6). Fixed on 11 November: text of several lines
-  keeps its spaces.
+All of these fixes are in `mcp/integrate` (wave A, 15.1).
+
+- **Fixed (11 November, `mcp/args`).** `replace_structure` refused MOL text that `get_file` wrote (section 6). Text
+  of several lines keeps its lines and spaces.
 - **Fixed (11 November, `mcp/layout`).** `add_text` with `below` a structure in a scheme attached to the next arrow
   as a condition. New work now starts 3 bond lengths under the boxes of everything drawn (numbers, conditions, free
   text, reagent tables and shapes too), and `draw_reaction` lays its row out apart from what is there, so a title stays
@@ -824,12 +874,26 @@ From the review of step 1 (11 November 2026). Each has a default that is built, 
   one after another no longer overlap. Left for the brief and `draw_route` (sections 3.2 and 5.4): page fit. A scheme
   taller than what is left of the page runs past its bottom edge, and a line that cannot break (one step wider than
   the page) runs past its right edge.
-- A compound repeated across schemes (7, 13) warns "number on more than one structure" (section 5.4). Fixed on 11
-  November: the warning is only for structures that differ (by InChIKey). A salt drawn as two ions under one number
-  still gets the warning (17.1, Salts).
-- Calls on one session wait behind a long batch (section 8).
-- The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
-  `mcp.json`. Give dev builds their own identifier, or their own file name.
+- **Fixed (11 November, `mcp/args`).** A compound repeated across schemes (7, 13) warned "number on more than one
+  structure" (section 5.4). The warning is only for structures that differ (by InChIKey).
+- **Fixed on the Mac (11 November, `mcp/dev`).** The MCP Beta build shared `mcp.json` with the installed Octet, and
+  two Octets running fought over it. A debug build keeps `mcp-dev.json` in the same folder and uses port 47682
+  (decision 0021).
+
+Left after wave A:
+
+- Page fit (sections 3.2 and 5.4): a scheme taller than what is left of the page, and a line that cannot break.
+  The three taxol schemes' 40 warnings are all this.
+- A salt drawn as two ions under one number still warns "number on more than one structure" (17.1, Salts).
+- Calls on one session wait behind a long batch (section 8, step 8).
+- A dev build beside the installed Octet on Windows and Linux: the second Octet gives its files to the first and
+  ends, so a dev build needs its own identifier there (decision 0021). On every platform the two share recent
+  drawings and Home's folders, and the one that saves last drops what the other added.
+- `detail` is not in `tools/list` on the write tools (section 16).
+- Not tried in the app, as no session could start it on the night of the merge: that what a call made comes into
+  view (`mcp/layout`), the overlay in WKWebView (`mcp/overlay`, section 9), and acceptance case 18 against a dev
+  build (`mcp/dev`). An AI app set up for a dev build by its address must be given port 47682 and the key in
+  `mcp-dev.json`.
 
 ### 17.1 Faults the paper corpus found (11 November 2026)
 
