@@ -19,4 +19,9 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /settings\.seenNotes === version/, "the notes show once after an update");
 assert.match(editor, /userName, seenNotes: version/, "someone new does not get them");
 assert.match(editor, /onWhatsNew=\{ownNotes && /, "About offers them");
+// The notes end with one line and a Donate button, which opens Sam's own link and nothing else (src-tauri open_link).
+const whatsNew = readFileSync(new URL("WhatsNew.tsx", import.meta.url), "utf8"), native = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+assert.match(whatsNew, /Octet Draw is free\. If you want to help, you can donate\./);
+assert.match(whatsNew, /invoke\("open_link", \{ name: "donate" \}\)[^\n]*> Donate<\/button>/, "a Donate button");
+assert.match(native, /"donate" => "https:\/\/buymeacoffee\.com\/chemmansam"\.to_string\(\)/, "the donation link is the one fixed address");
 console.log("releases.check: ok");
