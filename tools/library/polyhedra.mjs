@@ -1,7 +1,9 @@
 // The library's Polyhedra and Carbon sets, worked out here from geometry: coordination geometries (M with its
-// ligands L), cages (their hidden edges dashed), and carbon allotropes (C60 and nanotube segments, each atom at its place in 3D, kept as depth; a
-// graphene flake), with Kekulé double bonds. Nothing comes from another program's files.
+// ligands L), coordination polyhedra as frames and cages (their hidden edges dashed), and carbon allotropes (C60, C70
+// and nanotube segments, each atom at its place in 3D, kept as depth; a graphene flake), with Kekulé double bonds.
+// Nothing comes from another program's files.
 import { Drawing } from "./perspective.mjs";
+import { Build } from "./hosts.mjs";
 
 const deg = Math.PI / 180;
 const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)];
@@ -34,10 +36,52 @@ function geometry([name, ligands, also]) {
   return entry(name, also, d.done());
 }
 
+// ——— Frames ———
+// Coordination polyhedra as frames: a corner where each ligand goes, the corners 1.7 bond lengths from the middle on
+// average (as far as the geometries above put L), the axis up the page. The bipyramids, the square pyramid, the
+// octahedron, the cube and the icosahedron have their corners on a sphere; the capped prisms and the antiprisms have
+// every edge alike, each cap a square pyramid on a square face. The capped octahedron's cap sits out from its face, so
+// it shows. Each is a cage (below), turned and tilted to where it reads most clearly, with no corner seen on an edge it
+// is not on. [name, corners, turn, tilt, search words]
+const ring = (k, r, y, phase = Math.PI / 2) => Array.from({ length: k }, (_, j) => [r * Math.cos((2 * Math.PI * j) / k + phase), y, r * Math.sin((2 * Math.PI * j) / k + phase)]);
+const prism = (k, r, h) => [0.5, -0.5].flatMap((y) => ring(k, r, y * h));
+function frames() {
+  // A square pyramid's apex over the side face j of a k-sided prism (edge 1, radius r), every edge 1.
+  const cap = (k, r, j) => { const t = (2 * Math.PI * (j + 0.5)) / k + Math.PI / 2, d = r * Math.cos(Math.PI / k) + Math.SQRT1_2; return [d * Math.cos(t), 0, d * Math.sin(t)]; };
+  const r3 = 1 / Math.sqrt(3), tp = prism(3, r3, 1), h = 2 ** -0.25, sap = [...ring(4, Math.SQRT1_2, h / 2), ...ring(4, Math.SQRT1_2, -h / 2, (3 * Math.PI) / 4)];
+  const top = [0, h / 2 + Math.SQRT1_2, 0], poles = [[0, 1, 0], [0, -1, 0]];
+  // The icosahedron: a corner at each pole and two pentagons, staggered, between them (edge 1).
+  const ri = 1 / (2 * Math.sin(36 * deg)), yi = Math.sqrt(1 - (2 * ri * Math.sin(18 * deg)) ** 2) / 2, ico = [[0, yi + Math.sqrt(1 - ri * ri), 0], ...ring(5, ri, yi), ...ring(5, ri, -yi, 0.7 * Math.PI), [0, -yi - Math.sqrt(1 - ri * ri), 0]];
+  // The triangular dodecahedron as Hoard and Silverton give it: corners A at 35.2° and B at 73.5° from the axis.
+  const [sa, ca, sb, cb] = [Math.sin(35.2 * deg), Math.cos(35.2 * deg), Math.sin(73.5 * deg), Math.cos(73.5 * deg)];
+  const dodeca = [[sa, ca, 0], [-sa, ca, 0], [0, -ca, sa], [0, -ca, -sa], [0, cb, sb], [0, cb, -sb], [sb, -cb, 0], [-sb, -cb, 0]];
+  return [
+    ["Trigonal bipyramid", [...poles, ...ring(3, 1, 0)], 14, 16, "five-coordinate, CN5, TBP"],
+    ["Square pyramid", [poles[0], ...ring(4, 1, 0)], 15, 18, "five-coordinate, CN5"],
+    ["Octahedron", [...poles, ...ring(4, 1, 0)], 15, 12, "six-coordinate, CN6"],
+    ["Pentagonal bipyramid", [...poles, ...ring(5, 1, 0)], 18, 20, "seven-coordinate, CN7"],
+    ["Capped octahedron", [...poles, ...ring(4, 1, 0), [0.75, 0.75, 0.75]], 15, 14, "seven-coordinate, CN7"],
+    ["Capped trigonal prism", [...tp, cap(3, r3, 0)], 170, 24, "seven-coordinate, CN7"],
+    ["Cube", prism(4, Math.SQRT1_2, 1), 25, 20, "eight-coordinate, CN8, cubic"],
+    ["Square antiprism", sap, 22, 18, "eight-coordinate, CN8, SAP"],
+    ["Triangular dodecahedron", dodeca, 15, 22, "eight-coordinate, CN8, dodecahedral, snub disphenoid"],
+    ["Hexagonal bipyramid", [...poles, ...ring(6, 1, 0)], 9, 22, "eight-coordinate, CN8"],
+    ["Tricapped trigonal prism", [...tp, cap(3, r3, 0), cap(3, r3, 1), cap(3, r3, 2)], 8, 7, "nine-coordinate, CN9, TTP"],
+    ["Capped square antiprism", [...sap, top], 25, 12, "nine-coordinate, CN9"],
+    ["Bicapped square antiprism", [...sap, top, top.map((v) => -v)], 25, 12, "ten-coordinate, CN10, closo"],
+    ["Icosahedron", ico, 31, 12, "twelve-coordinate, CN12, closo, B12"],
+  ].map(([name, points, turn, tilt, also]) => {
+    const n = points.length, mid = points.reduce((m, p) => m.map((v, k) => v + p[k] / n), [0, 0, 0]), at = points.map((p) => p.map((v, k) => v - mid[k]));
+    const k = REACH / (at.reduce((s, p) => s + Math.hypot(...p), 0) / n);
+    return cage(name, `frame, polyhedron, ${also}`, at.map((p) => p.map((v) => v * k)), turn, tilt);
+  });
+}
+
 // ——— Cages ———
 // A cage seen turned and tilted, each corner a carbon at its place in 3D (so Clean Up leaves it as drawn). Its faces are worked out from the corners
-// (the planes with every corner on one side); an edge with no face turned towards the viewer is behind the cage, and
-// is drawn dashed, as chemists draw a cage's hidden edges.
+// (the planes with every corner on one side), and its edges are where two faces meet; an edge with no face turned
+// towards the viewer is behind the cage, and is drawn dashed, as chemists draw a cage's hidden edges. A corner with
+// more than four edges (a frame's) has its warnings off, as no carbon has that valence.
 function cage(name, also, points, turn, tilt) {
   const view = points.map((p) => rotX(rotY(p, turn * deg), tilt * deg)), n = view.length;
   const sub = (a, b) => a.map((v, k) => v - b[k]), dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -55,14 +99,15 @@ function cage(name, also, points, turn, tilt) {
     const corners = on.flatMap((d, c) => (Math.abs(d) < 1e-6 ? [c] : []));
     if (!faces.some((f) => f.corners.join() === corners.join())) faces.push({ corners, front: nrm[2] > 1e-6 });
   }
-  const d = new Drawing(), at = view.map((p) => d.atom("C", p));
-  for (const [a, b] of edgesOf(points)) {
-    const seen = faces.some((f) => f.front && f.corners.includes(a) && f.corners.includes(b));
-    d.bond(at[a], at[b], 1, seen ? {} : { display: "dashed" });
+  const edges = [];
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+    const on = faces.filter((f) => f.corners.includes(a) && f.corners.includes(b));
+    if (on.length > 1) edges.push([a, b, on.some((f) => f.front)]);
   }
+  const d = new Drawing(), at = view.map((p, i) => d.atom("C", p, edges.filter((e) => e[0] === i || e[1] === i).length > 4 ? { ignoreWarnings: true } : {}));
+  for (const [a, b, seen] of edges) d.bond(at[a], at[b], 1, seen ? {} : { display: "dashed" });
   return entry(name, also, d.done());
 }
-const prism = (k, r, h) => [0.5, -0.5].flatMap((y) => Array.from({ length: k }, (_, j) => [r * Math.cos((2 * Math.PI * j) / k + Math.PI / 2), y * h, r * Math.sin((2 * Math.PI * j) / k + Math.PI / 2)]));
 function cages() {
   // A tetrahedron on its base (edge one bond length), its apex up, as it is drawn: the base's back edge hidden.
   const tetra = [[0, Math.sqrt(2 / 3) * 0.75, 0], ...[90, 210, 330].map((a) => [Math.cos(a * deg) / Math.sqrt(3), -Math.sqrt(2 / 3) * 0.25, Math.sin(a * deg) / Math.sqrt(3)])];
@@ -71,7 +116,7 @@ function cages() {
   for (const a of [-1, 1]) for (const b of [-1, 1]) dodeca.push([0, a / phi, b * phi], [a / phi, b * phi, 0], [a * phi, 0, b / phi]);
   return [
     cage("Tetrahedrane", "C4H4, tetrahedron, cage", tetra, 10, 18),
-    cage("Prismane", "Ladenburg benzene, C6H6, triangular prism, cage", prism(3, 1 / Math.sqrt(3), 1), 40, 28),
+    cage("Prismane", "Ladenburg benzene, C6H6, triangular prism, trigonal prism, cage", prism(3, 1 / Math.sqrt(3), 1), 40, 28),
     cage("Pentaprismane", "C10H10, pentagonal prism, cage", prism(5, 1 / (2 * Math.sin(36 * deg)), 1), 10, 22),
     cage("Dodecahedrane", "C20H20, dodecahedron, cage, Platonic", dodeca.map((v) => v.map((x) => (x * phi) / 2)), 12, 20),
   ];
@@ -100,21 +145,77 @@ function kekule(n, edges) {
   for (let u = 0; u < n; u++) if (side[u] === 0 && mate[u] < 0) augment(u, new Array(n).fill(false));
   return edges.map(([a, b]) => (mate[a] === b ? 2 : 1));
 }
-// C60 (truncated icosahedron, edge one bond length): its double bonds are the 30 bonds shared by two hexagons, the
-// edges in no five-membered ring.
-function c60() {
+// A perfect matching by search, for a cage whose rings are not all even (kekule's one pass may then miss): the one
+// whose double bonds cost least in all. The free atom with fewest free neighbours goes first, its cheaper bonds first,
+// and a branch stops once it costs as much as the best found.
+function matching(n, edges, cost) {
+  const nb = neighbours(n, edges), mate = new Array(n).fill(-1), free = (v) => mate[v] < 0;
+  let best, least = Infinity;
+  const go = (c) => {
+    if (c >= least) return;
+    let u = -1;
+    for (let i = 0; i < n; i++) if (free(i) && (u < 0 || nb[i].filter(free).length < nb[u].filter(free).length)) u = i;
+    if (u < 0) { least = c; best = edges.map(([a, b]) => (mate[a] === b ? 2 : 1)); return; }
+    for (const v of nb[u].filter(free).sort((a, b) => cost(u, a) - cost(u, b))) { mate[u] = v; mate[v] = u; go(c + cost(u, v)); mate[u] = mate[v] = -1; }
+  };
+  go(0);
+  return best;
+}
+const neighbours = (n, edges) => { const nb = Array.from({ length: n }, () => []); for (const [a, b] of edges) { nb[a].push(b); nb[b].push(a); } return nb; };
+// The rings of k atoms, each once, as its atoms in order: a fullerene's pentagons (k 5) or hexagons (k 6).
+function rings(nb, k) {
+  const found = new Map();
+  const walk = (path) => {
+    if (path.length === k) { if (nb[path[k - 1]].includes(path[0])) found.set([...path].sort((a, b) => a - b).join(), path); return; }
+    for (const v of nb[path[path.length - 1]]) if (v > path[0] && !path.includes(v)) walk([...path, v]);
+  };
+  nb.forEach((_, a) => walk([a]));
+  return [...found.values()];
+}
+// C60 (truncated icosahedron, edge one bond length): its corners and edges.
+function c60Cage() {
   const p = (1 + Math.sqrt(5)) / 2, raw = [];
   const perms = (v) => [v, [v[1], v[2], v[0]], [v[2], v[0], v[1]]];
   const signs = (v) => { let out = [[]]; for (const x of v) out = out.flatMap((o) => (x === 0 ? [[...o, 0]] : [[...o, x], [...o, -x]])); return out; };
   for (const base of [[0, 1, 3 * p], [1, 2 + p, 2 * p], [p, 2, p ** 3]]) for (const v of perms(base)) raw.push(...signs(v));
   const ps = raw.map((v) => v.map((x) => x / 2)); // edge 2 in these coordinates
-  const edges = edgesOf(ps);
-  const nb = ps.map((_, i) => edges.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : [])));
-  // In a pentagon: a path of four more steps back to the start.
-  const inPentagon = ([a, b]) => nb[b].some((c) => c !== a && nb[c].some((d) => d !== b && d !== a && nb[d].some((e) => e !== c && e !== b && nb[e].includes(a))));
+  return { ps, edges: edgesOf(ps) };
+}
+// C60's double bonds are the 30 bonds shared by two hexagons, the edges in no pentagon.
+function c60() {
+  const { ps, edges } = c60Cage(), pentagons = rings(neighbours(60, edges), 5);
   const d = new Drawing(), at = ps.map((q) => d.atom("C", rotX(rotY(q, 12 * deg), 18 * deg)));
-  edges.forEach(([a, b]) => d.bond(at[a], at[b], inPentagon([a, b]) ? 1 : 2));
+  edges.forEach(([a, b]) => d.bond(at[a], at[b], pentagons.some((r) => r.includes(a) && r.includes(b)) ? 1 : 2));
   return entry("C60", "buckminsterfullerene, fullerene, buckyball", d.done());
+}
+// C70: C60 cut in two across a five-fold axis (through a pentagon's middle), laid along the page, the lower half
+// replaced by the mirror image of the upper (C70 has a mirror plane at its waist; C60's halves are staggered), and a
+// belt of ten carbons between them. Each belt carbon is bonded to an open corner of each half and to the belt carbon
+// beside it whose corner is not bonded to its own, so every ring is a pentagon or a hexagon. Relaxed (hosts.mjs) so
+// every bond is one bond length, every pentagon regular and every hexagon flat. The double bonds are the Kekulé
+// structure with the fewest in a pentagon: five, as a belt carbon takes the double bond of one of its two open corners
+// only, so ten open corners have theirs in a pentagon.
+function c70() {
+  const { ps, edges } = c60Cage(), [five] = rings(neighbours(60, edges), 5), dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const unit = (v) => v.map((x) => x / Math.hypot(...v)), cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const u = unit([0, 1, 2].map((k) => five.reduce((t, i) => t + ps[i][k], 0))), v = unit(cross(u, [1, 0, 0])), w = cross(u, v);
+  const q = ps.map((p) => [dot(p, u) + 0.6, dot(p, v), dot(p, w)]), half = q.flatMap((p, i) => (p[0] > 0.6 ? [i] : [])), at = new Map(half.map((i, k) => [i, k]));
+  const m = new Build();
+  for (const s of [1, -1]) for (const i of half) m.atom("C", [s * q[i][0], q[i][1], q[i][2]]);
+  for (const [a, b] of edges) if (at.has(a) && at.has(b)) m.bond(at.get(a), at.get(b)).bond(30 + at.get(a), 30 + at.get(b));
+  const bonded = (a, b) => m.bonds.some(([x, y]) => (x === a && y === b) || (x === b && y === a)), turn = (k) => Math.atan2(m.atoms[k].at[2], m.atoms[k].at[1]);
+  const open = [...at.values()].filter((k) => m.bonds.filter(([x, y]) => x === k || y === k).length === 2).sort((a, b) => turn(a) - turn(b));
+  open.forEach((k, j) => { const [, y, z] = m.atoms[k].at; m.atom("C", [0, y * 1.1, z * 1.1]); m.bond(k, 60 + j).bond(30 + k, 60 + j); });
+  for (let j = bonded(open[0], open[1]) ? 1 : 0; j < 10; j += 2) m.bond(60 + j, 60 + ((j + 1) % 10));
+  const nb = neighbours(70, m.bonds), pentagons = rings(nb, 5), hexagons = rings(nb, 6);
+  if (pentagons.length !== 12 || hexagons.length !== 25) throw new Error("C70: not 12 pentagons and 25 hexagons");
+  m.relax(4000, [...pentagons.flatMap((r) => r.map((a, j) => [a, r[(j + 2) % 5], 2 * Math.sin(54 * deg)])),
+    ...hexagons.flatMap((r) => r.flatMap((a, j) => [[a, r[(j + 2) % 6], Math.sqrt(3)], ...(j < 3 ? [[a, r[j + 3], 2]] : [])]))]);
+  const inPentagon = (a, b) => pentagons.some((r) => r.includes(a) && r.includes(b));
+  const orders = matching(70, m.bonds, (a, b) => (inPentagon(a, b) ? 1 : 0));
+  if (!orders) throw new Error("C70: no Kekulé structure");
+  m.bonds.forEach((b, k) => { b[2] = orders[k]; });
+  return entry("C70", "fullerene, rugby ball", m.drawing(12, 18));
 }
 // A nanotube segment: graphene (bond length 1) rolled so the chiral vector (n, m) goes round it, `cells` translation
 // periods long, seen along a tilted axis so its front and back walls do not lie on each other.
@@ -163,6 +264,6 @@ function flake(rings, name, also) {
   return entry(name, also, d.done());
 }
 
-export const POLYHEDRA = [...GEOMETRIES.map(geometry), ...cages()];
-export const CARBON = [c60(), nanotube(5, 5, 6, "(5,5) Nanotube", "armchair, carbon nanotube, CNT"), nanotube(9, 0, 4, "(9,0) Nanotube", "zigzag, carbon nanotube, CNT"),
+export const POLYHEDRA = [...GEOMETRIES.map(geometry), ...frames(), ...cages()];
+export const CARBON = [c60(), c70(), nanotube(5, 5, 6, "(5,5) Nanotube", "armchair, carbon nanotube, CNT"), nanotube(9, 0, 4, "(9,0) Nanotube", "zigzag, carbon nanotube, CNT"),
   flake(2, "Circumcoronene", "graphene, C54H18, nanographene")];

@@ -13,7 +13,7 @@ const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.s
 const rotY = ([x, y, z], t) => [x * Math.cos(t) + z * Math.sin(t), y, -x * Math.sin(t) + z * Math.cos(t)];
 
 // A molecule being built: atoms ([label, place]) and bonds ([a, b, order]).
-class Build {
+export class Build {
   constructor() { this.atoms = []; this.bonds = []; }
   atom(label, at) { this.atoms.push({ label, at }); return this.atoms.length - 1; }
   bond(a, b, order = 1) { this.bonds.push([a, b, order]); return this; }
@@ -25,14 +25,15 @@ class Build {
     return at;
   }
   // Relaxed: bonds to one bond length, angles to their ideal (as the distance across them), non-bonded atoms at least
-  // 1.6 bond lengths apart, by small steps.
-  relax(steps = 4000) {
+  // 1.6 bond lengths apart, by small steps. more: [a, b, distance] for pairs with a distance of their own.
+  relax(steps = 4000, more = []) {
     const n = this.atoms.length, nb = Array.from({ length: n }, () => []);
     for (const [a, b, o] of this.bonds) { nb[a].push([b, o]); nb[b].push([a, o]); }
     const flat = (i) => nb[i].some(([, o]) => o === 2); // an aromatic (Kekulé) or double-bonded atom
     const pairs = new Map(), key = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
     for (const [a, b] of this.bonds) pairs.set(key(a, b), 1);
     for (let i = 0; i < n; i++) for (const [a] of nb[i]) for (const [b] of nb[i]) if (a < b && !pairs.has(key(a, b))) pairs.set(key(a, b), flat(i) ? Math.sqrt(3) : 1.633);
+    for (const [a, b, d] of more) pairs.set(key(a, b), d);
     const list = [...pairs].map(([k, d]) => [...k.split(",").map(Number), d]);
     const p = this.atoms.map((a) => [...a.at]);
     for (let s = 0; s < steps; s++) {
