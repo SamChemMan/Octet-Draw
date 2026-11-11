@@ -51,4 +51,18 @@ for (const mix of ["toluene/EtOH/H2O (4:1:1)", "toluene/EtOH/H2O", "THF/H2O"]) a
 assert.deepEqual(conditionItems("toluene/EtOH/H2O (4:1:1, 30 mL), 80 °C; 12 h"), ["toluene/EtOH/H2O (4:1:1, 30 mL)", "80 °C", "12 h"]);
 for (const gas of ["N2", "Ar", "argon", "air", "under N2"]) assert.ok(inert(gas), gas);
 for (const reagent of ["H2", "O2", "CO", "NH3"]) assert.ok(!inert(reagent), reagent);
+// Issue 131: before the names engine has loaded (read gives nothing), Octet's abbreviations are read before the label
+// reader, so THF is C4H8O and never tritium fluoride. A drawn label still reads T as tritium. AcOH is acetic acid, as
+// text and as a drawn label; conditions get no formula.
+{
+  const early = (text: string) => reagentFormula(text, () => undefined, labelSmiles, smilesWeight);
+  for (const [text, want] of [["THF", "C4H8O"], ["DMF", "C3H7NO"], ["DCM", "CH2Cl2"], ["DMAP", "C7H10N2"], ["dry THF", "C4H8O"], ["AcOH", "C2H4O2"], ["K2CO3 (2 eq.)", "K2CO3"], ["cat. H2SO4", "H2SO4"], ["H2SO4 (cat.)", "H2SO4"], ["conc. HCl", "HCl"], ["aq. NaOH", "NaOH"], ["HCl (aq)", "HCl"], ["1 M NaOH", "NaOH"], ["1.5 equiv NaBH4", "NaBH4"]] as const) {
+    const got = early(text), w = formulaWeight(want);
+    assert.ok(got && w && Math.abs(got.weight - w) < 0.01, `${text}: ${got?.formula ?? "nothing"}`);
+  }
+  for (const t of ["reflux", "rt", "0 °C", "-78 °C", "2 h", "overnight"]) assert.equal(early(t), undefined, t);
+  assert.equal(labelSmiles("THF"), "[T]F", "a drawn label THF still reads T as tritium");
+  assert.equal(labelSmiles("CT3"), "C([T])([T])([T])");
+  assert.equal(smilesWeight(labelSmiles("AcOH")!)?.formula, "C2H4O2", "a drawn AcOH label");
+}
 console.log(`reagents.check: ${REAGENTS.length} reagents read right`);

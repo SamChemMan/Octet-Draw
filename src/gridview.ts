@@ -4,7 +4,7 @@
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Grid, type Mol } from "./render.ts";
-import { conditionItems, inert, keyColumns, solve, type Field } from "./stoich.ts";
+import { conditionItems, inert, keyColumns, reagentEquiv, solve, type Field } from "./stoich.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 
@@ -43,9 +43,10 @@ export function gridViews(m: Mol, d: GridDeps) {
     seen.add(r.arrows[0]);
     const steps = d.steps(r);
     if (!steps.length) return [];
-    // label: what names it in a table of rows, its compound number or the text it is written as.
-    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string }[] = [];
-    // conditions: only text with a molar mass makes a column ("0 °C" and "2 h" do not).
+    // label: what names it in a table of rows, its compound number or the text it is written as. given: the
+    // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed.
+    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number }[] = [];
+    // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
     const add = (p: Part, product: boolean, conditions = false) => {
       const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
       if (p.kind === "structure") { const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text; parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n }); return; }
@@ -54,7 +55,7 @@ export function gridViews(m: Mol, d: GridDeps) {
         const plain = item.replace(/^\d+\s+(?=\S)/, ""), got = d.reagent(item);
         // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
         if (conditions && (!got || inert(item))) return;
-        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain });
+        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: reagentEquiv(item) });
       });
     };
     steps[0].reactants.forEach((p) => add(p, false));

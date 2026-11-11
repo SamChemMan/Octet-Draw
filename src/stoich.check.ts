@@ -1,7 +1,7 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, solve } from "./stoich.ts";
+import { conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, solve } from "./stoich.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -108,4 +108,14 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
 assert.deepEqual(conditionItems("toluene/EtOH/H2O (4:1:1, 30 mL), 80 °C; 12 h"), ["toluene/EtOH/H2O (4:1:1, 30 mL)", "80 °C", "12 h"]);
 for (const gas of ["N2", "Ar", "argon", "air", "under N2"]) assert.ok(inert(gas), gas);
 for (const reagent of ["H2", "O2", "CO", "NH3"]) assert.ok(!inert(reagent), reagent);
+// Issue 131: the equivalents a reagent's text gives fill in its Equivalents (plain) until a value is typed.
+for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 equiv NaBH4", 1.5], ["Pd(PPh3)4 (5 mol%)", 0.05], ["cat. H2SO4", undefined], ["1 M NaOH", undefined], ["K2CO3", undefined]] as const) assert.equal(reagentEquiv(text), want, text);
+{
+  const r = (key: string, typed: object, given?: number) => ({ key, mw: 100, product: false, typed, given });
+  near(solve([r("a", { moles: 0.01 }), r("k", {}, 2)]).k.moles, 0.02, "K2CO3 (2 eq.)");
+  near(solve([r("a", { moles: 0.01 }), r("k", {}, 2)]).k.equiv, 2, "its equivalents shown");
+  assert.equal(solve([r("a", {}), r("k", {}, 2)]).k.equiv, 2, "shown before any amount is typed");
+  near(solve([r("a", { moles: 0.01 }), r("k", { equiv: 3 }, 2)]).k.moles, 0.03, "a value typed wins");
+  near(solve([r("a", {}), r("k", { mass: 2 }, 2)]).a.moles, 0.01, "a reagent's amount over its equivalents sets the scale");
+}
 console.log("stoich.check: ok");
