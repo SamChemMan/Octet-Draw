@@ -2045,6 +2045,9 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       const p = pts[i], dx = p[0] - pts[i - 1][0], dy = p[1] - pts[i - 1][1], l = Math.sqrt(dx * dx + dy * dy);
       if (!l && i > 1) continue;
       const n: P = [-dy / l, dx / l];
+      // At a corner (a pen point clicked, not dragged) the shaft turns more than a drawn curve does in one step. A head
+      // is not bent round it: it is a straight dart from the point H back to the tip.
+      if (ns.length && dot(n, ns[ns.length - 1]) < 0.94) return head([cut(pts, H).pop()!, pts[pts.length - 1]], half);
       ps.push(p); ds.push(x); ns.push(n);
       if (x + l >= H || i === 1) { const f = (x - H) / l; ps.push([p[0] + dx * f, p[1] + dy * f]); ds.push(H); ns.push(n); break; }
       x += l;

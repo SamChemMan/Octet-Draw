@@ -361,6 +361,11 @@ console.log("render.check: written labels ok");
   const loopArrow: Arrow = { id: 3, kind: "curve", from: [0, 0], to: [0.3, 0], end: "full", curve: { points: [{ at: [0, 0], c2: [-2, 2] }, { at: [0.3, 0], c1: [2.3, 2] }] } };
   const loop = arrowShapes(loopArrow, S, k), loopPath = arrowPath(loopArrow, k);
   assert.ok(Math.abs(Math.max(...loop[loop.length - 1].map((q) => distToPath(q, loopPath))) - 2.5 * lw) < 1e-6, "a curve's whole head");
+  // A pen curve with a corner (a point clicked, not dragged) just before its tip: its head is a straight dart (both
+  // barbs as far from the tip), not bent round the corner.
+  const corner = arrowShapes({ id: 5, kind: "curve", from: [0, 0], to: [0.8, 0.2], end: "full", curve: { points: [{ at: [0, 0] }, { at: [0.8, 0] }, { at: [0.8, 0.2] }] } }, S, k);
+  const cornerHead = corner[corner.length - 1], fromTip = (q: P) => Math.hypot(q[0] - cornerHead[0][0], q[1] - cornerHead[0][1]);
+  assert.ok(cornerHead.length === 4 && Math.abs(fromTip(cornerHead[1]) - fromTip(cornerHead[3])) < 1e-9, "a head at a corner");
   // An arc's head is laid along its arc (#63), so head and shaft draw as one curve at any length: every point of the
   // head is within its width of the arc, a full head's notch is on the arc and a half head's inner corner is on the
   // shaft's edge. A short arc's head is kept to two thirds of the arc, as a straight arrow's is (its width is a quarter
