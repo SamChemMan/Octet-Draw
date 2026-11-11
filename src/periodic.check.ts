@@ -18,7 +18,8 @@ assert.deepEqual([at("K"), at("Sc"), at("Kr"), at("Y"), at("Xe")], [[4, 1], [4, 
 assert.deepEqual([at("Cs"), at("Ba"), at("La"), at("Lu"), at("Hf"), at("Rn")], [[6, 1], [6, 2], [9, 3], [9, 17], [6, 4], [6, 18]]);
 assert.deepEqual([at("Fr"), at("Ac"), at("Lr"), at("Rf"), at("Og")], [[7, 1], [10, 3], [10, 17], [7, 4], [7, 18]]);
 
-// Facts: from the names and NIST's isotopes. The weight is the isotopes' mean (IUPAC's abridged value to three places).
+// Facts: from the names and NIST's isotopes. The weight is the isotopes' mean by abundance, which for some elements is
+// a little off IUPAC's standard atomic weight (S is 32.065, not 32.06).
 const fe = elementFacts("Fe");
 assert.equal(fe.z, 26);
 assert.equal(fe.name, "Iron");
