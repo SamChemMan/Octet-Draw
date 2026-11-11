@@ -142,7 +142,7 @@ assert.match(spectrum, />Decouple ¹H<\/button>/);
 assert.match(editor, /decoupled=\{!!nucleusOpen && \(settings\.nmrDecouple\?\.\[nucleusOpen\] \?\? NUCLEI\[nucleusOpen\]\.decouple\)\}/);
 assert.match(spectrum, /\{v\.toFixed\(places\)\.replace\("-", "−"\)\}/, "a minus sign on the axis");
 assert.match(editor, /const PREDICTED: string\[\] = NUCLEUS_LIST;/);
-assert.doesNotMatch(editor, /hasNucleus|has no \$\{word\}/, "Predict refuses no nucleus");
+assert.doesNotMatch(editor.match(/\n  function openSpectrum\([^]*?\n  \}\n/)![0], /return|setNotice/, "Predict refuses no structure");
 assert.match(editor, /predict\(g, nucleusOpen, nmrSolvent, settings\.nmrDecouple\?\.\[nucleusOpen\]\)/);
 assert.match(editor, /const mhz = first\.mhz \/ NUCLEI\[key\]\.ratio/);
 for (const id of ["predict_19f", "predict_31p"]) {
