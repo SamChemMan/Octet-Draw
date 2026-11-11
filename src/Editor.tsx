@@ -35,7 +35,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type Swatch } from "./settings";
 import { pickColour } from "./ColourPicker";
-import { OWN_MOST, rememberColour } from "./colours";
+import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
@@ -7385,11 +7385,13 @@ export default function Editor() {
 
   // Runs an action from the panel on the selected atom, bond or atoms.
   // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
-  // with the user's own from Settings > Colours); carbon and hydrogen keep the ink.
+  // with the user's own from Settings > Colours); carbon and hydrogen keep the ink. A toggle: when every one of them
+  // has its element's colour already, they go back to the document's ink.
   function colourByElement() {
     if (editing) return tintLabel("element"); // a label being typed: its element's colour
-    const by = { ...elementColours(), ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label], ...(a.runs ? { runs: uncoloured(a.runs) } : {}) } : a)) }, true);
+    const by = { ...elementColours(), ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), on = elementColoursOn(doc.atoms, atoms, by);
+    set({ ...doc, atoms: doc.atoms.map((a, i) => { if (!atoms.has(i) || !by[a.label]) return a; const { colour: _, ...plain } = a; return on ? plain : { ...a, colour: by[a.label], ...(a.runs ? { runs: uncoloured(a.runs) } : {}) }; }) }, true);
+    say(on ? "Element colours off" : "Coloured by element");
   }
   // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
   // each document). Only the user's first 20 colours, as when 20 was their limit, so the drawing's own keep their room.
