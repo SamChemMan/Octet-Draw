@@ -419,6 +419,28 @@ animation on screen, in Octet's style, for the whole time Claude is working, not
 - **Calls that change nothing** (reads) do not start it. Today `working()` is only called for write tools: keep that,
   and add the job state.
 
+**Built (11 November 2026, branch `mcp/overlay`).** `src/McpMagic.tsx`, `src/magic.ts` and the `.mcp-` rules in
+`src/editor.css`; `src/motion.check.ts` holds its rules.
+
+- The molecules: benzene, caffeine, cyclooctatetraene (the octagon of the mark) and aspirin. One molecule has 7 s:
+  the first atom at 0.36 s, built by 2.0 to 2.4 s, whole until 6.0 s, clear by 7 s. Each atom pops in 260 ms with the
+  overshoot, each bond draws in 180 ms.
+- It is drawn with plain boxes and CSS keyframes, not SVG. In Chrome an SVG's parts could not be moved off the page's
+  thread: each frame of the build laid the SVG out and painted it, and a loop on an `<svg>` kept the page's thread at
+  work every frame. Boxes: no layout and no paint in any frame (one of each when the next molecule is put in), and the
+  page's thread at rest once a molecule is built. Page-thread work while it shows, in Chrome at 120 frames a second:
+  14 ms a second (the old blur and glow: 74 ms a second, with two paints every frame). Not measured in the app's own
+  web view.
+- It stays 8 s after the last call (`LINGER`).
+- During a call, and for 1 s after (`HOLD`), the window is soft and the molecule is in the middle of the window.
+  Between calls the drawing must be clear (PRODUCT.md, principle 1: the canvas comes first), and an AI app's drawing
+  lands in the middle of the window, so the molecule goes down to the pill at half size and goes on there. Sam to
+  confirm; one rule (`.mcp-magic.held .mcp-stage`) decides it.
+- The glow is gone (its colours were not brand colours) and so is the light that ran along the pill's words (not a
+  transform or an opacity).
+- A call's progress reaches the pill through `Host.working(text, stop, far)`. Background jobs (section 8) are not
+  built here: a job passes its progress the same way.
+
 ## 10. Short replies (R6)
 
 - Every write result by default: one sentence, then `{ made: [...top-level ids], check: "clean" | {...}, warnings:

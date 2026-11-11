@@ -72,6 +72,9 @@ Why Instrument Sans: it is a clean, precise grotesque with the polish of San Fra
   One exception, from Sam (16 October 2026): dragging an option onto the toolbar. The item settles into
   its slot and the other icons ripple a 2px bounce. It gives toolbar customising some character; it
   never touches the drawing. Reduced motion turns it off.
+  A second exception, from Sam (11 November 2026): the molecule that builds in the window while an AI
+  app works. Each atom pops in with a small overshoot. It gives the wait some character; it
+  never touches the drawing. Reduced motion turns it off.
 
 ## Iconography
 

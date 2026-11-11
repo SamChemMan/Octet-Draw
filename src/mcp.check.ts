@@ -25,6 +25,8 @@ await ready;
 // The editor's stand-in: a drawing, its undo steps, its selection and what it told the user.
 const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO", "ethyl acetate": "CCOC(C)=O", water: "O", benzene: "c1ccccc1", toluene: "Cc1ccccc1", phenol: "Oc1ccccc1" };
 let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [];
+// What the window was told to show of an AI app at work (Host.working): the text, whether Stop is offered, how far.
+let shown: [string | undefined, boolean, string | undefined][] = [];
 const ink = (atoms: number[]): Box | undefined => {
   const ps = atoms.map((i) => m.atoms[i]?.location).filter(Boolean);
   return ps.length ? [Math.min(...ps.map((p) => p[0])) - 0.3, Math.min(...ps.map((p) => p[1])) - 0.3, Math.max(...ps.map((p) => p[0])) + 0.3, Math.max(...ps.map((p) => p[1])) + 0.3] : undefined;
@@ -42,7 +44,7 @@ const host: Host = {
   reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f) => (f === "smiles" ? toSmiles(expandLabels(m)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyse(x)?.[0]?.formula, name: () => undefined,
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
-  said: (t) => said.push(t), working: () => {}, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
+  said: (t) => said.push(t), working: (text, stop, far) => { shown.push([text, !!stop, far]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true,
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
 };
@@ -50,7 +52,7 @@ let n = 0;
 const send = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }), () => host, "1.2.0", { client: "Test", session: "s-1" }));
 const call = async (name: string, args: unknown) => (await send("tools/call", { name, arguments: args })).result as { content: { type: string; text?: string; data?: string }[]; isError?: true };
 const text = (r: { content: { text?: string }[] }) => r.content[0].text!;
-const fresh = () => { m = EMPTY; steps = []; said = []; picked = { atoms: [], items: [] }; experiment = false; };
+const fresh = () => { m = EMPTY; steps = []; said = []; shown = []; picked = { atoms: [], items: [] }; experiment = false; };
 const read = async () => JSON.parse(text(await call("read_drawing", {})));
 
 // The protocol: initialize answers the version asked for (or the newest), with Octet's instructions.
@@ -422,6 +424,13 @@ host.cleanReactions = (ids) => ids.size;
   assert.ok(!res.result.isError, res.result.content[0].text);
   assert.deepEqual(notes.map((x) => [x.progress, x.total]), [[0, 3], [1, 3], [2, 3]]);
   assert.equal(notes[1].message, "Step 2 of 3");
+  // The window is told too, for the user (McpMagic's pill): the call once with Stop, then how far it is each time
+  // (no new call, still with Stop), and that it ended (said, as the reaction is drawn).
+  assert.deepEqual(shown, [["Test is drawing.", true, undefined], ["Test is drawing.", true, "0 of 3"], ["Test is drawing.", true, "1 of 3"], ["Test is drawing.", true, "2 of 3"]]);
+  // A call that only reads shows nothing.
+  shown = [];
+  await call("read_drawing", {});
+  assert.deepEqual(shown, []);
   // Every product is in the window, the last step's too (6 November 2026: a watched call set the drawing before it
   // placed each step's products, and never after the last).
   assert.equal(fragments(m).length, 4, "the start and all three products drawn");
