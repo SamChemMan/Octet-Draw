@@ -289,6 +289,12 @@ export function LibraryPanel(p: TemplateActions & {
   }, []);
   const grid = useRef<HTMLDivElement>(null), timer = useRef<number>(undefined), refocus = useRef<string>(undefined), uid = useId();
   useEffect(() => () => clearTimeout(timer.current), []);
+  // In a narrow window it moves left as far as it must to stay 8 px inside it (beside the Ring menu, over that menu's edge).
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current!, at = el.offsetParent, over = (at ? at.getBoundingClientRect().left + at.clientLeft : 0) + el.offsetLeft + el.offsetWidth + 8 - innerWidth;
+    if (over > 0) el.style.marginLeft = `${-over}px`;
+  }, []);
   // A name typed with the keyboard gives the focus back to its template.
   useEffect(() => {
     if (editing || !refocus.current) return;
@@ -404,7 +410,7 @@ export function LibraryPanel(p: TemplateActions & {
     );
   };
   return (
-    <div className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}
+    <div ref={box} className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}
       style={{ "--thumb": `${px}px` } as React.CSSProperties}>
       <div className="library-side">
         <label className="library-search">
@@ -461,8 +467,8 @@ export function LibraryPanel(p: TemplateActions & {
               </button>
             </div>
           )}
-          {!query ? shown.map(cell) : KINDS.map(([kind, name]) => [kind, name, shown.filter((t) => isArt(t) === (kind === "art"))] as const).filter(([, , list]) => list.length).map(([kind, name, list]) => (
-            // Results are in a group for each kind, under its name.
+          {!query ? shown.map(cell) : (art ? [...KINDS].reverse() : KINDS).map(([kind, name]) => [kind, name, shown.filter((t) => isArt(t) === (kind === "art"))] as const).filter(([, , list]) => list.length).map(([kind, name, list]) => (
+            // Results are in a group for each kind, under its name; the kind the switch was on first.
             <div key={kind} className="library-group" role="group" aria-labelledby={`${uid}-${kind}`}>
               <span className="library-group-name" id={`${uid}-${kind}`}>{name}</span>
               {list.map(cell)}

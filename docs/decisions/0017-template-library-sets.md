@@ -133,14 +133,17 @@ one list, the drawings after Paddlewheels.
   user's own sets show with both.
 - It opens on the kind of the template in hand: a flask chosen last time opens Clip art, on its set. With a ring in
   hand, the Ring tool's library opens Structures.
-- Search looks in both kinds. Its results show in two groups, Structures and Clip art, each under its name. While a
-  search shows, neither half of the switch is on, as no set is. A click on either half clears the search.
+- Search looks in both kinds. Its results show in two groups, Structures and Clip art, each under its name, the kind the
+  switch was on first (so "tube" on Clip art shows the test tubes before the structures found by name). While a search
+  shows, neither half of the switch is on, as no set is. A click on either half clears the search.
 - View > Templates and File > Save Templates for ChemDraw list the user's sets, then Octet's structures, then its clip
   art, with a separator between each group. The menu is built again when the later sets load, so each item opens the set
   it names (before, the items after the first group could open the wrong set once `library-more.json` had loaded).
-- The command palette finds every template by "structure" or "clip art".
+- The command palette finds every template by "structure" or "clip art" (a command's other words now match words in a
+  row, as "clip art").
 - The library is 30 px wider (the side is 180 px), so the switch's two halves are equal and "Cp and arene rings" fits on
-  one line.
+  one line. Where the window is too narrow for it beside the Ring menu, it moves left to stay 8 px inside the window,
+  over that menu's edge.
 
 ## Not done
 
