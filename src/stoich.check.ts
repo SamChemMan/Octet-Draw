@@ -1,7 +1,7 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { coefficient, conditionItems, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
+import { coefficient, conditionItems, GRID_ROW_IDS, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
 import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
@@ -365,6 +365,43 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.match(rowsTsv[0], /^Reagents\tFormula\tMW\tLimiting\?\tEquivalents\tMass\tMoles/);
   assert.match(rowsTsv[1], /^S0\tS0\t100\.00\tYes\t1\.00\t1\.00 g\t10\.0 mmol/);
   assert.ok(rowsTsv.includes("") && rowsTsv.some((l) => l.startsWith("Products\t")), "the products in a section of their own");
+}
+// One table for each step (T6): A → B → C with a grid on each arrow (Grid.step) gives two tables. B is a product in
+// the first and a reactant in the second, with values of its own in each; the second goes under the first. B's
+// Measured mass in the first gives its amount in the second, shown as worked out, and makes it limiting there. A grid
+// with no step covers the whole scheme, as before, and is not drawn once the scheme has step tables.
+{
+  const box = (k: number) => [3 * k, -0.5, 3 * k + 1, 0.5];
+  const row = [{ kind: "structure", atoms: [0], box: box(0) }, { kind: "arrow", id: 9, box: box(1) }, { kind: "structure", atoms: [1], box: box(2) }, { kind: "arrow", id: 10, box: box(3) }, { kind: "structure", atoms: [2], box: box(4) }];
+  const steps = [{ arrow: 9, reactants: [row[0]], products: [row[2]], above: [], below: [] }, { arrow: 10, reactants: [row[2]], products: [row[4]], above: [], below: [] }];
+  const deps: GridDeps = {
+    reaction: () => ({ steps: row, arrows: [9, 10], atoms: [], captions: [], carried: [], conditions: new Map() }) as never, steps: () => steps as never,
+    structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 + 10 * atoms[0] }), reagent: () => undefined, captionBox: () => undefined, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
+  };
+  const views = (grids: Mol["grids"]) => gridViews({ atoms: [], bonds: [], arrows: [{ id: 9, kind: "reaction", from: [3, 0], to: [4, 0] }, { id: 10, kind: "reaction", from: [9, 0], to: [10, 0] }], grids } as Mol, deps);
+  const two = views([{ arrow: 10, typed: { "r:S1": { purity: 0.9 } }, step: true }, { arrow: 9, typed: { "r:S0": { mass: 1 }, "p:S1": { measured: 0.55 } }, step: true }]);
+  assert.deepEqual(two.map((v) => [v.arrow, v.all.map((c) => c.key)]), [[9, ["r:S0", "p:S1"]], [10, ["r:S1", "p:S2"]]], "in the scheme's order");
+  near(two[0].solved["p:S1"].yield, 0.55 / 110 / (1 / 100), "step 1's yield");
+  near(two[1].solved["r:S1"].moles, 0.005, "B's moles in step 2 from its Measured mass in step 1");
+  near(two[1].solved["r:S1"].mass, 0.55 / 0.9, "its mass with step 2's own purity");
+  assert.equal(two[1].limiting, "r:S1");
+  assert.equal(cellText(two[1], two[1].cols[0], two[1].rows.find((r) => r.id === "mass")!).typed, false, "shown as worked out");
+  near(two[1].solved["p:S2"].expectedMoles, 0.005, "C expected from it");
+  assert.ok(two[1].top < two[0].bottom, "step 2's table under step 1's");
+  assert.equal(two[0].bottom, two[0].top - two[0].rows.length * two[0].rh, "a table's foot is under its last row");
+  const asRows = views([{ arrow: 9, typed: {}, step: true, layout: "rows" }, { arrow: 10, typed: {}, step: true }]);
+  assert.equal(asRows[0].bottom, asRows[0].rules!.at(-1)![2], "as rows, its last rule");
+  assert.ok(asRows[1].top < asRows[0].bottom);
+  const allHidden = views([{ arrow: 9, typed: {}, step: true, layout: "rows", hidden: { rows: GRID_ROW_IDS } }]);
+  assert.equal(allHidden[0].bottom, allHidden[0].top, "every row hidden: no rule, and the foot is the top");
+  const typedB = views([{ arrow: 9, typed: { "p:S1": { measured: 0.55 } }, step: true }, { arrow: 10, typed: { "r:S1": { mass: 2 } }, step: true }]);
+  near(typedB[1].solved["r:S1"].moles, 2 / 110, "a mass typed in step 2 wins");
+  const whole = views([{ arrow: 9, typed: { "r:S0": { mass: 1 } } }]);
+  assert.deepEqual(whole.map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S2"]], "a grid without step covers the scheme");
+  assert.deepEqual(views([{ arrow: 9, typed: {} }, { arrow: 10, typed: {}, step: true }]).map((v) => v.arrow), [10], "with step tables, the scheme's grid is not drawn");
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const made: Grid\[\] = all\.length > 1 \? all\.map\(\(a\) => \(\{ arrow: a, typed: \{\}, roles: \{\}, step: true \}\)\)/, "Analyse stoichiometry gives a scheme of several arrows a table for each step");
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.steps === "split" \? "One table for each step" : "One table for the scheme", "grid\.steps"/);
 }
 // Issue 134: a grid keeps each amount in base units, so a file from Octet 1.1.1 opens with the same amounts whatever
 // Settings say: 250 mg of ethanol, K2CO3 at 2 eq., 300 mg of ethyl acetate measured.

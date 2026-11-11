@@ -5,7 +5,7 @@
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
 import { isNumber, scaleOf, type Box, type Grid, type GridRole, type Mol } from "./render.ts";
 import { sheetSafe } from "./experiment.ts";
-import { coefficient, conditionItems, CONDITIONS, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
+import { coefficient, conditionItems, CONDITIONS, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field, type Solved } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 import type { Liquid } from "./liquids.ts";
@@ -71,120 +71,144 @@ function readItem(item: string) {
   return r;
 }
 
-// One grid for each reaction (an experiment page gives each new arrow one), laid out under it.
+// One grid for each reaction (an experiment page gives each new arrow one), laid out under it. When the reaction has
+// grids for its steps (Grid.step: Analyse stoichiometry on a scheme of several arrows, or One table for each step),
+// one table for each step instead, in the scheme's order, each under the one before; a grid of the whole reaction is
+// then not drawn.
 export function gridViews(m: Mol, d: GridDeps) {
-  const seen = new Set<number>();
-  let laid = 0;
-  return (m.grids ?? []).flatMap((g: Grid) => {
+  const seen = new Set<number>(), out: GridView[] = [];
+  for (const g of m.grids ?? []) {
     const r = d.reaction(g.arrow);
-    if (!r || seen.has(r.arrows[0])) return [];
+    if (!r || seen.has(r.arrows[0])) continue;
     seen.add(r.arrows[0]);
     const steps = d.steps(r);
-    if (!steps.length) return [];
-    // Coefficients (issue 133): a plain number just before a structure or text in the row (2 A + B → C), or one a
-    // structure carries just on its left, is that part's coefficient and has no column of its own. A compound number
-    // (bold) is not one.
-    const coefs = new Map<Step, number>(), counted = new Set<Step>();
-    const alone = (id: number) => { const c = m.captions?.find((x) => x.id === id); if (!c || isNumber(c)) return undefined; const [rest, v] = coefficient(c.text.trim()); return rest ? undefined : v; };
-    r.steps.forEach((s, k) => {
-      const next = r.steps[k + 1], v = s.kind === "text" ? alone(s.id) : undefined;
-      if (v && (next?.kind === "structure" || next?.kind === "text")) { coefs.set(next, v); counted.add(s); }
-      if (s.kind === "structure") for (const id of s.carry?.captions ?? []) {
-        const b = d.captionBox(id), mid = (s.box[1] + s.box[3]) / 2, w = alone(id);
-        if (w && b && (b[0] + b[2]) / 2 < s.box[0] && b[1] < mid && b[3] > mid) coefs.set(s, w);
-      }
-    });
-    // label: what names it in a table of rows, its compound number or the text it is written as. given: the
-    // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed. coef: its coefficient, for
-    // a part of the equation; side: written over or under an arrow, where a number in front ("2 HCl") gives its
-    // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent.
-    // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
-    // (every table Octet makes now) a solvent when it is a known one.
-    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole }[] = [];
-    // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
-    const add = (p: Part, product: boolean, conditions = false) => {
-      const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
-      if (p.kind === "structure") {
-        const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
-        parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: liquid?.solvent });
-        return;
-      }
-      if (counted.has(p)) return;
-      const text = m.captions?.find((c) => c.id === p.id)?.text ?? "", items = conditions ? conditionItems(text) : [text.trim()];
-      items.forEach((item, k) => {
-        const { n, plain, equiv, gas, liquid } = readItem(item), got = d.reagent(item);
-        // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
-        if (conditions && (!got || gas)) return;
-        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: equiv ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: product ? undefined : liquid?.density, solvent: product ? undefined : liquid?.solvent });
-      });
-    };
-    steps[0].reactants.forEach((p) => add(p, false));
-    for (const st of steps) for (const p of [...st.above, ...st.below]) add(p, false, true);
-    steps[steps.length - 1].products.forEach((p) => add(p, true));
-    if (!parts.length) return [];
-    // Once a coefficient is written, each part of the equation has one.
-    if (parts.some((p) => p.coef)) for (const p of parts) if (!p.side) p.coef ??= 1;
-    const keyed = keyColumns(parts, g.typed, g.limiting), all = keyed.cols, hidden = g.hidden ?? {};
-    for (const c of all) if (!c.product) c.role = g.roles?.[c.key] ?? (g.roles && c.solvent ? "solvent" : "reactant");
-    const limiting = limitingOf(all, keyed.limiting)?.key, solved = solve(all, limiting, g.conc);
-    // The grid takes its arrow's scale (decision 0007). Columns stand under what they are, a column's width apart.
-    const f = scaleOf(m.arrows?.find((a) => a.id === g.arrow) ?? {}), width = 3.4 * f;
-    const cols = all.filter((c) => !hidden.cols?.includes(c.key)).sort((p, q) => p.x - q.x).map((c) => ({ ...c }));
-    cols.forEach((c, k) => { if (k && c.x < cols[k - 1].x + width) c.x = cols[k - 1].x + width; });
-    if (!cols.length) return [];
-    const used = (fd: Field) => cols.some((c) => c.typed[fd] !== undefined), products = cols.some((c) => c.product);
-    // As rows, Molarity and Purity show only when used, on an experiment page too, so the table fits the page.
-    const roled = (r: GridRole) => cols.some((c) => !c.product && c.role === r);
-    const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.id === "role" ? roled("catalyst") || roled("solvent") : row.id === "conc" ? roled("solvent")
-      : row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
-    // Below the components and the numbers under them.
-    const under = (m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]).filter((y): y is number => y !== undefined);
-    const top = Math.min(...cols.map((c) => c.low), ...under) - 0.9 * f, rh = d.captionSize * d.perPt * 0.9 * 1.6 * f;
-    // The row names end a little before the first column; the rules start at the longest name.
-    const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = d.captionSize * 0.9 * f;
-    const names = Math.max(...rows.map((row) => d.nameWidth(row.name, size)));
-    // Every cell: its component and row, its middle, top and width, for picking and typing in it. As rows (Grid.layout),
-    // the reagents each take a row and the products a section of their own under them, each section with its title and
-    // the names of its columns; the first column names each component by its compound number or its text.
-    type Cell = { key: string; row: string; x: number; y: number; w: number; product: boolean };
-    type Text = { text: string; x: number; y: number; anchor: "start" | "middle"; bold?: true; formula?: true };
-    let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined, sections: { title: string; fields: GridRow[]; comps: typeof cols }[] | undefined;
-    if (g.layout === "rows") {
-      const wide = (t: string, bold = false) => d.nameWidth(t, size, bold);
-      // A product's row: what it is, its expected mass, the mass measured and the yield; its equivalents only when typed.
-      const ownEquiv = cols.some((c) => c.product && c.typed.equiv !== undefined), fits = (row: (typeof rows)[number], product: boolean) => row.product !== !product && !(product && (row.id === "expectedMoles" || (row.id === "equiv" && !ownEquiv)));
-      sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
-      const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(c.label ?? ""))])) + 0.4 * f;
-      let y = top;
-      texts = []; rules = [];
-      for (const sec of sections) {
-        let x = x0 + nameW;
-        const at = sec.fields.map((row) => { const w = Math.max(width, wide(row.name) + 0.4 * f); x += w; return [x - w / 2, w]; });
-        rules.push([x0, x, y]);
-        texts.push({ text: sec.title, x: x0, y, anchor: "start", bold: true }, ...sec.fields.map((row, j) => ({ text: row.name, x: at[j][0], y, anchor: "middle" as const })));
-        y -= rh;
-        rules.push([x0, x, y]);
-        for (const c of sec.comps) {
-          texts.push({ text: c.label ?? "", x: x0, y, anchor: "start", formula: true });
-          cells.push({ key: c.key, row: "name", x: x0 + nameW / 2, y, w: nameW, product: c.product }, ...sec.fields.map((row, j) => ({ key: c.key, row: row.id, x: at[j][0], y, w: at[j][1], product: c.product })));
-          y -= rh;
-        }
-        rules.push([x0, x, y]);
-        y -= 0.5 * rh;
-      }
-    } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
-    // The conditions block, right of the table: a line for each condition with a value (Temperature, Time, Atmosphere,
-    // Other), its name and then its value. On an experiment page the first table's Temperature and Time are the page's
-    // own (its details block), so they show once, there.
-    const page = d.experiment && laid++ === 0, right = rules ? Math.max(...rules.map((r) => r[1])) : Math.max(...cols.map((c) => c.x)) + width / 2;
-    const lines = CONDITIONS.filter(([k]) => g.conditions?.[k] && !(page && (k === "temperature" || k === "time"))).map(([k, name], j) => ({ key: k, name, value: g.conditions![k]!, y: top - j * rh }));
-    const at = right + 0.6 * f, valueAt = at + Math.max(0, ...lines.map((l) => d.nameWidth(l.name, size))) + 0.4 * f;
-    const block = lines.length ? { lines, at, valueAt, right: valueAt + Math.max(...lines.map((l) => d.nameWidth(l.value, size))) } : undefined;
-    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, block, page, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
+    if (!steps.length) continue;
+    const own = (m.grids ?? []).filter((x) => x.step && r.arrows.includes(x.arrow));
+    if (!own.length) { const v = layGrid(m, d, g, r, steps, out.length === 0); if (v) out.push(v); continue; }
+    let before: GridView | undefined;
+    for (const st of steps) {
+      const sg = own.find((x) => x.arrow === st.arrow), v = sg && layGrid(m, d, sg, r, steps, out.length === 0, { own: st, before });
+      if (v) out.push(v);
+      before = v;
+    }
+  }
+  return out;
+}
+// A grid laid out: its columns, sums and cells. step: a table for one step (own), under the step before's table
+// (before), whose product's Measured mass a reactant of this step takes as its amount when nothing typed sets it.
+function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], first: boolean, step?: { own: RoleStep; before?: { solved: Record<string, Solved>; bottom: number } }) {
+  // Coefficients (issue 133): a plain number just before a structure or text in the row (2 A + B → C), or one a
+  // structure carries just on its left, is that part's coefficient and has no column of its own. A compound number
+  // (bold) is not one.
+  const coefs = new Map<Step, number>(), counted = new Set<Step>();
+  const alone = (id: number) => { const c = m.captions?.find((x) => x.id === id); if (!c || isNumber(c)) return undefined; const [rest, v] = coefficient(c.text.trim()); return rest ? undefined : v; };
+  r.steps.forEach((s, k) => {
+    const next = r.steps[k + 1], v = s.kind === "text" ? alone(s.id) : undefined;
+    if (v && (next?.kind === "structure" || next?.kind === "text")) { coefs.set(next, v); counted.add(s); }
+    if (s.kind === "structure") for (const id of s.carry?.captions ?? []) {
+      const b = d.captionBox(id), mid = (s.box[1] + s.box[3]) / 2, w = alone(id);
+      if (w && b && (b[0] + b[2]) / 2 < s.box[0] && b[1] < mid && b[3] > mid) coefs.set(s, w);
+    }
   });
+  // label: what names it in a table of rows, its compound number or the text it is written as. given: the
+  // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed. coef: its coefficient, for
+  // a part of the equation; side: written over or under an arrow, where a number in front ("2 HCl") gives its
+  // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent.
+  // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
+  // (every table Octet makes now) a solvent when it is a known one.
+  // carried: a step's reactant made by the step before, its moles from that step's Measured mass.
+  const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole; carried?: number }[] = [];
+  // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
+  const add = (p: Part, product: boolean, conditions = false) => {
+    const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
+    if (p.kind === "structure") {
+      const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
+      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: liquid?.solvent });
+      return;
+    }
+    if (counted.has(p)) return;
+    const text = m.captions?.find((c) => c.id === p.id)?.text ?? "", items = conditions ? conditionItems(text) : [text.trim()];
+    items.forEach((item, k) => {
+      const { n, plain, equiv, gas, liquid } = readItem(item), got = d.reagent(item);
+      // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
+      if (conditions && (!got || gas)) return;
+      parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: equiv ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: product ? undefined : liquid?.density, solvent: product ? undefined : liquid?.solvent });
+    });
+  };
+  // A step's table: what stands before its arrow, its conditions and what stands after it.
+  (step ? step.own : steps[0]).reactants.forEach((p) => add(p, false));
+  for (const st of step ? [step.own] : steps) for (const p of [...st.above, ...st.below]) add(p, false, true);
+  (step ? step.own : steps[steps.length - 1]).products.forEach((p) => add(p, true));
+  if (!parts.length) return undefined;
+  // Once a coefficient is written, each part of the equation has one.
+  if (parts.some((p) => p.coef)) for (const p of parts) if (!p.side) p.coef ??= 1;
+  const keyed = keyColumns(parts, g.typed, g.limiting), all = keyed.cols, hidden = g.hidden ?? {};
+  for (const c of all) if (!c.product) c.role = g.roles?.[c.key] ?? (g.roles && c.solvent ? "solvent" : "reactant");
+  // A reactant the step before made, with a Measured mass there: its moles from that, shown as worked out; it is the
+  // limiting reactant unless another is set.
+  const made = step?.before;
+  if (made) for (const c of all) { const moles = c.product ? undefined : made.solved[`p${c.key.slice(1)}`]?.productMoles; if (moles !== undefined) c.carried = moles; }
+  const limiting = limitingOf(all, keyed.limiting ?? all.find((c) => c.carried !== undefined)?.key)?.key, solved = solve(all, limiting, g.conc);
+  // The grid takes its arrow's scale (decision 0007). Columns stand under what they are, a column's width apart.
+  const f = scaleOf(m.arrows?.find((a) => a.id === g.arrow) ?? {}), width = 3.4 * f;
+  const cols = all.filter((c) => !hidden.cols?.includes(c.key)).sort((p, q) => p.x - q.x).map((c) => ({ ...c }));
+  cols.forEach((c, k) => { if (k && c.x < cols[k - 1].x + width) c.x = cols[k - 1].x + width; });
+  if (!cols.length) return undefined;
+  const used = (fd: Field) => cols.some((c) => c.typed[fd] !== undefined), products = cols.some((c) => c.product);
+  // As rows, Molarity and Purity show only when used, on an experiment page too, so the table fits the page.
+  const roled = (r: GridRole) => cols.some((c) => !c.product && c.role === r);
+  const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.id === "role" ? roled("catalyst") || roled("solvent") : row.id === "conc" ? roled("solvent")
+    : row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
+  // Below the components and the numbers under them.
+  const under = (m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]).filter((y): y is number => y !== undefined);
+  // A step's table goes under the one before it.
+  const rh = d.captionSize * d.perPt * 0.9 * 1.6 * f, top = Math.min(...cols.map((c) => c.low), ...under, made ? made.bottom - 0.5 * rh + 0.9 * f : Infinity) - 0.9 * f;
+  // The row names end a little before the first column; the rules start at the longest name.
+  const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = d.captionSize * 0.9 * f;
+  const names = Math.max(...rows.map((row) => d.nameWidth(row.name, size)));
+  // Every cell: its component and row, its middle, top and width, for picking and typing in it. As rows (Grid.layout),
+  // the reagents each take a row and the products a section of their own under them, each section with its title and
+  // the names of its columns; the first column names each component by its compound number or its text.
+  type Cell = { key: string; row: string; x: number; y: number; w: number; product: boolean };
+  type Text = { text: string; x: number; y: number; anchor: "start" | "middle"; bold?: true; formula?: true };
+  let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined, sections: { title: string; fields: GridRow[]; comps: typeof cols }[] | undefined;
+  if (g.layout === "rows") {
+    const wide = (t: string, bold = false) => d.nameWidth(t, size, bold);
+    // A product's row: what it is, its expected mass, the mass measured and the yield; its equivalents only when typed.
+    const ownEquiv = cols.some((c) => c.product && c.typed.equiv !== undefined), fits = (row: (typeof rows)[number], product: boolean) => row.product !== !product && !(product && (row.id === "expectedMoles" || (row.id === "equiv" && !ownEquiv)));
+    sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
+    const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(c.label ?? ""))])) + 0.4 * f;
+    let y = top;
+    texts = []; rules = [];
+    for (const sec of sections) {
+      let x = x0 + nameW;
+      const at = sec.fields.map((row) => { const w = Math.max(width, wide(row.name) + 0.4 * f); x += w; return [x - w / 2, w]; });
+      rules.push([x0, x, y]);
+      texts.push({ text: sec.title, x: x0, y, anchor: "start", bold: true }, ...sec.fields.map((row, j) => ({ text: row.name, x: at[j][0], y, anchor: "middle" as const })));
+      y -= rh;
+      rules.push([x0, x, y]);
+      for (const c of sec.comps) {
+        texts.push({ text: c.label ?? "", x: x0, y, anchor: "start", formula: true });
+        cells.push({ key: c.key, row: "name", x: x0 + nameW / 2, y, w: nameW, product: c.product }, ...sec.fields.map((row, j) => ({ key: c.key, row: row.id, x: at[j][0], y, w: at[j][1], product: c.product })));
+        y -= rh;
+      }
+      rules.push([x0, x, y]);
+      y -= 0.5 * rh;
+    }
+  } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
+  // The conditions block, right of the table: a line for each condition with a value (Temperature, Time, Atmosphere,
+  // Other), its name and then its value. On an experiment page the first table's Temperature and Time are the page's
+  // own (its details block), so they show once, there.
+  const page = d.experiment && first, right = rules ? Math.max(...rules.map((r) => r[1])) : Math.max(...cols.map((c) => c.x)) + width / 2;
+  const lines = CONDITIONS.filter(([k]) => g.conditions?.[k] && !(page && (k === "temperature" || k === "time"))).map(([k, name], j) => ({ key: k, name, value: g.conditions![k]!, y: top - j * rh }));
+  const at = right + 0.6 * f, valueAt = at + Math.max(0, ...lines.map((l) => d.nameWidth(l.name, size))) + 0.4 * f;
+  const block = lines.length ? { lines, at, valueAt, right: valueAt + Math.max(...lines.map((l) => d.nameWidth(l.value, size))) } : undefined;
+  // The table's foot: its last rule (as rows), or its last row; or the block's last line when that is lower.
+  const bottom = Math.min(rules ? rules[rules.length - 1]?.[2] ?? top : top - rows.length * rh, ...lines.map((l) => l.y - rh));
+  return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, taken: g.taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections };
 }
 
-export type GridView = ReturnType<typeof gridViews>[number];
+export type GridView = NonNullable<ReturnType<typeof layGrid>>;
 export const ROLE_NAMES: Record<GridRole, string> = { reactant: "Reactant", catalyst: "Catalyst", solvent: "Solvent" };
 // A column's role set: kept by its key. A table from an older Octet (no roles) first keeps each known solvent as a
 // reactant, so only the column the user changed changes.
