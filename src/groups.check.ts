@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { addArrow, addCaption, addCycle, addRing, addShape, EMPTY, extractSelection, groupParents, groupSelection, insertMol, wholeGroups } from "./edit.ts";
+import { addArrow, addCaption, addCycle, addRing, addShape, compounds, EMPTY, extractSelection, fragments, groupParents, groupSelection, insertMol, wholeGroups } from "./edit.ts";
 import { readOct, writeOct } from "./oct.ts";
 import type { Arrow, Mol } from "./render.ts";
 
@@ -38,6 +38,32 @@ const groupsIn = (x: Xml, depth = 0): { depth: number; integral: boolean; kids: 
   const bare = { ...m, groups: [{ id: 90, atoms: [0, 1, 2, 3, 4, 5], items: [x] }] };
   assert.equal(groupsIn(parseXml(toCdxml(bare, DEFAULT_STYLE)))[0].kids.filter((k) => k === "t").length, 2);
   console.log("groups.check: nested groups in CDXML ok");
+}
+
+// The drawing's compounds: structures in one integral group that holds nothing else (the ions of a salt, grouped and
+// set to Pick as One) are one compound, with or without the number under them in the group. A group that is not
+// integral, or one that holds an arrow too, leaves its structures apart. An integral group of structures inside a
+// larger group is still a compound, and it is one again after a CDXML round trip.
+{
+  const three = addRing(addRing(addRing(EMPTY, 6, true, { point: [-4, 0] }), 5, false, { point: [0, 0] }), 3, false, { point: [4, 0] });
+  const sizes = (m: Mol) => compounds(m).map((g) => g.length);
+  assert.deepEqual(sizes(three), [6, 5, 3], "no groups: each structure");
+  const [plain, id] = groupSelection(three, new Set([0, 6]), new Set())!, salt = { ...plain, groups: plain.groups!.map((g) => (g.id === id ? { ...g, integral: true as const } : g)) };
+  assert.deepEqual(sizes(plain), [6, 5, 3], "a group that is not integral");
+  assert.deepEqual(sizes(salt), [11, 3], "an integral group of two structures");
+  assert.deepEqual(compounds(salt)[0].slice().sort((p, q) => p - q), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  const numbered = wholeGroups(addCaption(salt, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] })[0]);
+  assert.equal(numbered.groups![0].items.length, 1, "the number under the salt is in its group");
+  assert.deepEqual(sizes(numbered), [11, 3], "with its number");
+  const [withArrow, arrow] = addArrow(three, { kind: "reaction", from: [-2, 3], to: [2, 3] }), [mixed, gid] = groupSelection(withArrow, new Set([0, 6]), new Set([arrow]))!;
+  assert.deepEqual(sizes({ ...mixed, groups: mixed.groups!.map((g) => (g.id === gid ? { ...g, integral: true as const } : g)) }), [6, 5, 3], "an integral group with an arrow in it");
+  const [arrowed, a2] = addArrow(salt, { kind: "reaction", from: [-2, 3], to: [2, 3] }), [outer] = groupSelection(arrowed, new Set([0, 6, 11]), new Set([a2]))!;
+  assert.equal(outer.groups!.length, 2);
+  assert.deepEqual(sizes(outer), [11, 3], "inside a larger group");
+  const back = fromCdxml(toCdxml(salt, DEFAULT_STYLE)).mol;
+  assert.deepEqual(compounds(back).map((g) => g.length).sort((p, q) => q - p), [11, 3], "after a CDXML round trip");
+  assert.equal(fragments(back).length, 3);
+  console.log("groups.check: compounds ok");
 }
 
 // A catalytic cycle in a group: its arrows are written in the group, and the cycle is in the group again on reading.

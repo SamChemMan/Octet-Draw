@@ -203,6 +203,85 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.deepEqual(d.host.reaction(arrow)?.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"]);
 }
 
+// What one call draws fits the page and reads back whole (plan R4; the faults of docs/plans/mcp-v2-corpus-faults.md,
+// each with its smallest input, drawn and measured as the window does).
+{
+  // A salt given as one compound is one compound with the salt's InChIKey, by a SMILES with a dot or by one name.
+  d = drawing("paper", "Salts");
+  const salts: Wrote = await call("draw_structures", { structures: [{ text: "C[N+](C)(C)C.[Cl-]", number: "1" }, { text: "tetramethylammonium chloride", number: "2" }, { text: "[Na+].[Cl-]", number: "3" }] });
+  assert.deepEqual([salts.structuredContent.made.filter((id) => id[0] === "s").length, salts.structuredContent.check], [3, "clean"]);
+  const three = (await call("read_drawing", { detail: "full" })).structuredContent;
+  assert.deepEqual(three.structures.map((s: { number: string; formula: string; inchiKey: string }) => [s.number, s.formula, s.inchiKey]), [["1", "C4H12ClN", "OKIZCWYLBDKLSU-UHFFFAOYSA-M"], ["2", "C4H12ClN", "OKIZCWYLBDKLSU-UHFFFAOYSA-M"], ["3", "ClNa", "FAPWRFPIFSIZLT-UHFFFAOYSA-M"]]);
+  assert.deepEqual(three.warnings, []);
+  // The salt is one compound after its CDXML is read again (its ions are an integral group in the file).
+  const again = drawing("paper", "Salts again");
+  again.host.begin("open"); again.host.set(again.host.file((await call("get_file", { format: "cdxml" })).structuredContent.text)!); again.host.end();
+  d = again;
+  assert.deepEqual((await call("read_drawing", { detail: "full" })).structuredContent.structures.map((s: { number: string; inchiKey: string }) => [s.number, s.inchiKey]), three.structures.map((s: { number: string; inchiKey: string }) => [s.number, s.inchiKey]));
+  // A scheme with salts in it wraps to the page and reads as one reaction, each salt one member of it.
+  d = drawing("paper", "A scheme with salts");
+  const salty = "c1ccccc1c1ccccc1.[Cl-]", scheme: Wrote = await call("draw_reaction", { start: [{ text: "biphenyl" }], steps: [salty, salty, "biphenyl", "biphenyl", "biphenyl"].map((text, k) => ({ products: [{ text, number: String(k + 1) }] })) });
+  assert.equal(scheme.structuredContent.check, "clean");
+  const route = (await call("read_drawing", {})).structuredContent;
+  assert.deepEqual([route.reactions.map((r: { route: string }) => r.route), route.text], [["s1 -> 1 -> 2 -> 3 -> 4 -> 5"], undefined]);
+}
+{
+  // A grid's columns come from the page and from each structure's box as drawn: wide labels do not run into the next
+  // structure, and six anthracenes are two rows of three inside the page.
+  d = drawing("paper", "Grids");
+  const labels: Wrote = await call("draw_structures", { structures: [{ text: "*c1ccc(*)cc1", labels: ["CO2Et", "NHBoc"] }, { text: "*c1ccc(*)cc1", labels: ["CO2Et", "NHBoc"] }, { text: "*CC", labels: ["CO2Bn"] }, { text: "*CC", labels: ["CO2CH(CF3)2"] }] });
+  assert.equal(labels.structuredContent.check, "clean");
+  const six: Wrote & { content: { text: string }[] } = await call("draw_structures", { structures: Array.from({ length: 6 }, () => ({ text: "anthracene" })) });
+  assert.match(six.content[0].text, /^Drew 6 structures in 2 rows of 3\. One undo step\./);
+  assert.equal(six.structuredContent.check, "clean");
+  const { left } = margins(), b = span(six);
+  assert.ok(b[0] >= left - 0.11 && b[2] <= -left + 0.11, `inside the margins: ${b}`);
+}
+{
+  // A structure at an arrow has room: the arrow is as long as it, it is clear of the arrow's text on its side, and it
+  // reads as the step's. A compound there takes its labels and its number, clear of the text and the arrow.
+  d = drawing("paper", "At an arrow");
+  const one: Wrote = await call("draw_reaction", { start: [{ text: "benzene" }], steps: [{ above: ["structure: Hantzsch ester"], products: [{ text: "toluene" }] }] });
+  const two: Wrote = await call("draw_reaction", { start: [{ text: "benzoic acid" }], steps: [{ above: ["(COCl)2"], below: ["then", "structure:S=C1C=CC=CN1O[Na]"], products: [{ text: "benzoyl chloride" }] }] });
+  const three: Wrote = await call("draw_reaction", { start: [{ text: "*CC=C", labels: ["Bn"], number: "2a" }], steps: [{ above: [{ text: "C=CCS(=O)(=O)C*", labels: ["OTBS"], number: "1a" }, "1a (4 equiv.)", "HG-II (5 mol%)", "CH2Cl2, 40 °C"], products: [{ text: "*CCC=C", labels: ["Bn"], number: "4a" }] }] });
+  for (const w of [one, two, three]) assert.equal(w.structuredContent.check, "clean", JSON.stringify(w.structuredContent.check));
+  const b = one.structuredContent.boxes;
+  assert.ok(b.a1[0] <= b.s2[0] && b.a1[2] >= b.s2[2] && b.s3[0] > b.a1[2], `the arrow is as long as the structure over it, and the product is past it: ${JSON.stringify(b)}`);
+  const at = (await call("read_drawing", {})).structuredContent;
+  assert.deepEqual(at.reactions.map((r: { route: string; conditions: Record<string, string> }) => [r.route, Object.values(r.conditions)[0]]), [["s1 -> s3", "s2"], ["s4 -> s6", "(COCl)2; then; s5"], ["2a -> 4a", "1a (4 equiv.); HG-II (5 mol%); CH2Cl2, 40 °C; 1a"]]);
+  assert.deepEqual(at.structures.filter((s: { number?: string }) => s.number === "1a").map((s: { formula: string }) => s.formula), ["C10H22O3SSi"]);
+}
+{
+  // One step too wide for the page. A long list of catalysts goes on three lines, so the arrow is short and the
+  // reaction fits. A second product that does not fit goes on the next line and is still the reaction's product.
+  // Where nothing can break, the reply says what did not fit and what to do.
+  d = drawing("paper", "One step");
+  const lines: Wrote = await call("draw_reaction", { start: [{ text: "benzene" }], steps: [{ catalysts: ["1 mol% [Ir(dF(CF3)ppy)2(dtbpy)]PF6", "5 mol% (R)-TRIP or (R)-TCYP", "10 mol% something else quite long here"], products: [{ text: "toluene" }] }] });
+  assert.equal(lines.structuredContent.check, "clean");
+  const pair: Wrote = await call("draw_reaction", { start: [{ text: "c1ccccc1NCCCCc1ccccc1", number: "1" }, { text: "COc1ccc(Br)cc1", number: "2" }], steps: [{ reagents: ["NiBr2·glyme"], products: [{ text: "COc1ccc(cc1)C(CCCc1ccccc1)Nc1ccccc1", number: "3a" }, { text: "COc1ccc(cc1)N(CCCCc1ccccc1)c1ccccc1", number: "3b" }] }] });
+  assert.equal(pair.structuredContent.check, "clean");
+  assert.ok(pair.structuredContent.boxes.s6[3] < pair.structuredContent.boxes.s5[1], "the second product is on the next line");
+  const read2 = (await call("read_drawing", {})).structuredContent;
+  assert.deepEqual([read2.reactions.map((r: { route: string }) => r.route), read2.text], [["s1 -> s2", "1 + 2 -> 3a + 3b"], undefined]);
+  d = drawing("paper", "Nothing fits");
+  const long: { content: { text: string }[] } = await call("draw_reaction", { start: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCCO" }], steps: [{ products: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCC=O" }] }] });
+  assert.match(long.content[0].text, /^Drew the reaction\. Octet laid it out with Clean Up Reaction\. The scheme is [\d.]+ bond lengths wide, and the page is 35\.4 wide inside its margins: /);
+  // On a drawing with no page there is no such advice.
+  d = drawing("quick", "No page");
+  assert.doesNotMatch((await call("draw_reaction", { start: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCCO" }], steps: [{ products: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCC=O" }] }] })).content[0].text, /the page is/);
+}
+{
+  // A cycle's side text: clear of the intermediates (its arrow's end goes further out), and on the page (the cycle
+  // moves across).
+  d = drawing("paper", "Cycles");
+  const ni: Wrote = await call("draw_cycle", { intermediates: [{ text: "*[Ni]Br", labels: ["L"], number: "A" }, { text: "*[Ni](Br)(Br)*", labels: ["L", "R"], number: "B" }, { text: "*[Ni](Br)*", labels: ["L", "R"], number: "C" }, { text: "*[Ni](Br)(*)C(*)N*", labels: ["L", "R", "Alkyl", "Ph"], number: "D" }],
+    steps: [{ step: 0, in: "ArBr" }, { step: 1, in: "PC•−", out: "PC + Br−" }, { step: 2, in: "PhNHCH(•)Alkyl" }, { step: 3, out: "PhNHCH(Ar)Alkyl" }] });
+  assert.equal(ni.structuredContent.check, "clean", JSON.stringify(ni.structuredContent.check));
+  d = drawing("paper", "A long side text");
+  const side: Wrote = await call("draw_cycle", { intermediates: [{ text: "C[CH]C" }, { text: "CC(C)C1C=C(C)c2ccccc2[NH+]1" }, { text: "CC(C)[C]1C=C(C)c2ccccc2N1" }], steps: [{ step: 2, out: "product·H+, PhI, RCO2−, CO2" }] });
+  assert.equal(side.structuredContent.check, "clean", JSON.stringify(side.structuredContent.check));
+}
+
 // The runner: two inputs, a list of tool calls and a draw_reaction argument, drawn by two workers.
 const dir = mkdtempSync(join(tmpdir(), "octet-headless-"));
 try {

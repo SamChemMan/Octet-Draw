@@ -10,7 +10,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandLabels, mapReaction, parseStructure, ready, toMolfile, toSmiles } = await import("./chem.ts");
+const { analyse, analyseCompound, expandLabels, mapReaction, parseStructure, ready, toMolfile, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
@@ -31,8 +31,12 @@ const ink = (atoms: number[]): Box | undefined => {
   const ps = atoms.map((i) => m.atoms[i]?.location).filter(Boolean);
   return ps.length ? [Math.min(...ps.map((p) => p[0])) - 0.3, Math.min(...ps.map((p) => p[1])) - 0.3, Math.max(...ps.map((p) => p[0])) + 0.3, Math.max(...ps.map((p) => p[1])) + 0.3] : undefined;
 };
-// (Text kept on an arrow is placed as the renderer draws it, which the stand-in does not do: it has no box here.)
-const captionBox = (id: number): Box | undefined => { const c = m.captions?.find((x) => x.id === id); return c && !c.on ? [c.x - c.text.length * 0.2, c.y - 0.3, c.x + c.text.length * 0.2, c.y + 0.4] : undefined; };
+// (Text kept on an arrow is placed as the renderer draws it, which the stand-in does not do: it has no box here. Text
+// under a structure is centred under its atoms, as the renderer puts it.)
+const captionBox = (id: number): Box | undefined => {
+  const c = m.captions?.find((x) => x.id === id), b = c?.under?.length ? ink(c.under) : undefined, [x, y] = b ? [(b[0] + b[2]) / 2, b[1] - 1] : [c?.x ?? 0, c?.y ?? 0];
+  return c && !c.on ? [x - c.text.length * 0.2, y - 0.3, x + c.text.length * 0.2, y + 0.4] : undefined;
+};
 const host: Host = {
   doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async () => {},
   structure: (t) => { const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
@@ -42,7 +46,7 @@ const host: Host = {
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: async () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
   reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f) => (f === "smiles" ? toSmiles(expandLabels(m)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
-  problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyse(x)?.[0]?.formula, name: () => undefined,
+  problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { far.push([text, !!stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true,
@@ -83,9 +87,11 @@ assert.ok(tools.find((t) => t.name === "read_drawing")!.annotations.readOnlyHint
 // The compound is listed once in each tool that takes compounds ($defs), however many places take one, and takes from
 // and changes (compound.ts); every reference in a tool's schema has its definition there. The same for text that can
 // be runs (rich, in a figure) and an arrow's end (place): a tool lists the pieces it refers to, and no other.
+// (draw_reaction refers to the compound four times: its starting materials, each step's products, and a line over or
+// under an arrow, which is text or a compound drawn there.)
 for (const t of tools as unknown as { name: string; inputSchema: { $defs?: Record<string, { properties: Record<string, unknown> }> } }[]) {
   const json = JSON.stringify(t.inputSchema), all = [...json.matchAll(/"\$ref":"([^"]*)"/g)].map((x) => x[1]), refs = all.filter((x) => x === "#/$defs/compound").length;
-  assert.equal(refs, { draw_structures: 1, draw_reaction: 2, draw_cycle: 1 }[t.name] ?? 0, t.name);
+  assert.equal(refs, { draw_structures: 1, draw_reaction: 4, draw_cycle: 1 }[t.name] ?? 0, t.name);
   assert.equal(!!t.inputSchema.$defs, all.length > 0, t.name);
   if (refs) assert.ok(["text", "molecule", "labels", "from", "changes", "number", "like"].every((k) => k in t.inputSchema.$defs!.compound.properties), t.name);
   assert.deepEqual(Object.keys(t.inputSchema.$defs ?? {}).map((k) => `#/$defs/${k}`).sort(), [...new Set(all)].sort(), t.name);
@@ -220,6 +226,87 @@ assert.match(text(out), /Drew 7 structures in 2 rows of 4/);
 const rows = new Set(fragments(m).map((f) => { const ys = f.map((i) => m.atoms[i].location[1]); return Math.round(Math.min(...ys) + Math.max(...ys)); }));
 assert.equal(rows.size, 2);
 assert.deepEqual(m.captions!.map((c) => c.text), seven.map((s) => s.number));
+
+// The grid fits the page (R4): its columns come from the page's width inside its margins and each structure's box
+// as drawn, in the fewest rows, as even as they can be. Columns that were asked for are kept, and the reply says how
+// many fit. Rows past the bottom of the page are said too. On a drawing with no page (Quick start), six are one row.
+{
+  const dodecanes = (n: number) => Array.from({ length: n }, () => ({ text: "CCCCCCCCCCCC" })), margin = (pageSize(DEFAULT_STYLE)[0] / 2 - 15) * (72 / 25.4 / DEFAULT_STYLE.bond);
+  fresh();
+  out = await call("draw_structures", { structures: dodecanes(6) });
+  assert.match(text(out), /^Drew 6 structures in 2 rows of 3\. One undo step\./);
+  assert.ok(m.atoms.every((a) => a.location[0] >= -margin - 0.31 && a.location[0] <= margin + 0.31), "inside the page's margins");
+  assert.equal(out.structuredContent.check, "clean");
+  fresh();
+  out = await call("draw_structures", { structures: dodecanes(6), columns: 6 });
+  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. A row of 6 is [\d.]+ bond lengths wide, and the page is 35\.4 wide inside its margins: 3 fit in a row\. Give columns: 3, or a larger page \(set_style\)\. One undo step\./);
+  assert.equal(new Set(m.atoms.map((a) => Math.round(a.location[1]))).size, 1, "the columns asked for are kept");
+  fresh();
+  out = await call("draw_structures", { structures: dodecanes(63) });
+  assert.match(text(out), /^Drew 63 structures in 21 rows of 3\. \d+ of the 21 rows are past the bottom of the page: draw the structures after the first (\d+) in a new drawing, or give a larger page \(set_style\)\./);
+  const on = Number(/after the first (\d+)/.exec(text(out))![1]), bottom = (-pageSize(DEFAULT_STYLE)[1] / 2) * (72 / 25.4 / DEFAULT_STYLE.bond), low = (g: number[]) => Math.min(...g.map((i) => m.atoms[i].location[1]));
+  assert.ok(on % 3 === 0 && low(fragments(m)[on - 1]) > bottom && low(fragments(m)[on]) < bottom, `the first ${on} are on the page, and the next is not`);
+  fresh();
+  out = await call("draw_structures", { structures: dodecanes(on + 1) });
+  assert.match(text(out), new RegExp(`^Drew ${on + 1} structures in ${on / 3 + 1} rows of 3\\. 1 of the ${on / 3 + 1} rows is past the bottom of the page: draw the structures after the first ${on} in a new drawing`));
+  fresh();
+  m = { ...EMPTY, style: { ...DEFAULT_STYLE, edges: false } };
+  out = await call("draw_structures", { structures: dodecanes(6) });
+  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. One undo step\./);
+}
+
+// A salt given as one compound (a SMILES with a dot) is one compound everywhere (17.1, Salts): one id, one row with
+// the formula and SMILES of all of it, one number, and no warning. Its ions are one group, picked as one. What takes
+// its id takes all of it: move, replace_structure and delete. In a reaction it is one member of its side, and Octet
+// writes no plus sign between its ions.
+fresh();
+out = await call("draw_structures", { structures: [{ text: "C[N+](C)(C)C.[Cl-]", number: "1" }, { text: "ethanol", number: "2" }] });
+assert.equal(out.structuredContent.made.length, 2, "two structures made");
+d = await read();
+assert.deepEqual(d.structures.map((s: { number: string; formula: string; atoms: number }) => [s.number, s.formula, s.atoms]), [["1", "C4H12ClN", 6], ["2", "C2H6O", 3]]);
+assert.match(d.structures[0].smiles, /\[N\+\].*\.\[Cl-\]|\[Cl-\]\..*\[N\+\]/);
+assert.deepEqual([d.warnings, m.captions!.map((c) => c.text)], [[], ["1", "2"]]);
+assert.deepEqual(m.groups!.map((g) => [g.integral, g.atoms.length, g.items.length]), [[true, 6, 1]]);
+{
+  const salt = d.structures[0].id, was = m.atoms.slice(0, 6).map((a) => a.location[0]);
+  assert.ok(!(await call("move", { ids: [salt], dx: 2, dy: 0 })).isError);
+  assert.ok(m.atoms.slice(0, 6).every((a, i) => Math.abs(a.location[0] - was[i] - 2) < 1e-9), "both ions move");
+  out = await call("replace_structure", { structure: salt, text: "[Na+].[Cl-]" });
+  assert.ok(!out.isError, text(out));
+  d = await read();
+  assert.deepEqual(d.structures.map((s: { number: string; formula: string }) => [s.number, s.formula]).sort(), [["1", "ClNa"], ["2", "C2H6O"]]);
+  assert.ok(!(await call("delete", { ids: ["1"] })).isError);
+  assert.deepEqual([m.atoms.length, m.captions!.map((c) => c.text)], [3, ["2"]], "both ions and the number go");
+}
+fresh();
+await call("draw_reaction", { start: [{ text: "C[N+](C)(C)C.[Cl-]", number: "1" }, { text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] });
+d = await read();
+assert.deepEqual([d.structures.length, d.reactions[0].steps[0].before.length, d.reactions[0].products.length, m.captions!.filter((c) => c.text === "+").length], [3, 2, 1, 1]);
+
+// Conditions that are too long for one line go on more (R4): a list as data breaks between its items, each line with
+// its own items, and reads back as the list; a line of text breaks after a comma. A short line stays as it was given.
+fresh();
+await call("draw_reaction", { start: [{ text: "benzene" }], steps: [{ catalysts: ["10% NiBr2·glyme", "13% (R)-L", "13% PC4"], solvents: ["1,2-dichloroethane", "hexafluoroisopropanol"], temperature: "60 °C", above: ["1. n-BuLi, THF, -78 °C"], below: ["20 mol% propionic acid, 4 Å mol. sieves"], products: [{ text: "toluene" }] }] });
+d = await read();
+assert.deepEqual(d.reactions[0].steps[0].above, ["10% NiBr2·glyme, 13% (R)-L", "13% PC4", "1. n-BuLi, THF, -78 °C"]);
+assert.deepEqual(d.reactions[0].steps[0].below, ["1,2-dichloroethane", "hexafluoroisopropanol", "60 °C", "20 mol% propionic acid,\n4 Å mol. sieves"]);
+assert.deepEqual([d.reactions[0].steps[0].fields.catalysts.map((x: { text: string }) => x.text), d.reactions[0].steps[0].fields.solvents.map((x: { text: string }) => x.text), d.reactions[0].steps[0].fields.temperature], [["10% NiBr2·glyme", "13% (R)-L", "13% PC4"], ["1,2-dichloroethane", "hexafluoroisopropanol"], "60 °C"]);
+assert.ok(m.captions!.filter((c) => c.on).every((c) => c.text.split("\n").every((l) => l.length <= 30)), "no line is longer than 30 characters");
+
+// A compound at an arrow (17.1, Tool gaps): a line over or under an arrow can be a compound, with its labels and its
+// number, as well as text or "structure:" before a name. The arrow is as long as the structure, which lies within
+// its ends and reads as the step's. from: "previous" passes over it.
+fresh();
+out = await call("draw_reaction", { start: [{ text: "benzene", number: "1" }], steps: [{ above: [{ text: "*CCCCCCCC", labels: ["Bn"], number: 5 }, "heat"], below: ["structure: ethanol"], products: [{ from: "previous", number: "2" }] }] });
+assert.ok(!out.isError, text(out));
+assert.match(out.content[1].text!, /Read number 5 as text\./);
+d = await read();
+{
+  const by = (number?: string) => d.structures.find((s: { number?: string; formula: string }) => s.number === number || (!number && s.formula === "C2H6O")), over = by("5"), under = by(undefined), a = m.arrows![0];
+  assert.deepEqual([d.structures.length, by("2").formula, over.smiles.includes("C1C=CC=CC=1") || /c1ccccc1/.test(over.smiles)], [4, "C6H6", true], "four structures, and the product is the starting material again");
+  assert.deepEqual([d.reactions[0].steps[0].before, d.reactions[0].steps[0].above, d.reactions[0].steps[0].below, d.reactions[0].products], [[by("1").id], ["heat", over.id], [under.id], [by("2").id]]);
+  assert.ok(a.from[0] <= over.box[0] && a.to[0] >= over.box[2], `the arrow ${a.from[0]} to ${a.to[0]} is as long as the structure over it ${over.box}`);
+}
 
 // draw_cycle: three intermediates on the circle, the centre text, side arrows in and out, step names.
 fresh();
@@ -1363,7 +1450,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   let namings = 0;
   host.name = (x) => { namings++; return { C9H8O4: "2-acetyloxybenzoic acid", C8H10N4O2: "Caffeine", C7H6O3: "2-hydroxybenzoic acid" }[analyse(x)?.[0]?.formula ?? ""] ?? `${"a".repeat(130)}ne`; };
   Object.assign(NAMES, { aspirin: "CC(=O)Oc1ccccc1C(=O)O", caffeine: "Cn1cnc2c1c(=O)n(C)c(=O)n2C", ...Object.fromEntries(Array.from({ length: 14 }, (_, k) => [`alkane ${k}`, "C".repeat(k + 11)])) });
-  fresh();
+  // (On a drawing with no page, as Quick start: a grid of long alkanes keeps its columns by count there. On a page
+  // it has the columns that fit, and says which rows are past the page.)
+  const noPage = () => { fresh(); m = { ...EMPTY, style: { ...DEFAULT_STYLE, edges: false } }; };
+  noPage();
   o = await ask("draw_structures", { structures: [{ text: "aspirin" }, { text: "caffeine" }, { text: "OC(=O)c1ccccc1O" }] });
   assert.equal(o.structuredContent.done, "Drew 3 structures in 1 row of 3. Octet read the names as: aspirin (C9H8O4; Octet's name: 2-acetyloxybenzoic acid). One undo step.");
   assert.equal(namings, 2, "the two names, not the SMILES");
@@ -1376,11 +1466,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const size = o.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
   assert.ok(size <= MOST && size > MOST - 100, `a batch of 40 steps: ${size} characters`);
   assert.ok(/^Did 40 steps as one undo step:\n1\. Drew 12 structures in 3 rows of 5\. Octet read the names as: alkane 0 .*… \(cut: detail: full gives all of it\)$/s.test(o.structuredContent.done) && text(o).startsWith(`${o.structuredContent.done}\n{"made":[`), o.structuredContent.done.slice(-200));
-  fresh();
+  noPage();
   o = await ask("batch", { steps: many.steps.map((st) => ({ ...st, args: { ...st.args, detail: "full" } })) });
   assert.ok(/^40\. Drew 12 structures .*alkane 11 \(C22H46; Octet's name: a{120}…\)\./.test(o.structuredContent.done.split("\n")[40]) && !o.structuredContent.done.includes("(cut:"), "detail: full gives every step");
   // Twelve names at most in a sentence, each of Octet's cut at 120 characters, and how many more there are.
-  fresh();
+  noPage();
   o = await ask("draw_structures", { structures: Array.from({ length: 14 }, (_, k) => ({ text: `alkane ${k}` })) });
   assert.match(o.structuredContent.done, /^Drew 14 structures in 3 rows of 5\. Octet read the names as: alkane 0 \(C11H24; Octet's name: a{120}…\), .*alkane 11 \(C22H46; Octet's name: a{120}…\), and 2 more \(detail: full gives each\)\. One undo step\.$/);
   host.name = name;

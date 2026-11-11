@@ -1,6 +1,6 @@
 {
  "tools": 26,
- "toolsList": 59857,
+ "toolsList": 60053,
  "instructions": 2487,
  "cases": {
   "gaunt2007-catalysts": {
@@ -8,13 +8,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 759,
-   "read": 1030,
+   "read": 972,
    "ms": 410,
    "slowest": 410,
    "right": 10,
    "of": 11,
-   "warnings": 8,
-   "summary": 716
+   "warnings": 0,
+   "summary": 667
   },
   "gaunt2007-fig1": {
    "calls": 1,
@@ -86,39 +86,39 @@
    "failed": 0,
    "coerced": 0,
    "sent": 416,
-   "read": 1147,
+   "read": 747,
    "ms": 103,
    "slowest": 103,
    "right": 2,
    "of": 2,
-   "warnings": 8,
-   "summary": 896
+   "warnings": 0,
+   "summary": 507
   },
   "gaunt2007-fig3": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 533,
-   "read": 647,
+   "read": 523,
    "ms": 50,
    "slowest": 50,
    "right": 3,
    "of": 3,
-   "warnings": 2,
-   "summary": 640
+   "warnings": 0,
+   "summary": 494
   },
   "gaunt2007-fig8": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 313,
-   "read": 284,
-   "ms": 157,
-   "slowest": 157,
-   "right": 1,
+   "read": 252,
+   "ms": 154,
+   "slowest": 154,
+   "right": 2,
    "of": 2,
-   "warnings": 1,
-   "summary": 493
+   "warnings": 0,
+   "summary": 393
   },
   "gaunt2007-fig9": {
    "calls": 1,
@@ -164,7 +164,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 1433,
-   "read": 1018,
+   "read": 1165,
    "ms": 111,
    "slowest": 111,
    "right": 18,
@@ -203,13 +203,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 443,
-   "read": 233,
+   "read": 221,
    "ms": 536,
    "slowest": 536,
    "right": 1,
    "of": 1,
-   "warnings": 1,
-   "summary": 380
+   "warnings": 0,
+   "summary": 369
   },
   "grocott2025-fig4a": {
    "calls": 1,
@@ -222,7 +222,7 @@
    "right": 1,
    "of": 2,
    "warnings": 1,
-   "summary": 569
+   "summary": 570
   },
   "grocott2025-fig4c": {
    "calls": 1,
@@ -255,7 +255,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 441,
-   "read": 339,
+   "read": 613,
    "ms": 48,
    "slowest": 48,
    "right": 2,
@@ -268,13 +268,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 305,
-   "read": 322,
+   "read": 309,
    "ms": 7,
    "slowest": 7,
    "right": 3,
    "of": 3,
-   "warnings": 1,
-   "summary": 636
+   "warnings": 0,
+   "summary": 624
   },
   "proctor2019-scheme39": {
    "calls": 1,
@@ -294,7 +294,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 521,
-   "read": 332,
+   "read": 482,
    "ms": 13,
    "slowest": 13,
    "right": 7,
@@ -320,13 +320,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 835,
-   "read": 914,
-   "ms": 56,
-   "slowest": 56,
+   "read": 537,
+   "ms": 55,
+   "slowest": 55,
    "right": 6,
    "of": 6,
-   "warnings": 4,
-   "summary": 1135
+   "warnings": 0,
+   "summary": 769
   },
   "proctor2019-scheme53": {
    "calls": 1,
@@ -346,26 +346,26 @@
    "failed": 0,
    "coerced": 0,
    "sent": 371,
-   "read": 431,
+   "read": 439,
    "ms": 44,
    "slowest": 44,
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 466
+   "summary": 439
   },
   "proctor2019-scheme72-52": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 367,
-   "read": 416,
+   "read": 677,
    "ms": 48,
    "slowest": 48,
    "right": 1,
    "of": 1,
-   "warnings": 4,
-   "summary": 459
+   "warnings": 1,
+   "summary": 444
   },
   "proctor2019-scheme72-73-scope": {
    "calls": 1,
@@ -422,13 +422,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 352,
-   "read": 594,
+   "read": 565,
    "ms": 339,
    "slowest": 339,
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 422
+   "summary": 393
   },
   "robinson2026-fig3b": {
    "calls": 1,
@@ -448,13 +448,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 443,
-   "read": 302,
+   "read": 572,
    "ms": 361,
    "slowest": 361,
    "right": 1,
    "of": 2,
    "warnings": 2,
-   "summary": 486
+   "summary": 488
   },
   "robinson2026-fig4a-2x": {
    "calls": 1,
@@ -474,61 +474,61 @@
    "failed": 0,
    "coerced": 0,
    "sent": 1262,
-   "read": 807,
+   "read": 709,
    "ms": 51,
    "slowest": 51,
    "right": 19,
    "of": 19,
-   "warnings": 18,
-   "summary": 1171
+   "warnings": 0,
+   "summary": 1062
   },
   "robinson2026-fig5a": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 507,
-   "read": 678,
-   "ms": 345,
-   "slowest": 345,
-   "right": 2,
+   "read": 537,
+   "ms": 336,
+   "slowest": 336,
+   "right": 3,
    "of": 4,
-   "warnings": 14,
-   "summary": 867
+   "warnings": 0,
+   "summary": 522
   },
   "robinson2026-fig5b": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 329,
-   "read": 276,
+   "read": 255,
    "ms": 6,
    "slowest": 6,
    "right": 3,
    "of": 5,
-   "warnings": 3,
-   "summary": 413
+   "warnings": 0,
+   "summary": 391
   },
   "robinson2026-fig5d": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 452,
-   "read": 401,
+   "read": 399,
    "ms": 64,
    "slowest": 64,
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 527
+   "summary": 530
   },
   "taxol-chained": {
    "calls": 3,
    "failed": 0,
    "coerced": 0,
    "sent": 3887,
-   "read": 2411,
-   "ms": 2140,
-   "slowest": 1197,
+   "read": 2647,
+   "ms": 2106,
+   "slowest": 1178,
    "right": 19,
    "of": 19,
    "warnings": 40,
@@ -539,7 +539,7 @@
    "failed": 0,
    "coerced": 1,
    "sent": 4436,
-   "read": 2090,
+   "read": 2208,
    "ms": 2569,
    "slowest": 1584,
    "right": 19,
@@ -551,8 +551,8 @@
    "calls": 33,
    "failed": 0,
    "coerced": 5,
-   "sent": 15490,
-   "read": 169663,
+   "sent": 15491,
+   "read": 169892,
    "ms": 3867,
    "slowest": 1591,
    "right": 19,
@@ -565,20 +565,20 @@
    "failed": 0,
    "coerced": 0,
    "sent": 370,
-   "read": 562,
+   "read": 550,
    "ms": 38,
    "slowest": 38,
    "right": 4,
    "of": 4,
-   "warnings": 2,
-   "summary": 515
+   "warnings": 0,
+   "summary": 498
   },
   "trowbridge2018-fig2a-catalyst": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 133,
-   "read": 428,
+   "read": 425,
    "ms": 41,
    "slowest": 41,
    "right": 2,
@@ -591,26 +591,26 @@
    "failed": 0,
    "coerced": 0,
    "sent": 473,
-   "read": 395,
+   "read": 378,
    "ms": 31,
    "slowest": 31,
    "right": 2,
    "of": 2,
-   "warnings": 2,
-   "summary": 505
+   "warnings": 0,
+   "summary": 488
   },
   "trowbridge2018-fig2b-aldehydes": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 1013,
-   "read": 560,
+   "read": 500,
    "ms": 16,
    "slowest": 16,
    "right": 13,
    "of": 13,
-   "warnings": 5,
-   "summary": 837
+   "warnings": 0,
+   "summary": 783
   },
   "trowbridge2018-fig3a-cycle": {
    "calls": 1,
@@ -643,13 +643,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 412,
-   "read": 385,
+   "read": 387,
    "ms": 14,
    "slowest": 14,
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 473
+   "summary": 474
   },
   "trowbridge2018-fig4a-amines": {
    "calls": 1,
@@ -669,7 +669,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 435,
-   "read": 357,
+   "read": 360,
    "ms": 35,
    "slowest": 35,
    "right": 1,
@@ -682,13 +682,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 480,
-   "read": 242,
+   "read": 215,
    "ms": 63,
    "slowest": 63,
    "right": 4,
    "of": 4,
-   "warnings": 3,
-   "summary": 373
+   "warnings": 0,
+   "summary": 351
   },
   "zu2025-fig2a": {
    "calls": 1,
@@ -701,7 +701,7 @@
    "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 518
+   "summary": 490
   },
   "zu2025-fig2b": {
    "calls": 1,
@@ -709,8 +709,8 @@
    "coerced": 0,
    "sent": 424,
    "read": 544,
-   "ms": 21,
-   "slowest": 21,
+   "ms": 20,
+   "slowest": 20,
    "right": 4,
    "of": 4,
    "warnings": 0,
@@ -721,7 +721,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 156,
-   "read": 129,
+   "read": 130,
    "ms": 15,
    "slowest": 15,
    "right": 1,
@@ -734,20 +734,20 @@
    "failed": 0,
    "coerced": 0,
    "sent": 340,
-   "read": 298,
+   "read": 572,
    "ms": 87,
    "slowest": 87,
    "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 422
+   "summary": 423
   },
   "zu2025-fig3b": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 361,
-   "read": 409,
+   "read": 681,
    "ms": 65,
    "slowest": 65,
    "right": 2,
@@ -760,7 +760,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 353,
-   "read": 567,
+   "read": 841,
    "ms": 61,
    "slowest": 61,
    "right": 2,
@@ -779,14 +779,14 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 521
+   "summary": 494
   },
   "zu2025-fig4b": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 456,
-   "read": 474,
+   "read": 748,
    "ms": 39,
    "slowest": 39,
    "right": 3,
@@ -799,24 +799,24 @@
    "failed": 0,
    "coerced": 0,
    "sent": 501,
-   "read": 375,
+   "read": 349,
    "ms": 5,
    "slowest": 5,
-   "warnings": 1,
-   "summary": 905
+   "warnings": 0,
+   "summary": 885
   },
   "zu2025-table1": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 1331,
-   "read": 763,
+   "read": 821,
    "ms": 127,
    "slowest": 127,
    "right": 17,
    "of": 17,
-   "warnings": 15,
-   "summary": 1101
+   "warnings": 2,
+   "summary": 999
   }
  }
 }

@@ -1667,9 +1667,16 @@ export function mapReaction(reactants: Mol[], products: Mol[], keep = false): { 
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
     opts.set("output-content-type", "application/json");
     const ket = JSON.parse(JSON.parse(ind.automap(rxn, keep ? "keep" : "discard", "ket", opts)).struct);
-    const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
-    if (mols.length !== reactants.length + products.length) return undefined;
-    return { reactants: mols.slice(0, reactants.length), products: mols.slice(reactants.length) };
+    const pieces: (number | undefined)[][] = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
+    // A compound of several structures (the ions of a salt) comes back as its structures, one after another: they
+    // are put together again, where each structure's atoms follow the one before in the compound (as Octet draws one).
+    const mols = [...reactants, ...products].map((m) => {
+      const out: (number | undefined)[] = [];
+      for (const g of fragments(m)) { const p = pieces.shift(); if (!p || p.length !== g.length || g.sort((i, j) => i - j).some((i, k) => i !== out.length + k)) return undefined; out.push(...p); }
+      return out;
+    });
+    if (pieces.length || mols.some((x) => !x)) return undefined;
+    return { reactants: mols.slice(0, reactants.length) as (number | undefined)[][], products: mols.slice(reactants.length) as (number | undefined)[][] };
   } catch {
     return undefined;
   } finally {
@@ -1729,11 +1736,7 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
   if (cite && parts.length > 1 && parts.length <= 12 && mol.atoms.length <= 300 && !mol.shapes?.some((sh) => sh.polymer)) {
     const abbreviation = cite(remembered(inchis, contentOf(mol), () => toInchi(mol)));
     const entries = abbreviation ? parts.flatMap((part) => remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []) : [];
-    if (abbreviation && entries.length) {
-      const total: Record<string, number> = {};
-      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
-      return [{ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0), abbreviation }];
-    }
+    if (abbreviation && entries.length) return [{ ...added(entries), abbreviation }];
   }
   for (const part of parts) {
     if (out.length >= limit) break;
@@ -1742,13 +1745,24 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
     const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
     const abbreviation = cite && entries.length === 1 ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
     // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
-    if (entries.length > 1 && part.atoms.some((a) => a.centre)) {
-      const total: Record<string, number> = {};
-      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
-      out.push({ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) });
-    } else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
+    if (entries.length > 1 && part.atoms.some((a) => a.centre)) out.push(added(entries));
+    else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
   }
   return out.length ? out.slice(0, limit) : undefined;
+}
+// Entries added together, as one compound's.
+function added(entries: Analysis): Analysis[number] {
+  const total: Record<string, number> = {};
+  for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
+  return { formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) };
+}
+// A compound's formula and masses. One structure's are as analyse gives them; a compound of several structures (the
+// ions of a salt, a hydrate and its water) has them added together.
+export function analyseCompound(mol: Mol): Analysis[number] | undefined {
+  const parts = pieces(mol);
+  if (parts.length < 2) return analyse(mol)?.[0];
+  const entries = parts.map((p) => analyse(p)?.[0]);
+  return entries.every((e) => e) ? added(entries as Analysis) : undefined;
 }
 // Indigo's values for a molecule as one compound: its pieces ("C5 H5; C5 H5; Fe") added together.
 function summed(calc: Record<string, unknown>): { formula: string; weight: number; exact: number; composition: string } {

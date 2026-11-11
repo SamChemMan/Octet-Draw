@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, analyseCompound, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
@@ -5732,7 +5732,7 @@ export default function Editor() {
   // While a part is being exported (a selection), its own grids, read from the part as it is drawn then.
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
-    structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
+    structure: (atoms) => analyseCompound(pickAtoms(m, atoms)),
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
     bottom: (id) => { const p = placed.find((x) => x.id === id); return p && -p.box[3] / L; },
@@ -6556,7 +6556,7 @@ export default function Editor() {
     }),
     problems: () => (loaded ? allProblems() : []),
     smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
-    formula: (m) => { try { return analyse(m)?.[0]?.formula; } catch { return undefined; } },
+    formula: (m) => { try { return analyseCompound(m)?.formula; } catch { return undefined; } },
     // Structure to Name's own name, checked by reading it back (naming.ts checkedName).
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     // A PNG at most 150 dpi, its long side at most `longest` px (so it costs the AI app fewer image tokens).

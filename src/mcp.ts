@@ -6,13 +6,13 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
+import { addTemplate, insertMol, addArrow, addCaption, addCycle, compounds, fragments, groupSelection, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
 import { change, tagged, type Change } from "./compound.ts";
 import { LIBRARY } from "./library.ts";
 import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide } from "./cycle.ts";
+import { addSide, isSide, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, parseAmount, reagentName, type Field } from "./stoich.ts";
 import { PRESETS, PAGES, pageSize, presetAt, type DocStyle, type PageName } from "./docstyle.ts";
@@ -102,7 +102,12 @@ const RADICALS = ["none", "doublet", "triplet", "singlet"] as const;
 function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
   const where = at || "arguments";
   if ("$ref" in s) return check(defined(s), v, at);
-  if ("anyOf" in s) return s.anyOf.some((x) => !check(x, v, at)) ? undefined : `${where}: not ${s.description}`;
+  if ("anyOf" in s) {
+    if (s.anyOf.some((x) => !check(x, v, at))) return undefined;
+    // Text that fits none of the forms: what is wrong with it as text (too long), where a form is text.
+    const text = typeof v === "string" ? s.anyOf.find((x) => "type" in x && x.type === "string") : undefined;
+    return text ? check(text, v, at) : `${where}: not ${s.description}`;
+  }
   if (s.type === "object") {
     if (!v || typeof v !== "object" || Array.isArray(v)) return `${where}: not an object`;
     for (const k of s.required ?? []) if (!(k in v)) return `${where}: ${k} is missing`;
@@ -209,7 +214,8 @@ const COMPOUND = define("compound", obj({
   number: numeral(12), caption: str(MAX_TEXT),
   ...ORIENT,
 }));
-const condition = str(MAX_TEXT);
+// A line over or under an arrow: text, or a compound drawn there.
+const condition: Schema = { anyOf: [str(MAX_TEXT), COMPOUND], description: "text, or a compound" };
 const ARROWS = ["reaction", "equilibrium", "retro", "resonance", "nogo"] as const;
 // Every command a chemist has (R7): the menu commands by id (Editor.tsx commands), and the Actions panel's actions on
 // the selection by their ids (Editor.tsx runAction), listed for the AI app in run_command's description. A command not
@@ -326,13 +332,13 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_structures", title: "Draw structures", hints: ADD, outputSchema: CHANGE, done: "drew structures",
-    description: "Draws structures (a name, CAS number, SMILES, InChI or MOL file) in a numbered grid below what is drawn (one row for 6 or fewer, unless columns is set). Give the name when you know it. Each takes number (bold, under it) and caption (text under the number). For a generic group (L, R, Ar), give a SMILES with * and labels ('*c1ccccc1', ['Ar']). To match a picture, every compound in every draw tool takes: up, down, left or right, an atom that points that way (a label, an element, or #n for the n-th atom of the SMILES, from 0; a second one sets which way round), rotate (degrees, anticlockwise) and flip; geometry, which puts the ligands of the atom with most bonds at fixed places in SMILES order (octahedral: up, down, upper left behind, lower left in front, upper right behind, lower right in front; tetrahedral: up, lower left, right behind, lower right in front; square_planar: up, right, down, left; trigonal_bipyramidal: up, down, left, upper right behind, lower right in front; square_pyramidal: up, upper left behind, lower left in front, upper right behind, lower right in front); and colours for labels ({OSiPh3: '#E0352B', N: '#2B3FE0'}). " + FROM_NOTE + ". Use molecule only when the hints cannot match the picture (a chelate ring, a cage): " + MOLECULE_NOTE + "." + PLACE_NOTE,
+    description: "Draws structures (a name, CAS number, SMILES, InChI or MOL file) in a numbered grid below what is drawn (one row for 6 or fewer where the page has room, unless columns is set). Give the name when you know it. Each takes number (bold, under it) and caption (text under the number). For a generic group (L, R, Ar), give a SMILES with * and labels ('*c1ccccc1', ['Ar']). To match a picture, every compound in every draw tool takes: up, down, left or right, an atom that points that way (a label, an element, or #n for the n-th atom of the SMILES, from 0; a second one sets which way round), rotate (degrees, anticlockwise) and flip; geometry, which puts the ligands of the atom with most bonds at fixed places in SMILES order (octahedral: up, down, upper left behind, lower left in front, upper right behind, lower right in front; tetrahedral: up, lower left, right behind, lower right in front; square_planar: up, right, down, left; trigonal_bipyramidal: up, down, left, upper right behind, lower right in front; square_pyramidal: up, upper left behind, lower left in front, upper right behind, lower right in front); and colours for labels ({OSiPh3: '#E0352B', N: '#2B3FE0'}). " + FROM_NOTE + ". Use molecule only when the hints cannot match the picture (a chelate ring, a cage): " + MOLECULE_NOTE + "." + PLACE_NOTE,
     inputSchema: obj({ structures: list(COMPOUND, MOST_STRUCTURES, 1), columns: int(1, 20), ...placing("at") }, ["structures"]),
     run: drawStructures, place: true,
   },
   {
     name: "draw_reaction", title: "Draw a reaction or scheme", hints: ADD, outputSchema: CHANGE, done: "drew a reaction",
-    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'; 'structure:' before a name draws it over the arrow). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, from with changes, number, caption and the hints draw_structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
+    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'), or a compound drawn at the arrow ('structure:' before a name does too). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, from with changes, number, caption and the hints draw_structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
     inputSchema: obj({
       start: list(COMPOUND, 6, 1),
       steps: list(obj({
@@ -788,6 +794,10 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
   if (over) [mol, first] = addCaption(mol, { ...over, under: atoms });
   if (s.number) [mol, number] = addCaption(mol, { text: s.number, x: 0, y: 0, bold: true, under: atoms });
   if (s.caption) mol = addCaption(mol, { text: s.caption, x: 0, y: 0, under: atoms })[0];
+  // A compound of several structures (the ions of a salt) is one object in the drawing: an integral group, as Group
+  // and then Pick as One make. Octet reads it as one compound (edit.ts compounds).
+  const whole = fragments(s.mol).length > 1 ? groupSelection(mol, new Set(atoms), new Set()) : undefined;
+  if (whole) mol = { ...whole[0], groups: whole[0].groups!.map((g) => (g.id === whole[1] ? { ...g, integral: true as const } : g)) };
   return { mol, atoms, width: b[2] - b[0], number, over: first };
 }
 // The names Octet read as another name (decision 0021, misread names): each name given, with the formula and Octet's
@@ -811,64 +821,83 @@ const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own,
 const failedNote = (failed: string[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f}"`).join(", ")}: give a SMILES instead (with * for a generic group such as L or R, and its labels).${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
 const UNDO = " One undo step.";
 
-async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number }, ctx: Ctx): Promise<Result> {
+async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number } & Placement, ctx: Ctx): Promise<Result> {
   const { ok, failed, wrong } = await read(host, a.structures, ctx);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   // A cancel that came while Octet read the names stops the call before it draws.
   if (a.structures.length > 10) { await host.settle(); await ctx.check(); }
   if (!ok.length) return { text: `Octet drew nothing.${failedNote(failed)}`, error: true };
-  const cols = a.columns ?? (ok.length <= 6 ? ok.length : Math.ceil(Math.sqrt(ok.length * 1.6)));
+  // The cells from the atoms: as wide and as tall as the largest structure, with room between. The columns: as given;
+  // else one row for 6 or fewer and a block for more. On a page, no more than fit inside its margins: then the fewest
+  // rows that hold them all, as even as they can be (6 where 5 fit are two rows of 3).
   const sizes = ok.map((s) => boxOf(s.mol)), cell: P = [Math.max(...sizes.map((b) => b[2] - b[0])) + 2, Math.max(...sizes.map((b) => b[3] - b[1])) + 2.5];
+  const st = host.style(), paged = st.edges && !host.experiment(), inside = -2 * leftMargin(st), most = ok.length <= 6 ? ok.length : Math.ceil(Math.sqrt(ok.length * 1.6));
+  const fit = (row: number, step: number) => Math.max(1, Math.floor((inside - row) / step + 1e-6) + 1);
+  const columns = (fitting: number) => a.columns ?? (!paged || fitting >= most ? most : Math.ceil(ok.length / Math.ceil(ok.length / fitting))), drawn = columns(fit(cell[0] - 2, cell[0]));
   let m = host.doc();
   const [x0, y0] = origin(host, m), laid: number[][] = [];
   ok.forEach((s, k) => {
-    const b = sizes[k], [col, row] = [k % cols, Math.floor(k / cols)], r = place(m, s, x0 + col * cell[0] + (cell[0] - 2 - (b[2] - b[0])) / 2, y0 - row * cell[1] - cell[1] / 2);
+    const b = sizes[k], [col, row] = [k % drawn, Math.floor(k / drawn)], r = place(m, s, x0 + col * cell[0] + (cell[0] - 2 - (b[2] - b[0])) / 2, y0 - row * cell[1] - cell[1] / 2);
     m = r.mol; laid.push(r.atoms);
-    if (k === ok.length - 1 || (ok.length <= 30 && k % cols === cols - 1)) m = host.set(m); // a small grid is drawn a row at a time
+    if (k === ok.length - 1 || (ok.length <= 30 && k % drawn === drawn - 1)) m = host.set(m); // a small grid is drawn a row at a time
   });
   await host.settle();
-  // A caption can be wider than its structure, or deeper than the room a cell leaves under one. Then the grid is spaced
-  // again from each structure's box as drawn with its number and caption (about its cell's middle), a bond length
-  // between neighbours, and starts where the first column's text starts.
-  if (ok.some((s) => s.caption)) {
-    m = host.doc();
-    const full = laid.map((atoms) => boxOfIds(host, m, [sid(m, atoms)!])!), middle = (k: number): P => [x0 + (k % cols) * cell[0] + cell[0] / 2 - 1, y0 - Math.floor(k / cols) * cell[1] - cell[1] / 2];
-    const most = (reach: (b: Box, p: P) => number) => Math.max(...full.map((b, k) => reach(b, middle(k)))), left = most((b, p) => p[0] - b[0]);
-    const w = Math.max(cell[0], left + most((b, p) => b[2] - p[0]) + 1), h = Math.max(cell[1], most((b, p) => b[3] - p[1]) + most((b, p) => p[1] - b[1]) + 1), over = Math.max(0, left - (cell[0] / 2 - 1));
-    if (w > cell[0] || h > cell[1] || over) {
-      laid.forEach((atoms, k) => { m = shift(m, new Set(atoms), new Set(), [over + (k % cols) * (w - cell[0]), -Math.floor(k / cols) * (h - cell[1])]); });
-      host.set(m);
-      await host.settle();
-    }
+  // Then the grid is spaced from each structure's box as drawn, with its labels, number and caption (about its cell's
+  // middle): a label can reach past its atoms, and a caption can be wider than its structure or deeper than the room a
+  // cell leaves under one. A bond length between neighbours, and the grid starts where the first column's text starts.
+  // The columns are counted again from those boxes.
+  m = host.doc();
+  const full = laid.map((atoms) => boxOfIds(host, m, [sid(m, atoms)!])!), middle = (k: number, n: number, w: number, h: number): P => [x0 + (k % n) * w + cell[0] / 2 - 1, y0 - Math.floor(k / n) * h - cell[1] / 2];
+  // (Each structure's reach from its cell's middle: left, right, up and down.)
+  const reaches = full.map((b, k) => { const p = middle(k, drawn, ...cell); return [p[0] - b[0], b[2] - p[0], b[3] - p[1], p[1] - b[1]]; }), reach = (way: number, of = reaches) => Math.max(...of.map((v) => v[way]));
+  const left = reach(0), right = reach(1), down = reach(3), w = Math.max(cell[0], left + right + 1), h = Math.max(cell[1], reach(2) + down + 1);
+  const fits = fit(left + right, w), cols = columns(fits), rows = Math.ceil(ok.length / cols), over = Math.max(0, reach(0, reaches.filter((_, k) => k % cols === 0)) - (cell[0] / 2 - 1));
+  // The grid's box across the page, and how far it moves to lie on the page (as a scheme does).
+  const ends = reaches.map((v, k) => { const x = middle(k, cols, w, h)[0] + over; return [x - v[0], x + v[1]]; }), start = Math.min(...ends.map((e) => e[0])), wide = Math.max(...ends.map((e) => e[1])) - start;
+  const dx = paged && !placed(a) ? across(st, [start, 0, start + wide, 0]) : 0;
+  if (cols !== drawn || w > cell[0] || h > cell[1] || over || dx) {
+    laid.forEach((atoms, k) => { const p = middle(k, drawn, ...cell), q = middle(k, cols, w, h); m = shift(m, new Set(atoms), new Set(), [q[0] + over + dx - p[0], q[1] - p[1]]); });
+    host.set(m);
+    await host.settle();
   }
-  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${Math.ceil(ok.length / cols)} row${ok.length > cols ? "s" : ""} of ${Math.min(cols, ok.length)}.${readAs(host, ok)}${failedNote(failed)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  // What does not fit the page, said in the reply with what the AI app can do (the layout check names the ids): rows
+  // wider than the page, and rows past its bottom edge (deep: the rows that are on the page).
+  const r1 = (v: number) => Math.round(v * 10) / 10, [pw, ph] = pageSize(st), k = 72 / 25.4 / st.bond, deep = Math.max(0, Math.floor((y0 - cell[1] / 2 - down + (ph / 2) * k) / h + 1e-6) + 1);
+  const advice = !paged || placed(a) ? "" : `${wide > pw * k + 1e-6 ? ` A row of ${cols} is ${r1(wide)} bond lengths wide, and the page is ${r1(inside)} wide inside its margins: ${fits >= cols ? "its widest structure is too wide" : `${fits} fit in a row`}. Give ${fits >= cols ? "" : `columns: ${fits}, or `}a larger page (set_style).` : ""}${rows > deep ? ` ${rows - deep} of the ${rows} rows ${rows - deep > 1 ? "are" : "is"} past the bottom of the page: draw ${deep ? `the structures after the first ${deep * cols}` : "them"} in a new drawing, or give a larger page (set_style).` : ""}`;
+  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${rows} row${rows > 1 ? "s" : ""} of ${Math.min(cols, ok.length)}.${advice}${readAs(host, ok)}${failedNote(failed)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
-type StepIn = StepFacts & { arrow?: ArrowKind; above?: string[]; below?: string[]; products: CompoundIn[] };
-// A step's conditions as lines over and under its arrow, each with what it says (3b): reagents, then catalysts, above;
-// solvents with temperature, time and atmosphere, then the yield, below; the free lines after them.
-function stepLines(st: StepIn): { above: [string, StepFacts?][]; below: [string, StepFacts?][] } {
+type StepIn = StepFacts & { arrow?: ArrowKind; above?: (string | CompoundIn)[]; below?: (string | CompoundIn)[]; products: CompoundIn[] };
+// A line over or under an arrow: text, with what it says where it was given as data (3b); or a compound drawn there
+// (as text that starts "structure:" is).
+type Line = [string | CompoundIn, StepFacts?];
+const structured = (t: Line[0]) => typeof t !== "string" || /^structure:/i.test(t);
+const textLines = (items: Line[0][]) => items.filter((t): t is string => !structured(t));
+// The most characters on a line of conditions that can break: an arrow as long as its text is then at most about a
+// third of an A4 page. Items go on as few lines as hold them; an item longer than that has a line of its own.
+const WIDE = 30;
+const packed = (items: string[], join = ", ") => items.reduce<string[][]>((lines, t) => { const l = lines[lines.length - 1]; if (l && [...l, t].join(join).length <= WIDE) l.push(t); else lines.push([t]); return lines; }, []);
+// A step's conditions as lines over and under its arrow: reagents, then catalysts, above; solvents with temperature,
+// time and atmosphere, then the yield, below; the free lines after them. A list too long for one line goes on more,
+// each line with its own items as data; a free line too long breaks after a comma or semicolon.
+function stepLines(st: StepIn): { above: Line[]; below: Line[] } {
   const c = (t?: string) => (t ? clean(t) : ""), items = (l?: string[]) => (l ?? []).map((t) => c(t)).filter(Boolean);
   const reagents = items(st.reagents), catalysts = items(st.catalysts), solvents = items(st.solvents), [temperature, time, atmosphere, made] = [c(st.temperature), c(st.time), c(st.atmosphere), c(st.yield)];
-  const conditions: StepFacts = { ...(solvents.length ? { solvents } : {}), ...(temperature ? { temperature } : {}), ...(time ? { time } : {}), ...(atmosphere ? { atmosphere } : {}) };
-  // A long line (a solvent mixture with its temperature and time) goes on two: the solvents, then the rest.
+  const lines = (k: "reagents" | "catalysts" | "solvents", l: string[]) => packed(l).map((x): Line => [x.join(", "), { [k]: x }]);
+  const after: StepFacts = { ...(temperature ? { temperature } : {}), ...(time ? { time } : {}), ...(atmosphere ? { atmosphere } : {}) };
+  // A long line (a solvent mixture with its temperature and time) goes on two or more: the solvents, then the rest.
   const line = [...solvents, temperature, time, atmosphere].filter(Boolean).join(", "), rest = [temperature, time, atmosphere].filter(Boolean).join(", ");
-  const split = solvents.length && rest && line.length > 30;
-  const conditionLines: [string, StepFacts][] = split
-    ? [[solvents.join(", "), { solvents }], [rest, { ...(temperature ? { temperature } : {}), ...(time ? { time } : {}), ...(atmosphere ? { atmosphere } : {}) }]]
-    : line ? [[line, conditions]] : [];
-  return {
-    above: [...(reagents.length ? [[reagents.join(", "), { reagents }] as [string, StepFacts]] : []), ...(catalysts.length ? [[catalysts.join(", "), { catalysts }] as [string, StepFacts]] : []), ...(st.above ?? []).map((t): [string] => [clean(t, true)]).filter(([t]) => t)],
-    below: [...conditionLines, ...(st.below ?? []).map((t): [string] => [clean(t, true)]).filter(([t]) => t), ...(made ? [[made, { yield: made }] as [string, StepFacts]] : [])],
-  };
+  const conditionLines: Line[] = solvents.length && line.length > WIDE ? [...lines("solvents", solvents), ...(rest ? [[rest, after] as Line] : [])] : line ? [[line, { ...(solvents.length ? { solvents } : {}), ...after }]] : [];
+  const wrapped = (t: string) => (structured(t) ? t : t.split("\n").flatMap((l) => (l.length > WIDE ? packed(l.split(/(?<=[,;]) /), " ").map((x) => x.join(" ")) : [l])).join("\n"));
+  const free = (l?: (string | CompoundIn)[]) => (l ?? []).map((t): Line => [typeof t === "string" ? wrapped(clean(t, true)) : t]).filter(([t]) => t);
+  return { above: [...lines("reagents", reagents), ...lines("catalysts", catalysts), ...free(st.above)], below: [...conditionLines, ...free(st.below), ...(made ? [[made, { yield: made }] as Line] : [])] };
 }
 
 async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[]; keep_orientation?: boolean } & Placement, ctx: Ctx): Promise<Result> {
   // Every compound read first, so nothing is drawn when one of them cannot be.
-  const structured = (t: string) => /^structure:/i.test(t);
   const lines = a.steps.map(stepLines);
   // In the order they are drawn: each step's structures over and under its arrow, then its products.
-  const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t): CompoundIn => ({ text: t.replace(/^structure:\s*/i, ""), aside: true })), ...s.products])];
+  const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t): CompoundIn => ({ ...(typeof t === "string" ? { text: t.replace(/^structure:\s*/i, "") } : t), aside: true })), ...s.products])];
   const { ok, failed, wrong } = await read(host, all);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
@@ -877,8 +906,8 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   // it is turned; an arrow's lines, about a bond length each, and structures over it). So the new row is read alone:
   // text within 3 bond lengths over an arrow's line reads as its conditions (a scheme's title, drawn before).
   const tall = Math.max(...ok.map((s) => { const b = boxOf(s.mol); return Math.hypot(b[2] - b[0], b[3] - b[1]); }));
-  const was = m, [x0, top] = origin(host, m), up = Math.max(tall / 2, ...lines.map((l) => l.above.reduce((h, [t]) => h + (structured(t) ? tall : t.split("\n").length), 0)));
-  const y = top - up, arrows = new Set<number>();
+  const was = m, [x0, top] = origin(host, m), up = Math.max(tall / 2, ...lines.map((l) => l.above.reduce((h, [t]) => h + (typeof t !== "string" || structured(t) ? tall : t.split("\n").length), 0)));
+  const y = top - up, arrows = new Set<number>(), lem = host.style().labelSize / host.style().bond;
   let x = x0;
   // Each step's structures (their atoms), for the turn that lays each product as its starting material.
   const laid: { reactants: number[][]; products: number[][] }[] = [];
@@ -898,16 +927,21 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     await ctx.check();
     ctx.progress(k, a.steps.length, `Step ${k + 1} of ${a.steps.length}`);
     const facts = new Map([...lines[k].above, ...lines[k].below].filter(([, f]) => f) as [string, StepFacts][]);
-    const above = lines[k].above.map(([t]) => t), below = lines[k].below.map(([t]) => t), longest = Math.max(0, ...[...above, ...below].filter((t) => !structured(t)).map((t) => Math.max(...t.split("\n").map((l) => l.length)))) * 0.42;
-    const length = Math.max(3, longest + 1);
+    const above = lines[k].above.map(([t]) => t), below = lines[k].below.map(([t]) => t), longest = Math.max(0, ...textLines([...above, ...below]).map((t) => Math.max(...t.split("\n").map((l) => l.length)))) * 0.42;
+    // The structures over and under the arrow, each with its box by its atoms and the room its longest label can take
+    // either side. The arrow is as long as its text and as each side's structures in a row: Clean Up Reaction reads
+    // as an arrow's conditions the structures that lie within its ends, and lays them out clear of its text.
+    const beside = [above, below].map((items) => items.filter(structured).map(() => { const s = next(), b = boxOf(s.mol); return { s, b, pad: 0.3 + 0.6 * lem * Math.max(0, ...s.mol.atoms.map((x) => (x.text ?? (x.label === "C" ? "" : x.label)).length)) }; }));
+    const rowOf = (l: (typeof beside)[number]) => l.reduce((w, v) => w + v.b[2] - v.b[0] + 2 * v.pad, 0) + 0.75 * Math.max(0, l.length - 1);
+    const length = Math.max(3, longest + 1, ...beside.map((l) => (l.length ? rowOf(l) + 1 : 0)));
     const [mol, id] = addArrow(m, { kind: st.arrow ?? "reaction", from: [x, y], to: [x + length, y] });
     m = mol; arrows.add(id);
-    for (const [side, items] of [["above", above], ["below", below]] as const) {
-      let reach = 1.4;
-      for (let k = items.filter(structured).length; k > 0; k--) { const r = place(m, next(), x + 0.5, y + (side === "above" ? 1 : -1) * (reach + 1)); m = r.mol; reach += 2.5; }
+    for (const [j, side, items] of [[0, "above", above], [1, "below", below]] as const) {
+      let at = x + length / 2 - rowOf(beside[j]) / 2;
+      for (const { s, b, pad } of beside[j]) { const r = place(m, s, at + pad, y + (side === "above" ? 1 : -1) * (1.2 + (b[3] - b[1]) / 2)); m = r.mol; at += b[2] - b[0] + 2 * pad + 0.75; }
       // Octet stacks text kept on an arrow out from it, the first nearest: lines above go on from the bottom one up,
       // so they read top to bottom as listed.
-      const lines = items.filter((t) => !structured(t));
+      const lines = textLines(items);
       for (const t of side === "above" ? lines.reverse() : lines) m = addCaption(m, { text: t, x: x + length / 2, y, align: "centre", on: { arrow: id, side }, ...(facts.has(t) ? { facts: facts.get(t) } : {}) })[0];
     }
     x += length + 1.5;
@@ -933,14 +967,18 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   // wrapped line is centred under the first, and a reagent table has its row names to the left of the reaction (B4).
   const now = host.doc(), old = new Set(was.captions?.map((c) => c.id)), atoms = now.atoms.map((_, i) => i).slice(was.atoms.length), texts = (now.captions ?? []).filter((c) => !old.has(c.id)).map((c) => c.id);
   const b = union([host.ink(atoms), ...texts.map((id) => host.textBox(id)), ...(now.arrows ?? []).filter((x) => arrows.has(x.id)).map(arrowBox), ...host.tables().filter((t) => arrows.has(t.arrow)).map((t) => t.box)].filter((v): v is Box => !!v));
+  let advice = "";
   if (b && !placed(a)) {
-    const d: P = [across(host.style(), b), top - b[3]];
+    const st = host.style(), d: P = [across(st, b), top - b[3]];
     if (Math.hypot(...d) > 1e-6) { host.set(shift(now, new Set(atoms), new Set([...arrows, ...texts]), d)); await host.settle(); }
+    // What does not fit the page, said with what the AI app can do: a line that cannot break, and a scheme too deep.
+    const [pw, ph] = pageSize(st), k = 72 / 25.4 / st.bond, r1 = (v: number) => Math.round(v * 10) / 10;
+    if (st.edges && !host.experiment()) advice = `${b[2] - b[0] > pw * k + 1e-6 ? ` The scheme is ${r1(b[2] - b[0])} bond lengths wide, and the page is ${r1(-2 * leftMargin(st))} wide inside its margins: a line breaks only before an arrow, or before a plus sign after the first arrow. Give a larger page or landscape (set_style), or draw a starting material at its arrow (a compound in above).` : ""}${top - (b[3] - b[1]) < (-ph / 2) * k - 1e-6 ? " The scheme runs past the bottom of the page: give a larger page (set_style), or draw its last steps in a new drawing." : ""}`;
   }
-  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${advice}${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
-async function drawCycle(host: Host, a: { intermediates: { text: string; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean }): Promise<Result> {
+async function drawCycle(host: Host, a: { intermediates: { text: string; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement): Promise<Result> {
   const { ok, failed, wrong } = await read(host, a.intermediates);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const n = ok.length, sizes = ok.map((s) => boxOf(s.mol)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
@@ -974,6 +1012,21 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   await host.settle();
   host.tidyCycle(id);
   await host.settle();
+  // A side arrow's text that lies on an intermediate: that end of the arrow goes further out from the circle, three
+  // quarters of a bond length at a time, until its text is clear (6 times at most).
+  for (let k = 0; k < 6; k++) {
+    m = host.doc();
+    const c = m.cycles!.find((x) => x.id === id)!, inks = c.nodes.map((atoms) => host.ink(atoms));
+    const on = (m.captions ?? []).filter((t) => t.cycle?.cycle === id && isSide(t.cycle) && inks.some((b) => { const tb = b && host.textBox(t.id); return !!tb && overlap(tb, b!); })).map((t) => t.cycle!);
+    if (!on.length) break;
+    const out = (br: NonNullable<Cycle["branches"]>[number]) => on.reduce((x, t) => (t.branch === x.id && (t.side === "in" || t.side === "out") ? { ...x, [t.side]: { ...x[t.side], reach: (x[t.side]?.reach ?? 1.1) + 0.75 } } : x), br);
+    host.set({ ...m, cycles: m.cycles!.map((x) => (x.id === id ? { ...x, branches: x.branches?.map(out) } : x)) });
+    await host.settle();
+  }
+  // The cycle with its text goes on the page, as a scheme does, and no higher than where new work starts.
+  m = host.doc();
+  const b = placed(a) ? undefined : boxOfIds(host, m, [`c${id}`]), d: P = b ? [across(host.style(), b), Math.min(0, y0 - b[3])] : [0, 0];
+  if (Math.hypot(...d) > 1e-6) { host.set(shift(m, new Set(nodes.flat()), new Set([id]), d)); await host.settle(); }
   return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}. Octet tidied it with Clean Up.${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
@@ -981,7 +1034,8 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
 
 // Each structure and its id: "s" and the key its atoms carry (Atom.key), given the first time Octet sees it and never
 // again in this window. A structure copied, or split from another, takes a new key; one joined to another keeps the
-// key of its first atom. Worked out once for each state of the drawing.
+// key of its first atom. Worked out once for each state of the drawing. A compound of several structures (a salt's
+// ions, grouped to pick as one: edit.ts compounds) is one structure here, with one id.
 let lastKey = 0;
 const keyed = new WeakMap<Mol, { atoms: number[]; id: string }[]>();
 // A new drawing in this window (or a new drawing for a headless host) starts its ids again, so the same calls on a
@@ -994,7 +1048,7 @@ function structuresOf(m: Mol): { atoms: number[]; id: string }[] {
   const used = new Set<number>();
   // A structure's atoms in the order the drawing keeps them (the order a molecule or SMILES gave them), so an atom's
   // id (s3.2) is its place in what the AI app gave.
-  const out = fragments(m).map((g) => {
+  const out = compounds(m).map((g) => {
     g.sort((p, q) => p - q);
     let k = g.map((i) => m.atoms[i].key).find((x): x is number => x !== undefined && !used.has(x));
     if (k === undefined) k = ++lastKey;
@@ -1187,7 +1241,7 @@ async function keyOf(host: Host, m: Mol, r: Reaction | undefined, of: string): P
   let atoms = numbered?.under;
   if (!atoms) {
     const { ok } = await read(host, [{ text: of }]), want = ok[0] && host.formula(ok[0].mol);
-    atoms = want ? fragments(m).find((g) => r.atoms.includes(g[0]) && host.formula(pickPart(m, g)) === want) : undefined;
+    atoms = want ? structuresOf(m).find((g) => r.atoms.includes(g.atoms[0]) && host.formula(pickPart(m, g.atoms)) === want)?.atoms : undefined;
   }
   const f = atoms && host.formula(pickPart(m, atoms));
   return f ? `${atoms!.some((i) => products.has(i)) ? "p" : "r"}:${f}` : undefined;
@@ -1699,8 +1753,8 @@ async function addFile(host: Host, a: { text: string }): Promise<Result> {
   m = r.mol;
   m = host.set(m);
   await host.settle();
-  const groups = fragments(m).filter((g) => g.some((i) => r.atoms.has(i)));
-  return { text: `Added a drawing of ${groups.length} structure${groups.length === 1 ? "" : "s"} (${groups.map((g) => sid(m, g)).join(", ")}) and ${r.items.size} other objects below what was drawn.${UNDO}` };
+  const groups = structuresOf(m).filter((g) => g.atoms.some((i) => r.atoms.has(i)));
+  return { text: `Added a drawing of ${groups.length} structure${groups.length === 1 ? "" : "s"} (${groups.map((g) => g.id).join(", ")}) and ${r.items.size} other objects below what was drawn.${UNDO}` };
 }
 
 // ---- Placement (F3) and boxes (F2) ----
@@ -2034,12 +2088,13 @@ function placedOf(host: Host, m: Mol): Placed[] {
   for (const t of host.tables()) out.push({ id: `g${t.arrow}`, label: `the reagent table of a${t.arrow}`, box: t.box, of: `a${t.arrow}` });
   return out;
 }
+// Two boxes that lie on each other (by more than a hair).
+const overlap = (p: Box, q: Box) => p[0] < q[2] - 0.05 && q[0] < p[2] - 0.05 && p[1] < q[3] - 0.05 && q[1] < p[3] - 0.05;
 function layoutWarnings(host: Host, m: Mol): { message: string; ids: string[] }[] {
   const all = placedOf(host, m), out: { message: string; ids: string[] }[] = [];
-  const meets = (p: Box, q: Box) => p[0] < q[2] - 0.05 && q[0] < p[2] - 0.05 && p[1] < q[3] - 0.05 && q[1] < p[3] - 0.05;
   const belongs = (p: Placed, q: Placed) => p.of === q.id || q.of === p.id;
   all.forEach((p, k) => all.slice(k + 1).forEach((q) => {
-    if (out.length < 30 && !belongs(p, q) && !((p.line || q.line) && (p.line || p.id.startsWith("a")) && (q.line || q.id.startsWith("a"))) && meets(p.box, q.box)) out.push({ message: `${p.label[0].toUpperCase()}${p.label.slice(1)} overlaps ${q.label}.`, ids: [p.id, q.id] });
+    if (out.length < 30 && !belongs(p, q) && !((p.line || q.line) && (p.line || p.id.startsWith("a")) && (q.line || q.id.startsWith("a"))) && overlap(p.box, q.box)) out.push({ message: `${p.label[0].toUpperCase()}${p.label.slice(1)} overlaps ${q.label}.`, ids: [p.id, q.id] });
   }));
   const s = host.style(), [w, h] = pageSize(s), k = 72 / 25.4 / s.bond, page: Box = [(-w / 2) * k, (-h / 2) * k, (w / 2) * k, (h / 2) * k];
   for (const p of all) {
