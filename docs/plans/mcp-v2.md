@@ -1724,3 +1724,30 @@ What a model sees and sends was rebuilt so that a drawing job is one call and no
   tools/list 12,209.
 - **Not done:** models on the lab (the main session runs them).
 
+
+### 19.5 As built (round 3b, 11 November 2026, branch `mcp/ai3`)
+
+What Haiku's transcripts showed still cost it thinking, calls and passes.
+
+- **Instructions:** "Write each compound by the name or SMILES you have (copy the user's); else as a change to an
+  earlier one (3[OBn>OTES]), keeping its stereocentres." Haiku had read "write each compound once ... a later one is a
+  change to it" as a rule and said sorry for full SMILES. Still 2,160 characters (three other lines say the same in
+  fewer words).
+- **NOTATION's examples** (781 characters from 549, 18 lines from 11; tools/list 12,445 from 12,206): a route from a
+  lone numbered compound, a second scheme from it by its number with lettered parts and a yield each on one arrow, a
+  scope with `R=morpholin-4-yl`, a grid with numbers and yields, and a cycle one step a line with numbered species,
+  each step's name and +in/-out on its own line and the last back to 1. One line says that `|` splits a row and a new
+  line is a new row, and that letters and `then` stay as written. The 36 replayed answers still score 35.
+- **Side items before an arrow.** A chain line with conditions between its first compound and its first arrow puts
+  each step's before its arrow: `... (4), -ketol -> 1` puts the ketol on 4→1. A line with nothing there reads as
+  before.
+- **A cycle's side text and step names can be moved:** `edit` takes `at` (the step as read gives it, `4→1`) on side
+  text and step names, and `side` (in, out) on side text. The text leaves its side arrow (which goes when it has no
+  other end) for one on the new step, as the Side arrow tool puts it.
+- **No page, no page advice:** a figure drawn with no page (Quick start) says nothing about a page.
+- **Labels after a draw:** Clean Up cleared the labels of Opus's triol 5 (paper-five-step), and turning it back by 29
+  degrees put them on each other again. A structure whose labels meet once turned back now lies as Clean Up left it.
+- **A scope's R=** takes a label (OMe), a SMILES joined by its first atom, a substituent name joined where its lithium
+  compound has the lithium (`morpholin-4-yl`), and a compound name joined at its one N–H (`4-phenylpiperidine`). Two N–H
+  (`piperazine`) is refused with its line. Only a scope by lines does this: a label in JSON and `{Allyl}` in a SMILES
+  stay labels.

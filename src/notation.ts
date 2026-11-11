@@ -10,18 +10,26 @@ import { NAMED, TO, WITH } from "./named.ts";
 import { conditionKind, solvent } from "./stoich.ts";
 
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
-// them: a titled route with conditions and a step that changes a compound, a scope, a cycle; then one line of marks.
-export const NOTATION = `Lines as chemists type them, as in these 3 drawings:
-# Biaryl 4
-4-bromoanisole + PhB(OH)2 -> 4-methoxybiphenyl (3), Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
--> 3[OMe>OH] (4), BBr3, CH2Cl2, −78 °C, 78%
+// them: a route from a lone numbered compound, and a second scheme from it by its number with lettered parts on one
+// arrow; a scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
+# Biaryl 3
+4-bromoanisole (2)
+-> 4-methoxybiphenyl (3), PhB(OH)2, Pd(PPh3)4 (5 mol%), K2CO3, THF/H2O, 80 °C, 91%
+# Triflate 5
+3 -> 3[OMe>OTf] (5), (a) BBr3, CH2Cl2, −78 °C, 78%; (b) Tf2O, pyridine, 90%
 
-{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=F (5b) 85%
+{R}c1ccc(cc1)C(C)=O: R=OMe (6a) 91% | R=morpholin-4-yl (6b) 85%
 
-Pd(0)L2 (A) -> L2Pd(Ar)Br (B), OA, +ArBr -> L2Pd(Ar)Ar' (C), TM, +Ar'B(OH)2, -B(OH)2Br -> A, RE, -Ar–Ar'
+anisole (7a) 51% | toluene (7b) 54%
+
+Pd(0)L2 (1)
+-> L2Pd(Ar)Br (2), OA, +ArBr
+-> L2Pd(Ar)Ar' (3), TM, +Ar'B(OH)2, -B(OH)2Br
+-> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. Marks: ^x over, _x under, "x" as written, @x drawn, (a) first: letters. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name. | splits a row; a new line is a new row. Letters (a), (b) and then stay as written; a lone (a) first letters the arrow. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -551,6 +559,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
           if (sides.length) chain.raw.push({ part: -1, text: lhs.text, prev: [], line: at, asides: sides.map((x) => ({ ...x, part: -1, before: true })) });
         }
       }
+      // A line with conditions before its first arrow puts each step's before its arrow, so what follows a product goes
+      // on the arrow after it (3 (3), -ketol -> 1), and the last product's on its own; else each goes after its product.
+      let carry = before;
       for (const [k, p] of parts.slice(1).entries()) {
         const first = cut(p, (i) => sepAt(p, i))[0].text;
         if (!first.trim()) return `Line ${at}: an arrow has no product after it`;
@@ -558,7 +569,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof made === "string") return made;
         const own = p.slice(first.length).replace(/^[,;]\s*/, ""), c = chain!, next = k < parts.length - 2;
         if (sides.length) c.raw.push({ part: c.steps.length, text: first, prev: reactants, line: at, asides: sides.map((x) => ({ ...x, part: c.steps.length, before: next })) });
-        c.steps.push({ arrow: arrows[k], products: made, conditions: k || !before ? own : own ? `${before}, ${own}` : before, next, line: at, ...(!k && added.length ? { added } : {}) });
+        c.steps.push({ arrow: arrows[k], products: made, conditions: before ? [carry, next ? "" : own].filter(Boolean).join(", ") : own, next, line: at, ...(!k && added.length ? { added } : {}) });
+        carry = own;
         reactants = made;
       }
       continue;
@@ -587,7 +599,8 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         }
         // A group the line does not give keeps its label (Ph in CC{Ph}).
         c = compound(core.text.replace(/\{([^{}]+)\}/g, (_, k: string) => `{${values.get(k.trim()) ?? k}}`), known);
-        if (typeof c !== "string") c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) };
+        // (Marked in where with =: a group given here that is no label is a structure, joined in its place.)
+        if (typeof c !== "string") { c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) }; where?.set(`=${written(c as { text: string })}`, at); }
       } else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
       if (typeof c === "string") return wrong(at, c);
       row.push(c); add(c, at);

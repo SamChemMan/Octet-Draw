@@ -564,6 +564,38 @@ try {
   const two = await lines(`# Scheme 1. The C2 alcohol 15\n${T[13]} (13) -> ${T[14]} (14), a) Ac2O, DMAP; b) TPAP, NMO; 95%, 93%\n-> ${T[15]} (15), c) BH3·THF, then H2O2; d) HCl, MeOH; 55%, 80%\n\n# Scheme 2. The TES ether 17\n15 -> ${T[16]} (16), Ac2O, DMAP, CH2Cl2, 95%\n-> ${T[17]} (17), f) H2, Pd(OH)2/C; g) TESCl, pyridine; h) K2CO3, MeOH; 97%, 85%, 95%`);
   assert.equal(two.check, "clean", JSON.stringify(two.check));
   assert.ok(!/clean_up|Clean Up/.test(two.done), two.done);
+  // Opus's own SMILES for paper-five-step (round 3b): Clean Up clears s4.27 from s4.30 of the triol 5, and turning s4
+  // back by 29 degrees put them on each other again, so s4 lies as Clean Up left it.
+  const five = await lines(`CCOC(=O)[C@@]3([C@H](C=C[C@]([C@H]3CO%10)(C%10=O)O)O)C (2) -> OC[C@@]3([C@H](C=C[C@]([C@H]3CO%10)(C%10=O)O[Si](C)(C)C(C)(C)C)O[Si](C)(C)C(C)(C)C)C (3), a) TBSOTf, 2,6-lutidine, 95%; b) LiAlH4, Et2O, 0 °C, 94%
+-> CC(C)(C)[Si](c7ccccc7)(c8ccccc8)OC[C@@]3([C@H](C=C[C@]([C@H]3CO%10)(C%10=O)O[Si](C)(C)C(C)(C)C)OCc9ccccc9)C (4), c) CSA, MeOH, 90%; then TBDPSCl, imidazole, DMF, 92%; d) KH, BnBr, n-Bu4NI, 87%
+-> CC(C)(C)[Si](c7ccccc7)(c8ccccc8)OC[C@@]3([C@H](C=C[C@]([C@H]3CO)(CO)O)OCc9ccccc9)C (5), LiAlH4, Et2O, 25 °C, 80%
+-> CC(C)(C)[Si](c7ccccc7)(c8ccccc8)OC[C@@]3([C@H](C=C[C@]([C@H]3CO)(CO%11)OC%11(C)C)OCc9ccccc9)C (6), Me2C(OMe)2, CSA, CH2Cl2, 82%
+-> CC(C)(C)[Si](c7ccccc7)(c8ccccc8)OC[C@@]3([C@H](C=C[C@]([C@H]3C=O)(CO%11)OC%11(C)C)OCc9ccccc9)C (7), TPAP, NMO, MeCN, 95%`);
+  assert.equal(five.check, "clean", JSON.stringify(five.check));
+  // Haiku's say-cycle line (round 3b), with +triketone before its first arrow: -ketol after 4 leaves at 4→1. Every
+  // property read gives a cycle's text can be set: Haiku's own edit of the side text (at and side, words read gives),
+  // and a step name's step, by the intermediates' numbers.
+  const said = await lines(String.raw`OC(=O)[C@@H]1CCCN1 (1), +triketone -> C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\CCC[C@H]1C([O-])=O (2) -> OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O (3) -> C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O (4), -ketol, isomerise -> 1`);
+  assert.match(said.done, /in: triketone at 1→2; out: ketol at 4→1\./);
+  const sides = async () => { const c = (await call("read", {})).structuredContent.cycles[0]; return [...c.sides, ...c.names].map((x: { id: string; at: string; side?: string }) => `${x.id} ${x.at} ${x.side ?? "name"}`); };
+  assert.deepEqual(await sides(), ["t6 1→2 in", "t7 4→1 out", "t8 4→1 name"]);
+  const moved3 = await call("change", { operations: [{ op: "edit", ids: ["t7"], at: "3->4" }, { op: "edit", ids: ["t8"], at: "2→3" }] });
+  assert.ok(!moved3.isError, moved3.content[0].text);
+  assert.deepEqual(await sides(), ["t6 1→2 in", "t7 3→4 out", "t8 2→3 name"]);
+  assert.ok(!(await call("change", { operations: [{ op: "edit", ids: ["t7"], at: "4→1", side: "out" }] })).isError);
+  assert.deepEqual(await sides(), ["t6 1→2 in", "t7 4→1 out", "t8 2→3 name"]);
+  assert.equal(d.host.doc().cycles![0].branches!.length, 2);
+  assert.match((await call("change", { operations: [{ op: "edit", ids: ["t6"], side: "out" }] })).structuredContent.check, /clean/);
+  assert.deepEqual(await sides(), ["t6 1→2 out", "t7 4→1 out", "t8 2→3 name"]);
+  assert.match((await call("change", { operations: [{ op: "edit", ids: ["t6"], at: "5→1" }] })).content[0].text, /t6's cycle has no step 5→1: its steps are 1→2, 2→3, 3→4, 4→1\./);
+  assert.match((await call("change", { operations: [{ op: "edit", ids: ["t8"], side: "in" }] })).content[0].text, /t8 is a cycle's step name: it takes no side\./);
+  // With no page (brief quick), a figure wider than A4 says nothing of a page (Haiku told the user it needed a larger
+  // page before export).
+  d = drawing("paper", "No page");
+  const row = (k: number) => Array.from({ length: 6 }, (_, i) => `CCCCCCCCCCCC${"C".repeat(i)}c1ccc(cc1)C(=O)N1CCCCC1 (${k}${"abcdef"[i]}) 5${i}%`).join(" | ");
+  const wide = await call("draw", { brief: "quick", lines: `# Products\n${row(7)}\n${row(8)}` });
+  assert.match(wide.content[0].text, /figure of 1 panel and 12 structures/);
+  assert.doesNotMatch(wide.content[0].text, /page (?:allows|is)|larger page/, wide.content[0].text);
   const turned = async (rotate: number) => { d = drawing("paper", "Turned"); const r = (await call("draw", { kind: "structures", structures: [{ text: T[1], rotate }], brief: "quick" })).structuredContent; return [r.check, d.host.doc().atoms.map((a) => [a.location[0], a.location[1]] as [number, number])] as const; };
   const [flat, a0] = await turned(0), [check, a60] = await turned(60);
   assert.equal(flat, "clean");

@@ -41,25 +41,39 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 // It goes in the tool list, which is 14,000 characters in all (610 before it said a step's label and a name changed,
 // in the room draw_route's listing left).
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
-// Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title.
-assert.ok(NOTATION.split("\n").length <= 12 && !/Scheme/.test(NOTATION), NOTATION);
+// Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
+// lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
+assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
 // It teaches by example (models copy examples): each of its drawings reads and draws with no refusal. The route draws
-// 3 and 4 by InChIKey, the second from the first; the scope its two compounds; the cycle its three intermediates as text
-// (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and L = PPh3 in the middle.
+// 3 from a lone 2, and 5 from 3 by its number in a second scheme with its lettered parts kept as written; the scope its
+// two compounds, 6b with morpholine joined at its N; the grid its two; the cycle, one step a line, its three
+// intermediates as text (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and
+// L = PPh3 in the middle.
 {
-  const [route, scope, cycle] = NOTATION.split("\n\n").slice(0, 3).map((x) => x.replace(/^Lines as .*\n/, ""));
+  const [route, scope, grid, cycle] = NOTATION.split("\n\n").slice(0, 4).map((x) => x.replace(/^Lines as .*\n/, ""));
   const drawn = async (lines: string) => { const r = fromLines({ lines }); assert.ok(typeof r !== "string", String(r)); const s = await shown(...callOf(r)); assert.ok("structures" in s, JSON.stringify(s)); return s; };
   const s = await drawn(route);
-  assert.ok(s.structures.includes("3=RHDYQUZYHZWTCI-UHFFFAOYSA-N") && s.structures.includes("4=YXVFYQXJAXKLAK-UHFFFAOYSA-N"), s.structures.join(" "));
-  assert.deepEqual((await drawn(scope)).structures.map((x) => x.split("=")[0]), ["5a", "5b"]);
+  assert.ok(s.structures.includes("3=RHDYQUZYHZWTCI-UHFFFAOYSA-N") && s.structures.includes("5=RJFYGCJTUUXOOF-UHFFFAOYSA-N"), s.structures.join(" "));
+  assert.deepEqual((fromLines({ lines: route }) as { args: { schemes: { steps: { above?: string[] }[] }[] } }).args.schemes[1].steps[0].above, ["(a) BBr3, CH2Cl2, −78 °C, 78%", "(b) Tf2O, pyridine, 90%"]);
+  // (A group joined by name is a draw by lines': drawn from lines.)
+  assert.deepEqual(((await shown("draw", { lines: scope })) as { structures: string[] }).structures, ["6a=NTPLXRHDUXRPNE-UHFFFAOYSA-N", "6b=AKQWEDMTPCAESO-UHFFFAOYSA-N"]);
+  assert.deepEqual((await drawn(grid)).structures.map((x) => x.split("=")[0]), ["7a", "7b"]);
   const c = await drawn(cycle);
   assert.deepEqual(c.structures, []);
-  assert.deepEqual(c.text, ["centre:L = PPh3", "in:Ar'B(OH)2", "in:ArBr", "name:OA", "name:RE", "name:TM", "node:L2Pd(Ar)Ar' C", "node:L2Pd(Ar)Br B", "node:Pd(0)L2 A", "out:Ar–Ar'", "out:B(OH)2Br"]);
+  assert.deepEqual(c.text, ["centre:L = PPh3", "in:Ar'B(OH)2", "in:ArBr", "name:OA", "name:RE", "name:TM", "node:L2Pd(Ar)Ar' 3", "node:L2Pd(Ar)Br 2", "node:Pd(0)L2 1", "out:Ar–Ar'", "out:B(OH)2Br"]);
   const m = d.host.doc(), nodes = (m.captions ?? []).filter((x) => x.cycle?.side === "node");
-  assert.deepEqual(nodes.map((x) => [x.cycle!.step, x.runs?.at(-1)]), [[0, { text: "A", bold: true }], [1, { text: "B", bold: true }], [2, { text: "C", bold: true }]]);
+  assert.deepEqual(nodes.map((x) => [x.cycle!.step, x.runs?.at(-1)]), [[0, { text: "1", bold: true }], [1, { text: "2", bold: true }], [2, { text: "3", bold: true }]]);
   assert.ok(m.cycles![0].nodes.every((n) => !n.length));
   // read names each text intermediate by its text's id.
   assert.ok((await call("read", {})).structuredContent.cycles[0].intermediates.every((x: string) => /^t\d+$/.test(x)));
+}
+// A scope's R= takes a SMILES joined by its first atom and an amine's name joined at its N–H (round 3b: for paper-scope
+// models wrote all 12 products out by hand); L stays a label, and an amine with two N–H is refused with its line.
+{
+  const one = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=N1CCC(CC1)c1ccccc1 (8a) | R=4-phenylpiperidine (8b) | R=L (8c)" })) as { structures: string[] };
+  assert.deepEqual(one.structures, ["8a=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8b=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8c=undefined"]);
+  const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b)" })) as { refused: string };
+  assert.match(two.refused, /Line 2: piperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first/);
 }
 
 // ---- The paper corpus and the taxol route, as notation ----
@@ -267,6 +281,14 @@ const HARD: [string, object | RegExp][] = [
   ['P (1) +"triketone" -> Q (2) -> S (3) -ketol -> 1', { op: "cycle", args: { intermediates: [{ text: "P", number: "1" }, { text: "Q", number: "2" }, { text: "S", number: "3" }], steps: [{ step: 0, in: "triketone" }, { step: 2, out: "ketol" }] } }],
   // Among a step's text (OA +X), what goes in or out is the next arrow's when one follows on the line.
   ["P (A) +ArBr -> Q (B), OA +Ar'B(OH)2 -B(OH)2Br -> S (C), TM -Ar–Ar' -> A, RE", { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }, { text: "S", number: "C" }], steps: [{ step: 0, in: "ArBr", name: "OA" }, { step: 1, in: "Ar'B(OH)2", out: "B(OH)2Br", name: "TM" }, { step: 2, out: "Ar–Ar'", name: "RE" }] } }],
+  // A line with conditions before its first arrow puts each step's before its arrow (round 3b): Haiku's say-cycle line
+  // read +triketone as 1→2's and then -ketol, after 4, as 3→4's. Now -ketol goes on the arrow after 4 (4→1). paper-cycle
+  // the same way, with water at both.
+  ["OC(=O)[C@@H]1CCCN1 (1), +triketone -> C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O (2) -> OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O (3) -> C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O (4), -ketol -> 1",
+    { op: "cycle", args: { intermediates: [{ text: "OC(=O)[C@@H]1CCCN1", number: "1" }, { text: "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O", number: "2" }, { text: "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O", number: "3" }, { text: "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O", number: "4" }], steps: [{ step: 0, in: "triketone" }, { step: 3, out: "ketol" }] } }],
+  ["P (1), +triketone, -H2O -> Q (2) -> S (3) -> U (4), +H2O, -ketol -> 1", { op: "cycle", args: { intermediates: [{ text: "P", number: "1" }, { text: "Q", number: "2" }, { text: "S", number: "3" }, { text: "U", number: "4" }], steps: [{ step: 0, in: "triketone", out: "H2O" }, { step: 3, in: "H2O", out: "ketol" }] } }],
+  // So does a scheme's: a yield after a product goes on the arrow after it, and the last product's on its own.
+  ["A (1), H2SO4 -> B (2), 90% -> C (3), NaOH", R([{ text: "A", number: "1" }], [{ reagents: ["H2SO4"], products: [{ text: "B", number: "2" }] }, { reagents: ["NaOH"], yield: "90%", products: [{ text: "C", number: "3" }] }])],
   // Intermediates that are formulas (text when Octet cannot read them, as the drawing check above shows), labels in
   // braces taken off the side text, and the centre text as a definition before or after it, or in quotes after it.
   ["# Suzuki\n{L}: PPh3\nPd(0)L2 (A) -> L2Pd(Ar)Br (B), +ArBr, OA -> Pd(0)L2 (A), -{Ar}-{Ar'}, RE", { op: "cycle", args: { intermediates: [{ text: "Pd(0)L2", number: "A" }, { text: "L2Pd(Ar)Br", number: "B" }], centre: "Suzuki\nL = PPh3", steps: [{ step: 0, in: "ArBr", name: "OA" }, { step: 1, out: "Ar-Ar'", name: "RE" }] } }],

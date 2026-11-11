@@ -6,22 +6,22 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
+import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders } from "./edit.ts";
 import { change, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
 import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide, centreText, isSide, textOn, type Cycle } from "./cycle.ts";
+import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION, written } from "./notation.ts";
-import { formulaTextRuns } from "./labels.ts";
+import { formulaTextRuns, isGeneric, labelSmiles } from "./labels.ts";
 import { looksLikeSmiles } from "./names.ts";
-import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
+import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
 import type { TextRun } from "./richtext.ts";
@@ -522,12 +522,12 @@ const OPS: Op[] = [
   },
   {
     name: "edit", title: "Change objects", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "changed part of the drawing",
-    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
+    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical; a cycle's side text or step name takes at (its step, as read gives it: 4→1), and side text side (in, out). An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
     inputSchema: obj({
       ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: numeral(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), query: QUERY,
       bond: pick(Object.keys(BONDS)), position: pick(["left", "centre", "right", "auto"]), spacing: num(1, 100), topology: pick(["ring", "chain", "either", "none"]), reaction_centre: pick(["centre", "makebreak", "change", "makechange", "not", "nochange", "unmapped", "none"]), bond_query: pick(["any", "sd", "sa", "da", "none"]),
       ignore_warnings: { type: "boolean" }, highlight: COLOUR_OR_NONE, ring_fill: COLOUR_OR_NONE, rotate: num(-360, 360), scale: num(10, 1000), flip: pick(["horizontal", "vertical"]), perspective: { type: "boolean" }, stereo_labels: { type: "boolean" }, atom_numbers: { type: "boolean" }, aromatic_circles: { type: "boolean" },
-      text: str(2000), runs: RUNS, ...TEXT_STYLE, align: pick(["left", "centre", "right", "justify", "above", "below", "auto"]), width: num(0.5, 300), line_height: LINE_HEIGHT, arrow: str(12, "a7, or none"), side: pick(["above", "below"]),
+      text: str(2000), runs: RUNS, ...TEXT_STYLE, align: pick(["left", "centre", "right", "justify", "above", "below", "auto"]), width: num(0.5, 300), line_height: LINE_HEIGHT, arrow: str(12, "a7, or none"), side: pick(["above", "below", "in", "out"]), at: str(24, "A cycle's step, as read gives it: 4→1"),
       ...ARROW_PROPS, kind: pick([...["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"], ...["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"]]), from: POINT, to: POINT,
       ...SHAPE_PROPS, structure: str(MAX_STRUCTURE), changes: CHANGES, number: numeral(12), box: BOX,
     }, ["ids"]),
@@ -746,13 +746,13 @@ const TOOLS: Tool[] = [
 const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's computer. These tools draw in the user's open drawing and read it.
 - Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
 - Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
-- Write each compound once, by name or SMILES; a later one is a change to it (3[OBn>OTES]). A generic group or metal ligand is {R} in a SMILES ({L}[Pd]{L}).
-- Do not sort conditions: list them after the product in any order, and Octet places each as papers do. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
+- Write each compound by the name or SMILES you have (copy the user's); else as a change to an earlier one (3[OBn>OTES]), keeping its stereocentres. A generic group or ligand is {R} in SMILES ({L}[Pd]{L}).
+- Do not sort conditions: list them after the product in any order; Octet places each. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
 - The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), its warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
 - To match a picture, turn a compound with hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
-- To highlight an atom, bond, group or structure, use change's edit with highlight, or ring_fill for a ring: a shape is a frame or panel. Colour only what the user asks.
+- To highlight atoms, bonds or a structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
 - Each call is one undo step. Never delete the user's work unless they ask.
-- advanced help gives the arguments of each draw kind, change op and advanced tool.`;
+- advanced help gives the arguments of every draw kind, change op and tool.`;
 
 // ---- What each tool does ----
 
@@ -872,6 +872,11 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
       // Each stays a generic group (a * atom) with the label written on it: Ar is an aryl here, not argon.
       const at = new Map(stars.map((i, j) => [i, clean(it.labels![j])]));
       mol = { ...mol, atoms: mol.atoms.map((x, i) => (at.get(i) ? { ...x, text: at.get(i) } : x)) };
+      // A scope's group by lines (R=) that is no label Octet reads is that structure, joined in its place.
+      const line = where?.get(`=${written(it as { text: string })}`), joined = line ? [...at].map(([i, v]) => [i, group(host, v)] as const).filter(([, g]) => g) : [];
+      const no = joined.find(([, g]) => typeof g === "string");
+      if (no) { wrong.push(`Line ${line}: ${no[1]}`); continue; }
+      if (joined.length) mol = host.tidy(joined.reduce((x, [i, g]) => expandLabel(x, i, g as Mol), mol));
     }
     if (hinted(it)) {
       const turned = orient(mol, it);
@@ -883,6 +888,25 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
     add({ mol: asLike(mol), text, number, caption, named: host.named(text), ...(bare.length ? { note: `As written, ${bare.map((t) => `atom ${t}`).join(" and ")} ${bare.length > 1 ? "are radicals" : "is a radical"}: a numbered atom needs its hydrogens ([CH2:${bare[0]}]).` } : {}) }, it);
   }
   return { ok, failed, wrong, lost };
+}
+// A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
+// SMILES by its first atom (N1CCOCC1); a substituent name (morpholin-4-yl) where its lithium compound has the lithium;
+// a compound's name by its one N–H (4-phenylpiperidine). Two N–H is refused. Undefined: it stays a label (L, dppf).
+function group(host: Host, v: string): Mol | string | undefined {
+  if (labelSmiles(v) || isGeneric(v)) return undefined;
+  if (!host.named(v)) {
+    if (looksLikeSmiles(v)) return host.structure(v);
+    const m = /yl$/.test(v) ? host.structure(`${v}lithium`) : undefined, li = m?.atoms.flatMap((a, i) => (a.label === "Li" ? [i] : [])) ?? [], on = m?.bonds.filter((b) => b.atoms.includes(li[0])) ?? [];
+    return li.length === 1 && on.length === 1 ? first(m!, on[0].atoms.find((i) => i !== li[0])!, li[0]) : undefined;
+  }
+  const m = host.structure(v)!, used = bondOrders(m), nh = m.atoms.flatMap((a, i) => (a.label === "N" && hydrogens("N", a.charge ?? 0, used[i]) > 0 ? [i] : []));
+  if (nh.length > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
+  return nh.length ? first(m, nh[0]) : undefined;
+}
+// m with atom k first, and atom drop left out.
+function first(m: Mol, k: number, drop = -1): Mol {
+  const order = [k, ...m.atoms.keys()].filter((i, n) => i !== drop && (!n || i !== k)), to = new Map(order.map((i, n) => [i, n]));
+  return { atoms: order.map((i) => m.atoms[i]), bonds: m.bonds.filter((b) => b.atoms.every((i) => to.has(i))).map((b) => ({ ...b, atoms: b.atoms.map((i) => to.get(i)!) as [number, number] })) };
 }
 // Runs as Octet keeps them (TextRun): control characters out (spaces kept), each colour #rrggbb; or what is wrong.
 function runsOf(r: RunIn[]): TextRun[] | string {
@@ -1906,7 +1930,7 @@ type ShapeIn = { dashed?: boolean; bold?: boolean; fill?: "solid" | "shaded" | "
 type Edit = { ids: string[]; changes?: Change[]; runs?: RunIn[]; box?: number[]; ignore_warnings?: boolean; label?: string; charge?: number; isotope?: number; radical?: (typeof RADICALS)[number]; lone_pairs?: number; bars?: boolean; enhanced?: string; atom_number?: string; hidden?: boolean; chemical?: boolean; label_angle?: number; query?: QueryIn;
   bond?: BondKind; position?: "left" | "centre" | "right" | "auto"; spacing?: number; topology?: "ring" | "chain" | "either" | "none"; reaction_centre?: NonNullable<Mol["bonds"][number]["rxn"]> | "none"; bond_query?: "any" | "sd" | "sa" | "da" | "none";
   highlight?: string; ring_fill?: string; rotate?: number; scale?: number; flip?: "horizontal" | "vertical"; perspective?: boolean; stereo_labels?: boolean; atom_numbers?: boolean; aromatic_circles?: boolean;
-  text?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; align?: Caption["align"] | Atom["align"] | "auto"; width?: number; line_height?: "auto" | "variable" | number; arrow?: string; side?: "above" | "below";
+  text?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; align?: Caption["align"] | Atom["align"] | "auto"; width?: number; line_height?: "auto" | "variable" | number; arrow?: string; side?: "above" | "below" | "in" | "out"; at?: string;
   from?: number[]; to?: number[]; structure?: string; number?: string } & ArrowIn & ShapeIn;
 
 // A table as given (cells, lines, alignment, rule width), over the one a shape has.
@@ -2059,7 +2083,9 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("number")) { m = host.set(m); await setNumber(host, { structure: id, number: a.number! }); m = host.doc(); }
       if (use.includes("structure") || use.includes("changes")) { m = host.set(m); const r = await replaceStructure(host, { structure: id, text: a.structure, changes: a.changes }); if (r.error) return r; replaced.push(r.text.slice(0, -UNDO.length)); m = host.doc(); }
     } else if (caption) {
-      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...STYLE]);
+      // A cycle's side text or step name takes its step (at, as read gives it) and a side text its side (in, out).
+      const cyc = caption.cycle && (isSide(caption.cycle) || caption.cycle.side === "name") ? caption.cycle : undefined;
+      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...(cyc ? ["at"] : []), ...STYLE]);
       const change: Partial<Caption> = textOf(use);
       if (use.includes("text")) Object.assign(change, { text: clean(a.text!, true), runs: undefined });
       if (use.includes("runs") && runs) Object.assign(change, { text: plain(runs), runs });
@@ -2069,14 +2095,25 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("line_height")) change.lineHeight = a.line_height === "auto" ? undefined : a.line_height;
       if (use.includes("chemical")) change.chemical = a.chemical ? undefined : false;
       if (use.includes("rotate")) change.angle = ((caption.angle ?? 0) + a.rotate!) % 360 || undefined;
+      if (cyc && (use.includes("at") || use.includes("side"))) {
+        const c = m.cycles!.find((x) => x.id === cyc.cycle)!, at = a.at?.replace(/\s/g, "").replace(/->|⟶/g, "→"), step = at === undefined ? cyc.step : c.nodes.findIndex((_, k) => stepAt(m, c, k) === at);
+        if (step < 0) return { text: `${id}'s cycle has no step ${a.at}: its steps are ${c.nodes.map((_, k) => stepAt(m, c, k)).join(", ")}.`, error: true };
+        const side = (a.side ?? cyc.side) as typeof cyc.side;
+        if (isSide(cyc) ? side !== "in" && side !== "out" : a.side !== undefined) return { text: `${id} is ${isSide(cyc) ? "a cycle's side text: side is in or out" : "a cycle's step name: it takes no side"}.`, error: true };
+        // A side text leaves its end of its side arrow (the arrow goes when it has no other end) for a side arrow of
+        // its new step, as the Side arrow tool puts one.
+        m = updateCaption(m, caption.id, { cycle: { ...cyc, step, side, branch: undefined } });
+        if (isSide(cyc) && cyc.branch !== undefined) m = labelEnd(removeEnd(m, c.id, cyc.branch, cyc.side as "in" | "out"), caption.id);
+      }
       // On an arrow as its conditions, or freed where it is drawn.
-      if (use.includes("arrow") || use.includes("side")) {
+      if (!cyc && (a.side === "in" || a.side === "out")) return { text: `${id} is not a cycle's side text: side is above or below.`, error: true };
+      if (use.includes("arrow") || (use.includes("side") && !cyc)) {
         const want = a.arrow ?? (caption.on ? `a${caption.on.arrow}` : "none");
         if (want === "none") { const b = host.textBox(caption.id); Object.assign(change, { on: undefined, placed: undefined, ...(b ? { x: mid(b)[0], y: mid(b)[1] } : {}) }); }
         else {
           const k = Number(/^a(\d+)$/.exec(want)?.[1]), ar = m.arrows?.find((x) => x.id === k);
           if (!ar || !straightArrow(ar)) return { text: `There is no reaction arrow ${want} to put ${id} on.`, error: true };
-          Object.assign(change, { on: { arrow: k, side: a.side ?? caption.on?.side ?? "above" }, placed: undefined, under: undefined, x: (ar.from[0] + ar.to[0]) / 2, y: (ar.from[1] + ar.to[1]) / 2 });
+          Object.assign(change, { on: { arrow: k, side: (a.side as "above" | "below" | undefined) ?? caption.on?.side ?? "above" }, placed: undefined, under: undefined, x: (ar.from[0] + ar.to[0]) / 2, y: (ar.from[1] + ar.to[1]) / 2 });
         }
       }
       m = updateCaption(m, caption.id, change);
@@ -2593,8 +2630,9 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
     rows: pl.rows.map((row) => row.map((l) => (l.text !== undefined ? { text: t(l.text) } : { structure: sid(m, l.atoms!), ...(l.number !== undefined ? { number: t(l.number) } : {}), ...(l.caption !== undefined ? { caption: t(l.caption) } : {}), ...(shapes.has(l) ? { brackets: `b${shapes.get(l)}` } : {}) }))),
   }));
   const n = atoms.length ? ok.length : 0;
-  const inside = (pageSize(s)[0] - 30) * k, r1 = (v: number) => Math.round(v * 10) / 10;
-  const wider = `${need > asked + 1e-6 ? ` (wider than ${a.width ? "asked" : "the page allows"}: its rows need ${r1(need)})` : ""}${W > inside + 1e-6 ? `. The page is ${r1(inside)} bond lengths wide inside its margins: use a larger page (set_brief) or fewer items a row` : ""}`;
+  // With no page (Quick start), nothing is said about fitting one.
+  const inside = (pageSize(s)[0] - 30) * k, r1 = (v: number) => Math.round(v * 10) / 10, paged = s.edges && !host.experiment();
+  const wider = `${need > asked + 1e-6 && (a.width || paged) ? ` (wider than ${a.width ? "asked" : "the page allows"}: its rows need ${r1(need)})` : ""}${paged && W > inside + 1e-6 ? `. The page is ${r1(inside)} bond lengths wide inside its margins: use a larger page (set_brief) or fewer items a row` : ""}`;
   return { text: `Drew a figure of ${a.panels.length} panel${a.panels.length > 1 ? "s" : ""} and ${n} structure${n === 1 ? "" : "s"}, ${Math.round(W * 10) / 10} bond lengths wide${wider}.${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ figure, names: names(host, ok) }) };
 }
 
@@ -2672,13 +2710,7 @@ function layoutCheck(host: Host, m: Mol): Check {
       if (on.length >= 20) break;
     }
   }
-  // Two atom labels of one structure on each other, or closer than 0.05 bond lengths (O on O round a crowded metal,
-  // which reads as one blot). Labels of two structures that meet are in overlaps already, as their structures.
-  const clash: string[][] = [], meets = (p: Box, q: Box) => p[0] < q[2] + 0.05 && q[0] < p[2] + 0.05 && p[1] < q[3] + 0.05 && q[1] < p[3] + 0.05;
-  for (const g of structuresOf(m)) {
-    const own = g.atoms.flatMap((i) => (labels.has(i) ? [[i, labels.get(i)!] as [number, Box]] : []));
-    own.forEach(([i, p], k) => own.slice(k + 1).forEach(([j, q]) => { if (clash.length < 20 && meets(p, q)) clash.push([`${g.id}.${where.get(i)![1]}`, `${g.id}.${where.get(j)![1]}`]); }));
-  }
+  const clash = clashes(structuresOf(m), (i) => labels.get(i));
   // Text or a structure across a shape's edge, partly in and partly out: text past an inset's box, a structure half
   // over a picture (whose white ground hides it). What lies inside a shape or holds it whole is fine, and so is a line
   // or an arrow that reaches into one.
@@ -2690,6 +2722,16 @@ function layoutCheck(host: Host, m: Mol): Check {
   }
   if (!overlaps.length && !off.length && !on.length && !clash.length && !edges.length) return "clean";
   return { ...(overlaps.length ? { overlaps: overlaps.slice(0, 20) } : {}), ...(off.length ? { off_page: off.slice(0, 20) } : {}), ...(on.length ? { text_on_bonds: on } : {}), ...(clash.length ? { labels_overlap: clash } : {}), ...(edges.length ? { on_shape_edges: edges } : {}) };
+}
+// Two atom labels of one structure on each other, or closer than 0.05 bond lengths (O on O round a crowded metal,
+// which reads as one blot), by atom id. Labels of two structures that meet are in overlaps already, as their structures.
+function clashes(gs: { id: string; atoms: number[] }[], box: (i: number) => Box | undefined): string[][] {
+  const out: string[][] = [], meets = (p: Box, q: Box) => p[0] < q[2] + 0.05 && q[0] < p[2] + 0.05 && p[1] < q[3] + 0.05 && q[1] < p[3] + 0.05;
+  for (const g of gs) {
+    const own = g.atoms.flatMap((i, k) => { const b = box(i); return b ? [[k + 1, b] as [number, Box]] : []; });
+    own.forEach(([i, p], k) => own.slice(k + 1).forEach(([j, q]) => { if (out.length < 20 && meets(p, q)) out.push([`${g.id}.${i}`, `${g.id}.${j}`]); }));
+  }
+  return out;
 }
 // The calls that lay structures out themselves: what Octet's layout leaves for check to name there, Octet clears.
 const LAYS_OUT = new Set(["structures", "reaction", "route", "cycle", "figure", "replace", "edit", "batch"]);
@@ -2711,9 +2753,12 @@ async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
   h.command("clean_up"); await h.settle();
   h.select(picked.atoms, picked.items);
   // (Clean Up keeps each atom's place in the list, so atom i before is atom i after.)
-  let c = h.doc();
-  for (const g of gs) c = rotateAtoms(c, new Set(g.atoms), (bestTurn(g.atoms.map((i) => c.atoms[i].location.slice(0, 2) as P), g.atoms.map((i) => m.atoms[i].location.slice(0, 2) as P)).t * 180) / Math.PI);
-  h.set(c); await h.settle();
+  const cleaned = h.doc(), turned = (of: typeof gs) => of.reduce((c, g) => rotateAtoms(c, new Set(g.atoms), (bestTurn(g.atoms.map((i) => c.atoms[i].location.slice(0, 2) as P), g.atoms.map((i) => m.atoms[i].location.slice(0, 2) as P)).t * 180) / Math.PI), cleaned);
+  h.set(turned(gs)); await h.settle();
+  // One whose labels meet again once turned back (a 29 degree turn put s4.27 of a taxol triol on s4.30) lies as Clean
+  // Up left it, as run_command clean_up leaves it.
+  const still = new Set(clashes(gs, (i) => h.labelBox(i)).map((p) => p[0].replace(/\..*$/, "")));
+  if (still.size) { h.set(turned(gs.filter((g) => !still.has(g.id)))); await h.settle(); }
   if (arrows.size) { h.cleanReactions(arrows); await h.settle(); }
   const n = h.doc(), after = layoutCheck(h, n), seen = new Set(Object.values(check).flat().map((e) => JSON.stringify(e)));
   const ok = after === "clean" || (!after.labels_overlap?.some((p) => p.some((x) => ours.has(x.replace(/\..*$/, "")))) && Object.entries(after).every(([k, l]) => k === "labels_overlap" || (l as unknown[]).every((e) => seen.has(JSON.stringify(e)))));
