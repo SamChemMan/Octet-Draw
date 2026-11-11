@@ -20,7 +20,8 @@ Octet, as a ChemDraw drawing is. Double-click opens it. An edit goes back into W
   close Word, and x64 Octet serves ARM64 Office.
 - No editing inside Word's window in 1.2. Edit and Open both open an Octet window.
 - One Octet process serves every object. Octet registers its class object at each start on Windows. When Octet is not
-  running, Windows starts it with `-Embedding`, and Octet then opens no Home window.
+  running, Windows starts it with `-Embedding`, and Octet then opens no Home window. That Octet waits for Word's first
+  object, for a minute at most, and ends when Word lets go of its last object and no Octet window is open.
 - The class:
 
   | | |

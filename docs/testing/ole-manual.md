@@ -29,7 +29,8 @@ release, with `--tests`):
 - The server (`src-tauri/src/ole_windows.rs`): `IClassFactory`; `IOleObject`, `IDataObject`, `IPersistStorage` and
   `IPersistFile` on one object; `IEnumFORMATETC`; the message filter; `CoRegisterClassObject` with
   `REGCLS_MULTIPLEUSE` in `setup` before Home shows; `-Embedding` starts with Home hidden and without the
-  single-instance hand-over; revoke, OnClose and disconnect when Octet ends; an embedding Octet ends when Word lets go.
+  single-instance hand-over; revoke, OnClose and disconnect when Octet ends; an embedding Octet waits for Word's first
+  object (a minute at most) and ends when Word lets go.
 - The object window: label `object-N`, its own File menu (Update Document1, Save Copy As…, Close and Return to
   Document1, no Revert to Saved), title from `SetHostNames`, Update and Close through `ole_update` and `ole_close` on
   the main thread, Word's Close (save, prompt, no save), Word gone (checked every 2 s through Word's process handle).

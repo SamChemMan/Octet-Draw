@@ -2779,8 +2779,7 @@ export default function Editor() {
   // document is closed, and keeps the drawing for Save Copy As.
   const officeClosed = useRef((_: [boolean, string]) => {});
   officeClosed.current = ([sent, title]) => {
-    logError(`diagnostic: page heard ole-closed: sent ${sent}, changed ${mainDirty}, kept ${officeKept.current.doc === doc}`);
-    if (sent && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close").catch((e) => logError(`diagnostic: ole_close failed: ${e}`)));
+    if (sent && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close"));
     setOffice((o) => o && { ...o, title, gone: true });
     setFile((f) => ({ ...f, name: title }));
     setNotice(`${officeRef.current?.host ?? "The document"} is closed. Save a copy to keep this drawing.`, "info");
@@ -2794,7 +2793,7 @@ export default function Editor() {
     if (!DRAW_WINDOW) return;
     const offs = [
       // Word closed the document and Octet gave it the drawing: the window closes with no question.
-      listen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload)).then((off) => { logError("diagnostic: page listens for ole-closed"); return off; }),
+      listen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload)),
       listen<[string, string]>("ole-host", (e) => {
         const [host, title] = e.payload;
         setOffice((o) => o && { ...o, host, title });

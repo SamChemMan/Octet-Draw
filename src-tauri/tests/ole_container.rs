@@ -208,7 +208,7 @@ fn pump_for(d: Duration) {
     }
 }
 
-fn wait(secs: u64, done: impl Fn() -> bool) -> bool {
+fn wait(secs: u64, mut done: impl FnMut() -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(secs);
     while Instant::now() < end {
         if done() {
@@ -311,6 +311,39 @@ fn create_new_show_and_close() {
         machine
     });
     assert!(wait(10, || octets_running() <= before), "the Octet that COM started ends once Word lets go");
+    if machine {
+        unregister_machine();
+    }
+    let _ = Command::new(octet()).arg("--unregister-ole").status();
+}
+
+// Word's first call can come after Home's hidden page has loaded (issue 24: Octet ended then, and Word's insert never
+// finished). The harness starts Octet as Windows does, gives the page time to load, and only then asks for an object.
+// The same Octet serves it, and ends once Word lets go. An Octet that no object comes to ends after a minute.
+#[test]
+#[ignore = "writes the registry and starts Octet: Windows CI"]
+fn started_for_word_waits_for_the_first_object() {
+    register();
+    let mut octet_for_word = Command::new(octet()).arg("-Embedding").spawn().expect("octet runs");
+    std::thread::sleep(Duration::from_secs(15));
+    assert!(octet_for_word.try_wait().unwrap().is_none(), "Octet ended before Word's first call");
+    // Counted now, not before the start: the Octet of the test before this one can take a moment to end.
+    let running = octets_running();
+    let machine = with_ole(|| {
+        let stg = storage();
+        let (site, _log, _site_obj) = site(stg.clone());
+        let (obj, machine) = create(&site, &stg);
+        // SAFETY: COM calls on a live object.
+        unsafe {
+            OleRun(&obj).unwrap();
+            assert_eq!(octets_running(), running, "the Octet that waited serves the object");
+            obj.Close(OLECLOSE_NOSAVE).unwrap();
+        }
+        machine
+    });
+    assert!(wait(10, || octet_for_word.try_wait().unwrap().is_some()), "Octet ends once Word lets go of its object");
+    let mut unused = Command::new(octet()).arg("-Embedding").spawn().expect("octet runs");
+    assert!(wait(80, || unused.try_wait().unwrap().is_some()), "an Octet that no object came to ends after a minute");
     if machine {
         unregister_machine();
     }
