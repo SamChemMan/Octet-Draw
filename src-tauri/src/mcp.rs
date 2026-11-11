@@ -75,7 +75,7 @@ fn take(bucket: &mut (f64, Instant)) -> bool {
     tokens >= 1.0
 }
 
-// A window closed: the calls it was answering end now, and nobody is subscribed to it any more.
+// A window closed: the calls it was answering end now, nobody is subscribed to it any more, and no session owns it.
 pub fn closed(app: &AppHandle, label: &str) {
     let Some(mcp) = app.try_state::<Mcp>() else { return };
     mcp.shared.ready.lock().unwrap().remove(label);
@@ -89,6 +89,7 @@ pub fn closed(app: &AppHandle, label: &str) {
     });
     for s in mcp.shared.sessions.lock().unwrap().values_mut() {
         s.subs.retain(|u| drawing_uri_label(u) != Some(label));
+        s.opened.remove(label);
     }
 }
 fn drawing_uri_label(uri: &str) -> Option<&str> {
@@ -265,17 +266,19 @@ pub fn mcp_target(app: AppHandle, session: String, drawing: String) -> Result<()
 
 // drawings close: a drawing the session opened with drawings new (in this run of Octet) closes, and a session that
 // used it has no drawing from now on. With windows it is File > Close, the page's own close (unsaved changes, recovery
-// copy), and one with unsaved changes stays open (false), for the user to close: never a question the call waits on.
-// With no window it goes at once, its page with it, and is off the list and never in front again before this call's
-// reply goes. Either way the window goes after the calls in it now (this one too) have their replies. Err: the session
-// did not open it.
+// copy), and one with unsaved changes stays open (unsaved), for the user to close: never a question the call waits on.
+// edited: the calling page's own unsaved changes, when it closes its own window (the window list hears of them only
+// after the page draws). With no window it goes at once, its page with it, and is off the list and never in front
+// again before this call's reply goes. Either way the window goes after the calls in it now (this one too) have their
+// replies. theirs: the session did not open it; none: there is no such drawing.
 #[tauri::command(async)]
-pub fn mcp_close(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: String) -> Result<bool, ()> {
-    let window = app.get_webview_window(&drawing).ok_or(())?;
+pub fn mcp_close(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: String, edited: bool) -> &'static str {
+    let Some(window) = app.get_webview_window(&drawing).filter(|_| crate::windows::ours(&drawing)) else { return "none" };
     let headless = crate::windows::HEADLESS.load(Ordering::Relaxed);
-    let unsaved = !headless && crate::windows::edited(&app, &drawing);
-    if !closes(mcp.shared.sessions.lock().unwrap().get_mut(&session).ok_or(())?, &drawing, unsaved)? {
-        return Ok(false);
+    let unsaved = !headless && (edited || crate::windows::edited(&app, &drawing));
+    let done = mcp.shared.sessions.lock().unwrap().get_mut(&session).map_or("theirs", |s| closes(s, &drawing, unsaved, headless));
+    if done != "closed" {
+        return done;
     }
     crate::windows::leaving(&app, &drawing, headless);
     if headless {
@@ -289,21 +292,25 @@ pub fn mcp_close(app: AppHandle, mcp: State<'_, Mcp>, session: String, drawing: 
         }
         let _ = if headless { window.destroy() } else { window.close() };
     });
-    Ok(true)
+    "closed"
 }
-// Whether the session closes the drawing (mcp_close): one it opened, with nothing unsaved. It no longer uses it.
-fn closes(s: &mut Session, drawing: &str, unsaved: bool) -> Result<bool, ()> {
+// Whether the session closes the drawing (mcp_close): one it opened, with nothing unsaved. It no longer uses it. It
+// keeps it as its own until the window goes (closed), as the page's close can still stop (the user cancels its
+// question); gone: there is no window, so it goes for certain.
+fn closes(s: &mut Session, drawing: &str, unsaved: bool, gone: bool) -> &'static str {
     if !s.opened.contains(drawing) {
-        return Err(());
+        return "theirs";
     }
     if unsaved {
-        return Ok(false);
+        return "unsaved";
     }
-    s.opened.remove(drawing);
+    if gone {
+        s.opened.remove(drawing);
+    }
     if s.drawing.as_deref() == Some(drawing) {
         s.drawing = None;
     }
-    Ok(true)
+    "closed"
 }
 
 // The session's brief from now on (set_brief), for its calls in every drawing; with no session, the brief of every
@@ -1504,15 +1511,16 @@ mod tests {
     #[test]
     fn a_session_closes_only_its_own_drawings() {
         let mut s = Session { client: "x".into(), drawing: Some("draw-3".into()), opened: ["draw-2".into(), "draw-3".into()].into(), brief: None, elicit: false, last: Instant::now(), stream: None, subs: HashSet::new(), bucket: (RATE, Instant::now()), waiting: 0 };
-        assert_eq!(closes(&mut s, "draw-1", false), Err(()), "the user's drawing");
-        assert_eq!(closes(&mut s, "draw-3", true), Ok(false));
+        assert_eq!(closes(&mut s, "draw-1", false, true), "theirs", "the user's drawing");
+        assert_eq!(closes(&mut s, "draw-3", true, false), "unsaved");
         assert_eq!(s.drawing.as_deref(), Some("draw-3"));
-        assert_eq!(closes(&mut s, "draw-2", false), Ok(true));
+        assert_eq!(closes(&mut s, "draw-2", false, true), "closed");
         assert_eq!(s.drawing.as_deref(), Some("draw-3"), "another of its drawings closed");
-        assert_eq!(closes(&mut s, "draw-2", false), Err(()), "closed already");
-        assert_eq!(closes(&mut s, "draw-3", false), Ok(true));
+        assert_eq!(closes(&mut s, "draw-2", false, true), "theirs", "closed already");
+        // In a window it stays its own until the window goes: the user can stop the page's close.
+        assert_eq!(closes(&mut s, "draw-3", false, false), "closed");
         assert_eq!(s.drawing, None);
-        assert!(s.opened.is_empty());
+        assert!(s.opened.contains("draw-3"));
         assert_eq!(route(s.drawing.as_deref(), false, Some("draw-1".into()), Some("draw-1".into()), false, true), Ok((Some("draw-1".into()), true)), "it takes the window in front");
     }
 

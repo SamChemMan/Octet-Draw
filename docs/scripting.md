@@ -222,11 +222,11 @@ for file in files:
     numbered = in_order([s for s in o.call("read", {"detail": "full"})["structures"] if s.get("number")])
     operations = []
     for s in numbered:
-        number = numbers.setdefault(s.get("inchiKey") or s.get("smiles") or f"{file} {s['id']}", str(len(numbers) + 1))
-        operations.append({"op": "number", "structure": s["id"], "number": number})
+        key = s.get("inchiKey") or s.get("smiles") or f"{file} {s['id']}"
+        numbers.setdefault(key, str(len(numbers) + 1))
+        operations.append({"op": "number", "structure": s["id"], "number": numbers[key]})
     if operations: o.call("change", {"operations": operations})
-    o.save(os.path.join(out, os.path.basename(file)))
-    o.call("drawings", {"action": "close"})
+    o.save(os.path.join(out, os.path.basename(file))); o.call("drawings", {"action": "close"})
     renumbered = ", ".join(f"{s['number']} is {op['number']}" for s, op in zip(numbered, operations))
     print(f"{os.path.basename(file)}: {renumbered}")
 o.close()
@@ -242,7 +242,7 @@ import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { octet } from "./octet.mjs";
 
-const [out, ...files] = process.argv.slice(2), o = octet(), numbers = {};
+const [out, ...files] = process.argv.slice(2), o = octet(), numbers = new Map();
 mkdirSync(out, { recursive: true });
 // Rows from the top (a structure whose middle is above the bottom of the row's highest one is in that row), each left
 // to right. A box is [left, bottom, right, top].
@@ -258,11 +258,11 @@ for (const file of files) {
   const numbered = inOrder((await o.call("read", { detail: "full" })).structures.filter((s) => s.number));
   const operations = numbered.map((s) => {
     const key = s.inchiKey ?? s.smiles ?? `${file} ${s.id}`;
-    return { op: "number", structure: s.id, number: (numbers[key] ??= String(Object.keys(numbers).length + 1)) };
+    if (!numbers.has(key)) numbers.set(key, String(numbers.size + 1));
+    return { op: "number", structure: s.id, number: numbers.get(key) };
   });
   if (operations.length) await o.call("change", { operations });
-  await o.save(join(out, basename(file)));
-  await o.call("drawings", { action: "close" });
+  await o.save(join(out, basename(file))); await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${numbered.map((s, k) => `${s.number} is ${operations[k].number}`).join(", ")}`);
 }
 await o.close();

@@ -31,7 +31,7 @@ const opened = (id: string, next: Drawing): Host => {
   d.host.window = () => ({ id, name: "Untitled" });
   d.host.windows = async () => [...open.keys()].map((k) => ({ id: k, name: "Untitled", edited: false }));
   d.host.target = async (_session, k) => { const x = open.get(k); if (x) [d, unset] = [x, false]; return !!x; };
-  d.host.close = async (_session, k) => { if (!own.delete(k)) return undefined; if (open.get(k) === d) unset = true; open.delete(k); return true; };
+  d.host.close = async (_session, k) => { if (!open.has(k)) return "none"; if (!own.delete(k)) return "theirs"; if (open.get(k) === d) unset = true; open.delete(k); return "closed"; };
   return d.host;
 };
 opened("headless", drawing("quick"));

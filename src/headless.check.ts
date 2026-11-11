@@ -709,13 +709,17 @@ try {
   const p = spawn(process.execPath, [new URL("../scripts/headless/stdio.ts", import.meta.url).pathname], { stdio: ["pipe", "pipe", "inherit"] }), lines = createInterface({ input: p.stdout })[Symbol.asyncIterator]();
   let k = 0;
   const rpc = async (name: string, args: object) => { p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: ++k, method: "tools/call", params: { name, arguments: args } }) + "\n"); return JSON.parse((await lines.next()).value).result; };
+  let made = "";
   for (let i = 0; i < 50; i++) {
-    const made = (await rpc("drawings", { action: "new", text: "CCO" })).structuredContent.opened;
+    made = (await rpc("drawings", { action: "new", text: "CCO" })).structuredContent.opened;
     assert.match((await rpc("read", { format: "mol" })).structuredContent.text, /V2000|V3000/);
     assert.deepEqual((await rpc("drawings", { action: "close" })).structuredContent, { closed: made });
   }
   const left = (await rpc("drawings", { action: "list" })).structuredContent;
   assert.deepEqual(left, { drawings: [{ id: "headless", title: "Untitled", edited: false }] });
+  // With no drawing, a close names one: Octet never closes the drawing the call happens to run in. A closed one is gone.
+  assert.equal((await rpc("drawings", { action: "close" })).content[0].text, "Octet changed nothing. This session uses no drawing. Call drawings for the ids, then close with drawing.");
+  assert.equal((await rpc("drawings", { action: "close", drawing: made })).content[0].text, `There is no drawing ${made}. Call drawings for the ids.`);
   const theirs = await rpc("drawings", { action: "close", drawing: "headless" });
   assert.ok(theirs.isError && theirs.content[0].text === "Octet changed nothing. This session did not open headless with drawings new: the user closes it in Octet's window.", theirs.content[0].text);
   p.stdin.end();

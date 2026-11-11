@@ -60,7 +60,7 @@ const host: Host = {
   file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
-  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => undefined,
+  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => "theirs",
 };
 let n = 0;
 // Each session's brief (set_brief), as mcp.rs keeps it: a new session has none.
@@ -1107,10 +1107,11 @@ windowless = false;
 }
 // drawings close: a drawing the session opened with drawings new closes (mcp.rs mcp_close), the one it uses when no
 // drawing is given. Octet refuses a drawing it did not open, and one with unsaved changes stays open: the reply says
-// why, and that the user closes it in Octet's window.
+// why, and that the user closes it in Octet's window (with no window, only why). An id of no drawing is answered as
+// drawings use answers it.
 {
   const asked: unknown[][] = [], close = host.close;
-  host.close = async (...a) => { asked.push(a); return a[1] === "draw-1" ? true : a[1] === "draw-4" ? false : undefined; };
+  host.close = async (...a) => { asked.push(a); return a[1] === "draw-1" ? "closed" : a[1] === "draw-4" ? "unsaved" : a[1] === "draw-99" ? "none" : "theirs"; };
   out = await call("drawings", { action: "close" });
   assert.ok(!out.isError && text(out) === "Octet closed draw-1.", text(out));
   assert.deepEqual(out.structuredContent, { closed: "draw-1" });
@@ -1118,10 +1119,27 @@ windowless = false;
   assert.ok(out.isError && text(out) === "Octet changed nothing. This session did not open main with drawings new: the user closes it in Octet's window.", text(out));
   out = await call("drawings", { action: "close", drawing: "draw-4" });
   assert.ok(out.isError && text(out) === "Octet changed nothing. draw-4 has changes that are not saved: the user closes it in Octet's window.", text(out));
-  assert.deepEqual(asked, [["s-1", "draw-1"], ["s-1", "main"], ["s-1", "draw-4"]]);
+  out = await call("drawings", { action: "close", drawing: "draw-99" });
+  assert.ok(out.isError && text(out) === "There is no drawing draw-99. Call drawings for the ids.", text(out));
+  windowless = true;
+  out = await call("drawings", { action: "close", drawing: "main" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. This session did not open main with drawings new.", text(out));
+  windowless = false;
+  assert.deepEqual(asked, [["s-1", "draw-1"], ["s-1", "main"], ["s-1", "draw-4"], ["s-1", "draw-99"], ["s-1", "main"]]);
   // A session whose drawing the user closed can still close another it opened.
   assert.ok(!(await lost("drawings", { action: "close", drawing: "draw-1" })).isError);
+  // A session that uses no drawing (it closed its own, or the user closed it) names the one to close: the window its
+  // call runs in can be another drawing it opened, which Octet never closes for it.
+  asked.length = 0;
+  const unset = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 98, method: "tools/call", params: { name: "drawings", arguments: { action: "close" } } }), () => host, "1", { ...as("s-1"), unset: true })).result;
+  assert.ok(unset.isError && unset.content[0].text === "Octet changed nothing. This session uses no drawing. Call drawings for the ids, then close with drawing.", unset.content[0].text);
+  out = await lost("drawings", { action: "close" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. The drawing this session used (draw-7) is closed. Call drawings for the ids, then close with drawing.", text(out));
+  assert.deepEqual(asked, []);
   host.close = close;
+  // The editor sends its own unsaved changes with a close of its own window: its window list hears of them only after
+  // it draws, which can be after a change call's reply.
+  assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /invoke<[^>]*>\("mcp_close", \{ session, drawing, edited: unsaved && drawing === getCurrentWindow\(\)\.label \}\)/);
 }
 // K11: an AI app (or a script) still reads and writes no file: no tool and no operation takes a path.
 {
