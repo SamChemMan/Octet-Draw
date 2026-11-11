@@ -15,7 +15,7 @@ import {
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
-import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, units } from "./labels.ts";
+import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
 import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
@@ -1832,8 +1832,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (lined.includes("\n")) text = lined;
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }
       // A fragment's label is an abbreviation even when it spells an element: Ac (acetyl) and Pr (propyl), never actinium
-      // or praseodymium.
-      if (isElement(text) && !plain && type !== "Fragment") a.label = text;
+      // or praseodymium. So is a node of no known kind that stands in for a group: Octet's Ar label, never argon.
+      if (isElement(text) && !plain && type !== "Fragment" && !(type === "Unspecified" && standsIn(text))) a.label = text;
       else {
         a.text = text;
         a.label = anchorElement(text) ?? "C";

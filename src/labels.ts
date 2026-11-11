@@ -15,15 +15,32 @@ export const ELEMENTS = new Set(SYMBOLS);
 // Groups, as SMILES whose first atom is the attachment point. Names a chemist types as one word.
 export const GROUPS: Record<string, string> = {
   Me: "C", Et: "CC", Pr: "CCC", iPr: "C(C)C", nPr: "CCC", Bu: "CCCC", nBu: "CCCC", iBu: "CC(C)C", sBu: "C(C)CC", tBu: "C(C)(C)C",
-  Ph: "c1ccccc1", Bn: "Cc1ccccc1", Ar: "c1ccccc1", Ac: "C(C)=O", Bz: "C(=O)c1ccccc1", Piv: "C(=O)C(C)(C)C",
+  Oct: "CCCCCCCC", Vinyl: "C=C", Allyl: "CC=C", All: "CC=C",
+  Ph: "c1ccccc1", Bn: "Cc1ccccc1", Ac: "C(C)=O", Bz: "C(=O)c1ccccc1", Piv: "C(=O)C(C)(C)C",
   Boc: "C(=O)OC(C)(C)C", Cbz: "C(=O)OCc1ccccc1", Fmoc: "C(=O)OCC1c2ccccc2-c2ccccc21", Alloc: "C(=O)OCC=C", Troc: "C(=O)OCC(Cl)(Cl)Cl",
   Ts: "S(=O)(=O)c1ccc(C)cc1", Ms: "S(C)(=O)=O", Tf: "S(=O)(=O)C(F)(F)F", Ns: "S(=O)(=O)c1ccc([N+](=O)[O-])cc1",
   TMS: "[Si](C)(C)C", TES: "[Si](CC)(CC)CC", TBS: "[Si](C)(C)C(C)(C)C", TBDMS: "[Si](C)(C)C(C)(C)C",
   TIPS: "[Si](C(C)C)(C(C)C)C(C)C", TBDPS: "[Si](c1ccccc1)(c1ccccc1)C(C)(C)C",
   PMB: "Cc1ccc(OC)cc1", PMP: "c1ccc(OC)cc1", MOM: "COC", THP: "C1CCCCO1", Tr: "C(c1ccccc1)(c1ccccc1)c1ccccc1",
-  Cp: "C1C=CC=C1", Cy: "C1CCCCC1", Mes: "c1c(C)cc(C)cc1C", Tol: "c1ccc(C)cc1",
+  Cp: "C1C=CC=C1", Cy: "C1CCCCC1", Mes: "c1c(C)cc(C)cc1C", Tol: "c1ccc(C)cc1", "9-BBN": "B1C2CCCC1CCC2", BBN: "B1C2CCCC1CCC2",
 };
-const GROUP_NAMES = Object.keys(GROUPS).sort((a, b) => b.length - a.length);
+// Every way a group's name is spelt, each with the name above that it is read as: the name itself; a prefix n, i, s
+// or t with a hyphen after it (t-Bu, i-Pr); n, with or without a hyphen, before a straight chain (n-Bu, nOct); and a
+// name that is a word with a small first letter (allyl).
+const SPELT: Record<string, string> = {};
+for (const [g, smiles] of Object.entries(GROUPS)) {
+  SPELT[g] = g;
+  if (/^[nist][A-Z]/.test(g)) SPELT[`${g[0]}-${g.slice(1)}`] = g;
+  if (/^C{3,}$/.test(smiles) && /^[A-Z]/.test(g)) SPELT[`n${g}`] = SPELT[`n-${g}`] = g;
+  if (/yl$/.test(g)) SPELT[g.toLowerCase()] = g;
+}
+// Diolates that take both of a boron's bonds, each as the chain that closes a ring on the boron (Bpin, B(pin), pinB).
+const DIOLATES: Record<string, string> = { pin: "OC(C)(C)C(C)(C)O" };
+// The names a label is split by, longest first, by their first character.
+const NAMES: Record<string, string[]> = {};
+for (const g of [...Object.keys(SPELT), ...Object.keys(DIOLATES)].sort((a, b) => b.length - a.length)) (NAMES[g[0]] ??= []).push(g);
+// The name at the start of rest. A small letter straight after it must start the next name (Me in MeiPr, not in Met).
+const named = (rest: string): string | undefined => NAMES[rest[0]]?.find((g) => rest.startsWith(g) && (!/[a-z]/.test(rest[g.length] ?? "") || !!named(rest.slice(g.length))));
 
 // ChemDraw's generic labels (Insert Generic Label): A, M, Q, X and R, then the 38 Reaxys classes, each with what it
 // stands for. Y, and R with a number (R1 to R99) and primes (R', R''), are generic too. A generic label is a query
@@ -40,6 +57,11 @@ export const GENERICS: [string, string][] = [
 ];
 const GENERIC_NAMES = new Set([...GENERICS.map(([g]) => g), "Y"]);
 export const isGeneric = (label: string) => GENERIC_NAMES.has(label) || /^R([1-9]\d?)?'{0,2}$/.test(label);
+// A label that stands in for a group or an atom and is read as no atoms: a generic label, or one of the others chemists
+// write, which are no query atoms (an aryl, heteroaryl or alkyl group, a ligand, an electrophile, a nucleophile, a
+// halogen, and withdrawing, donating, protecting, leaving and directing groups), with a number or primes as R takes
+// (Ar1, L'). Ar is never argon in a written label, and it is no phenyl: no one knows what is on the ring.
+export const standsIn = (label: string) => isGeneric(label) || /^(?:Ar|Het|HetAr|Aryl|Alkyl|L|Ln|E|Nu|Hal|EWG|EDG|PG|LG|DG)(?:[1-9]\d?)?'{0,2}$/.test(label);
 
 export type Unit = { text: string; count?: string; kind: "element" | "group" | "bracket" | "other" };
 
@@ -56,33 +78,33 @@ export function units(label: string): Unit[] {
 }
 // The next element or group at the start of rest: a group, a two-letter element, or one character.
 function token(rest: string): Unit {
-  const group = GROUP_NAMES.find((g) => rest.startsWith(g) && !/[a-z]/.test(rest[g.length] ?? ""));
+  const group = named(rest);
   const two = rest.slice(0, 2), text = group ?? (ELEMENTS.has(two) && /^[A-Z][a-z]$/.test(two) ? two : rest[0]);
-  return { text, kind: group ? "group" : ELEMENTS.has(text) ? "element" : "other" };
+  return { text, kind: group ? "group" : ELEMENTS.has(text) && text !== "Ar" ? "element" : "other" };
 }
 // A word (capitals and the small letters after them) that is not all elements and groups is an abbreviation Octet
 // does not know (DMT, SEM, Phth): one unit, so a label read right to left never reverses it letter by letter (ODMT
-// reads DMTO, not TMDO). R and X are read as groups (OR, CH2X). The word's first element (not H, D or T), with an H
-// after it, is a unit of its own when what follows is an abbreviation: three letters or more, a capital and a small
-// letter (Nf), or two capitals after the H (NHPG reads PGHN). Else the whole word is one unit (SEM, BOM, PG).
+// reads DMTO, not TMDO). R, X and Ar are read as groups (OR, CH2X, OAr). The word's first element (not H, D or T),
+// with an H after it, is a unit of its own when what follows is an abbreviation: three letters or more, a capital and
+// a small letter (Nf), or two capitals after the H (NHPG reads PGHN). Else the whole word is one unit (SEM, BOM, PG).
 // Undefined for a word that reads as elements and groups.
 function word(w: string): Unit[] | undefined {
   const ts: Unit[] = [];
   for (let k = 0; k < w.length; ) { const t = token(w.slice(k)); ts.push(t); k += t.text.length; }
-  if (!ts.some((t) => t.kind === "other" && t.text !== "R" && t.text !== "X")) return undefined;
+  if (!ts.some((t) => t.kind === "other" && !/^(?:R|X|Ar)$/.test(t.text))) return undefined;
   const head = ts[0].kind === "element" && !/^[HDT]$/.test(ts[0].text) ? [ts[0], ...(ts[1]?.text === "H" ? [ts[1]] : [])] : [];
   const rest = w.slice(head.reduce((n, t) => n + t.text.length, 0));
   const ok = head.length && (rest.length >= 3 || /^[A-Z][a-z]$/.test(rest) || (head.length === 2 && /^[A-Z]{2}$/.test(rest)));
   return ok ? [...head, { text: rest, kind: "other" }] : [{ text: w, kind: "other" }];
 }
 function unitsOf(label: string): Unit[] {
-  // A generic label (ALK, CYC, Q) is one unit: it is never read as atoms.
-  if (isGeneric(label) && !/\d/.test(label)) return [{ text: label, kind: "other" }];
+  // A generic label (ALK, CYC, Q) or another stand-in (Alkyl, Het) is one unit: it is never read as atoms.
+  if (standsIn(label) && !/\d/.test(label)) return [{ text: label, kind: "other" }];
   const out: Unit[] = [];
   let i = 0;
   const digits = () => { const m = /^\d+/.exec(label.slice(i)); if (m) i += m[0].length; return m?.[0]; };
   while (i < label.length) {
-    const rest = label.slice(i);
+    let rest = label.slice(i);
     if (rest[0] === "(") {
       const close = rest.indexOf(")");
       const inner = close > 0 ? rest.slice(0, close + 1) : rest;
@@ -90,7 +112,13 @@ function unitsOf(label: string): Unit[] {
       out.push({ text: inner, count: digits(), kind: "bracket" });
       continue;
     }
-    const w = /^[A-Z]/.test(rest) && !/[A-Z]/.test(label[i - 1] ?? "") ? /^[A-Z]+[a-z]*/.exec(rest)![0] : "", unknown = w ? word(w) : undefined;
+    let w = /^[A-Z]/.test(rest) && !/[A-Z]/.test(label[i - 1] ?? "") ? /^[A-Z]+[a-z]*/.exec(rest)![0] : "", unknown = w ? word(w) : undefined;
+    // A group that starts with a small letter ends the word before it (OtBu, NHiPr, Oallyl): when the word reads no
+    // other way (SnBu3 is tin), and always when the group has its hyphen (Os-Bu is O and s-Bu, not osmium).
+    for (let k = 1; k < w.length; k++) {
+      const g = /[a-z]/.test(w[k]) && named(rest.slice(k));
+      if (g && (unknown || g[1] === "-")) { rest = w = w.slice(0, k); unknown = word(w); break; }
+    }
     if (unknown) {
       i += w.length;
       out.push(...unknown.slice(0, -1), { ...unknown[unknown.length - 1], count: digits() });
@@ -152,52 +180,87 @@ export function chemicalText(text: string | undefined, runs?: { text: string; sc
   return roman && ELEMENTS.has(out) ? `${out}(${roman})` : out;
 }
 
-// Formulas whose bonding a left-to-right reading gets wrong (CN is a nitrile, not an amine).
+// Formulas whose bonding a left-to-right reading gets wrong (CN is a nitrile, not an amine). NC is the nitrile
+// written from the left, as chemists write it far more often than an isocyanide. BF3K is the salt: a borate and its
+// potassium ion.
 const FORMULAS: Record<string, string> = {
-  CN: "C#N", NC: "[N+]#[C-]", CHO: "C=O", CO2H: "C(=O)O", COOH: "C(=O)O", CO2: "C(=O)[O-]", NO2: "[N+](=O)[O-]", NO: "N=O",
+  CN: "C#N", CHO: "C=O", CO2H: "C(=O)O", COOH: "C(=O)O", CO2: "C(=O)[O-]", NO2: "[N+](=O)[O-]", NO: "N=O",
   N3: "N=[N+]=[N-]", SO3H: "S(=O)(=O)O", SO2: "S(=O)=O", SO2Ph: "S(=O)(=O)c1ccccc1", COMe: "C(C)=O", COPh: "C(=O)c1ccccc1",
-  CONH2: "C(N)=O", OCN: "OC#N", SCN: "SC#N", NCO: "N=C=O", NCS: "N=C=S", CHN2: "C=[N+]=[N-]", PO3H2: "P(=O)(O)O",
+  CONH2: "C(N)=O", OCN: "OC#N", SCN: "SC#N", NCO: "N=C=O", NCS: "N=C=S", CHN2: "C=[N+]=[N-]", PO3H2: "P(=O)(O)O", BF3K: "[B-](F)(F)F.[K+]",
 };
+// A label written from the left (Et3N, MeO, pinB, F3C, D3C) is read from its end: it starts with a group, or with a
+// counted halogen or hydrogen isotope, which can bond to no more, and it ends with one heavy atom.
+export function fromEnd(us: Unit[]): boolean {
+  const first = us[0], last = us[us.length - 1];
+  return us.length > 1 && (first.kind === "group" || (!!first.count && /^(?:F|Cl|Br|I|D|T)$/.test(first.text))) && last.kind === "element" && last.text !== "H" && !last.count;
+}
 
+// The elements SMILES writes with no bracket.
+const ORGANIC = new Set(["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"]);
+const small = (u: Unit) => u.kind === "group" && u.text[0] >= "a";
 // The label as SMILES with its attachment point first, for chemistry (SMILES export, formulas).
 // Groups and the formulas above are looked up. Other condensed formulas are read left to right: each heavy
 // atom joins the chain, H and counts are left to valence, a repeated element (CF3) and any group or bracket
 // hang off the atom before them, and CO2R or COOR becomes an ester. Undefined if Octet cannot read it.
 // A label written right to left (HO2C, OHC, MeO, Et3N) is read from its end, as ChemDraw reads a label it shows
-// reversed: when its reverse is a formula above, or when it starts with a group and ends with one heavy atom.
+// reversed: when its reverse is a formula above, or by fromEnd.
+// A phenyl written with what is on it and where (4-ClC6H4, p-MeOC6H4, 4-ClPh, 3,5-(CF3)2C6H3) is that ring. n- before
+// a formula says its chain is straight, which is how Octet reads it (n-C8H17).
 export function labelSmiles(label: string): string | undefined {
-  if (GROUPS[label]) return GROUPS[label];
-  if (isGeneric(label)) return undefined;
+  if (SPELT[label]) return GROUPS[SPELT[label]];
+  if (label[1] === "-" || label[1] === ",") {
+    const ring = /^(\d(?:,\d)*|[omp])-(.+?)-?(?:Ph|C6H([2-4]))$/.exec(label);
+    if (ring) {
+      const at = /\d/.test(ring[1]) ? ring[1].split(",").map(Number) : [2 + "omp".indexOf(ring[1])], n = at.length;
+      // Two or more of the group: its count comes after it (Me2, (CF3)2).
+      const group = n === 1 || ring[2].endsWith(String(n)) ? labelSmiles(n === 1 ? ring[2] : ring[2].slice(0, -1)) : undefined;
+      // The ring closes with a number the group does not use for a ring of its own (4-PhC6H4).
+      const d = group && [..."3456789"].find((x) => !group.includes(x));
+      if (!d || new Set(at).size < n || at.some((p) => p < 2 || p > 6) || (ring[3] && Number(ring[3]) !== 5 - n)) return undefined;
+      const on = (p: number) => (at.includes(p) ? `(${group})` : ""), phenyl = `c${d}${[2, 3, 4, 5].map((p) => `c${on(p)}`).join("")}c${d}${on(6)}`;
+      return crowded(phenyl) ? undefined : phenyl;
+    }
+    if (/^n-C\d/.test(label)) label = label.slice(2);
+  }
   // An element with its oxidation state, Os(II): the element alone ((II) is not two iodine atoms, and no charge).
   const ox = writtenOxidation(label);
   if (ox) return `[${ox.el}]`;
   if (FORMULAS[label]) return FORMULAS[label];
   let us = units(label);
-  if (!us.length) return undefined;
-  const back = [...us].reverse(), last = back[0];
+  // No units, or one that is no element, group or bracket (a stand-in, a word Octet does not know): nothing to read.
+  if (!us.length || (us.length === 1 && us[0].kind === "other")) return undefined;
+  const back = [...us].reverse();
   const reverse = back.map((u) => u.text + (u.count ?? "")).join("");
   if (FORMULAS[reverse]) return FORMULAS[reverse];
   // Read from its attachment atom as a condensed formula, every valence used (CH2N3 an azide, SO2Me a sulfone, CH2CN a
-  // nitrile), when it can be read in one way; else left to right as below.
-  const whole = us[0].kind === "element" && us[0].text !== "H" && us.length > 1 ? condensedLabel(label) : undefined;
+  // nitrile), when it can be read in one way; else left to right as below. A group that starts with a small letter
+  // goes in a bracket by the name it is read as, so that the formula splits as the label does (COtBu, SO2t-Bu).
+  const plain = us.some(small) ? us.map((u) => (small(u) ? `(${SPELT[u.text] ?? u.text})` : u.text) + (u.count ?? "")).join("") : label;
+  const whole = us[0].kind === "element" && us[0].text !== "H" && us.length > 1 ? condensedLabel(plain) : undefined;
   if (whole && !crowded(whole)) return whole;
-  if (us.length > 1 && us[0].kind === "group" && last.kind === "element" && last.text !== "H" && !last.count) us = back;
+  if (fromEnd(us)) us = back;
   let smiles = "";
-  const atom = (sym: string) => (["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"].includes(sym) ? sym : `[${sym}]`);
+  const atom = (sym: string) => (ORGANIC.has(sym) ? sym : sym === "D" ? "[2H]" : sym === "T" ? "[3H]" : `[${sym}]`);
   // The first heavy atom or group starts the chain (never a bare branch, which is not SMILES: H2O2 is OO).
   for (const u of us) {
     const n = Number(u.count ?? 1);
     if (!(n >= 1 && n <= 99)) return undefined;
     if (u.kind === "element") {
       if (u.text === "H") continue;
-      smiles += smiles && n > 1 ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
-    } else if (u.kind === "group") {
-      smiles += smiles ? `(${GROUPS[u.text]})`.repeat(n) : GROUPS[u.text] + `(${GROUPS[u.text]})`.repeat(n - 1);
-    } else if (u.kind === "bracket") {
-      const inner = labelSmiles(u.text.slice(1, -1));
-      if (!inner) return undefined;
-      smiles += smiles ? `(${inner})`.repeat(n) : inner + `(${inner})`.repeat(n - 1);
-    } else return undefined;
+      // Deuterium and tritium bond once, as hydrogen does: they hang off the atom before them, and no chain starts
+      // with one (THF is no tritium fluoride).
+      const once = u.text === "D" || u.text === "T";
+      if (once && !smiles && us.length > 1) return undefined;
+      smiles += smiles && (n > 1 || once) ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
+    } else {
+      // A group, or what a bracket holds, hangs off the atom before it. A diolate (pin, in any case) closes its ring
+      // on the boron before it.
+      const name = u.kind === "bracket" ? u.text.slice(1, -1) : u.text, g = u.kind === "group" ? GROUPS[SPELT[name]] : u.kind === "bracket" ? labelSmiles(name) : undefined;
+      const diol = g ? undefined : DIOLATES[name.toLowerCase()];
+      if (g) smiles += smiles ? `(${g})`.repeat(n) : g + `(${g})`.repeat(n - 1);
+      else if (diol && smiles === "B" && n === 1) smiles += `1${diol}1`;
+      else return undefined;
+    }
   }
   if (crowded(smiles)) return undefined;
   // Esters and acids written CO2R or COOR: one O double-bonded to the carbon.
