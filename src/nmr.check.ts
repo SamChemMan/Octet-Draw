@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { hydrogens } from "./render.ts";
 import type { Graph } from "./naming.ts";
-import { acsText, codes, detailsTable, environment, heavy, hose, multiplicity, predict, quality, readTables, writeTables } from "./nmr.ts";
+import { acsText, codeHash, codes, detailsTable, environment, heavy, hose, multiplicity, predict, quality, readTables, writeTables } from "./nmr.ts";
 
 // A graph from elements and bonds ([a, b, order]), with hydrogens filled in.
 function graph(els: string[], bonds: [number, number, number][]): Graph {
@@ -85,7 +85,7 @@ const fc = ["Fe", ...Array(10).fill("C")], fcBonds = [...ring5(1), ...ring5(6), 
 const ferrocene = eta(fc, fcBonds, tenRing);
 const sameCodes = (a: Graph, b: Graph, what: string) => {
   const ea = environment(heavy(a).g), eb = environment(heavy(b).g);
-  for (let i = 1; i <= 10; i++) assert.deepEqual(codes(ea, i), codes(eb, i), `${what}: atom ${i}`);
+  for (let i = 1; i <= 10; i++) assert.deepEqual([...codes(ea, i, "13C")], [...codes(eb, i, "13C")], `${what}: atom ${i}`);
 };
 sameCodes(ferrocene, eta(fc, [...ring5(1, 2), ...ring5(6, 1), ...onMetal(1, 10)], tenRing), "the other Kekulé forms");
 sameCodes(ferrocene, eta(fc, fcBonds, tenRing, { 1: -1, 6: -1 }), "each ring drawn as the anion");
@@ -132,6 +132,22 @@ for (const [what, g, h, c] of [["Cp2ZrCl2", zr, [10], [10]], ["(benzene)Cr(CO)3"
 const carbonyl = predict(cr, "13C")!.signals.find((s) => s.atoms.includes(7))!;
 assert.equal(carbonyl.level, 0);
 assert.match(detailsTable(predict(cr, "13C")!), /\t0\t/);
+// For ¹H, ¹³C and ¹⁹F, the codes on kinds for spheres 2 and 1 come after the next sphere by labels and before the same
+// sphere by labels. ³¹P has none.
+// Ethanesulfonamide (EtSO2NH2): the table has no CH2 with all of its sphere 2, so its kinds place it beside a sulfonyl
+// (a CH2 there is at 45 to 65 ppm, ¹H about 3.1), not beside a sulfide (25 to 35 ppm, from sphere 1 alone), rated rough.
+const sulfonamide = graph(["C", "C", "S", "O", "O", "N"], [[0, 1, 1], [1, 2, 1], [2, 3, 2], [2, 4, 2], [2, 5, 1]]), se = environment(sulfonamide);
+assert.deepEqual([...codes(se, 1, "13C")].map(([c, level]) => `${c.startsWith("k:") ? "k" : ""}${level}`), ["6", "5", "4", "3", "k2", "2", "k1", "1", "0"]);
+assert.deepEqual([...codes(se, 2, "31P")].map(([, level]) => level), [6, 5, 4, 3, 2, 1, 0]);
+const ch2 = predict(sulfonamide, "13C")!.signals.find((s) => s.atoms.includes(1))!;
+near(ch2.shift, 55, 10, "CH2 beside a sulfonyl");
+assert.equal(ch2.level, 1);
+assert.equal(quality(ch2, "13C"), "rough");
+near(predict(sulfonamide, "1H")!.signals.find((s) => s.atoms.includes(1))?.shift, 3.1, 0.3, "CH2 beside a sulfonyl H");
+// A signal's class code is the hash of its atoms' longest code, as before codes on kinds.
+assert.equal(at(4).code, codeHash("1H", hose(environment(ester), 4)[5]).toString(36));
+// A hydrogen on O, N or S moves with the solvent and the concentration, so its shift is rated rough.
+for (const s of predict(ethanol, "1H", "CDCl₃")!.signals) assert.equal(quality(s, "1H") === "rough", s.group === "OH", s.group);
 
 // A version 1 table (no solvent tables, no ¹⁹F or ³¹P) still reads; the shipped file is read again after. Octet
 // writes version 3, whose parts name their nucleus and scale, so ¹⁹F and ³¹P shifts past ±327 ppm keep their value.

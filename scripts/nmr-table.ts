@@ -117,7 +117,7 @@ for (const mol of molecules) {
   if (test && heldOut(mol)) { held.push({ mol, g, out }); continue; }
   let env;
   try { env = environment(g); } catch { continue; }
-  for (const o of out) for (const code of codes(env, o.atom)) {
+  for (const o of out) for (const [code] of codes(env, o.atom, o.nucleus)) {
     const h = codeHash(o.nucleus, code), list = seen[o.nucleus].get(h);
     if (list) list.push(o.shift); else seen[o.nucleus].set(h, [o.shift]);
     if (!o.solvent) continue;
@@ -170,10 +170,10 @@ if (test) {
         if (!p) { missed++; continue; }
         errors.push(Math.abs(p.shift - o.shift));
         levels[p.level]++;
-        const metal = nucleus !== "1H" && nucleus !== "13C" && env.edges[o.atom].some((e) => isMetal(g.atoms[e.to].el));
-        rated[quality({ atoms: [], shift: p.shift, nuclei: 1, couplings: [], sd: p.sd, based: p.based, level: p.level, ...(metal ? { metal: true as const } : {}) }, nucleus)].push(Math.abs(p.shift - o.shift));
+        const metal = nucleus !== "1H" && nucleus !== "13C" && env.edges[o.atom].some((e) => isMetal(g.atoms[e.to].el)), x = ["O", "N", "S"].includes(g.atoms[o.atom].el);
+        rated[quality({ atoms: [], shift: p.shift, nuclei: 1, couplings: [], sd: p.sd, based: p.based, level: p.level, ...(metal ? { metal: true as const } : {}), ...(nucleus === "1H" && x ? { broad: true } : {}) }, nucleus)].push(Math.abs(p.shift - o.shift));
         if (!o.solvent) continue;
-        const q = lookup(env, nucleus, o.atom, o.solvent)!, x = ["O", "N", "S"].includes(g.atoms[o.atom].el);
+        const q = lookup(env, nucleus, o.atom, o.solvent)!;
         known.any.push(Math.abs(p.shift - o.shift)); known.own.push(Math.abs(q.shift - o.shift));
         if (x) { known.anyX.push(Math.abs(p.shift - o.shift)); known.ownX.push(Math.abs(q.shift - o.shift)); }
       }
