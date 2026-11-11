@@ -122,6 +122,26 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   starting (or 1.5 s after, where WebKit has no requestIdleCallback), or at once when the library opens; Vite puts it
   in a chunk of its own.
 
+## Photochemistry (issue 43)
+
+ChemDraw has no photochemistry set; its users draw a wavy line, add a head and type the text. Octet's Photochemistry
+set (17, `tools/library/photochem.mjs`) is made of Octet's own lines and arrows, text with subscripts and
+superscripts, and brackets, so every part stays editable: a Jablonski diagram (S0, S1 and T1 with two vibrational
+levels each, absorption, fluorescence, intersystem crossing and phosphorescence, in one group that is not integral, so
+a double-click picks a part); light (a wavy arrow with hν), a photochemical step (hν) and a thermal step (Δ) as
+conditions on their arrows; absorption, fluorescence, phosphorescence, intersystem crossing and internal conversion;
+[X]* (brackets with an asterisk mark); ¹O₂ and ³O₂; S₀, S₁ and T₁; Sens and Sens*.
+
+- As IUPAC draws a Jablonski diagram, radiative transitions are straight arrows and radiationless ones wavy. h and ν
+  are italic, as quantities are.
+- The Lab group's style: lines take the document's line width and text the document's caption style, with no colour
+  of their own. Each lone arrow is 2.165 bond lengths, so its text fits and a wave ends on the axis at the head.
+- State labels have Interpret Chemically off, so S1 and T1 are not read as sulfur and tritium.
+- The library's thumbnails draw text as the page sets it (conditions beside their arrow, text under its structure, runs
+  with their subscripts and superscripts) and a bracket's mark.
+- Not done: energy transfer between two species, and an energy-level diagram object whose transitions stay on their
+  levels when a level moves (ChemDraw has none).
+
 ## Not done
 
 - Bridged rings (norbornane, adamantane, bicyclo[2.2.2]octane, DABCO) stay flat, as Indigo lays them out. Drawn in 3D
@@ -143,5 +163,5 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 `src/templates.check.ts`: every built-in template (both files) parses back from Octet's file text, has a name of its
 own, has clear labels (every template with atoms, none let off), has the CIP labels and InChI of its reference compound
 (the dashed cages let off), gets a name from Structure to Name that reads back to its structure, and survives Clean
-Up. `src/lab.check.ts` covers the 145 drawings of the Lab group and the eight drawn sets, and
-`src/perspective.check.ts` the Newman circle.
+Up. `src/lab.check.ts` covers the 145 drawings of the Lab group and the eight drawn sets,
+`src/photochem.check.ts` the Photochemistry set, and `src/perspective.check.ts` the Newman circle.
