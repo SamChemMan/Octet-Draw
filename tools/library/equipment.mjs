@@ -1,6 +1,7 @@
 // The library's Lab equipment set: instruments, plasticware and tools, in the Lab group's line style (art.mjs path
 // data, 40 units to a bond length, y down). Every drawing here is Octet's own.
 import { art, circle, ellipse, fill, fine, ink, rect, seg, solid } from "./art.mjs";
+import { nozzle } from "./glassware.mjs";
 
 const PER = { per: 40 };
 
@@ -157,5 +158,65 @@ function notebook() {
   ]);
 }
 
+// Rotary evaporator: a lift on a stand, the drive with a coil condenser above it and the receiving flask below, and
+// the vapour duct down to the evaporating flask, which turns in a heating bath.
+function rotaryEvaporator() {
+  // The duct's axis, from the evaporating flask's centre (R 20) up to the drive; t across it (positive below).
+  const D = [-58, 50], len = Math.hypot(68, -46), u = [68 / len, -46 / len], n = [-u[1], u[0]], R = 20, w = 6;
+  const at = (s, t) => `${D[0] + s * u[0] + t * n[0]} ${D[1] + s * u[1] + t * n[1]}`, s0 = Math.sqrt(R * R - w * w);
+  // A duct wall t across the axis ends on the drive's left side (x 10).
+  const toDrive = (t) => (10 - D[0] - t * n[0]) / u[0];
+  // The condenser's coil: a helix seen a little from above, seven turns down the jacket, a quarter turn to each Bézier.
+  const turn = (t) => [30 + 8 * Math.sin(t), -84 + (9 * t) / (2 * Math.PI) + 3.5 * Math.cos(t)], dturn = (t) => [8 * Math.cos(t), 9 / (2 * Math.PI) - 3.5 * Math.sin(t)];
+  let coil = `M${turn(0).join(" ")}`;
+  for (let k = 0, h = Math.PI / 2; k < 28; k++) {
+    const [p, q, a, b] = [turn(k * h), turn((k + 1) * h), dturn(k * h), dturn((k + 1) * h)];
+    coil += `C${p[0] + (a[0] * h) / 3} ${p[1] + (a[1] * h) / 3} ${q[0] - (b[0] * h) / 3} ${q[1] - (b[1] * h) / 3} ${q[0]} ${q[1]}`;
+  }
+  return art("Rotary evaporator", "rotavap, rotovap, Büchi, evaporation, solvent removal", PER, [
+    fill(`M-94 50L-16 50L-16 78Q-16 84 -22 84L-88 84Q-94 84 -94 78Z`, "light"), fill(`M-76.33 58A20 20 0 0 0 -39.67 58Z`), fill(`M11.67 54A20 20 0 0 0 48.33 54Z`),
+    ink(rect(64, -64, 14, 140, 3)), ink(rect(44, 76, 54, 8, 3)), ink(`M64 -10L14 -10Q10 -10 10 -6L10 10Q10 14 14 14L64 14`), fine(ink(circle(52, 2, 4))),
+    ink(`M19 -10L19 -86Q19 -96 30 -96Q41 -96 41 -86L41 -10`), fine(ink(coil)), ink(nozzle(41, -82, 1)), ink(nozzle(41, -66, 1)),
+    ink(`M26 14L26 26.4A20 20 0 1 0 34 26.4L34 14`),
+    ink(`M${at(s0, -w)}A${R} ${R} 0 1 0 ${at(s0, w)}`),
+    ...[-1, 1].map((k) => ink(`M${at(s0, k * w)}L${at(30, k * w)}L${at(30, k * 3.5)}L${at(toDrive(k * 3.5), k * 3.5)}`)),
+    fine(ink(`M${at(27, -9)}L${at(33, -9)}L${at(33, 9)}L${at(27, 9)}Z`)),
+    ink(`M-94 38L-94 78Q-94 84 -88 84L-22 84Q-16 84 -16 78L-16 38`),
+  ]);
+}
+// Syringe pump: a syringe on the pump's body, its plunger driven by the pusher block along two guide rods, and a
+// display and keys on the front.
+function syringePump() {
+  return art("Syringe pump", "infusion pump, slow addition, flow chemistry", PER, [
+    fill(`M-48 -22L-4 -22L-4 -8L-48 -8Z`),
+    ink(rect(-64, -4, 128, 36, 4)), ink(rect(-54, 6, 34, 14, 2)), ...[0, 14, 28].map((x) => fine(ink(circle(x, 13, 4)))),
+    ink(rect(-48, -22, 60, 14, 2)), ink(`M12 -26L12 -4`), ink(`M-40 -4L-37 -8M-24 -8L-21 -4`),
+    ink(rect(-4, -22, 4, 14)), ink(`M0 -15L32 -15M32 -23L32 -7`),
+    ink(rect(34, -28, 12, 24, 2)), fine(ink(`M46 -20L56 -20M46 -11L56 -11`)), ink(rect(56, -30, 6, 26, 1.5)),
+    ink(`M-48 -18L-54 -16L-54 -14L-48 -12`), ink(`M-54 -15C-66 -15 -74 -10 -74 2L-74 30`),
+  ]);
+}
+// Fraction collector: a rack of tubes on the collector's base, filled one after another from the drop head on an arm.
+function fractionCollector() {
+  const tube = (x, liquid) => [...(liquid ? [fill(`M${x - 5} ${liquid}L${x + 5} ${liquid}L${x + 5} 26Q${x + 5} 32 ${x} 32Q${x - 5} 32 ${x - 5} 26Z`)] : []),
+    ink(`M${x - 5} -16L${x - 5} 26Q${x - 5} 32 ${x} 32Q${x + 5} 32 ${x + 5} 26L${x + 5} -16`)];
+  return art("Fraction collector", "fractions, chromatography, column, test tubes", PER, [
+    ...tube(-56, 2), ...tube(-40, 6), ...tube(-24, 12), ...tube(-8, 24), ...tube(8), ...tube(24),
+    ink(rect(-70, -4, 108, 6, 1.5)), ink(`M-66 2L-66 36M34 2L34 36`), ink(rect(-74, 36, 150, 12, 3)),
+    ink(rect(50, -70, 10, 106, 2)), ink(`M50 -62L-10 -62Q-14 -62 -14 -59Q-14 -56 -10 -56L50 -56`),
+    ink(`M-11 -56L-11 -50L-9 -46L-7 -46L-5 -50L-5 -56`), ink(`M-8 -62L-8 -76`), fine(ink(`M-8 -40Q-10.5 -36 -8 -34Q-5.5 -36 -8 -40Z`)),
+  ]);
+}
+// Spectrometer light path: inside the instrument, the lamp's light through a lens and the cuvette to the detector.
+function lightPath() {
+  return art("Spectrometer light path", "cuvette in a spectrometer, UV-Vis, absorbance, Beer-Lambert, lamp, detector", PER, [
+    fill(`M-8 -6L8 -6L8 20L-8 20Z`),
+    ink(rect(-76, -34, 140, 64, 4)), ink(circle(-58, 0, 9)), fine(ink(`M-61 6L-61 0Q-58 -6 -55 0L-55 6`)),
+    ink(ellipse(-34, 0, 3, 12)), ink(`M-8 -24L-8 20L8 20L8 -24M-10 -24L10 -24`), ink(rect(36, -12, 18, 24, 3)), fine(ink(circle(45, 0, 4))),
+    ink(`M-49 0L36 0`), fine(ink(`M26 -3L31 0L26 3`)),
+  ]);
+}
+
 export const EQUIPMENT = [microscope(), micropipette(), microtube(), centrifugeTube(), petriDish(), wellPlate(), rack(), washBottle(), balance(),
-  centrifuge(), gel(), spectrophotometer(), mortar(), crucible(), spatula(), scalpel(), tweezers(), scissors(), glove(), safetyGlasses(), magnifier(), notebook()];
+  centrifuge(), gel(), spectrophotometer(), mortar(), crucible(), spatula(), scalpel(), tweezers(), scissors(), glove(), safetyGlasses(), magnifier(), notebook(),
+  rotaryEvaporator(), syringePump(), fractionCollector(), lightPath()];

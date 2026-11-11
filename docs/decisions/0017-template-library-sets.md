@@ -114,6 +114,10 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   high voltage signs, the radiation trefoil and four GHS hazard diamonds. Fills use only the Lab group's two blue tints, on small parts, so a drawing
   reads on a dark page too. Each is one integral group that takes the document's line width and comes back whole
   from CDXML and .oct (`src/lab.check.ts`).
+- The rest of an apparatus (issue 98, 1.1.2): Lab has a Schlenk line (a vacuum and an inert-gas manifold with four
+  taps) and an immersion-well photoreactor; Lab equipment has a rotary evaporator, a syringe pump, a fraction collector
+  for under the chromatography column, and a spectrometer light path (lamp, lens, cuvette and detector). The ice bath
+  stays the cooling bath. Lab is now 47 items and Lab equipment 26.
 - `node tools/library/build.mjs --keep-shipped` builds the new sets and keeps the sets released in 1.1 as
   `src/library.json` has them. Built again from scratch, the hexose chairs, the chair conformers and the Cp and arene
   sets come out a little different from 1.1 (later changes to the chair and to Clean Up); they are not rebuilt.

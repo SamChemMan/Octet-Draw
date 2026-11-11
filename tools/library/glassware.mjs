@@ -87,13 +87,14 @@ function droppingFunnel() {
     ink(`M-4 50L-4 66L-6 76M4 50L4 66L6 76`),
   ]);
 }
+// A hose nozzle at height y on a jacket's wall x across from the middle (s 1 on the right, -1 on the left).
+export const nozzle = (x, y, s) => `M${s * x} ${y - 4}L${s * (x + 9)} ${y - 4}L${s * (x + 9)} ${y - 2}L${s * (x + 13)} ${y - 1.5}L${s * (x + 13)} ${y + 1.5}L${s * (x + 9)} ${y + 2}L${s * (x + 9)} ${y + 4}L${s * x} ${y + 4}`;
 // Liebig condenser: an inner tube in a water jacket with two hose nozzles.
 function liebigCondenser() {
-  const nozzle = (y, s) => `M${s * 11} ${y - 4}L${s * 20} ${y - 4}L${s * 20} ${y - 2}L${s * 24} ${y - 1.5}L${s * 24} ${y + 1.5}L${s * 20} ${y + 2}L${s * 20} ${y + 4}L${s * 11} ${y + 4}`;
   return art("Liebig condenser", "condenser, distillation, water jacket", PER, [
         ink(`M-4 -78L-4 82M4 -78L4 82`),
     ink(`M-4 -60L-11 -54L-11 54L-4 60M4 -60L11 -54L11 54L4 60`),
-    ink(nozzle(-40, 1)), ink(nozzle(40, -1)),
+    ink(nozzle(11, -40, 1)), ink(nozzle(11, 40, -1)),
     ink(`M-4 -78L-7 -82M4 -78L7 -82`),
   ]);
 }
@@ -255,8 +256,33 @@ function cuvette() {
     fine(ink(`M-10 -24L10 -24`)),
   ]);
 }
+// Schlenk line: a double manifold (vacuum above, inert gas below) with four taps, each to a hose barb below; the
+// vacuum leaves at the left end (to the trap and pump), the gas at the right (to the bubbler).
+function schlenkLine() {
+  const taps = [-60, -20, 20, 60], gaps = [-92, ...taps.flatMap((x) => [x - 6, x + 6]), 92];
+  const walls = [];
+  for (let k = 0; k < gaps.length; k += 2) for (const y of [-36, -28, -16, -8]) walls.push(`M${gaps[k]} ${y}L${gaps[k + 1]} ${y}`);
+  const barb = (x) => `M${x - 3} 2L${x - 3} 16L${x - 5} 22M${x + 3} 2L${x + 3} 16L${x + 5} 22`;
+  return art("Schlenk line", "inert-gas manifold, double manifold, vacuum line, nitrogen line, argon line", PER, [
+    ink(walls.join("")), ink(`M92 -36A4 4 0 0 1 92 -28M-92 -16A4 4 0 0 0 -92 -8`),
+    ink(nozzle(92, -32, -1)), ink(nozzle(92, -12, 1)),
+    ...taps.flatMap((x) => [ink(rect(x - 6, -42, 12, 44, 3)), fine(ink(barb(x))), fine(ink(`M${x} -42L${x} -48M${x - 5} -48L${x + 5} -48`)), fine(ink(`M${x - 2.5} -30L${x + 2.5} -12`))]),
+  ]);
+}
+// Photoreactor: an immersion well (a lamp in a double-walled cooling jacket, water in and out at its head) through
+// the lid of a reaction vessel, and the lamp's light through the solution.
+function photoreactor() {
+  const rays = [-20, 0, 20].flatMap((a) => [-1, 1].map((s) => fine(ink(`M${P(s * 21 * Math.cos(a * deg), 4 + 21 * Math.sin(a * deg))}L${P(s * 30 * Math.cos(a * deg), 4 + 30 * Math.sin(a * deg))}`))));
+  return art("Photoreactor", "immersion well, photochemistry, mercury lamp, UV lamp, irradiation", PER, [
+    fill(`M-34 -30L-34 40A34 34 0 0 0 34 40L34 -30L16 -30L16 44A16 16 0 0 1 -16 44L-16 -30Z`), fill(`M-5 -100L-5 32A5 5 0 0 0 5 32L5 -100Z`, "light"),
+    ink(`M-34 -56L-34 40A34 34 0 0 0 34 40L34 -56`), ink(rect(-40, -62, 80, 6, 2)),
+    ink(`M-16 -56L-16 44A16 16 0 0 0 16 44L16 -56M-16 -62L-16 -88L-10 -88L-10 -62M16 -62L16 -88L10 -88L10 -62`),
+    ink(`M-10 -56L-10 44A10 10 0 0 0 10 44L10 -56`), ink(nozzle(16, -80, 1)), ink(nozzle(16, -70, -1)),
+    ink(`M-5 -100L-5 32A5 5 0 0 0 5 32L5 -100`), ink(rect(-7, -108, 14, 8, 2)), ...rays,
+  ]);
+}
 
 export const GLASSWARE = [twoNeck(), threeNeck(), pearFlask(), volumetricFlask(), buchnerFlask(), buchnerFunnel(), filterFunnel(),
   droppingFunnel(), liebigCondenser(), vigreux(), deanStark(), distillationHead(), claisen(), receiverAdapter(), thermometer(),
   measuringCylinder(), burette(), pasteur(), dryingTube(), balloon(), bubbler(), watchGlass(), crystallisingDish(), iceBath(),
-  desiccator(), retortStand(), bunsen(), nmrTube(), cuvette()];
+  desiccator(), retortStand(), bunsen(), nmrTube(), cuvette(), schlenkLine(), photoreactor()];

@@ -23,10 +23,12 @@ assert.deepEqual(all.items.map((t) => t.name), ["Light bulb", "LED", "Round-bott
   "Two-neck flask", "Three-neck flask", "Pear-shaped flask", "Volumetric flask", "Büchner flask", "Büchner funnel", "Filter funnel", "Dropping funnel",
   "Liebig condenser", "Vigreux column", "Dean-Stark trap", "Distillation head", "Claisen adapter", "Receiver adapter", "Thermometer", "Measuring cylinder",
   "Burette", "Pasteur pipette", "Drying tube", "Balloon", "Bubbler", "Watch glass", "Crystallising dish", "Ice bath", "Desiccator", "Retort stand",
-  "Bunsen burner", "NMR tube", "Cuvette"]);
+  "Bunsen burner", "NMR tube", "Cuvette", "Schlenk line", "Photoreactor"]);
 // The illustration sets drawn the same way (tools/library/equipment.mjs and bio.mjs): checked as the Lab group is.
 const DRAWN = ["Lab equipment", "Biomolecules", "Cells", "BioArt", "Anatomy", "Organisms", "Bugs", "Symbols"];
 for (const name of DRAWN) assert.ok(library.find((c) => c.name === name)?.items.length, `the ${name} set`);
+// The rest of an apparatus (issue 98): these four, and the Lab group's Schlenk line and photoreactor.
+assert.deepEqual(library.find((c) => c.name === "Lab equipment")!.items.slice(-4).map((t) => t.name), ["Rotary evaporator", "Syringe pump", "Fraction collector", "Spectrometer light path"]);
 // The TLC plate is Octet's own TLC object (the TLC tool's), so its lanes and spots stay editable.
 const plate = all.items.find((t) => t.name === "TLC plate")!.mol!;
 assert.deepEqual(plate.shapes?.map((x) => [x.kind, x.tlc?.lanes]), [["tlc", 3]]);
