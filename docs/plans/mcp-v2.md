@@ -434,18 +434,31 @@ a reaction).
   its text, then `clean_reaction`), which `change` now says. Every call of the benchmark fits the listed schema as a
   strict AI app checks it (66 of 66).
 - **A second test, by a reader who did not write the merge** (25 jobs, each written from `tools/list` and the
-  instructions alone, run with no window): 21 of 25 were right at the first try, and 24 of 25 after the fixes below.
+  instructions alone, run with no window): 19 of 25 were right at the first try, counted as the instructions count
+  it (a result whose check is not clean needs another call), and 24 of 25 after the fixes below. (The first count
+  said 21 and then 24: it did not read the checks, and two jobs, then three, ended with ids in them.)
   The 25 are now a table in `headless.check.ts`: every call must fit the listed schema as a strict AI app checks it,
-  be taken, and make what the job asks, so the list cannot drift from what the tools take.
+  be taken, leave every result's check clean (the restyle job must name what no longer fits), and make what the job
+  asks, so the list cannot drift from what the tools take.
   - A catalytic cycle: `Pd(PPh3)2` as an intermediate's text is not a name Octet reads. `draw` now gives a metal and
     its ligands as a SMILES with `*` and labels (`'*[Pd]*'`, `['PPh3', 'PPh3']`).
   - Conditions as letters with a footnote: `below: '$1.made'` under a whole scheme was refused ("names 14 objects
-    here"). A place beside (`right_of`, `left_of`, `below`, `above`) now takes ids, and a reference that names more
-    than one object, as the box round them all. `draw` lists only the one id. A reference that names one top-level
-    object (a structure and its number) reads as before, with its note.
+    here"). A place beside (`right_of`, `left_of`, `below`, `above`) now takes an id or ids, and a reference that
+    names more than one object, as the box round them all. `draw` lists it so too (one `side` in its `$defs`), as
+    every operation takes it. A reference that names one top-level object (a structure and its number) reads as
+    before, with its note.
   - A convergent synthesis: the product placed `right_of` the last one (gap 1.5) left no room for the arrow, which
-    was refused. `change` now says gap 4. The conditions text over that arrow can still overlap (the result's check
-    names it): `clean_reaction` does not lay out a route with two branches (it moves them off the page).
+    was refused, and at gap 4 the conditions over the arrow overlapped both structures. `change` now says the gap is
+    1 + 0.4 a character of the arrow's text, and the refusal says how far apart the two are and that rule.
+    `clean_reaction` does not lay out a route with two branches (it moves them off the page).
+  - A reagent drawn as a structure over the arrow (`'structure: Boc2O'`): the arrow was sized to the text only, so
+    Clean Up Reaction did not read the structure as the arrow's and it overlapped the product. The arrow now reaches
+    past the structures over and under it.
+  - An equilibrium and a retro arrow, the second `below` the first's starting material: centred under a structure at
+    the left margin, the wider scheme ran off the page. A place below or above now keeps it on the page across.
+  - `read` with `format` and `picture` or `detail`, and `advanced` with `detail` on help or export, were refused with
+    "is not an argument of this tool", which the list contradicts. They are now refused as "picture does not go with
+    format".
   - Align and distribute: Octet with no window has no Arrange commands ("a dialog is open"), as it has no Export
     dialog. The window has them; not a fault of the list.
 - **Not tried:** the acceptance script and the evals (both need the app). They are on the new names and `node --check`

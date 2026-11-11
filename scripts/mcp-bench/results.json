@@ -1,6 +1,6 @@
 {
  "tools": 5,
- "toolsList": 13905,
+ "toolsList": 13970,
  "instructions": 2367,
  "cases": {
   "gaunt2007-catalysts": {
@@ -99,13 +99,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 551,
-   "read": 647,
+   "read": 523,
    "ms": 50,
    "slowest": 50,
    "right": 3,
    "of": 3,
-   "warnings": 2,
-   "summary": 640
+   "warnings": 0,
+   "summary": 494
   },
   "gaunt2007-fig8": {
    "calls": 1,
@@ -139,8 +139,8 @@
    "coerced": 0,
    "sent": 469,
    "read": 325,
-   "ms": 19,
-   "slowest": 19,
+   "ms": 18,
+   "slowest": 18,
    "right": 3,
    "of": 4,
    "warnings": 0,
@@ -320,13 +320,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 853,
-   "read": 914,
+   "read": 894,
    "ms": 56,
    "slowest": 56,
    "right": 6,
    "of": 6,
-   "warnings": 4,
-   "summary": 1135
+   "warnings": 3,
+   "summary": 1127
   },
   "proctor2019-scheme53": {
    "calls": 1,
@@ -774,8 +774,8 @@
    "coerced": 0,
    "sent": 470,
    "read": 379,
-   "ms": 34,
-   "slowest": 34,
+   "ms": 33,
+   "slowest": 33,
    "right": 3,
    "of": 3,
    "warnings": 0,

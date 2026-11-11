@@ -248,7 +248,7 @@ const PANEL = obj({ title: RICH, subtitle: RICH, frame: pick(["none", "line", "f
 const ANCHORS = ["centre", "top_left", "top", "top_right", "left", "right", "bottom_left", "bottom", "bottom_right"] as const;
 // Beside an object, or beside the box round several ('$1.made', all a change's first operation made). draw lists only
 // the id.
-const SIDE: Schema = { anyOf: [str(40), list(str(40), 500, 1)], description: "an id, or ids (the box round them)" };
+const SIDE: Schema = { anyOf: [str(40), list(str(40), 500, 1)], description: "ids: the box round them" };
 const placing = (point: "at" | "to", side: Schema | Prop = SIDE) => ({ [point]: POINT, anchor: pick(ANCHORS), right_of: side, left_of: side, below: side, above: side, gap: num(0, 100), align: pick(["top", "middle", "bottom", "left", "centre", "right"]) });
 const PLACE_AT = define("place", { anyOf: [str(40), POINT], description: "an id (s3, t5, s3.2) or a point [x, y] (each from -1000 to 1000)" });
 // The properties every kind of object takes (R7), as the Actions panel and the Object, Text, Colour and Curves menus
@@ -285,7 +285,7 @@ const ALSO_OPS = ["set_style", "place_template", "add_file", "fill_experiment"] 
 // A batch (F1): a change of more than one operation, at most 40.
 const BATCHABLE = [...KINDS, ...CHANGE_OPS, ...ALSO_OPS] as const;
 const MOST_STEPS = 40;
-const PLACE_NOTE = " Place it with at [x, y] and anchor (the point of its box there; centre by default), or right_of, left_of, below or above an id with gap (1.5) and align. With none, it goes below what is drawn.";
+const PLACE_NOTE = " Place it with at [x, y] and anchor (the point of its box there; centre by default), or right_of, left_of, below or above an id or ids with gap (1.5) and align. With none, it goes below what is drawn.";
 
 // The one table of operations (D11): what a call does. An AI app reaches each through one of the five tools it is
 // given (TOOLS, below), which are short to list. title and description are what advanced help gives for it (none
@@ -446,7 +446,7 @@ const OPS: Op[] = [
   },
   {
     name: "move", title: "Move", hints: ADD, outputSchema: CHANGE, done: "moved part of the drawing",
-    description: "Moves the ids together, with what belongs to them (numbers, conditions): by dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id with gap and align. Text Octet places itself (numbers, conditions, a cycle's text) moves only with its structure, arrow or cycle. An atom (s3.2) or bond (s3.1-2) moves alone, its bonds stretching.",
+    description: "Moves the ids together, with what belongs to them (numbers, conditions): by dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id or ids with gap and align. Text Octet places itself (numbers, conditions, a cycle's text) moves only with its structure, arrow or cycle. An atom (s3.2) or bond (s3.1-2) moves alone, its bonds stretching.",
     inputSchema: obj({ ids: list(str(40), 500, 1), dx: num(-1000, 1000), dy: num(-1000, 1000), ...placing("to") }, ["ids"]),
     run: move,
   },
@@ -548,6 +548,9 @@ const values = (op: string, key: string) => (opOf(op).inputSchema.properties[key
 const open = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ ...obj(properties, required), additionalProperties: true });
 // What a tool that changes the drawing takes for its result.
 const REPLY = { picture: yes("Add a PNG of what changed"), picture_size: pick(PICTURE_SIZE), detail: detail() };
+// An argument the tool lists (for its other operations) that this operation does not take, said as it is: not "is not
+// an argument of this tool".
+const stray = (a: object, listed: ObjSchema, op: string, what: string) => { const k = Object.keys(a).find((k) => k in listed.properties && !(k in opOf(op).inputSchema.properties)); return k && `${k} does not go with ${what}`; };
 // The compound as draw lists it: what most calls give. Its hints and molecule are in advanced help.
 const LISTED_COMPOUND: Schema = { ...obj({
   text: structureText, labels: LABELS,
@@ -564,19 +567,20 @@ edit: ids, and any property of what they name. Everything: colour, highlight (#r
 replace: structure (its id), and text, or changes as a compound's. It keeps its place, number and caption, and gets a new id.
 number: structure, number ('' takes it away). To renumber several, name each by its id: a number names the first structure that has it.
 delete: ids.
-move: ids, and dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id with gap and align.
+move: ids, and dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id or ids with gap and align.
 arrange: ids, how (${values("arrange", "how")}).
 text: text, with bold, italic, size, colour. Place it as move does (below: 's3'), or give arrow (a7) with side (above, below) to make it that arrow's conditions. id replaces a caption's text.
-arrow: kind (${values("arrow", "kind")}), from and to (each an id or [x, y]). To add a step to a scheme: draw its product right_of the last one with gap 4 (room for the arrow), then a reaction arrow between them and text on that arrow; advanced run_command clean_reaction then lays the scheme out.
+arrow: kind (${values("arrow", "kind")}), from and to (each an id or [x, y]). To add a step to a scheme: draw its product right_of the last one (gap: 1 + 0.4 a character of the arrow's text), a reaction arrow between them, then text on it; advanced run_command clean_reaction lays the scheme out.
 shape: kind (${values("shape", "kind")}), around (ids) or box [x0, y0, x1, y1].
 select: ids, for advanced run_command.
 Also ops, each with its own arguments beside op: draw (with kind), ${ALSO_OPS.join(", ")}.` }, ...REPLY }, ["operations"]);
+const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
 const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given") }, ["action"]);
 const TOOLS: Tool[] = [
   {
-    name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND },
-    description: "Draws new work in one call and one undo step. Octet lays it out, below what is drawn unless you place it. kind is structures, a numbered grid (columns sets how many across); reaction, a reaction or a whole scheme in a row: start, then for each of steps an arrow, its conditions and its products (Octet wraps it between steps to fit the page); cycle, a catalytic cycle: intermediates round a circle, centre text, and steps for step names and what goes in and out; or figure, panels of rows of items. Give a compound's name when you know it, else a SMILES. For a generic group (R, Ar, L) or a metal's ligands give a SMILES with * and labels ('*c1ccccc1', ['Ar']; '*[Pd]*', ['PPh3', 'PPh3']). Example, a reaction: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]. Place it with at [x, y] and anchor (the point of its box there), or right_of, left_of, below or above an id with gap and align. advanced help of a kind gives the rest: hints that turn a compound as a picture shows it, a molecule atom by atom, and a figure's items.",
+    name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND, side: SIDE },
+    description: "Draws new work in one call and one undo step. Octet lays it out, below what is drawn unless you place it. kind is structures, a numbered grid (columns sets how many across); reaction, a reaction or a whole scheme in a row: start, then for each of steps an arrow, its conditions and its products (Octet wraps it between steps to fit the page); cycle, a catalytic cycle: intermediates round a circle, centre text, and steps for step names and what goes in and out; or figure, panels of rows of items. Give a compound's name when you know it, else a SMILES. For a generic group (R, Ar, L) or a metal's ligands give a SMILES with * and labels ('*c1ccccc1', ['Ar']; '*[Pd]*', ['PPh3', 'PPh3']). Example, a reaction: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]. Place it with at [x, y] and anchor (the point of its box there), or right_of, left_of, below or above an id or ids with gap and align. advanced help of a kind gives the rest: hints that turn a compound as a picture shows it, a molecule atom by atom, and a figure's items.",
     inputSchema: obj({
       kind: pick(KINDS),
       structures: COMPOUNDS, columns: int(1, 20),
@@ -589,7 +593,7 @@ const TOOLS: Tool[] = [
       intermediates: COMPOUNDS, centre: str(MAX_TEXT), anticlockwise: yes(),
       panels: { ...list(obj({ frame: pick(["none", "line", "fill"]), rows: list(list({ type: "object", properties: {}, additionalProperties: true }, 8), 6) }), 8), description: "A figure's panels, each with title, subtitle and rows of items. An item is a compound with structure in place of text (and brackets, mark, colour), or text alone" },
       number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true }, width: num(5, 300),
-      ...placing("at", str(40)), ...REPLY,
+      ...placing("at", { $ref: "#/$defs/side" }), ...REPLY,
     }, ["kind"]),
     route: (a, notes) => wrongWith(KIND, a, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(a),
   },
@@ -614,20 +618,20 @@ const TOOLS: Tool[] = [
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
     description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids, for change. picture adds a PNG. format gives the drawing (or the ids) as a file's text instead: CDXML, MOL (V3000; mol2000 is V2000), SDF, RXN, SMILES, InChI, or CDX as base64. Nothing is saved. Results of draw and change already give ids, boxes and a layout check, so you seldom need to read.",
-    inputSchema: obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties }),
-    route: (a) => ({ op: "format" in a ? "file" : "read", args: a }),
+    inputSchema: READ_IN,
+    route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
   {
     name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new"],
-    description: "Octet's open drawings. list gives each one's id, title and unsaved changes, and the one this session uses. use sends this session's calls to drawing; its window does not come to the front. new opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it, and later calls go to it.",
+    description: "Octet's open drawings. list gives each one's id, title and unsaved changes, and the one this session uses. use sends this session's calls to drawing (its window stays behind). new opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it, and later calls go to it.",
     inputSchema: DRAWINGS_IN,
     route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args }))(a),
   },
   {
     name: "advanced", title: "Other tools, and help", ops: [...ADVANCED, "help"],
-    description: `Octet's other tools, each with its args. run_command {command, ids}: any menu command or Actions panel action, on the ids or the selection: clean_up, clean_reaction, flip_h, colour_by_element, check_structure, undo, scale.120, halo.#rrggbb and the rest, which help lists. set_style {preset, page, landscape, page_size [w, h] in mm}: the document's style and page. Octet redraws everything in it, and the result's check names what no longer fits. Presets: ${Object.keys(PRESETS).join("; ")}. Pages: ${values("set_style", "page")}. export {format}: opens Octet's Export dialog on ${values("export", "format")}. The user chooses where to save: Octet never saves a file for an AI app. place_template {name, set, on}: a library template (ATP, ferrocene, Round-bottom flask). add_file {text}: a drawing from file text (CDXML, MOL, SDF, RXN, SMILES, InChI). fill_experiment {details, amounts}: an experiment page's details and reagent table. help {of}: the whole description and schema of one of these, of a kind of draw (${KINDS.join(", ")}) or of an operation of change.`,
+    description: `Octet's other tools, each with its args. run_command {command, ids}: any menu command or Actions panel action, on the ids or the selection: clean_up, clean_reaction, flip_h, colour_by_element, check_structure, undo, scale.120, halo.#rrggbb and the rest, which help lists. set_style {preset, page, landscape, page_size [w, h] in mm}: the document's style and page. Octet redraws everything in it, and the result's check names what no longer fits. Presets: ${Object.keys(PRESETS).join("; ")}. Pages: ${values("set_style", "page")}. export {format}: opens Octet's Export dialog on ${values("export", "format")}. The user saves it where they choose. place_template {name, set, on}: a library template (ATP, ferrocene, Round-bottom flask). add_file {text}: a drawing from file text (CDXML, MOL, SDF, RXN, SMILES, InChI). fill_experiment {details, amounts}: an experiment page's details and reagent table. help {of}: the whole description and schema of one of these, a kind of draw or an operation of change.`,
     inputSchema: ADVANCED_IN,
-    route: (a, notes) => wrongWith(ADVANCED_IN, a, notes) ?? (({ tool, args, ...reply }) => ({ op: tool, args: { ...args, ...reply }, at: "args" }))(a),
+    route: (a, notes) => wrongWith(ADVANCED_IN, a, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, tool, tool) || { op: tool, args: { ...args, ...reply }, at: "args" })(a),
   },
 ];
 
@@ -996,7 +1000,8 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t): CompoundIn => ({ text: t.replace(/^structure:\s*/i, ""), aside: true })), ...s.products])];
   const { ok, failed, wrong } = await read(host, all);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
-  const next = (() => { let k = 0; return () => ok[k++]; })();
+  let taken = 0;
+  const next = () => ok[taken++];
   let m = host.doc();
   // The row's line: under where new work starts by as far as the row can reach up (half its tallest structure, however
   // it is turned; an arrow's lines, about a bond length each, and structures over it). So the new row is read alone:
@@ -1024,7 +1029,9 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     ctx.progress(k, a.steps.length, `Step ${k + 1} of ${a.steps.length}`);
     const facts = new Map([...lines[k].above, ...lines[k].below].filter(([, f]) => f) as [string, StepFacts][]);
     const above = lines[k].above.map(([t]) => t), below = lines[k].below.map(([t]) => t), longest = Math.max(0, ...[...above, ...below].filter((t) => !structured(t)).map((t) => Math.max(...t.split("\n").map((l) => l.length)))) * 0.42;
-    const length = Math.max(3, longest + 1);
+    // The arrow reaches past the structures drawn over and under it, so Clean Up Reaction reads them as its conditions.
+    const over = ok.slice(taken, taken + [...above, ...below].filter(structured).length).map((s) => { const b = boxOf(s.mol); return b[2] - b[0]; });
+    const length = Math.max(3, longest + 1, ...over.map((w) => w + 1));
     const [mol, id] = addArrow(m, { kind: st.arrow ?? "reaction", from: [x, y], to: [x + length, y] });
     m = mol; arrows.add(id);
     for (const [side, items] of [["above", above], ["below", below]] as const) {
@@ -1744,7 +1751,8 @@ async function addArrowTool(host: Host, a: ArrowIn & { kind: ArrowKind; from: st
     const [bf, bt] = [boxAt(host, m, a.from), boxAt(host, m, a.to)], len = Math.hypot(to[0] - from[0], to[1] - from[1]), u: P = [(to[0] - from[0]) / len, (to[1] - from[1]) / len];
     if (bf) { const t = leaves(from, to, bf); p = [from[0] + (to[0] - from[0]) * t + u[0] * GAP, from[1] + (to[1] - from[1]) * t + u[1] * GAP]; }
     if (bt) { const t = leaves(to, from, bt); q = [to[0] + (from[0] - to[0]) * t - u[0] * GAP, to[1] + (from[1] - to[1]) * t - u[1] * GAP]; }
-    if ((q[0] - p[0]) * u[0] + (q[1] - p[1]) * u[1] < 0.5) return { text: `There is no room for an arrow between ${a.from} and ${a.to}: move them apart first (move or arrange).`, error: true };
+    const room = (q[0] - p[0]) * u[0] + (q[1] - p[1]) * u[1];
+    if (room < 0.5) return { text: `There is no room for an arrow between ${a.from} and ${a.to} (${(room + 2 * GAP).toFixed(1)} bond lengths apart): move them apart first, by 1 bond length and 0.4 for each character of the arrow's text (move with right_of and gap).`, error: true };
   }
   let id: number;
   [m, id] = addArrow(m, { ...props, kind, from: p, to: q, ...(arc ? { bend: a.bend ?? 0.3 } : {}) });
@@ -1833,6 +1841,8 @@ async function addFile(host: Host, a: { text: string }): Promise<Result> {
 type Placement = { at?: number[]; to?: number[]; anchor?: (typeof ANCHORS)[number]; right_of?: string | string[]; left_of?: string | string[]; below?: string | string[]; above?: string | string[]; gap?: number; align?: string };
 const SIDES = ["right_of", "left_of", "below", "above"] as const;
 const placed = (a: Placement) => !!(a.at || a.to || SIDES.some((k) => a[k] !== undefined));
+// The ids a placement is beside (one, or several: the box round them).
+const beside = (a: Placement, side: (typeof SIDES)[number]) => [a[side]!].flat();
 const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const corners = (ps: P[]): Box => [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))];
 const arrowBox = (x: Arrow): Box => corners([x.from, x.to, ...(x.curve?.points.flatMap((q) => [q.at, ...(q.c1 ? [q.c1] : []), ...(q.c2 ? [q.c2] : [])]) ?? [])]);
@@ -1867,7 +1877,8 @@ function placeProblem(host: Host, m: Mol, a: Placement): string | undefined {
   if (given.length > 1) return `Give one of ${point}, right_of, left_of, below or above, not ${given.join(" and ")}.`;
   const side = SIDES.find((k) => a[k] !== undefined);
   if (!side) return undefined;
-  if (!boxOfIds(host, m, [a[side]!].flat())) return `There is nothing with the id ${a[side]} to go ${side.replace("_", " ")}. Call read for the ids.`;
+  const ids = beside(a, side), { unknown } = idsOf(host, m, ids);
+  if (!boxOfIds(host, m, ids)) return `There is nothing with the id ${(unknown.length ? unknown : ids).join(", ")} to go ${side.replace("_", " ")}. Call read for the ids.`;
   const across = side === "right_of" || side === "left_of";
   if (a.align && !(across ? ["top", "middle", "bottom"] : ["left", "centre", "right"]).includes(a.align)) return `align ${across ? "beside an object is top, middle or bottom" : "below or above an object is left, centre or right"}.`;
   return undefined;
@@ -1879,9 +1890,11 @@ function target(host: Host, m: Mol, b: Box, a: Placement): P {
     const an = a.anchor ?? "centre", x = an.endsWith("left") ? b[0] : an.endsWith("right") ? b[2] : mid(b)[0], y = an.startsWith("top") ? b[3] : an.startsWith("bottom") ? b[1] : mid(b)[1];
     return [p[0] - x, p[1] - y];
   }
-  const side = SIDES.find((k) => a[k] !== undefined)!, r = boxOfIds(host, m, [a[side]!].flat())!, g = a.gap ?? 1.5;
+  const side = SIDES.find((k) => a[k] !== undefined)!, r = boxOfIds(host, m, beside(a, side))!, g = a.gap ?? 1.5;
   if (side === "right_of" || side === "left_of") return [side === "right_of" ? r[2] + g - b[0] : r[0] - g - b[2], a.align === "top" ? r[3] - b[3] : a.align === "bottom" ? r[1] - b[1] : mid(r)[1] - mid(b)[1]];
-  return [a.align === "left" ? r[0] - b[0] : a.align === "right" ? r[2] - b[2] : mid(r)[0] - mid(b)[0], side === "below" ? r[1] - g - b[3] : r[3] + g - b[1]];
+  // Below or above, it stays on the page across: a wide scheme centred under a narrow structure at the margin.
+  const x = a.align === "left" ? r[0] - b[0] : a.align === "right" ? r[2] - b[2] : mid(r)[0] - mid(b)[0];
+  return [x + across(host.style(), [b[0] + x, b[1], b[2] + x, b[3]]), side === "below" ? r[1] - g - b[3] : r[3] + g - b[1]];
 }
 // An operation as a call or a batch step runs it: when it takes placement and one is given, what it made then moves
 // there (one function for every operation, so each places the same way).
@@ -1918,7 +1931,8 @@ const byKind = (ids: string[]): Made => {
 const refsIn = (v: unknown): number[] => (typeof v === "string" ? (REF.test(v) ? [Number(REF.exec(v)![1])] : []) : Array.isArray(v) ? v.flatMap(refsIn) : v && typeof v === "object" ? Object.values(v).flatMap(refsIn) : []);
 // A step's arguments with each reference to an earlier step's ids put in; or what is wrong.
 // top: each step's top-level objects (not a number or conditions, which belong to one).
-function resolve(v: unknown, made: Made[], top: string[][], notes: Notes): unknown {
+// side: v is a place beside, which takes several objects (the box round them).
+function resolve(v: unknown, made: Made[], top: string[][], notes: Notes, side = false): unknown {
   const ids = (t: string) => {
     const [, n, kind, at] = REF.exec(t)!, all = made[Number(n) - 1], list = kind === "made" ? [...all.s, ...all.t, ...all.a, ...all.b, ...all.c] : all[kind as keyof Made];
     if (at === undefined) return list;
@@ -1930,14 +1944,12 @@ function resolve(v: unknown, made: Made[], top: string[][], notes: Notes): unkno
     if (l.length === 1) return l[0];
     // "$3.made" where one id is needed: the one top-level object step 3 made (a structure, not its number too).
     const [, n, kind, at] = REF.exec(v)!, one = kind === "made" && at === undefined ? top[Number(n) - 1] : [];
-    if (one.length !== 1) throw new Error(`${v} names ${l.length} objects here: give one, as ${v}[0]`);
-    note(notes, v, `Read ${v} as ${one[0]}.`);
-    return one[0];
+    if (one.length === 1) { note(notes, v, `Read ${v} as ${one[0]}.`); return one[0]; }
+    if (side) return l;
+    throw new Error(`${v} names ${l.length} objects here: give one, as ${v}[0]`);
   }
   if (Array.isArray(v)) return v.flatMap((x) => (typeof x === "string" && REF.test(x) ? ids(x) : [resolve(x, made, top, notes)]));
-  // A place beside what an earlier step made, when that is more than one object, is beside the box round all of it.
-  const round = (k: string, x: unknown) => (SIDES as readonly string[]).includes(k) && typeof x === "string" && REF.test(x) && ids(x).length > 1 && !(REF.exec(x)![2] === "made" && top[Number(REF.exec(x)![1]) - 1].length === 1);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, round(k, x) ? ids(x as string) : resolve(x, made, top, notes)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x, made, top, notes, (SIDES as readonly string[]).includes(k))]));
   return v;
 }
 async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number]; args: Record<string, unknown> }[] }, ctx: Ctx): Promise<Result> {

@@ -93,12 +93,13 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
 // Each tool's schema stands alone (some AI apps do not look outside it): every reference in it has its definition in
-// its own $defs, and it lists no other piece. draw lists the compound once, however many places take one.
+// its own $defs, and it lists no other piece. draw lists the compound once, however many places take one, and a place
+// beside (an id or ids) once for its four sides.
 const refsIn = (schema: object) => [...JSON.stringify(schema).matchAll(/"\$ref":"([^"]*)"/g)].map((x) => x[1]);
 const alone = (schema: { $defs?: Record<string, unknown> }, at: string) => assert.deepEqual(Object.keys(schema.$defs ?? {}).map((k) => `#/$defs/${k}`).sort(), [...new Set(refsIn(schema))].sort(), at);
 for (const t of tools as unknown as { name: string; inputSchema: { $defs?: Record<string, { properties: Record<string, unknown> }> } }[]) {
   alone(t.inputSchema, t.name);
-  assert.equal(refsIn(t.inputSchema).length, { draw: 4 }[t.name] ?? 0, t.name);
+  assert.equal(refsIn(t.inputSchema).length, { draw: 8 }[t.name] ?? 0, t.name);
   if (t.name === "draw") assert.deepEqual(Object.keys(t.inputSchema.$defs!.compound.properties), ["text", "labels", "from", "changes", "number", "caption"]);
 }
 // A compound's changes are typed where draw lists them (plan 4.2.1, left for this step).
@@ -112,7 +113,10 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
   const types = (x: any): string => (x?.$ref ? "ref" : x?.type);
   const within = (listed: any, own: any, at: string) => {
     if (own?.$ref && !listed.$ref) own = pieces[own.$ref.slice("#/$defs/".length)];
+    // (A piece only the list names, such as draw's place beside, is read from the list's own $defs.)
+    if (listed.$ref && !own?.$ref) listed = tools.map((t) => (t.inputSchema as any).$defs?.[listed.$ref.slice("#/$defs/".length)]).find(Boolean);
     if (own.additionalProperties === true) return;
+    if (listed.anyOf) return listed.anyOf.forEach((form: any, k: number) => within(form, own, `${at}|${k}`));
     if (own.anyOf) return void assert.ok(own.anyOf.some((form: any) => types(form) === types(listed)), at);
     assert.equal(types(listed), types(own), at);
     if (listed.enum) assert.ok(listed.enum.every((v: string) => own.enum?.includes(v)), at);
@@ -240,8 +244,12 @@ assert.equal(steps.length, 0);
   await no("drawings", { action: "use" }, /drawing is missing/);
   await no("drawings", { action: "list", drawing: "draw-1" }, /drawing is not an argument of this tool\.$/);
   await no("drawings", [], /arguments: not an object/);
-  // A read with a format is the file's text, which takes the ids and nothing else of a read.
-  await no("read", { format: "mol", smiles: true }, /smiles is not an argument of this tool\.$/);
+  // A read with a format is the file's text, which takes the ids and nothing else of a read. An argument a tool lists
+  // for its other operations is refused as it is, not as "not an argument of this tool".
+  await no("read", { format: "mol", smiles: true }, /^Octet changed nothing\. smiles does not go with format\.$/);
+  await no("read", { format: "smiles", picture: true }, /^Octet changed nothing\. picture does not go with format\.$/);
+  await no("advanced", { tool: "help", args: { of: "move" }, detail: "full" }, /^Octet changed nothing\. detail does not go with help\.$/);
+  await no("advanced", { tool: "export", args: { format: "pdf" }, picture: true }, /^Octet changed nothing\. picture does not go with export\.$/);
   assert.equal(m, EMPTY);
   assert.equal(steps.length, 0);
   // The lenient readings (R5) are theirs too: other letters for a kind, a tool or an action, and no action is list.
@@ -591,6 +599,14 @@ const ra = m.arrows![0];
 assert.ok(ra.from[0] >= d.structures[0].box[2] + 0.4 && ra.to[0] <= d.structures[1].box[0] - 0.4, JSON.stringify([ra, d.structures.map((x: { box: number[] }) => x.box)]));
 assert.doesNotMatch(text(out), /overlaps/);
 assert.equal(m.shapes!.length, 0);
+// With no room, the refusal says how far apart they are and how far apart an arrow and its text need them.
+fresh();
+await call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
+const [s1] = (await read()).structures.map((x: { id: string }) => x.id);
+await call("draw", { kind: "structures", structures: [{ text: "toluene" }], right_of: s1, gap: 0.5 });
+const [, s2] = (await read()).structures.map((x: { id: string }) => x.id);
+out = await call("change", { operations: [{ op: "arrow", kind: "reaction", from: s1, to: s2 }] });
+assert.ok(out.isError && text(out).endsWith(`There is no room for an arrow between ${s1} and ${s2} (0.5 bond lengths apart): move them apart first, by 1 bond length and 0.4 for each character of the arrow's text (move with right_of and gap).`), text(out));
 
 // set_style: a preset and a page, one undo step.
 fresh();
@@ -721,8 +737,18 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(near(b[1], ref.box[3] + 1.5) && near(b[2], ref.box[2]), JSON.stringify(b));
   b = await placedBox({ at: [10, 20], anchor: "top_left" });
   assert.ok(near(b[0], 10) && near(b[3], 20), JSON.stringify(b));
+  // Beside several ids (as draw lists it, the same as every operation): beside the box round them.
+  const two = { below: [ref.id, (await read()).structures[1].id] }, drawTool = tools.find((x) => x.name === "draw")!.inputSchema as any;
+  assert.equal(strict(drawTool, { kind: "structures", structures: [{ text: "water" }], ...two }, drawTool.$defs, "draw"), undefined);
+  b = await placedBox(two);
+  assert.ok(b[3] < Math.min(...(await read()).structures.slice(0, 2).map((x: { box: number[] }) => x.box[1])), JSON.stringify(b));
+  // Below or above, it stays on the page across: centred under a structure near the left margin, a wide one would
+  // reach past it.
+  const left = (15 - pageSize(DEFAULT_STYLE)[0] / 2) * (72 / 25.4 / DEFAULT_STYLE.bond);
+  b = await placedBox({ below: ref.id, structures: [{ text: "C".repeat(30) }] });
+  assert.ok(b[0] >= left - 0.05 && b[0] < ref.box[0], JSON.stringify([b, left, ref.box]));
   const before = m;
-  for (const [args, why] of [[{ right_of: "s99" }, /nothing with the id s99/], [{ right_of: ref.id, below: ref.id }, /not right_of and below/], [{ below: ref.id, align: "top" }, /below or above an object is left, centre or right/]] as const) {
+  for (const [args, why] of [[{ right_of: "s99" }, /nothing with the id s99/], [{ right_of: [ref.id, "s99"] }, /nothing with the id s99 to go right of/], [{ right_of: ref.id, below: ref.id }, /not right_of and below/], [{ below: ref.id, align: "top" }, /below or above an object is left, centre or right/]] as const) {
     const out = await call("draw", { kind: "structures", structures: [{ text: "water" }], ...args });
     assert.ok(out.isError);
     assert.match(text(out), why);
