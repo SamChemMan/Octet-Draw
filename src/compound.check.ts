@@ -20,7 +20,7 @@ let d = drawing(), n = 0;
 const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", { client: "Check" })).result;
 const said = (r: { content: { text: string }[] }) => r.content[0].text.split("\n")[0];
 // (In full: the default read is a summary, with no SMILES or InChIKey. Plan section 10.)
-const reading = async () => (await call("read_drawing", { detail: "full" })).structuredContent;
+const reading = async () => (await call("read", { detail: "full" })).structuredContent;
 // The structure with a compound number, as it is drawn.
 const numbered = (number: string): Mol => {
   const m = d.host.doc(), under = m.captions!.find((c) => c.bold && c.text === number)!.under!;
@@ -103,7 +103,7 @@ const TABLE: Row[] = [
 assert.ok(TABLE.length >= 25);
 for (const row of TABLE) {
   d = drawing();
-  const r = await call("draw_structures", { structures: [{ text: row.from, ...(row.labels ? { labels: row.labels } : {}), number: "1" }, { from: "1", changes: row.changes, number: "2" }] });
+  const r = await call("draw", { kind: "structures", structures: [{ text: row.from, ...(row.labels ? { labels: row.labels } : {}), number: "1" }, { from: "1", changes: row.changes, number: "2" }] });
   assert.ok(!r.isError, `${row.what}: ${said(r)}`);
   const got = (await reading()).structures.find((s: { number: string }) => s.number === "2");
   assert.equal(got.inchiKey, row.open ? `${keyOf(row.want).slice(0, 14)}-UHFFFAOYSA-N` : keyOf(row.want), `${row.what}: drew ${got.smiles}, not ${row.want}`);
@@ -136,25 +136,25 @@ for (const row of TABLE) {
 // priorities (CH2Br is before CH2OH, and CH2CH3 after it).
 {
   d = drawing();
-  const r = await call("draw_structures", { structures: [{ text: "OC[C@H](C)CBr", number: "1" }, { from: "1", changes: [{ swap: { Br: "CH3" } }], number: "2" }] });
+  const r = await call("draw", { kind: "structures", structures: [{ text: "OC[C@H](C)CBr", number: "1" }, { from: "1", changes: [{ swap: { Br: "CH3" } }], number: "2" }] });
   assert.ok(!r.isError && !/stereocentre|configuration/.test(said(r)), said(r));
   assert.notEqual(cip(numbered("2")), cip(numbered("1")));
   assert.equal((await reading()).structures[1].inchiKey, keyOf("OC[C@H](C)CC"));
 }
-// Every tool's reply says it (C3): edit with changes says what replace_structure says, with the new structure's id.
+// Every tool's reply says it (C3): edit with changes says what replace says, with the new structure's id.
 {
   d = drawing();
-  assert.ok(!(await call("draw_structures", { structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
-  assert.match(said(await call("edit", { ids: ["s1"], changes: [{ at: "7", set: "=O" }] })), /^Changed s1: changes\. Replaced s1 with butan-2-one \[Atom 7 is no longer a stereocentre\.\], now s2, which keeps its number 1\. One undo step\./);
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
+  assert.match(said(await call("change", { operations: [{ op: "edit", ids: ["s1"], changes: [{ at: "7", set: "=O" }] }] })), /^Changed s1: changes\. Replaced s1 with butan-2-one \[Atom 7 is no longer a stereocentre\.\], now s2, which keeps its number 1\. One undo step\./);
   d = drawing();
-  assert.ok(!(await call("draw_structures", { structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
-  assert.match(said(await call("replace_structure", { structure: "s1", changes: [{ at: "7", set: "OH" }] })), /^Replaced s1 with \(2S\)-butan-2-ol \[Atom 7 keeps its configuration \(S\)\.\], now s2, which keeps its number 1\./);
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "C[C@H:7](Br)CC", number: "1" }] })).isError);
+  assert.match(said(await call("change", { operations: [{ op: "replace", structure: "s1", changes: [{ at: "7", set: "OH" }] }] })), /^Replaced s1 with \(2S\)-butan-2-ol \[Atom 7 keeps its configuration \(S\)\.\], now s2, which keeps its number 1\./);
 }
 // A new group Octet cannot read is drawn as a label with no structure, as a chemist's own label is, and the reply says
 // so: it may be a slip (C12). A generic group (R) is one on purpose, and a group Octet reads needs no word.
 {
   d = drawing();
-  const r = await call("draw_structures", { structures: [{ text: "CCO", number: "1" }, { from: "1", changes: [{ swap: { OH: "OTBDSP" } }], number: "2" }, { from: "1", changes: [{ swap: { OH: "R" } }], number: "3" }, { from: "1", changes: [{ swap: { OH: "OTBDPS" } }], number: "4" }] });
+  const r = await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "1" }, { from: "1", changes: [{ swap: { OH: "OTBDSP" } }], number: "2" }, { from: "1", changes: [{ swap: { OH: "R" } }], number: "3" }, { from: "1", changes: [{ swap: { OH: "OTBDPS" } }], number: "4" }] });
   assert.ok(!r.isError, said(r));
   assert.match(said(r), /\(2\) \[Octet cannot read OTBDSP as a group: it is drawn as a label with no structure\.\]/);
   assert.ok(!/\((3|4)\) \[/.test(said(r)), said(r));
@@ -163,7 +163,7 @@ for (const row of TABLE) {
 // or with all its bonds, is as it was meant.
 {
   d = drawing();
-  const r = await call("draw_structures", { structures: [{ text: "CC[C:7]O", number: "1" }, { text: "CC[CH2:7]O", number: "2" }, { text: "C[C:7](C)(C)O", number: "3" }] });
+  const r = await call("draw", { kind: "structures", structures: [{ text: "CC[C:7]O", number: "1" }, { text: "CC[CH2:7]O", number: "2" }, { text: "C[C:7](C)(C)O", number: "3" }] });
   assert.match(said(r), /\(1\) \[As written, atom 7 is a radical: a numbered atom needs its hydrogens \(\[CH2:7\]\)\.\]/);
   assert.ok(!/\((2|3)\) \[/.test(said(r)), said(r));
 }
@@ -212,9 +212,9 @@ for (const row of TABLE) {
   const FORMATS = ["cdxml", "mol", "mol2000", "sdf", "smiles", "inchi", "cdx"];
   const files = async (text: string) => {
     d = drawing();
-    assert.ok(!(await call("draw_structures", { structures: [{ text, number: "1" }] })).isError);
+    assert.ok(!(await call("draw", { kind: "structures", structures: [{ text, number: "1" }] })).isError);
     const out: string[] = [];
-    for (const format of FORMATS) out.push((await call("get_file", { format })).structuredContent.text);
+    for (const format of FORMATS) out.push((await call("read", { format })).structuredContent.text);
     return out;
   };
   const plain = await files("C[C@H](O)CC(=O)OC");
@@ -224,14 +224,14 @@ for (const row of TABLE) {
   assert.deepEqual(d.host.doc().atoms.flatMap((a) => (a.tag ? [a.tag] : [])), [10, 11, 12]);
   assert.ok((await reading()).structures.every((x: { smiles: string }) => !/:\d/.test(x.smiles)), "a reading's SMILES has no map numbers");
   // A later call names the atoms still, through three compounds, each from the one before.
-  const r = await call("draw_reaction", { start: [{ from: "1", changes: [{ at: "10", set: "OTBS" }], number: "2" }], steps: [{ products: [{ from: "previous", changes: [{ swap: { CO2Me: "CHO" } }], number: "3" }] }, { products: [{ from: "3", changes: [{ at: "10", set: "OH" }, { at: "11", add: "Br" }], number: "4" }] }] });
+  const r = await call("draw", { kind: "reaction", start: [{ from: "1", changes: [{ at: "10", set: "OTBS" }], number: "2" }], steps: [{ products: [{ from: "previous", changes: [{ swap: { CO2Me: "CHO" } }], number: "3" }] }, { products: [{ from: "3", changes: [{ at: "10", set: "OH" }, { at: "11", add: "Br" }], number: "4" }] }] });
   assert.ok(!r.isError, said(r));
   const now = await reading(), key = (number: string) => now.structures.find((s: { number: string }) => s.number === number).inchiKey;
   assert.deepEqual([key("2"), key("3"), key("4")], ["C[C@H](O[Si](C)(C)C(C)(C)C)CC(=O)OC", "C[C@H](O[Si](C)(C)C(C)(C)C)CC=O", "C[C@H](O)C(Br)C=O"].map(keyOf));
-  for (const format of FORMATS) assert.ok(!/:1[012]\]|\sAtomNumber=/.test((await call("get_file", { format })).structuredContent.text), `${format} has no map number`);
+  for (const format of FORMATS) assert.ok(!/:1[012]\]|\sAtomNumber=/.test((await call("read", { format })).structuredContent.text), `${format} has no map number`);
   // add_file is not a compound: a SMILES it reads keeps its map numbers as a reaction's, drawn as before.
   d = drawing();
-  assert.ok(!(await call("add_file", { text: "C[CH2:3]O" })).isError);
+  assert.ok(!(await call("advanced", { tool: "add_file", args: { text: "C[CH2:3]O" } })).isError);
   assert.deepEqual(d.host.doc().atoms.map((a) => [a.map, a.tag]), [[undefined, undefined], [3, undefined], [undefined, undefined]]);
 }
 
@@ -240,7 +240,7 @@ for (const row of TABLE) {
 {
   const refuse = async (from: object, changes: unknown, why: RegExp, more: object = {}) => {
     d = drawing();
-    const r = await call("draw_structures", { structures: [{ ...from, number: "1" }, { from: "1", changes, number: "2", ...more }] });
+    const r = await call("draw", { kind: "structures", structures: [{ ...from, number: "1" }, { from: "1", changes, number: "2", ...more }] });
     assert.ok(r.isError, `${JSON.stringify(changes)} is refused`);
     assert.match(said(r), why);
     assert.equal(d.host.doc().atoms.length, 0, "a refused call draws nothing");
@@ -304,30 +304,30 @@ for (const row of TABLE) {
   await refuse(lactate, [{ at: "2", set: "OH" }], /changes: give from too/, { from: undefined });
   // Two compounds of one call with one number. One compound drawn twice with its number is one.
   d = drawing();
-  const both = await call("draw_structures", { structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }, { from: "5", number: "6" }] });
+  const both = await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }, { from: "5", number: "6" }] });
   assert.ok(both.isError && !d.host.doc().atoms.length);
   assert.match(said(both), /Compound 6: from: 2 compounds of this call have the number 5, and they are not one compound: give each its own number/);
-  const twice = await call("draw_structures", { structures: [{ text: "CC[CH2:1]O", number: "5" }, { from: "5", number: "5" }, { text: "CC[CH2:1]O", number: "5" }, { from: "5", changes: [{ at: "1", set: "=O" }], number: "6" }] });
+  const twice = await call("draw", { kind: "structures", structures: [{ text: "CC[CH2:1]O", number: "5" }, { from: "5", number: "5" }, { text: "CC[CH2:1]O", number: "5" }, { from: "5", changes: [{ at: "1", set: "=O" }], number: "6" }] });
   assert.ok(!twice.isError, said(twice));
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "6").inchiKey, keyOf("CCC=O"));
   // changes with no from in a figure, and a structure to replace with nothing to replace it with.
   d = drawing();
-  assert.match(said(await call("draw_figure", { panels: [{ rows: [[{ structure: "CCO", number: "1" }, { changes: [{ swap: { OH: "OAc" } }] }]] }] })), /Octet drew nothing\. Compound 2: changes: give from too/);
-  assert.ok(!(await call("draw_structures", { structures: [{ text: "CCO", number: "1" }] })).isError);
-  assert.match(said(await call("replace_structure", { structure: "s1" })), /Give each compound text \(a name or SMILES\), a molecule, or from with changes/);
+  assert.match(said(await call("draw", { kind: "figure", panels: [{ rows: [[{ structure: "CCO", number: "1" }, { changes: [{ swap: { OH: "OAc" } }] }]] }] })), /Octet drew nothing\. Compound 2: changes: give from too/);
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "1" }] })).isError);
+  assert.match(said(await call("change", { operations: [{ op: "replace", structure: "s1" }] })), /Give each compound text \(a name or SMILES\), a molecule, or from with changes/);
   d = drawing();
-  assert.ok(!(await call("draw_structures", { structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }] })).isError);
-  const two = await call("draw_structures", { structures: [{ from: "5", number: "6" }] });
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "5" }, { text: "CCN", number: "5" }] })).isError);
+  const two = await call("draw", { kind: "structures", structures: [{ from: "5", number: "6" }] });
   assert.ok(two.isError);
   assert.match(said(two), /from: 2 structures have the number 5 \(s1, s2\): give the id of one/);
-  const first = await call("draw_structures", { structures: [{ from: "previous", number: "6" }] });
+  const first = await call("draw", { kind: "structures", structures: [{ from: "previous", number: "6" }] });
   assert.match(said(first), /from: there is no compound before this one in the call that Octet can read/);
   // The compound before could not be read: the one from it is refused too, and not drawn from the one before that.
-  const gap = await call("draw_structures", { structures: [{ text: "CCO" }, { text: "flurbleglorp" }, { from: "previous" }] });
+  const gap = await call("draw", { kind: "structures", structures: [{ text: "CCO" }, { text: "flurbleglorp" }, { from: "previous" }] });
   assert.ok(gap.isError);
   assert.match(said(gap), /flurbleglorp.*from: there is no compound before this one/);
   // An id takes one of the two.
-  const one = await call("draw_structures", { structures: [{ from: "s2", changes: [{ swap: { NH2: "NHAc" } }], number: "6" }] });
+  const one = await call("draw", { kind: "structures", structures: [{ from: "s2", changes: [{ swap: { NH2: "NHAc" } }], number: "6" }] });
   assert.ok(!one.isError, said(one));
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "6").inchiKey, keyOf("CCNC(C)=O"));
 }
@@ -335,44 +335,44 @@ for (const row of TABLE) {
 // ---- Every tool that takes a compound ----
 
 {
-  // draw_reaction: previous is the compound before, not a structure drawn over the arrow between them.
+  // reaction: previous is the compound before, not a structure drawn over the arrow between them.
   d = drawing();
-  let r = await call("draw_reaction", { start: [{ text: "O[CH2:1]c1ccccc1", number: "1" }], steps: [{ above: ["structure: CS(C)=O"], products: [{ from: "previous", changes: [{ at: "1", set: "=O" }], number: "2" }] }, { products: [{ from: "previous", changes: [{ at: "1", add: "OH" }], number: "3" }] }] });
+  let r = await call("draw", { kind: "reaction", start: [{ text: "O[CH2:1]c1ccccc1", number: "1" }], steps: [{ above: ["structure: CS(C)=O"], products: [{ from: "previous", changes: [{ at: "1", set: "=O" }], number: "2" }] }, { products: [{ from: "previous", changes: [{ at: "1", add: "OH" }], number: "3" }] }] });
   assert.ok(!r.isError, said(r));
   let now = await reading();
   assert.deepEqual(["1", "2", "3"].map((k) => now.structures.find((s: { number: string }) => s.number === k).inchiKey), ["OCc1ccccc1", "O=Cc1ccccc1", "OC(=O)c1ccccc1"].map(keyOf));
-  // replace_structure and edit: changes alone are made on the structure itself, which keeps its number.
+  // replace and edit: changes alone are made on the structure itself, which keeps its number.
   const id = (number: string) => now.structures.find((s: { number: string }) => s.number === number).id;
-  r = await call("replace_structure", { structure: id("3"), changes: [{ swap: { OH: "OMe" } }] });
+  r = await call("change", { operations: [{ op: "replace", structure: id("3"), changes: [{ swap: { OH: "OMe" } }] }] });
   assert.ok(!r.isError, said(r));
   now = await reading();
   assert.equal(now.structures.find((s: { number: string }) => s.number === "3").inchiKey, keyOf("COC(=O)c1ccccc1"));
-  r = await call("edit", { ids: [id("2")], changes: [{ swap: { "=O": "=CH2" } }] });
+  r = await call("change", { operations: [{ op: "edit", ids: [id("2")], changes: [{ swap: { "=O": "=CH2" } }] }] });
   assert.ok(!r.isError, said(r));
   now = await reading();
   assert.equal(now.structures.find((s: { number: string }) => s.number === "2").inchiKey, keyOf("C=Cc1ccccc1"));
   assert.equal(now.structures.length, 4);
-  r = await call("replace_structure", { structure: id("1"), from: id("2"), changes: [{ swap: { "=CH2": "=O" } }] });
+  r = await call("change", { operations: [{ op: "replace", structure: id("1"), from: id("2"), changes: [{ swap: { "=CH2": "=O" } }] }] });
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "1").inchiKey, keyOf("O=Cc1ccccc1"));
-  assert.match(said(await call("replace_structure", { structure: id("3"), changes: [{ swap: { OBn: "OH" } }] })), /Octet changed nothing\. Compound 1: changes\[0\]: there is no OBn/);
-  assert.match(said(await call("edit", { ids: [`t${d.host.doc().captions!.find((c) => c.bold)!.id}`], changes: [{ swap: { OH: "OMe" } }] })), /takes no changes/);
+  assert.match(said(await call("change", { operations: [{ op: "replace", structure: id("3"), changes: [{ swap: { OBn: "OH" } }] }] })), /Octet changed nothing\. Compound 1: changes\[0\]: there is no OBn/);
+  assert.match(said(await call("change", { operations: [{ op: "edit", ids: [`t${d.host.doc().captions!.find((c) => c.bold)!.id}`], changes: [{ swap: { OH: "OMe" } }] }] })), /takes no changes/);
   // A salt by its number, from an earlier call: both ions (its number is under each).
   d = drawing();
-  assert.ok(!(await call("draw_structures", { structures: [{ text: "OCC(=O)[O-].[Na+]", number: "1" }] })).isError);
-  r = await call("draw_structures", { structures: [{ from: "1", changes: [{ swap: { OH: "OBn" } }], number: "2" }] });
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "OCC(=O)[O-].[Na+]", number: "1" }] })).isError);
+  r = await call("draw", { kind: "structures", structures: [{ from: "1", changes: [{ swap: { OH: "OBn" } }], number: "2" }] });
   assert.ok(!r.isError, said(r));
   assert.deepEqual((await reading()).structures.filter((s: { number: string }) => s.number === "2").map((s: { inchiKey: string }) => s.inchiKey).sort(), ["[Na+]", "[O-]C(=O)COCc1ccccc1"].map(keyOf).sort());
-  // draw_cycle and draw_figure.
+  // cycle and figure.
   d = drawing();
-  r = await call("draw_cycle", { intermediates: [{ text: "Cl[Pd](Cl)(*)*", labels: ["L", "L"], number: "1" }, { from: "1", changes: [{ swap: { Cl: "Ph" }, occurrence: 1 }], number: "2" }, { from: "previous", changes: [{ swap: { Cl: "OAc" } }], number: "3" }] });
+  r = await call("draw", { kind: "cycle", intermediates: [{ text: "Cl[Pd](Cl)(*)*", labels: ["L", "L"], number: "1" }, { from: "1", changes: [{ swap: { Cl: "Ph" }, occurrence: 1 }], number: "2" }, { from: "previous", changes: [{ swap: { Cl: "OAc" } }], number: "3" }] });
   assert.ok(!r.isError, said(r));
   assert.deepEqual((await reading()).structures.map((s: { formula: string }) => s.formula).sort(), ["C6H5ClPd", "C8H8O2Pd", "Cl2Pd"]);
   d = drawing();
-  r = await call("draw_figure", { panels: [{ rows: [[{ structure: "CC(=O)Oc1ccccc1C(=O)O", number: "1", caption: "aspirin" }, { from: "1", changes: [{ swap: { OAc: "OH" } }], number: "2", caption: "salicylic acid" }]] }] });
+  r = await call("draw", { kind: "figure", panels: [{ rows: [[{ structure: "CC(=O)Oc1ccccc1C(=O)O", number: "1", caption: "aspirin" }, { from: "1", changes: [{ swap: { OAc: "OH" } }], number: "2", caption: "salicylic acid" }]] }] });
   assert.ok(!r.isError, said(r));
   assert.equal((await reading()).structures.find((s: { number: string }) => s.number === "2").inchiKey, keyOf("Oc1ccccc1C(=O)O"));
   // One undo step takes a call's compounds away, those from others too.
-  assert.ok(!(await call("run_command", { command: "undo" })).isError);
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "undo" } })).isError);
   assert.equal(d.host.doc().atoms.length, 0);
 }
 
@@ -381,13 +381,13 @@ for (const row of TABLE) {
   // A compound from another takes a number as a JSON number and "8 (the ketone)" as number 8 with that caption, as any
   // compound does. Its caption is under its number, and the sentence has its note and names no compound.
   d = drawing();
-  let r = await call("draw_structures", { structures: [{ text: "CC[C@H:7](O)C", number: 7 }, { from: "7", changes: [{ at: "7", set: "=O" }], number: "8 (the ketone)" }] });
+  let r = await call("draw", { kind: "structures", structures: [{ text: "CC[C@H:7](O)C", number: 7 }, { from: "7", changes: [{ at: "7", set: "=O" }], number: "8 (the ketone)" }] });
   assert.equal(said(r), "Drew 2 structures in 1 row of 2. Octet notes: from 7 (8) [Atom 7 is no longer a stereocentre.]. One undo step.");
   assert.deepEqual(r.content[1].text.split("\n"), ["Read number 7 as text.", "Read number 8 (the ketone) as number 8 with the caption the ketone."]);
   const ketone = () => { const m = d.host.doc(), eight = m.captions!.find((c) => c.bold && c.text === "8")!.under!; return m.captions!.filter((c) => c.under?.some((i) => eight.includes(i))).map((c) => [c.text, !!c.bold]); };
   assert.deepEqual(ketone(), [["8", true], ["the ketone", false]]);
-  // replace_structure by changes names the new compound and says what its changes did, and keeps the caption.
-  r = await call("replace_structure", { structure: "8", changes: [{ swap: { "=O": "=CH2" } }] });
+  // replace by changes names the new compound and says what its changes did, and keeps the caption.
+  r = await call("change", { operations: [{ op: "replace", structure: "8", changes: [{ swap: { "=O": "=CH2" } }] }] });
   assert.match(said(r), /^Replaced 8 with 2-methylbut-1-ene, now s3, which keeps its number 8 and its caption\. One undo step\./);
   assert.deepEqual(ketone(), [["8", true], ["the ketone", false]]);
 }
@@ -396,7 +396,7 @@ for (const row of TABLE) {
 
 {
   d = drawing();
-  const r = await call("draw_reaction", { start: [{ text: "C[C@H]1C[C@@H:3](O)CC(C)(C)[C@H:1]1C(C)=O", number: "1" }], steps: [{ products: [{ from: "1", changes: [{ at: "3", set: "OTBS" }], number: "2" }] }, { products: [{ from: "2", changes: [{ swap: { COMe: "CO2H" } }], number: "3" }] }] });
+  const r = await call("draw", { kind: "reaction", start: [{ text: "C[C@H]1C[C@@H:3](O)CC(C)(C)[C@H:1]1C(C)=O", number: "1" }], steps: [{ products: [{ from: "1", changes: [{ at: "3", set: "OTBS" }], number: "2" }] }, { products: [{ from: "2", changes: [{ swap: { COMe: "CO2H" } }], number: "3" }] }] });
   assert.ok(!r.isError, said(r));
   const shape = (m: Mol, tags: number[]) => { const [p, q] = tags.map((t) => m.atoms.find((a) => a.tag === t)!.location); return [q[0] - p[0], q[1] - p[1]].map((v) => v.toFixed(2)).join(" "); };
   const ring = (m: Mol) => { const o = m.atoms.find((a) => a.tag === 1)!.location; return m.atoms.filter((a) => a.label === "C" && !a.text).map((a) => [a.location[0] - o[0], a.location[1] - o[1]].map((v) => v.toFixed(2)).join(" ")).sort().join(","); };
@@ -406,18 +406,18 @@ for (const row of TABLE) {
   // Every carbon of compound 2 is where it was in compound 1, seen from atom 1; compound 3 has lost only its acetyl's.
   assert.equal(ring(two), ring(one), "no carbon moved");
   assert.ok(ring(three).split(",").every((p) => ring(one).split(",").includes(p)));
-  // Changes made on a structure itself (edit, replace_structure) leave every other atom where it is: the structure is
+  // Changes made on a structure itself (edit, replace) leave every other atom where it is: the structure is
   // not put back by its middle, which moves when a group grows.
   const places = () => d.host.doc().atoms.flatMap((a) => (a.tag === 1 || a.tag === 3 ? [[a.key, a.tag, ...a.location.slice(0, 2).map((v) => v.toFixed(3))].join(" ")] : [])).sort();
   const at = (number: string) => places().filter((p) => p.startsWith(`${numbered(number).atoms[0].key} `)).map((p) => p.replace(/^\d+ /, ""));
   const [was1, was3] = [at("1"), at("3")];
   assert.equal(was1.length, 2);
-  assert.match(said(await call("edit", { ids: ["1"], changes: [{ at: "3", set: "OTBDPS" }] })), /^Changed 1: changes\. Replaced 1 with /);
+  assert.match(said(await call("change", { operations: [{ op: "edit", ids: ["1"], changes: [{ at: "3", set: "OTBDPS" }] }] })), /^Changed 1: changes\. Replaced 1 with /);
   assert.deepEqual(at("1"), was1);
-  assert.ok(!(await call("replace_structure", { structure: "3", from: "3", changes: [{ swap: { CO2H: "CO2CH2CH2SiMe3" } }] })).isError);
+  assert.ok(!(await call("change", { operations: [{ op: "replace", structure: "3", from: "3", changes: [{ swap: { CO2H: "CO2CH2CH2SiMe3" } }] }] })).isError);
   assert.deepEqual(at("3"), was3);
   // from with no changes is the same compound again, drawn the same way round.
-  assert.ok(!(await call("draw_structures", { structures: [{ from: "2", number: "2b" }] })).isError);
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ from: "2", number: "2b" }] })).isError);
   assert.equal(ring(numbered("2b")), ring(two));
 }
 
@@ -430,7 +430,7 @@ const route = bench("route"), FULL: Record<string, string> = bench("structures")
   let chained = 0, all = 0;
   for (const { start, steps } of route.schemes) {
     for (const c of [...start, ...steps.flatMap((s: { products: object[] }) => s.products)]) { all++; if ("from" in c) chained++; }
-    const r = await call("draw_reaction", { start, steps });
+    const r = await call("draw", { kind: "reaction", start, steps });
     assert.ok(!r.isError, said(r));
   }
   assert.deepEqual([chained, all], [9, 21]);

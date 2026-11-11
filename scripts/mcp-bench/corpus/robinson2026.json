@@ -10,8 +10,9 @@
       "kind": "S1",
       "figure": "Fig. 2 (top row)",
       "prompt": "Draw the model reaction at the top of Fig. 2 of the attached paper: amine 1a and reagent 3a give the ammonium salt 4a, then the palladium step gives 2a. Put the conditions and yields on the arrows and keep the paper's compound numbers.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "4-benzylmorpholine", "number": "1a" },
           { "text": "BrC*", "labels": ["BF3K"], "number": "3a" }
@@ -47,8 +48,9 @@
       "kind": "S13",
       "figure": "Fig. 2 (proposed mechanism)",
       "prompt": "Draw the mechanism proposed in Fig. 2 of the attached paper as a catalytic cycle: the palladium intermediates int-I, int-II and int-IV with the ligand as L, the salt 4a going in, the amine borate int-III leaving and coming back, and 2a coming out.",
-      "tool": "draw_cycle",
+      "tool": "draw",
       "arguments": {
+        "kind": "cycle",
         "intermediates": [
           { "text": "*[Pd]", "labels": ["L"] },
           { "text": "*[Pd+](Cc1ccccc1)N1(C[B-](F)(F)F)CCOCC1", "labels": ["L"], "number": "int-I" },
@@ -70,8 +72,9 @@
       "kind": "S11",
       "figure": "Fig. 3a",
       "prompt": "Draw Fig. 3a of the attached paper: donepezil, its ammonium trifluoroborate intermediate and the homologue 5. Draw the bromomethyl trifluoroborate reagent as a structure under the first arrow, where the paper has it, and give both yields.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "donepezil" }],
         "steps": [
           {
@@ -98,8 +101,9 @@
       "kind": "F4",
       "figure": "Fig. 3b",
       "prompt": "Draw Fig. 3b of the attached paper as a figure: the drugs lomerizine, tinoridine and piribedil in one row and their one-carbon homologues 6, 8, 9a and 9b below, each with its number and its two yields as a caption.",
-      "tool": "draw_figure",
+      "tool": "draw",
       "arguments": {
+        "kind": "figure",
         "panels": [
           {
             "title": "Late-stage one-carbon homologation",
@@ -133,8 +137,9 @@
       "kind": "S9",
       "figure": "Fig. 3c",
       "prompt": "Draw Fig. 3c of the attached paper: the N-PMB degrader derivative and reagent 3b give 10. Write the three operations (i) to (iii) on the one arrow as the paper has them, with the yield.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "O=C1CCC(N2Cc3cc(ccc3C2=O)C2CCN(Cc3ccccc3)CC2)C(=O)N1*", "labels": ["PMB"] },
           { "text": "BrC*", "labels": ["Bpin"], "number": "3b" }
@@ -160,8 +165,9 @@
       "kind": "F1",
       "figure": "Fig. 4a",
       "prompt": "Draw the amine scope of Fig. 4a of the attached paper as a numbered grid: the 19 products 2e to 2w, each with its number, with Ph, Boc and CO2Et as labels where the paper has them and the wedges as drawn.",
-      "tool": "draw_structures",
+      "tool": "draw",
       "arguments": {
+        "kind": "structures",
         "structures": [
           { "text": "C[C@H]1C[C@@H](C)CN(CC*)C1", "labels": ["Ph"], "number": "2e" },
           { "text": "C1COC2(O1)CCN(CC*)CC2", "labels": ["Ph"], "number": "2f" },
@@ -213,8 +219,9 @@
       "kind": "S20",
       "figure": "Fig. 4a (2x)",
       "prompt": "Draw the reaction that gives 2x in Fig. 4a of the attached paper, with the wedges as the paper has them: the (R)-amine goes to the (S)-product with inversion at the benzylic carbon. Put the two operations and their yields on the arrow.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "C[C@@H](N(C)C)c1ccccc1" }],
         "steps": [
           {
@@ -235,8 +242,9 @@
       "kind": "S2",
       "figure": "Fig. 5a",
       "prompt": "Draw Fig. 5a of the attached paper for n = 1 as one scheme: piribedil and tosylate 11a give the ammonium tosylate 12a, 9-BBN–H gives the borane 13a, and the palladium step gives 14a. Use the labels TsO and BBN as the paper does and keep the compound numbers.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [
           { "text": "piribedil" },
           { "text": "*CCC=C", "labels": ["TsO"], "number": "11a" }
@@ -272,8 +280,9 @@
       "kind": "F9",
       "figure": "Fig. 5b",
       "prompt": "Draw the five bifunctional reagents 15 to 19 of Fig. 5b of the attached paper in a row with their numbers, with TsO (OTs on 19) and Bpin as labels as the paper has them.",
-      "tool": "draw_structures",
+      "tool": "draw",
       "arguments": {
+        "kind": "structures",
         "structures": [
           { "text": "*CCOCC=C", "labels": ["TsO"], "number": "15" },
           { "text": "*CCOCCOCCC=C", "labels": ["TsO"], "number": "16" },
@@ -297,8 +306,9 @@
       "kind": "S9",
       "figure": "Fig. 5d (iterative remodelling)",
       "prompt": "Draw the two-step sequence in the lower part of Fig. 5d of the attached paper: dibenzylmethylamine to 27, then to 28. Each arrow has two operations joined by 'then': write them as two numbered lines with their yields.",
-      "tool": "draw_reaction",
+      "tool": "draw",
       "arguments": {
+        "kind": "reaction",
         "start": [{ "text": "dibenzylmethylamine" }],
         "steps": [
           {

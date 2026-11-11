@@ -2,6 +2,7 @@
 // of that chat's calls was kept, so this is rebuilt from the plan's notes: the six kinds of refused call, the check
 // grid of all 20 compounds, the style and page changed three times, the three schemes, their titles, and the reads
 // and row moves that fixed the layout. The v2 form of the same job is taxol-route.
+// It is the same job, call for call, written with the five tools of v2 (plan 5.1): the v1 names are gone.
 // Since Octet reads arguments leniently (plan section 6), the six calls go through, each marked "v1 refused" below, and
 // the call after each one, which was the AI app's second try, does the same thing again.
 import { readFileSync } from "node:fs";
@@ -13,30 +14,30 @@ const TITLES = ["Scheme 1. The C-ring aldehyde 7", "Scheme 2. The ABC ring syste
 export default {
   about: "Nicolaou's taxol synthesis as v1 was used for it: about 35 calls, 6 refused, most of the rest checking and fixing (rebuilt from the plan's notes)",
   calls: [
-    { name: "new_drawing", arguments: {} }, // v1 refused: for is missing
-    { name: "new_drawing", arguments: { for: "paper" } },
-    { name: "set_style", arguments: { preset: "Nature" } },
-    { name: "draw_structures", arguments: grid(Number) }, // v1 refused: number is not text
-    { name: "draw_structures", arguments: grid(String) },
-    { name: "read_drawing", arguments: { detail: "summary" } }, // v1 refused: not one of short, full
-    { name: "read_drawing", arguments: {} },
-    { name: "get_file", arguments: (r) => ({ format: "MOL", ids: [r[4].made[0]] }) }, // v1 refused: not one of cdxml, mol, ...
-    { name: "get_file", arguments: (r) => ({ format: "mol", ids: [r[4].made[0]] }) },
-    { name: "replace_structure", arguments: (r) => ({ structure: r[4].made[0], text: r[8].text }) }, // v1 refused: Octet cannot read its own MOL text
+    { name: "drawings", arguments: { action: "new" } }, // v1 refused: for is missing
+    { name: "drawings", arguments: { action: "new", for: "paper" } },
+    { name: "advanced", arguments: { tool: "set_style", args: { preset: "Nature" } } },
+    { name: "draw", arguments: { kind: "structures", ...grid(Number) } }, // v1 refused: number is not text
+    { name: "draw", arguments: { kind: "structures", ...grid(String) } },
+    { name: "read", arguments: { detail: "summary" } }, // v1 refused: not one of short, full
+    { name: "read", arguments: {} },
+    { name: "read", arguments: (r) => ({ format: "MOL", ids: [r[4].made[0]] }) }, // v1 refused: not one of cdxml, mol, ...
+    { name: "read", arguments: (r) => ({ format: "mol", ids: [r[4].made[0]] }) },
+    { name: "change", arguments: (r) => ({ operations: [{ op: "replace", structure: r[4].made[0], text: r[8].text }] }) }, // v1 refused: Octet cannot read its own MOL text
     // The check grid goes: both times it was drawn, and the structure that replaced the first of the second grid.
-    { name: "delete", arguments: (r) => ({ ids: [...made(3)(r), ...made(4)(r).slice(1), ...made(9)(r)] }) },
-    { name: "set_style", arguments: { page: "A3" } },
-    { name: "set_style", arguments: { page: "A3", landscape: true } },
-    ...schemes.map((arguments_) => ({ name: "draw_reaction", arguments: arguments_ })),
-    { name: "batch", arguments: { steps: [{ tool: "draw_structures", args: { structures: [{ text: structures[20], number: "20" }] } }, { tool: "add_text", args: { text: "β-lactam", below: "$1.made" } }] } }, // v1 refused: $1.made names 2 objects
+    { name: "change", arguments: (r) => ({ operations: [{ op: "delete", ids: [...made(3)(r), ...made(4)(r).slice(1), ...made(9)(r)] }] }) },
+    { name: "advanced", arguments: { tool: "set_style", args: { page: "A3" } } },
+    { name: "advanced", arguments: { tool: "set_style", args: { page: "A3", landscape: true } } },
+    ...schemes.map((arguments_) => ({ name: "draw", arguments: { kind: "reaction", ...arguments_ } })),
+    { name: "change", arguments: { operations: [{ op: "draw", kind: "structures", structures: [{ text: structures[20], number: "20" }] }, { op: "text", text: "β-lactam", below: "$1.made" }] } }, // v1 refused: $1.made names 2 objects
     ...schemes.flatMap((_, k) => [
-      { name: "add_text", arguments: (r) => ({ text: TITLES[k], bold: true, above: made(13 + k)(r)[0] }) },
-      { name: "read_drawing", arguments: { detail: "full" } },
-      { name: "move", arguments: (r) => ({ ids: [...made(13 + k)(r), ...made(13 + k, "a")(r)], dy: -6 * (k + 1) }) },
-      { name: "move", arguments: (r) => ({ ids: made(13 + k)(r).slice(-2), dx: -2 }) },
-      { name: "read_drawing", arguments: {} },
+      { name: "change", arguments: (r) => ({ operations: [{ op: "text", text: TITLES[k], bold: true, above: made(13 + k)(r)[0] }] }) },
+      { name: "read", arguments: { detail: "full" } },
+      { name: "change", arguments: (r) => ({ operations: [{ op: "move", ids: [...made(13 + k)(r), ...made(13 + k, "a")(r)], dy: -6 * (k + 1) }] }) },
+      { name: "change", arguments: (r) => ({ operations: [{ op: "move", ids: made(13 + k)(r).slice(-2), dx: -2 }] }) },
+      { name: "read", arguments: {} },
     ]),
-    { name: "read_drawing", arguments: { detail: "full" } },
+    { name: "read", arguments: { detail: "full" } },
   ],
   expect: { smiles: Object.fromEntries(Object.entries(structures).filter(([n]) => n !== "20")) },
 };

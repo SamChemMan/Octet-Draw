@@ -299,7 +299,9 @@ The AI needs to name a place without atom ids. Three ways, in this order:
 - The compound is listed once in each tool (`$defs.compound`), and `changes` is listed as a list of objects that
   `compound.ts` checks itself, so `tools/list` did not grow with the feature. Its descriptions then added 286
   characters (the review of 11 November).
-- **Left for step 5:** the change forms typed in the schema (they are in `draw_structures`' description only: typing
+- **Done in step 5 (5.5):** the change forms are typed where `draw` lists the compound, and `replace` and `edit` are
+  no longer said to be idempotent. Still left: the evals, which have not been run on `from` and `changes`.
+- **Was left for step 5:** the change forms typed in the schema (they are in `draw_structures`' description only: typing
   them is about 1,500 characters over the 52,000 that `mcp.check.ts` allows, and 936 are left since wave A was
   merged, 15.1); the evals, which
   have not been run on `from` and `changes`; and the idempotent hint of `replace_structure` and `edit`, which is
@@ -357,6 +359,8 @@ That is about one line a compound instead of a 150-character SMILES with stereoc
 
 ### 5.3 Compatibility
 
+Dropped (Sam's answer 6): the v1 names are gone, with no compatibility layer. What follows is the first proposal.
+
 - v1 tool names stay callable for one release. They are not listed, but `tools/call` with an old name still works and
   maps to the new tool. The acceptance script, evals, headless runner and anything a user scripted keep working.
 - `mcp.check.ts` gets a test for each old name mapping to the new one.
@@ -380,6 +384,58 @@ That is about one line a compound instead of a 150-character SMILES with stereoc
 - With `legend: "letters"`, long conditions go into a footnote under the scheme (a, b, c...) with short letters over
   the arrows, as the paper's figures do. That keeps arrows short and rows dense.
 - The reply is a summary: schemes drawn, compounds, warnings, check, and the advice if anything did not fit.
+
+### 5.5 As built (step 5, 11 November 2026, branch `mcp/tools`)
+
+`tools/list` has five tools: `draw`, `change`, `read`, `drawings` and `advanced`. It is 13,824 characters (about
+3,950 tokens at 3.5 characters each), from 59,857 with 26 tools. `set_brief`, `draw_route` and `job` are not built:
+each is one more entry in `TOOLS` (`src/mcp.ts`). There are 176 characters left under the 14,000 that `mcp.check.ts`
+allows, so those three need the limit looked at again, or room found (`draw_route` can take over what `draw` says of
+a reaction).
+
+- **How it is made.** The 26 tools of v1 are the operations (`OPS`), each with its own schema, which every call is
+  still checked against, and its own code, which is as it was. A tool is a name, a short description, the arguments
+  it lists and a `route`: the operation a call is. Nothing an operation does changed.
+  - `draw { kind, ... }`: the kind's operation, with its arguments as they were.
+  - `change { operations: [{ op, ... }] }`: one operation is run as itself, so its result is what its own call gave in
+    v1 (and a `select` alone opens no undo step). More than one are the batch of v1: one undo step, `$1.s[0]` for
+    what an earlier one made, nothing kept when one fails. An operation is `edit`, `replace`, `number`, `delete`,
+    `move`, `arrange`, `text`, `arrow`, `shape` or `select`, and also `draw` (with `kind`), `set_style`,
+    `place_template`, `add_file` or `fill_experiment`, as a batch of v1 could draw and then annotate.
+  - `read`: a read, or with `format` the file's text (`get_file`).
+  - `drawings { action }`: `list`, `use` or `new`. With no action it lists, and the reply says so.
+  - `advanced { tool, args }`: `run_command`, `set_style`, `export`, `place_template`, `add_file`,
+    `fill_experiment`, and `help`.
+- **`advanced` with `help` and `{ of }`** gives the whole description and schema of a kind of `draw`, an operation of
+  `change` or an advanced tool: what v1 listed for that tool. With no `of` it says what it is of. So nothing is
+  undocumented: `run_command`'s catalogue (3,900 characters), every property `edit` takes (8,400), the hints and the
+  molecule of a compound, and a figure's items are read when they are needed, not in every chat.
+- **What is listed.** Each tool lists what a call needs to be right at the first try. `draw` lists every argument of
+  the four kinds at its top level, and the compound once (`$defs`): `text`, `labels`, `from`, `changes` (typed: `swap`,
+  `occurrence`, `at`, `set`, `add`, `remove`, `bond`, `to`), `number` and `caption`. `change` lists `op` and `ids`,
+  and says each operation's main arguments in a line. A tool's own arguments are closed, and an object inside is open,
+  as in v1, so an argument that only help lists passes an AI app that checks a call against the list.
+- **`detail`, `picture` and `picture_size`** are listed on `draw`, `change` and `advanced` (and `read` has its own).
+  `picture_size` was on `batch` and `read_drawing` only.
+- **A refusal by an operation's schema** says where the argument is in the call (`operations[0].ids`, `args.preset`)
+  and ends "advanced help of edit gives its arguments."
+- **Hints.** A tool's hints are made from its operations': read-only and idempotent when every one is, destructive
+  when one is. So only `read` is read-only or idempotent, and `change` and `advanced` are destructive.
+  `outputSchema` is the change's shape for `draw` and `change`, and an object for the other three.
+- **Claude Desktop's bundle.** `mcp.rs` makes no bundle when a tool's description is over 2,000 bytes, and three of
+  the 26 were (`run_command` 3,947, `draw_structures` 2,614, `edit` 2,158), so Settings > AI apps > Claude Desktop >
+  Install failed on this branch. The five are 1,386 at most, and `mcp.check.ts` holds that.
+- **Instructions** are 2,367 characters (2,487). They answer what misled AI apps in the evals (mcp-v2-eval-notes.md): a co-reactant goes in start or over the arrow, amounts go in its text or a caption (or fill_experiment), what each id in made is, and when a picture is needed. The prompts name the new tools.
+- **Judged as an AI app would** (twelve typical jobs, each call written from the list and the instructions alone and
+  run with no window): 11 of 12 were right at the first try. Export was refused only as there is no dialog with no
+  window. A renumbering by compound number (1 to 2, 2 to 3, 3 to 4) was taken and gave wrong numbers: a number that
+  two structures have names the first, with no warning. `change` now says to renumber by id, and the fault itself is
+  left (section 17). Adding a step to a drawn scheme is two calls (a `change` that draws the product, the arrow and
+  its text, then `clean_reaction`), which `change` now says. Every call of the benchmark fits the listed schema as a
+  strict AI app checks it (66 of 66).
+- **Not tried:** the acceptance script and the evals (both need the app). They are on the new names and `node --check`
+  passes. The Rust tests of the relay still send the names `read_drawing` and `draw_structures`, which the relay does
+  not read.
 
 ## 6. Lenient arguments (R5)
 
@@ -577,7 +633,8 @@ Built on 11 November 2026 (the result in `answer`, and `summary`, in `mcp.ts`):
   benchmark cases against the replies before: the same but for the sentence. A batch step's `detail` is the batch's.
   Every tool whose result is a change takes it, but `tools/list` lists it only on `read_drawing`: 23 more copies are
   1,219 characters in every chat, and take the tools past the 52,000 that `mcp.check.ts` allows. The instructions say
-  it in one line ("detail: 'full' on any write call adds all it changed, with boxes"). **A known gap until step 5:**
+  it in one line ("detail: 'full' on any write call adds all it changed, with boxes"). **Closed in step 5 (5.5):**
+  `detail` is listed on `draw`, `change` and `advanced`. **It was a known gap until then:**
   the listed schema of a write tool is closed and has no `detail`, so an AI app that checks its arguments against the
   schema cannot send it. Step 5 lists it on the merged tools. Sam can have it listed sooner (section 16).
 - **`read_drawing`** is a summary by default: each structure's id, number, caption and formula; each reaction as
@@ -664,7 +721,7 @@ this plan and `scripts/mcp-bench/`). **Ask Sam** before rebasing, committing or 
 | 2 | The brief (3): `set_brief`, the refusal, per-session storage, the style from a file, advice on fit | 1 to 2 | Drawing with no brief is refused with the three questions; Quick start by default |
 | 3a | Compounds `from` with `swap`, `set`, `add`, `remove`, map numbers (4.1, 4.2) | 2 to 3 | Taxol route written in v2 form with the same InChIKeys as `structures.json` (done, 19 of 19). The fifth of today's characters was the target here and is not reached: 88% measured (15.1). **For Sam:** take 3a so and move the fifth to 3b and step 4, or hold 3a |
 | 4 | `draw_route` (5.4) | 3 to 5 | Taxol in one call, check clean, no moves |
-| 5 | Tool merge (5.1 to 5.3), `$defs`, instructions (11) | 1 to 2 | `tools/list` under 4,000 tokens; evals pass at least as well as v1 |
+| 5 | Tool merge (5.1 to 5.3), `$defs`, instructions (11) | 1 to 2 | `tools/list` under 4,000 tokens (done: 13,824 characters, 5.5); evals pass at least as well as v1 (not run: they need the app) |
 | 6 | Overlay animation (9) | 0.5 to 1 | Sam likes it; `motion.check.ts` passes |
 | 7 | Elicitation (3.1, 7.3) | 1 to 2 | A test client gets the form and the brief is stored |
 | 8 | Background jobs (8) | 2 to 4 | A 40-compound route returns at once; progress in the overlay |
@@ -712,6 +769,9 @@ benchmark runner should time only the MCP part.
 | Wave A merged: 1, 3a, the layout faults, the dev build and the overlay (11 Nov, `mcp/integrate`) | 59,857 (17,100), 26 tools | 2,487 | taxol-chained | 3 | 0 | 3,887 | 2,411 | 2,140 | 19 of 19 | 40 |
 | | | | taxol-schemes | 3 | 0 | 4,436 | 2,090 | 2,569 | 19 of 19 | 40 |
 | | | | taxol-v1-job | 33 | 0 | 15,490 | 169,663 | 3,867 | 19 of 19 | 9 |
+| 5: the tool merge (11 Nov, `mcp/tools`) | 13,824 (3,950), 5 tools | 2,367 | taxol-chained | 3 | 0 | 3,941 | 2,411 | 2,140 | 19 of 19 | 40 |
+| | | | taxol-schemes | 3 | 0 | 4,490 | 2,090 | 2,569 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 33 | 0 | 16,009 | 169,663 | 3,867 | 19 of 19 | 9 |
 
 - `taxol-chained` is the three schemes of `taxol/route.json`: 9 of its 21 structures are written `from` another (3,
   4, 7, 7 and 13 drawn again, 14, 16, 17, 19). Those nine take 610 characters where they took 1,166 (52%). The whole
@@ -797,6 +857,19 @@ benchmark runner should time only the MCP part.
     merged and 4,042 with step 1 alone at load 7 to 13. The job's two grids, 12 times each at load 27: 334.5 and
     353.9 ms merged, 337.3 and 351.7 with step 1 alone. No slower code was found, and the noise was 2 to 4%. Run
     `--write` once more on a quiet Mac.
+- Step 5, the tool merge. Nothing but what is sent changed: every case has the calls, refused calls, characters read,
+  structures right, warnings and summary it had (the 60 corpus jobs: 225 of 240 right, 1 refused, 162 warnings,
+  30,476 read, 36,631 in the default reads).
+  - Sent is up, as what was the tool's name is now an argument, and the runner counts arguments only. A draw sends
+    15 to 20 more (`"kind":"reaction",`) and its name is 6 to 11 shorter, so it is 9 more to write in all. The 60 jobs
+    send 30,722 (29,662). `taxol-v1-job` sends 16,009 (15,490) in the same 33 calls, and its tool names are 176
+    characters (318): 377 more in all, 11 a call.
+  - Times: `results.json` keeps each case's lower time (62 of the 63 are the times kept before; the Mac's load was
+    10 to 30 through the night). In one process in turn, on one drawing, 3,000 calls each (the quickest, in µs):
+    a move 270.3 before and 271.9 after, a select 55.5 and 56.5, a read 99.0 and 99.0, listing the drawings 2.5 and
+    3.0, a refused call 2.0 and 3.2. Finding a call's operation costs 0.5 to 1.5 µs, which no case shows. The three
+    schemes took 2,807 ms before and 2,720 after (the quickest of 6), a grid of six 7.95 and 7.97. `tools/list`
+    itself is answered in 0.07 ms (0.83): it is made once, not at each call.
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -828,7 +901,7 @@ Open since step 3a (11 November 2026):
 
 From the review of step 1 (11 November 2026). Each has a default that is built, so nothing waits:
 
-1. **`detail` on the write tools is not in `tools/list`** (section 10). Listing it is 53 characters a tool, 1,219 for
+1. **Done in step 5 (5.5).** **`detail` on the write tools is not in `tools/list`** (section 10). Listing it is 53 characters a tool, 1,219 for
    the 23 tools, which takes what an AI app gives its model past the 52,000 check. Three ways: list it and
    find the characters (taking "Add a PNG of what changed" off the 20 write tools and saying it once in the
    instructions gives back 840); raise the limit; or leave it until step 5 merges the tools. Built: left until step 5.
@@ -846,7 +919,7 @@ From the review of step 1 (11 November 2026). Each has a default that is built, 
 
 From the merge of wave A (11 November 2026). Each has a default that is built:
 
-1. **Room under the 52,000 check: 936 characters.** `$defs` is used up (15.1). More room needs one of: open
+1. **Past (step 5, 5.5): the check is 14,000, with 176 left.** **Room under the 52,000 check: 936 characters.** `$defs` is used up (15.1). More room needs one of: open
    objects (`colours`, a change, a batch step's `args`) listed as `{"type": "object"}` with no empty `properties`
    and no `additionalProperties: true`, which means the same in JSON Schema (about 540); the picture argument's
    description said once in the instructions (840, and the instructions grow); or step 5's tool merge. Built: none.
@@ -889,7 +962,11 @@ Left after wave A:
 - A dev build beside the installed Octet on Windows and Linux: the second Octet gives its files to the first and
   ends, so a dev build needs its own identifier there (decision 0021). On every platform the two share recent
   drawings and Home's folders, and the one that saves last drops what the other added.
-- `detail` is not in `tools/list` on the write tools (section 16).
+- A compound number that two structures have names the first of them, in `change` and `read` (found in step 5, 5.5:
+  renumbering 1 to 2, then 2 to 3, changes the first structure twice). `from` refuses such a number. `change` says
+  to renumber by id.
+- A step added to a drawn scheme needs `clean_reaction` after it (5.5). `draw_route` (5.4) is where a scheme that
+  grows belongs.
 - Not tried in the app, as no session could start it on the night of the merge: that what a call made comes into
   view (`mcp/layout`), the overlay in WKWebView (`mcp/overlay`, section 9), and acceptance case 18 against a dev
   build (`mcp/dev`). An AI app set up for a dev build by its address must be given port 47682 and the key in

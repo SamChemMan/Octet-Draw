@@ -81,7 +81,7 @@ fn changed(app: &AppHandle) {
 // The commands that make or show windows are async: on Windows, making a window in a synchronous command (which runs
 // on the main thread) deadlocks, and the app hangs with a white window.
 #[tauri::command]
-// Gives the new window's label, so an AI app's new_drawing goes to the window it opened (two at once each get their own).
+// Gives the new window's label, so an AI app's drawings new goes to the window it opened (two at once each get their own).
 pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<String, String> {
     if start.to_string().len() as u64 > MAX_BYTES + 4096 {
         return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());

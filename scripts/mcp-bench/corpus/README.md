@@ -16,8 +16,8 @@ A file:
     "kind": "S2",                   the job kind in the test plan (S1 to S20, F1 to F10)
     "figure": "Fig. 2a",
     "prompt": "...",                what a chemist would type to an AI app for this job
-    "tool": "draw_reaction",        the tool, and its arguments as an AI app would write them
-    "arguments": { ... },
+    "tool": "draw",                 the tool, and its arguments as an AI app would write them
+    "arguments": { "kind": "reaction", ... },
     "expect": { "smiles": { "3a": "..." } }   each compound number's full structure (no abbreviations)
   }] }
 ```

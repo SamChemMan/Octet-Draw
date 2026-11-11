@@ -76,15 +76,16 @@ export type Host = {
 
 // ---- Arguments: a small JSON Schema the tools list, and the check every call goes through ----
 
-// An object with additionalProperties true takes any keys: its values are checked later (a batch step's arguments,
-// against that step's tool). anyOf: the first form that fits. $ref: a piece that a tool lists once (its $defs) however
-// many places take one: the compound, text that can be runs, and an arrow's end.
+// An object with additionalProperties true takes any keys: its values are checked later (an operation's arguments,
+// against that operation's own schema). anyOf: the first form that fits. $ref: a piece that a schema lists once (its
+// $defs) however many places take one: the compound, text that can be runs, and an arrow's end.
 type ObjSchema = { type: "object"; properties: Record<string, Schema | Prop>; required?: string[]; additionalProperties?: boolean; description?: string };
 type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: number; minItems?: number; description?: string } | { anyOf: (Schema | Prop)[]; description: string } | { $ref: string };
 // The lenient readings (coerce). numeral: a whole number in JSON is read as its text (a compound number); also: other
 // names for an enum's values; default: the value a required argument takes when it is left out.
-// unlisted: an argument tools/list leaves out (detail on a write tool: the instructions say it once, for every tool).
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string };
+// unlisted: an argument a listed schema leaves out (picture and detail on an operation: the tool that runs it lists
+// them).
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string; unlisted?: true };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
 // own: what Octet keeps to itself (tools/list leaves it out): the lenient readings, and unlisted.
 const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
@@ -161,8 +162,9 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
   }
   return v;
 }
-// A call's arguments, read leniently and then checked: what is wrong with them, or undefined.
-const wrongWith = (s: Schema, args: unknown, notes: Notes) => check(s, coerce(s, args, "", notes), "");
+// A call's arguments, read leniently and then checked: what is wrong with them, or undefined. at: where they are in
+// the call (an operation's are at operations[0]).
+const wrongWith = (s: Schema, args: unknown, notes: Notes, at = "") => check(s, coerce(s, args, "", notes), at);
 // Control characters out of text the AI app gives (a line break stays where text takes one).
 const clean = (t: string, lines = false) => t.replace(lines ? /[\u0000-\u0009\u000b-\u001f\u007f]+/g : /[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " ").trim();
 // Text cut to its first characters, for a result to quote.
@@ -174,7 +176,7 @@ const structureText = str(MAX_STRUCTURE, "A name (IUPAC, common, trade or abbrev
 const num = (minimum: number, maximum: number, description?: string): Prop => ({ type: "number", minimum, maximum, ...(description ? { description } : {}) });
 const int = (minimum: number, maximum: number, description?: string): Prop => ({ type: "integer", minimum, maximum, ...(description ? { description } : {}) });
 const yes = (description?: string): Prop => ({ type: "boolean", ...(description ? { description } : {}) });
-// A point [x, y] in bond lengths, y up, as read_drawing gives boxes.
+// A point [x, y] in bond lengths, y up, as a read gives boxes.
 const POINT: Schema = { ...list(num(-1000, 1000), 2, 2), description: "[x, y], bond lengths, y up" };
 // Rich text (F6): runs, each with its own style, as Octet's Text menu sets them on part of a text.
 const RUNS = list(obj({ text: str(2000), bold: yes(), italic: yes(), underline: yes(), colour: str(7), script: pick(["sub", "super"]) }, ["text"]), 100, 1);
@@ -197,15 +199,15 @@ const GEOMETRIES = {
   octahedral: [[90, 0], [270, 0], [150, 6], [210, 1], [30, 6], [330, 1]],
 } as const;
 type Geometry = keyof typeof GEOMETRIES;
-// The hints as a compound takes them (R2), for draw_structures, draw_reaction, draw_cycle and draw_figure.
+// The hints as a compound takes them (R2), in every kind of draw.
 const ORIENT = { up: str(40), down: str(40), left: str(40), right: str(40), rotate: num(-360, 360), flip: pick(["horizontal", "vertical"]), geometry: pick(Object.keys(GEOMETRIES)), colours: { type: "object", properties: {}, additionalProperties: true, description: "{label or element: '#rrggbb'}" }, like: str(40, "Drawn the same way round as this structure (an id such as s3), by the atoms they share") } as const;
 // A compound's changes to the one it is from (compound.ts reads each: a tool's list stays short).
-const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20);
+const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20), LABELS = { ...list(str(40), 20), description: "One for each *, in order" };
 const COMPOUND = define("compound", obj({
   text: structureText,
   molecule: MOLECULE,
-  labels: { ...list(str(40), 20), description: "One for each *, in order" },
-  from: str(40, "With changes: draw_structures says how"), changes: CHANGES,
+  labels: LABELS,
+  from: str(40, "With changes: structures says how"), changes: CHANGES,
   number: numeral(12), caption: str(MAX_TEXT),
   ...ORIENT,
 }));
@@ -232,11 +234,11 @@ const ACTIONS = new RegExp(["^(halo|ringfill|colour)\\.(none|#[0-9a-fA-F]{6})$",
   "^shape\\.(kind\\.(box|rounded|oval|highlight|brackets|parens|braces)|dashed|boldline|depth\\.\\d{1,3}|blur\\.\\d{1,3}|opacity\\.\\d{1,3}|lanes\\.(-1|1|copy)|rf|ticks|transparent|hide\\.(origin|front|border)|spots\\.(filled|hollow|shaded|dashed|bold|doubled)|(row|col)\\.(before|after|delete)|lines\\.(journal|grid|box|none|top|bottom|left|right|header|rows|cols)|align\\.(left|centre|right)|clear|fit|style\\.(plain|dashed|shaded|solid|faded|shadow)|side\\.(left|right|both)|mark\\..{1,12}|colour\\.#[0-9a-fA-F]{6}|front|back)$",
   "^orbital\\.(shape\\.(s|oval|lobe|hybrid|p|d|dz2)|phase\\.(plain|shaded|filled|phased)|swap)$", "^lines\\.weight\\.\\d{1,4}$", "^cycle\\.[a-z.]{1,30}(\\.-?\\d{1,4})?$", "^spot\\.(style\\.[a-z]{1,8}|w\\.\\d{1,4}|h\\.\\d{1,4}|tail\\.\\d{1,4}|rf|delete)$",
   "^grid\\.(limiting|show|layout|remove|hide\\.(row|col))$", "^align\\.(row|column|spread-row)$"].join("|"));
-const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled, arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with add_text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border, shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; grid.limiting|show|layout|remove|hide.row|hide.col; align.row|column|spread-row; reaction.map, reaction.unmap. Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
+const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled, arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with change's text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border, shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; grid.limiting|show|layout|remove|hide.row|hide.col; align.row|column|spread-row; reaction.map, reaction.unmap. Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
 const PURPOSE_PAGES = Object.keys(PAGES) as PageName[];
-// draw_figure (F4): an item in a row, and a panel.
+// A figure (F4): an item in a row, and a panel.
 const ITEM = obj({
-  structure: structureText, molecule: MOLECULE, labels: { ...list(str(40), 20), description: "One for each *, in order" }, from: str(40), changes: CHANGES,
+  structure: structureText, molecule: MOLECULE, labels: LABELS, from: str(40), changes: CHANGES,
   number: numeral(12), caption: RICH, brackets: pick(["brackets", "parens", "braces"]), brackets_bold: yes(), mark: str(12), colour: str(7),
   text: RICH, ...ORIENT,
 });
@@ -247,7 +249,7 @@ const ANCHORS = ["centre", "top_left", "top", "top_right", "left", "right", "bot
 const placing = (point: "at" | "to") => ({ [point]: POINT, anchor: pick(ANCHORS), right_of: str(40), left_of: str(40), below: str(40), above: str(40), gap: num(0, 100), align: pick(["top", "middle", "bottom", "left", "centre", "right"]) });
 const PLACE_AT = define("place", { anyOf: [str(40), POINT], description: "an id (s3, t5, s3.2) or a point [x, y] (each from -1000 to 1000)" });
 // The properties every kind of object takes (R7), as the Actions panel and the Object, Text, Colour and Curves menus
-// set them. edit takes them all; add_text, add_arrow and add_shape take their kind's.
+// set them. edit takes them all; text, arrow and shape take their kind's.
 const COLOUR_OR_NONE = str(7, "#rrggbb, or none");
 const QUERY = obj({ substituents: pick(["free", "upto", "exactly"]), n: int(0, 15), no_h: yes(), rings: pick(["none", "drawn", "simple", "fusion", "spiro"]), unsaturation: pick(["absent", "present"]), change: yes(), stereo: pick(["inversion", "retention"]), valence: yes() });
 const TABLE_IN = obj({ cells: { ...list(list(str(200), 20), 50, 1), description: "Rows; the first is the header" }, lines: pick(["journal", "grid", "box", "none"]), align: list(pick(["left", "centre", "right"]), 20), weight: num(0.1, 10, "pt") });
@@ -269,20 +271,29 @@ const SHAPE_PROPS = {
 } as const;
 const BOX: Schema = { ...list(num(-1000, 1000), 4, 4), description: "[x0, y0, x1, y1], bond lengths, y up" };
 const SIZES = { small: 600, medium: 1000, large: 1568 };
-// A batch (F1): the tools a step can be, at most 40 steps. Not batch itself, the reads, or the tools that change where
-// calls go, open dialogs or run Undo.
-const BATCHABLE = ["draw_structures", "draw_reaction", "draw_cycle", "draw_figure", "add_file", "place_template", "add_text", "add_arrow", "add_shape", "edit", "move", "arrange", "delete", "set_style", "set_number", "replace_structure", "fill_experiment"] as const;
+// What an AI app names inside a tool (plan 5.1): draw's kinds, change's operations and advanced's tools. Each is an
+// operation in OPS, and advanced help gives its whole description and schema.
+const KINDS = ["structures", "reaction", "cycle", "figure"] as const;
+const CHANGE_OPS = ["edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select"] as const;
+const ADVANCED = ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment"] as const;
+// The advanced tools a change can run as an operation, as it can a draw, so that one call draws and then annotates.
+// Not the ones that open dialogs or run Undo.
+const ALSO_OPS = ["set_style", "place_template", "add_file", "fill_experiment"] as const;
+// A batch (F1): a change of more than one operation, at most 40.
+const BATCHABLE = [...KINDS, ...CHANGE_OPS, ...ALSO_OPS] as const;
 const MOST_STEPS = 40;
 const PLACE_NOTE = " Place it with at [x, y] and anchor (the point of its box there; centre by default), or right_of, left_of, below or above an id with gap (1.5) and align. With none, it goes below what is drawn.";
 
-// The one tool table (D11). hints: the annotations, all four said outright (openWorldHint is false for every tool:
-// Octet reaches nothing outside itself). A tool that is not read-only changes the drawing, as one undo step. done:
-// what the user is told the AI app did ("Claude Code drew a reaction."). outputSchema: the shape of the result's
-// structuredContent (D9): CHANGE for every tool that changes something.
+// The one table of operations (D11): what a call does. An AI app reaches each through one of the five tools it is
+// given (TOOLS, below), which are short to list. title and description are what advanced help gives for it (none
+// where the tool itself says all of it, or an AI app cannot name the operation). hints: what a tool's annotations
+// are made from. An operation that is not read-only changes the drawing, as one undo step. done: what the user is
+// told the AI app did ("Claude Code drew a reaction."). outputSchema: the shape of the result's structuredContent
+// (D9): CHANGE for every operation that changes something.
 type Hints = { readOnly: boolean; destructive: boolean; idempotent: boolean };
-// place: the tool takes placement (F3), done for it after it draws.
+// place: the operation takes placement (F3), done for it after it draws.
 // refuse: what is wrong with the arguments beyond their schema, checked before the call begins (no undo step opens).
-type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; outputSchema?: object; hints: Hints; done?: string; place?: true; refuse?: (a: any) => string | undefined; run: (host: Host, a: any, ctx: Ctx) => Promise<Result> };
+type Op = { name: string; title?: string; description?: string; inputSchema: ObjSchema; outputSchema?: object; hints: Hints; done?: string; place?: true; refuse?: (a: any) => string | undefined; run: (host: Host, a: any, ctx: Ctx) => Promise<Result> };
 // data: what goes in structuredContent with the change's ids (a write tool) or alone (a read tool).
 // extra: what detail: full adds to it (R6), worked out only then: Octet's name for each compound takes time.
 // picture: add a PNG of `of` (or the drawing), cropped to `crop`, its long side at most `longest` px. cropped: a picture
@@ -301,38 +312,38 @@ const CHANGE_SAFE: Hints = { readOnly: false, destructive: true, idempotent: tru
 const ids = { type: "array", items: { type: "string" } };
 // What every write tool's structuredContent holds (D9, R6): what was done, the ids of the top-level objects made, the
 // chemical warnings the call caused and Octet's check of the layout.
-// (Kept short: every write tool lists it. The boxes are in it too, unlisted, and all that detail: full adds: the
+// (Kept short: draw and change list it. The boxes are in it too, unlisted, and all that detail: full adds: the
 // drawing, every id made, changed and deleted, Octet's reading of each name given, and the layout's warnings.)
 const CHANGE = { type: "object", required: ["done", "made", "warnings", "check"], properties: { made: ids, warnings: ids } };
-// detail on a read, and on every tool that changes the drawing: short unless full is asked for (R6).
+// detail on a read, and on every operation whose result is a change: short unless full is asked for (R6).
 const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also: { short: "summary", brief: "summary" }, ...(unlisted && { unlisted }) });
+const PICTURE_SIZE = Object.keys(SIZES), PURPOSES = ["paper", "thesis", "slides", "poster", "experiment", "quick"];
 const DRAWINGS = { type: "object", required: ["using", "drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
 const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
-const TOOLS: Tool[] = [
+const OPS: Op[] = [
   {
-    name: "read_drawing", title: "Read the drawing", hints: READ, outputSchema: READING,
-    description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids for edit. picture adds a PNG. Write results already give boxes and a layout check, so you seldom need to read.",
-    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: detail(), smiles: yes(), atoms: yes("List each structure's atoms (ids such as s3.2, with element, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
+    name: "read", hints: READ, outputSchema: READING,
+    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(PICTURE_SIZE, "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: detail(), smiles: yes(), atoms: yes("List each structure's atoms (ids such as s3.2, with label, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
     // One snapshot (D3): the JSON and the picture are of the same drawing.
     run: async (host, a) => {
       await host.ready();
       // An atom or bond id (s3.2, s3.1-2) reads its structure.
       const m = host.doc(), only = a.ids?.length ? (a.ids as string[]).map((id) => (bondOf(m, id, host) ?? atomOf(m, id, host)) === undefined ? id : id.replace(/\.[\d-]+(?::pair)?$/, "")) : undefined;
-      if (only) { const { unknown } = idsOf(host, m, only); if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing without ids for every id.`, error: true }; }
+      if (only) { const { unknown } = idsOf(host, m, only); if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read without ids for every id.`, error: true }; }
       const data = summary(host, m, a.detail === "full", !!a.atoms, only, !!a.smiles);
       return { text: JSON.stringify(data), picture: !!a.picture, data, of: m, crop: only && boxOfIds(host, m, only, 1), longest: SIZES[(a.picture_size ?? "medium") as keyof typeof SIZES] };
     },
   },
   {
-    name: "draw_structures", title: "Draw structures", hints: ADD, outputSchema: CHANGE, done: "drew structures",
-    description: "Draws structures (a name, CAS number, SMILES, InChI or MOL file) in a numbered grid below what is drawn (one row for 6 or fewer, unless columns is set). Give the name when you know it. Each takes number (bold, under it) and caption (text under the number). For a generic group (L, R, Ar), give a SMILES with * and labels ('*c1ccccc1', ['Ar']). To match a picture, every compound in every draw tool takes: up, down, left or right, an atom that points that way (a label, an element, or #n for the n-th atom of the SMILES, from 0; a second one sets which way round), rotate (degrees, anticlockwise) and flip; geometry, which puts the ligands of the atom with most bonds at fixed places in SMILES order (octahedral: up, down, upper left behind, lower left in front, upper right behind, lower right in front; tetrahedral: up, lower left, right behind, lower right in front; square_planar: up, right, down, left; trigonal_bipyramidal: up, down, left, upper right behind, lower right in front; square_pyramidal: up, upper left behind, lower left in front, upper right behind, lower right in front); and colours for labels ({OSiPh3: '#E0352B', N: '#2B3FE0'}). " + FROM_NOTE + ". Use molecule only when the hints cannot match the picture (a chelate ring, a cage): " + MOLECULE_NOTE + "." + PLACE_NOTE,
+    name: "structures", title: "Draw structures", hints: ADD, outputSchema: CHANGE, done: "drew structures",
+    description: "Draws structures (a name, CAS number, SMILES, InChI or MOL file) in a numbered grid below what is drawn (one row for 6 or fewer, unless columns is set). Give the name when you know it. Each takes number (bold, under it) and caption (text under the number). For a generic group (L, R, Ar), give a SMILES with * and labels ('*c1ccccc1', ['Ar']). To match a picture, every compound of every kind takes: up, down, left or right, an atom that points that way (a label, an element, or #n for the n-th atom of the SMILES, from 0; a second one sets which way round), rotate (degrees, anticlockwise) and flip; geometry, which puts the ligands of the atom with most bonds at fixed places in SMILES order (octahedral: up, down, upper left behind, lower left in front, upper right behind, lower right in front; tetrahedral: up, lower left, right behind, lower right in front; square_planar: up, right, down, left; trigonal_bipyramidal: up, down, left, upper right behind, lower right in front; square_pyramidal: up, upper left behind, lower left in front, upper right behind, lower right in front); and colours for labels ({OSiPh3: '#E0352B', N: '#2B3FE0'}). " + FROM_NOTE + ". Use molecule only when the hints cannot match the picture (a chelate ring, a cage): " + MOLECULE_NOTE + "." + PLACE_NOTE,
     inputSchema: obj({ structures: list(COMPOUND, MOST_STRUCTURES, 1), columns: int(1, 20), ...placing("at") }, ["structures"]),
     run: drawStructures, place: true,
   },
   {
-    name: "draw_reaction", title: "Draw a reaction or scheme", hints: ADD, outputSchema: CHANGE, done: "drew a reaction",
-    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'; 'structure:' before a name draws it over the arrow). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, from with changes, number, caption and the hints draw_structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
+    name: "reaction", title: "Draw a reaction or scheme", hints: ADD, outputSchema: CHANGE, done: "drew a reaction",
+    description: "Draws a reaction or a scheme in a row: starting materials, then for each step an arrow, its conditions and its products. Give conditions as data: reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield. above and below add one line each ('1. n-BuLi, THF, -78 °C'; 'structure:' before a name draws it over the arrow). Octet lays it out with Clean Up Reaction and wraps between steps to fit the page, so keep lines short. Each compound takes labels, from with changes, number, caption and the hints structures lists. Example: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]." + PLACE_NOTE,
     inputSchema: obj({
       start: list(COMPOUND, 6, 1),
       steps: list(obj({
@@ -347,8 +358,8 @@ const TOOLS: Tool[] = [
     run: drawReaction, place: true,
   },
   {
-    name: "draw_cycle", title: "Draw a catalytic cycle", hints: ADD, outputSchema: CHANGE, done: "drew a catalytic cycle",
-    description: "Draws a catalytic cycle: the intermediates round a circle joined by arc arrows, centre text in the middle, and side arrows for what goes in and out. Step k (from 0) runs from intermediate k to k+1, the last back to the first. For a ligand L, give '*[Pd]*' with labels ['L', 'L']. Keep step names short (OA, TM, RE) on a small cycle; \n starts a second line. After changing an intermediate, select the cycle and run clean_up. Each compound takes from with changes and the hints draw_structures lists." + PLACE_NOTE,
+    name: "cycle", title: "Draw a catalytic cycle", hints: ADD, outputSchema: CHANGE, done: "drew a catalytic cycle",
+    description: "Draws a catalytic cycle: the intermediates round a circle joined by arc arrows, centre text in the middle, and side arrows for what goes in and out. Step k (from 0) runs from intermediate k to k+1, the last back to the first. For a ligand L, give '*[Pd]*' with labels ['L', 'L']. Keep step names short (OA, TM, RE) on a small cycle; \n starts a second line. After changing an intermediate, select the cycle and run clean_up. Each compound takes from with changes and the hints structures lists." + PLACE_NOTE,
     inputSchema: obj({
       intermediates: list(COMPOUND, 12, 2),
       centre: str(MAX_TEXT),
@@ -359,7 +370,7 @@ const TOOLS: Tool[] = [
     run: drawCycle, place: true,
   },
   {
-    name: "replace_structure", title: "Replace a structure", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "replaced a structure",
+    name: "replace", title: "Replace a structure", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "replaced a structure",
     description: "Replaces a structure (its id) with another (text, or a compound's from and changes; changes alone change it) in the same place, keeping its number and caption. The new one has a new id.",
     inputSchema: obj({ structure: str(12), text: structureText, from: str(40), changes: CHANGES }, ["structure"]),
     run: replaceStructure,
@@ -371,7 +382,7 @@ const TOOLS: Tool[] = [
     run: remove,
   },
   {
-    name: "add_text", title: "Add text", hints: ADD, outputSchema: CHANGE, done: "added text",
+    name: "text", title: "Add text", hints: ADD, outputSchema: CHANGE, done: "added text",
     description: "Adds text (a title, caption or note), or with id replaces a caption's text. size (pt), font, bold, italic, underline, colour and text_align set it all; runs style parts (bold, italic, colour, sub, super); plain text gets chemistry formatting (H2SO4). arrow (a7) with side puts it on that arrow as its conditions, as Add conditions above or below do: Octet centres it on the arrow, it moves with the arrow, and Clean Up Reaction lays it out. width wraps lines to it (bond lengths); line_height is auto, variable or pt; angle turns it (degrees, anticlockwise)." + PLACE_NOTE,
     inputSchema: obj({ text: str(2000), runs: RUNS, id: str(12), ...TEXT_STYLE, text_align: pick(["left", "centre", "right", "justify"]), width: num(0.5, 300), line_height: LINE_HEIGHT, angle: num(-360, 360), arrow: str(12), side: pick(["above", "below"]), ...placing("at") }),
     run: addText, place: true,
@@ -410,9 +421,8 @@ const TOOLS: Tool[] = [
     run: placeTemplate, place: true,
   },
   {
-    name: "new_drawing", title: "New drawing", hints: ADD, outputSchema: CHANGE, done: "opened a new drawing",
-    description: "Opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it. Later calls go to it (use_drawing goes back).",
-    inputSchema: obj({ for: pick(["paper", "thesis", "slides", "poster", "experiment", "quick"], undefined, { default: "quick" }) }, ["for"]),
+    name: "new", hints: ADD, outputSchema: CHANGE, done: "opened a new drawing",
+    inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }) }, ["for"]),
     run: newDrawing,
   },
   {
@@ -422,16 +432,14 @@ const TOOLS: Tool[] = [
     run: async (host, a) => (host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
   },
   {
-    name: "list_drawings", title: "Octet's drawings", hints: READ, outputSchema: DRAWINGS,
-    description: "Lists the open drawings (id, title, unsaved changes) and which one this session uses.",
+    name: "list", hints: READ, outputSchema: DRAWINGS,
     inputSchema: obj({}),
     run: async (host) => { const data = { using: host.window().id, drawings: (await host.windows()).map((w) => ({ id: w.id, title: w.name, edited: w.edited })) }; return { text: JSON.stringify(data, null, 1), data }; },
   },
   {
-    name: "use_drawing", title: "Work in a drawing", hints: READ, outputSchema: CHANGE,
-    description: "Sends this session's calls to that drawing (an id from list_drawings). Its window does not come to the front.",
+    name: "use", hints: READ, outputSchema: CHANGE,
     inputSchema: obj({ drawing: str(40) }, ["drawing"]),
-    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.` } : { text: `There is no drawing ${a.drawing}. Call list_drawings for the ids.`, error: true }),
+    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.` } : { text: `There is no drawing ${a.drawing}. Call drawings for the ids.`, error: true }),
   },
   {
     name: "move", title: "Move", hints: ADD, outputSchema: CHANGE, done: "moved part of the drawing",
@@ -440,7 +448,7 @@ const TOOLS: Tool[] = [
     run: move,
   },
   {
-    name: "set_number", title: "Compound number", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "numbered a compound",
+    name: "number", title: "Compound number", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "numbered a compound",
     description: "Sets a structure's number (bold, under it); an empty number takes it away.",
     inputSchema: obj({ structure: str(12), number: numeral(12) }, ["structure", "number"]),
     run: setNumber,
@@ -452,14 +460,13 @@ const TOOLS: Tool[] = [
     run: arrange,
   },
   {
-    name: "get_file", title: "Drawing as file text", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
-    description: "Gives the drawing, or the ids, as a file's text: CDXML, MOL (V3000; mol2000 for V2000), SDF, RXN, SMILES, InChI, or CDX as base64. Nothing is saved.",
-    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles" } }), ids: list(str(40), 500) }, ["format"]),
+    name: "file", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
+    inputSchema: obj({ format: pick(FILE_FORMATS, "The drawing as this file's text, in place of the reading", { also: { smi: "smiles" } }), ids: list(str(40), 500) }, ["format"]),
     run: getFile,
   },
   {
-    name: "edit", title: "Change objects", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed part of the drawing",
-    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read_drawing with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
+    name: "edit", title: "Change objects", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "changed part of the drawing",
+    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
     inputSchema: obj({
       ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: numeral(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), query: QUERY,
       bond: pick(Object.keys(BONDS)), position: pick(["left", "centre", "right", "auto"]), spacing: num(1, 100), topology: pick(["ring", "chain", "either", "none"]), reaction_centre: pick(["centre", "makebreak", "change", "makechange", "not", "nochange", "unmapped", "none"]), bond_query: pick(["any", "sd", "sa", "da", "none"]),
@@ -471,13 +478,13 @@ const TOOLS: Tool[] = [
     run: edit,
   },
   {
-    name: "add_arrow", title: "Add an arrow", hints: ADD, outputSchema: CHANGE, done: "drew an arrow",
-    description: "Draws one arrow, line, orbital or fragmentation cut. curved and fishhook push electrons from an atom (s3.2), a lone pair (s3.2:pair) or a bond (s3.1-2) to an atom or bond; bend sets the bow (0.3; below 0 bows the other way). Other kinds go between two ids or points [x, y] (a line from [-10, 0] to [10, 0] divides a figure). An orbital goes from its nucleus (an atom) to the tip of its main lobe, with orbital_shape and orbital_phase. style, start, end, head, head_size, ratio, shaft, line_width, fill and colour are as edit takes them. For a reaction, use draw_reaction.",
+    name: "arrow", title: "Add an arrow", hints: ADD, outputSchema: CHANGE, done: "drew an arrow",
+    description: "Draws one arrow, line, orbital or fragmentation cut. curved and fishhook push electrons from an atom (s3.2), a lone pair (s3.2:pair) or a bond (s3.1-2) to an atom or bond; bend sets the bow (0.3; below 0 bows the other way). Other kinds go between two ids or points [x, y] (a line from [-10, 0] to [10, 0] divides a figure). An orbital goes from its nucleus (an atom) to the tip of its main lobe, with orbital_shape and orbital_phase. style, start, end, head, head_size, ratio, shaft, line_width, fill and colour are as edit takes them. For a reaction, use draw.",
     inputSchema: obj({ ...ARROW_PROPS, from: PLACE_AT, to: PLACE_AT, colour: str(7) }, ["kind", "from", "to"]),
     run: addArrowTool,
   },
   {
-    name: "add_shape", title: "Add a shape", hints: ADD, outputSchema: CHANGE, done: "drew a shape",
+    name: "shape", title: "Add a shape", hints: ADD, outputSchema: CHANGE, done: "drew a shape",
     description: "Draws a frame or panel: a box, rounded box, oval, highlight (a pale panel behind a whole region), brackets, TLC plate, table or picture round the ids. Not for highlighting atoms or groups: that is edit with highlight (Octet's Highlight). It goes round the ids (pad 0.5 bond lengths, 0.3 for brackets; an atom id such as s3.2 is its label), or at a box [x0, y0, x1, y1]. dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, mark (‡, n, 2+ on brackets), radius, line_width, bracket_side, usage, bracket_label, colour, table (cells, lines, align), tlc (lanes, spots) and png (base64) are as edit takes them. angle turns it (degrees, anticlockwise).",
     inputSchema: obj({ kind: pick(["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"]), around: list(str(40), 200, 1), box: BOX, pad: num(0, 20), angle: num(-360, 360), colour: str(7), ...SHAPE_PROPS }, ["kind"]),
     run: addShapeTool,
@@ -486,36 +493,151 @@ const TOOLS: Tool[] = [
     name: "run_command", title: "Run an Octet command", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "ran a command",
     description: COMMAND_NOTE,
     inputSchema: obj({ command: str(80), ids: { ...list(str(40), 500), description: "Selected first, so the command acts on them (an empty list clears the selection)" } }, ["command"]),
-    refuse: (a) => (knownCommand(a.command) ? undefined : `Octet has no command ${String(a.command).trim().slice(0, 40)}. run_command's description lists them`),
+    refuse: (a) => (knownCommand(a.command) ? undefined : `Octet has no command ${String(a.command).trim().slice(0, 40)}. advanced help of run_command lists them`),
     run: runCommand,
   },
   {
-    name: "draw_figure", title: "Draw a figure", hints: ADD, outputSchema: CHANGE, done: "drew a figure",
-    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule; or from with changes) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. detail: full gives each part's id by place. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
+    name: "figure", title: "Draw a figure", hints: ADD, outputSchema: CHANGE, done: "drew a figure",
+    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints structures lists; or a molecule; or from with changes) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. detail: full gives each part's id by place. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
     inputSchema: obj({ panels: list(PANEL, 8, 1), number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true, description: "{O: '#C42B2B', OSiPh3: '#E0352B'}" }, width: num(5, 300, "Bond lengths; by default the page inside its margins (about 35 on A4 in ACS style)"), ...placing("at") }, ["panels"]),
     run: drawFigure, place: true,
   },
   {
-    name: "batch", title: "Make several changes at once", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "made several changes",
-    description: `Runs a list of changes as one call and one undo step. Each step is a tool (${BATCHABLE.join(", ")}) with its arguments. A step can name what an earlier one made: '$1.s[0]' is step 1's first structure (s structures, t text, a arrows, b shapes, c cycles, in the order made; '$1.s' or '$1.made' in a list is all of them). It stops at the first step that fails, puts the drawing back and says why. Example: steps [{tool:'draw_structures', args:{structures:[{text:'benzene'}]}}, {tool:'add_text', args:{text:'Figure 1', below:'$1.s[0]'}}].`,
-    inputSchema: obj({ steps: list(obj({ tool: pick(BATCHABLE), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" } }, ["tool", "args"]), MOST_STEPS, 1), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 or 1568 px (800 by default)") }, ["steps"]),
+    // A change of more than one operation.
+    name: "batch", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "made several changes",
+    inputSchema: obj({ steps: list(obj({ tool: pick(BATCHABLE), args: { type: "object", properties: {}, additionalProperties: true } }, ["tool", "args"]), MOST_STEPS, 1) }, ["steps"]),
     run: (host, a, ctx) => batch(host, a, ctx),
   },
+  {
+    // advanced help: an operation's whole description and schema, which the five tools are too short to hold.
+    name: "help", hints: READ,
+    inputSchema: obj({ of: str(40) }),
+    run: async (_, a) => {
+      const of = clean(a.of ?? "").toLowerCase(), t = HELP.includes(of) ? opOf(of) : undefined;
+      if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}) or a tool of advanced (${ADVANCED.join(", ")}).`, ...(of ? { error: true as const } : {}) };
+      const call = KINDS.includes(of as never) ? `draw with kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
+      const data = { of, call, does: t.title, description: t.description, arguments: whole(t.inputSchema) };
+      return { text: JSON.stringify(data), data };
+    },
+  },
 ];
-// Every tool that changes the drawing takes picture: true, for a picture of what it made or changed (F2).
-for (const t of TOOLS) if (!t.hints.readOnly && t.inputSchema.type === "object") t.inputSchema.properties.picture ??= yes("Add a PNG of what changed");
-// Every tool whose result is a change takes detail: full, for all the result's data (R6). tools/list does not list
-// it: 23 copies are 1,200 characters in every chat, and the instructions say it in one line.
-for (const t of TOOLS) if (t.outputSchema === CHANGE) t.inputSchema.properties.detail ??= detail(true);
+// Every operation that changes the drawing takes picture: true, for a picture of what it made or changed (F2), with
+// picture_size; every one whose result is a change takes detail: full, for all the result's data (R6). The tool that
+// runs the operation lists them, so the operation's own schema (advanced help) does not.
+for (const t of OPS) {
+  if (!t.hints.readOnly) Object.assign(t.inputSchema.properties, { picture: { type: "boolean", unlisted: true }, picture_size: pick(PICTURE_SIZE, undefined, { unlisted: true }) });
+  if (t.outputSchema === CHANGE) t.inputSchema.properties.detail ??= detail(true);
+}
+
+// ---- The five tools an AI app is given (plan 5.1 and 5.2) ----
+
+// tools/list is read at the start of every chat, so it is short: under 14,000 characters (the 26 tools of v1 were
+// 59,900). Each tool lists what an AI app needs to call it right at the first try, and advanced help gives the rest.
+// inputSchema: the arguments as listed (defs: its $defs). A call is checked against its operation's own schema.
+// ops: the operations the tool runs: its annotations and outputSchema are made from theirs.
+// route: the operation a call is, with that operation's arguments and where they are in the call (at); or what is
+// wrong with the call.
+type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; route: (a: any, notes: Notes) => { op: string; args: any; at?: string } | string };
+const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
+const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED];
+// The values an operation's argument takes, for a tool's description to list.
+const values = (op: string, key: string) => (opOf(op).inputSchema.properties[key] as { enum: readonly string[] }).enum.join(", ");
+const open = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ ...obj(properties, required), additionalProperties: true });
+// What a tool that changes the drawing takes for its result.
+const REPLY = { picture: yes("Add a PNG of what changed"), picture_size: pick(PICTURE_SIZE), detail: detail() };
+// The compound as draw lists it: what most calls give. Its hints and molecule are in advanced help.
+const LISTED_COMPOUND: Schema = { ...obj({
+  text: structureText, labels: LABELS,
+  from: str(40, "The earlier compound this one is, with changes: its number, its id, or previous (the one before in this call)"),
+  changes: { ...list(obj({ swap: { type: "object", properties: {}, additionalProperties: true }, occurrence: int(1, 99), at: str(40), set: str(40), add: str(40), remove: yes(), bond: str(40), to: pick(["single", "double", "triple"]) }), 20), description: "Made in order on from's drawing, so it lies the same way and keeps its stereocentres. Each is one of: {swap: {OBn: 'OTES'}}, a group for a group (occurrence: 2 for the second such group); {at: '7', set: 'OTBS'}, a new group for the one on an atom; {at, add: 'OH'}; {at, remove: true}; {bond: '5-6', to: 'double'}. A group is a label (OTBS, CH2OH, =O). at is a map number you gave the atom in a SMILES, with its hydrogens ([C@H:7]). Give text instead when a ring is made or broken, or a new stereocentre is set" },
+  number: numeral(12), caption: str(MAX_TEXT),
+}), description: "text, or from with changes. number is bold under it, caption under the number" };
+const COMPOUNDS = list({ $ref: "#/$defs/compound" }, MOST_STRUCTURES), TEXTS = list(str(MAX_TEXT), 10);
+const KIND = open({ kind: pick(KINDS) }, ["kind"]);
+// (A tool's description is 2,000 characters at most: mcp.rs puts it in Claude Desktop's bundle, which takes no more.
+// So what each operation takes is said on the argument.)
+const OPERATIONS = obj({ operations: { ...list(open({ op: pick(["draw", ...CHANGE_OPS, ...ALSO_OPS]), ids: list(str(40), 500) }, ["op"]), MOST_STEPS, 1), description: `Each is an op with its arguments beside it.
+edit: ids, and any property of what they name. Everything: colour, highlight (#rrggbb or none: Octet's Highlight behind an atom, a bond, or all of a structure), rotate, scale. An atom: label, charge, isotope, radical. A bond: bond (single, double, triple, wedge, hashwedge and more). A structure: structure (a name or SMILES, in place), changes, number, flip, ring_fill. Text: text, bold, italic, size, font. An arrow: kind, style, head. A shape: fill, dashed.
+replace: structure (its id), and text, or changes as a compound's. It keeps its place, number and caption, and gets a new id.
+number: structure, number ('' takes it away). To renumber several, name each by its id: a number names the first structure that has it.
+delete: ids.
+move: ids, and dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above an id with gap and align.
+arrange: ids, how (${values("arrange", "how")}).
+text: text, with bold, italic, size, colour. Place it as move does (below: 's3'), or give arrow (a7) with side (above, below) to make it that arrow's conditions. id replaces a caption's text.
+arrow: kind (${values("arrow", "kind")}), from and to (each an id or [x, y]). To add a step to a scheme: draw its product right_of the last one, then a reaction arrow between them and text on that arrow; advanced run_command clean_reaction then lays the scheme out.
+shape: kind (${values("shape", "kind")}), around (ids) or box [x0, y0, x1, y1].
+select: ids, for advanced run_command.
+Also ops, each with its own arguments beside op: draw (with kind), ${ALSO_OPS.join(", ")}.` }, ...REPLY }, ["operations"]);
+const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
+const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given") }, ["action"]);
+const TOOLS: Tool[] = [
+  {
+    name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND },
+    description: "Draws new work in one call and one undo step. Octet lays it out, below what is drawn unless you place it. kind is structures, a numbered grid (columns sets how many across); reaction, a reaction or a whole scheme in a row: start, then for each of steps an arrow, its conditions and its products (Octet wraps it between steps to fit the page); cycle, a catalytic cycle: intermediates round a circle, centre text, and steps for step names and what goes in and out; or figure, panels of rows of items. Give a compound's name when you know it, else a SMILES. For a generic group (R, Ar, L) give a SMILES with * and labels ('*c1ccccc1', ['Ar']). Example, a reaction: start [{text:'acetic acid'},{text:'ethanol'}], steps [{reagents:['H2SO4 (cat.)'], temperature:'reflux', yield:'90%', products:[{text:'ethyl acetate', number:'1'}]}]. Place it with at [x, y] and anchor (the point of its box there), or right_of, left_of, below or above an id with gap and align. advanced help of a kind gives the rest: hints that turn a compound as a picture shows it, a molecule atom by atom, and a figure's items.",
+    inputSchema: obj({
+      kind: pick(KINDS),
+      structures: COMPOUNDS, columns: int(1, 20),
+      start: COMPOUNDS,
+      steps: { ...list(obj({
+        products: COMPOUNDS, arrow: pick(ARROWS), reagents: TEXTS, catalysts: TEXTS, solvents: TEXTS, temperature: str(60), time: str(60), atmosphere: str(40), yield: str(40), above: TEXTS, below: TEXTS,
+        step: int(0, 11), name: str(MAX_TEXT), in: str(MAX_TEXT), out: str(MAX_TEXT),
+      }), 20), description: "A reaction's steps: each has products, and its conditions as data (reagents, then catalysts, go over the arrow; solvents, temperature, time and atmosphere under it, then the yield; above and below add one free line each). A cycle's steps: step k (from 0) runs from intermediate k to k+1, the last back to the first, and takes a short name (OA, TM, RE), in and out" },
+      keep_orientation: yes("A reaction: false stops Octet turning each product to lie as its starting material"),
+      intermediates: COMPOUNDS, centre: str(MAX_TEXT), anticlockwise: yes(),
+      panels: { ...list(obj({ frame: pick(["none", "line", "fill"]), rows: list(list({ type: "object", properties: {}, additionalProperties: true }, 8), 6) }), 8), description: "A figure's panels, each with title, subtitle and rows of items. An item is a compound with structure in place of text (and brackets, mark, colour), or text alone" },
+      number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true }, width: num(5, 300),
+      ...placing("at"), ...REPLY,
+    }, ["kind"]),
+    route: (a, notes) => wrongWith(KIND, a, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(a),
+  },
+  {
+    name: "change", title: "Change the drawing", ops: [...BATCHABLE, "batch"],
+    description: `Changes the drawing with a list of operations, done in order as one undo step. If one fails, none is kept. Ids come from results and from read: a structure is s3 or its compound number, an atom s3.2 (the second atom as you gave it), a bond s3.1-2, text t5, an arrow a7, a shape b2, a cycle c1. An operation can name what an earlier one made: '$1.s[0]' is the first structure of operation 1 (s structures, t text, a arrows, b shapes, c cycles; '$1.made' is all it made). advanced help of an op gives all its arguments.`,
+    inputSchema: OPERATIONS,
+    route: (a, notes) => {
+      const wrong = wrongWith(OPERATIONS, a, notes);
+      if (wrong) return wrong;
+      // A draw is its kind's operation. One operation is run as itself, so its result is as its own call's.
+      const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [];
+      for (const [k, { op, ...args }] of (operations as any[]).entries()) {
+        const no = op === "draw" ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
+        if (no) return no;
+        const { kind, ...rest } = args;
+        steps.push(op === "draw" ? { tool: kind, args: rest } : { tool: op, args });
+      }
+      return steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" };
+    },
+  },
+  {
+    name: "read", title: "Read the drawing", ops: ["read", "file"],
+    description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids, for change. picture adds a PNG. format gives the drawing (or the ids) as a file's text instead: CDXML, MOL (V3000; mol2000 is V2000), SDF, RXN, SMILES, InChI, or CDX as base64. Nothing is saved. Results of draw and change already give ids, boxes and a layout check, so you seldom need to read.",
+    inputSchema: obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties }),
+    route: (a) => ({ op: "format" in a ? "file" : "read", args: a }),
+  },
+  {
+    name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new"],
+    description: "Octet's open drawings. list gives each one's id, title and unsaved changes, and the one this session uses. use sends this session's calls to drawing; its window does not come to the front. new opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it, and later calls go to it.",
+    inputSchema: DRAWINGS_IN,
+    route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args }))(a),
+  },
+  {
+    name: "advanced", title: "Other tools, and help", ops: [...ADVANCED, "help"],
+    description: `Octet's other tools, each with its args. run_command {command, ids}: any menu command or Actions panel action, on the ids or the selection: clean_up, clean_reaction, flip_h, colour_by_element, check_structure, undo, scale.120, halo.#rrggbb and the rest, which help lists. set_style {preset, page, landscape, page_size [w, h] in mm}: the document's style and page. Octet redraws everything in it, and the result's check names what no longer fits. Presets: ${Object.keys(PRESETS).join("; ")}. Pages: ${values("set_style", "page")}. export {format}: opens Octet's Export dialog on ${values("export", "format")}. The user chooses where to save: Octet never saves a file for an AI app. place_template {name, set, on}: a library template (ATP, ferrocene, Round-bottom flask). add_file {text}: a drawing from file text (CDXML, MOL, SDF, RXN, SMILES, InChI). fill_experiment {details, amounts}: an experiment page's details and reagent table. help {of}: the whole description and schema of one of these, of a kind of draw (${KINDS.join(", ")}) or of an operation of change.`,
+    inputSchema: ADVANCED_IN,
+    route: (a, notes) => wrongWith(ADVANCED_IN, a, notes) ?? (({ tool, args, ...reply }) => ({ op: tool, args: { ...args, ...reply }, at: "args" }))(a),
+  },
+];
 
 const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in the user's open drawing with Octet's own commands, and read it back.
-- Work in few calls: each call costs the user a wait. Plan the whole drawing first, then draw it in one call: draw_reaction for a scheme, draw_cycle for a catalytic cycle, draw_structures for a list, draw_figure for a figure of panels, and batch for anything else or for several changes at once.
-- Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. When a compound is an earlier one with a change, give from and changes (draw_structures says how). To match a picture, add hints to the SMILES instead of writing coordinates: a label for each * (labels), up, down, left or right (an atom that points that way), rotate, flip, geometry for a metal centre, and colours. Example, an octahedral complex: {structure: '*(*)(*)(N#CC)(N#CC)(*)*', labels: ['MIV', 'OSiPh3', 'OSiPh3', 'OSiPh3', 'OSiPh3'], geometry: 'octahedral'}. Give a molecule with coordinates only for what the hints cannot draw, such as a ring through a metal (a chelate) or a cage.
-- Every write result gives the ids and boxes of what it made (a number, conditions and a cycle's text move with what they belong to) and Octet's new warnings. Use them to place the next thing (right_of, below, at), with no read in between. detail: 'full' on any write call adds all it changed, with boxes.
-- Every write result has check: "clean" when nothing in the drawing overlaps, runs off the page, lies on a bond or across a shape's edge, and no two labels meet; else the ids (an atom s3.2 is the second atom as you gave it; move, edit and delete take atom ids). Fix every id it names: none is a near miss to leave. Clean means no boxes meet. It does not mean the drawing reads well, so for a figure look at it before you say it is done: read_drawing with picture and the ids of each part (a whole page in one picture is too small to show a crowded label), then make every fix in one batch.
-- To highlight an atom, a bond, a group or a structure, use edit with highlight (Octet's Highlight: a pale disc behind the label, a band behind the bond), or ring_fill for a ring. Never draw an oval, box or dot for a highlight: a shape is a frame or a panel, not a highlight.
+- Work in few calls: each call costs the user a wait. Plan the whole drawing first, then draw it in one call: draw with kind reaction for a scheme, cycle for a catalytic cycle, structures for a grid, figure for a figure of panels. Make all your fixes in one change.
+- Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. Write a compound that is an earlier one with a change as from and changes.
+- In a reaction, put a co-reactant in start (Octet draws the +) or over the arrow, as the source does ('structure: Boc2O' in above draws it). Amounts go in that text ('Et3N (1.5 equiv)') or a caption. An experiment page's reagent table takes them through advanced fill_experiment.
+- Trust Octet's layout. Every result of draw and change gives the ids and boxes of what it made (s structures, t text and each +, a arrows, b shapes, c cycles; a number, conditions and a cycle's text have no id there and move with what they belong to; g5 is a5's reagent table), Octet's new warnings, and check: "clean" when nothing in the drawing overlaps, runs off the page, lies on a bond or across a shape's edge, and no two labels meet; else the ids. Fix every id it names: none is a near miss to leave. Place the next thing by the boxes (right_of, below, at), with no read in between. detail: 'full' on any write call adds all it changed, with boxes.
+- Clean means no boxes meet. It does not mean the drawing reads well, so for a figure, or to match a picture, look at it before you say it is done: read with picture and the ids of each part (a whole page in one picture is too small to show a crowded label). picture: true on a write shows only what changed. A chemistry question needs no picture.
+- To highlight an atom, a bond, a group or a structure, use change's edit with highlight (Octet's Highlight), or ring_fill for a ring. Never draw an oval, box or dot for a highlight: a shape is a frame or a panel.
 - Colour only what the user asks to colour. Keep the default black unless they name colours.
-- Each call is one undo step. Never delete what the user drew unless they ask.`;
+- Each call is one undo step. Never delete what the user drew unless they ask.
+- advanced help gives every argument of a kind of draw, an operation of change or an advanced tool.`;
 
 // ---- What each tool does ----
 
@@ -776,7 +898,7 @@ function crowded(m: Mol): boolean {
 // Each structure a tool drew: the text it was drawn from, and whether Name to Structure read it as a name (3d). By the
 // structure's key, for this window.
 const sources = new Map<number, { given: string; named: boolean }>();
-// over: text that goes under the structure before its number (draw_figure's number_under_caption): Octet stacks a
+// over: text that goes under the structure before its number (a figure's number_under_caption): Octet stacks a
 // structure's text under it in the order it was added.
 function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Caption, "id">): { mol: Mol; atoms: number[]; width: number; number?: number; over?: number } {
   const b = boxOf(s.mol), r = insertMol(m, { ...s.mol, style: undefined }, [left - b[0], middle - (b[1] + b[3]) / 2]);
@@ -1019,7 +1141,7 @@ function structureOf(m: Mol, id: string, host?: Host): number[] | undefined {
 
 async function replaceStructure(host: Host, a: { structure: string; text?: string; from?: string; changes?: Change[] }): Promise<Result> {
   const m = host.doc(), atoms = structureOf(m, a.structure, host);
-  if (!atoms) return { text: `There is no structure ${a.structure}. Call read_drawing for the ids.`, error: true };
+  if (!atoms) return { text: `There is no structure ${a.structure}. Call read for the ids.`, error: true };
   // Changes alone are made on the structure itself (as is from that names it): the new one is put where its own atoms
   // are, so no atom the changes leave moves. Any other is put with its middle where the old one's was.
   const own = a.text === undefined && (a.from === undefined ? !!a.changes : structureOf(m, a.from, host) === atoms);
@@ -1044,7 +1166,7 @@ async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
   // A bond (s3.1-2) goes alone, with the carbons it leaves bare, as Delete on a selected bond does.
   const bonds = new Set(a.ids.flatMap((id) => { const k = bondOf(m, id, host); return k === undefined ? [] : [k]; }));
   const { atoms, items, unknown } = idsOf(host, m, a.ids.filter((id) => bondOf(m, id, host) === undefined));
-  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
   // The text that belongs to what goes: an arrow's conditions, a structure's number.
   for (const c of m.captions ?? []) if ((c.on && items.has(c.on.arrow)) || (c.under?.length && c.under.every((i) => atoms.has(i)))) items.add(c.id);
   // A plus sign between two structures that go.
@@ -1145,7 +1267,7 @@ async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ o
     const last = [...(m.arrows ?? [])].reverse().find((x) => straightArrow(x) && host.reaction(x.id));
     if (!m.grids?.length && last) m = { ...m, grids: [{ arrow: last.id, typed: {} }] };
     const grid = m.grids?.[m.grids.length - 1];
-    if (!grid) return { text: "There is no reaction on the page. Draw it first (draw_reaction), then fill in its amounts.", error: true };
+    if (!grid) return { text: "There is no reaction on the page. Draw it first (draw, kind reaction), then fill in its amounts.", error: true };
     const r = host.reaction(grid.arrow), typed = { ...grid.typed }, problems: string[] = [], unused: string[] = [];
     let limiting = grid.limiting;
     for (const x of a.amounts) {
@@ -1194,7 +1316,7 @@ async function keyOf(host: Host, m: Mol, r: Reaction | undefined, of: string): P
 }
 const pickPart = (m: Mol, atoms: number[]) => extractSelection(m, new Set(atoms), new Set());
 
-// Ids from read_drawing to atoms and objects; the ids that name nothing. A cycle's id is the whole cycle, as a picked
+// Ids from a read to atoms and objects; the ids that name nothing. A cycle's id is the whole cycle, as a picked
 // cycle is in the editor: its intermediates and its text too.
 function idsOf(host: Host, m: Mol, ids: string[]): { atoms: Set<number>; items: Set<number>; unknown: string[] } {
   const atoms = new Set<number>(), items = new Set<number>(), unknown: string[] = [];
@@ -1221,7 +1343,7 @@ function idsOf(host: Host, m: Mol, ids: string[]): { atoms: Set<number>; items: 
 
 async function select(host: Host, a: { ids: string[] }): Promise<Result> {
   const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
-  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
   host.select([...atoms], [...items]);
   return { text: a.ids.length ? `Selected ${a.ids.join(", ")}.` : "Nothing is selected." };
 }
@@ -1237,7 +1359,7 @@ async function newDrawing(host: Host, a: { for: string }, ctx: Ctx): Promise<Res
     if ((await host.windows()).some((w) => w.id === opened)) { await host.target(ctx.session, opened); return { text: `Octet opened a new drawing for ${a.for}: ${opened}. This session's calls go to it now.`, data: { opened } }; }
     await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
   }
-  if (opened) return { text: "Octet opened a new window, but it did not start in time. Call list_drawings, then use_drawing.", error: true };
+  if (opened) return { text: "Octet opened a new window, but it did not start in time. Call drawings, then drawings with use.", error: true };
   await host.settle();
   resetIds();
   return { text: `Octet started a new drawing for ${a.for} in ${host.window().id}, which had nothing in it. This session's calls go to it.`, data: { opened: host.window().id } };
@@ -1265,7 +1387,7 @@ const across = (s: DocStyle, b: Box) => { const left = leftMargin(s), w = b[2] -
 async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } & Placement): Promise<Result> {
   let m = host.doc();
   const { atoms, items, unknown } = idsOf(host, m, a.ids);
-  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
   const by = a.dx !== undefined || a.dy !== undefined;
   if (by === placed(a)) return { text: by ? "Give dx and dy, or a place (to, right_of, left_of, below or above), not both." : "Give dx and dy, or a place: to [x, y], or right_of, left_of, below or above an id.", error: true };
   // Text Octet places itself (a number, a reaction's conditions, a cycle's text) goes with what it belongs to.
@@ -1283,7 +1405,7 @@ async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } &
 async function setNumber(host: Host, a: { structure: string; number: string }): Promise<Result> {
   let m = host.doc();
   const atoms = structureOf(m, a.structure, host), number = clean(a.number);
-  if (!atoms) return { text: `There is no structure ${a.structure}. Call read_drawing for the ids.`, error: true };
+  if (!atoms) return { text: `There is no structure ${a.structure}. Call read for the ids.`, error: true };
   const had = (m.captions ?? []).find((c) => c.bold && c.under?.some((i) => atoms.includes(i)));
   if (had) m = number ? { ...m, captions: m.captions!.map((c) => (c === had ? { ...c, text: number, runs: undefined } : c)) } : deleteGraphics(m, new Set([had.id]));
   else if (number) m = addCaption(m, { text: number, x: 0, y: 0, bold: true, under: atoms })[0];
@@ -1293,7 +1415,7 @@ async function setNumber(host: Host, a: { structure: string; number: string }): 
 
 async function arrange(host: Host, a: { ids: string[]; how: string }): Promise<Result> {
   const m = host.doc(), { atoms, items, unknown } = idsOf(host, m, a.ids), was = host.selection();
-  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+  if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
   // Shapes as wide, as tall or as big as the largest, each keeping its top left corner (F6). Octet's own, as Keynote's
   // and Figma's: ChemDraw has no such command.
   if (a.how.startsWith("same_")) {
@@ -1321,7 +1443,7 @@ async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): P
   let part: Mol | undefined;
   if (a.ids?.length) {
     const { atoms, items, unknown } = idsOf(host, m, a.ids);
-    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     part = extractSelection(m, atoms, items);
   }
   const text = host.fileText(a.format, part);
@@ -1329,7 +1451,7 @@ async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): P
   return { text, data: { format: a.format, text, ...(a.ids?.length ? { ids: a.ids } : {}) } };
 }
 
-// ---- Edit, add_arrow, add_shape (3f) ----
+// ---- Edit, arrow, shape (3f) ----
 
 const bondKind = (b: Mol["bonds"][number]): BondKind | undefined => (Object.keys(BONDS) as BondKind[]).find((k) => { const s: { type: number; stereo?: number; display?: string } = BONDS[k].spec; return s.type === b.type && s.stereo === b.stereo && s.display === b.display; });
 // An atom id (s3.2: the structure, and its atom's place in it), a bond id (s3.1-2), or "s3.2:pair" (a lone pair on it).
@@ -1402,7 +1524,7 @@ function arrowChange(a: ArrowIn, was: Pick<Arrow, "kind" | "style" | "orbital">)
   if (a.colour !== undefined) change.colour = a.colour === "none" ? undefined : a.colour;
   return change;
 }
-// A shape's properties as given, as a change to it (add_shape and edit use it). kind is the shape's kind after the change.
+// A shape's properties as given, as a change to it (shape and edit use it). kind is the shape's kind after the change.
 function shapeChange(a: ShapeIn, was: Partial<Shape>, kind: ShapeKind): Partial<Shape> | string {
   const change: Partial<Shape> = {}, texty = kind === "table" || kind === "tlc";
   if (a.dashed !== undefined) change.dashed = a.dashed || undefined;
@@ -1556,7 +1678,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       else for (const k of ["italic", "underline", "size", "font"]) if (use.includes(k)) unfit.push(`${id} takes no ${k}`);
       m = updateShape(m, shape.id, change);
       if (use.includes("scale")) scaled.items.add(shape.id);
-    } else return { text: `There is nothing with the id ${id}. Call read_drawing (with atoms for atom and bond ids).`, error: true };
+    } else return { text: `There is nothing with the id ${id}. Call read (with atoms for atom and bond ids).`, error: true };
     done.push(id);
   }
   m = host.set(m);
@@ -1637,7 +1759,7 @@ async function addShapeTool(host: Host, a: ShapeIn & { kind: ShapeKind; around?:
     if (b[2] - b[0] < 0.1 || b[3] - b[1] < 0.1) return { text: "The box has no size: give [x0, y0, x1, y1] with x1 > x0 and y1 > y0.", error: true };
   } else {
     const { unknown } = idsOf(host, m, a.around!);
-    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     const pad = a.pad ?? (a.kind === "brackets" || a.kind === "parens" || a.kind === "braces" ? 0.3 : 0.5), got = boxOfIds(host, m, a.around!, pad);
     if (!got) return { text: "There is nothing drawn there to go round.", error: true };
     b = got;
@@ -1657,7 +1779,7 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   const id = a.command.trim();
   if (a.ids) {
     const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
-    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing for the ids.`, error: true };
+    if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     host.select([...atoms], [...items]);
     await host.settle();
   }
@@ -1742,7 +1864,7 @@ function placeProblem(host: Host, m: Mol, a: Placement): string | undefined {
   if (given.length > 1) return `Give one of ${point}, right_of, left_of, below or above, not ${given.join(" and ")}.`;
   const side = SIDES.find((k) => a[k] !== undefined);
   if (!side) return undefined;
-  if (!boxOfIds(host, m, [a[side]!])) return `There is nothing with the id ${a[side]} to go ${side.replace("_", " ")}. Call read_drawing for the ids.`;
+  if (!boxOfIds(host, m, [a[side]!])) return `There is nothing with the id ${a[side]} to go ${side.replace("_", " ")}. Call read for the ids.`;
   const across = side === "right_of" || side === "left_of";
   if (a.align && !(across ? ["top", "middle", "bottom"] : ["left", "centre", "right"]).includes(a.align)) return `align ${across ? "beside an object is top, middle or bottom" : "below or above an object is left, centre or right"}.`;
   return undefined;
@@ -1758,9 +1880,9 @@ function target(host: Host, m: Mol, b: Box, a: Placement): P {
   if (side === "right_of" || side === "left_of") return [side === "right_of" ? r[2] + g - b[0] : r[0] - g - b[2], a.align === "top" ? r[3] - b[3] : a.align === "bottom" ? r[1] - b[1] : mid(r)[1] - mid(b)[1]];
   return [a.align === "left" ? r[0] - b[0] : a.align === "right" ? r[2] - b[2] : mid(r)[0] - mid(b)[0], side === "below" ? r[1] - g - b[3] : r[3] + g - b[1]];
 }
-// A tool as a call or a batch step runs it: when it takes placement and one is given, what it made then moves there
-// (one function for every tool, so each places the same way).
-async function runTool(tool: Tool, host: Host, a: any, ctx: Ctx): Promise<Result> {
+// An operation as a call or a batch step runs it: when it takes placement and one is given, what it made then moves
+// there (one function for every operation, so each places the same way).
+async function runOp(tool: Op, host: Host, a: any, ctx: Ctx): Promise<Result> {
   if (!tool.place || !placed(a)) return tool.run(host, a, ctx);
   const wrong = placeProblem(host, host.doc(), a);
   if (wrong) return { text: `Octet changed nothing. ${wrong}`, error: true };
@@ -1813,15 +1935,15 @@ function resolve(v: unknown, made: Made[], top: string[][], notes: Notes): unkno
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x, made, top, notes)]));
   return v;
 }
-async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number]; args: Record<string, unknown> }[]; picture_size?: keyof typeof SIZES }, ctx: Ctx): Promise<Result> {
-  const toolOf = (name: string) => TOOLS.find((t) => t.name === name)!, args = a.steps.map((st) => { const { picture: _, ...rest } = st.args; return rest; });
+async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number]; args: Record<string, unknown> }[] }, ctx: Ctx): Promise<Result> {
+  const args = a.steps.map((st) => { const { picture: _, picture_size: __, ...rest } = st.args; return rest; });
   // A step that asks for a picture asks for the batch's (one picture of all it changed).
   const picture = a.steps.some((st) => st.args.picture === true), data: (() => Record<string, unknown>)[] = [];
   let full = false;
   // Every step checked before anything is drawn: its arguments against its own tool, and each reference to an
   // earlier step.
   for (const [k, st] of a.steps.entries()) {
-    const wrong = wrongWith(toolOf(st.tool).inputSchema, args[k], ctx.notes), late = refsIn(args[k]).find((n) => n < 1 || n > k);
+    const wrong = wrongWith(opOf(st.tool).inputSchema, args[k], ctx.notes), late = refsIn(args[k]).find((n) => n < 1 || n > k);
     if (wrong) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}): ${wrong}.`, error: true };
     if (late !== undefined) return { text: `Octet changed nothing. Step ${k + 1} (${st.tool}) names step ${late}: a step can name only the steps before it (they count from 1).`, error: true };
   }
@@ -1831,21 +1953,21 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
     ctx.progress(k, a.steps.length, `Step ${k + 1} of ${a.steps.length}: ${st.tool}`);
     let given: Record<string, unknown>;
     try { given = resolve(args[k], made, top, ctx.notes) as Record<string, unknown>; } catch (e) { throw new Error(`Step ${k + 1} (${st.tool}): ${(e as Error).message}.`); }
-    const wrong = wrongWith(toolOf(st.tool).inputSchema, given, ctx.notes);
+    const wrong = wrongWith(opOf(st.tool).inputSchema, given, ctx.notes);
     if (wrong) throw new Error(`Step ${k + 1} (${st.tool}): ${wrong}.`);
     // A step that asks for detail: full asks for the batch's, as with a picture.
     if (given.detail === "full") full = true;
     delete given.detail;
     await host.settle();
-    const was = index(host.doc()), out = await runTool(toolOf(st.tool), host, given, ctx);
+    const was = index(host.doc()), out = await runOp(opOf(st.tool), host, given, ctx);
     if (out.error) throw new Error(`Step ${k + 1} (${st.tool}) failed: ${out.text}`);
     data.push(() => ({ ...out.data, ...out.extra?.() }));
     await host.settle();
     const now = host.doc(), fresh = [...index(now).keys()].filter((id) => !was.has(id)), owned = ownedText(now);
     made.push(byKind(fresh)); top.push(fresh.filter((id) => !owned.has(id)));
-    said.push(`${k + 1}. ${out.text.replace(UNDO, "").replace(/ Call read_drawing[^.]*\.$/, "")}`);
+    said.push(`${k + 1}. ${out.text.replace(UNDO, "").replace(/ Call read[^.]*\.$/, "")}`);
   }
-  return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, extra: () => ({ steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]()).filter(([key]) => key !== "names")) })) }), ...(picture ? { cropped: true as const } : {}), ...(full ? { full: true as const } : {}), longest: SIZES[a.picture_size ?? "small"] + (a.picture_size ? 0 : 200) };
+  return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, extra: () => ({ steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]()).filter(([key]) => key !== "names")) })) }), ...(picture ? { cropped: true as const } : {}), ...(full ? { full: true as const } : {}) };
 }
 
 // ---- A figure (F4) ----
@@ -2158,7 +2280,7 @@ const SIGNS: Partial<Record<ArrowKind, string>> = { equilibrium: "<=>", retro: "
 // A short result or read gives this many warnings, and more says how many it left out.
 const MOST_WARNINGS = 10;
 // The default read is a summary (R6): each structure's id, number, caption and formula (its SMILES when asked), each
-// reaction as its route with each arrow's conditions (by the arrow's id, which add_text and edit take: an arrow with
+// reaction as its route with each arrow's conditions (by the arrow's id, which text and edit take: an arrow with
 // none has ""), the layout as its check, and no boxes. full: everything.
 // only: read just these ids (structures, text, arrows, shapes, cycles, as numbers and names too) and the reactions and
 // warnings they are in.
@@ -2290,15 +2412,15 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 type PromptArg = { name: string; description: string; required?: boolean };
 const PROMPTS: { name: string; title: string; description: string; arguments: PromptArg[]; text: (a: Record<string, string>) => string }[] = [
   { name: "draw_scheme", title: "Draw a scheme from text", description: "Draws the reactions in a procedure or a paragraph as one scheme", arguments: [{ name: "text", description: "The procedure or paragraph", required: true }],
-    text: (a) => `Draw the reactions in this text as one scheme in Octet with draw_reaction. Give each compound its number from the text. Put reagents, catalysts, solvents, temperature, time and yield in each step's fields. Then call read_drawing and fix what Octet warns about.\n\n${a.text}` },
+    text: (a) => `Draw the reactions in this text as one scheme in Octet: one draw call with kind reaction. Give each compound its number from the text. Put reagents, catalysts, solvents, temperature, time and yield in each step's fields. Then fix what the result's warnings and check name, in one change.\n\n${a.text}` },
   { name: "redraw_picture", title: "Redraw a picture", description: "Redraws a scheme or structure from a picture you attach", arguments: [{ name: "notes", description: "What to keep or change" }],
-    text: (a) => `Redraw the structures and reactions in the attached picture in Octet: draw_structures for structures, draw_reaction for reactions, draw_cycle for a catalytic cycle. Keep the compound numbers and the text above and below each arrow. Then call read_drawing with picture: true, compare it with the picture, and fix what is different.${a.notes ? `\n\n${a.notes}` : ""}` },
+    text: (a) => `Redraw the structures and reactions in the attached picture in Octet with draw: kind structures for structures, reaction for reactions, cycle for a catalytic cycle. Keep the compound numbers and the text above and below each arrow. Then call read with picture: true, compare it with the picture, and fix what is different.${a.notes ? `\n\n${a.notes}` : ""}` },
   { name: "check_drawing", title: "Check my drawing", description: "Reads the open drawing and lists what is wrong with it", arguments: [],
-    text: () => "Call read_drawing with smiles: true on my open drawing. Tell me what is chemically wrong (valence, charges, stereochemistry, a reaction that is not balanced or not possible as drawn) and what is wrong with the layout. Change nothing until I say which ones to fix." },
+    text: () => "Call read with smiles: true on my open drawing. Tell me what is chemically wrong (valence, charges, stereochemistry, a reaction that is not balanced or not possible as drawn) and what is wrong with the layout. Change nothing until I say which ones to fix." },
   { name: "fill_experiment", title: "Fill in an experiment page", description: "Fills in the open experiment page from a procedure", arguments: [{ name: "procedure", description: "The procedure, with amounts", required: true }],
-    text: (a) => `Fill in an experiment page in Octet from this procedure. If the open drawing is not an experiment page, call new_drawing for experiment. Draw the reaction with draw_reaction if it is not on the page, then call fill_experiment with the details and each compound's amount (and the product's measured mass, if the procedure gives it). Then call read_drawing and tell me the amounts Octet worked out.\n\n${a.procedure}` },
+    text: (a) => `Fill in an experiment page in Octet from this procedure. If the open drawing is not an experiment page, call drawings with action new, for experiment. Draw the reaction (draw, kind reaction) if it is not on the page, then call advanced with tool fill_experiment, with the details and each compound's amount (and the product's measured mass, if the procedure gives it). Then call read and tell me the amounts Octet worked out.\n\n${a.procedure}` },
   { name: "journal_figure", title: "Make a journal figure", description: "Makes the open drawing ready for a journal", arguments: [{ name: "journal", description: "The journal or its style, for example ACS, RSC or Wiley", required: true }],
-    text: (a) => `Make my open drawing ready as a figure for ${a.journal}. Call set_style with that journal's preset and page, then read_drawing with picture: true, and fix what Octet warns about with move or arrange. When it is ready, call export so I can save it.` },
+    text: (a) => `Make my open drawing ready as a figure for ${a.journal}. Call advanced with tool set_style and that journal's preset and page, then read with picture: true, and fix what Octet warns about with change (move or arrange). When it is ready, call advanced with tool export so I can save it.` },
 ];
 
 type Message = { jsonrpc?: string; id?: string | number | null; method?: string; params?: any };
@@ -2330,7 +2452,7 @@ function index(m: Mol): Map<string, string> {
   return out;
 }
 const highest = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id));
-const ANYWHERE = new Set(["list_drawings", "use_drawing", "new_drawing"]);
+const ANYWHERE = new Set(["list", "use", "new"]);
 const CUT = " (cut: detail: full gives all of it)";
 
 async function answer(body: string, host: () => Host, version: string, from: From): Promise<string> {
@@ -2362,13 +2484,13 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       return reply(id, { description: p.description, messages: [{ role: "user", content: { type: "text", text: p.text(args) } }] });
     }
     // The drawings as resources (D12): octet://drawings lists them; octet://drawing/{id} reads one (JSON as
-    // read_drawing gives it, /cdxml, /png). mcp.rs sends a read to the window it names.
+    // a read gives it, /cdxml, /png). mcp.rs sends a read to the window it names.
     case "resources/list": return reply(id, { resources: [
       { uri: "octet://drawings", name: "drawings", title: "Open drawings", description: "Octet's open drawings, Home's first", mimeType: "application/json" },
-      ...(await host().windows()).map((w) => ({ uri: `octet://drawing/${w.id}`, name: w.id, title: w.name, description: "The drawing as read_drawing reads it", mimeType: "application/json" })),
+      ...(await host().windows()).map((w) => ({ uri: `octet://drawing/${w.id}`, name: w.id, title: w.name, description: "The drawing as read reads it", mimeType: "application/json" })),
     ] });
     case "resources/templates/list": return reply(id, { resourceTemplates: [
-      { uriTemplate: "octet://drawing/{id}", name: "drawing", title: "Drawing", description: "A drawing as read_drawing reads it", mimeType: "application/json" },
+      { uriTemplate: "octet://drawing/{id}", name: "drawing", title: "Drawing", description: "A drawing as read reads it", mimeType: "application/json" },
       { uriTemplate: "octet://drawing/{id}/cdxml", name: "drawing-cdxml", title: "Drawing as CDXML", description: "A drawing as Export writes CDXML", mimeType: "chemical/x-cdxml" },
       { uriTemplate: "octet://drawing/{id}/png", name: "drawing-png", title: "Drawing as a picture", description: "A drawing as a PNG", mimeType: "image/png" },
     ] });
@@ -2383,22 +2505,19 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
       if (part === "cdxml") { const text = h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
-    case "tools/list": return reply(id, { tools: TOOLS.map((t) => {
-      // $defs: the pieces this tool's schema refers to, each listed once. (No piece refers to another.)
-      const json = JSON.stringify(t.inputSchema), defs = Object.entries(DEFS).filter(([name]) => json.includes(`"#/$defs/${name}"`));
-      return {
-        name: t.name, title: t.title, description: t.description, inputSchema: { ...(published(t.inputSchema) as object), additionalProperties: false, ...(defs.length ? { $defs: Object.fromEntries(defs.map(([name, x]) => [name, published(x)])) } : {}) }, ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
-        annotations: { readOnlyHint: t.hints.readOnly, destructiveHint: t.hints.destructive, idempotentHint: t.hints.idempotent, openWorldHint: false },
-      };
-    }) });
+    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false } })) });
     case "tools/call": {
-      const tool = TOOLS.find((t) => t.name === msg.params?.name), args = msg.params?.arguments ?? {};
-      if (!tool) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
-      const notes: Notes = new Map(), wrong = wrongWith(tool.inputSchema, args, notes) ?? tool.refuse?.(args);
-      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.` }], isError: true });
+      const named = TOOLS.find((t) => t.name === msg.params?.name), given = msg.params?.arguments ?? {};
+      if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
+      // The operation the call is, and its arguments, which are checked against that operation's own schema. A
+      // refusal there names where the whole schema is: the tool lists the arguments most calls give.
+      const notes: Notes = new Map(), routed = given && typeof given === "object" && !Array.isArray(given) ? named.route(given, notes) : "arguments: not an object";
+      if (typeof routed === "string") return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${routed}.` }], isError: true });
+      const tool = opOf(routed.op), args = routed.args, unfit = wrongWith(tool.inputSchema, args, notes, routed.at), wrong = unfit ?? tool.refuse?.(args);
+      if (wrong) return reply(id, { content: [{ type: "text", text: `Octet changed nothing. ${wrong}.${unfit && HELP.includes(tool.name) ? ` advanced help of ${tool.name} gives its arguments.` : ""}` }], isError: true });
       // The editor's host is made again each time it draws: each call goes to the newest.
       const h = new Proxy({} as Host, { get: (_, k) => (...v: unknown[]) => (host() as any)[k](...v) });
-      if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call list_drawings, then use_drawing.` }], isError: true });
+      if (from.lost && !ANYWHERE.has(tool.name)) return reply(id, { content: [{ type: "text", text: `The drawing this session used (${from.lost}) is closed. Call drawings, then drawings with use.` }], isError: true });
       const token = msg.params?._meta?.progressToken;
       let stopped = false;
       const changes = !tool.hints.readOnly, busy = `${from.client ?? "An AI app"} is drawing.`, stop = () => { stopped = true; };
@@ -2411,10 +2530,10 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         check: async () => { if (stopped || (await from.cancelled?.())) throw new Cancelled(); },
       };
       const reports = tool.outputSchema === CHANGE;
-      // picture on a tool that changes the drawing is the dispatcher's (F2): the tool never sees it. detail on a tool
-      // whose result is a change is too (R6).
-      const wantPicture = changes && args.picture === true, wantFull = reports && args.detail === "full";
-      if (changes) delete args.picture;
+      // picture on an operation that changes the drawing is the dispatcher's (F2): the operation never sees it.
+      // detail on one whose result is a change is too (R6).
+      const wantPicture = changes && args.picture === true, size: keyof typeof SIZES | undefined = changes ? args.picture_size : undefined, wantFull = reports && args.detail === "full";
+      if (changes) { delete args.picture; delete args.picture_size; }
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
@@ -2426,7 +2545,7 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         // layout's warnings are for a full result only: the call asked for one, or it is a batch, whose steps can.)
         const was = reports ? index(before) : undefined, warned = changes ? new Set(wantFull || tool.name === "batch" ? warningTexts(h, before) : shownProblems(h).map((p) => p.message)) : undefined;
         keepIdsAbove(highest(before));
-        const out = await runTool(tool, h, args, ctx);
+        const out = await runOp(tool, h, args, ctx);
         // Stop, or a cancel, while the tool ran: what it did goes too.
         if (changes) await ctx.check();
         await h.settle();
@@ -2473,15 +2592,15 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         if (coerced.length) { content.push({ type: "text", text: coerced.join("\n") }); if (structured) structured = { ...structured, coerced }; }
         // A picture of what the call made or changed, cropped to it, smaller than a read's (F2).
         const cropped = wantPicture || !!out.cropped, crop = cropped ? (touched.length ? boxOfIds(h, after, touched, 1) : undefined) : out.crop;
-        if (out.picture || (cropped && !out.error)) { const png = await h.picture(out.of, crop, out.longest ?? (cropped ? 800 : 1000)); if (png) content.push({ type: "image", data: png, mimeType: "image/png" }); }
+        if (out.picture || (cropped && !out.error)) { const png = await h.picture(out.of, crop, out.longest ?? (cropped ? (size ? SIZES[size] : 800) : 1000)); if (png) content.push({ type: "image", data: png, mimeType: "image/png" }); }
         if (tool.done && !out.error) { h.said(`${ctx.client} ${tool.done}.`); told = true; }
         return reply(id, { content, ...(structured && !out.error ? { structuredContent: structured } : {}), ...(out.error ? { isError: true } : {}) });
       } catch (e) {
         // A call that fails part way, or is cancelled, leaves nothing behind (B5): the drawing goes back as it was, in
         // the same step.
         if (changes && before && h.doc() !== before) h.set(before);
-        if (e instanceof Cancelled) { told = true; h.said(`${ctx.client} stopped. The drawing is as it was.`); return reply(id, { content: [{ type: "text", text: `${tool.name} was cancelled, and the drawing is as it was before the call.` }], isError: true }); }
-        return reply(id, { content: [{ type: "text", text: `${tool.name} did not finish, and the drawing is as it was before the call: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500) }], isError: true });
+        if (e instanceof Cancelled) { told = true; h.said(`${ctx.client} stopped. The drawing is as it was.`); return reply(id, { content: [{ type: "text", text: `${named.name} was cancelled, and the drawing is as it was before the call.` }], isError: true }); }
+        return reply(id, { content: [{ type: "text", text: `${named.name} did not finish, and the drawing is as it was before the call: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500) }], isError: true });
       } finally {
         if (changes) { h.end(shown); if (!told) h.working(); }
       }
@@ -2490,20 +2609,35 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
   }
 }
 
-// A tool's schema as tools/list gives it (R4): without the limits Octet checks itself (lengths, counts, ranges; a
-// call past one is refused and told the limit), so the list an AI app reads is shorter. The enums and types stay, and
-// a tool's own arguments stay closed (additionalProperties false), so a misspelt one is refused. The lenient readings
-// (numeral, also, default) are Octet's own too: an AI app is told the one form each argument takes. An unlisted
-// argument is left out.
-const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default"]);
+// A schema as tools/list and advanced help give it (R4): without the limits Octet checks itself (lengths, counts,
+// ranges; a call past one is refused and told the limit), so what an AI app reads is shorter. The enums and types
+// stay. The lenient readings (numeral, also, default) are Octet's own too: an AI app is told the one form each
+// argument takes. An unlisted argument is left out. An object inside is listed open, as JSON Schema has one that
+// says nothing: Octet's own check is what closes it.
+const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default", "additionalProperties"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;
-  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !UNPUBLISHED.has(k) && !(k === "additionalProperties" && v === false) && !(k === "required" && Array.isArray(v) && !v.length)).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as Record<string, Prop>).filter(([, p]) => !("unlisted" in p)).map(([n, p]) => [n, published(p)])) : published(v)]));
+  const empty = (v: unknown) => (Array.isArray(v) ? !v.length : !!v && typeof v === "object" && !Object.keys(v).length);
+  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !UNPUBLISHED.has(k) && !((k === "required" || k === "properties") && empty(v))).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as Record<string, Prop>).filter(([, p]) => !("unlisted" in p)).map(([n, p]) => [n, published(p)])) : published(v)]));
+}
+// A whole schema as it is given: its own arguments closed (additionalProperties false), so a misspelt one is seen to
+// be wrong, and $defs with the pieces it refers to, each once. (No piece refers to another.)
+function whole(s: ObjSchema, pieces: Record<string, Schema> = DEFS) {
+  const json = JSON.stringify(s), defs = Object.entries(pieces).filter(([name]) => json.includes(`"#/$defs/${name}"`));
+  return { ...(published(s) as object), additionalProperties: false, ...(defs.length ? { $defs: Object.fromEntries(defs.map(([name, x]) => [name, published(x)])) } : {}) };
 }
 
 const reply = (id: Message["id"], result?: unknown, error?: { code: number; message: string }) => JSON.stringify({ jsonrpc: "2.0", id, ...(error ? { error } : { result }) });
 
 export const TOOL_NAMES = TOOLS.map((t) => t.name);
-// The tool table as the protocol lists it, for checks (D11).
-export const TOOL_TABLE = TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, hints: t.hints, done: t.done }));
+// The tools as tools/list gives them (D11). A tool's hints and outputSchema are made from its operations': it is
+// read-only when all are, destructive when one is, idempotent when all are, and its result is a change when all are.
+// (All four hints are said outright. openWorldHint is false for every tool: Octet reaches nothing outside itself.)
+// takes: its schema as Octet keeps it, for checks.
+export const TOOL_TABLE = TOOLS.map((t) => {
+  const ops = t.ops.map(opOf);
+  return { name: t.name, title: t.title, description: t.description, inputSchema: whole(t.inputSchema, t.defs), takes: t.inputSchema, outputSchema: ops.every((o) => o.outputSchema === CHANGE) ? CHANGE : { type: "object" }, hints: { readOnly: ops.every((o) => o.hints.readOnly), destructive: ops.some((o) => o.hints.destructive), idempotent: ops.every((o) => o.hints.idempotent) } };
+});
+// The operations, for checks.
+export const OP_TABLE = OPS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, hints: t.hints, done: t.done }));

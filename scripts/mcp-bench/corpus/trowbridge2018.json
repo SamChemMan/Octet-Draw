@@ -10,8 +10,9 @@
    "kind": "S1",
    "figure": "Fig. 2a",
    "prompt": "Draw the reaction of Fig. 2a in the attached paper with the model substrates: butyraldehyde 1a, dibenzylamine 2a and butyl acrylate 3a give tertiary amine 5a. Put the conditions over and under the arrow as the figure has them, and the yield of 5a.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "butyraldehyde",
@@ -65,8 +66,9 @@
    "kind": "S18",
    "figure": "Fig. 2a (right-hand box)",
    "prompt": "Draw the two reagents shown at the right of Fig. 2a: the Hantzsch ester 4a with its esters as EtO2C and CO2Et labels, and the photocatalyst fac-Ir(ppy)3 with Ir(ppy)3 written under it.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "*C1=C(C)NC(C)=C(*)C1",
@@ -94,8 +96,9 @@
    "kind": "F4",
    "figure": "Fig. 2b (aldehyde scope)",
    "prompt": "Draw the aldehyde scope of Fig. 2b as a numbered grid: products 5a to 5m, with Bn, CO2Bu, TBSO, MeO and Boc as labels the way the paper draws them.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "CCCC(N(*)*)CC*",
@@ -244,8 +247,9 @@
    "kind": "S13",
    "figure": "Fig. 3a (photocatalyst cycle)",
    "prompt": "Draw the iridium photoredox cycle at the centre of Fig. 3a: Ir(ppy)3 is excited by the blue lamp, the excited state takes an electron from Hantzsch ester 4a (which leaves as its radical cation 4a′), and the Ir(II) anion reduces iminium ion Int-I to the α-amino radical Int-II by SET. Draw the three iridium species as structures.",
-   "tool": "draw_cycle",
+   "tool": "draw",
    "arguments": {
+    "kind": "cycle",
     "intermediates": [
      {
       "text": "Ir(ppy)3",
@@ -291,8 +295,9 @@
    "kind": "S12",
    "figure": "Fig. 3a (substrate pathway)",
    "prompt": "Draw the main pathway of the mechanism in Fig. 3a as one scheme, with R = Et written out: 1a and 2a condense to iminium ion Int-I, SET gives α-amino radical Int-II, addition to butyl acrylate 3a (drawn over the arrow) gives radical Int-IV, 1,5-HAT gives the benzylic radical Int-V, and HAT from 4a′ gives 5a. Show the charge and each radical.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "butyraldehyde",
@@ -408,8 +413,9 @@
    "kind": "S11",
    "figure": "Fig. 3b (right)",
    "prompt": "Draw the deuterium-labelling experiment on the right of Fig. 3b: butyraldehyde 1a and butyl acrylate 3a react with labelled dibenzylamine d4-2a, drawn as a structure under the arrow, to give d4-5a in 67% yield. Show every D.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "butyraldehyde",
@@ -461,8 +467,9 @@
    "kind": "S20",
    "figure": "Fig. 2b (5aq)",
    "prompt": "Draw how 5aq of Fig. 2b is made: dibenzylamine 2a, paraformaldehyde and the chiral dehydroalanine acceptor (the 2-tert-butyl-4-methylene-oxazolidin-5-one with N-Cbz) give 5aq as one diastereomer. Draw both stereocentres with wedges as the paper does, Cbz and tBu as labels, and give the yield and d.r.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "dibenzylamine",
@@ -522,8 +529,9 @@
    "kind": "F4",
    "figure": "Fig. 4a",
    "prompt": "Draw the amine scope of Fig. 4a as a figure: products 7a to 7l in two rows of six, each with its number and its yield under it (and the d.r. for 7l). Keep the wedges on 7d, 7e, 7f and 7l, define both bridgehead centres of 7g (the paper draws it in perspective, with no wedges), and write Ph, CF3, OMe, Boc, Cbz and tBu as labels.",
-   "tool": "draw_figure",
+   "tool": "draw",
    "arguments": {
+    "kind": "figure",
     "panels": [
      {
       "rows": [
@@ -670,8 +678,9 @@
    "kind": "S2",
    "figure": "Fig. 4b (10a)",
    "prompt": "Draw the two-step route of Fig. 4b for 10a: pyrrolidine and cyclohexanone give the enamine, which reacts with 1,1-diphenylethylene under the photocatalytic conditions to give the α-tertiary amine 10a. Give the conditions of the second step as the figure and its footnote have them, and the yield.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "pyrrolidine"
@@ -730,8 +739,9 @@
    "kind": "F1",
    "figure": "Fig. 4c",
    "prompt": "Draw the four late-stage products of Fig. 4c as numbered structures: 11 (from paroxetine), 12 (from desloratadine), 13 (from amoxapine) and 14 (from ciprofloxacin). Keep the stereocentres the paper draws with wedges, leave the new centre of 11, 13 and 14 undefined (d.r. 1:1), and write Cbz and tBu as labels.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "Fc1ccc(cc1)[C@@H]1CCN(C[C@H]1COc1ccc2OCOc2c1)C(CCC)CC(c1ccccc1)c1ccccc1",
