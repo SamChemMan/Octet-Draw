@@ -48,7 +48,10 @@ const isYield = (text: string) => !!text.trim() && text.split("\n").every((t) =>
 //    - A curved arrow (electrons pushed) with its ends on two structures of the row stretches between them; one with an
 //      end on one structure moves with it, and brings what its other end is on (a hydroxide ion attacking it).
 // A reaction needs a structure in its row, or conditions on an arrow.
-function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
+// drawn: each structure with its box, and (worked out only when a row asks) the boxes of the text under each: its
+// number, a caption. findReaction measures them once for all its rows.
+type Drawn = { parts: { atoms: number[]; box: Box }[]; under: () => Box[][] };
+function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, captionBox: (id: number) => Box | undefined): Reaction | undefined {
   const a = arrows.find((x) => x.id === arrowId);
   if (!a || !straightArrow(a)) return undefined;
   // The row's line: through the arrow's middle, along it, or across or down the page when the arrow is within 20° of
@@ -63,8 +66,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
   type Item = { step: Step; lo: number; hi: number; off: number; half: number };
   type Part = Extract<Step, { kind: "structure" | "text" | "arrow" }>;
   const item = (step: Step): Item => { const c = corners(step.box), xs = c.map(along), ys = c.map(across); return { step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 }; };
-  const items: Item[] = [];
-  for (const atoms of fragments(m)) { const b = ink(atoms); if (b) items.push(item({ kind: "structure", atoms, box: b })); }
+  const items: Item[] = drawn.parts.map((p) => item({ kind: "structure", atoms: p.atoms, box: p.box }));
   for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) items.push(item({ kind: c.text.trim() === "+" ? "plus" : "text", id: c.id, box: b })); }
   // Straight arrows: one that points the same way can be a step of the reaction; one that points another way (the
   // other reaction of C ← A → B) ends the row where it stands.
@@ -130,6 +132,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
     if (x) { const w = wide.get(x) ?? { lo: x.lo, hi: x.hi }; wide.set(x, { lo: Math.min(w.lo, it.lo), hi: Math.max(w.hi, it.hi) }); }
   }
   const lo = (it: Item) => span.get(it)!.lo, hi = (it: Item) => span.get(it)!.hi, mid = (it: Item) => (lo(it) + hi(it)) / 2;
+  const under = (it: Item) => (it.step.kind === "structure" ? drawn.under()[items.indexOf(it)].map((b) => item({ kind: "text", id: -1, box: b })) : []);
   const inLine = items.filter((it) => !clings.has(it) && !fenced(it) && !overArrow(it) && Math.abs(it.off) < it.half + 0.4);
   const start = inLine.find((it) => it.step.kind === "arrow" && it.step.id === arrowId);
   if (!start) return undefined;
@@ -141,7 +144,12 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
       const edge = dir < 0 ? lo(at) : hi(at), far = dir < 0 ? Math.min(edge, wide.get(at)?.lo ?? edge) : Math.max(edge, wide.get(at)?.hi ?? edge);
       // Next: what starts past the edge, or overlaps it with its middle past it (a product drawn under the arrowhead).
       const next = inLine.filter((it) => !row.includes(it) && (dir < 0 ? hi(it) <= edge + 0.3 || mid(it) < edge : lo(it) >= edge - 0.3 || mid(it) > edge)).sort((p, q) => (dir < 0 ? hi(q) - hi(p) : lo(p) - lo(q)))[0];
-      if (!next || against.has(next) || (dir < 0 ? far - hi(next) : lo(next) - far) > REACH) break;
+      if (!next || against.has(next)) break;
+      // A gap too wide by the atoms is counted again from the text under a structure (its number, a caption) where
+      // that is wider than the structure: Clean Up Reaction gives that text room (besides), so the atoms of a small
+      // structure with a long caption stand far from the arrow each side.
+      const gap = (p: number, q: number) => (dir < 0 ? p - q : q - p), by = (it: Item, d: number) => (d < 0 ? Math.min(lo(it), ...under(it).map((t) => t.lo)) : Math.max(hi(it), ...under(it).map((t) => t.hi)));
+      if (gap(far, dir < 0 ? hi(next) : lo(next)) > REACH && gap(dir < 0 ? Math.min(far, by(at, -1)) : Math.max(far, by(at, 1)), by(next, -dir)) > REACH) break;
       row.push(next);
       at = next;
     }
@@ -276,8 +284,22 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
 // an arrow on any of its lines (decision 0021, D4).
 const LINES = 10;
 export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
+  const from = arrows.find((x) => x.id === arrowId);
+  if (!from || !straightArrow(from)) return undefined;
+  // The structures are the same for every row read here (a wrapped reaction reads a row for each arrow near it), so
+  // they are found and measured once: each with its box, and the boxes of the text under it (its number, a caption).
+  const parts = fragments(m).flatMap((atoms) => { const box = ink(atoms); return box ? [{ atoms, box }] : []; });
+  let texts: Box[][] | undefined;
+  const drawn: Drawn = { parts, under: () => {
+    if (texts) return texts;
+    const home: number[] = new Array(m.atoms.length); // each atom's structure
+    parts.forEach((p, k) => { for (const i of p.atoms) home[i] = k; });
+    texts = parts.map(() => []);
+    for (const c of m.captions ?? []) { const b = c.under?.length ? captionBox(c.id) : undefined, k = b && home[c.under![0]]; if (b && k !== undefined) texts[k].push(b); }
+    return texts;
+  } };
   const rows = new Map<number, Reaction | undefined>();
-  const row = (id: number) => { if (!rows.has(id)) rows.set(id, findRow(m, id, arrows, ink, captionBox)); return rows.get(id); };
+  const row = (id: number) => { if (!rows.has(id)) rows.set(id, findRow(m, id, arrows, drawn, captionBox)); return rows.get(id); };
   const first = row(arrowId);
   if (!first) return undefined;
   const way = (r: Reaction) => { const a = arrows.find((x) => x.id === r.arrows[0])!, dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1]; return Math.abs(dx) > 3 * Math.abs(dy) ? Math.sign(dx) : 0; };

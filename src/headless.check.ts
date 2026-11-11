@@ -79,6 +79,26 @@ assert.equal((await call("get_file", { format: "cdxml" })).structuredContent.tex
 const bad = await call("draw_reaction", { start: [{ text: "benzaldehyde" }], steps: [{ products: [{ text: "flurbleglorp" }] }] });
 assert.ok(bad.isError && /flurbleglorp/.test(bad.content[0].text));
 
+// A caption under a compound, much wider than it ("2 (…)" as a number is number 2 with that caption). Clean Up
+// Reaction gives the caption room, and the scheme still reads back as one route, with the caption on its compound;
+// the CDXML's scheme has both steps whole.
+d = drawing("paper", "Caption");
+const wide = await call("draw_reaction", { start: [{ text: "benzene", number: "1" }], steps: [{ reagents: ["Br2"], products: [{ text: "bromobenzene", number: "2 (not isolated, used crude in the next step)" }] }, { reagents: ["Mg"], products: [{ text: "CCN", number: "3" }] }] });
+assert.equal(wide.structuredContent.check, "clean");
+const route = (await call("read_drawing", {})).structuredContent;
+assert.deepEqual(route.reactions.map((r: { route: string }) => r.route), ["1 -> 2 -> 3"]);
+assert.deepEqual([route.structures[1].number, route.structures[1].caption, route.text], ["2", "not isolated, used crude in the next step", undefined]);
+const stepsOut: string[] = (await call("get_file", { format: "cdxml" })).structuredContent.text.match(/<step[^>]*>/g) ?? [];
+assert.ok(stepsOut.length === 2 && stepsOut.every((x) => /ReactionStepReactants/.test(x) && /ReactionStepProducts/.test(x)), stepsOut.join(" "));
+
+// A grid of structures with captions of two lines, and with a caption wider than its structure: each cell has room
+// for the text under its structure, so nothing overlaps.
+for (const caption of ["85%, 92% ee\nwhite solid", "a rather long caption here"]) {
+  d = drawing("paper", "Grid");
+  const grid = await call("draw_structures", { structures: ["benzene", "toluene", "phenol", "aniline", "pyridine", "water"].map((text, k) => ({ text, number: `${k + 1}`, caption })), columns: 3 });
+  assert.equal(grid.structuredContent.check, "clean", JSON.stringify(grid.structuredContent.check));
+}
+
 // Atoms, arrows and shapes by id: a charge, a curved arrow from a lone pair, brackets with a mark.
 d = drawing("paper", "Ids");
 await call("draw_structures", { structures: [{ text: "acetone" }] });

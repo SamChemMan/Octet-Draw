@@ -360,13 +360,22 @@ Built on 11 November 2026 (`coerce` in `mcp.ts`, before each `check`):
 - The lines come as a second text block after the result ("Read number 13 as text."), and in
   `structuredContent.coerced`. A read's first block stays its JSON. Many readings of one kind in a call are one line
   ("Read number 2 as text, and 19 more the same way.").
-- A number is read as text only for a compound number and an atom's number (`numeral` in the schema). `text: 5` is
-  still refused.
+- A number is read as text only for a compound number and an atom's number (`numeral` in the schema), and only a
+  whole number from 0 up: `2.5`, `-3` and `1e21` are refused. `text: 5` is still refused.
+- A line quotes the value without the spaces, tabs and line breaks round it, so each reading is one line.
 - Other names for an enum's values are `also` in the schema: `short` and `brief` for `summary`; `smi` and `smiles`,
   `jpeg`, `tiff` for the file formats.
 - `new_drawing`'s `for` stays required in `tools/list`. A call without it is for `quick`, and the reply says so.
 - Every compound takes `caption` (text under its number), which is where `"1 (taxol)"` puts `taxol`. `set_number` and
-  `edit` have no caption, so they keep such a number as it is given.
+  `edit` have no caption, so they keep such a number as it is given. Any text in the brackets is split off the same
+  way: `"7 (85%)"`, `"5 (R)"`, `"2a (R = Me)"` (section 16).
+- A caption has room. Clean Up Reaction already spaced a reaction round the text under a structure, and the
+  reaction reader (`findReaction`) now counts the gap to an arrow from that text, so a scheme with a caption wider
+  than its compound still reads as one route (it read as two halves from about 24 characters). `draw_structures`
+  spaces its grid again from each structure's box as drawn when a caption needs more room than a cell has.
+  CDXML's scheme has the steps whole. Not done: `draw_cycle` spaces by the atoms only, so a caption wider than its
+  intermediate can meet its neighbour's (the result's check says so).
+- `replace_structure` keeps the text under the structure, the caption too, and its sentence says so.
 - `$3.made` is read as one id in `resolve`, where a batch puts ids in.
 - Not built: a number for other short text (`equiv: 1.2`, `temperature: 25`), and text for a number (`columns: "4"`).
 
@@ -451,25 +460,32 @@ Built on 11 November 2026 (the result in `answer`, and `summary`, in `mcp.ts`):
   most: a number, conditions and a cycle's text belong to their structure, arrow or cycle. `warnings` is the new
   chemical warnings, 10 at most. The layout is in `check`, by id, and not in the warnings again. `more` says how many
   objects or warnings were left out. A tool's own answer stays (`opened` from `new_drawing`, `tables` from
-  `fill_experiment`).
+  `fill_experiment`). A reaction's plus signs are in `made`: each has its own place, and `move` takes only the ids it
+  is given, so a plus sign left out would stay behind when an AI app moves what a call made.
 - **The sentence** says what was done in a few words. It names a compound only where Name to Structure read a name
   as another name (decision 0021): the name given, its formula and Octet's name (120 characters at most, 12 names at
   most). A SMILES or a file is drawn as given: it gets no name, and Octet does not work one out (12 ms a compound)
-  until `detail: "full"` asks.
+  until `detail: "full"` asks. A sentence too long for the 20,000 limit (a batch of 40 steps, each with 12 such
+  names, was 71,000 characters) is cut to fit, and ends "(cut: detail: full gives all of it)".
 - **`detail: "full"`** gives the data as it was before this step: the drawing, every id made, changed and deleted,
   their boxes, `names`, a figure's or a batch's ids by step, and the layout's warnings in words. Checked on both
   benchmark cases against the replies before: the same but for the sentence. A batch step's `detail` is the batch's.
   Every tool whose result is a change takes it, but `tools/list` lists it only on `read_drawing`: 23 more copies are
-  1,200 characters in every chat, and take the tools past the 52,000 that `mcp.check.ts` allows. The instructions say
-  it in one line. **Step 5:** list it on the merged tools.
-- **`read_drawing`** is a summary by default: each structure's id, number and formula; each reaction as
+  1,219 characters in every chat, and take the tools past the 52,000 that `mcp.check.ts` allows. The instructions say
+  it in one line ("detail: 'full' on any write call adds all it changed, with boxes"). **A known gap until step 5:**
+  the listed schema of a write tool is closed and has no `detail`, so an AI app that checks its arguments against the
+  schema cannot send it. Step 5 lists it on the merged tools. Sam can have it listed sooner (section 16).
+- **`read_drawing`** is a summary by default: each structure's id, number, caption and formula; each reaction as
   `{ route: "1 + s4 -> 2 -> 3", conditions: { a7: "TBSCl, imidazole; DMF; 95%" } }`; cycles as before; free text (200
   characters of each); arrows and shapes outside reactions by id and kind; the check; the first 10 chemical
   warnings, each `at` its atom or structure. A compound goes by its number when the number is on one structure only
   and is not an id's form (`s9`), else by its id. The arrow is `->`, `<=>` (equilibrium), `=>` (retro), `<->`
   (resonance) or `-/->` (no reaction). `smiles: true` adds each SMILES. No default read is over 20,000 characters:
   while one is, its longest list loses its last half, and `more` counts what was left out. `atoms: true` and
-  `detail: "full"` are never cut. A drawing as a resource is the summary.
+  `detail: "full"` are never cut. A drawing as a resource is the summary. A cut read's `more` also has
+  `rest: "detail: full reads all"`. An arrow with no conditions is in `conditions` with `""`: its id is how `add_text`
+  and `edit` name it, and a summary lists a reaction's arrows nowhere else. The prompt `check_drawing` reads with
+  `smiles: true`, as the chemistry cannot be judged from formulas.
 - **Text and `structuredContent`** hold the same data, each once. The specification (2025-06-18 and 2025-11-25,
   Tools, Structured Content) says: "For backwards compatibility, a tool that returns structured content SHOULD also
   return the serialized JSON in a TextContent block." So an AI app gives its model one of the two, and each must be
@@ -480,7 +496,10 @@ Built on 11 November 2026 (the result in `answer`, and `summary`, in `mcp.ts`):
   Every call in `mcp.check.ts` is checked against its tool's `outputSchema`, and every default reply against the
   20,000 limit.
 - **Speed.** A read no longer indexes the drawing for a change it does not report (2.4 ms a read on 40 structures),
-  and the layout check skips its second pass when no shape has an edge to cross.
+  and the layout check skips its second pass when no shape has an edge to cross. A read reads each reaction once
+  (it read it again from every arrow), `findReaction` finds and measures the structures once for all the rows it
+  reads, and a short result does not work out the layout's warnings before the call (only a full result gives
+  them).
 - Not built: `advice` (it comes with the brief, section 3.2) and the picture work above.
 
 ## 11. Instructions and prompts
@@ -578,6 +597,8 @@ benchmark runner should time only the MCP part.
 | | | | taxol-v1-job | 33 | 0 | 15,482 | 359,204 | 4,236 | 19 of 19 | 23 |
 | 1, replies: short (11 Nov) | 60,515 (17,290), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 2,489 | 2,586 | 19 of 19 | 42 |
 | | | | taxol-v1-job | 33 | 0 | 15,482 | 178,153 | 4,114 | 19 of 19 | 23 |
+| 1, review (11 Nov) | 60,619 (17,320), 26 tools | 2,388 | taxol-schemes | 3 | 0 | 4,436 | 2,489 | 2,586 | 19 of 19 | 42 |
+| | | | taxol-v1-job | 33 | 0 | 15,482 | 178,207 | 3,867 | 19 of 19 | 23 |
 
 - `taxol-schemes` is the three final `draw_reaction` calls only. `taxol-v1-job` is the whole job rebuilt from section
   0's notes (no record of the chat's calls was kept): the six refusals, the check grid, the style changes, the titles,
@@ -606,6 +627,16 @@ benchmark runner should time only the MCP part.
   with the code before and after in turn (best of 4, other work running): the schemes 2,697 ms before and 2,637
   after, the job 4,368 and 4,102, a default read of the finished drawing 57.5 and 32.9, a full read 59.5 and 57.8.
   Nearly all of the schemes' time is Map Reaction Atoms (2.7 s in 17 calls).
+- Step 1, review: the fixes from the review of step 1, with `release-1.2-mcp` merged in (the 60 corpus jobs:
+  225 of 240 right and 181 warnings, as there; they read 30,402 characters, 112,152 there). `tools/list` is 104
+  characters longer (`caption` named in four descriptions, and `run_command`'s last line) and the instructions 30
+  (the line on `detail`). What an AI app gives its model is 51,826 (51,722). The taxol summaries are 18 characters
+  longer (2,843 and 3,398): `"caption":"taxol"` on compound 1's row, which a summary did not have. Time, the code
+  before and after in turn in one process (best of 6 to 30, with other work running on the Mac, so `results.json`
+  keeps the lower time of each case): a default read of the finished taxol job 36.5 ms before and 13.0 after, a full
+  read 64 and 41, every reaction of that drawing read 19.3 and 13.6, the three schemes 2,822 and 2,821 (each call's
+  best), the job 4,256 and 4,188. `findReaction` on one small reaction is the same (10.8 and 10.9 µs). The
+  benchmark's own run of the job, when the Mac was quieter, took 3,867 ms (4,114 kept before).
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.
@@ -625,6 +656,23 @@ branch does not have. Put them back when `release-1.1.2` is merged in:
 All the open questions, and Sam's answers so far, are in **Start here** at the top. The session asks him the rest
 first.
 
+From the review of step 1 (11 November 2026). Each has a default that is built, so nothing waits:
+
+1. **`detail` on the write tools is not in `tools/list`** (section 10). Listing it is 53 characters a tool, 1,219 for
+   the 23 tools, which takes what an AI app gives its model past the 52,000 check. Three ways: list it and
+   find the characters (taking "Add a PNG of what changed" off the 20 write tools and saying it once in the
+   instructions gives back 840); raise the limit; or leave it until step 5 merges the tools. Built: left until step 5.
+2. **Any text in brackets after a number becomes a caption** (section 6): `"7 (85%)"` is number 7 with `85%` under
+   it, `"5 (R)"` is number 5 with `R`, `"2a (R = Me)"` is 2a with `R = Me`. Before, each was drawn whole as the bold
+   number. Is that right for a yield and for a descriptor, or should only a name be split off? Built: all are split,
+   and the reply says how each was read.
+3. **`replace_structure` keeps the caption** under the structure, as it keeps the number, and says so. A caption that
+   names the old structure is then out of date. The other way is to take the caption away and say that. Built: kept.
+4. **The SMILES `CCC` is drawn as chlormequat chloride**: Name to Structure reads it as the trade name CCC before it
+   is tried as a SMILES. The result's sentence shows it ("Octet read the names as: CCC (C5H13ClN; ...)"). It is the
+   same on `release-1.2-mcp`, and the reading is Name to Structure's own, so it is not changed here. Should a text
+   that is a valid SMILES of plain atoms win over an abbreviation?
+
 ## 17. Known issues to fix along the way (from the taxol run)
 
 - `replace_structure` refuses MOL text that `get_file` wrote (section 6). Fixed on 11 November: text of several lines
@@ -633,7 +681,8 @@ first.
 - `run_command clean_up` on one reactant added a second "+" beside the existing one.
 - `draw_reaction` lays long schemes past the page edge (R4, section 5.4).
 - A compound repeated across schemes (7, 13) warns "number on more than one structure" (section 5.4). Fixed on 11
-  November: the warning is only for structures that differ (by InChIKey).
+  November: the warning is only for structures that differ (by InChIKey). A salt drawn as two ions under one number
+  still gets the warning (17.1, Salts).
 - Calls on one session wait behind a long batch (section 8).
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
   `mcp.json`. Give dev builds their own identifier, or their own file name.
