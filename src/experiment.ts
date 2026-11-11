@@ -151,7 +151,7 @@ export const MAX_GRIDS = 100; // file.ts
 export function newGrids(before: Mol, after: Mol): Mol {
   const had = new Set((before.arrows ?? []).map((a) => a.id)), gridded = new Set((after.grids ?? []).map((g) => g.arrow));
   const live = (after.arrows ?? []).filter((a) => gridded.has(a.id)).length;
-  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {} }));
+  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {}, roles: {} }));
   return add.length ? { ...after, grids: [...(after.grids ?? []), ...add] } : after;
 }
 

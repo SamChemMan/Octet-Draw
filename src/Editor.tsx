@@ -76,7 +76,7 @@ import { createPortal, flushSync } from "react-dom";
 import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { parseAmount, reagentFormula, type Field } from "./stoich";
+import { parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
@@ -139,7 +139,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridTsv, gridViews as gridViewsOf, setRole } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -2612,7 +2612,7 @@ export default function Editor() {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       if (arrow === undefined) return setNotice("Select a reaction first.", "info");
       const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
-      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
+      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {}, roles: {} }] }, true);
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
@@ -6031,21 +6031,34 @@ export default function Editor() {
     const w = gridEdit, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
-    const row = GRID_ROWS.find((r) => r.id === w.row)!;
-    if (row.id === "limiting") return w.product ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
+    if (row.id === "limiting") return w.product || role === "solvent" ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    // Concentration: the grid's, for the solvent with no amount; typed here, this solvent's amount goes, so it is that one.
+    if (row.id === "conc") {
+      if (!text.trim()) return changeGrid(w.arrow, () => ({ conc: undefined }));
+      const conc = parseAmount(text, "molarity");
+      if (!conc || conc > 1000) return setNotice("Type a concentration, such as 0.1 M or 100 mM.", "info");
+      return changeGrid(w.arrow, (g) => { const { mass: _m, moles: _n, volume: _v, equiv: _e, ...rest } = g.typed[w.key] ?? {}; return { conc, typed: { ...g.typed, [w.key]: rest } }; });
+    }
     if (!row.field) return;
     const field0 = row.field;
-    changeGrid(w.arrow, (g) => {
+    changeGrid(w.arrow, (g, v) => {
       const typed = { ...(g.typed[w.key] ?? {}) };
       if (!text.trim()) delete typed[field0];
       else {
         const target = w.product && row.id === "expected", fields: Field[] = target ? ["mass"] : w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
+        // A catalyst's equivalents are in mol%: a bare 5 is 5 mol%.
         const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && !target && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
-        const value = field && parseAmount(text, field, settings.massUnit);
+        const value = field && parseAmount(bare && field === "equiv" && role === "catalyst" ? `${text.trim()} mol%` : text, field, settings.massUnit);
         if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info"); return {}; }
         if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
         typed[field] = value;
         const amount = (fd: string) => ["mass", "moles", "volume"].includes(fd);
+        // A solvent's amount: a concentration typed stays while another solvent has no amount to take it.
+        if (role === "solvent") {
+          const open = v.all.some((c) => c.role === "solvent" && c.key !== w.key && !["mass", "moles", "volume", "equiv"].some((fd) => g.typed[c.key]?.[fd as Field] !== undefined));
+          return { typed: { ...g.typed, [w.key]: typed }, ...(open ? {} : { conc: undefined }) };
+        }
         if (target || (!w.product && amount(field))) {
           const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (k[0] === "p" ? fd !== "mass" : !target || !amount(fd))))]));
           return { typed: { ...others, [w.key]: typed } };
@@ -6132,7 +6145,7 @@ export default function Editor() {
     }
     // A stoichiometry grid's cell picked.
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0 };
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
@@ -7313,6 +7326,8 @@ export default function Editor() {
     if (command.startsWith("grid.") && gridPick) {
       const what = command.slice(5), { arrow, key, row } = gridPick;
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
+      const role = ROLES.find((r) => what === `role.${r}`);
+      if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
       // Copy table: the table as shown, as tab-separated text.
       if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow); return v && copyPlain(gridTsv(v)); }
@@ -9051,10 +9066,13 @@ export default function Editor() {
           const t = hit(toDoc(e.clientX, e.clientY));
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
-          if (gc && gc.row === "limiting") { if (!gc.product) changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
-          if (gc && !["name", "formula", "mw", "expectedMoles", "yield"].includes(gc.row) && (gc.row !== "expected" || gc.product)) {
-            const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
-            return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
+          // Role goes to the next role: Reactant, Catalyst, Solvent.
+          const gv = gc && gridViews.find((x) => x.arrow === gc.arrow), gcol = gv?.cols.find((x) => x.key === gc!.key);
+          if (gc && gc.row === "limiting") { if (!gc.product && gcol?.role !== "solvent") changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
+          if (gc && gc.row === "role") { if (!gc.product) changeGrid(gc.arrow, (g, v) => setRole(g, v, gc.key, ROLES[(ROLES.indexOf(gcol?.role ?? "reactant") + 1) % ROLES.length])); return; }
+          if (gc && gv && gcol && !["name", "formula", "mw", "expectedMoles", "yield"].includes(gc.row) && (gc.row !== "expected" || gc.product) && (gc.row !== "conc" || gcol.role === "solvent")) {
+            const row = GRID_ROWS.find((r) => r.id === gc.row)!, typedNow = row.id === "conc" ? gv.conc !== undefined : gcol.typed[row.field as Field] !== undefined;
+            return setGridEdit({ ...gc, value: typedNow ? gridText(gv, gcol, row).text : "" });
           }
           // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
           const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;

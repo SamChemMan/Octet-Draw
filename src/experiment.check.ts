@@ -132,7 +132,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
 {
   const before: Mol = { atoms: [], bonds: [], arrows: [{ id: 1, kind: "reaction", from: [0, 0], to: [2, 0] }] };
   const after: Mol = { ...before, arrows: [...before.arrows!, { id: 2, kind: "reaction", from: [4, 0], to: [6, 0] }, { id: 3, kind: "line", from: [0, 2], to: [2, 2] }, { id: 4, kind: "curved", from: [0, 3], to: [1, 3], bend: 60 }] };
-  assert.deepEqual(newGrids(before, after).grids, [{ arrow: 2, typed: {} }]);
+  assert.deepEqual(newGrids(before, after).grids, [{ arrow: 2, typed: {}, roles: {} }], "a new table has roles: known solvents start as solvents");
   const had = { ...after, grids: [{ arrow: 2, typed: { "r:CH4": { mass: 1 } } }] };
   assert.equal(newGrids(before, had), had);
   assert.equal(newGrids(after, after), after);

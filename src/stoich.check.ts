@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
-import { cellText, emptyRows, gridTsv, gridViews, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, setRole, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -163,6 +163,11 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   // Hide empty rows (as rows, Hide empty columns): the empty rows join the hidden ones, which Show all brings back.
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.rows \? "Hide empty columns" : "Hide empty rows", "grid\.hide\.empty"/);
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Copy table", "grid\.copy"/);
+  // Each role from the Actions panel and the right-click menu; a double-click on Role goes to the next one.
+  assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /"Set as reactant", "grid\.role\.reactant"[\s\S]*"Set as catalyst", "grid\.role\.catalyst"[\s\S]*"Set as solvent", "grid\.role\.solvent"/);
+  assert.match(editor, /if \(role\) return changeGrid\(arrow, \(g, v\) => setRole\(g, v, key, role\)\);/);
+  assert.match(editor, /ROLES\[\(ROLES\.indexOf\(gcol\?\.role \?\? "reactant"\) \+ 1\) % ROLES\.length\]/);
+  assert.match(editor, /\{ arrow, typed: \{\}, roles: \{\} \}/, "Analyse stoichiometry makes a table with roles");
   assert.match(editor, /if \(what === "copy"\) \{ const v = gridViews\.find\(\(x\) => x\.arrow === arrow\); return v && copyPlain\(gridTsv\(v\)\); \}/);
   assert.match(editor, /if \(what === "hide\.empty"\) return changeGrid\(arrow, \(g, v\) => \(\{ hidden: \{ \.\.\.g\.hidden, rows: \[\.\.\.\(g\.hidden\?\.rows \?\? \[\]\), \.\.\.emptyRows\(v\)\] \} \}\)\);/);
 }
@@ -281,6 +286,37 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(empty.rows.filter((id) => !emptyRows(empty.v).includes(id)), ["formula", "mw", "limiting", "equiv"]);
   assert.equal(cellText(empty.v, empty.v.cols[1], empty.v.rows.find((row) => row.id === "equiv")!).text, "1.00");
   assert.ok(!emptyRows(liquid.v).includes("volume") && emptyRows(liquid.v).includes("yield"), "a row with a value stays");
+  // Roles. A table Octet makes now (roles set, even empty) starts a known solvent as Solvent; an older one (no roles)
+  // keeps every column a reactant. Role shows once a column is not a reactant, Concentration once one is a solvent.
+  const older = grid([0, "→", 1], { "r:S0": { moles: 0.001 } }, "r:S0", ["THF"]), newer = grid([0, "→", 1], { "r:S0": { moles: 0.001 } }, "r:S0", ["THF"], undefined, { roles: {} });
+  assert.equal(older.v.all.find((c) => c.key === 'r:"THF"')!.role, "reactant");
+  assert.ok(!older.rows.includes("role") && !older.rows.includes("conc"));
+  near(older.at('r:"THF"').moles, 0.001, "an older table's THF is a reactant at 1 eq.");
+  assert.equal(newer.v.all.find((c) => c.key === 'r:"THF"')!.role, "solvent");
+  assert.deepEqual(newer.rows.filter((id) => id === "role" || id === "conc"), ["role", "conc"]);
+  assert.equal(newer.at('r:"THF"').moles, undefined, "a solvent has no equivalents until some are typed");
+  const role = (v: typeof newer.v, key: string) => cellText(v, v.cols.find((c) => c.key === key)!, v.rows.find((r) => r.id === "role")!).text;
+  assert.deepEqual([role(newer.v, "r:S0"), role(newer.v, 'r:"THF"'), role(newer.v, "p:S1")], ["Reactant", "Solvent", "Product"]);
+  // Set as catalyst on an older table: that column changes, and THF stays a reactant.
+  const changed = setRole({ arrow: 9, typed: {} }, older.v, "r:S0", "catalyst");
+  assert.deepEqual(changed.roles, { 'r:"THF"': "reactant", "r:S0": "catalyst" });
+  // A solvent set as limiting is not: the first reactant is.
+  assert.equal(grid([0, "→", 1], {}, 'r:"THF"', ["THF"], undefined, { roles: {} }).v.limiting, "r:S0");
+  // 1 mmol in 5 mL of THF is 0.20 M; 0.1 M typed gives 10 mL; a catalyst's 0.05 eq. is 5.00 mol%.
+  const conc = (more: object, thf: object = {}) => grid([0, "→", 1], { "r:S0": { moles: 0.001 }, 'r:"THF"': thf }, "r:S0", ["THF"], undefined, { roles: {}, ...more });
+  const five = conc({}, { volume: 5 }), thfKey = 'r:"THF"';
+  near(five.at(thfKey).conc, 0.2, "1 mmol in 5 mL");
+  assert.deepEqual(cellText(five.v, five.v.cols.find((c) => c.key === thfKey)!, five.v.rows.find((r) => r.id === "conc")!), { text: "0.20 M", typed: false });
+  const typedConc = conc({ conc: 0.1 });
+  near(typedConc.at(thfKey).volume, 10, "0.1 M gives 10 mL");
+  near(typedConc.at(thfKey).mass, 10 * 0.8833, "and its mass from THF's density");
+  assert.equal(cellText(typedConc.v, typedConc.v.cols.find((c) => c.key === thfKey)!, typedConc.v.rows.find((r) => r.id === "conc")!).typed, true);
+  near(conc({ conc: 0.1 }, { volume: 4 }).at(thfKey).conc, 0.25, "with every solvent's volume typed, the concentration is worked out");
+  const cat = grid([0, "→", 1], { "r:S0": { moles: 0.01 }, 'r:"HCl"': { equiv: 0.05 } }, "r:S0", ["HCl"], undefined, { roles: { 'r:"HCl"': "catalyst" } });
+  assert.deepEqual(cellText(cat.v, cat.v.cols.find((c) => c.key === 'r:"HCl"')!, cat.v.rows.find((r) => r.id === "equiv")!), { text: "5.00 mol%", typed: true });
+  near(cat.at('r:"HCl"').moles, 0.0005, "5 mol% of 10 mmol");
+  assert.equal(formatAmount(0.05, "mol%"), "5.00 mol%");
+  near(parseAmount("5 mol%", "equiv"), 0.05, "mol% typed");
   // A listed density (THF over the arrow) shows plain: bold only when typed.
   const listedGrid = grid([0, "→", 1], { "r:S0": { moles: 0.01 } }, "r:S0", ["THF"]), thfCol = listedGrid.v.cols.find((c) => c.key === 'r:"THF"')!;
   assert.deepEqual(cellText(listedGrid.v, thfCol, listedGrid.v.rows.find((r) => r.id === "density")!), { text: "0.88 g/mL", typed: false });

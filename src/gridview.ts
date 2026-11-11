@@ -3,22 +3,24 @@
 // them, as reactants), and each product; text reagents such as H2O or MeOH too, each item of a list such as
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out.
-import { isNumber, scaleOf, type Box, type Grid, type Mol } from "./render.ts";
+import { isNumber, scaleOf, type Box, type Grid, type GridRole, type Mol } from "./render.ts";
 import { sheetSafe } from "./experiment.ts";
-import { coefficient, conditionItems, formatAmount, inert, keyColumns, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
+import { coefficient, conditionItems, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
+import type { Liquid } from "./liquids.ts";
 
 // The grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only once one of these
 // was typed somewhere; product: rows for products (true) or reactants (false) only. Equivalents are a product's
 // coefficient too, as ChemDraw's product column has them. Volume and Density always show for reactants, so a density
 // typed gives the volume to measure out (issue 135). A product's Expected mass can be typed, as the mass wanted, kept
-// as its mass (issue 136).
+// as its mass (issue 136). Role shows once a column is not a reactant, and Concentration once one is a solvent.
 export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
-  { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "limiting", name: "Limiting?", product: false },
+  { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "role", name: "Role", product: false }, { id: "limiting", name: "Limiting?", product: false },
   { id: "equiv", name: "Equivalents", field: "equiv" }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
   { id: "volume", name: "Volume", field: "volume", product: false }, { id: "density", name: "Density", field: "density", product: false },
-  { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
+  { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "conc", name: "Concentration", product: false },
+  { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
   { id: "expected", name: "Expected mass", field: "mass", product: true }, { id: "expectedMoles", name: "Expected moles", product: true },
   { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
 ];
@@ -37,6 +39,19 @@ export type GridDeps = {
   nameWidth: (text: string, sizePt: number, bold?: boolean) => number;
   captionSize: number; perPt: number; experiment: boolean; inchi?: (atoms: number[]) => string | undefined;
 };
+
+// What a reagent's text says of itself: its coefficient ("2 HCl"), its text without it, the equivalents it gives, whether
+// it is the atmosphere's gas, and its listed liquid. Each text is read once (the table is laid out again on every change).
+const items = new Map<string, { n?: number; plain: string; equiv?: number; gas: boolean; liquid?: Liquid }>();
+function readItem(item: string) {
+  let r = items.get(item);
+  if (r) return r;
+  if (items.size >= 500) items.clear();
+  const n = coefficient(reagentName(item))[1];
+  r = { n, plain: n ? coefficient(item)[0] : item, equiv: reagentEquiv(item), gas: inert(item), liquid: liquidNamed(item) };
+  items.set(item, r);
+  return r;
+}
 
 // One grid for each reaction (an experiment page gives each new arrow one), laid out under it.
 export function gridViews(m: Mol, d: GridDeps) {
@@ -64,7 +79,9 @@ export function gridViews(m: Mol, d: GridDeps) {
     // equivalents its text gives ("K2CO3 (2 eq.)"), shown plain until a value is typed. coef: its coefficient, for
     // a part of the equation; side: written over or under an arrow, where a number in front ("2 HCl") gives its
     // equivalents. density: a reactant's listed density when it is a known liquid (liquids.ts); solvent: and a solvent.
-    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean }[] = [];
+    // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
+    // (every table Octet makes now) a solvent when it is a known one.
+    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole }[] = [];
     // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
     const add = (p: Part, product: boolean, conditions = false) => {
       const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
@@ -76,11 +93,10 @@ export function gridViews(m: Mol, d: GridDeps) {
       if (counted.has(p)) return;
       const text = m.captions?.find((c) => c.id === p.id)?.text ?? "", items = conditions ? conditionItems(text) : [text.trim()];
       items.forEach((item, k) => {
-        const n = coefficient(reagentName(item))[1], plain = n ? coefficient(item)[0] : item, got = d.reagent(item);
+        const { n, plain, equiv, gas, liquid } = readItem(item), got = d.reagent(item);
         // The atmosphere's gas (N2, Ar, air) is not a reagent: it has no column.
-        if (conditions && (!got || inert(item))) return;
-        const liquid = product ? undefined : liquidNamed(item);
-        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: reagentEquiv(item) ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: liquid?.density, solvent: liquid?.solvent });
+        if (conditions && (!got || gas)) return;
+        parts.push({ product, what: `"${item}"`, formula: got?.formula ?? "", mw: got?.weight ?? 0, x: x + k * 0.01, low, label: plain, given: equiv ?? (conditions ? n : undefined), coef: conditions ? undefined : coefs.get(p) ?? n, side: conditions, density: product ? undefined : liquid?.density, solvent: product ? undefined : liquid?.solvent });
       });
     };
     steps[0].reactants.forEach((p) => add(p, false));
@@ -90,7 +106,8 @@ export function gridViews(m: Mol, d: GridDeps) {
     // Once a coefficient is written, each part of the equation has one.
     if (parts.some((p) => p.coef)) for (const p of parts) if (!p.side) p.coef ??= 1;
     const keyed = keyColumns(parts, g.typed, g.limiting), all = keyed.cols, hidden = g.hidden ?? {};
-    const solved = solve(all, keyed.limiting), limiting = keyed.limiting ?? all.find((c) => !c.product)?.key;
+    for (const c of all) if (!c.product) c.role = g.roles?.[c.key] ?? (g.roles && c.solvent ? "solvent" : "reactant");
+    const limiting = limitingOf(all, keyed.limiting)?.key, solved = solve(all, limiting, g.conc);
     // The grid takes its arrow's scale (decision 0007). Columns stand under what they are, a column's width apart.
     const f = scaleOf(m.arrows?.find((a) => a.id === g.arrow) ?? {}), width = 3.4 * f;
     const cols = all.filter((c) => !hidden.cols?.includes(c.key)).sort((p, q) => p.x - q.x).map((c) => ({ ...c }));
@@ -98,7 +115,9 @@ export function gridViews(m: Mol, d: GridDeps) {
     if (!cols.length) return [];
     const used = (fd: Field) => cols.some((c) => c.typed[fd] !== undefined), products = cols.some((c) => c.product);
     // As rows, Molarity and Purity show only when used, on an experiment page too, so the table fits the page.
-    const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
+    const roled = (r: GridRole) => cols.some((c) => !c.product && c.role === r);
+    const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.id === "role" ? roled("catalyst") || roled("solvent") : row.id === "conc" ? roled("solvent")
+      : row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
     // Below the components and the numbers under them.
     const under = (m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]).filter((y): y is number => y !== undefined);
     const top = Math.min(...cols.map((c) => c.low), ...under) - 0.9 * f, rh = d.captionSize * d.perPt * 0.9 * 1.6 * f;
@@ -135,22 +154,33 @@ export function gridViews(m: Mol, d: GridDeps) {
         y -= 0.5 * rh;
       }
     } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
-    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
+    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections }];
   });
 }
 
 export type GridView = ReturnType<typeof gridViews>[number];
+export const ROLE_NAMES: Record<GridRole, string> = { reactant: "Reactant", catalyst: "Catalyst", solvent: "Solvent" };
+// A column's role set: kept by its key. A table from an older Octet (no roles) first keeps each known solvent as a
+// reactant, so only the column the user changed changes.
+export function setRole(g: Grid, v: GridView, key: string, role: GridRole): Partial<Grid> {
+  const keys = new Set(v.all.filter((c) => !c.product).map((c) => c.key));
+  const roles: Record<string, GridRole> = Object.fromEntries(Object.entries(g.roles ?? Object.fromEntries(v.all.filter((c) => !c.product && c.solvent).map((c) => [c.key, "reactant" as const]))).filter(([k]) => keys.has(k)));
+  return { roles: { ...roles, [key]: role }, ...(role === "solvent" && v.limiting === key ? { limiting: undefined } : {}) };
+}
 type GridRow = (typeof GRID_ROWS)[number];
 // A cell's text, and whether it was typed (typed values show bold, worked-out ones plain, as ChemDraw's grid does).
 export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow): { text: string; typed?: boolean } {
   const s = v.solved[c.key];
   if (row.id === "formula") return { text: c.formula };
+  if (row.id === "role") return { text: c.product ? "Product" : ROLE_NAMES[c.role ?? "reactant"] };
   if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
   if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
   if (row.product !== c.product && row.product !== undefined) return { text: "" };
   if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass"), typed: c.typed.mass !== undefined };
   if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
   if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
+  if (row.id === "conc") return c.role === "solvent" ? { text: formatAmount(s?.conc, "molarity"), typed: v.conc !== undefined } : { text: "" };
+  if (row.id === "equiv" && c.role === "catalyst") return { text: formatAmount(s?.equiv, "mol%"), typed: c.typed.equiv !== undefined };
   if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
   return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
 }

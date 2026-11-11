@@ -4,6 +4,10 @@
 // equivalents (its coefficient, 1 unless typed, as ChemDraw's product Equivalents row), and a measured mass gives its
 // yield. A product's mass typed (its Expected mass) is the mass wanted: with no reactant amount, it sets the scale
 // (issue 136). Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+// Each reactant has a role: a reactant (as every column of ChemDraw's grid), a catalyst (its equivalents in mol%) or a
+// solvent, which is never limiting, never sets the scale and has no equivalents until some are typed or written. The
+// solvents give the concentration of the limiting reactant, and a concentration typed gives the volume of the solvent
+// with none.
 
 import type { Grid, GridConditions, GridRole } from "./render.ts";
 import { oneLine } from "./experiment.ts";
@@ -14,17 +18,32 @@ export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarit
 export type Typed = Partial<Record<Field, number>>;
 // given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
 // scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is). density: a
-// known liquid's listed density (liquids.ts), used when none is typed.
-export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number };
+// known liquid's listed density (liquids.ts), used when none is typed. role: a reactant's role; unset is a reactant.
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number; density?: number; role?: GridRole };
+// conc: a solvent's, the concentration of the limiting reactant in all the solvents (mol/L).
 export type Solved = {
-  mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number;
+  mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number; conc?: number;
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
 };
 
-// Each component's amounts. limiting: the reactant the others are measured against (the first one when unset).
-export function solve(components: Component[], limiting?: string): Record<string, Solved> {
+// The limiting reactant: the one set, unless it is a solvent; else the first with the Reactant role; else the first
+// that is not a solvent.
+// One pass, with nothing made: the table is laid out again on every change.
+export function limitingOf<T extends { key: string; product: boolean; role?: GridRole }>(components: T[], limiting?: string): T | undefined {
+  let reactant: T | undefined, first: T | undefined;
+  for (const c of components) {
+    if (c.product || c.role === "solvent") continue;
+    if (c.key === limiting) return c;
+    if (!reactant && (c.role ?? "reactant") === "reactant") reactant = c;
+    first ??= c;
+  }
+  return reactant ?? first;
+}
+// Each component's amounts. limiting: the reactant the others are measured against (limitingOf). conc: the
+// concentration typed (mol/L).
+export function solve(components: Component[], limiting?: string, conc?: number): Record<string, Solved> {
   const out: Record<string, Solved> = {};
-  const reactants = components.filter((c) => !c.product), lim = reactants.find((c) => c.key === limiting) ?? reactants[0];
+  const reactants = components.filter((c) => !c.product), lim = limitingOf(components, limiting);
   // Its equivalents: typed, else as its text gives them, else its coefficient over the limiting reactant's (issue 133).
   const ref = lim?.coef ?? 1, given = (c: Component) => c.typed.equiv ?? c.given ?? (c.coef === undefined ? undefined : c.coef / ref);
   // A reactant's moles from what was typed: moles, mass, volume with density, or volume with molarity.
@@ -38,16 +57,28 @@ export function solve(components: Component[], limiting?: string): Record<string
   };
   let limMoles = lim ? own(lim) : undefined;
   // With the limiting reactant's amount unknown, another reactant with an amount and equivalents fixes it.
-  if (limMoles === undefined) for (const c of reactants) { const m = own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
+  if (limMoles === undefined) for (const c of reactants) { const m = c.role === "solvent" ? undefined : own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
   // With no reactant amount, a product's mass wanted fixes it.
   if (limMoles === undefined) for (const c of components) { const e = given(c) ?? 1; if (c.product && c.typed.mass !== undefined && c.mw > 0 && e > 0) { limMoles = c.typed.mass / c.mw / e; break; } }
   for (const c of reactants) {
-    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density;
+    const t = c.typed, purity = t.purity ?? 1, density = t.density ?? c.density, e = c === lim ? 1 : c.role === "solvent" ? given(c) : given(c) ?? 1;
     let moles = own(c);
-    if (moles === undefined && limMoles !== undefined) moles = limMoles * (c === lim ? 1 : given(c) ?? 1);
+    if (moles === undefined && limMoles !== undefined && e !== undefined) moles = limMoles * e;
     const mass = moles !== undefined && c.mw > 0 ? (moles * c.mw) / purity : t.mass;
     const volume = t.volume ?? (mass !== undefined && density ? mass / density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
     out[c.key] = { moles, mass, volume, purity, density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
+  }
+  // The solvents: a concentration typed gives the first with no volume the rest of the volume it needs; then the
+  // concentration in all of them.
+  if (reactants.some((c) => c.role === "solvent")) {
+    const solvents = reactants.filter((c) => c.role === "solvent"), volumeOf = () => solvents.reduce((v, c) => v + (out[c.key].volume ?? 0), 0);
+    const free = conc !== undefined && limMoles !== undefined ? solvents.find((c) => out[c.key].volume === undefined) : undefined;
+    if (free && limMoles !== undefined && conc !== undefined) {
+      const o = out[free.key], volume = (limMoles / conc) * 1000 - volumeOf(), mass = o.density ? volume * o.density : undefined, moles = mass !== undefined && free.mw > 0 ? (mass * o.purity) / free.mw : undefined;
+      if (volume > 0) out[free.key] = { ...o, volume, mass, moles, equiv: moles !== undefined && limMoles ? moles / limMoles : o.equiv };
+    }
+    const total = volumeOf();
+    for (const c of solvents) out[c.key].conc = limMoles !== undefined && total > 0 ? limMoles / (total / 1000) : undefined;
   }
   for (const c of components.filter((x) => x.product)) {
     const purity = c.typed.purity ?? 1, equiv = given(c) ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
@@ -65,7 +96,7 @@ const UNITS: Record<Field, Record<string, number>> = {
   volume: { L: 1000, l: 1000, mL: 1, ml: 1, µL: 1e-3, uL: 1e-3, ul: 1e-3 },
   density: { "g/mL": 1, "g/ml": 1, "g/cm3": 1, "kg/L": 1 },
   molarity: { M: 1, "mol/L": 1, mM: 1e-3 },
-  equiv: { eq: 1, equiv: 1, "": 1 },
+  equiv: { eq: 1, equiv: 1, "mol%": 0.01, "": 1 },
   purity: { "%": 0.01 },
 };
 // A typed amount in base units: "250 mg", "1.2 eq", "0.5 mL", "98%". A bare number is taken in the field's usual unit
@@ -81,10 +112,12 @@ export function parseAmount(text: string, field: Field, mass: "g" | "mg" = "g"):
   return k === undefined || !(value >= 0) || !Number.isFinite(value * k) ? undefined : value * k;
 }
 // An amount for the grid in the unit that reads best (250 mg, 1.25 mmol, 0.50 mL), three significant figures.
-export function formatAmount(value: number | undefined, field: Field | "mw" | "yield"): string {
+// A catalyst's equivalents ("mol%") in mol%: 0.05 is 5.00 mol%.
+export function formatAmount(value: number | undefined, field: Field | "mw" | "yield" | "mol%"): string {
   if (value === undefined || !Number.isFinite(value)) return "";
   const sig = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
   if (field === "mw") return value.toFixed(2);
+  if (field === "mol%") return `${(value * 100).toFixed(2)} mol%`;
   if (field === "yield" || field === "purity") return `${sig(value * 100)}%`;
   if (field === "equiv") return value.toFixed(2);
   const ladders: Partial<Record<Field, [string, number][]>> = {
@@ -173,7 +206,7 @@ export const liquidOf = (formula: string, inchi: () => string | undefined): Liqu
   return i === undefined ? undefined : l.inchi.get(i);
 };
 // A reagent written as text: by a name the list gives it ("THF", "dry THF", "tetrahydrofuran"), else by Octet's
-// abbreviation's InChI. Undefined when it is not a listed liquid.
+// abbreviation's InChI. Undefined when it is not a listed liquid. The table reads each text once (gridview.ts readItem).
 export function liquidNamed(text: string): Liquid | undefined {
   const plain = coefficient(reagentName(text))[0].trim(), l = listed(), inchi = l.name.has(plain.toLowerCase()) ? undefined : abbreviation(plain);
   return l.name.get(plain.toLowerCase()) ?? (inchi === undefined ? undefined : l.inchi.get(inchi));
