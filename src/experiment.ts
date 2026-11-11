@@ -50,9 +50,10 @@ export function dateKey(date: string): string {
 }
 
 // Whether a drawing is an experiment page: its purpose is Experiment or a template made from it, or it names a
-// template this computer does not have (a colleague's) and has experiment details.
+// template this computer does not have (a colleague's) and has experiment details. Title and Author do not count: any
+// drawing can have them (PROPERTIES), and a new drawing has an Author.
 export const experimentPage = (kind: string | undefined, purpose: string | undefined, annotations?: Annotation[]) =>
-  kind === "experiment" || (kind === undefined && !!purpose && Object.keys(detailsOf(annotations)).length > 0);
+  kind === "experiment" || (kind === undefined && !!purpose && Object.keys(detailsOf(annotations)).some((k) => !PROPERTIES.some(([p]) => p === k)));
 
 // A new experiment page: its details from the template (Date today), and the template's text and boxes (an own
 // template's, else HEADINGS: each a bold heading at the left margin with an outlined box under it, both ordinary text

@@ -1,10 +1,10 @@
 // Run: node src/docproperties.check.ts. Fails loudly if the document's properties (Settings > Document > Properties:
 // title, author, keywords) stop being its Title, Author and Keywords annotations, stop leaving an experiment's other
-// details and other annotations as they were, or stop coming back through CDXML, CDX and .oct. A file with none keeps
-// none.
+// details and other annotations as they were, make a drawing an experiment page, or stop coming back through CDXML,
+// CDX and .oct. A file with none keeps none.
 import assert from "node:assert/strict";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { PROPERTIES, detailsOf, withDetails } from "./experiment.ts";
+import { PROPERTIES, detailsOf, experimentPage, withDetails } from "./experiment.ts";
 import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
@@ -18,8 +18,11 @@ const guid = { keyword: "GUID", content: "0A1B" }, date = { keyword: "Date", con
   const annotations = withDetails([guid, date, { keyword: "Title", content: "Old" }], props, PROPERTIES)!;
   assert.deepEqual(annotations, [guid, date, { keyword: "Title", content: props.title }, { keyword: "Author", content: props.author }, { keyword: "Keywords", content: props.keywords }]);
   assert.deepEqual(detailsOf(annotations, PROPERTIES), props);
-  // Title and Author are an experiment page's details too.
+  // Title and Author are an experiment page's details too, but alone they do not make a drawing from a template this
+  // computer does not have an experiment page.
   assert.deepEqual(detailsOf(annotations), { title: props.title, date: "4 November 2026", author: props.author });
+  assert.equal(experimentPage(undefined, "u1abc", withDetails(undefined, props, PROPERTIES)), false);
+  assert.equal(experimentPage(undefined, "u1abc", annotations), true);
   assert.deepEqual(withDetails(annotations, { ...props, keywords: "" }, PROPERTIES)?.map((a) => a.keyword), ["GUID", "Date", "Title", "Author"]);
   assert.equal(withDetails(undefined, {}, PROPERTIES), undefined);
   // A value from a file is one line of 200 characters at most.
