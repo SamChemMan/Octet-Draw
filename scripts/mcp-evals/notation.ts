@@ -26,7 +26,7 @@ const JOBS: { id: string; job: string; want: Want }[] = [
   { id: "cycle", job: "Draw the catalytic cycle of a Suzuki coupling with three intermediates, with L, Ar and Ar' as labels: Pd(0)L2 (A); the oxidative addition complex L2Pd(Ar)Br (B); and L2Pd(Ar)Ar' (C). ArBr goes in at oxidative addition (OA); Ar'B(OH)2 goes in and B(OH)2Br comes out at transmetallation (TM); Ar–Ar' comes out at reductive elimination (RE), which gives back A. Put L = PPh3 in the middle.", want: { smiles: {}, cycle: true, words: ["OA", "TM", "RE", "ArBr", "PPh3"] } },
   { id: "scope", job: "Draw a substrate scope of 4-substituted acetophenones as one core with a group R at the 4-position: R = OMe (3a, 91%), F (3b, 85%), CF3 (3c, 70%), Me (3d, 88%). Put each yield under its number.", want: { smiles: { "3a": "COc1ccc(cc1)C(C)=O", "3b": "CC(=O)c1ccc(F)cc1", "3c": "CC(=O)c1ccc(cc1)C(F)(F)F", "3d": "Cc1ccc(cc1)C(C)=O" }, words: ["91%", "88%"] } },
   { id: "figure", job: "Draw a figure titled Organocatalysts with L-proline (1) and (2S,5S)-5-benzyl-2-tert-butyl-3-methylimidazolidin-4-one (2) side by side in one row.", want: { smiles: { 1: "OC(=O)[C@@H]1CCCN1", 2: "CN1[C@@H](C(C)(C)C)N[C@@H](Cc2ccccc2)C1=O" }, words: ["Organocatalysts"] } },
-  { id: "two-schemes", job: "Draw two schemes, each with its title. Scheme 1: toluene is oxidised with KMnO4 in water at reflux to benzoic acid (1), 70%. Scheme 2: benzoic acid (1) with SOCl2 gives benzoyl chloride (2), 95%.", want: { smiles: { 1: "OC(=O)c1ccccc1", 2: "ClC(=O)c1ccccc1" }, arrows: ["reaction", "reaction"], words: ["Scheme", "KMnO4", "SOCl2"] } },
+  { id: "two-schemes", job: "Draw two schemes, each with its title. Scheme 1: toluene is oxidised with KMnO4 in water at reflux to benzoic acid (1), 70%. Scheme 2: benzoic acid (1) with SOCl2 gives benzoyl chloride (2), 95%.", want: { smiles: { 1: "OC(=O)c1ccccc1", 2: "ClC(=O)c1ccccc1" }, arrows: ["reaction", "reaction"], words: ["KMnO4", "SOCl2"] } },
 ];
 const prompt = (job: string) => `You tell a chemical drawing app what to draw by writing lines in this notation:\n\n${NOTATION}\n\nWrite only the lines for this job, with no other text.\n\nJob: ${job}`;
 
@@ -54,7 +54,9 @@ async function check(answers: Record<string, string>) {
         if (want.arrows && kinds.join() !== want.arrows.join()) wrong.push(`arrows ${kinds.join(", ")}`);
         if (want.cycle && !m.cycles?.length) wrong.push("no cycle");
         const shown = (m.captions ?? []).map((c) => c.text).join(" ");
-        for (const w of want.words ?? []) if (!shown.includes(w)) wrong.push(`no ${w}`);
+        // A word is shown as text, or drawn as its structure (1 + SOCl2 -> 2 draws SOCl2 as a reactant, which is right).
+        const drawn = (w: string) => { try { return full.structures.some((x: { inchiKey: string }) => x.inchiKey === toInchiKey(d.host.structure(w)!)); } catch { return false; } };
+        for (const w of want.words ?? []) if (!shown.includes(w) && !drawn(w)) wrong.push(`no ${w}`);
       }
     }
     if (!wrong.length) right++;

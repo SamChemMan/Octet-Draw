@@ -1,6 +1,6 @@
 {
  "tools": 6,
- "toolsList": 12463,
+ "toolsList": 12434,
  "instructions": 2162,
  "cases": {
   "corpus-chained": {
@@ -1222,7 +1222,7 @@
    "failed": 1,
    "coerced": 0,
    "sent": 62,
-   "read": 150,
+   "read": 145,
    "ms": 1,
    "slowest": 1,
    "right": 0,

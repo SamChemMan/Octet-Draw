@@ -41,13 +41,23 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 // It goes in the tool list, which is 14,000 characters in all (610 before it said a step's label and a name changed,
 // in the room draw_route's listing left).
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
-// Its own example draws, with no refusal: 3 and 4 by InChIKey, the second from the first.
+// It teaches by example (models copy examples): each of its drawings reads and draws with no refusal. The route draws
+// 3 and 4 by InChIKey, the second from the first; the scope its two compounds; the cycle its three intermediates as text
+// (Octet cannot read L2Pd(Ar)Br), each with its number, its side text at the steps written and L = PPh3 in the middle.
 {
-  const r = fromLines({ lines: NOTATION.split("\n").slice(1, 3).join("\n") });
-  assert.ok(typeof r !== "string", String(r));
-  const s = await shown(...callOf(r));
-  assert.ok("structures" in s, JSON.stringify(s));
+  const [route, scope, cycle] = NOTATION.split("\n\n").slice(0, 3).map((x) => x.replace(/^Lines as .*\n/, ""));
+  const drawn = async (lines: string) => { const r = fromLines({ lines }); assert.ok(typeof r !== "string", String(r)); const s = await shown(...callOf(r)); assert.ok("structures" in s, JSON.stringify(s)); return s; };
+  const s = await drawn(route);
   assert.ok(s.structures.includes("3=RHDYQUZYHZWTCI-UHFFFAOYSA-N") && s.structures.includes("4=YXVFYQXJAXKLAK-UHFFFAOYSA-N"), s.structures.join(" "));
+  assert.deepEqual((await drawn(scope)).structures.map((x) => x.split("=")[0]), ["5a", "5b"]);
+  const c = await drawn(cycle);
+  assert.deepEqual(c.structures, []);
+  assert.deepEqual(c.text, ["centre:L = PPh3", "in:Ar'B(OH)2", "in:ArBr", "name:OA", "name:RE", "name:TM", "node:L2Pd(Ar)Ar' C", "node:L2Pd(Ar)Br B", "node:Pd(0)L2 A", "out:Ar–Ar'", "out:B(OH)2Br"]);
+  const m = d.host.doc(), nodes = (m.captions ?? []).filter((x) => x.cycle?.side === "node");
+  assert.deepEqual(nodes.map((x) => [x.cycle!.step, x.runs?.at(-1)]), [[0, { text: "A", bold: true }], [1, { text: "B", bold: true }], [2, { text: "C", bold: true }]]);
+  assert.ok(m.cycles![0].nodes.every((n) => !n.length));
+  // read names each text intermediate by its text's id.
+  assert.ok((await call("read", {})).structuredContent.cycles[0].intermediates.every((x: string) => /^t\d+$/.test(x)));
 }
 
 // ---- The paper corpus and the taxol route, as notation ----
@@ -105,8 +115,10 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
   // what to do, 1,500 characters. On Quick start, a user's default, it has no page.)
   for (const [id, text] of Object.entries(NOTES)) {
     let r: any;
-    assert.deepEqual(await shown("draw", { lines: text, brief: id === "taxol-route" ? "quick" : "paper" }, `one-${++k}`, (x) => (r = x)), wanted.get(id), id);
-    // (A job the JSON draws nothing of, as Octet cannot read a name, is refused the same.)
+    const got = await shown("draw", { lines: text, brief: id === "taxol-route" ? "quick" : "paper" }, `one-${++k}`, (x) => (r = x)), want = wanted.get(id)!;
+    // (A job the JSON draws nothing of, as Octet cannot read a name, is refused the same, with the line of each name.)
+    if ("refused" in want) { assert.equal(String(got.refused).replace(/ \(line \d+\)/g, "").replace(/ as a structure: write each as a name or SMILES, with \{R\} for a group\.$/, ""), want.refused.replace(/: give a SMILES instead.*$/, ""), id); assert.match(String(got.refused), /" \(line 1\) as a structure/, id); }
+    else assert.deepEqual(got, want, id);
     if (!r) continue;
     const said = r.content.map((c: { text: string }) => c.text).join("\n"), sc = r.structuredContent;
     assert.ok(said.length < 1200, `${id}: ${said.length} characters\n${said}`);
@@ -197,7 +209,6 @@ const HARD: [string, object | RegExp][] = [
   ["A -> methyl 4-(benzyloxy)benzoate[OBn>OTBS; protect 7 TBS]", R(A, [{ products: [{ text: "methyl 4-(benzyloxy)benzoate", changes: [{ swap: { OBn: "OTBS" } }, { do: "protect", at: "7", with: "TBS" }] }] }])],
   ["CC[Pd] -> X", R([T("CC[Pd]")], [{ products: [T("X")] }])],
   // Refused, with what to write instead: two readings, nothing to go on from, an open bracket, a dative bond.
-  ["A, B -> C", /reads two ways: starting materials \(write them with \+\), or a compound and its conditions/],
   ["-> B", /starts with an arrow, but there is no compound before it/],
   ["A -> B (", /a bracket is not closed/],
   ["A ->", /an arrow has no product after it/],
@@ -238,11 +249,51 @@ const HARD: [string, object | RegExp][] = [
   ["4,4'-dimethoxy-1,1'-biphenyl + N,N-diethyl-2,6-xylidine -> X", R([T("4,4'-dimethoxy-1,1'-biphenyl"), T("N,N-diethyl-2,6-xylidine")], [{ products: [T("X")] }])],
   // Operations that skip a number.
   ["A -> B, 1. X 3. Y", /operation 3 follows 1: number them in order/],
+  // Round 2 (plan 5.6): what models write. Starting materials are joined by +, so what follows a comma before the arrow
+  // is the step's conditions (said in the reply: below).
+  ["A + B, MeOH, 0 °C -> C (1), 95%", R([T("A"), B], [{ solvents: ["MeOH"], temperature: "0 °C", yield: "95%", products: [{ text: "C", number: "1" }] }])],
+  ["A, B -> C", R(A, [{ reagents: ["B"], products: [T("C")] }])],
+  // A compound alone on a line (under its title), then a line that starts with an arrow: it is the start.
+  ["ethyl (S)-lactate (1)\n-> 1[OH>OTBS] (2), TBSCl", R([{ text: "ethyl (S)-lactate", number: "1" }], [{ reagents: ["TBSCl"], products: [{ from: "1", changes: [{ swap: { OH: "OTBS" } }], number: "2" }] }])],
+  ["# T\nX (1)\n-> Y (2)", { op: "route", args: { schemes: [{ title: "T", start: [{ text: "X", number: "1" }], steps: [{ products: [{ text: "Y", number: "2" }] }] }] } }],
+  ["A -> B\nX (1)\n-> Y (2)", { op: "route", args: { schemes: [{ start: A, steps: [{ products: [B] }] }, { start: [{ text: "X", number: "1" }], steps: [{ products: [{ text: "Y", number: "2" }] }] }] } }],
+  // A cycle on one line with what goes in and out written against its compounds: before an arrow, that arrow's step;
+  // at the end of a line, in goes into the step from the compound and out comes from the step to it. Words that are
+  // no structure are its text, as written; quoted, with no quotes.
+  ["P (1) +triketone -> Q (2) -> S (3) -> 1 -ketol", { op: "cycle", args: { intermediates: [{ text: "P", number: "1" }, { text: "Q", number: "2" }, { text: "S", number: "3" }], steps: [{ step: 0, in: "triketone" }, { step: 2, out: "ketol" }] } }],
+  ['P (1) +"triketone" -> Q (2) -> S (3) -ketol -> 1', { op: "cycle", args: { intermediates: [{ text: "P", number: "1" }, { text: "Q", number: "2" }, { text: "S", number: "3" }], steps: [{ step: 0, in: "triketone" }, { step: 2, out: "ketol" }] } }],
+  // Among a step's text (OA +X), what goes in or out is the next arrow's when one follows on the line.
+  ["P (A) +ArBr -> Q (B), OA +Ar'B(OH)2 -B(OH)2Br -> S (C), TM -Ar–Ar' -> A, RE", { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }, { text: "S", number: "C" }], steps: [{ step: 0, in: "ArBr", name: "OA" }, { step: 1, in: "Ar'B(OH)2", out: "B(OH)2Br", name: "TM" }, { step: 2, out: "Ar–Ar'", name: "RE" }] } }],
+  // Intermediates that are formulas (text when Octet cannot read them, as the drawing check above shows), labels in
+  // braces taken off the side text, and the centre text as a definition before or after it, or in quotes after it.
+  ["# Suzuki\n{L}: PPh3\nPd(0)L2 (A) -> L2Pd(Ar)Br (B), +ArBr, OA -> Pd(0)L2 (A), -{Ar}-{Ar'}, RE", { op: "cycle", args: { intermediates: [{ text: "Pd(0)L2", number: "A" }, { text: "L2Pd(Ar)Br", number: "B" }], centre: "Suzuki\nL = PPh3", steps: [{ step: 0, in: "ArBr", name: "OA" }, { step: 1, out: "Ar-Ar'", name: "RE" }] } }],
+  ['P (A) -> Q (B), +X\n-> A, -Y\n"L = PPh3"', { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }], centre: "L = PPh3", steps: [{ step: 0, in: "X" }, { step: 1, out: "Y" }] } }],
+  ["P (A) -> Q (B), +X\n-> A, -Y\nL = PPh3", { op: "cycle", args: { intermediates: [{ text: "P", number: "A" }, { text: "Q", number: "B" }], centre: "L = PPh3", steps: [{ step: 0, in: "X" }, { step: 1, out: "Y" }] } }],
+  // Not a cycle: +x against a compound is one more compound, as before, and -x a line under the arrow after it. A
+  // definition with no cycle is a title.
+  ["A +B -> C", R([T("A"), B], [{ products: [T("C")] }])],
+  ["A -> B -H2O", R(A, [{ below: ["-H2O"], products: [B] }])],
+  ["L = PPh3\nA -> B", { op: "route", args: { schemes: [{ title: "L = PPh3", start: A, steps: [{ products: [B] }] }] } }],
+  // A scope as models write it: the core with "then" and its compounds on its line, joined by ; or |, or the core with
+  // its group again after it; a number bare or in brackets with its yield.
+  ["{R}c1ccc(cc1)C(C)=O: then R=OMe (3a) 91%; R=F (3b) 85% | R = CF3 3c 70%", { op: "structures", args: { structures: [{ text: "*c1ccc(cc1)C(C)=O", labels: ["OMe"], number: "3a", caption: "91%" }, { text: "*c1ccc(cc1)C(C)=O", labels: ["F"], number: "3b", caption: "85%" }, { text: "*c1ccc(cc1)C(C)=O", labels: ["CF3"], number: "3c", caption: "70%" }], columns: 3 } }],
+  ["CC(=O)c1ccc({R})cc1 {R}: then\nR=OMe (3a, 91%)\nthen R=F 3b", { op: "structures", args: { structures: [{ text: "CC(=O)c1ccc(*)cc1", labels: ["OMe"], number: "3a", caption: "91%" }, { text: "CC(=O)c1ccc(*)cc1", labels: ["F"], number: "3b" }] } }],
+  // A refusal gives the corrected line when Octet can work it out.
+  ["A -> B,X, 90%", /: put a space after the comma before X \(a comma with no space is part of a name, as in 2,6-lutidine\)\. Write: A -> B, X, 90%$/],
+  ["P (A) -> Q (B), +X, @Y -> A, -Z", /^Line 1: @Y: a cycle's steps take text, not a structure\. Write: P \(A\) -> Q \(B\), \+X, Y -> A, -Z$/],
 ];
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
   if (want instanceof RegExp) assert.match(String(got), want, text);
   else assert.deepEqual(got, want, text);
+}
+// What Octet read in a way the model may not have meant is said, a line each, in the reply.
+{
+  const said: string[] = [];
+  fromLines({ lines: "A + B, MeOH, 0 °C -> C\nD -> E" }, (k, l) => said.push(`${k}: ${l}`));
+  assert.deepEqual(said, ['before: Line 1: Octet read "MeOH, 0 °C", before the arrow, as the step\'s conditions.']);
+  const r = await call("draw", { lines: "cyclohexanone + NaBH4, MeOH, 0 °C -> cyclohexanol (1), 95%" });
+  assert.match(r.content.map((c: { text: string }) => c.text).join("\n"), /\nLine 1: Octet read "MeOH, 0 °C", before the arrow, as the step's conditions\.$/);
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });
@@ -281,6 +332,9 @@ for (const [what, text, want] of [
   ["a lone low surrogate", "\udc00A -> B", /U\+DC00/],
   ["control characters", "A -> B\u0000\u001b", /U\+0000/],
   ["many lines", "A -> B\n".repeat(14_000), /./],
+  ["many asides", `${"A +B -C ".repeat(12_000)}-> D`, /./],
+  ["many colons", `{R}C${": R=Me;".repeat(14_000)}`, /./],
+  ["many lone lines", "X (1)\n".repeat(14_000) + "-> Y", /./],
 ] as [string, string, RegExp][]) {
   const t = performance.now(), got = fromLines({ lines: text }), ms = performance.now() - t;
   assert.match(typeof got === "string" ? got : JSON.stringify(got).slice(0, 100), want, what);

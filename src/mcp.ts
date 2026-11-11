@@ -13,12 +13,13 @@ import { LIBRARY } from "./library.ts";
 import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide, isSide, type Cycle } from "./cycle.ts";
+import { addSide, isSide, textOn, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION } from "./notation.ts";
+import { formulaTextRuns } from "./labels.ts";
 import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
@@ -583,7 +584,7 @@ for (const t of OPS) {
 // hidden: callable by its name (scripts, checks) but not listed: AI apps reach it through advanced.
 // route's brief: the user's answers given with the call (draw's brief), set as set_brief sets them before it draws;
 // lines: the call was the line notation, so its reply is the one that ends a job (answer).
-type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes) => { op: string; args: any; at?: string; brief?: unknown; lines?: true } | string };
+type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; hidden?: true; route: (a: any, notes: Notes) => { op: string; args: any; at?: string; brief?: unknown; lines?: string } | string };
 const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
 const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "set_brief"];
 // The values an operation's argument takes, for a tool's description to list.
@@ -663,8 +664,8 @@ const TOOLS: Tool[] = [
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
-      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: true as const } : {}) };
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l))) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+      return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(typeof rest.lines === "string" ? { lines: rest.lines } : {}) };
     },
   },
   {
@@ -678,7 +679,7 @@ const TOOLS: Tool[] = [
       const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [];
       for (const [k, { op, ...args }] of (operations as any[]).entries()) {
         // Lines of one drawing are its kind (lines that make several go in a draw call of their own).
-        const lined = op === "draw" && args.lines !== undefined ? fromLines(args) : undefined;
+        const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l)) : undefined;
         if (typeof lined === "string") return `operations[${k}]: ${lined}`;
         if (lined && (lined.op === "batch" || lined.op === "route")) return `operations[${k}]: these lines make several drawings: draw them with draw, then change them`;
         const no = op === "draw" && !lined ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
@@ -786,9 +787,10 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 }
 // Each compound read; the texts Octet cannot read (failed); and what is wrong with the rest (wrong: a molecule with a
 // bond to no atom, labels that do not fit the *s).
-async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[] }> {
+// lost: the place in items of each that failed.
+async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: Read[]; failed: string[]; wrong: string[]; lost: number[] }> {
   await host.ready();
-  const ok: Read[] = [], failed: string[] = [], wrong: string[] = [];
+  const ok: Read[] = [], failed: string[] = [], wrong: string[] = [], lost: number[] = [];
   let last: Read | undefined; // the compound before this one, when Octet read it
   const add = (r: Read, it: CompoundIn) => { ok.push(r); if (!it.aside) last = r; };
   for (const [k, it] of items.entries()) {
@@ -839,7 +841,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     // A SMILES's map numbers name its atoms for later changes: they are kept as tags, and not drawn.
     const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), got = host.structure(text), read = got && tagged(got);
     let mol = read && crowded(read) ? host.tidy(read) : read;
-    if (!mol?.atoms.length) { failed.push(short(text, 60)); continue; }
+    if (!mol?.atoms.length) { failed.push(short(text, 60)); lost.push(k); continue; }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
     if (it.labels?.length) {
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
@@ -857,7 +859,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     const bare = mol.atoms.flatMap((x) => (x.tag && x.radical ? [x.tag] : []));
     add({ mol: asLike(mol), text, number, caption, named: host.named(text), ...(bare.length ? { note: `As written, ${bare.map((t) => `atom ${t}`).join(" and ")} ${bare.length > 1 ? "are radicals" : "is a radical"}: a numbered atom needs its hydrogens ([CH2:${bare[0]}]).` } : {}) }, it);
   }
-  return { ok, failed, wrong };
+  return { ok, failed, wrong, lost };
 }
 // Runs as Octet keeps them (TextRun): control characters out (spaces kept), each colour #rrggbb; or what is wrong.
 function runsOf(r: RunIn[]): TextRun[] | string {
@@ -1290,21 +1292,35 @@ async function drawRoute(host: Host, a: { title?: string; schemes: SchemeIn[]; l
   };
 }
 
-async function drawCycle(host: Host, a: { intermediates: { text: string; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
-  const { ok, failed, wrong } = await read(host, a.intermediates);
-  if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
-  const n = ok.length, sizes = ok.map((s) => boxOf(s.mol)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
+async function drawCycle(host: Host, a: { intermediates: { text: string; labels?: string[]; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
+  const { ok, failed, wrong, lost } = await read(host, a.intermediates);
+  if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
+  // An intermediate Octet cannot read as a structure (L2Pd(Ar)Br) is text, as the cycle tool writes one: with its labels
+  // for its * and its number in bold under it, formulas with subscripts. Its box is a guess until Clean Up measures it.
+  const st0 = host.style(), em = st0.captionSize / st0.bond;
+  let j = 0;
+  const items = a.intermediates.map((it, k) => {
+    if (!lost.includes(k)) return { read: ok[j++] };
+    const labels = [...(it.labels ?? [])], text = clean(it.text.replace(/\*/g, () => labels.shift() ?? "*")), number = it.number && clean(it.number);
+    return { text, number, box: [0, -em, text.length * 0.55 * em, number ? em : 0] as Box };
+  });
+  const n = items.length, sizes = items.map((s) => ("read" in s ? boxOf(s.read!.mol) : s.box)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
   const radius = Math.max(3, (big + 2) / (2 * Math.sin(Math.PI / n))), clockwise = !a.anticlockwise;
   let m = host.doc();
   const [x0, y0] = origin(host, m), centre: P = [x0 + radius + big / 2, y0 - radius - big / 2];
   const nodes: number[][] = [], at: number[] = [];
-  ok.forEach((s, k) => {
+  items.forEach((s, k) => {
     const t = Math.PI / 2 - ((clockwise ? 1 : -1) * 2 * Math.PI * k) / n, b = sizes[k], p: P = [centre[0] + radius * Math.cos(t), centre[1] + radius * Math.sin(t)];
-    const r = place(m, s, p[0] - (b[2] - b[0]) / 2, p[1]);
-    m = r.mol; nodes.push(r.atoms); at.push(t);
+    if ("read" in s) { const r = place(m, s.read!, p[0] - (b[2] - b[0]) / 2, p[1]); m = r.mol; nodes.push(r.atoms); } else nodes.push([]);
+    at.push(t);
   });
   let id: number;
   [m, id] = addCycle(m, { centre, radius, clockwise, nodes, at });
+  items.forEach((s, k) => {
+    if ("read" in s) return;
+    const p: P = [centre[0] + radius * Math.cos(at[k]), centre[1] + radius * Math.sin(at[k])];
+    m = addCaption(m, { text: s.number ? `${s.text}\n${s.number}` : s.text, ...(s.number ? { runs: [...formulaTextRuns(s.text), { text: "\n" }, { text: s.number, bold: true }] } : {}), x: p[0], y: p[1], align: "centre", cycle: { cycle: id, step: k, side: "node" } })[0];
+  });
   if (a.centre) m = addCaption(m, { text: clean(a.centre, true), x: centre[0], y: centre[1], align: "centre", cycle: { cycle: id, step: 0, side: "centre" } })[0];
   const sides: number[] = [];
   for (const st of a.steps ?? []) {
@@ -1344,7 +1360,8 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   if (Math.hypot(...d) > 1e-6) { host.set(shift(m, new Set(nodes.flat()), new Set([id]), d)); await host.settle(); }
   const r1 = (v: number) => Math.round(v * 10) / 10, inside = -2 * leftMargin(st), wide = b && st.edges && !host.experiment() && b[2] - b[0] > inside + 1e-6;
   const advice = `${on.length ? ` The side text ${on.map((t) => `t${t.id}`).join(", ")} lies on an intermediate: give shorter side text.` : ""}${wide ? ` The cycle is ${r1(b[2] - b[0])} bond lengths wide (the page has ${r1(inside)}): give shorter side text, or a larger page or landscape (set_brief).` : ""}`;
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}. Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  const words = items.flatMap((s) => ("read" in s ? [] : [s.number ?? s.text]));
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}.${words.length ? ` ${words.join(", ")} ${words.length > 1 ? "are" : "is"} text: Octet cannot read ${words.length > 1 ? "them as structures" : "it as a structure"}.` : ""} Octet tidied it with Clean Up.${advice}${readAs(host, ok, ctx)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 // ---- Ids (D5) ----
@@ -2685,7 +2702,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     return [{ steps, products: before }];
   }).filter((r) => !want || r.steps.some((st) => keep(st.arrow) || st.before.some((x) => typeof x === "string" && keep(x))) || r.products.some((x) => typeof x === "string" && keep(x)));
   const cycles = (m.cycles ?? []).filter((c) => keep(`c${c.id}`)).map((c) => ({
-    id: `c${c.id}`, clockwise: c.clockwise, intermediates: c.nodes.map((n) => (n.length ? idOf(n) : null)),
+    id: `c${c.id}`, clockwise: c.clockwise, intermediates: c.nodes.map((n, i) => (n.length ? idOf(n) : ((t) => (t ? `t${t.id}` : null))(textOn(m, c, i)))),
     centre: m.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.side === "centre")?.text,
     sides: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && (x.cycle.side === "in" || x.cycle.side === "out")).map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, side: x.cycle!.side, text: x.text })),
     names: (m.captions ?? []).filter((x) => x.cycle?.cycle === c.id && x.cycle.side === "name").map((x) => ({ id: `t${x.id}`, step: x.cycle!.step, text: x.text })),
@@ -2914,6 +2931,8 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         const out = set?.error ? set : await runOp(tool, h, args, ctx);
         // A draw by lines answers in as few characters as carry it (plan 19.2): not that Octet laid it out or that it is
         // one undo step, which every such call is.
+        // A name or SMILES of the lines that Octet cannot read is named with its line, in the lines' terms ({R}, not *).
+        if (routed.lines && out.error) out.text = out.text.replace(/ Octet cannot read ((?:"[^"]*"(?:, )?)+): give a SMILES instead \(with \* for a generic group such as L or R, and its labels\)\./, (_, list: string) => ` Octet cannot read ${list.replace(/"([^"]*)"/g, (q, t: string) => { const re = new RegExp(t.replace(/…$/, "").replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? "\\{[^{}]*\\}" : `\\${c}`))), k = routed.lines!.split("\n").findIndex((l) => re.test(l)); return k < 0 ? q : `${q} (line ${k + 1})`; })} as a structure: write each as a name or SMILES, with {R} for a group.`);
         if (routed.lines && !wantFull && !out.error) out.text = out.text.replace(UNDO, "").replace(/ Octet (?:laid it out|laid out each) with Clean Up Reaction\.| Octet tidied it with Clean Up\./, "");
         // (The room inside the page's margins, or that there is no page, is left out: the draw says what does not fit.)
         if (set && !out.error) out.text = `${set.text.split("\n")[0].replace(UNDO, "").replace(/ Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\.| With no page, nothing runs off it\./, "")} ${out.text}`;

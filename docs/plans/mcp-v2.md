@@ -700,6 +700,43 @@ and writing nested JSON. So a model can write what a chemist types, and Octet so
   refused. A reagent in its solvent (`HCl/dioxane`) goes over the arrow; `yield 88%` and `E:Z >95:5` are yields; `—>`
   and `–>` are arrows; a reaction SMILES with agents, a comma with no space that is not between locants (`B,X`) and
   operations that skip a number are refused with what to write.
+- **Round 2: what models write (11 November, branch `mcp/ai`).** Three models wrote twelve jobs from the description
+  alone (Haiku, Sonnet, Opus; 26 of 36 right), and Haiku's lab run was refused 5 times for things with one meaning
+  (19.4). Each is now read, at one place in the reader:
+  - A catalytic cycle as models write it. An intermediate Octet cannot read as a structure (`Pd(0)L2`, `L2Pd(Ar)Br`,
+    `{L}2Pd({Ar})Br`) is a text intermediate, as the editor's cycle tool has them: the cycle tool (`drawCycle`, so the
+    JSON too) writes it as the node's text, its labels in place of its `*`, formulas with subscripts and its number in
+    bold under it, and its reply says which are text; read gives its text's id as the intermediate. What goes in or out
+    can be written against a compound with no space after the sign (`P (1) +triketone -> ...`, `4 -ketol -> 1`,
+    `OA +ArBr`): before an arrow on its line it is that arrow's step; at the end of a line, in goes into the step from
+    the compound and out comes from the step to it. Side text is as written, with no braces or quotes (`+{Ar}Br` is
+    ArBr). Back to the start with any `+x` or `-x` is a cycle with no further question. The centre text can be a line
+    of its own after or before the cycle (`L = PPh3`, `{L}: PPh3`) or in quotes after it. A cycle's side text is always
+    text: the tools' cycle has no structure at a side arrow's end (the editor's has, `CycleEnd.atoms`). Not a cycle,
+    `A +B` is two starting materials as before, and `B -H2O` a line under the arrow after it. A definition line with no
+    cycle is a title.
+  - A compound alone on a line (under a `#` title, or after a scheme), then a line that starts with an arrow: the lone
+    compound is the start.
+  - Conditions before the arrow (`cyclohexanone + NaBH4, MeOH, 0 °C -> cyclohexanol (1), 95%`): starting materials are
+    joined by `+`, so what follows the first comma on the left is the step's conditions, and the reply says so in its
+    coerced line ("Line 1: Octet read "MeOH, 0 °C", before the arrow, as the step's conditions."). Before, it was
+    refused as two readings.
+  - A scope as models write it: the core and its compounds on one line (`CORE{R}: then R=OMe (3a) 91%; R=F (3b) 85%`),
+    `;` between compounds when the next starts with the core's first group, `then` before a compound or after the
+    colon, the group again after the core (`CORE {R}:`), `R = OMe`, and the number bare (`R=OMe 3a 91%`) or in brackets.
+  - A refusal that Octet can correct ends with the line as it would have it (`Write: A -> B, X, 90%` for `B,X`; a
+    cycle's `@Y` or `^Y` without its mark), and a name or SMILES of the lines that Octet cannot read is named with its
+    line (`"triketone" (line 1)`) and the lines' `{R}`, not the JSON's `*` and labels.
+  - `NOTATION` (771 characters, from 810) is examples, as models copy them: a titled route with conditions and a
+    continuing step with a change, a scope with its core, a cycle with text intermediates, side text and centre text,
+    then one paragraph of the compound's form, the marks and the arrows. `src/notation.check.ts` draws each example.
+  - The model test's check (`scripts/mcp-evals/notation.ts`) counts a word drawn as its structure (`1 + SOCl2 -> 2`, a
+    reagent written as a starting material, is right) and no longer wants "Scheme" in a title the job did not ask for.
+  - Measured: the 36 answers through the new reader and check, 35 right (Haiku 9 to 12, Sonnet 7 to 11, Opus 10 to 12);
+    the one left is Sonnet's cycle, which draws Pd(PPh3)4 as intermediate A and never writes L = PPh3. The 60 corpus
+    jobs and taxol draw as before. The reader is quicker: the 61 jobs read in 3.5 ms, from 4.7 (best of 10; `cut`
+    reads by character code), taxol 25 µs a line. Benchmark: no case worse; tools/list 12,434 characters (12,463), and lines-grocott2025-fig2a-catalyst reads 145
+    (150), its refusal naming the line of the name Octet cannot read.
 - **Still JSON only:** a compound's hints (up, down, left, right, rotate, flip, geometry, colours, like) and a molecule
   atom by atom; MOL or CDXML text as a compound; `from` by a structure's id (`s3`); a figure item's brackets, mark and
   colour, a panel's frame and fill, and rich text runs; a cycle's `anticlockwise`. Every operation of `change` other
@@ -1558,5 +1595,15 @@ What a model sees and sends was rebuilt so that a drawing job is one call and no
   no window and judged: the 25 typical jobs of `src/headless.check.ts`, 25 of 25 right at the first try on part 1 and
   here, 57 calls to 41, 7,469 characters sent to 3,976, 19,172 read to 14,634; the 14 speed jobs, through `call.mjs`
   against the headless server, 14 of 14 on both, 25 calls to 14, 8,524 sent to 5,389, 8,689 read to 5,991.
+- **Round 2 of the notation (what models write, 5.6).** Haiku on the lab's 14 speed jobs (draw with lines, cc2647f):
+  71 turns to 52 and 38 Octet calls to 22 against the seven old tools, 10 jobs passed against 8, but output tokens
+  106,738 to 116,258 (thinking 83,680 to 99,487): 5 calls were refused for things with one meaning, each costing
+  thousands of thinking tokens. Haiku's own calls replayed through the new reader on the headless server: 4 of the 5
+  go through. say-cycle's first call draws the cycle and passes (before: 3 refusals, then a scheme that failed);
+  say-five-step's first call (a lone first compound under the title) draws and passes; paper-cycle's first call draws
+  a cycle (before: refused, then a scheme), which still fails on Haiku's own SMILES for 4 and its long title, as the
+  centre, over two intermediates (the check names them). The one still refused is say-cycle's third try (`"triketone"
+  at 1 to 2`, words for where), which a model no longer reaches. Whether thinking falls is for the main session's
+  model runs.
 - **Not done:** models on the lab (the main session runs them).
 
