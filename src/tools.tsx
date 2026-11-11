@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type SymbolKind } from "./edit";
-import { ARROW_SIZES, curvePath, headOfLength, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, legible, MY_SET, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
@@ -389,10 +389,11 @@ function CurvedGlyph({ kind, sweep }: { kind: ArrowKind; sweep: number }) {
 // stopping short of them, as in a drawn structure.
 export function TemplateGlyph({ mol: whole }: { mol: Mol }) {
   // A template with no structure (arrows, pen curves, shapes, text): its arrows and shapes as lines, a pen curve along
-  // its path, or its text as a T.
+  // its path, a membrane as its lipids' heads, or its text as a T.
   if (!whole.atoms.length) {
     const lines = [
-      ...(whole.arrows ?? []).map((a) => (a.curve ? curvePath(a.curve, 1).map(([x, y]) => [x, -y]).concat(a.curve.closed ? [a.curve.points[0].at] : []) : [a.from, a.to])),
+      ...(whole.arrows ?? []).flatMap((a) => (a.style === "membrane" ? membrane(a, 1).heads.map(({ at: [x, y], r }) => Array.from({ length: 9 }, (_, i): [number, number] => [x + r * Math.cos((i * Math.PI) / 4), -y + r * Math.sin((i * Math.PI) / 4)]))
+        : [a.curve ? curvePath(a.curve, 1).map(([x, y]) => [x, -y]).concat(a.curve.closed ? [a.curve.points[0].at] : []) : [a.from, a.to]])),
       ...(whole.shapes ?? []).flatMap((x) => [[x.from, [x.to[0], x.from[1]]], [[x.to[0], x.from[1]], x.to], [x.to, [x.from[0], x.to[1]]], [[x.from[0], x.to[1]], x.from]]),
     ];
     if (!lines.length) return <TextT size={20} />;

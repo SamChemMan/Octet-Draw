@@ -241,13 +241,14 @@ export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", 
 // arrow's is its outline, by their kind.
 export const shapesHeads = (a: Pick<Arrow, "kind">) => takesHeads(a) || a.kind === "equilibrium";
 // Whether picked arrows' heads have a shape to choose: their heads all take one, and they have a head now (an
-// equilibrium's come with its kind). The Actions panel shows Heads, and the Curves menu turns on its shapes, only then.
-export const headShaped = (c: { shaped?: boolean; heads?: boolean; start?: Head; end?: Head }) => !!c.shaped && (c.start !== "none" || c.end !== "none" || !c.heads);
+// equilibrium's come with its kind; a membrane draws none). The Actions panel shows Heads, and the Curves menu turns on
+// its shapes, only then.
+export const headShaped = (c: { shaped?: boolean; heads?: boolean; start?: Head; end?: Head; style?: string }) => !!c.shaped && c.style !== "membrane" && (c.start !== "none" || c.end !== "none" || !c.heads);
 // Curves > Solid, Hollow and Angled Arrowhead for what is picked (the Actions panel's context): on for arrows whose
 // heads have a shape to choose (headShaped), and for a catalytic cycle or its side arrow's text (cycle: the cycle.head
 // commands, as in the Actions panel), with the shape they have ticked. Off for anything else.
 export const HEAD_SHAPES: HeadShape[] = ["solid", "hollow", "angled"];
-export function headMenu(c: { kind: string; shaped?: boolean; heads?: boolean; start?: Head; end?: Head; head?: HeadShape; cycleSide?: { head: HeadShape } } | undefined): { head?: HeadShape; cycle?: boolean } {
+export function headMenu(c: { kind: string; shaped?: boolean; heads?: boolean; start?: Head; end?: Head; style?: string; head?: HeadShape; cycleSide?: { head: HeadShape } } | undefined): { head?: HeadShape; cycle?: boolean } {
   if (c?.kind === "arrow") return headShaped(c) ? { head: c.head } : {};
   if (c?.kind === "cycle") return { head: c.head, cycle: true };
   if (c?.kind === "caption" && c.cycleSide) return { head: c.cycleSide.head, cycle: true };

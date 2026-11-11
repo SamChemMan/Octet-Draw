@@ -8,7 +8,7 @@ import { transformParts } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import { arrowTrace } from "./hit.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
-import { arrowPicks, arrowShapes, membrane, sweepBend, type Arrow, type Mol } from "./render.ts";
+import { arrowPicks, arrowShapes, headMenu, membrane, sweepBend, type Arrow, type Mol } from "./render.ts";
 
 const near = (a: number, b: number, d = 1e-6) => Math.abs(a - b) <= d;
 const line: Arrow = { id: 1, kind: "line", from: [0, 0], to: [2, 0], style: "membrane" };
@@ -61,6 +61,9 @@ const styles = (c: object) => picks(c)[0].picks.find((p) => p.label === "Line")!
 assert.ok(styles({ arrow: "line" }).includes("membrane") && styles({ arrow: "curve" }).includes("membrane"));
 assert.ok(!styles({ arrow: "reaction" }).includes("membrane"));
 assert.deepEqual(picks({ arrow: "line", style: "membrane", fillable: true })[0].picks.map((p) => p.label), ["Line"]);
+// Heads set before it became a membrane are not drawn, so neither the panel nor the Curves menu offers their shape.
+assert.deepEqual(picks({ arrow: "line", style: "membrane", end: "full" })[0].picks.map((p) => p.label), ["Line"]);
+assert.deepEqual(headMenu({ kind: "arrow", shaped: true, heads: true, start: "none", end: "full", style: "membrane", head: "solid" }), {});
 
 // Files: CDXML, CDX and .oct give each membrane back as it was; ChemDraw gets its lipids as curves in one group.
 const mol: Mol = { atoms: [], bonds: [], arrows: [line, arc, { ...cell, width: 1, scale: 0.8 }] };
@@ -79,6 +82,9 @@ const same = (got: Mol, label: string) => {
 const read = fromCdxml(xml);
 assert.deepEqual(read.lost, {});
 same(read.mol, "CDXML");
+// A filled curve drawn over a membrane is still over it when read back (both draw behind the structures, in order).
+const blob: Arrow = { id: 4, kind: "curve", from: [0, 0], to: [0, 0], fill: "solid", curve: { closed: true, points: [{ at: [0, 0] }, { at: [1, 1] }, { at: [2, 0] }] } };
+assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], arrows: [line, blob] }, DEFAULT_STYLE)).mol.arrows!.map((a) => a.id), [1, 4], "draw order");
 same(readCdx(writeCdx(mol, DEFAULT_STYLE)).mol, "CDX");
 same(readOct(writeOct(mol, DEFAULT_STYLE)).mol, ".oct");
 same(parse(serialize(mol)), "Octet's own text");
