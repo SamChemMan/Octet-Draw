@@ -74,6 +74,11 @@ assert.match(actions, /centre_view: "view"/);
 // The pointer: Shift and a mouse wheel scroll across; the middle button drags the view with every tool; the scroll
 // bars show over the canvas but not on Home.
 assert.match(editor, /across = e\.shiftKey && !zooming && !e\.deltaX/);
+// A pinch zooms with no key held: as Ctrl + scroll (Chromium, Windows) and as WebKit's gesture events (the Mac), which
+// zoom by the change in scale since the last one. Ctrl + scroll waits while a gesture goes on, so a pinch never counts twice.
+assert.match(editor, /const gestures = \["gesturestart", "gesturechange", "gestureend"\]/);
+assert.match(editor, /zoomAt\(g\.clientX, g\.clientY, g\.scale \/ pinched\)/);
+assert.match(editor, /if \(zooming && pinched\) return;/);
 assert.match(editor, /if \(e\.button === 1\) \{/);
 assert.match(editor, /\{!home && \(\n\s*<Scrollbars views=\{views\}/);
 // The bars follow the view from its store, with no React render for each pan or zoom step.

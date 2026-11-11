@@ -8068,30 +8068,44 @@ export default function Editor() {
   // Trackpad and mouse wheel: scroll pans (Shift scrolls across), pinch (or ⌘/Ctrl + scroll) zooms around the pointer. While a zoom goes on (until 150 ms
   // after its last step), the drawing's text is laid out at its own size and scaled with the drawing (pinch, in
   // editor.css), so a zoom step does not lay out all the text again. When the zoom stops, the text is laid out for
-  // the screen again and looks as it did before.
+  // the screen again and looks as it did before. The Mac's web view (WebKit) sends a trackpad pinch as gesture events
+  // with the scale so far, not as Ctrl + scroll: they zoom the same way, and Ctrl + scroll waits while one goes on.
   useEffect(() => {
     const el = svg.current!;
-    let stop: number | undefined;
+    let stop: number | undefined, pinched = 0;
+    const zoomAt = (x: number, y: number, by: number) => {
+      setView((v) => {
+        const zoom = clampZoom(v.zoom * by), k = zoom / v.zoom;
+        return { zoom, x: x - (x - v.x) * k, y: y - (y - v.y) * k, pinch: true };
+      });
+      clearTimeout(stop);
+      stop = window.setTimeout(() => setView((v) => (v.pinch ? { ...v, pinch: undefined } : v)), 150);
+    };
+    const onGesture = (e: Event) => {
+      e.preventDefault();
+      const g = e as Event & { scale: number; clientX: number; clientY: number };
+      if (e.type === "gesturestart") { stopCamera(); pinched = 1; return; }
+      if (e.type === "gestureend") { pinched = 0; return; }
+      if (pinched && g.scale > 0) zoomAt(g.clientX, g.clientY, g.scale / pinched);
+      pinched = g.scale || pinched;
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       stopCamera();
       const zooming = e.ctrlKey || e.metaKey;
+      if (zooming && pinched) return;
       // Deltas in lines or pages (Firefox, some Linux mice) as pixels. A mouse wheel's notch is 100 px on Windows: each
       // zoom step is at most 1.25 times, as Magnify's, so Ctrl and the wheel zoom in steps (a pinch's steps are smaller).
       // Shift and a mouse wheel scroll across: the Mac turns the wheel's delta itself; Windows and Linux may not.
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1, across = e.shiftKey && !zooming && !e.deltaX;
       const dx = (across ? e.deltaY : e.deltaX) * unit, dy = across ? 0 : e.deltaY * unit;
-      setView((v) => {
-        if (!zooming) return { ...v, x: v.x - dx, y: v.y - dy };
-        const zoom = clampZoom(v.zoom * Math.exp(-Math.max(-Math.log(1.25), Math.min(Math.log(1.25), dy * 0.01)))), k = zoom / v.zoom;
-        return { zoom, x: e.clientX - (e.clientX - v.x) * k, y: e.clientY - (e.clientY - v.y) * k, pinch: true };
-      });
-      if (!zooming) return;
-      clearTimeout(stop);
-      stop = window.setTimeout(() => setView((v) => (v.pinch ? { ...v, pinch: undefined } : v)), 150);
+      if (!zooming) return setView((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
+      zoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-Math.log(1.25), Math.min(Math.log(1.25), dy * 0.01))));
     };
+    const gestures = ["gesturestart", "gesturechange", "gestureend"];
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { clearTimeout(stop); el.removeEventListener("wheel", onWheel); };
+    for (const t of gestures) el.addEventListener(t, onGesture, { passive: false });
+    return () => { clearTimeout(stop); el.removeEventListener("wheel", onWheel); for (const t of gestures) el.removeEventListener(t, onGesture); };
   }, []);
 
   // Whether the focus came from the keyboard (Tab) or from a click. A click anywhere gives the keys back to the drawing.
