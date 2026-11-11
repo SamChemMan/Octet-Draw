@@ -25,19 +25,19 @@ export function toCt(drawn: Mol, title = ""): string | undefined {
 
 // A connection table as KET, which Import reads as it reads any structure file (chem.ts importStructure). The text is
 // hostile: at most 999 atoms and 999 bonds, each atom an element within 100,000 of the origin (as in a V2000
-// molfile), each bond between two of its atoms with an order from 1 to 4 (4 aromatic). The bond type column is not
-// read. Throws otherwise.
+// molfile), each bond between two of its atoms with an order from 1 to 4 (4 aromatic). Each line is split into those
+// fields only, so a long line costs nothing. The bond type column is not read. Throws otherwise.
 export function fromCt(text: string): string {
   const bad = new Error("It is not a connection table.");
-  const lines = text.split(/\r\n?|\n/, 2000), [na, nb] = (lines[1] ?? "").trim().split(/\s+/).map(Number);
+  const lines = text.split(/\r\n?|\n/, 2000), [na, nb] = (lines[1] ?? "").trim().split(/\s+/, 2).map(Number);
   if (!(Number.isInteger(na) && Number.isInteger(nb) && na >= 1 && na <= 999 && nb >= 0 && nb <= 999) || lines.length < 2 + na + nb) throw bad;
   const atoms = lines.slice(2, 2 + na).map((line) => {
-    const [x, y, z, symbol = ""] = line.trim().split(/\s+/), label = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase(), at = [x, y, z].map(Number);
+    const [x, y, z, symbol = ""] = line.trim().split(/\s+/, 4), label = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase(), at = [x, y, z].map(Number);
     if (!ELEMENTS.has(label) || !at.every((v) => Math.abs(v) < 1e5)) throw bad;
     return { label, location: at };
   });
   const bonds = lines.slice(2 + na, 2 + na + nb).map((line) => {
-    const [i, j, order] = line.trim().split(/\s+/).map(Number);
+    const [i, j, order] = line.trim().split(/\s+/, 3).map(Number);
     if (![i, j].every((k) => Number.isInteger(k) && k >= 1 && k <= na) || i === j || ![1, 2, 3, 4].includes(order)) throw bad;
     return { type: order, atoms: [i - 1, j - 1] };
   });

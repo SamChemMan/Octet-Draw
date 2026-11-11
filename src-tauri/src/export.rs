@@ -365,7 +365,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default). The MDL formats
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
-// same CDX file. CML and ChemDraw's connection table (CT) are File > More Formats' (Settings > Pro), with ChemDraw's names.
+// same CDX file. CML and ChemDraw's connection table (CT) are for File > More Formats (Settings > Pro), with ChemDraw's names.
 const FORMATS: [(&str, &str, &[&str]); 26] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),

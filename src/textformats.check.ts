@@ -46,6 +46,11 @@ assert.equal(toInchi(importStructure(fromCt(`benzene\n 6 6\n${[0, 1, 2, 3, 4, 5]
 // to no atom or to its own atom, an order of 5.
 for (const t of ["", "x\n", "x\n 1000 0\n", "x\n 1 0\n", "x\n 1 0\n 0 0 0 Xx\n", "x\n 1 0\n NaN 0 0 C\n", "x\n 1 0\n 0 1e9 0 C\n", "x\n 2 1\n 0 0 0 C\n 1 0 0 O\n 1 3 1 0\n",
   "x\n 2 1\n 0 0 0 C\n 1 0 0 O\n 1 1 1 0\n", "x\n 2 1\n 0 0 0 C\n 1 0 0 O\n 1 2 5 0\n", "x\n -1 0\n", "x\n 1.5 0\n 0 0 0 C\n"]) assert.throws(() => fromCt(t), /It is not a connection table\./, JSON.stringify(t));
+// A line is split into the fields it needs only: a 16 MB line of fields is refused at once (split whole, it took 250 ms,
+// and a 64 MB file 1.4 s and 1.5 GB).
+const long = `x\n 1 0\n${"0 ".repeat(8e6)}C\n`, start = performance.now();
+assert.throws(() => fromCt(long), /It is not a connection table\./);
+assert.ok(performance.now() - start < 50, "a long line is refused at once");
 
 // SLN: hydrogens on their atom, = # :, branches, rings (one number for each ring atom, closed by @), structures apart.
 const sln = (s: string) => toSln(parseStructure(s));
@@ -79,9 +84,9 @@ assert.equal(sln("Cc1cccc(C)c1-c1c(C)cccc1C"), "CH3C[1]=CHCH=CHC(CH3)=C@1C[2]=C(
 
 // The commands: in File > More Formats, written through Export's Save dialog, read through Import, SLN through Copy As.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), exportRs = readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8"), main = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
-assert.match(editor, /\["more_cml", "Export as CML…", <BracketsAngle size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportText\("cml"\)\)\],/);
+assert.match(editor, /\["more_cml", "Export CML…", <BracketsAngle size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportText\("cml"\)\)\],/);
 assert.match(editor, /\["more_ct_import", "Import a Connection Table…", <TrayArrowDown size=\{18\} \/>, \(\) => void importFile\(true\)\],/);
-assert.match(editor, /\["more_ct_export", "Export as Connection Table…", <TrayArrowUp size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportText\("ct"\)\)\],/);
+assert.match(editor, /\["more_ct_export", "Export Connection Table…", <TrayArrowUp size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportText\("ct"\)\)\],/);
 assert.match(editor, /\["more_sln", "Copy as SLN", <Quotes size=\{18\} \/>, \(\) => copyAs\("sln"\)\],/);
 assert.match(editor, /sln: \["SLN", \(m\) => toSln\(m\) \?\? ""\]/);
 assert.match(editor, /if \(f === "cml"\) return toCml\(part\);\n\s+if \(f === "ct"\) return toCt\(part, name\);/);

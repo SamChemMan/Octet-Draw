@@ -1376,7 +1376,7 @@ export default function Editor() {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
-  // File > More Formats > Export as CML… and Export as Connection Table…: the selected structures, or every structure, to
+  // File > More Formats > Export CML… and Export Connection Table…: the selected structures, or every structure, to
   // the Save dialog in that format.
   async function exportText(f: "cml" | "ct") {
     const part = selectedPart() ?? doc, text = formatOf(part, f);
@@ -2194,9 +2194,9 @@ export default function Editor() {
   // ("more_" and the format), its name in the menu and the command palette, its icon in the palette, and what it does.
   // The menu, the palette and Settings' shortcuts take each format from here.
   const moreFormats: [string, string, React.ReactNode, () => void][] = [
-    ["more_cml", "Export as CML…", <BracketsAngle size={18} />, () => checkFirst(() => void exportText("cml"))],
+    ["more_cml", "Export CML…", <BracketsAngle size={18} />, () => checkFirst(() => void exportText("cml"))],
     ["more_ct_import", "Import a Connection Table…", <TrayArrowDown size={18} />, () => void importFile(true)],
-    ["more_ct_export", "Export as Connection Table…", <TrayArrowUp size={18} />, () => checkFirst(() => void exportText("ct"))],
+    ["more_ct_export", "Export Connection Table…", <TrayArrowUp size={18} />, () => checkFirst(() => void exportText("ct"))],
     ["more_sln", "Copy as SLN", <Quotes size={18} />, () => copyAs("sln")],
   ];
   // Menu commands. New and Open go on the undo list, so they never lose work.
