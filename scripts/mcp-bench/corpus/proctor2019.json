@@ -10,8 +10,9 @@
    "kind": "S1",
    "figure": "Scheme 39",
    "prompt": "Draw Scheme 39 of the attached review: the borono-Minisci ethylation that gives pyrimethamine (41), with the conditions over and under the arrow and the yield.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "5-(4-chlorophenyl)pyrimidine-2,4-diamine"
@@ -52,8 +53,9 @@
    "kind": "S2",
    "figure": "Scheme 47",
    "prompt": "Draw Scheme 47 of the attached review as one scheme: the acid to the Barton ester, the sulfide, the sulfone and the sodium sulfinate, then the Minisci reaction with quinoxalin-2-ol. Draw sodium pyrithione under the first arrow and quinoxalin-2-ol over the last one as structures. The paper gives these compounds no numbers: number them 1 to 6 in order.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "OC(=O)C1(CC1)*",
@@ -170,8 +172,9 @@
    "kind": "S2",
    "figure": "Scheme 9 (mechanism)",
    "prompt": "Draw the mechanism of Scheme 9 of the attached review as a row of steps: 4-tert-butylbenzoate, the aroyloxyl radical 12, the hypobromite 11, the aryl radical and the 2-arylpyridine, with what each step needs over its arrow. Keep the paper's numbers 12 and 11, and number the aryl radical A and the product B.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "*c1ccc(cc1)C([O-])=O",
@@ -263,8 +266,9 @@
    "kind": "S9",
    "figure": "Scheme 45 (sequential additions)",
    "prompt": "Draw the one-pot sequential additions to quinine at the bottom of Scheme 45 of the attached review, with the two zinc sulfinate steps over and under the arrow as the paper has them and the yield. Number the product 1 (the paper gives it no number).",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "quinine"
@@ -305,8 +309,9 @@
    "kind": "S11",
    "figure": "Scheme 68 (quinoline)",
    "prompt": "Draw the quinoline example of Scheme 68 of the attached review: quinoline and 1-methylcyclohexene under the iron conditions of the scheme, giving the C-2 product and the over-reduced by-product 51, with both yields.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "quinoline"
@@ -351,62 +356,60 @@
    "kind": "S18",
    "figure": "Scheme 53",
    "prompt": "Draw Scheme 53 of the attached review: the copper-catalysed alkylation of 6-bromobenzoxazole with bromocyclopentane, and under it the copper complex 47 and the ligand BDMAEE as structures, each with its label.",
-   "tool": "batch",
+   "tool": "change",
    "arguments": {
-    "steps": [
+    "operations": [
      {
-      "tool": "draw_reaction",
-      "args": {
-       "start": [
-        {
-         "text": "6-bromobenzoxazole"
-        },
-        {
-         "text": "bromocyclopentane"
-        }
-       ],
-       "steps": [
-        {
-         "catalysts": [
-          "10 mol% 47",
-          "10 mol% BDMAEE"
-         ],
-         "reagents": [
-          "1.2 equiv. t-BuONa"
-         ],
-         "solvents": [
-          "toluene"
-         ],
-         "temperature": "80–100 °C",
-         "time": "16 h",
-         "yield": "64%",
-         "products": [
-          {
-           "text": "6-bromo-2-cyclopentylbenzoxazole"
-          }
-         ]
-        }
-       ]
-      }
+      "op": "draw",
+      "kind": "reaction",
+      "start": [
+       {
+        "text": "6-bromobenzoxazole"
+       },
+       {
+        "text": "bromocyclopentane"
+       }
+      ],
+      "steps": [
+       {
+        "catalysts": [
+         "10 mol% 47",
+         "10 mol% BDMAEE"
+        ],
+        "reagents": [
+         "1.2 equiv. t-BuONa"
+        ],
+        "solvents": [
+         "toluene"
+        ],
+        "temperature": "80–100 °C",
+        "time": "16 h",
+        "yield": "64%",
+        "products": [
+         {
+          "text": "6-bromo-2-cyclopentylbenzoxazole"
+         }
+        ]
+       }
+      ]
      },
      {
-      "tool": "draw_structures",
-      "args": {
-       "structures": [
-        {
-         "text": "*c1ccccc1N1[Cu](*)N(C)(C)c2ccccc12",
-         "labels": [
-          "NMe2",
-          "PPh3"
-         ],
-         "number": "47"
-        },
-        {
-         "text": "bis(2-dimethylaminoethyl) ether",
-         "number": "BDMAEE"
-        }
-       ]
-      }
+      "op": "draw",
+      "kind": "structures",
+      "structures": [
+       {
+        "text": "*c1ccccc1N1[Cu](*)N(C)(C)c2ccccc12",
+        "labels": [
+         "NMe2",
+         "PPh3"
+        ],
+        "number": "47"
+       },
+       {
+        "text": "bis(2-dimethylaminoethyl) ether",
+        "number": "BDMAEE"
+       }
+      ]
      }
     ]
    },
@@ -422,8 +425,9 @@
    "kind": "S20",
    "figure": "Scheme 72 (compound 52)",
    "prompt": "Draw the reaction of Scheme 72 of the attached review for its metyrapone example: metyrapone and the N-acetylvaline N-hydroxyphthalimide ester give 52 under the scheme's conditions. Show the new stereocentre of 52 with its wedge, and the yield and ee.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "metyrapone"
@@ -469,8 +473,9 @@
    "kind": "F4",
    "figure": "Schemes 72 and 73 (selected scope)",
    "prompt": "Draw the selected scopes of Schemes 72 and 73 of the attached review as one figure of two panels, each product with its stereocentre, and its yield and ee under it. Keep the number 52; the paper gives the other products no numbers, so number them 72a to 72d and 73a to 73d in reading order.",
-   "tool": "draw_figure",
+   "tool": "draw",
    "arguments": {
+    "kind": "figure",
     "panels": [
      {
       "title": "Quinolines and pyridines",
@@ -587,8 +592,9 @@
    "kind": "F1",
    "figure": "Scheme 40 (selected scope)",
    "prompt": "Draw the seven products of the selected scope of Scheme 40 of the attached review as a numbered grid, four in the first row. Keep the number 42; the paper gives the others no numbers, so number them 40a to 40f in reading order.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "columns": 4,
     "structures": [
      {
@@ -656,8 +662,9 @@
    "kind": "S13",
    "figure": "Scheme 11 (radical chain)",
    "prompt": "Draw the radical chain of Scheme 11 of the attached review as a cycle: the isopropyl radical, its radical-cation adduct with protonated 4-methylquinoline, and the radical left after deprotonation, with what comes in and goes out at each step and \"radical chain\" in the middle. The paper gives these no numbers: number them A, B and C.",
-   "tool": "draw_cycle",
+   "tool": "draw",
    "arguments": {
+    "kind": "cycle",
     "intermediates": [
      {
       "text": "C[CH]C",

@@ -43,6 +43,14 @@ assert.equal(huge.at, FEWEST_STEPS - 1);
 let dragged: History = { stack: [drawing(1, 0), drawing(1, 1)], at: 1 };
 for (let n = 0; n < 2000; n++) dragged = history(dragged, { type: "set", mol: drawing(1, n), merge: "slider" });
 assert.equal(dragged.stack.length, 3);
+// A call that sets the drawing, then puts it back in the same step (an AI app's call refused part way), leaves no step.
+{
+  const was = drawing(1, 0);
+  let h: History = { stack: [was], at: 0 };
+  h = history(h, { type: "set", mol: drawing(1, 1), merge: "mcp-1" });
+  h = history(h, { type: "set", mol: was, merge: "mcp-1" });
+  assert.deepEqual([h.stack.length, h.at, h.stack[0]], [1, 0, was], "no undo step that changes nothing");
+}
 
 // An amend changes the step just made, with no step of its own: Undo goes back past both (an experiment page's box
 // grown for a table, Editor.tsx).

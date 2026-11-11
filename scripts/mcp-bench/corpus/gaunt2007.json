@@ -10,8 +10,9 @@
    "kind": "S11",
    "figure": "Fig. 1 (top)",
    "prompt": "Draw the Hajos–Parrish cyclisation at the top of Fig. 1 of the attached review: the triketone, proline drawn as a structure over the arrow with the conditions under it, and the bicyclic ketol with its wedges. The paper gives no compound numbers: number the triketone 1 and the ketol 2.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "2-methyl-2-(3-oxobutyl)cyclopentane-1,3-dione",
@@ -49,8 +50,9 @@
    "kind": "S13",
    "figure": "Fig. 1 (mechanism)",
    "prompt": "Draw the catalytic cycle proposed in Fig. 1 of the attached review, clockwise from proline: the iminium carboxylate of the triketone, the enamine (the figure draws it as the hydrogen-bonded transition state: draw the enamine acid), then the iminium carboxylate of the ketol. Show the triketone going in at the first step and the ketol coming out at the last. Number the four species 1 to 4.",
-   "tool": "draw_cycle",
+   "tool": "draw",
    "arguments": {
+    "kind": "cycle",
     "intermediates": [
      {
       "text": "L-proline",
@@ -94,8 +96,9 @@
    "kind": "S2",
    "figure": "Fig. 3",
    "prompt": "Draw the route to the protected glucose in Fig. 3 of the attached review as one scheme (the middle branch): two molecules of the TIPS-protected glycolaldehyde, the proline aldol to the anti dimer, then the Mukaiyama aldol with the enol silane (drawn over the arrow) and MgBr2 in Et2O to the protected glucose. Write the silyl and acetyl groups as OTIPS and OAc, as the paper does. Number the aldehyde 1, the dimer 2 and the glucose 3.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "O=CC*",
@@ -172,8 +175,9 @@
    "kind": "S9",
    "figure": "Fig. 8",
    "prompt": "Draw Fig. 8 of the attached review: the N-alkylphenanthridinium iodide with its aldehyde chain, the dibenzylpyrrolidine catalyst drawn over the arrow, the conditions under it with the one-pot reduction as a 'then' line, and the cyclised amino alcohol with its two stereocentres. Number the salt 1 and the product 2.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "O=CCCCC[n+]1cc2ccccc2c2ccccc12.[I-]",
@@ -213,8 +217,9 @@
    "kind": "S1",
    "figure": "Fig. 9",
    "prompt": "Draw the ring-closing α-alkylation of Fig. 9 of the attached review: the iodo aldehyde, the α-methylproline catalyst over the arrow, the conditions, yield and ee under it, and the cyclopentane aldehyde. Write the esters as EtO2C and CO2Et, as the paper does. Number the substrate 1 and the product 2.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "*C(*)(CCCI)CC=O",
@@ -261,8 +266,9 @@
    "kind": "S2",
    "figure": "Fig. 11d",
    "prompt": "Draw Fig. 11d of the attached review as a two-arrow scheme: the trienal, the imidazolidinone catalyst drawn over the first arrow with the conditions, yield, dr and ee under it, the trans-decalin aldehyde with its four stereocentres, then 'five steps' to solanapyrone D. Number the three compounds 1 to 3.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "(2E,8E,10E)-dodeca-2,8,10-trienal",
@@ -313,8 +319,9 @@
    "kind": "S9",
    "figure": "Fig. 13 (COX-2 inhibitor)",
    "prompt": "Draw the COX-2 inhibitor synthesis in the middle of Fig. 13 of the attached review: crotonaldehyde and the N-(4-bromobenzyl)indole, the imidazolidinone catalyst drawn over the arrow, the catalyst loading and the 'then AgNO3, NaOH' oxidation under it with the yield and ee, and the acid with its stereocentre. Number the compounds 1 to 3.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "crotonaldehyde",
@@ -358,8 +365,9 @@
    "kind": "S20",
    "figure": "Fig. 14",
    "prompt": "Draw the cascade to the pyrroloindoline in Fig. 14 of the attached review: the N-allyl tryptamine carbamate and the enal ester, the imidazolidinone catalyst drawn over the arrow, the conditions, yield, ee and dr under it, and the product with its three stereocentres. Write NHBoc, Boc, Allyl and CO2Me as labels, as the paper does. Leave out the iminium intermediate. Number the compounds 1 to 3.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "C=CCn1cc(CC*)c2ccccc12",
@@ -411,8 +419,9 @@
    "kind": "S11",
    "figure": "Fig. 17 (bottom)",
    "prompt": "Draw the reduction then fluorination cascade at the bottom of Fig. 17 of the attached review: β-methylcinnamaldehyde, over the arrow the first imidazolidinone catalyst and the Hantzsch ester as structures, under it the first loading and solvent, 'then', the second catalyst and NFSI as structures and the second loading and solvent, with the yield, dr and ee, and the fluoro aldehyde with both stereocentres. Number the enal 1 and the product 2.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "(E)-3-phenylbut-2-enal",
@@ -455,8 +464,9 @@
    "kind": "F1",
    "figure": "Figs 1, 7, 8, 9, 11, 13, 16 and 32 (the catalysts)",
    "prompt": "The attached review has no substrate table. Draw its organocatalysts as a numbered grid instead, one of each, with the stereochemistry the figures show: proline (Fig. 1), α-methylproline (Fig. 9), the dibenzylpyrrolidine (Fig. 8), indoline-2-carboxylic acid (Fig. 16a), the diphenylprolinol TMS ether (Fig. 7a) and methyl ether (Fig. 7b), the three imidazolidinones (Figs 11a, 13 and 11b), the thiazolidine amide (Fig. 7d) and the indanol thiourea (Fig. 32b). Number them 1 to 11 in that order.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "L-proline",

@@ -12,10 +12,20 @@ use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem,
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 
+// A line on standard output or error (--convert, --headless and their errors). One that cannot be written (the reader
+// closed it: | head) is let go: println! would panic there.
+macro_rules! say {
+    ($to:ident, $($line:tt)*) => {{
+        use std::io::Write;
+        let _ = writeln!(std::io::$to(), $($line)*);
+    }};
+}
+
 // Alt and a menu's access key on Windows, from the web view to the menu bar.
 #[cfg(windows)]
 mod access_keys;
 mod clipboard;
+mod convert;
 mod crashlog;
 mod export;
 // Feedback, for testers: not in the public release (build.rs, REL-8).
@@ -297,10 +307,10 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
-const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
+const OPEN: (&str, &[&str]) = ("Drawings", &open::DRAWINGS);
 // File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
 // and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
-const OPEN_ALL: (&str, &[&str]) = ("Drawings, spectra and templates", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc", "ctp", "cts"]);
+const OPEN_MORE: [&str; 6] = ["jdx", "dx", "jcamp", "spc", "ctp", "cts"];
 // A ChemDraw template file: read, but never a drawing Octet saves over or lists on Home.
 pub fn is_template_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ctp") || e.eq_ignore_ascii_case("cts"))
@@ -310,13 +320,25 @@ const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 
 // A file's contents for the page: its text, or a CDX file's bytes in base64 (which starts "VmpDRDAxMDA", the
 // magic). Anything else that is not UTF-8 text is an InvalidData error.
+// It reads 64 MB at most, whatever the file's size said before (a file that grows, or one such as /dev/zero).
 pub fn read_text_or_cdx(path: &Path) -> std::io::Result<String> {
     use base64::Engine;
-    let bytes = fs::read(path)?;
+    let bytes = read_bytes(path)?;
     if bytes.starts_with(b"VjCD0100") {
         return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
     }
     String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+// A file's bytes, 64 MB at most, whatever its size said before.
+pub fn read_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(path)?.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(std::io::Error::other("This file is larger than 64 MB."));
+    }
+    Ok(bytes)
 }
 
 // Write to a temporary file next to the target, flush it to disk, then rename it over the target.
@@ -341,7 +363,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
 #[tauri::command]
 async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter(OPEN_ALL.0, OPEN_ALL.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Drawings, spectra and templates", &[&open::DRAWINGS[..], &OPEN_MORE].concat()).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -456,9 +478,10 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
 // Returns its name and text (a CDX file's bytes in base64).
+pub const STRUCTURES: [&str; 14] = ["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"];
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Structures", &STRUCTURES).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -1030,10 +1053,68 @@ fn data_dir() -> Option<std::path::PathBuf> {
     return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
 }
 
-fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--mcp") {
-        return mcp::relay(data_dir());
+// How Octet was started. --headless and --convert count wherever they are, so `--mcp --headless` is never the relay
+// into the user's own Octet, and headless takes no other argument. --mcp anywhere is the relay. Any other option
+// (--x) is refused: only file paths (from Explorer and file managers) open in the app.
+#[derive(Debug, PartialEq)]
+enum Start {
+    App,
+    Relay,
+    Headless,
+    Convert(convert::Job),
+}
+fn start(args: &[String]) -> Result<Start, String> {
+    let has = |a: &str| args.iter().any(|x| x == a);
+    if has("--convert") {
+        return convert::parse(&args.iter().filter(|x| *x != "--convert").cloned().collect::<Vec<_>>()).map(Start::Convert);
     }
+    if has("--headless") {
+        return match args.iter().find(|x| !matches!(x.as_str(), "--headless" | "--mcp")) {
+            Some(x) => Err(format!("Octet with no window does not take {x}. Use: Octet Draw --headless --mcp")),
+            None => Ok(Start::Headless),
+        };
+    }
+    if let Some(x) = args.iter().find(|x| x.starts_with("--") && !matches!(x.as_str(), "--mcp" | "--register-ole" | "--unregister-ole")) {
+        return Err(format!("Octet does not know {x}. Use: Octet Draw [FILE...], Octet Draw --mcp, Octet Draw --headless --mcp, or Octet Draw --convert INPUT... --to FORMAT"));
+    }
+    Ok(if has("--mcp") { Start::Relay } else { Start::App })
+}
+
+fn main() {
+    // (A path that is not Unicode, on Linux, is not a reason to stop.)
+    let args: Vec<String> = std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+    // Octet with no window (plan 18): --headless (with --mcp) answers MCP on standard input and output, and --convert
+    // converts files. Neither shows a window, a Dock icon or a menu, starts the AI apps' server or keeps recovery copies.
+    let mode = start(&args);
+    if !matches!(mode, Ok(Start::App | Start::Relay)) {
+        // The release build on Windows is a window program: its lines go to the console it was started from, when it
+        // has no output of its own (a pipe it was given stays as it is).
+        #[cfg(windows)]
+        {
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GetStdHandle(which: u32) -> isize;
+                fn AttachConsole(process: u32) -> i32;
+            }
+            // STD_OUTPUT_HANDLE, ATTACH_PARENT_PROCESS
+            unsafe {
+                if GetStdHandle(-11i32 as u32) == 0 {
+                    AttachConsole(u32::MAX);
+                }
+            }
+        }
+    }
+    let headless = matches!(mode, Ok(Start::Headless | Start::Convert(_)));
+    let job = match mode {
+        Ok(Start::Relay) => return mcp::relay(data_dir()),
+        Ok(Start::Convert(job)) => Some(job),
+        Ok(_) => None,
+        Err(e) => {
+            say!(stderr, "{e}");
+            std::process::exit(2)
+        }
+    };
+    windows::HEADLESS.store(headless, std::sync::atomic::Ordering::Relaxed);
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
     #[cfg(windows)]
@@ -1057,12 +1138,15 @@ fn main() {
             w.visible = false;
         }
     }
+    if headless {
+        context.config_mut().app.windows.clear();
+    }
     let builder = tauri::Builder::default();
     // Windows and Linux start a second Octet for each file opened from Explorer or a file manager. It gives its files
     // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.) An Octet that
     // Windows started for Word never hands over and ends: Word waits for that process.
     #[cfg(any(windows, target_os = "linux"))]
-    let builder = if embedding {
+    let builder = if embedding || headless {
         builder
     } else {
         builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -1089,16 +1173,18 @@ fn main() {
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::export_bytes, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, mcp::mcp_bundle])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
-            // Octet it started is short (decision 0023).
+            // Octet it started is short (decision 0023). Octet with no window serves no Office object.
             #[cfg(windows)]
-            ole::win::start(handle, embedding);
+            if !headless {
+                ole::win::start(handle, embedding);
+            }
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
             let cwd = std::env::current_dir().unwrap_or_default();
-            if !embedding {
+            if !embedding && !headless {
                 open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
             }
             crashlog::install(handle);
@@ -1108,7 +1194,7 @@ fn main() {
             app.manage(recovery::start(handle));
             // A dev build started with OCTET_MCP=1 lets AI apps in at once, for testing the tools (decision 0021).
             #[cfg(debug_assertions)]
-            if std::env::var_os("OCTET_MCP").is_some() {
+            if std::env::var_os("OCTET_MCP").is_some() && !headless {
                 let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
             }
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
@@ -1119,6 +1205,28 @@ fn main() {
             }
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
+            // With no window: no Dock icon (on the Mac), and the work on a thread of its own, which ends Octet.
+            if headless {
+                let app = handle.clone();
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                std::thread::spawn(move || {
+                    let code = match job {
+                        Some(job) => convert::run(&app, &job),
+                        None => match windows::open(&app, serde_json::json!({ "new": "quick" }), None) {
+                            Ok(_) => {
+                                mcp::stdio(&app);
+                                0
+                            }
+                            Err(e) => {
+                                say!(stderr, "{e}");
+                                1
+                            }
+                        },
+                    };
+                    std::process::exit(code)
+                });
+            }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
             // window with unsaved changes (quit.rs).
@@ -1178,7 +1286,8 @@ fn main() {
                 quit::closed(_app, &label);
                 mcp::closed(_app, &label);
             }
-            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
+            // With no window, Octet ends when its work is done (std::process::exit), not when --convert closes a file's window.
+            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() || windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed) => api.prevent_exit(),
             // Each open object tells Word it closed, and the class object goes (decision 0023).
             #[cfg(windows)]
             tauri::RunEvent::Exit => ole::win::shutdown(),
@@ -1207,5 +1316,38 @@ mod tests {
         assert!(!changed(&stamps, &path), "Octet's own save");
         fs::remove_file(&path).unwrap();
         assert!(!changed(&stamps, &path), "a file that is gone");
+    }
+
+    // --headless and --convert count wherever they are; headless takes only --mcp; the relay and a normal start are as
+    // before (a file Explorer passes opens).
+    #[test]
+    fn the_start_is_read() {
+        let start = |line: &str| start(&line.split(' ').filter(|a| !a.is_empty()).map(String::from).collect::<Vec<_>>());
+        assert_eq!(start(""), Ok(Start::App));
+        assert_eq!(start("a.cdxml"), Ok(Start::App));
+        assert_eq!(start("--mcp"), Ok(Start::Relay));
+        assert_eq!(start("a.cdxml --mcp"), Ok(Start::Relay));
+        assert_eq!(start("--register-ole"), Ok(Start::App));
+        for line in ["--colour", "a.cdxml --help", "--mcp --verbose"] {
+            assert!(start(line).is_err_and(|e| e.contains("Use: Octet Draw")), "{line}");
+        }
+        for line in ["--headless", "--headless --mcp", "--mcp --headless"] {
+            assert_eq!(start(line), Ok(Start::Headless), "{line}");
+        }
+        assert!(start("--headless --mcp a.cdxml").is_err());
+        assert!(start("--headless --convert a.cdxml --to pdf").is_err(), "convert does not take --headless");
+        assert!(matches!(start("a.cdxml --convert --to pdf"), Ok(Start::Convert(_))));
+        assert!(start("--convert a.cdxml").is_err());
+    }
+
+    // A file read for the page is 64 MB at most, whatever its size said: one that grew after it was measured is refused.
+    #[test]
+    fn a_file_is_read_to_64_mb_at_most() {
+        let path = std::env::temp_dir().join(format!("octet-read-test-{}.cdxml", std::process::id()));
+        fs::File::create(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert!(read_text_or_cdx(&path).is_err());
+        fs::File::create(&path).unwrap().set_len(10).unwrap();
+        assert_eq!(read_text_or_cdx(&path).unwrap().len(), 10);
+        fs::remove_file(&path).unwrap();
     }
 }

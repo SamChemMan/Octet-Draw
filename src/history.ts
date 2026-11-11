@@ -26,6 +26,9 @@ export function history(h: History, a: Action): History {
   if (a.type === "redo") return { ...h, at: Math.min(h.stack.length - 1, h.at + 1), merge: undefined };
   if (a.type === "amend") return a.mol === h.stack[h.at] ? h : { ...h, stack: h.stack.map((m, k) => (k === h.at ? a.mol : m)) };
   if (a.mol === h.stack[h.at]) return h;
+  // A step put back as it was by its own merge (an AI app's call refused part way, mcp.ts) goes, so Undo has no step
+  // that changes nothing.
+  if (a.merge && a.merge === h.merge && h.at === h.stack.length - 1 && a.mol === h.stack[h.at - 1]) return { stack: h.stack.slice(0, h.at), at: h.at - 1 };
   if (a.merge && a.merge === h.merge && h.at === h.stack.length - 1 && h.at > 0) return { stack: [...h.stack.slice(0, h.at), a.mol], at: h.at, merge: a.merge };
   return trimmed({ stack: [...h.stack.slice(0, h.at + 1), a.mol], at: h.at + 1, merge: a.merge });
 }

@@ -10,8 +10,9 @@
    "kind": "S11",
    "figure": "Fig. 2a",
    "prompt": "Draw the two steps of Fig. 2a from the attached paper as one scheme: alkene 2a, the cross-metathesis with reagent 1a drawn as a structure over the arrow, the latent homologue 3a, then the fragmentation and retro-ene step to 4a. Put each step's conditions and assay yield on its arrow and number the compounds as the paper does.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "*CC=C",
@@ -78,8 +79,9 @@
    "kind": "S18",
    "figure": "Fig. 2a (inset)",
    "prompt": "Draw the ruthenium catalyst shown in the box of Fig. 2a of the attached paper, and label it HG-II.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "Hoveyda–Grubbs II catalyst",
@@ -98,8 +100,9 @@
    "kind": "F4",
    "figure": "Fig. 2b",
    "prompt": "Draw the scope of monosubstituted alkenes in Fig. 2b of the attached paper as a numbered grid, four to a row: the twenty homologated products 4b to 4u, with the paper's abbreviations for groups.",
-   "tool": "draw_structures",
+   "tool": "draw",
    "arguments": {
+    "kind": "structures",
     "structures": [
      {
       "text": "methyl dodec-11-enoate",
@@ -260,8 +263,9 @@
    "kind": "F1",
    "figure": "Fig. 2c",
    "prompt": "Draw the four natural product homologues of Fig. 2c of the attached paper in a row, each with its number and, under it, its yield and name.",
-   "tool": "draw_figure",
+   "tool": "draw",
    "arguments": {
+    "kind": "figure",
     "panels": [
      {
       "rows": [
@@ -308,8 +312,9 @@
    "kind": "S1",
    "figure": "Fig. 3a",
    "prompt": "Draw the one-carbon homologation of grazoprevir to homograzoprevir (9) from Fig. 3a of the attached paper, with the conditions under the arrow as the paper has them.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "grazoprevir"
@@ -344,8 +349,9 @@
    "kind": "S9",
    "figure": "Fig. 3b",
    "prompt": "Draw the one-pot homologation of tacrolimus to homotacrolimus (10) from Fig. 3b of the attached paper: the metathesis conditions, then the TBAF and citric acid step, on one arrow.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "tacrolimus"
@@ -388,8 +394,9 @@
    "kind": "S20",
    "figure": "Fig. 4a",
    "prompt": "Draw the homologation of rotenone to 11a from Fig. 4a of the attached paper, with reagent 1b drawn over the arrow, the conditions under it and the yield with its d.r. Keep rotenone's three stereocentres and leave the new one undefined.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "rotenone"
@@ -434,8 +441,9 @@
    "kind": "S9",
    "figure": "Fig. 4c",
    "prompt": "Draw the two-carbon homologation of Fig. 4c of the attached paper: the Boc-protected allylic amine, reagent 1c drawn over the arrow, the two sets of conditions joined by then, and product 16 as its E isomer with the yield and E:Z ratio.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "C=C[C@H](*)N*",
@@ -483,8 +491,9 @@
    "kind": "S20",
    "figure": "Fig. 4d",
    "prompt": "Draw the retro-ene experiment of Fig. 4d of the attached paper that starts from the Z allylsulfone (Z)-17 and gives only the E alkene (E)-18, with the reagents over the arrow, the solvent, temperature and time under it, and the yield.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "*C/C=C\\C(C)S(=O)(=O)C*",
@@ -531,8 +540,9 @@
    "kind": "S2",
    "figure": "Fig. 4e",
    "prompt": "Draw the ring expansion of Fig. 4e of the attached paper as a two-step scheme: the 17-membered lactone ambrettolide as the paper draws it, the ring-opened diene 19, and the 19-membered Z lactone 20, with each step's conditions and yield.",
-   "tool": "draw_reaction",
+   "tool": "draw",
    "arguments": {
+    "kind": "reaction",
     "start": [
      {
       "text": "O=C1CCCCCCC/C=C\\CCCCCCO1"

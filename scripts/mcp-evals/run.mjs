@@ -5,6 +5,9 @@
 //   node scripts/mcp-evals/run.mjs --held             the held-out cases too
 //   node scripts/mcp-evals/run.mjs scheme-boc ...     those cases
 //   --model claude-sonnet-5-5   --effort high   --repeat 3
+//   --brief                                           the user's answers to the brief in the first message
+// The simulated user (test plan 13.2) answers Octet's three questions (the brief) with the case's answers when Claude
+// asks them: when its turn ends with a question before set_brief.
 // Each run writes scripts/mcp-evals/out/<time>/: a transcript for each case and summary.md (accuracy, tool calls,
 // errors, tokens, time). Read the transcripts: they show where the tool wording misleads.
 //
@@ -17,13 +20,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } fr
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connect } from "./octet.mjs";
-import { CASES, WANT } from "./cases.mjs";
+import { ANSWERS, CASES, WANT } from "./cases.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url)), OUT = join(here, "out");
 mkdirSync(OUT, { recursive: true });
 const argv = process.argv.slice(2), flag = (f, d) => { const k = argv.indexOf(f); return k >= 0 ? argv.splice(k, 2)[1] : d; };
 const MODEL = flag("--model", "claude-opus-5-5"), EFFORT = flag("--effort", "medium"), REPEAT = Number(flag("--repeat", "1"));
 const HELD = argv.includes("--held") ? (argv.splice(argv.indexOf("--held"), 1), true) : false;
+const UPFRONT = argv.includes("--brief") ? (argv.splice(argv.indexOf("--brief"), 1), true) : false;
 const SYSTEM = "The user has connected Octet Draw, the chemical drawing app open on their computer, to you through MCP. A drawing is open in Octet; use Octet's tools to do what the user asks in it.";
 
 // ---- What the checks compare with: each SMILES's InChIKey, as Octet reads it, and the pictures, as Octet draws them ----
@@ -31,13 +35,14 @@ const SYSTEM = "The user has connected Octet Draw, the chemical drawing app open
 // Each text's InChIKey, as Octet reads it, in a scratch drawing of the client's own (texts Octet cannot read are left out).
 async function keysOf(o, texts) {
   const keys = {};
-  await o.call("new_drawing", { for: "paper" });
+  await o.call("drawings", { action: "new", for: "paper" });
+  await o.call("set_brief", { destination: { kind: "paper" } });
   const draw = async (batch) => {
-    const r = await o.call("draw_structures", { structures: batch.map((text) => ({ text })) });
+    const r = await o.call("draw", { kind: "structures", structures: batch.map((text) => ({ text })) });
     if (r.isError) { if (batch.length > 1) for (const t of batch) await draw([t]); return; }
     const d = await o.read(), made = r.structuredContent?.made ?? [];
     batch.forEach((text, j) => { const s = d.structures.find((x) => x.id === made[j]); if (s?.inchiKey) keys[text] = s.inchiKey; });
-    await o.call("delete", { ids: d.structures.map((s) => s.id) });
+    await o.call("change", { operations: [{ op: "delete", ids: d.structures.map((s) => s.id) }] });
   };
   for (let k = 0; k < texts.length; k += 10) await draw(texts.slice(k, k + 10));
   return keys;
@@ -54,20 +59,26 @@ async function prepare() {
   writeFileSync(keysFile, JSON.stringify(keys, null, 1));
   mkdirSync(join(OUT, "pictures"), { recursive: true });
   for (const c of pictures) {
-    await o.call("new_drawing", { for: "paper" });
-    await o.call(c.picture.reaction ? "draw_reaction" : "draw_structures", c.picture.reaction ?? c.picture);
-    const png = (await o.call("read_drawing", { picture: true })).content.find((x) => x.type === "image");
+    await o.call("drawings", { action: "new", for: "paper" });
+    await o.call("draw", c.picture.reaction ? { kind: "reaction", ...c.picture.reaction } : { kind: "structures", ...c.picture });
+    const png = (await o.call("read", { picture: true })).content.find((x) => x.type === "image");
     writeFileSync(join(OUT, "pictures", `${c.id}.png`), Buffer.from(png.data, "base64"));
   }
   return keys;
 }
 
-// A case's own drawing and its setup, in a new session: the AI app's calls go to that drawing.
+// A case's own drawing in a new session, which has no brief: the AI app's calls go to that drawing. Its setup is the
+// user's own work, drawn by the user's session with its own brief.
 async function start(c) {
   const o = await connect(`octet-evals-${c.id}`);
-  const made = await o.call("new_drawing", { for: c.for ?? "paper" });
-  if (made.isError) throw new Error(`${c.id}: new_drawing: ${made.text}`);
-  for (const [tool, args] of c.setup ?? []) { const r = await o.call(tool, args); if (r.isError) throw new Error(`${c.id}: setup ${tool}: ${r.text}`); }
+  const made = await o.call("drawings", { action: "new", for: c.for ?? "paper" });
+  if (made.isError) throw new Error(`${c.id}: drawings new: ${made.text}`);
+  if (c.setup) {
+    const u = await connect(`octet-evals-${c.id}-user`);
+    await u.call("drawings", { action: "use", drawing: made.structuredContent?.opened });
+    await u.call("set_brief", { destination: { kind: c.for === "experiment" ? "notebook" : "paper" } });
+    for (const [tool, args] of c.setup) { const r = await u.call(tool, args); if (r.isError) throw new Error(`${c.id}: setup ${tool}: ${r.text}`); }
+  }
   return o;
 }
 const picturePath = (c) => (c.pictureFile ? join(OUT, c.pictureFile) : c.picture && join(OUT, "pictures", `${c.id}.png`));
@@ -97,15 +108,19 @@ const content = (res) => (res.content ?? []).flatMap((x) => (x.type === "text" ?
 
 async function viaApi(c, tools, keys, instructions) {
   const o = await start(c), t0 = Date.now(), png = picture(c);
-  const msgs = [{ role: "user", content: [...(png ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: png } }] : []), { type: "text", text: c.prompt }] }];
+  const answers = c.brief ?? ANSWERS;
+  const msgs = [{ role: "user", content: [...(png ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: png } }] : []), { type: "text", text: UPFRONT ? `${c.prompt}\n\n${answers}` : c.prompt }] }];
   const use = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, calls = [];
-  let answer = "", stop;
+  let answer = "", stop, asked = UPFRONT;
   for (let turn = 0; turn < 40; turn++) {
     const r = await messages({ model: MODEL, max_tokens: 16000, output_config: { effort: EFFORT }, system: [{ type: "text", text: `${SYSTEM}${instructions ? `\n\nOctet's instructions:\n${instructions}` : ""}`, cache_control: { type: "ephemeral" } }], tools, messages: msgs, cache_control: { type: "ephemeral" } });
     use.input += r.usage.input_tokens; use.output += r.usage.output_tokens; use.cacheRead += r.usage.cache_read_input_tokens ?? 0; use.cacheWrite += r.usage.cache_creation_input_tokens ?? 0;
     msgs.push({ role: "assistant", content: r.content });
     stop = r.stop_reason;
-    answer = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n") || answer;
+    const said = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    answer = said || answer;
+    // Claude asks the user the three questions (once): the simulated user answers, and it carries on.
+    if (stop !== "tool_use" && !asked && said.includes("?") && !calls.some((x) => x.tool === "set_brief" && !x.error)) { asked = true; msgs.push({ role: "user", content: [{ type: "text", text: answers }] }); continue; }
     if (stop !== "tool_use") break;
     const results = [];
     for (const b of r.content.filter((x) => x.type === "tool_use")) {
@@ -127,7 +142,8 @@ const summary = (runs) => {
   const median = (l) => { const v = [...l].sort((p, q) => p - q), k = v.length >> 1; return v.length ? (v.length % 2 ? v[k] : (v[k - 1] + v[k]) / 2) : 0; };
   const calls = runs.map((r) => r.calls.length), secs = runs.map((r) => r.seconds);
   const sum = (l) => l.reduce((p, q) => p + q, 0), octet = sum(runs.flatMap((r) => r.calls.map((x) => x.ms))) / 1000, chars = sum(runs.flatMap((r) => r.calls.map((x) => x.chars ?? 0)));
-  const speed = `Calls: median ${median(calls)}, total ${sum(calls)}. Seconds to done: median ${median(secs).toFixed(0)}, total ${sum(secs).toFixed(0)}, of which Octet ${octet.toFixed(1)}. Arguments written: ${chars} characters, output tokens ${sum(runs.map((r) => r.usage.output))}.`;
+  const refused = sum(runs.map((r) => r.calls.filter((x) => x.text?.startsWith("Octet needs the brief first")).length));
+  const speed = `Calls: median ${median(calls)}, total ${sum(calls)}. Calls refused for want of the brief (test plan B11): ${refused}. Seconds to done: median ${median(secs).toFixed(0)}, total ${sum(secs).toFixed(0)}, of which Octet ${octet.toFixed(1)}. Arguments written: ${chars} characters, output tokens ${sum(runs.map((r) => r.usage.output))}.`;
   return [`# MCP evals: ${MODEL}, effort ${EFFORT}`, "", [line("train"), HELD ? line("held") : ""].filter(Boolean).join(". "), "", speed, "", "| Case | Set | Result | Checks | Calls | Errors | Input tokens | Output tokens | Seconds | Failed checks |", "|---|---|---|---|---|---|---|---|---|---|", ...rows, ""].join("\n");
 };
 
@@ -140,9 +156,9 @@ const AGENT = process.env.MCP_EVAL_DIR ?? "agent", state = (id) => join(OUT, AGE
 // The case's session, or (when Octet has let it go: it keeps 64) a new one in the case's drawing.
 async function resume(name, s) {
   const o = await connect(name, s.session);
-  if (!(await o.call("list_drawings")).isError) return o;
+  if (!(await o.call("drawings", { action: "list" })).isError) return o;
   const fresh = await connect(name);
-  await fresh.call("use_drawing", { drawing: s.drawing });
+  await fresh.call("drawings", { action: "use", drawing: s.drawing });
   return fresh;
 }
 if (cmd === "tools") {
@@ -158,6 +174,7 @@ if (cmd === "tools") {
   writeFileSync(join(OUT, AGENT, `${c.id}.calls.jsonl`), "");
   console.log(c.prompt);
   if (picturePath(c)) console.log(`\nThe user attached this picture: ${picturePath(c)}`);
+  console.log(`\nIf you ask the user Octet's three questions, the user answers: ${c.brief ?? ANSWERS}`);
 } else if (cmd === "call") {
   const [, id, tool, json] = argv, s = JSON.parse(readFileSync(state(id), "utf8"));
   const o = await resume("octet-evals-agent", s), input = json ? JSON.parse(json) : {}, t0 = Date.now(), res = await o.call(tool, input);

@@ -233,6 +233,13 @@ export function attachmentFirst(label: string): string {
   const back = [...us].reverse(), turn = fromEnd(us) ? fromAtom(back) : FORMULAS[written(back)] ? back : undefined, text = turn && written(turn);
   return text && units(text).every((u, k) => u.text === turn[k].text && u.count === turn[k].count) ? text : label;
 }
+// A label an AI app gives (for a *, on an atom, in a change), as Octet keeps one: from its attachment atom. NC is the
+// nitrile written from the left (NC–R), as an AI app copies it from a picture: Octet's own reading of NC, bond on N,
+// is an isocyanide.
+export const givenLabel = (label: string) => (label === "NC" ? "CN" : attachmentFirst(label));
+// A label Octet reads no group in and that stands in for none (R, X, Ar, OR): it is drawn as text, and a reply names
+// it, so no reply is silent on a group Octet did not read. A label of more than one word is not chemistry by design.
+export const unknownLabel = (label: string) => !/\s/.test(label) && !labelSmiles(label) && !units(label).some((u) => standsIn(u.text));
 
 // The elements SMILES writes with no bracket.
 const ORGANIC = new Set(["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"]);

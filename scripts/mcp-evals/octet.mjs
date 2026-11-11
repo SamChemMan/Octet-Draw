@@ -5,7 +5,8 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
-const info = () => { try { return JSON.parse(readFileSync(join(dir, "io.github.samchemman.octet-draw", "mcp.json"), "utf8")); } catch { return undefined; } };
+// OCTET_MCP_INFO names another server's file: the headless server's (headless.ts) for evals with no window.
+const info = () => { try { return JSON.parse(readFileSync(process.env.OCTET_MCP_INFO ?? join(dir, "io.github.samchemman.octet-draw", "mcp-dev.json"), "utf8")); } catch { return undefined; } };
 
 export async function connect(name, session) {
   let found;
@@ -13,7 +14,7 @@ export async function connect(name, session) {
     found = info();
     if (found && (await fetch(`http://127.0.0.1:${found.port}/mcp`, { method: "POST" }).then(() => true, () => false))) break;
   }
-  if (!found) throw new Error("Octet's mcp.json is not there: start a dev build with OCTET_MCP=1.");
+  if (!found) throw new Error("Octet's mcp-dev.json is not there: start a dev build with OCTET_MCP=1.");
   const url = `http://127.0.0.1:${found.port}/mcp`;
   let n = 0;
   const post = async (body) => {
@@ -34,6 +35,6 @@ export async function connect(name, session) {
     return { ...res, text: res.content?.find((c) => c.type === "text")?.text ?? "" };
   };
   const tools = async () => (await post({ jsonrpc: "2.0", id: ++n, method: "tools/list" })).result.tools;
-  const read = async () => (await call("read_drawing", { detail: "full" })).structuredContent;
+  const read = async () => (await call("read", { detail: "full" })).structuredContent;
   return { call, tools, read, instructions, get session() { return session; } };
 }

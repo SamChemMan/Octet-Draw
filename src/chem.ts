@@ -537,6 +537,8 @@ function overLabels(m: Mol, ink?: Inks): [number, number, number][] {
   const seen = new Set(out.map((h) => h.join()));
   return out.concat(inkHits(m, ink).filter((h) => !seen.has(h.join())));
 }
+// How many labels meet a bond or a label they are not part of (compound.ts: a new ring drawn alone must add none).
+export const labelHits = (m: Mol) => overLabels(m, inkBoxes(m)).length;
 // A label's ink as render() draws it, in ACS Document 1996 (Arial 10 pt labels on 14.4 pt bonds) with Arial's own
 // glyph metrics, so a structure is drawn the same on any computer: for each labelled atom, the box round its element,
 // its H atoms and their count, and its charge, on the side render() puts them (OH or HO, the indole NH stacked), in bond
@@ -1401,7 +1403,7 @@ export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
 // Each atom's symmetry class (atoms alike in the structure share one): element, charge and bonds, refined by neighbours.
 // loose: element and bonds only, so atoms alike but for where a ring's double bonds and charge are drawn (a triazolium's
 // two N) share one.
-function classes(m: Mol, loose = false): number[] {
+export function classes(m: Mol, loose = false): number[] {
   const at = bondedTo(m), ord = m.atoms.map(() => 0);
   for (const b of m.bonds) for (const i of b.atoms) ord[i] += orderOf(b.type);
   let cls = m.atoms.map((a, i) => (loose ? `${a.label}:${at[i].length}` : `${a.label}${a.charge ?? 0}:${at[i].length}:${ord[i]}`)), count = new Set(cls).size;
@@ -1674,9 +1676,16 @@ export function mapReaction(reactants: Mol[], products: Mol[], keep = false): { 
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
     opts.set("output-content-type", "application/json");
     const ket = JSON.parse(JSON.parse(ind.automap(rxn, keep ? "keep" : "discard", "ket", opts)).struct);
-    const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
-    if (mols.length !== reactants.length + products.length) return undefined;
-    return { reactants: mols.slice(0, reactants.length), products: mols.slice(reactants.length) };
+    const pieces: (number | undefined)[][] = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
+    // A compound of several structures (the ions of a salt) comes back as its structures, one after another: they
+    // are put together again: Indigo gives them in the order of their first atoms, each with its atoms in order.
+    const mols = [...reactants, ...products].map((m) => {
+      const out: (number | undefined)[] = new Array(m.atoms.length);
+      for (const g of fragments(m)) { const p = pieces.shift(); if (!p || p.length !== g.length) return undefined; g.sort((i, j) => i - j).forEach((i, k) => (out[i] = p[k])); }
+      return out;
+    });
+    if (pieces.length || mols.some((x) => !x)) return undefined;
+    return { reactants: mols.slice(0, reactants.length) as (number | undefined)[][], products: mols.slice(reactants.length) as (number | undefined)[][] };
   } catch {
     return undefined;
   } finally {
@@ -1736,11 +1745,7 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
   if (cite && parts.length > 1 && parts.length <= 12 && mol.atoms.length <= 300 && !mol.shapes?.some((sh) => sh.polymer)) {
     const abbreviation = cite(remembered(inchis, contentOf(mol), () => toInchi(mol)));
     const entries = abbreviation ? parts.flatMap((part) => remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []) : [];
-    if (abbreviation && entries.length) {
-      const total: Record<string, number> = {};
-      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
-      return [{ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0), abbreviation }];
-    }
+    if (abbreviation && entries.length) return [{ ...added(entries), abbreviation }];
   }
   for (const part of parts) {
     if (out.length >= limit) break;
@@ -1750,13 +1755,24 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
     const abbreviation = cite && entries.length === 1 ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
     // A structure held together by multi-centre attachments (ferrocene), or with a label that is a salt (BF3K, a
     // borate and its potassium ion), is one compound: its pieces are added together.
-    if (entries.length > 1) {
-      const total: Record<string, number> = {};
-      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
-      out.push({ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) });
-    } else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
+    if (entries.length > 1) out.push(added(entries));
+    else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
   }
   return out.length ? out.slice(0, limit) : undefined;
+}
+// Entries added together, as one compound's.
+function added(entries: Analysis): Analysis[number] {
+  const total: Record<string, number> = {};
+  for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
+  return { formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) };
+}
+// A compound's formula and masses. One structure's are as analyse gives them; a compound of several structures (the
+// ions of a salt, a hydrate and its water) has them added together.
+export function analyseCompound(mol: Mol): Analysis[number] | undefined {
+  const parts = pieces(mol);
+  if (parts.length < 2) return analyse(mol)?.[0];
+  const entries = parts.map((p) => analyse(p)?.[0]);
+  return entries.every((e) => e) ? added(entries as Analysis) : undefined;
 }
 // Indigo's values for a molecule as one compound: its pieces ("C5 H5; C5 H5; Fe") added together.
 function summed(calc: Record<string, unknown>): { formula: string; weight: number; exact: number; composition: string } {

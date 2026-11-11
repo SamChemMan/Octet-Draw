@@ -3,16 +3,16 @@
 // Reaction and tidying a cycle with the editor's own code, and the drawing measured as the window draws it (render,
 // fitArrows and placeCaptions, with text measured as browser.ts measures it). There is no picture (a PNG needs a
 // renderer: resvg is MPL-2.0, which Sam has not approved), no other windows and no dialogs: export, save and print
-// answer that Octet cannot. get_file gives the drawing's text (CDXML, MOL, SDF, RXN, SMILES, InChI, CDX) as Export
+// answer that Octet cannot. A read with format gives the drawing's text (CDXML, MOL, SDF, RXN, SMILES, InChI, CDX) as Export
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
 import { complexName } from "../../src/complexes.ts";
-import { dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle, textOn, type Cycle } from "../../src/cycle.ts";
+import { centreText, dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle, textOn, type Cycle } from "../../src/cycle.ts";
 import { loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
@@ -20,12 +20,12 @@ import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, pl
 import { experimentPage, newExperiment, newGrids } from "../../src/experiment.ts";
 import { interpret, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
-import { resetIds, type FileFormat, type Host } from "../../src/mcp.ts";
+import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
 import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
 import { onTop } from "../../src/order.ts";
-import { cleanUpReactions, findReaction, gapFor, type Layout, type Reaction } from "../../src/reaction.ts";
+import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
 import { gridViews } from "../../src/gridview.ts";
@@ -83,7 +83,9 @@ function layOut(m: Mol) {
   const inkPx = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
   const nodeText = (m.captions ?? []).filter((c) => c.cycle?.side === "node");
   const texts = nodeText.length ? placeCaptions({ ...m, captions: nodeText }, drawing, width, arrows, pt, style.captionSize, new Map(), run, extent) : [];
-  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box);
+  // A step's name is placed where it is clear of the rest, as the window places it (each place measured as drawn).
+  const named = (id: number, anchor: "start" | "middle" | "end", wrap?: number) => { const c = m.captions?.find((x) => x.id === id); return c && placeCaptions({ ...m, captions: [c] }, drawing, width, arrows, pt, style.captionSize, new Map([[id, { x: 0, y: 0, anchor, wrap }]]), run, extent)[0]?.box; };
+  const cycles = layoutCycles(m, L, pt, inkPx, (id) => texts.find((x) => x.id === id)?.box, named);
   const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize, cycles.anchors, run, extent);
   const ink = (atoms: number[]) => { const b = inkPx(atoms); return b && toDoc(b); };
   const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };
@@ -95,6 +97,12 @@ const reagent = (text: string) => reagentFormula(text, nameToSmiles, labelSmiles
 
 const warnOn = (t: string) => WARNING_TYPES.find((w) => w.id === t)!.on;
 const STEREO = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
+
+// Each AI app session's brief (set_brief), kept as Octet's window keeps it (src-tauri/src/mcp.rs): a new session has
+// none, and two sessions do not share one. What a call from a session gives handle (src/mcp.ts). elicit: the user's
+// answer to a question Octet asks through the AI app (plan 7.3), for an AI app that takes elicitation.
+const briefs = new Map<string, string>();
+export const session = (client: string, id: string, elicit?: From["elicit"]): From => ({ client, session: id, brief: briefs.get(id), keep: (b) => void briefs.set(id, b), ...(elicit ? { elicit } : {}) });
 
 /** A new drawing for a purpose (File > New For: paper, thesis, slides, poster, experiment, quick), as a Host with
  * Undo and Redo. Its ids start again from the first (mcp.ts resetIds), so the same calls give the same drawing. */
@@ -149,10 +157,11 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const s = d.style, size = (s.captionSize * d.pt) / L, w = textWidth("+", s.captionSize * d.pt, false, false, fontStack(s.captionFont)) / L;
     return { gap: gapFor(s.captionSize, s.bond), width: ((pageSize(s)[0] * 72) / 25.4 - 72) / s.bond, captionBox: d.captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: s.captionSize, bondPt: s.bond };
   };
-  // Clean Up Reaction on the reactions pick takes, measured as drawn now.
-  const cleanReactions = (pick: (r: Reaction) => boolean) => {
+  // Clean Up Reaction on the reactions pick takes, measured as drawn now. m: the drawing to lay out (the one drawn
+  // now, or that with a structure cleaned up).
+  const cleanReactions = (pick: (r: Reaction) => boolean, m = doc) => {
     const d = drawn(doc), inkOf = (mol: Mol) => { const e = drawn(mol); return e.ink; };
-    const done = cleanUpReactions(doc, d.arrows, inkOf, reactionLayout(d), pick);
+    const done = cleanUpReactions(m, d.arrows, inkOf, reactionLayout(d), pick);
     if (done.count) set(done.mol);
     return done.count;
   };
@@ -160,7 +169,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
   const spread = (m: Mol, c: Cycle): Mol => {
     if (!c.nodes.some((n, i) => n.length || textOn(m, c, i))) return m;
     const d = drawn(m), ink = (atoms: number[], i: number) => { const t = atoms.length ? undefined : textOn(m, c, i); return t ? d.placed.find((x) => x.id === t.id)?.box : d.inkPx(atoms); };
-    const { shifts, radius } = spreadCycle(c, L, ink), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
+    const mid = centreText(m, c), { shifts, radius } = spreadCycle(c, L, ink, mid && d.placed.find((x) => x.id === mid.id)?.box), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
     let out = followArcs(m, c, even, radius);
     c.nodes.forEach((n, i) => {
       out = moveAtoms(out, new Set(n), shifts[i]);
@@ -174,7 +183,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const m = doc, d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
-      structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0], reagent,
+      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), reagent,
       bottom: (id) => d.captionBox(id)?.[1],
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
@@ -212,7 +221,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "sdf") return toSdf(chem);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
-      return steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
+      // (No pictures and no .oct here: a picture needs the app's renderer.)
+      return format === "rxn" && steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);
@@ -220,7 +230,17 @@ export function drawing(purpose = "paper", title = "Untitled") {
     undo: () => { const was = past.pop(); if (!was) return false; future.push(doc); doc = was; undid = true; return true; },
     redo: () => { const next = future.pop(); if (!next) return false; past.push(doc); doc = next; undid = true; return true; },
     select_all: () => { picked = { atoms: doc.atoms.map((_, i) => i), items: [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id) }; return true; },
-    clean_up: () => { const s = selected(); set(cleanUp(doc, s && new Set(s.atoms))); return true; },
+    // As the editor's clean_up: the structures, then each reaction they are in laid out again, measured after the
+    // clean-up, so they keep their sides.
+    clean_up: () => {
+      const s = selected(), ids = s && new Set(s.atoms);
+      let m = cleanUp(doc, ids);
+      // A catalytic cycle picked (every one, with nothing selected) is tidied too, as the editor's Clean Up does.
+      for (const c of (doc.cycles ?? []).filter((x) => !s || s.items.includes(x.id))) m = spread(m, m.cycles!.find((x) => x.id === c.id)!);
+      const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
+      if (!cleanReactions((r) => withStructure(r) && r.atoms.some((i) => touched.has(i)), m)) set(m);
+      return true;
+    },
     clean_reaction: () => { const s = selected(); cleanReactions((r) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i))); return true; },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
@@ -250,7 +270,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return onCaptions(problems(chem.mol, stereo, true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
     },
     smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
-    formula: (m) => { try { return analyse(m)?.[0]?.formula; } catch { return undefined; } },
+    formula: (m) => { try { return analyseCompound(m)?.formula; } catch { return undefined; } },
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     picture: async () => undefined,
     centre: () => [0, 0], // a new drawing opens with the page's middle in the window's middle
@@ -266,6 +286,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return structure(text);
     },
     export: () => false,
+    // (No command here opens a dialog: the stand-in for the editor has none.)
+    dialog: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
+    // (No windows here: drawings new with a file's text opens none, whatever the file.)
+    opens: async () => ({}),
     window: () => ({ id: "headless", name: title }),
     windows: async () => [],
     target: async (_session, id) => id === "headless",

@@ -1,0 +1,47 @@
+{
+ "title": "Nicolaou's total synthesis of taxol (Nature 1994, 367, 630)",
+ "schemes": [
+  {
+   "title": "Scheme 1. The C-ring aldehyde 7",
+   "start": [
+    {"text":"CCO[C:9](=O)[C@@]3([C@H:7](C=[CH:5][C@:4]([C@H]3[CH2:2]O%10)([C:20]%10=[O:21])O)O)C","number":"2"}
+   ],
+   "steps": [
+    {"above":["a) TBSOTf, 2,6-lutidine","b) LiAlH4, Et2O, 0 °C"],"below":["a) 95%; b) 94%"],"products":[{"from":"2","changes":[{"at":"7","set":"OTBS"},{"at":"4","set":"OTBS"},{"do":"reduce","at":"9"}],"number":"3"}]},
+    {"above":["c) CSA, MeOH; then","TBDPSCl, imidazole, DMF","d) KH, BnBr, n-Bu4NI"],"below":["c) 90%, 92%; d) 87%"],"products":[{"from":"3","changes":[{"at":"7","set":"OBn"},{"at":"9","set":"OTBDPS"}],"number":"4"}]},
+    {"reagents":["LiAlH4"],"solvents":["Et2O"],"temperature":"25 °C","yield":"80%","products":[{"from":"4","changes":[{"do":"reduce","at":"20"},{"at":"4","set":"OH"}],"number":"5"}]},
+    {"reagents":["Me2C(OMe)2","CSA"],"solvents":["CH2Cl2"],"yield":"82%","products":[{"from":"5","changes":[{"do":"protect","with":"acetonide","at":"4-20"}],"number":"6"}]},
+    {"reagents":["TPAP","NMO"],"solvents":["MeCN"],"yield":"95%","products":[{"from":"6","changes":[{"at":"2","set":"=O"}],"number":"7"}]}
+   ]
+  },
+  {
+   "title": "Scheme 2. The ABC ring system 13",
+   "start": [
+    {"text":"CC1=C([CH2:10]*)C(C)(C)[C:1](=NNS(=O)(=O)c2c(C(C)C)cc(C(C)C)cc2C(C)C)[CH2:14]C1","labels":["OTBS"],"number":"8"},
+    {"from":"7","number":"7"}
+   ],
+   "steps": [
+    {"above":["n-BuLi, THF","−78 → 25 °C; then 7"],"below":["82% (Shapiro)"],"products":[{"from":"7","changes":[{"at":"2","set":"OH"},{"do":"join","at":"2-1","with":"8","config":{"2":"S"}},{"at":"1","remove":true},{"bond":"1-14","to":"double"}],"number":"9"}]},
+    {"reagents":["VO(acac)2","t-BuOOH"],"solvents":["PhH"],"yield":"87%","products":[{"from":"9","changes":[{"do":"epoxidise","at":"1-14","config":{"1":"S"}}],"number":"10"}]},
+    {"reagents":["LiAlH4"],"solvents":["Et2O"],"yield":"76%","products":[{"from":"10","changes":[{"do":"open_epoxide","at":"14"}],"number":"11"}]},
+    {"above":["d) KH, COCl2, HMPA","e) TBAF, THF","f) TPAP, NMO"],"below":["48%, 80%, 82%"],"products":[{"from":"11","changes":[{"do":"form_carbonate","at":"1-2"},{"at":"9","set":"=O"},{"at":"10","set":"=O"}],"number":"12"}]},
+    {"above":["(TiCl3)2(DME)3","Zn–Cu, DME, 70 °C"],"below":["23% (McMurry)"],"products":[{"from":"12","changes":[{"at":"9","set":"OH"},{"at":"10","set":"OH"},{"do":"close","at":"9-10","config":{"10":"R"}}],"number":"13"}]}
+   ]
+  },
+  {
+   "title": "Scheme 3. Taxol (1) from 13",
+   "start": [
+    {"from":"13","number":"13"}
+   ],
+   "steps": [
+    {"above":["a) Ac2O, DMAP","b) TPAP, NMO"],"below":["95%, 93%"],"products":[{"from":"13","changes":[{"at":"10","set":"OAc"},{"at":"9","set":"=O"}],"number":"14"}]},
+    {"above":["c) BH3·THF; H2O2","d) HCl, MeOH"],"below":["55%, 80%"],"products":[{"from":"14","changes":[{"do":"hydroborate","at":"5","config":"S"},{"do":"deprotect","with":"acetonide"}],"number":"15"}]},
+    {"reagents":["Ac2O","DMAP"],"solvents":["CH2Cl2"],"yield":"95%","products":[{"from":"15","changes":[{"at":"20","set":"OAc"}],"number":"16"}]},
+    {"above":["f) H2, Pd(OH)2/C","g) TESCl, pyridine","h) K2CO3, MeOH"],"below":["97%, 85%, 95%"],"products":[{"from":"16","changes":[{"swap":{"OBn":"OTES"}},{"at":"20","set":"OH"}],"number":"17"}]},
+    {"above":["i) TMSCl, pyridine","j) Tf2O, i-Pr2NEt","k) CSA, MeOH; SiO2"],"below":["96%, 70%, 60%"],"products":[{"from":"17","changes":[{"at":"5","remove":true},{"do":"close","at":"5-21","config":{"5":"R"}}],"number":"18"}]},
+    {"reagents":["Ac2O","DMAP"],"solvents":["CH2Cl2"],"yield":"94%","products":[{"from":"18","changes":[{"at":"4","set":"OAc"}],"number":"19"}]},
+    {"above":["1) PhLi; 2) PCC; 3) NaBH4","4) NaHMDS, 20; 5) HF·py"],"below":["80%, 75%, 83%, 87%, 80%"],"products":[{"text":"CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@@H]4[C@]([C@H]3[C@@H]([C@@](C2(C)C)(C[C@@H]1OC(=O)[C@@H]([C@H](c5ccccc5)NC(=O)c6ccccc6)O)O)*)(CO4)*)O)C)*","labels":["OBz","OAc","OAc"],"number":"1"}]}
+   ]
+  }
+ ]
+}

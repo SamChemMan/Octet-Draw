@@ -53,7 +53,7 @@ The test set is a matrix: **jobs** (this section) × **sources** (section 3) × 
 | S10 | Equilibria, resonance, "no reaction" arrows | Arrow kinds |
 | S11 | Reactions with by-products, reagents drawn as structures over the arrow | Structures as conditions |
 | S12 | Mechanism: curly arrows, lone pairs, charges, intermediates in brackets, transition states (‡) | Electron-pushing is a core chemistry drawing and the hardest to place |
-| S13 | Catalytic cycle (cross-coupling, organocatalysis, enzyme) | `draw_cycle`; side arrows in and out |
+| S13 | Catalytic cycle (cross-coupling, organocatalysis, enzyme) | `draw` with kind `cycle`; side arrows in and out |
 | S14 | Two cycles that share a species (dual catalysis, photoredox + nickel) | Not supported today. Test that the AI is told so, not that it fakes it |
 | S15 | Biosynthesis or metabolic pathway (enzymes over arrows, branches) | Long, branched, with biochemistry names |
 | S16 | Polymerisation (repeat units, brackets with n) | Brackets and polymers |
@@ -157,7 +157,7 @@ These run headless, thousands at a time, with no AI in the loop. Each compares I
 | C5 | Named transformations (phase 2): each on 20+ substrates, including ones with two matching sites (must refuse and name them) and none (must refuse) |
 | C6 | Labels: every abbreviation in `abbreviations.json` and `GROUPS` expands to the right structure in formula and InChI (OTBDPS, OTPS, OTES, Boc...) |
 | C7 | Names to structures: the names an AI typically sends (common, IUPAC, trade, abbreviations) against a corpus with known InChIKeys |
-| C8 | Round trip: MCP draws → `get_file` CDXML → ChemDraw 26 opens it the same (Sam's Mac) → back into Octet unchanged |
+| C8 | Round trip: MCP draws → `read` with format CDXML → ChemDraw 26 opens it the same (Sam's Mac) → back into Octet unchanged |
 | C9 | Numbers: unique, kept across schemes, a repeated compound has one number |
 | C10 | Conditions: reagent vs catalyst vs solvent on the right side of the arrow; formula and molar mass of each read correctly |
 | C11 | Stoichiometry on experiment pages: masses, moles, equivalents and yield worked out right from every unit form |
@@ -302,7 +302,7 @@ The building session asks Sam for the open items at the start (`mcp-v2.md`, **St
 
 ## 15. Scripting (#89) and the command line (#91)
 
-For `mcp-v2.md` section 18. None of this is built until Sam says yes to that section.
+For `mcp-v2.md` section 18 (decided 11 November 2026: build it as written there).
 
 | ID | Test |
 |---|---|

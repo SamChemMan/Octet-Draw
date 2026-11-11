@@ -188,10 +188,18 @@ export function withBackground(svg: string, hex: string): string {
   const box = /^<svg[^>]*?\sviewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"[^>]*>/.exec(svg);
   return box ? `${box[0]}<rect x="${box[1]}" y="${box[2]}" width="${box[3]}" height="${box[4]}" fill="${hex}"/>${svg.slice(box[0].length)}` : svg;
 }
-// A picture as a format saves it: with the margin, and for a raster format its background. Transparent only where the
-// format has it (JPEG has none); "page" is the drawing's own page colour (`page`), and white when it has none.
-export function pictureAs(svg: string, f: { format: ExportFormat; margin: number; background: "white" | "transparent" | "page" }, page?: string): { svg: string; transparent: boolean } {
-  const m = withMargin(svg, f.margin), raster = RASTERS.includes(f.format);
+// A picture `mm` wide (read with width_mm, --convert --width): its size scaled, its view box as it was.
+export function withWidth(svg: string, mm: number): string {
+  return svg.replace(/^(<svg[^>]*?)\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"/, (_, head, w, h) => {
+    const k = (mm * 72) / 25.4 / +w;
+    return `${head} width="${+(+w * k).toFixed(4)}pt" height="${+(+h * k).toFixed(4)}pt"`;
+  });
+}
+// A picture as a format saves it: with the margin, at `width` mm when given, and for a raster format its background.
+// Transparent only where the format has it (JPEG has none); "page" is the drawing's own page colour (`page`), and white
+// when it has none.
+export function pictureAs(svg: string, f: { format: ExportFormat; margin: number; background: "white" | "transparent" | "page"; width?: number }, page?: string): { svg: string; transparent: boolean } {
+  const m = f.width ? withWidth(withMargin(svg, f.margin), f.width) : withMargin(svg, f.margin), raster = RASTERS.includes(f.format);
   if (raster && f.background === "page" && page) return { svg: withBackground(m, page), transparent: false };
   return { svg: m, transparent: raster && f.format !== "jpg" && f.background === "transparent" };
 }

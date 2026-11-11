@@ -4,26 +4,28 @@
 // Each case:
 //   prompt     what the user types in the AI app
 //   for        the drawing the case starts in: "paper" (the default) or "experiment"
-//   setup      calls made before the AI app starts (a drawing to read or fix), with the case's client
+//   setup      calls made before the AI app starts (a drawing to read or fix), by the user's own session
+//   brief      the simulated user's answers to Octet's three questions (test plan 13.2), given to the AI app when it
+//              asks: ANSWERS (a paper, as the case starts in a paper drawing) unless the case says
 //   picture    a structure or scheme Octet draws first, given to the AI app as a PNG (see run.mjs pictures)
 //   want       SMILES Octet turns into InChIKeys before the run, so checks compare structures, not strings
-//   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read_drawing (detail full) at
+//   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read (detail full) at
 //              the end, answer the AI app's last text, key(smiles) the InChIKey, loose(smiles) its first block (no
 //              stereo), answered the InChIKeys of the SMILES in the answer (answerSmiles: true)
 
 import { readFileSync } from "node:fs";
 
-// ---- Helpers for checks ----
+// ---- Helpers for checks (speed.mjs uses them too) ----
 
-const sub = (t) => t.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));
+export const sub = (t) => t.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));
 // A structure by InChIKey (the full key, or the first block when stereo does not matter).
-const find = (d, k) => d.structures.find((s) => s.inchiKey === k || s.inchiKey?.split("-")[0] === k);
+export const find = (d, k) => d.structures.find((s) => s.inchiKey === k || s.inchiKey?.split("-")[0] === k);
 // Every structure id in a reaction's steps, and its products.
 const inReaction = (d, id) => d.reactions.some((r) => r.products.includes(id) || r.steps.some((s) => s.before.includes(id) || s.above.includes(id) || s.below.includes(id)));
 const product = (d, id) => d.reactions.some((r) => r.products.includes(id) || r.steps.slice(1).some((s) => s.before.includes(id)));
 // All the words in the drawing: captions, conditions, free text and cycle text.
-const words = (d) => sub([...(d.captions ?? []).map((c) => c.text), ...d.reactions.flatMap((r) => r.steps.flatMap((s) => [...s.above, ...s.below].filter((x) => typeof x === "string")))].join(" \n ")).toLowerCase();
-const says = (d, ...any) => any.some((w) => words(d).includes(w.toLowerCase()));
+export const words = (d) => sub([...(d.captions ?? []).map((c) => c.text), ...d.reactions.flatMap((r) => r.steps.flatMap((s) => [...s.above, ...s.below].filter((x) => typeof x === "string")))].join(" \n ")).toLowerCase();
+export const says = (d, ...any) => any.some((w) => words(d).includes(w.toLowerCase()));
 const steps = (d) => Math.max(0, ...d.reactions.map((r) => r.steps.length));
 
 // Layout, as the acceptance script checks it: boxes that overlap (text and what it belongs to apart) and boxes off the page.
@@ -34,15 +36,15 @@ const boxes = (d) => [
   ...(d.reagentTables ?? []).filter((t) => t.box).map((t) => [`table:${t.arrow}`, t.box, t.arrow]),
   ...d.arrows.filter((a) => !["curved", "fishhook", "arc", "line"].includes(a.kind)).map((a) => [a.id, [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]) - 0.05, Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1]) + 0.05]]),
 ];
-const layout = (d) => {
+export const layout = (d) => {
   const b = boxes(d), over = [];
   b.forEach(([p, x, ofP], k) => b.slice(k + 1).forEach(([q, y, ofQ]) => { if (ofP !== q && ofQ !== p && meets(x, y)) over.push(`${p}/${q}`); }));
   const pg = d.pageBox, off = pg ? b.filter(([, x]) => x && (x[0] < pg[0] - 1e-6 || x[1] < pg[1] - 1e-6 || x[2] > pg[2] + 1e-6 || x[3] > pg[3] + 1e-6)).map(([p]) => p) : [];
   return [[!over.length, "nothing overlaps", over.slice(0, 6).join(", ")], [!off.length, "everything is on the page", off.join(", ")]];
 };
-const clean = (d) => [!d.warnings.length, "no warnings", d.warnings.map((w) => w.message).join("; ")];
+export const clean = (d) => [!d.warnings.length, "no warnings", d.warnings.map((w) => w.message).join("; ")];
 // A structure that must be there, in a reaction (as a product when asked), with a number when asked.
-const is = (d, k, what, { as, number } = {}) => {
+export const is = (d, k, what, { as, number } = {}) => {
   const s = find(d, k), out = [[!!s, `${what} is drawn`, d.structures.map((x) => x.name ?? x.formula).join(", ")]];
   if (s && as === "product") out.push([product(d, s.id), `${what} is a product`]);
   if (s && as === "reactant") out.push([inReaction(d, s.id) && !product(d, s.id), `${what} is a starting material`]);
@@ -82,10 +84,15 @@ export const WANT = [...new Set(Object.values(S).flat())];
 const SUZUKI = "4-Bromoanisole (1.87 g, 10.0 mmol), phenylboronic acid (1.46 g, 12.0 mmol), Pd(PPh3)4 (0.35 g, 0.30 mmol) and K2CO3 (2.76 g, 20.0 mmol) in toluene/EtOH/H2O (4:1:1, 30 mL) were stirred at 80 °C under N2 for 12 h. Column chromatography gave 4-methoxybiphenyl as a white solid (1.62 g, 88%).";
 const SUZUKI_DRAWN = { start: [{ text: S.bromoanisole }, { text: S.phenylboronic }], steps: [{ reagents: ["K2CO3"], catalysts: ["Pd(PPh3)4"], solvents: ["toluene/EtOH/H2O"], temperature: "80 °C", time: "12 h", yield: "88%", products: [{ text: S.methoxybiphenyl, number: "3" }] }] };
 
-// Elliot's figure as an agent drew it with draw_figure (plan section 20): the restyle case starts from it.
+// Elliot's figure as an agent drew it with draw, kind figure (plan section 20): the restyle case starts from it.
 const LANTHANIDE = JSON.parse(readFileSync(new URL("./lanthanide.json", import.meta.url), "utf8"));
 // The figure's five compound numbers, with or without spaces (S-1, S - 1), and its five structures.
 const figureParts = (d) => [[d.structures.length >= 5, "five structures", String(d.structures.length)], ...["S-1", "S-2", "S-3", "I-1", "I-2"].map((n) => [[...d.structures.map((s) => s.number ?? ""), words(d)].join(" ").replace(/\s/g, "").includes(n.toLowerCase()) || d.structures.some((s) => s.number?.replace(/\s/g, "") === n), `${n} is there`])];
+
+// What the simulated user answers when the AI app asks Octet's three questions (plan 3.1) and the case says nothing.
+// A case starts in a paper drawing, so the answer is a paper (as the benchmark's default): Quick start would take the
+// page away, and with it the off-page checks of layout, so results would not compare with earlier runs.
+export const ANSWERS = "1. No, I have no style of my own. 2. A paper, no particular journal. 3. Nothing to emphasise, and no layout to follow.";
 
 export const CASES = [
   // ---- J1: schemes from procedures ----
@@ -138,33 +145,33 @@ export const CASES = [
     check: ({ d, loose }) => [...is(d, loose(S.tbsEther), "the TBS ether"), clean(d)] },
 
   // ---- J3: two-way read and fix ----
-  { id: "fix-valence", set: "train", job: "fix", setup: [["draw_structures", { structures: [{ text: "CC(C)(C)(C)(C)O" }] }]],
+  { id: "fix-valence", set: "train", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "CC(C)(C)(C)(C)O" }] }]],
     prompt: "This should be tert-butanol. Find what is wrong with my drawing and fix it.",
     check: ({ d, key }) => [...is(d, key(S.tBuOH), "tert-butanol"), [d.structures.length === 1, "one structure", String(d.structures.length)], clean(d)] },
-  { id: "fix-product", set: "train", job: "fix", setup: [["draw_reaction", { start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", products: [{ text: S.propylAcetate, number: "3" }] }] }]],
+  { id: "fix-product", set: "train", job: "fix", setup: [["draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ reagents: ["H2SO4 (cat.)"], temperature: "reflux", products: [{ text: S.propylAcetate, number: "3" }] }] }]],
     prompt: "Is the product in this scheme right? Fix it if not, and keep its number.",
     check: ({ d, key }) => [...is(d, key(S.ethylAcetate), "ethyl acetate", { as: "product", number: "3" }), [!find(d, key(S.propylAcetate)), "propyl acetate is gone"], clean(d), ...layout(d)] },
-  { id: "fix-numbers", set: "train", job: "fix", setup: [["draw_structures", { structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "1" }, { text: "phenol" }] }]],
+  { id: "fix-numbers", set: "train", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "toluene", number: "1" }, { text: "phenol" }] }]],
     prompt: "Tidy up my compound numbers so that each compound has its own number, starting at 1.",
     check: ({ d }) => { const n = d.structures.map((s) => s.number).sort(); return [[JSON.stringify(n) === '["1","2","3"]', "numbered 1, 2 and 3", JSON.stringify(n)], clean(d)]; } },
-  { id: "read-identify", set: "train", job: "read", setup: [["draw_structures", { structures: [{ text: S.aspirin, number: "1" }, { text: S.ibuprofen, number: "2" }] }]],
+  { id: "read-identify", set: "train", job: "read", setup: [["draw", { kind: "structures", structures: [{ text: S.aspirin, number: "1" }, { text: S.ibuprofen, number: "2" }] }]],
     prompt: "What are compounds 1 and 2 in my drawing, and what are their molecular formulae?",
     check: ({ d, answer }) => { const a = sub(answer).toLowerCase(); return [[/aspirin|acetylsalicylic/.test(a), "names aspirin"], [/ibuprofen/.test(a), "names ibuprofen"], [a.includes("c9h8o4"), "gives C9H8O4"], [a.includes("c13h18o2"), "gives C13H18O2"], [d.structures.length === 2, "the drawing is not changed", String(d.structures.length)]]; } },
-  { id: "fix-stereo", set: "held", job: "fix", setup: [["draw_structures", { structures: [{ text: S.rIbuprofen, number: "1" }] }]],
+  { id: "fix-stereo", set: "held", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: S.rIbuprofen, number: "1" }] }]],
     prompt: "This is meant to be (S)-ibuprofen, the active one. Fix it.",
     check: ({ d, key }) => [...is(d, key(S.sIbuprofen), "(S)-ibuprofen", { number: "1" }), [!find(d, key(S.rIbuprofen)), "(R) is gone"], clean(d)] },
-  { id: "fix-check", set: "held", job: "fix", setup: [["draw_structures", { structures: [{ text: "c1ccccc1N(=O)=O", number: "1" }, { text: "CC(=O)OCC", number: "2" }] }]],
+  { id: "fix-check", set: "held", job: "fix", setup: [["draw", { kind: "structures", structures: [{ text: "c1ccccc1N(=O)=O", number: "1" }, { text: "CC(=O)OCC", number: "2" }] }]],
     prompt: "Check my drawing for errors and fix any you find.",
     check: ({ d }) => [clean(d), [d.structures.some((s) => s.formula === "C6H5NO2" && s.number === "1"), "nitrobenzene is still 1"], [d.structures.length === 2, "two structures", String(d.structures.length)]] },
 
   // ---- J4: experiment pages ----
-  { id: "experiment-boc", set: "train", job: "experiment", for: "experiment",
+  { id: "experiment-boc", set: "train", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: "Fill in this experiment page from my procedure: draw the reaction and fill in the reagent table and the details. Title it 'Boc protection of benzylamine', notebook SE-120, date 4 November 2026. Procedure: benzylamine (1.07 g, 10.0 mmol) in CH2Cl2 (20 mL) was treated with Boc2O (2.40 g, 11.0 mmol) and Et3N (1.5 mL) at rt for 3 h to give tert-butyl benzylcarbamate (2.01 g).",
     check: ({ d, key }) => [[d.experiment?.title === "Boc protection of benzylamine", "title", d.experiment?.title], [d.experiment?.notebook === "SE-120", "notebook", d.experiment?.notebook], ...is(d, key(S.bocBenzylamine), "the carbamate", { as: "product" }), amount(d, key(S.benzylamine), "mass", 1.07), [d.reagentTables?.[0]?.limiting === d.reagentTables?.[0]?.columns.find((c) => c.formula === "C7H9N")?.key, "benzylamine is limiting", d.reagentTables?.[0]?.limiting], amount(d, key(S.bocBenzylamine), "measured", 2.01), counted(d), ...layout(d)] },
-  { id: "experiment-suzuki", set: "train", job: "experiment", for: "experiment",
+  { id: "experiment-suzuki", set: "train", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: `Set this page up for my Suzuki coupling, with the reagent table filled in and the title 'Suzuki coupling'. ${SUZUKI}`,
     check: ({ d, key }) => [[/suzuki/i.test(d.experiment?.title ?? ""), "title", d.experiment?.title], ...is(d, key(S.methoxybiphenyl), "4-methoxybiphenyl", { as: "product" }), amount(d, key(S.bromoanisole), "mass", 1.87), amount(d, key(S.phenylboronic), "mass", 1.46), [d.reagentTables?.[0]?.limiting === d.reagentTables?.[0]?.columns.find((c) => c.formula === "C7H7BrO")?.key, "4-bromoanisole is limiting", d.reagentTables?.[0]?.limiting], amount(d, key(S.methoxybiphenyl), "measured", 1.62), counted(d), ...layout(d)] },
-  { id: "experiment-fischer", set: "held", job: "experiment", for: "experiment",
+  { id: "experiment-fischer", set: "held", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: "Make this into my experiment page, called 'Methyl benzoate', with the amounts in the table: a mixture of benzoic acid (12.2 g, 100 mmol), methanol (50 mL) and concentrated sulfuric acid (1 mL) was heated at reflux for 6 h. Work-up gave methyl benzoate (12.0 g).",
     check: ({ d, key }) => [[d.experiment?.title === "Methyl benzoate", "title", d.experiment?.title], amount(d, key(S.benzoicAcid), "mass", 12.2), amount(d, key(S.methylBenzoate), "measured", 12), counted(d), ...layout(d)] },
 
@@ -183,17 +190,17 @@ export const CASES = [
     check: ({ d, key }) => [...S.biaryls.flatMap((x, k) => is(d, key(x), `product 7${"abcd"[k]}`, { number: `7${"abcd"[k]}` })), clean(d), ...layout(d)] },
 
   // ---- J6: style and export ----
-  { id: "style-jacs", set: "train", job: "style", setup: [["set_style", { preset: "New Document (ChemDraw)" }], ["draw_reaction", SUZUKI_DRAWN]],
-    prompt: "Make this drawing ready for a figure in a J. Am. Chem. Soc. paper.",
+  { id: "style-jacs", set: "train", job: "style", setup: [["advanced", { tool: "set_style", args: { preset: "New Document (ChemDraw)" } }], ["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
+    prompt: "Make this drawing ready for a figure in a J. Am. Chem. Soc. paper.", brief: "1. No style of my own: the journal's. 2. A J. Am. Chem. Soc. paper, one column. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "ACS Document 1996", "the ACS style", d.style], ...layout(d)] },
-  { id: "style-rsc", set: "train", job: "style", setup: [["draw_reaction", SUZUKI_DRAWN]],
-    prompt: "Change my drawing to the RSC style, two-column width.",
+  { id: "style-rsc", set: "train", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
+    prompt: "Change my drawing to the RSC style, two-column width.", brief: "1. No, the RSC style. 2. An RSC journal, two columns wide. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "RSC", "the RSC style", d.style], ...layout(d)] },
-  { id: "read-smiles", set: "train", job: "read", setup: [["draw_reaction", SUZUKI_DRAWN]], answerSmiles: true,
+  { id: "read-smiles", set: "train", job: "read", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]], answerSmiles: true,
     prompt: "Give me the SMILES of every compound in this drawing.",
     check: ({ d, answered }) => d.structures.map((s) => [answered.includes(s.inchiKey), `gives ${s.name ?? s.formula} as SMILES`]) },
-  { id: "style-wiley", set: "held", job: "style", setup: [["draw_reaction", SUZUKI_DRAWN]],
-    prompt: "This is going in Angewandte. Set the drawing up for it.",
+  { id: "style-wiley", set: "held", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
+    prompt: "This is going in Angewandte. Set the drawing up for it.", brief: "1. No, Angewandte's style. 2. Angewandte Chemie, one column. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "Wiley (Angewandte)", "the Wiley style", d.style], ...layout(d)] },
 
   // ---- Speed (plan section 21): Elliot's figure from its picture, and restyling it. set "speed": run only by name.
@@ -201,7 +208,7 @@ export const CASES = [
   { id: "figure-lanthanide", set: "speed", job: "figure", pictureFile: "lanthanide-figure.png",
     prompt: "Recreate the figure in this picture in Octet: both panels, titles, citations, every structure with its labels, wedges and colours, the numbers, the M = lines and the brackets. Make it look as good as the picture.",
     check: ({ d }) => [...figureParts(d), ...layout(d)] },
-  { id: "restyle-lanthanide", set: "speed", job: "figure", setup: [["draw_figure", LANTHANIDE]], pictureFile: "lanthanide-figure-restyled.png",
+  { id: "restyle-lanthanide", set: "speed", job: "figure", setup: [["draw", { kind: "figure", ...LANTHANIDE }]], pictureFile: "lanthanide-figure-restyled.png",
     prompt: "Restyle my figure so it looks like this picture: the panel titles and citations, the numbers and captions under the structures, the colours, the line between the panels and the box round the side text. Keep the structures as they are.",
     check: ({ d }) => [...figureParts(d), [says(d, "siloxides") && says(d, "imidophosphoranes"), "both titles"], [(d.shapes?.length ?? 0) >= 1, "a shape (the box or the line)", String(d.shapes?.length ?? 0)], ...layout(d)] },
 ];

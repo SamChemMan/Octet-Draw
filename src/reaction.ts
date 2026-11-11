@@ -5,6 +5,7 @@
 // so a fuller reading of reactions (reaction interpretation) can replace findReaction and keep the layout.
 import { GAP_ARROW_PT, LINE, curveBox, curved, isNumber, straightArrow, type Arrow, type Box, type Caption, type Mol } from "./render.ts";
 import { addCaption, fragments, moveAtoms } from "./edit.ts";
+import { compounds } from "./mixtures.ts";
 
 type P = [number, number];
 // One thing in the row, with its box in drawing units (y up): [left, bottom, right, top]. A part's carry: what stands
@@ -27,6 +28,7 @@ export type Reaction = { steps: Step[]; arrows: number[]; atoms: number[]; capti
 
 const REACH = 3.5; // the widest gap (bond lengths) between neighbours in one reaction
 const NEAR = 3; // how far (bond lengths) conditions sit from their arrow at most
+const KEPT = 8; // how far (bond lengths) the text stacked on an arrow reaches from it at most, for a structure past it
 const CLOSE = 1; // how far (bond lengths) from a part of the row what it carries sits at most
 const YIELD = 1.5; // how far (bond lengths) from its structure a yield sits at most
 const NAMED = 2; // how far (bond lengths) under or over a part of the row its text (a name, a CAS number) sits at most
@@ -48,14 +50,19 @@ const isYield = (text: string) => !!text.trim() && text.split("\n").every((t) =>
 //    - A curved arrow (electrons pushed) with its ends on two structures of the row stretches between them; one with an
 //      end on one structure moves with it, and brings what its other end is on (a hydroxide ion attacking it).
 // A reaction needs a structure in its row, or conditions on an arrow.
-function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
-  const a = arrows.find((x) => x.id === arrowId);
-  if (!a || !straightArrow(a)) return undefined;
+// drawn: each structure with its box, and (worked out only when a row asks, for the structure it asks about) the
+// boxes of the text under one: its number, a caption. findReaction measures them once for all its rows.
+// plus: a plus sign to read the row from in place of the arrow (a line of products that goes on under the arrow's
+// line): the row through it, the way the arrow points.
+type Drawn = { parts: { atoms: number[]; box: Box }[]; under: (part: number) => Box[] };
+function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, captionBox: (id: number) => Box | undefined, plus?: number): Reaction | undefined {
+  const a = arrows.find((x) => x.id === arrowId), from = plus === undefined ? undefined : captionBox(plus);
+  if (!a || !straightArrow(a) || (plus !== undefined && !from)) return undefined;
   // The row's line: through the arrow's middle, along it, or across or down the page when the arrow is within 20° of
   // that (a hand-drawn arrow a little off level), as Clean Up Reaction lays the row.
   const d: P = [a.to[0] - a.from[0], a.to[1] - a.from[1]], length = Math.hypot(...d) || 1, exact: P = [d[0] / length, d[1] / length], level = Math.cos((20 * Math.PI) / 180);
   const u: P = Math.abs(exact[0]) >= level ? [Math.sign(exact[0]), 0] : Math.abs(exact[1]) >= level ? [0, Math.sign(exact[1])] : exact, n: P = [-u[1], u[0]];
-  const o: P = [(a.from[0] + a.to[0]) / 2, (a.from[1] + a.to[1]) / 2];
+  const o: P = from ? [(from[0] + from[2]) / 2, (from[1] + from[3]) / 2] : [(a.from[0] + a.to[0]) / 2, (a.from[1] + a.to[1]) / 2];
   const along = (q: P) => (q[0] - o[0]) * u[0] + (q[1] - o[1]) * u[1];
   const across = (q: P) => (q[0] - o[0]) * n[0] + (q[1] - o[1]) * n[1];
   const corners = (b: Box): P[] => [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]];
@@ -63,8 +70,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
   type Item = { step: Step; lo: number; hi: number; off: number; half: number };
   type Part = Extract<Step, { kind: "structure" | "text" | "arrow" }>;
   const item = (step: Step): Item => { const c = corners(step.box), xs = c.map(along), ys = c.map(across); return { step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 }; };
-  const items: Item[] = [];
-  for (const atoms of fragments(m)) { const b = ink(atoms); if (b) items.push(item({ kind: "structure", atoms, box: b })); }
+  const items: Item[] = drawn.parts.map((p) => item({ kind: "structure", atoms: p.atoms, box: p.box }));
   for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) items.push(item({ kind: c.text.trim() === "+" ? "plus" : "text", id: c.id, box: b })); }
   // Straight arrows: one that points the same way can be a step of the reaction; one that points another way (the
   // other reaction of C ← A → B) ends the row where it stands.
@@ -82,7 +88,37 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
   // What stands wholly on one side of the line, near it, with its middle over an arrow is that arrow's conditions,
   // however close to the line or to a structure: the first of several lines of text under it, or a wide one.
   const shafts = items.filter((it) => it.step.kind === "arrow" && !against.has(it) && Math.abs(it.off) < 0.4);
-  const overArrow = (it: Item) => it.step.kind !== "arrow" && Math.abs(it.off) > it.half && Math.abs(it.off) - it.half <= NEAR && shafts.some((x) => (it.lo + it.hi) / 2 > x.lo && (it.lo + it.hi) / 2 < x.hi);
+  // Near an arrow: within NEAR of the line. So is a structure that sits on the text Octet stacks on the arrow on that
+  // side, where Clean Up Reaction puts one (a quarter gap past the text, which can be more than NEAR deep; with the
+  // text under the structure, its number, nearest). Text placed by hand does not count: it can be anywhere.
+  const under = (it: Item) => (it.step.kind === "structure" ? drawn.under(items.indexOf(it)).map((b) => item({ kind: "text", id: -1, box: b })) : []);
+  // How far the text stacked on an arrow reaches from the line on a side (none: 0), worked out once for the row.
+  let reaches: Map<number, number> | undefined;
+  const textOn = (x: Item, side: number) => {
+    const id = (x.step as { id: number }).id, key = side < 0 ? -1 - id : id;
+    let reach = (reaches ??= new Map()).get(key);
+    if (reach === undefined) {
+      reach = 0;
+      for (const c of stackedOn(m).get(id) ?? []) { const b = captionBox(c.id); if (b) reach = Math.max(reach, ...corners(b).map((q) => side * across(q))); }
+      reaches.set(key, (reach = Math.min(reach, KEPT)));
+    }
+    return reach;
+  };
+  // (far: a structure further than NEAR from the line that can still sit on an arrow's text; d: how far it is.)
+  const far = (it: Item, d: number) => d > NEAR && d <= NEAR + KEPT && it.step.kind === "structure";
+  // Such a structure lies within the arrow's ends, as its conditions do. (The text under a structure is down the page
+  // from it: nearer the arrow when the structure is up the page. edge: how far from the line that text's near edge is.)
+  const edge = (b: Box, side: number) => Math.min(side * (b[0] - o[0]) * n[0], side * (b[2] - o[0]) * n[0]) + Math.min(side * (b[1] - o[1]) * n[1], side * (b[3] - o[1]) * n[1]);
+  const sitsOn = (it: Item, x: Item, d: number) => {
+    if (it.lo < x.lo - 0.25 || it.hi > x.hi + 0.25) return false;
+    const side = Math.sign(it.off), reach = textOn(x, side);
+    return reach > 0 && (d <= reach + CLOSE || (side * n[1] > 0 && drawn.under(items.indexOf(it)).some((b) => edge(b, side) <= reach + CLOSE)));
+  };
+  const overArrow = (it: Item) => {
+    const d = Math.abs(it.off) - it.half;
+    if (it.step.kind === "arrow" || d <= 0 || (d > NEAR && !far(it, d))) return false;
+    return shafts.some((x) => (it.lo + it.hi) / 2 > x.lo && (it.lo + it.hi) / 2 < x.hi && (d <= NEAR || sitsOn(it, x, d)));
+  };
 
   // 1. Text that clings to a structure, and the lines that tie it on. A small structure drawn over a larger one (a
   //    substituent's bond drawn apart from its ring) clings to the larger one, as the walk below cannot take both.
@@ -117,7 +153,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
   //    which can reach past the arrow's end).
   const frames = (m.shapes ?? []).filter((x) => x.kind !== "highlight").map((x): [number, Box, boolean] => [x.id, [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])], x.kind === "box" || x.kind === "rounded" || x.kind === "oval"]);
   const inside = (b: Box, f: Box) => (b[0] + b[2]) / 2 > f[0] && (b[0] + b[2]) / 2 < f[2] && (b[1] + b[3]) / 2 > f[1] && (b[1] + b[3]) / 2 < f[3];
-  const arrowBox: Box = [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]), Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1])];
+  const arrowBox: Box = from ?? [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]), Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1])];
   const fenced = (it: Item) => frames.some(([, f, box]) => box && inside(it.step.box, f) && !inside(arrowBox, f));
   const span = new Map(items.map((it) => [it, { lo: it.lo, hi: it.hi }]));
   for (const [t, s] of clings) if (t.step.kind === "text") { const w = span.get(s)!; w.lo = Math.min(w.lo, t.lo); w.hi = Math.max(w.hi, t.hi); }
@@ -131,7 +167,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
   }
   const lo = (it: Item) => span.get(it)!.lo, hi = (it: Item) => span.get(it)!.hi, mid = (it: Item) => (lo(it) + hi(it)) / 2;
   const inLine = items.filter((it) => !clings.has(it) && !fenced(it) && !overArrow(it) && Math.abs(it.off) < it.half + 0.4);
-  const start = inLine.find((it) => it.step.kind === "arrow" && it.step.id === arrowId);
+  const start = inLine.find((it) => (plus === undefined ? it.step.kind === "arrow" && it.step.id === arrowId : it.step.kind === "plus" && it.step.id === plus));
   if (!start) return undefined;
   const row = [start];
   // Walk out both ways, taking the nearest thing each time, while the gap stays small.
@@ -141,12 +177,25 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
       const edge = dir < 0 ? lo(at) : hi(at), far = dir < 0 ? Math.min(edge, wide.get(at)?.lo ?? edge) : Math.max(edge, wide.get(at)?.hi ?? edge);
       // Next: what starts past the edge, or overlaps it with its middle past it (a product drawn under the arrowhead).
       const next = inLine.filter((it) => !row.includes(it) && (dir < 0 ? hi(it) <= edge + 0.3 || mid(it) < edge : lo(it) >= edge - 0.3 || mid(it) > edge)).sort((p, q) => (dir < 0 ? hi(q) - hi(p) : lo(p) - lo(q)))[0];
-      if (!next || against.has(next) || (dir < 0 ? far - hi(next) : lo(next) - far) > REACH) break;
+      if (!next || against.has(next)) break;
+      // A gap too wide by the atoms is counted again from the text under a structure (its number, a caption) where
+      // that is wider than the structure: Clean Up Reaction gives that text room (besides), so the atoms of a small
+      // structure with a long caption stand far from the arrow each side.
+      const gap = (p: number, q: number) => (dir < 0 ? p - q : q - p), by = (it: Item, d: number) => (d < 0 ? Math.min(lo(it), ...under(it).map((t) => t.lo)) : Math.max(hi(it), ...under(it).map((t) => t.hi)));
+      if (gap(far, dir < 0 ? hi(next) : lo(next)) > REACH && gap(dir < 0 ? Math.min(far, by(at, -1)) : Math.max(far, by(at, 1)), by(next, -dir)) > REACH) break;
       row.push(next);
       at = next;
     }
   }
   row.sort((p, q) => lo(p) - lo(q));
+  // A plus sign that the structure beside it has come to reach over (a reactant cleaned up, or turned) is not walked
+  // to. It is still the row's: between two neighbours with no plus sign, where its middle stands.
+  const bare = (it: Item) => it.step.kind === "structure" || it.step.kind === "text";
+  for (const it of inLine) {
+    if (it.step.kind !== "plus" || row.includes(it)) continue;
+    const k = row.findIndex((r, i) => i > 0 && bare(row[i - 1]) && bare(r) && mid(row[i - 1]) < mid(it) && mid(it) < mid(r));
+    if (k > 0) row.splice(k, 0, it);
+  }
   const steps = row.map((it) => it.step);
   const arrowIds = steps.flatMap((s) => (s.kind === "arrow" ? [s.id] : []));
 
@@ -200,7 +249,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
     if (taken.has(it.step) || clings.has(it) || it.step.kind === "arrow" || it.step.kind === "plus") continue;
     const near = Math.abs(it.off) - it.half, mid = (it.lo + it.hi) / 2;
     // (Text may run past the ends of an arrow too short for it; a structure may not.)
-    const by = near >= 0.05 && near <= NEAR ? rowArrows.find((x) => mid >= x.lo && mid <= x.hi && (it.step.kind === "text" || (it.lo >= x.lo - 0.25 && it.hi <= x.hi + 0.25))) : undefined;
+    const by = near >= 0.05 && (near <= NEAR || far(it, near)) ? rowArrows.find((x) => mid >= x.lo && mid <= x.hi && (it.step.kind === "text" || (it.lo >= x.lo - 0.25 && it.hi <= x.hi + 0.25)) && (near <= NEAR || sitsOn(it, x, near))) : undefined;
     if (by) {
       const c = conditions.get((by.step as { id: number }).id)!;
       (it.off * screenUp > 0 ? c.above : c.below).push(it.step);
@@ -272,32 +321,103 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]
 // A reaction wrapped onto lines (as Clean Up Reaction wraps one wider than the page) reads as one reaction: a line that
 // starts with an arrow continues the line above it that ends with a structure, when that line is of arrows the same
 // way across the page, no more than LINES bond lengths above (Clean Up Reaction puts lines 2 bond lengths apart, plus
-// the reach of their text and structures), and overlaps it along the page. findReaction gives the whole reaction from
-// an arrow on any of its lines (decision 0021, D4).
+// the reach of their text and structures), and overlaps it along the page. So does a line that starts with a plus
+// sign (Clean Up Reaction breaks a line before a plus sign when it must: a second product on the next line), with
+// arrows or with none. findReaction gives the whole reaction from an arrow on any of its lines (decision 0021, D4).
 const LINES = 10;
+// A drawing's plus signs that stand free (on no arrow, under no structure), and the text Octet stacks on each arrow
+// (kept on it, not placed by hand), each found once for a state of the drawing's text.
+const plusSigns = new WeakMap<Caption[], Caption[]>(), stacks = new WeakMap<Caption[], Map<number, Caption[]>>();
+const NONE = new Map<number, Caption[]>();
+function freePluses(m: Mol): Caption[] {
+  if (!m.captions) return [];
+  let l = plusSigns.get(m.captions);
+  if (!l) plusSigns.set(m.captions, (l = m.captions.filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+")));
+  return l;
+}
+function stackedOn(m: Mol): Map<number, Caption[]> {
+  if (!m.captions) return NONE;
+  let by = stacks.get(m.captions);
+  if (!by) {
+    stacks.set(m.captions, (by = new Map()));
+    for (const c of m.captions) if (c.on && !c.placed) { const l = by.get(c.on.arrow); if (l) l.push(c); else by.set(c.on.arrow, [c]); }
+  }
+  return by;
+}
+// A drawing's compounds, by its atoms, for the bonds and text they were found with.
+const found = new WeakMap<Mol["atoms"], { bonds: Mol["bonds"]; captions: Mol["captions"]; all: number[][] }>();
 export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
-  const rows = new Map<number, Reaction | undefined>();
-  const row = (id: number) => { if (!rows.has(id)) rows.set(id, findRow(m, id, arrows, ink, captionBox)); return rows.get(id); };
+  const from = arrows.find((x) => x.id === arrowId);
+  if (!from || !straightArrow(from)) return undefined;
+  // The structures are the same for every row read here (a wrapped reaction reads a row for each arrow near it), so
+  // they are found and measured once: each with its box, and the boxes of the text under it (its number, a caption).
+  // A compound of several structures (a salt's ions, the structures under one number) is one part of the row. The
+  // compounds are found once for the drawing's atoms, bonds and text: Clean Up Reaction reads a row from each arrow.
+  let was = found.get(m.atoms);
+  if (was?.bonds !== m.bonds || was.captions !== m.captions) found.set(m.atoms, (was = { bonds: m.bonds, captions: m.captions, all: compounds(m, fragments(m)) }));
+  const all = was.all;
+  const parts = all.flatMap((atoms) => { const box = ink(atoms); return box ? [{ atoms, box }] : []; });
+  let texts: number[][] | undefined; // each structure's text, by id
+  const boxes: Box[][] = [];
+  const drawn: Drawn = { parts, under: (k) => {
+    if (!texts) {
+      const home: number[] = new Array(m.atoms.length); // each atom's structure
+      parts.forEach((p, j) => { for (const i of p.atoms) home[i] = j; });
+      texts = parts.map(() => []);
+      for (const c of m.captions ?? []) { const j = c.under?.length ? home[c.under[0]] : undefined; if (j !== undefined) texts[j].push(c.id); }
+    }
+    return (boxes[k] ??= texts[k].flatMap((id) => { const b = captionBox(id); return b ? [b] : []; }));
+  } };
+  // Each arrow's row, read once, and each row read from a plus sign (by -1 - its id); the plus signs that are in a row
+  // read (each is that row's own).
+  const rows = new Map<number, Reaction | undefined>(), placed = new Set<number>();
+  const row = (id: number) => {
+    if (!rows.has(id)) { const r = id < 0 ? findRow(m, arrowId, arrows, drawn, captionBox, -1 - id) : findRow(m, id, arrows, drawn, captionBox); rows.set(id, r); for (const s of r?.steps ?? []) if (s.kind === "plus" && (id >= 0 || s.id !== -1 - id)) placed.add(s.id); }
+    return rows.get(id);
+  };
   const first = row(arrowId);
   if (!first) return undefined;
-  const way = (r: Reaction) => { const a = arrows.find((x) => x.id === r.arrows[0])!, dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1]; return Math.abs(dx) > 3 * Math.abs(dy) ? Math.sign(dx) : 0; };
-  const span = (r: Reaction) => union([...r.steps, ...[...r.conditions.values()].flatMap((c) => [...c.above, ...c.below])].map((x) => x.box));
-  const starts = (r: Reaction) => r.steps[0]?.kind === "arrow", ends = (r: Reaction) => r.steps[r.steps.length - 1]?.kind === "structure";
-  // The line above or below a line of the same reaction (below: the next one down the page).
-  const next = (r: Reaction, down: boolean): Reaction | undefined => {
+  // (A line with no arrow goes the way of the line it goes on from.)
+  const ways = new Map<Reaction, number>();
+  const way = (r: Reaction): number => { const a = arrows.find((x) => x.id === r.arrows[0]); if (!a) return ways.get(r) ?? 0; const dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1]; return Math.abs(dx) > 3 * Math.abs(dy) ? Math.sign(dx) : 0; };
+  // (Each row's box is worked out once: a wrapped scheme asks for it from each line above and below.)
+  const spans = new Map<Reaction, Box>();
+  const span = (r: Reaction) => { let b = spans.get(r); if (!b) spans.set(r, (b = union([...r.steps, ...[...r.conditions.values()].flatMap((c) => [...c.above, ...c.below])].map((x) => x.box)))); return b; };
+  const starts = (r: Reaction) => r.steps[0]?.kind === "arrow" || r.steps[0]?.kind === "plus", ends = (r: Reaction) => r.steps[r.steps.length - 1]?.kind === "structure";
+  // The nearest line above or below that could be a line of the same reaction (below: the next one down the page),
+  // among the arrows no higher up the page than `under`.
+  const near = (r: Reaction, down: boolean, under = Infinity): Reaction | undefined => {
     const w = way(r);
     if (!w || (down ? !ends(r) : !starts(r))) return undefined;
     const b = span(r);
     let best: Reaction | undefined, gap = Infinity;
     for (const a of arrows) {
-      if (!straightArrow(a) || r.arrows.includes(a.id) || (down ? Math.max(a.from[1], a.to[1]) > b[1] : Math.min(a.from[1], a.to[1]) < b[3])) continue;
+      if (!straightArrow(a) || r.arrows.includes(a.id) || Math.max(a.from[1], a.to[1]) > (down ? b[1] : under) || (!down && Math.min(a.from[1], a.to[1]) < b[3])) continue;
       const o = row(a.id);
       if (!o || way(o) !== w || (down ? !starts(o) : !ends(o)) || o.arrows.some((id) => r.arrows.includes(id))) continue;
       const c = span(o), d = down ? b[1] - c[3] : c[1] - b[3];
       if (d < -0.5 || d > LINES || c[0] > b[2] || c[2] < b[0] || d >= gap) continue;
       best = o; gap = d;
     }
+    // A line with no arrow, from a plus sign that is in no arrow's row: the rest of this line's products.
+    if (down) for (const t of freePluses(m)) {
+      if (placed.has(t.id)) continue;
+      const p = captionBox(t.id), d0 = p ? b[1] - p[3] : -1;
+      if (d0 < -0.5 || d0 > LINES || d0 >= gap) continue;
+      const o = row(-1 - t.id);
+      if (!o || o === r || o.steps[0].kind !== "plus" || o.arrows.length || !ends(o)) continue;
+      const c = span(o), d = b[1] - c[3];
+      if (d < -0.5 || d > LINES || c[0] > b[2] || c[2] < b[0] || d >= gap) continue;
+      ways.set(o, w);
+      best = o; gap = d;
+    }
     return best;
+  };
+  // A line below continues this one only when no other line that it could continue lies between the two: the second
+  // line of another scheme drawn under this one continues that scheme's first line. (Their rows are read already.)
+  const next = (r: Reaction, down: boolean) => {
+    const o = near(r, down), between = o && down ? near(o, false, span(r)[1]) : undefined;
+    return between && !between.arrows.some((id) => r.arrows.includes(id)) ? undefined : o;
   };
   let top = first;
   for (let k = 0, up = next(top, false); up && k < 50; k++, up = next(top, false)) top = up;
@@ -332,9 +452,11 @@ export type Layout = {
 //   number or price) and a yield beside it, so its neighbours space out round them.
 // - An arrow is two gaps long, or as long as its widest conditions with a gap at each end. Its text stacks on it (the
 //   renderer stacks captions kept on an arrow); text drawn above or below it is kept on it from now on; structures
-//   above or below it stand in a row, centred on it, a quarter gap clear of its text.
+//   above or below it stand in a row, centred on it, a quarter gap clear of its text, each with the text under it
+//   (its number or name).
 // - A reaction wider than the page wraps onto lines two bond lengths apart, each centred under the first. Octet breaks
-//   a line only before an arrow (before a plus sign if it must), and balances the lines.
+//   a line only before an arrow (before a plus sign if it must), and balances the lines. What it cannot break (the
+//   starting materials, their arrow and its product) stays on one line, however wide.
 // Octet keeps the reaction's way: a reaction drawn right to left, or down the page, is laid out that way (ChemDraw
 // turns every reaction to read left to right). The first thing in the row stays where it is, level with the first
 // arrow; with fixed (atoms already laid out by another reaction), the first structure among them stays instead, so
@@ -404,7 +526,9 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
   type Part = { step: Step; own: Box; full: Box; lo: number; length: number; up: number; down: number; at?: [number, number] };
   // A structure's names and numbers under it, and what it carries: they take room beside it.
   const besides = (s: Extract<Step, { kind: "structure" | "text" }>) => [...(s.kind === "structure" ? (out.captions ?? []).filter((c) => c.under?.length && c.under.every((i) => s.atoms.includes(i))).map((c) => o.captionBox(c.id)) : []), ...(s.carry?.boxes ?? [])].filter((b): b is Box => !!b);
-  const condRow = (cs: Step[]) => cs.reduce((w, s) => w + (frame(s.box)[2] - frame(s.box)[0]), 0) + (gap / 2) * Math.max(0, cs.length - 1);
+  // A structure over or under an arrow, with the text under it and what it carries.
+  const whole = (s: Step) => (s.kind === "structure" ? union([frame(s.box), ...besides(s).map(frame)]) : frame(s.box));
+  const condRow = (cs: Step[]) => cs.reduce((w, s) => w + (whole(s)[2] - whole(s)[0]), 0) + (gap / 2) * Math.max(0, cs.length - 1);
   const parts: Part[] = steps.map((s) => {
     if (s.kind === "arrow") {
       const c = r.conditions.get(s.id) ?? { above: [], below: [] }, above = c.above.filter((x) => x.kind === "structure"), below = c.below.filter((x) => x.kind === "structure");
@@ -418,7 +542,7 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
       }
       const widest = Math.max(text, condRow(above), condRow(below));
       const length = Math.max(2 * gap, widest > 0 ? widest + 2 * gap : 0);
-      const reach = (side: Step[], text: number) => text + (side.length ? gap / 4 + Math.max(...side.map((x) => frame(x.box)[3] - frame(x.box)[1])) : 0);
+      const reach = (side: Step[], text: number) => text + (side.length ? gap / 4 + Math.max(...side.map((x) => whole(x)[3] - whole(x)[1])) : 0);
       const upReach = reach(above, block(kept(s.id, "above"))), downReach = reach(below, block(kept(s.id, "below")));
       return { step: s, own, full: own, lo: 0, length, up: Math.max(0.2, upReach), down: Math.max(0.2, downReach) };
     }
@@ -432,25 +556,33 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
 
   // Lines: one, unless the row is wider than the page. A line breaks before an arrow (or, failing that, a plus sign)
   // after the first arrow, so the first line holds the starting materials and their arrow (a line of starting
-  // materials alone would read as no reaction); the fewest lines, then the most even.
+  // materials alone would read as no reaction); the fewest lines, then no product alone on the last line where a
+  // line before can be the short one, then the most even.
   const widthOf = (from: number, to: number) => parts.slice(from, to).reduce((w, p) => w + p.length, 0) + gap * Math.max(0, to - from - 1);
-  let breaks: number[] = [];
+  let breaks: number[] = [], over = Infinity, widest = Infinity;
   if (flat && o.width && widthOf(0, parts.length) > o.width) {
     const firstArrow = parts.findIndex((p) => p.step.kind === "arrow"), at = (kind: string) => parts.flatMap((p, k) => (k > firstArrow && p.step.kind === kind ? [k] : []));
     for (const candidates of [at("arrow"), [...new Set([...at("arrow"), ...at("plus")])].sort((p, q) => p - q)]) {
-      // best[k]: the fewest lines, then the narrowest widest line, for parts 0..k-1 broken at candidates.
-      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; widest: number; cuts: number[] }>([[0, { lines: 0, widest: 0, cuts: [] }]]);
-      for (const end of ends) for (const [from, b] of [...best]) {
+      // best[k]: the fewest lines, then a last line of more than one structure, then the narrowest widest line, for
+      // parts 0..k-1 broken at candidates. over: how many of its lines are wider than the page (each a piece with no
+      // break inside it, so the same whatever the cuts).
+      const ends = [...candidates, parts.length], best = new Map<number, { lines: number; over: number; alone: boolean; widest: number; cuts: number[] }>([[0, { lines: 0, over: 0, alone: false, widest: 0, cuts: [] }]]);
+      for (const [k, end] of ends.entries()) for (const [from, b] of [...best]) {
         // (A first line of one structure alone gains no room: the reaction stays on one line.)
         if (from >= end || (!from && end < 2)) continue;
+        // (A piece with no break inside it stays whole, however wide: the rest still wraps.)
         const w = widthOf(from, end);
-        if (w > o.width && end - from > 1) continue;
-        const next = { lines: b.lines + 1, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] }, was = best.get(end);
-        if (!was || next.lines < was.lines || (next.lines === was.lines && next.widest < was.widest - 1e-9)) best.set(end, next);
+        if (w > o.width && k && ends[k - 1] > from) continue;
+        // (Only the last line can be a product alone: before it, the narrowest widest line leaves the most choice.)
+        const alone = end === parts.length && parts.slice(from, end).filter((p) => p.step.kind === "structure").length < 2, was = best.get(end);
+        const next = { lines: b.lines + 1, over: b.over + Number(w > o.width + 1e-9), alone, widest: Math.max(b.widest, w), cuts: [...b.cuts, ...(from ? [from] : [])] };
+        if (!was || next.lines < was.lines || (next.lines === was.lines && (was.alone && !alone || (was.alone === alone && next.widest < was.widest - 1e-9)))) best.set(end, next);
       }
+      // (Breaks before plus signs are used only when they leave fewer lines wider than the page, or as many and the
+      // widest line narrower.)
       const done = best.get(parts.length);
-      if (done && done.widest <= o.width + 1e-9) { breaks = done.cuts; break; }
-      if (done) breaks = done.cuts;
+      if (done && (done.over < over || (done.over === over && done.widest < widest - 1e-9))) { breaks = done.cuts; over = done.over; widest = done.widest; }
+      if (!over) break;
     }
   }
 
@@ -515,7 +647,7 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
         const sign = side === "above" ? up : -up, base = c + shift[1] + sign * (block(kept(s.id, side)) + gap / 4);
         let x = a + shift[0] + p.length / 2 - condRow(list) / 2;
         for (const t of list) {
-          const b = frame(t.box), dv = world(x - b[0], sign > 0 ? base - b[1] : base - b[3]);
+          const b = whole(t), dv = world(x - b[0], sign > 0 ? base - b[1] : base - b[3]);
           for (const i of t.atoms) take(atomBy, i, dv);
           moveCarry(t.carry, dv);
           x += b[2] - b[0] + gap / 2;
