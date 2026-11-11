@@ -218,7 +218,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "sdf") return toSdf(chem);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
-      return steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
+      // (No pictures and no .oct here: a picture needs the app's renderer.)
+      return format === "rxn" && steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);
@@ -279,6 +280,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return structure(text);
     },
     export: () => false,
+    // (No command here opens a dialog: the stand-in for the editor has none.)
+    dialog: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
+    // (No windows here: drawings new with a file's text opens none, whatever the file.)
+    opens: async () => ({}),
     window: () => ({ id: "headless", name: title }),
     windows: async () => [],
     target: async (_session, id) => id === "headless",

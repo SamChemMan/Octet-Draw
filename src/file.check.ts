@@ -17,6 +17,17 @@ assert.deepEqual(back.atoms.map((a) => a.label), mol.atoms.map((a) => a.label));
   assert.deepEqual([again.atoms.map((a) => !!a.ignoreWarnings), again.bonds.map((b) => !!b.ignoreWarnings)], [hid.atoms.map((a) => !!a.ignoreWarnings), hid.bonds.map((b) => !!b.ignoreWarnings)]);
 }
 for (let i = 0; i < mol.atoms.length; i++) assert.ok(Math.abs(back.atoms[i].location[0] - mol.atoms[i].location[0]) < 1e-4);
+// A stereocentre's configuration as ChemDraw keeps it stays through a .oct, so CDXML written after a reopen still has
+// it (--convert to .oct and back). One that is not sound is left out, and the drawing still opens.
+{
+  const kept = { atoms: [1, 5, -1, 2], marks: "0< 0> h 6>" }, withKept: Mol = { ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, kept } : a)) };
+  assert.deepEqual(parse(serialize(withKept)).atoms[0].kept, kept);
+  for (const bad of [{ atoms: [1, 5, 2], marks: "" }, { atoms: [1, 5, 99, 2], marks: "" }, { atoms: [1, 5, -1, 2], marks: 7 }, "x"]) {
+    const f = JSON.parse(serialize(withKept));
+    f.structure.atoms[0].kept = bad;
+    assert.equal(parse(JSON.stringify(f)).atoms[0].kept, undefined, JSON.stringify(bad));
+  }
+}
 console.log("file.check: round trip ok");
 
 // Bad files are refused with a message, never half-loaded.

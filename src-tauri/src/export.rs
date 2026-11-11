@@ -60,7 +60,7 @@ pub fn tree(svg: &str) -> Result<usvg::Tree, String> {
     // usvg reads <image> files from disk by default. The picture holds only what the page drew.
     opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
     usvg::Tree::from_str(svg, &opt).map_err(|e| {
-        eprintln!("usvg: {e}");
+        say!(stderr, "usvg: {e}");
         "Octet cannot draw this picture.".to_string()
     })
 }
@@ -366,7 +366,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file.
-const FORMATS: [(&str, &str, &[&str]); 24] = [
+pub const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -393,18 +393,22 @@ const FORMATS: [(&str, &str, &[&str]); 24] = [
     ("csv", "CSV", &["csv"]),
 ];
 
-#[derive(serde::Deserialize)]
+// The formats made from the drawing's picture (its SVG). Each but SVG is binary: read gives it in base64.
+pub const PICTURES: [&str; 8] = ["pdf", "svg", "png", "emf", "eps", "tif", "jpg", "gif"];
+
+#[derive(serde::Deserialize, Default)]
 pub struct Export {
+    #[serde(default)]
     name: String,
     format: Option<String>,
-    oct: Option<String>,
+    pub oct: Option<String>,
     svg: Option<String>,
-    cdxml: Option<String>,
-    cdx: Option<String>, // base64
-    ctp: Option<String>, // a template set's ChemDraw template file, base64
-    mdl: Option<String>, // the text of the MDL format asked for
-    smiles: Option<String>,
-    inchi: Option<String>,
+    pub cdxml: Option<String>,
+    pub cdx: Option<String>, // base64
+    ctp: Option<String>,     // a template set's ChemDraw template file, base64
+    pub mdl: Option<String>, // the text of the MDL format asked for
+    pub smiles: Option<String>,
+    pub inchi: Option<String>,
     csv: Option<String>, // Home's Experiments list
     dpi: Option<f32>,
     transparent: Option<bool>,
@@ -424,7 +428,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
-        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" => e.svg.is_some(),
+        f if PICTURES.contains(&f) => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),
@@ -455,8 +459,18 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
             first.0
         }
     };
+    let bytes = file_of(format, &e)?;
+    crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
+    // Export over the open drawing's own file is Octet's write: Save does not ask about another app (issue 2).
+    crate::stamp(&app, &path);
+    exported.0.lock().unwrap().insert(path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+// The file `format` names, as Export writes it, from what the page sent (export_file, export_bytes, and --convert).
+pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
     let text = |s: &Option<String>| s.clone().unwrap_or_default().into_bytes();
-    let bytes = match format {
+    Ok(match format {
         "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref())?,
         "svg" => format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n", e.svg.as_deref().unwrap_or_default()).into_bytes(),
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false), e.cdxml.as_deref())?,
@@ -473,12 +487,14 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
         "csv" => text(&e.csv),
         _ => text(&e.mdl),
-    };
-    crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
-    // Export over the open drawing's own file is Octet's write: Save does not ask about another app (issue 2).
-    crate::stamp(&app, &path);
-    exported.0.lock().unwrap().insert(path.clone());
-    Ok(Some(path.to_string_lossy().into_owned()))
+    })
+}
+
+// read with a format (src/mcp.ts): the file Export would write, in base64, with no dialog and nothing written.
+#[tauri::command]
+pub async fn export_bytes(export: Export) -> Result<String, String> {
+    let format = export.format.clone().unwrap_or_default();
+    file_of(&format, &export).map(|b| base64::engine::general_purpose::STANDARD.encode(b))
 }
 
 // ---- Reading CDXML back out of a PDF: Octet's, ChemDraw's, or either after Word ----

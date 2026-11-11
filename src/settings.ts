@@ -164,7 +164,12 @@ export function loadSettings(): Settings {
   }
 }
 
+// Octet with no window (--headless and --convert, src-tauri/src/windows.rs): its pages read the user's settings and
+// never change them.
+export const HEADLESS = typeof location !== "undefined" && new URLSearchParams(location.search).has("headless");
+
 export function saveSettings(s: Settings) {
+  if (HEADLESS) return;
   try {
     // Every window keeps the same settings: a change here reaches the others as a storage event (Editor.tsx).
     const text = JSON.stringify(s);

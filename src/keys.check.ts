@@ -51,7 +51,7 @@ const bondKeys = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8").ma
 assert.ok(bondKeys.length >= 3 && bondKeys.every((s) => s.startsWith("keyBond(")), bondKeys.join("\n"));
 // Every Actions panel action can take a key (CD-34): none has one by default, as in ChemDraw, and a key set for one
 // runs it anywhere.
-import { ACTIONS, registerMenu } from "./keys.ts";
+import { ACTIONS, DIALOGS, MENU_READ, registerMenu } from "./keys.ts";
 const panelActions = ACTIONS.filter((a) => a.id.startsWith("action."));
 assert.ok(panelActions.length > 30 && panelActions.every((a) => !map[a.id]?.length));
 assert.equal(new Set(ACTIONS.map((a) => a.id)).size, ACTIONS.length, "action ids are unique");
@@ -85,6 +85,15 @@ assert.equal(actionFor(keymap({}), held("_", "Minus", true)!, "none"), "menu.zoo
 registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["search_reaxys", "Search Reaxys", "Search", "Alt+CmdOrCtrl+F"]]);
 assert.ok(ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
 assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), "menu.search_reaxys");
+// A command whose menu name ends in "…" opens a dialog (Octet with no window refuses it); its name in the list has no "…".
+registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["rotate_dialog", "Rotate…", "Object", "CmdOrCtrl+R"]]);
+assert.deepEqual([DIALOGS.has("rotate_dialog"), DIALOGS.has("clean_up"), ACTIONS.find((a) => a.id === "menu.rotate_dialog")?.name], [true, false, "Rotate"]);
+// Octet with no window answers once the menu's commands are known (MENU_READ): they are, after registerMenu.
+{
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([MENU_READ, new Promise((_, no) => { timer = setTimeout(() => no(new Error("MENU_READ never came")), 1000); })]);
+  clearTimeout(timer);
+}
 registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"]]);
 assert.ok(!ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
 assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), undefined);

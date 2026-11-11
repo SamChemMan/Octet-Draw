@@ -62,7 +62,8 @@ try { readOct(`<CDXML ${' CreationProgram="'.repeat(4000)}`, true); } catch { /*
 assert.ok(performance.now() - t0 < 1000);
 // The editor reads the file's name and says it once, as it opens the file.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-assert.match(editor, /read = readOct\(text, \/\\\.oct\$\/i\.test\(path \?\? ""\)\)/);
+assert.match(editor, /return readOct\(text, \/\\\.oct\$\/i\.test\(path \?\? ""\)\)/);
+assert.ok(editor.includes("const read = readFile(path, text);"));
 assert.match(editor, /if \(read\.resaved\) setNotice\(`ChemDraw saved this file last and did not keep Octet's own extras\./);
 // With things Octet left out, it stays an error, as sayLost's notice is.
 assert.match(editor, /extras\.\$\{left \? ` Octet left out \$\{lostText\(lost\)\}\.` : ""\}`, left \? "error" : "info"\)/);

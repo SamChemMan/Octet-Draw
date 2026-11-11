@@ -3,7 +3,7 @@
 // what it should open, and the new page takes that once it starts (window_start). Each drawing window tells this side
 // its name, file and whether it has unsaved changes, for Home's list of open windows.
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -77,23 +77,33 @@ fn changed(app: &AppHandle) {
     let _ = app.emit("windows", list);
 }
 
+// Octet with no window (`--headless` and `--convert`, main.rs): its drawing windows are made hidden and stay hidden.
+pub static HEADLESS: AtomicBool = AtomicBool::new(false);
+
 // A new drawing window, a little below and right of the window in front, with what it opens (64 MB at most).
 // The commands that make or show windows are async: on Windows, making a window in a synchronous command (which runs
 // on the main thread) deadlocks, and the app hangs with a white window.
 #[tauri::command]
 // Gives the new window's label, so an AI app's drawings new goes to the window it opened (two at once each get their own).
 // session: the AI app's session (drawings new), whose drawing it is from now on.
-pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value, session: Option<String>) -> Result<String, String> {
+pub async fn open_window(app: AppHandle, start: serde_json::Value, session: Option<String>) -> Result<String, String> {
+    open(&app, start, session.as_deref())
+}
+pub fn open(app: &AppHandle, start: serde_json::Value, session: Option<&str>) -> Result<String, String> {
     if start.to_string().len() as u64 > MAX_BYTES + 4096 {
         return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());
     }
+    let windows = app.state::<Windows>();
     let label = format!("draw-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     windows.starts.lock().unwrap().insert(label.clone(), start);
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
+    // With no window, the page is told so (it keeps no recovery copy and saves no settings) and is never shown.
+    let headless = HEADLESS.load(Ordering::Relaxed);
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App((if headless { "index.html?window&headless" } else { "index.html?window" }).into()))
         .title("Octet Draw")
         .inner_size(1200.0, 800.0)
-        .min_inner_size(800.0, 620.0);
-    let from = front(&app).and_then(|l| app.get_webview_window(&l));
+        .min_inner_size(800.0, 620.0)
+        .visible(!headless);
+    let from = front(app).and_then(|l| app.get_webview_window(&l));
     if let Some((pos, scale)) = from.and_then(|w| Some((w.outer_position().ok()?, w.scale_factor().ok()?))) {
         let pos = pos.to_logical::<f64>(scale);
         builder = builder.position(pos.x + 28.0, pos.y + 28.0);
@@ -102,22 +112,38 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     }
     // With AI apps on, a drawing behind other windows answers at once: WebKit otherwise slows a hidden page's work,
     // and a call to it waited seconds. macOS 14 and later; elsewhere nothing changes.
-    if crate::mcp::on(&app) {
+    if headless || crate::mcp::on(app) {
         builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     }
     // The session's before the window exists (the system may put it in front while it is made): another session with
     // no drawing never takes it (mcp.rs route). If no window is made, the session has its drawing from before again.
-    let was = session.as_deref().and_then(|s| crate::mcp::give(&app, s, Some(label.clone())));
+    let was = session.and_then(|s| crate::mcp::give(app, s, Some(label.clone())));
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
-        if let (Some(s), Some(was)) = (session.as_deref(), was) {
-            crate::mcp::give(&app, s, was);
+        if let (Some(s), Some(was)) = (session, was) {
+            crate::mcp::give(app, s, was);
         }
         e.to_string()
     })?;
     #[cfg(windows)]
     crate::access_keys::install(&window);
-    let _ = window.set_focus();
+    // WebKit holds back the timers of a page that is never shown (the names engine waits on them: 47 s to start, in
+    // place of 0.4 s). With no window, Octet asks WebKit, where it has the preference, to run them as on screen.
+    #[cfg(target_os = "macos")]
+    if headless {
+        let _ = window.with_webview(|w| unsafe {
+            use objc2::{msg_send, runtime::AnyObject, sel};
+            let config: *mut AnyObject = msg_send![w.inner() as *mut AnyObject, configuration];
+            let prefs: *mut AnyObject = msg_send![config, preferences];
+            let has: bool = msg_send![prefs, respondsToSelector: sel!(_setHiddenPageDOMTimerThrottlingEnabled:)];
+            if has {
+                let _: () = msg_send![prefs, _setHiddenPageDOMTimerThrottlingEnabled: false];
+            }
+        });
+    }
+    if !headless {
+        let _ = window.set_focus();
+    }
     // In front from now, as far as Octet is concerned, even when another app has the focus (an AI app opened it).
     focused(&label);
     Ok(label)
@@ -226,6 +252,11 @@ pub fn window_list(windows: State<'_, Windows>) -> Vec<Info> {
 #[tauri::command]
 pub async fn window_show(app: AppHandle, label: String) -> Result<(), String> {
     let window = app.get_webview_window(&label).filter(|_| ours(&label)).ok_or("This window is closed.")?;
+    // With no window, it stays hidden and is in front only as far as Octet is concerned.
+    if HEADLESS.load(Ordering::Relaxed) {
+        focused(&label);
+        return Ok(());
+    }
     let _ = window.unminimize();
     let _ = window.show();
     window.set_focus().map_err(|e| e.to_string())?;
@@ -245,6 +276,10 @@ pub async fn show_home(app: AppHandle) -> Result<(), String> {
 }
 
 pub fn home(app: &AppHandle) -> tauri::Result<()> {
+    // With no window there is no Home.
+    if HEADLESS.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     let window = match app.get_webview_window("main") {
         Some(w) => w,
         None => {

@@ -6,7 +6,7 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
+import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
 import { change, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
@@ -24,13 +24,16 @@ import type { Problem } from "./check.ts";
 import type { TextRun } from "./richtext.ts";
 
 type P = [number, number];
-export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx"] as const;
+// What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
+export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"] as const;
 export type FileFormat = (typeof FILE_FORMATS)[number];
+// Export's own options for a picture: its resolution, a clear background, and its width in mm.
+export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number };
 // What the editor does for the tools (Editor.tsx makes one each time it draws).
 export type Host = {
   doc: () => Mol;
   style: () => DocStyle;
-  ready: () => Promise<void>; // Indigo and the names engine loaded
+  ready: (names?: boolean) => Promise<void>; // Indigo and the names engine loaded (Indigo alone with names false)
   structure: (text: string) => Mol | undefined; // Name to Structure's reading: a name, SMILES, InChI or MOL file
   tidy: (m: Mol) => Mol; // Clean Up Structure
   named: (text: string) => boolean; // Name to Structure reads the text as a name (not SMILES or a file)
@@ -44,13 +47,13 @@ export type Host = {
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
-  newWindow: (purpose: string, session?: string) => Promise<string | undefined> | undefined; // File > New For, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
+  newWindow: (purpose: string, session?: string, text?: string) => Promise<string | undefined> | undefined; // File > New For, or a file's text opened, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
   reaction: (arrow: number) => Reaction | undefined;
   ink: (atoms: number[]) => Box | undefined; // drawing units, y up
   textBox: (caption: number) => Box | undefined; // a caption's box as drawn, drawing units, y up
   labelBox: (atom: number) => Box | undefined; // an atom's label as drawn (none for a bare carbon), drawing units, y up
   reagent: (text: string) => { formula: string; weight: number } | undefined; // a reagent's formula, as the reagent table reads it
-  fileText: (format: FileFormat, part?: Mol) => string | undefined; // the drawing (or a part of it) as a file's text, as Export writes it
+  fileText: (format: FileFormat, part?: Mol, o?: FileOptions) => string | undefined | Promise<string | undefined>; // the drawing (or a part of it) as the file Export writes: its text, or base64 for a binary one
   inchi: (m: Mol) => { inchi?: string; key?: string }; // a structure's standard InChI and InChIKey
   // Each reagent table as drawn: its reaction's arrow, its columns (key, what, formula, molar mass, typed and worked-out
   // values) and its box.
@@ -70,7 +73,12 @@ export type Host = {
   selection: () => { atoms: number[]; items: number[] };
   select: (atoms: number[], items: number[]) => void;
   file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF or RXN file, SMILES or InChI
+  opens: (text: string) => Promise<{ failed?: string; lost?: string }>; // a file's text read as File > Open reads it, put nowhere: why it would not open, or what it would leave out
   export: (format: string) => boolean; // Octet's Export dialog, on this format
+  dialog: (command: string) => boolean; // the command opens a dialog or a box to type in (run_command says so, or refuses it with no window)
+  windowless: () => boolean; // Octet with no window (--headless, --convert): no one is there to finish a dialog
+  asking: () => boolean; // a dialog or a box to type in is open
+  dismiss: () => void; // closes it, as Escape does
   window: () => { id: string; name: string }; // the drawing (its window) this call acts on
   windows: () => Promise<{ id: string; name: string; edited: boolean }[]>; // Octet's drawings, Home's first
   target: (session: string | undefined, drawing: string) => Promise<boolean>; // the session's calls go to that drawing
@@ -87,10 +95,11 @@ type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: numbe
 // names for an enum's values; default: the value a required argument takes when it is left out.
 // unlisted: an argument a listed schema leaves out (picture and detail on an operation: the tool that runs it lists
 // them).
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string; unlisted?: true };
+// quiet: values an enum takes that tools/list leaves out, for room (advanced help names them).
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
 // own: what Octet keeps to itself (tools/list leaves it out): the lenient readings, and unlisted.
-const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
+const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
 const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
@@ -455,14 +464,15 @@ const OPS: Op[] = [
   },
   {
     name: "new", hints: ADD, outputSchema: OPENED, done: "opened a new drawing",
-    inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }) }, ["for"]),
+    description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, SMILES or InChI), which opens as File > Open opens it, in its own style.",
+    inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }), text: { ...str(1_000_000), unlisted: true } }, ["for"]),
     run: newDrawing,
   },
   {
     name: "export", title: "Export", hints: READ, outputSchema: CHANGE,
     description: "Opens Octet's Export dialog on a format. The user chooses where to save: Octet never saves a file for an AI app.",
     inputSchema: obj({ format: pick(["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "cdxml", "cdx", "mol", "sdf", "rxn", "smi", "inchi", "oct"], undefined, { also: { tiff: "tif", jpeg: "jpg", smiles: "smi" } }) }, ["format"]),
-    run: async (host, a) => (host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
+    run: async (host, a) => (host.windowless() ? { text: NO_DIALOG, error: true } : host.export(a.format) ? { text: `Octet shows its Export dialog with ${a.format.toUpperCase()} chosen. The user picks where the file goes.` } : { text: "Octet cannot open the Export dialog now.", error: true }),
   },
   {
     name: "list", hints: READ, outputSchema: DRAWINGS,
@@ -495,7 +505,9 @@ const OPS: Op[] = [
   },
   {
     name: "file", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
-    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles" } }), ids: list(str(40), 500) }, ["format"]),
+    description: `read with format: the drawing (or the ids) as the file Export writes, in any of its formats (${FILE_FORMATS.join(", ")}), a binary one in base64. mol, sdf, rxn and rdf are V3000; mol2000, sdf2000, rxn2000 and rdf2000 are V2000. A picture takes Export's options: dpi (36 to 2400), transparent, and width_mm (the whole picture, margin included). Nothing is saved.`,
+    // (tools/list lists the formats read had before; the rest, and the options, are here for room.)
+    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles", tiff: "tif", jpeg: "jpg" }, quiet: FILE_FORMATS.slice(8) }), ids: list(str(40), 500), dpi: { ...num(36, 2400), unlisted: true }, transparent: { type: "boolean", unlisted: true }, width_mm: { ...num(1, 2000), unlisted: true } }, ["format"]),
     run: getFile,
   },
   {
@@ -554,8 +566,8 @@ const OPS: Op[] = [
       const of = clean(a.of ?? "").toLowerCase(), t = HELP.includes(of) ? opOf(of === "draw_route" ? "route" : of) : undefined;
       // The named transformations a compound's change takes as do (compound.ts), which draw names in one example.
       if (of === "transformations") { const data = { of, call: "a compound's changes: {do, at, with, to, config}", description: TRANSFORMATIONS }; return { text: JSON.stringify(data), data }; }
-      if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}), a tool of advanced (${ADVANCED.join(", ")}), draw_route or transformations (a compound's changes with do).`, ...(of ? { error: true as const } : {}) };
-      const call = of === "draw_route" ? of : KINDS.includes(of as never) ? `draw with kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
+      if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}), a tool of advanced (${ADVANCED.join(", ")}), draw_route, file (read with format), new (drawings new) or transformations (a compound's changes with do).`, ...(of ? { error: true as const } : {}) };
+      const call = of === "draw_route" ? of : of === "file" ? "read with format" : of === "new" ? "drawings with action: 'new'" : KINDS.includes(of as never) ? `draw with kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
       const data = { of, call, does: t.title, description: t.description, arguments: whole(t.inputSchema) };
       return { text: JSON.stringify(data), data };
     },
@@ -579,7 +591,7 @@ for (const t of OPS) {
 // wrong with the call.
 type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; defs?: Record<string, Schema>; ops: readonly string[]; route: (a: any, notes: Notes) => { op: string; args: any; at?: string } | string };
 const BY_NAME = new Map(OPS.map((t) => [t.name, t])), opOf = (name: string) => BY_NAME.get(name)!;
-const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "draw_route"];
+const HELP: readonly string[] = [...KINDS, ...CHANGE_OPS, ...ADVANCED, "draw_route", "file", "new"];
 // The values an operation's argument takes, for a tool's description to list.
 const values = (op: string, key: string) => (opOf(op).inputSchema.properties[key] as { enum: readonly string[] }).enum.join(", ");
 const open = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ ...obj(properties, required), additionalProperties: true });
@@ -615,7 +627,7 @@ select: ids, for advanced run_command.
 draw: kind, and its arguments as draw takes them.` }, ...REPLY }, ["operations"]);
 const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
-const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given") }, ["action"]);
+const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
 const TOOLS: Tool[] = [
   {
     name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND, side: SIDE },
@@ -652,7 +664,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
-    description: "Reads the open drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or the ids) as a file's text instead (mol is V3000, mol2000 V2000, cdx base64). Nothing is saved.",
+    description: "Reads the drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
     inputSchema: READ_IN,
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
@@ -1633,12 +1645,20 @@ async function select(host: Host, a: { ids: string[] }): Promise<Result> {
 // File > New For, in a window of its own, so that each session can have its own drawing (D1); where there are no
 // windows (the web component), in this one. The answer comes once the window is made and is the session's drawing
 // (open_window gives it to the session): mcp.rs holds the session's next call until the new page has started (plan
-// 17.5), so nothing here waits for it. A client with no session has the new window in front.
-async function newDrawing(host: Host, a: { for: string }, ctx: Ctx): Promise<Result> {
+// 17.5), so nothing here waits for it. A client with no session has the new window in front. A file's text (text) needs
+// a window of its own (add_file adds one to this drawing): it is read here first, as File > Open reads it, so a file
+// that does not open opens no window and says why.
+async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ctx): Promise<Result> {
+  let lost: string | undefined;
+  if (a.text !== undefined) {
+    const read = await host.opens(a.text);
+    if (read.failed) return { text: read.failed, error: true };
+    lost = read.lost;
+  }
   // The window this call opened, by its id: two AI apps opening drawings at once each get their own. No windows (the
   // web component, headless): this page, queued at once (newWindow gives nothing there, with no wait), so the calls
   // sent after this one run in the new drawing; one undo step, said to the user, and a cancel puts the drawing back.
-  const opening = host.newWindow(a.for, ctx.session);
+  const opening = host.newWindow(a.for, ctx.session, a.text);
   const here = () => queued(async (): Promise<Result> => {
     const was = host.doc();
     host.begin(`mcp-${++steps}`);
@@ -1651,9 +1671,11 @@ async function newDrawing(host: Host, a: { for: string }, ctx: Ctx): Promise<Res
       return { text: `Octet started a new drawing for ${a.for} in ${host.window().id}, which had nothing in it. This session's calls go to it.`, data: { opened: host.window().id } };
     } catch (e) { if (host.doc() !== was) host.set(was); throw e; } finally { host.end(); }
   });
-  if (!opening) return here();
+  // (A file's text never goes into this page's drawing.)
+  const none = () => (a.text === undefined ? here() : { text: "Octet cannot open a new drawing now.", error: true as const });
+  if (!opening) return none();
   const opened = await opening;
-  return opened ? { text: `Octet opened a new drawing for ${a.for}: ${opened}. This session's calls go to it now.`, data: { opened } } : here();
+  return opened ? { text: `Octet opened a new drawing ${a.text === undefined ? `for ${a.for}` : "of the file"}: ${opened}.${lost ? ` Octet left out ${lost}.` : ""} This session's calls go to it now.`, data: { opened } } : none();
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's
@@ -1729,7 +1751,9 @@ async function arrange(host: Host, a: { ids: string[]; how: string }): Promise<R
   return ran ? { text: `Lined up ${a.ids.join(", ")}: ${a.how === "page" ? "centred on the page" : ["across", "down"].includes(a.how) ? `spaced evenly ${a.how}` : `${a.how} edges`}.${UNDO}` } : { text: "Octet cannot line them up now (a dialog is open).", error: true };
 }
 
-async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): Promise<Result> {
+async function getFile(host: Host, a: { format: FileFormat; ids?: string[] } & FileOptions): Promise<Result> {
+  // (A window that has just opened, --convert, has no Indigo yet. A file needs no names engine.)
+  await host.ready(false);
   const m = host.doc();
   let part: Mol | undefined;
   if (a.ids?.length) {
@@ -1737,8 +1761,10 @@ async function getFile(host: Host, a: { format: FileFormat; ids?: string[] }): P
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     part = extractSelection(m, atoms, items);
   }
-  const text = host.fileText(a.format, part);
-  if (!text) return { text: `Octet cannot write ${a.ids?.length ? "these" : "this drawing"} as ${a.format}${a.format === "rxn" ? " (an RXN file holds one reaction step)" : ""}.`, error: true };
+  const { format: _, ids: __, ...o } = a, text = await host.fileText(a.format, part, o);
+  // (A picture of nothing: Export's own words.)
+  if (!text && FILE_FORMATS.indexOf(a.format) >= FILE_FORMATS.indexOf("pdf") && !extent(part ?? m)) return { text: "There is nothing to export.", error: true };
+  if (!text) return { text: `Octet cannot write ${a.ids?.length ? "these" : "this drawing"} as ${a.format.toUpperCase()}${a.format === "rxn" ? " (an RXN file holds one reaction step)" : ""}.`, error: true };
   return { text, data: { format: a.format, text, ...(a.ids?.length ? { ids: a.ids } : {}) } };
 }
 
@@ -2065,10 +2091,13 @@ async function addShapeTool(host: Host, a: ShapeIn & { kind: ShapeKind; around?:
   host.set(m);
   return { text: `Drew a${a.kind === "oval" ? "n" : ""} ${a.kind === "tlc" ? "TLC plate" : a.kind} b${id} ${a.around ? `round ${a.around.join(", ")}` : `at ${rounded(b).join(", ")}`}.${UNDO}` };
 }
+// Octet with no window has no one to finish a dialog: the commands that open one are refused.
+const NO_DIALOG = "Octet with no window has no dialogs. read with a format gives the drawing as a file.";
 // run_command: ids selected first (so the command acts on them), then the command or action by its id.
 const knownCommand = (id: string) => (MENU_COMMANDS as readonly string[]).includes(id.trim()) || ACTIONS.test(id.trim());
 async function runCommand(host: Host, a: { command: string; ids?: string[] }): Promise<Result> {
-  const id = a.command.trim();
+  const id = a.command.trim(), dialog = host.dialog(id);
+  if (dialog && host.windowless()) return { text: `${NO_DIALOG} Octet did not run ${id}.`, error: true };
   if (a.ids) {
     const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
@@ -2077,7 +2106,13 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   }
   const ran = (MENU_COMMANDS as readonly string[]).includes(id) ? host.command(id) || host.act(id) : host.act(id);
   await host.settle();
-  const dialog = /dialog$|^(save|save_as|print|export|atom_properties|bond_properties|bracket_properties|document|page_setup|experiment_details|insert_|properties$|arrow\.(above|below))/.test(id);
+  // With no window, one that opened a dialog or a box to type in all the same (an Actions panel action, which no name
+  // above gives away) has it closed again, and is refused: the window would wait for no one.
+  if (host.windowless() && host.asking()) {
+    host.dismiss();
+    await host.settle();
+    return { text: `${NO_DIALOG} Octet did not run ${id}.`, error: true };
+  }
   return ran ? { text: `Ran ${id}.${dialog ? " Octet shows its dialog, or a box to type in: the user finishes it." : ""}` } : { text: `Octet cannot run ${id} now.`, error: true };
 }
 
@@ -2826,7 +2861,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       await h.ready();
       await h.settle();
       if (part === "png") { const png = await h.picture(); return png ? reply(id, { contents: [{ uri, mimeType: "image/png", blob: png }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot make a picture of this drawing." }); }
-      if (part === "cdxml") { const text = h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
+      if (part === "cdxml") { const text = await h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
     case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false } })) });
@@ -2943,12 +2978,12 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
 // stay. The lenient readings (numeral, also, default) are Octet's own too: an AI app is told the one form each
 // argument takes. An unlisted argument is left out. An object inside is listed open, as JSON Schema has one that
 // says nothing: Octet's own check is what closes it.
-const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default", "additionalProperties"]);
+const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default", "additionalProperties", "quiet"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;
   const empty = (v: unknown) => (Array.isArray(v) ? !v.length : !!v && typeof v === "object" && !Object.keys(v).length);
-  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !UNPUBLISHED.has(k) && !((k === "required" || k === "properties") && empty(v))).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as Record<string, Prop>).filter(([, p]) => !("unlisted" in p)).map(([n, p]) => [n, published(p)])) : published(v)]));
+  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !UNPUBLISHED.has(k) && !((k === "required" || k === "properties") && empty(v))).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as Record<string, Prop>).filter(([, p]) => !("unlisted" in p)).map(([n, p]) => [n, published(p)])) : k === "enum" && "quiet" in x ? (v as string[]).filter((e) => !(x as { quiet: string[] }).quiet.includes(e)) : published(v)]));
 }
 // A whole schema as it is given: its own arguments closed (additionalProperties false), so a misspelt one is seen to
 // be wrong, and $defs with the pieces it refers to, each once. (No piece refers to another.)

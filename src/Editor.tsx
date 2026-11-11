@@ -30,10 +30,10 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
-import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
+import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, DIALOGS, MENU_READ, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -64,10 +64,10 @@ import { useHomeLibrary } from "./homeLibrary";
 import { call as homeCall, HOME_API } from "./homeApi";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
-import { ExportButton, ExportDialog } from "./ExportDialog";
+import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
-import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
+import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { formatAmount, parseAmount, reagentFormula, type Field } from "./stoich";
 import { FIELDS as DETAILS, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
@@ -155,6 +155,9 @@ const MCP_PAGE = Math.random().toString(36).slice(2);
 let mcpListener = 0;
 // The requests this page has taken: the app sends one again when it has not heard that the page has it.
 const mcpTaken = new Set<number>();
+// A message the page sends itself: a task the browser runs at once, where a timer in a window behind others (or one
+// never shown) can wait a second.
+const tick = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
 // A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
 labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
@@ -418,7 +421,7 @@ const OCTET_CLIP = "application/x-octet+json";
 type OpenedFile = { name: string; path: string | null; text: string | null; picture: string | null; error: string | null; at: [number, number] | null };
 // What a new drawing window opens: a new drawing for a purpose, the tutorial, a recent or recovered drawing, an example
 // drawing's text, a file picked in Open, or files Octet was asked to open.
-type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
+type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
 // An Octet Drawing object in an Office document, opened from Word (decision 0023, src-tauri/src/ole_windows.rs): its
 // drawing as a .oct file (empty for a new object), the document's name and the window's title.
 type ObjectStart = { object: number; oct: string; host: string; title: string };
@@ -531,7 +534,7 @@ export default function Editor() {
   const now = useRef(doc);
   now.current = doc;
   // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
-  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
+  const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; indigo: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
   // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
   // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
   // 7 November 2026, decision 0024).
@@ -1367,14 +1370,18 @@ export default function Editor() {
     setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), parts: { all: doc, selection: sel } });
   }
   const filePrefs = settings.files;
-  async function exportPart(part: "all" | "selection") {
-    const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
-    if (!v || !mol) return;
-    // Only what the format needs: a PDF, PNG or EMF carries the CDXML, so it opens and pastes back as the drawing.
+  // What Export sends the app for `mol` in f.format, its picture `svg` (pictureOf) as the format saves it: only what the
+  // format needs. A PDF, PNG or EMF carries the CDXML, so it opens and pastes back as the drawing.
+  const exportRequest = (mol: Mol, svg: string | undefined, f: ExportSettings & { width?: number }) => {
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
+    const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
+    return { format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality };
+  };
+  async function exportPart(part: "all" | "selection") {
+    const v = exportView, svg = v?.[part], mol = v?.parts[part];
+    if (!v || !mol) return;
     try {
-      const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality });
+      const path = await exportFile({ name, ...exportRequest(mol, svg, filePrefs) });
       if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -1387,8 +1394,7 @@ export default function Editor() {
     const part = selectedPart() ?? doc, svg = pictureOf(part), f = filePrefs, format = filePrefs.quick;
     if (!svg) return setNotice("There is nothing to export.", "info");
     try {
-      const pic = pictureAs(svg, { ...f, format }, pageColour(style));
-      const path = await exportFile({ name, format, svg: pic.svg, cdxml: CARRY_CDXML.includes(format) ? formatOf(part, "cdxml") : undefined, dpi: f.dpi, transparent: pic.transparent, quality: f.quality });
+      const path = await exportFile({ name, ...exportRequest(part, svg, { ...f, format }) });
       if (path) saved(path);
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -1534,7 +1540,7 @@ export default function Editor() {
   };
   // Recovery keeps the user's drawing: while a template is edited, the drawing set aside.
   useEffect(() => {
-    if (!TAURI) return;
+    if (!TAURI || HEADLESS) return;
     if (!mainDirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(keepFailed()); } return; }
     if (!keeper.timer) keeper.timer = window.setTimeout(() => { keeper.timer = 0; keeper.last = Date.now(); keeper.write(); }, Math.max(1000, keeper.last + 10_000 - Date.now()));
   }, [mainDoc, mainDirty]);
@@ -1580,6 +1586,13 @@ export default function Editor() {
   // The open view for a new drawing in a style: the page's middle in the window's middle, at the open zoom. The page
   // outlines do not grow into place.
   const openView = (d: DocStyle) => { lastK.current = frameStyle(d, L).k * d.scale; outlineFrom.current = undefined; setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(d) }); };
+  // A drawing in the whole style of another drawing's file, its purpose kept; undefined when that file has no style.
+  const restyledFrom = (m: Mol, text: string): Mol | undefined => {
+    const from = readOct(text).mol.style;
+    if (!from) return undefined;
+    const was = readStyle(m.style ?? newStyle), next = readStyle({ ...from, purpose: was.purpose });
+    return { ...scaleSizes(m, next.scale / was.scale), style: next };
+  };
   // File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): the open drawing takes the
   // whole style of another drawing (.oct or ChemDraw's CDXML): its lengths, text, labels, page and background, with
   // one undo step. Its purpose stays, so its outlines do too.
@@ -1587,10 +1600,9 @@ export default function Editor() {
     try {
       const text = await invoke<string | null>("pick_style_file");
       if (text === null) return;
-      const from = readOct(text).mol.style;
-      if (!from) return setNotice("This file has no document settings.");
-      const next = readStyle({ ...from, purpose: style.purpose });
-      set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true);
+      const m = restyledFrom(doc, text);
+      if (!m) return setNotice("This file has no document settings.");
+      set(m, true);
     } catch (e) {
       setNotice(failure("Octet cannot read this file.", e));
     }
@@ -1801,23 +1813,18 @@ export default function Editor() {
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
   // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
   // SDF or SMILES file opens as a new drawing of its structures, in the middle. A drawing made already (of a picture)
-  // comes as it is.
-  function load(path: string | undefined, text: string | Mol, title?: string) {
+  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). Gives why it did not open, or
+  // what it left out.
+  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): { failed?: string; lost?: string } {
     drawingColours.current = [];
     try {
-      let read: ReturnType<typeof readOct>;
-      if (typeof text !== "string") read = { mol: text, lost: {} };
-      else if (isDrawingText(text)) read = readOct(text, /\.oct$/i.test(path ?? ""));
-      else {
-        let mol: Mol;
-        try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
-        const b = bounds(mol);
-        if (!b) throw new Error("There are no structures in this file.");
-        read = { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
-      }
+      const read = readFile(path, text);
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
-      const mol = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
+      const opened = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
+      // (A style file that is not a drawing is named so, not this file: --convert opens it first on its own.)
+      let mol = opened;
+      if (styleText) { let m; try { m = restyledFrom(opened, styleText); } catch { /* not a drawing */ } if (!m) return { failed: "This file has no document settings." }; mol = m; }
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
       // on the structures, or on everything else when there are none (text, arrows, pictures).
@@ -1836,9 +1843,22 @@ export default function Editor() {
       if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
       else sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
+      return left ? { lost: lostText(lost) } : {};
     } catch (e) {
-      setNotice(failure("Octet cannot open this file.", e));
+      const failed = failure("Octet cannot open this file.", e);
+      setNotice(failed);
+      return { failed };
     }
+  }
+  // A file as load reads it (a structure file's text needs Indigo): throws why it cannot.
+  function readFile(path: string | undefined, text: string | Mol): ReturnType<typeof readOct> {
+    if (typeof text !== "string") return { mol: text, lost: {} };
+    if (isDrawingText(text)) return readOct(text, /\.oct$/i.test(path ?? ""));
+    let mol: Mol;
+    try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
+    const b = bounds(mol);
+    if (!b) throw new Error("There are no structures in this file.");
+    return { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
@@ -2729,14 +2749,18 @@ export default function Editor() {
       if (mcpTaken.has(p.id)) return;
       mcpTaken.add(p.id);
       void invoke("mcp_got", { id: p.id }).catch(() => {});
-      void handleMcp(p.body, () => mcpHost.current!, version, {
+      // With no window (--convert), a file that did not open answers each call with why, for Octet to name the file,
+      // and read's result says what Octet left out of it, as File > Open does (drawings new says so itself).
+      const asked = (() => { try { return JSON.parse(p.body) as { id?: unknown; params?: { name?: unknown } }; } catch { return {}; } })();
+      void started.current.then(({ failed, lost } = {}) => (failed && HEADLESS ? JSON.stringify({ jsonrpc: "2.0", id: asked.id ?? null, error: { code: -32603, message: failed } }) : handleMcp(p.body, () => mcpHost.current!, version, {
         client: p.client, session: p.session ?? undefined, lost: p.lost, brief: p.brief, unset: p.unset,
         ...(p.sent ? { timed: { sent: p.sent, got: Date.now(), visibility: document.visibilityState, focus: document.hasFocus() } } : {}),
         progress: (body) => void invoke("mcp_progress", { id: p.id, body }), cancelled: () => invoke<boolean>("mcp_cancelled", { id: p.id }), keep: (brief) => invoke("mcp_brief", { session: p.session, brief }),
-      }).then((body) => invoke("mcp_reply", { id: p.id, body })).finally(() => window.setTimeout(() => mcpTaken.delete(p.id), 15_000));
+      }).then((body) => { if (!lost || !HEADLESS || asked.params?.name !== "read") return body; const r = JSON.parse(body); if (r.result?.structuredContent) r.result.structuredContent.lost = lost; return JSON.stringify(r); }))).then((body) => invoke("mcp_reply", { id: p.id, body })).finally(() => window.setTimeout(() => mcpTaken.delete(p.id), 15_000));
     });
     const listener = ++mcpListener;
-    void off.then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE, listener })).then((watched) => { if (watched) mcpWatched.current = true; });
+    // With no window, once the menu's commands are known too (keys.ts DIALOGS: the commands that open a dialog).
+    void off.then(() => (HEADLESS ? Promise.all([started.current, MENU_READ]) : undefined)).then(() => invoke<boolean>("mcp_ready", { page: MCP_PAGE, listener })).then((watched) => { if (watched) mcpWatched.current = true; });
     // The app is told before the listener goes, so it sends no request into the gap before the next one is up.
     return () => { void invoke("mcp_unready", { listener }).catch(() => {}).then(() => off).then((f) => f()); };
   }, []);
@@ -2750,15 +2774,19 @@ export default function Editor() {
     return () => { off.then((f) => f()); };
   }, []);
   // A new drawing window opens what Home or another window asked for (src-tauri/src/windows.rs).
+  // With no window (--convert), what a new window opens is open before it answers (mcp_ready, above): the call that
+  // comes at once finds it. started gives why it did not open, or what it left out.
+  const started = useRef<Promise<ReturnType<typeof load> | undefined>>(Promise.resolve(undefined));
   useEffect(() => {
     if (!DRAW_WINDOW) return;
-    void invoke<Start | null>("window_start").then(async (s) => {
+    started.current = invoke<Start | null>("window_start").then(async (s) => {
       if (!s) return;
       if ("new" in s) newDrawing(s.new, true);
       else if ("tutorial" in s) startTutorial();
       else if ("recent" in s) openRecent({ path: s.recent });
       else if ("recovered" in s) openRecovered({ id: s.recovered, name: "", at: 0 });
-      else if ("text" in s) load(undefined, s.text);
+      // (A structure file's text needs Indigo, as a file opened does.)
+      else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }
       else if ("picked" in s) openPicked(s.picked);
       else if ("object" in s) {
         // The object's drawing, read as a file from Open is: an empty one is a new object (Insert > Object).
@@ -2769,7 +2797,7 @@ export default function Editor() {
         officePrime.current = !!s.oct;
       }
       else await takeFiles(s.files, false);
-    }).catch((e) => setNotice(failure("Octet cannot open this drawing.", e)));
+    }).catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); return undefined; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // An object window: once its drawing is on the canvas, its picture goes to Octet's side (not to Word), so Word's next
   // question for the picture or its size has an answer. Then Word's messages: Word closes the document (send: update
@@ -6530,9 +6558,10 @@ export default function Editor() {
   mcpHost.current = {
     doc: () => now.current, style: () => style, rendered: doc, gliding: !!glide,
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
-    ready: async () => { await ready; await loadNames(); setLoaded(true); setNamesLoaded(true); for (const end = Date.now() + 3000; !mcpHost.current!.loaded && Date.now() < end;) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); }); },
-    newWindow: (purpose, session) => (TAURI ? invoke<string>("open_window", { start: { new: purpose }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
-    loaded: loaded && namesLoaded,
+    // A file needs Indigo alone (names false): a window that has just opened (--convert) loads no names engine for it.
+    ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
+    newWindow: (purpose, session, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    loaded: loaded && namesLoaded, indigo: loaded,
     structure: (text) => structureFromText(text),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
@@ -6543,7 +6572,7 @@ export default function Editor() {
     settle: async () => {
       // A call's changes do not glide (glideTo), so a settle waits only for the drawing to be drawn.
       const end = Date.now() + 3000, w = mcpWait.current, done = () => (w.mol ? mcpHost.current!.rendered === w.mol : w.after === undefined || mcpRenders.current > w.after);
-      while (!done() && Date.now() < end) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+      while (!done() && Date.now() < end) await tick();
       mcpWait.current = {};
     },
     cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
@@ -6557,8 +6586,15 @@ export default function Editor() {
     ink: (atoms) => inkBox(atoms),
     textBox: (id) => captionBox(id),
     labelBox: (i) => { const b = drawing.label[i]; return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
-    // A file's text as Export and Copy As write it (formatOf), for the drawing or a part of it; nothing is saved.
-    fileText: (format, part) => formatOf(part ?? now.current, format),
+    // A file as Export writes it, for the drawing or a part of it: its text (formatOf), or a picture as Export makes it
+    // with its settings and the options given (in base64; an SVG as text). Nothing is saved.
+    fileText: async (format, part, o = {}) => {
+      const mol = part ?? now.current;
+      if (!PICTURES.includes(format as ExportFormat)) return formatOf(mol, format as PartFormat);
+      const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
+      const file = svg && (await invoke<string>("export_bytes", { export: exportRequest(mol, svg, f) }));
+      return file && format === "svg" ? new TextDecoder().decode(fromBase64(file)) : file;
+    },
     inchi: (m) => { try { const e = expandLabels(m); return { inchi: toInchi(e), key: toInchiKey(e) }; } catch { return {}; } },
     reagent: (text) => reagentFormula(text, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
     tables: () => gridViews.map((v) => {
@@ -6602,6 +6638,17 @@ export default function Editor() {
     // A session's drawing changes without its window coming to the front (D1). A client with no session has the
     // window in front, so the window comes to the front.
     target: async (session, drawing) => { try { await (session ? invoke("mcp_target", { session, drawing }) : invoke("window_show", { label: drawing })); return true; } catch { return false; } },
+    // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
+    // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
+    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),
+    opens: async (text) => {
+      if (!isDrawingText(text)) await ready;
+      try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
+    },
+    windowless: () => HEADLESS,
+    asking: () => modal() || typing(),
+    // Escape to the box being typed in (it goes on to a dialog round it), or to the window for a dialog.
+    dismiss: () => { const el = document.activeElement; (typing() && el ? el : window).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (el instanceof HTMLElement) el.blur(); },
     export: (format) => { if (modal()) return false; setSettings((s) => ({ ...s, files: { ...s.files, format: format as ExportFormat } })); openExport(); return true; },
   };
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.

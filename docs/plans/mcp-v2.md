@@ -1362,7 +1362,7 @@ program, so nothing is written twice and every format and layout is the app's ow
 - `Octet Draw --headless --mcp` speaks MCP on standard input and output, with the v2 tools (section 5). A script in
   any language starts it and sends tool calls, exactly as an AI app does. With Octet open, `Octet Draw --mcp` (the
   relay that exists) does the same in the user's open drawing.
-- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, from: text }`
+- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, text }`
   (CDXML, CDX, MOL, SDF, RXN, SMILES, InChI, CML and `.oct`). It asks `read { file: format }` for the drawing's text
   or bytes and writes the file itself. So Octet needs no tool that takes a path, and decision 0021's "no files" rule
   stays whole for AI apps and scripts alike.
@@ -1408,6 +1408,81 @@ After step 5 (the tool merge), so scripts are written against the final tool nam
 | 11 | The scripting page and its four examples | Each example runs as written on Mac, Windows and Linux |
 
 Tests are in `mcp-v2-tests.md`, section 15.
+
+### 18.5 As built (steps 9 and 10, 11 November 2026, branch `mcp/headless`)
+
+- `Octet Draw --headless --mcp` (`--headless` alone is the same): main.rs starts the app with no window in the config,
+  no single-instance hand-over, no files from the arguments, no `OCTET_MCP` server, and on the Mac the Accessory
+  policy (no Dock icon, no menu bar). A thread opens one hidden drawing window (`windows::open`, Quick start) and runs
+  `mcp::stdio`. That reads JSON-RPC lines and takes the server's own route (`route`: sessions, subscriptions, the
+  window) and call (`send`, `answer`) with standard input and output in place of HTTP, and no rate limit. When input
+  ends, the calls under way finish and Octet ends. Nothing listens and nothing reads or writes `mcp.json`.
+- A hidden page is told so (`index.html?window&headless`): it keeps no recovery copy, saves no settings, offers no
+  Export dialog (`advanced export` says it cannot), and a window opened with a file answers once the file is open, or
+  answers each call with why it did not open. `window_show` and Home do nothing with no window.
+- WebKit holds back a hidden page's timers, and the names engine waits on them: the first Name to Structure took 47 s.
+  `windows::open` turns WebKit's `hiddenPageDOMTimerThrottlingEnabled` off for a hidden page (0.4 s). WebView2 and
+  WebKitGTK were not tried (no Windows or Linux here).
+- `read` with a format takes every format Export writes. The pictures come from `exportRequest` (Editor.tsx), the
+  request Export and Quick export send, through `export_bytes` (export.rs), which runs Export's own `file_of` and
+  writes nothing. Options: `dpi`, `transparent`, `width_mm` (the whole picture, margin included, that wide). They
+  are left out of tools/list (unlisted). After the merge with set_brief and draw_route, tools/list had 2 characters to
+  spare, so it lists only the 8 formats read had before (the rest are `quiet`: taken, not listed), and `advanced
+  help` of `file` names every format and the options. read's description points there.
+- `--convert` (convert.rs): each file is read with File > Open's limits (`open::read`), opened in a hidden window as a
+  window opened with a file's text, restyled (`--style`: a preset through `set_style`, or a drawing's file as File >
+  Apply Settings From File), then made with `read` and written as Export writes it. `--to sdf --each` reads each
+  structure as a MOL and adds its number as `> <Number>`. A file that is there gets ` 2`, ` 3` and on in its name.
+- After review: `--convert` reads only regular files (a named pipe, a device or a folder walked to: refused or left
+  out), and at most 64 MB of one, whatever its size said first (`read_text_or_cdx`). A folder gives the drawings
+  File > Open opens and the files Import a Structure reads (`open::DRAWINGS` and `STRUCTURES`, one list each; File >
+  Open's filter uses `open::DRAWINGS` too). Two inputs with the same name never write over each other, with or without
+  `--overwrite`: the second gets a number. `--style` is tried once before any file: a file that is not a drawing, a
+  drawing Octet cannot read, or a preset it does not have ends the run with its reason and exit code 1. What File >
+  Open says it left out is said on the file's line. A structure file's text waits for Indigo before it opens.
+- `--headless` and `--convert` count wherever they are in the arguments; `--mcp --headless` is never the relay.
+  `--headless` takes only `--mcp`, and `--convert` takes no `--headless`: anything else is refused with the usage line
+  and exit code 2. No line goes out with `println!` or `eprintln!` on these paths (they panic when the reader has
+  gone, as `| head` does): `say!` lets a line it cannot write go. With no window, run_command refuses a command that
+  opens a dialog or a box to type in (its menu name ends in "…", Save on a drawing with no file, a step's text above or
+  below its arrow), and Export, each saying to use read with a format. A second initialize on standard input keeps
+  the session (its brief and its drawing). `drawings new` takes a file's `text` (unlisted, in advanced help of `new`;
+  at most 1,000,000 characters, as `add_file`),
+  which opens in a window of its own in its own style.
+- Windows: not run (there is no Windows here; the whole program does not build for Windows on this Mac, as ring needs
+  a Windows C toolchain). What the code assumes: the release build is a window program (`windows_subsystem`); with
+  no standard output of its own (GetStdHandle gives 0) `--convert` and `--headless` attach to the parent's console
+  (AttachConsole), and a pipe or file it was given stays as it is; Rust's standard output looks up its handle on each
+  write, so the lines after AttachConsole go to that console; a hidden WebView2 window runs its page's timers and
+  answers calls; with no window Octet does not start the Octet Drawing class object (no Office object is served).
+  To try on Windows, from cmd.exe and from PowerShell:
+  1. `"Octet Draw.exe" --convert a.cdxml --to pdf`: the lines show in the console; `echo %ERRORLEVEL%` after
+     `start /wait "" "Octet Draw.exe" --convert ...` is 0, and 1 with a bad file.
+  2. The same piped and redirected: `... | more`, `... > out.txt 2> err.txt`, and `... | findstr /n .` with the
+     reader ended early: no crash dialog, nothing in `%LOCALAPPDATA%\io.github.samchemman.octet-draw\logs\crash.log`.
+  3. `node scripts/mcp-acceptance.mjs --headless "C:\Program Files\Octet Draw\Octet Draw.exe"`: the cases pass as
+     on the Mac, with no window, no taskbar button and no tray icon at any time.
+  4. With Octet open and Word open: `--headless --mcp` and `--convert` change nothing in the open Octet, and Word's
+     Insert > Object > Octet Drawing still starts or uses the open Octet, never the headless one.
+  5. A folder of 200 files: time a file, and memory in Task Manager (Octet and its msedgewebview2 processes).
+  6. Paths with spaces and non-ASCII letters, a UNC path (`\\server\share\a.cdxml`) and a file another program
+     holds open.
+- `.oct` now keeps a stereocentre's ChemDraw configuration (`kept`, file.ts): without it, 15 of the 68 corpus files
+  lost Geometry and BondOrdering through `.oct` and back.
+- Second review (11 November): the argument is `text`, as built (18.2 said `from`; `text` is what `add_file` takes).
+  `drawings new` with `text` reads the file in the page first, as File > Open reads it (`host.opens`, the same
+  reading as `load`): one that does not open opens no window and the reply says why, and the reply says what Octet
+  left out. With no window, run_command also closes any dialog or box to type in that a command opened all the same
+  (an Actions panel action such as Add to dictionary… or a caption's box, which no name gives away), with Escape,
+  and refuses it; and a hidden window answers only once the menu's commands are known (keys.ts `MENU_READ`), so
+  Document Settings… is refused by its name. A reader that goes away ends `--headless --mcp` at its next line, with
+  exit code 1. A second initialize on standard input makes no new session, and the one session never ends from
+  idleness. With no window there is no recovery folder (no lock file). `--mcp` anywhere is the relay; any other
+  `--` option is refused with a usage line and exit code 2. `--convert` opens a PDF, EMF or PNG for the drawing in
+  it, as File > Open does (`open::drawing`; folder walks take PDF and EMF, not every picture), reads a picture's bytes
+  with the same 64 MB bound, says "Octet does not have permission to read it." for such a file, takes `--style` as a
+  journal's name through `set_brief` (ACS, Angewandte), says "There is no such file or folder." for a style file
+  that is not there, and a picture of an empty drawing says Export's "There is nothing to export.".
 
 ## 19. Speed for the AI model (Sam, 11 November 2026)
 

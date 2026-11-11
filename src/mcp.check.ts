@@ -26,7 +26,9 @@ await ready;
 
 // The editor's stand-in: a drawing, its undo steps, its selection and what it told the user.
 const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO", "ethyl acetate": "CCOC(C)=O", water: "O", benzene: "c1ccccc1", toluene: "Cc1ccccc1", phenol: "Oc1ccccc1" };
-let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined;
+let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined, windowless = false, readied: (boolean | undefined)[] = [];
+// A box to type in or a dialog the last command left open (asking), and how often Escape closed one (dismiss).
+let asking = false, dismissed = 0;
 // What the window was told to show of an AI app at work (Host.working): the text, whether Stop is offered, how far.
 let far: [string | undefined, boolean, string | undefined][] = [];
 const ink = (atoms: number[]): Box | undefined => {
@@ -40,18 +42,20 @@ const captionBox = (id: number): Box | undefined => {
   return c && !c.on ? [x - c.text.length * 0.2, y - 0.3, x + c.text.length * 0.2, y + 0.4] : undefined;
 };
 const host: Host = {
-  doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async () => {},
+  doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async (names) => { readied.push(names); },
   structure: (t) => { const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
   tidy: (x) => x, named: (t) => t in NAMES,
   begin: (step) => { steps.push(step); open++; }, end: (made) => { open--; shown = made; },
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
-  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f) => (f === "smiles" ? toSmiles(expandLabels(m)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
+  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", centre: () => [0, 0], restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { far.push([text, !!stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
-  file: (t) => host.structure(t), export: () => true,
+  file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
+  asking: () => asking, dismiss: () => { asking = false; dismissed++; },
+  opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
 };
 let n = 0;
@@ -811,9 +815,97 @@ assert.ok(!out.isError, text(out));
 assert.deepEqual(commands, ["arrange_top"]);
 assert.deepEqual(picked, { atoms: [], items: [] });
 assert.ok((await call("change", { operations: [{ op: "arrange", ids: ["1"], how: "left" }] })).isError, "one thing does not line up");
+readied = [];
 out = await call("read", { format: "smiles" });
+// A file waits for Indigo alone: a window that has just opened (--convert) loads no names engine for it.
+assert.deepEqual(readied, [false]);
 assert.equal((out as unknown as { structuredContent: { text: string } }).structuredContent.text, text(out));
 assert.equal(text(out), "C1C=CC=CC=1.O", "benzene and water, as Octet writes SMILES");
+// Every format Export writes (plan 18.2): a picture is made as Export makes it, with Export's options, which tools/list
+// leaves to read's description. A limit Octet checks is still checked.
+out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm: 89 });
+assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
+assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
+assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
+assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as TIF\.$/);
+// A picture of an empty drawing: Export's own words.
+{
+  const was = m;
+  m = EMPTY;
+  assert.equal(text(await call("read", { format: "tiff" })), "There is nothing to export.");
+  assert.equal(text(await call("read", { format: "rxn" })), "Octet cannot write this drawing as RXN (an RXN file holds one reaction step).");
+  m = was;
+}
+{
+  // tools/list lists the formats read had before, for room (14,000 characters); advanced help of file names every one
+  // of Export's, and its options.
+  const listed = tools.find((t) => t.name === "read")!.inputSchema.properties;
+  assert.ok(!("dpi" in listed), JSON.stringify(listed));
+  assert.deepEqual(listed.format.enum, ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx"]);
+  const help = ((await call("advanced", { tool: "help", args: { of: "file" } })) as any).structuredContent;
+  assert.equal(help.call, "read with format");
+  assert.ok(["oct", "sdf2000", "rdf", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"].every((f) => help.description.includes(f)) && /dpi.*transparent.*width_mm/.test(help.description), help.description);
+}
+// With no window (--headless, --convert) a command that opens a dialog or a box to type in is refused, with what to
+// use instead, and so is Export. With a window it runs, and the user finishes it.
+commands = [];
+assert.match(text(await call("advanced", { tool: "run_command", args: { command: "print" } })), /^Ran print\. Octet shows its dialog/);
+windowless = true;
+for (const command of ["print", "rotate_dialog"]) {
+  out = await call("advanced", { tool: "run_command", args: { command } });
+  assert.ok(out.isError && text(out) === `Octet with no window has no dialogs. read with a format gives the drawing as a file. Octet did not run ${command}.`, text(out));
+}
+assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_up" } })).isError);
+out = await call("advanced", { tool: "export", args: { format: "pdf" } });
+assert.ok(out.isError && text(out) === "Octet with no window has no dialogs. read with a format gives the drawing as a file.", text(out));
+assert.deepEqual(commands, ["print", "print", "clean_up", "clean_up"]);
+// An action whose name says nothing of it (Add to dictionary…, a caption's box to type in) that opens a dialog or a
+// box all the same: with no window, it is closed again (Escape) and refused, and the drawing still answers. With a
+// window, the user finishes it.
+{
+  const act = host.act;
+  host.act = (id) => { commands.push(id); asking = id !== "clean_up"; return true; };
+  for (const command of ["dictionary.add", "caption.add"]) {
+    out = await call("advanced", { tool: "run_command", args: { command } });
+    assert.ok(out.isError && text(out) === `Octet with no window has no dialogs. read with a format gives the drawing as a file. Octet did not run ${command}.` && !asking, text(out));
+  }
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_up" } })).isError);
+  windowless = false;
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "dictionary.add" } })).isError && asking);
+  assert.equal(dismissed, 2);
+  [host.act, asking, dismissed] = [act, false, 0];
+}
+windowless = false;
+// drawings new with a file's text (plan 18.2): the file opens in a window of its own, as File > Open opens it. It is
+// in advanced help of new, not in tools/list (for room). With no windows (the web component) it cannot open.
+{
+  const [newWindow, windows] = [host.newWindow, host.windows];
+  let asked: unknown[] = [];
+  host.newWindow = async (...a) => { asked = a; return "draw-2"; };
+  host.windows = async () => [{ id: "draw-2", name: "esters", edited: false }];
+  out = await call("drawings", { action: "new", text: "CCO" });
+  assert.ok(!out.isError && text(out).startsWith("Octet opened a new drawing of the file: draw-2."), text(out));
+  assert.deepEqual(asked, ["quick", "s-1", "CCO"]);
+  // A file that does not open opens no window: the reply says why, and this session's calls stay where they were.
+  // What File > Open would leave out of it, the reply says.
+  asked = [];
+  out = await call("drawings", { action: "new", text: "<bad/>" });
+  assert.ok(out.isError && text(out) === "Octet cannot open this file. This ChemDraw file is damaged." && !asked.length, text(out));
+  out = await call("drawings", { action: "new", text: "<lost/>" });
+  assert.ok(!out.isError && text(out) === "Octet opened a new drawing of the file: draw-2. Octet left out 2 bogus. This session's calls go to it now.", text(out));
+  [host.newWindow, host.windows] = [newWindow, windows];
+  commands = [];
+  out = await call("drawings", { action: "new", text: "CCO" });
+  assert.ok(out.isError && commands.length === 0, text(out));
+  assert.ok(!("text" in tools.find((t) => t.name === "drawings")!.inputSchema.properties));
+  assert.match(((await call("advanced", { tool: "help", args: { of: "new" } })) as any).structuredContent.description, /text: a file's text/);
+}
+// K11: an AI app (or a script) still reads and writes no file: no tool and no operation takes a path.
+{
+  const keys = (x: unknown): string[] => (!x || typeof x !== "object" ? [] : Object.entries(x).flatMap(([k, v]) => [...(k === "properties" && v && typeof v === "object" ? Object.keys(v) : []), ...keys(v)]));
+  const named = [...TOOL_TABLE, ...OP_TABLE].flatMap((t) => keys(t.inputSchema).filter((k) => /path|folder|directory|^dir$|^files?$|^file_?name$/i.test(k)).map((k) => `${t.name}.${k}`));
+  assert.deepEqual(named, []);
+}
 // read: each structure's source, and InChI where the host gives it.
 d = await read();
 assert.deepEqual(d.structures.map((s: { source?: { given: string; named: boolean } }) => s.source), [{ given: "benzene", named: true }, { given: "water", named: true }]);
@@ -1256,7 +1348,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   {
     const h = await call("advanced", { tool: "help", args: { of: "transformations" } });
     assert.deepEqual([h.isError, h.structuredContent.of, h.structuredContent.description], [undefined, "transformations", TRANSFORMATIONS]);
-    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\), draw_route or transformations \(a compound's changes with do\)\.$/);
+    assert.match(text(await call("advanced", { tool: "help" })), /, a tool of advanced \(run_command, .*\), draw_route, file \(read with format\), new \(drawings new\) or transformations \(a compound's changes with do\)\.$/);
     assert.match((tools[0].inputSchema as any).$defs.compound.properties.changes.description, /\{do: 'reduce', at: '7', config: 'R'\}, a named transformation \(advanced help of transformations lists them\)/);
   }
   // A reaction's help says what its lines over and under an arrow take and how they read back; draw_route says it in a

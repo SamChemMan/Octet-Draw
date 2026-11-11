@@ -204,16 +204,24 @@ export function menuRuns(id: string, over: { home: boolean; modal: boolean; typi
   if (over.modal) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_");
 }
+// The menu commands that open a dialog: their names end in "…", as the Mac's menus have it (Octet with no window
+// refuses them, for no one is there to finish one).
+export const DIALOGS = new Set<string>();
+// Once the menu's commands are registered (with no window, mcp_ready waits for it).
+let registered = () => {};
+export const MENU_READ = new Promise<void>((done) => { registered = done; });
 export function registerMenu(items: [string, string, string, string][]) {
   // A command no longer in the menu (the Search menu, with Online search off) leaves the list.
   const ids = new Set(items.map(([id]) => `menu.${id}`));
   for (let k = ACTIONS.length - 1; k >= 0; k--) if (ACTIONS[k].id.startsWith("menu.") && !ids.has(ACTIONS[k].id)) ACTIONS.splice(k, 1);
   for (const [id, name, section, keys] of items) {
     const action = `menu.${id}`;
+    if (name.endsWith("…")) DIALOGS.add(id);
     if (!ACTIONS.some((a) => a.id === action)) ACTIONS.push({ id: action, name: name.replace(/…$/, ""), group: section || "Menu", place: "any" });
     const k = fromAccelerator(keys);
     DEFAULT_KEYS[action] = k ? [k] : [];
   }
+  registered();
 }
 
 // The action a key runs here. Atom and bond keys win over keys that work anywhere.

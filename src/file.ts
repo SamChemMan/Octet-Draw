@@ -40,7 +40,7 @@ function innerIn(v: unknown): Mol | undefined {
 
 export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.shade ? { shade: true } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
-    ...(a.text && a.runs && plainOf(a.runs) === a.text ? { runs: a.runs } : {}), ...(a.centre ? { centre: a.centre } : {}),
+    ...(a.text && a.runs && plainOf(a.runs) === a.text ? { runs: a.runs } : {}), ...(a.centre ? { centre: a.centre } : {}), ...(a.kept ? { kept: a.kept } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
     ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.hiddenNumber ? { hiddenNumber: a.hiddenNumber } : {}), ...(a.shown ? { shown: true } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.labelAngle ? { labelAngle: round(a.labelAngle) } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}), ...(a.chemical === false ? { chemical: false } : {}),
     ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.order ? { order: a.order } : {}),
@@ -253,6 +253,10 @@ export function parse(text: string): Mol {
       atom.centre = { atoms: [...new Set(list as number[])], ...(!Array.isArray(centre) && centre?.variable === true ? { variable: true as const } : {}) };
     }
     if (a.inner !== undefined) { const inner = innerIn(a.inner); if (!inner) throw new Error("This drawing is damaged."); atom.inner = inner; }
+    // A stereocentre's configuration as ChemDraw keeps it (written back to CDXML while it still holds): four neighbours
+    // (-1 the hydrogen or lone pair) and its marks. One that is not sound is left out.
+    const kept = a.kept as { atoms?: unknown; marks?: unknown } | undefined;
+    if (Array.isArray(kept?.atoms) && kept.atoms.length === 4 && kept.atoms.every((i) => int(i, -1, atoms.length - 1)) && typeof kept.marks === "string" && kept.marks.length <= 100) atom.kept = { atoms: [...kept.atoms as number[]], marks: kept.marks };
     out.atoms.push(atom);
   }
   for (const b of bonds as Record<string, unknown>[]) {
