@@ -14,4 +14,5 @@ The keys are the ones the checks print.
 
 ## Approved
 
-None yet.
+- `inventory:menu:clean_reaction_augmented`: Clean Up Reaction now turns products to match their starting materials; one Undo gives the layout with products as drawn. Approved by Sam, 11 November 2026.
+- `inventory:action:clean_reaction_augmented`: as above. Approved by Sam, 11 November 2026.
