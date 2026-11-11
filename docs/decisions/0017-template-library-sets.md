@@ -113,7 +113,7 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   segments, each atom at its place in 3D (kept as depth), and circumcoronene, a graphene flake. Double bonds: C60's 30
   bonds between two hexagons; the others a perfect matching of their atoms (C70's found by search, with the fewest in
   a pentagon: five).
-- Lab (29 more), Lab equipment (22), Biomolecules (13), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
+- Lab (29 more), Lab equipment (22), Biomolecules (15), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
   (8) and Symbols (18): drawings in the Lab group's line style, written as SVG path data in
   `tools/library/glassware.mjs`, `equipment.mjs`, `bio.mjs`, `life.mjs` and `symbols.mjs` and turned into Octet's pen
   curves and lines by `tools/library/art.mjs`. Symbols has what ChemDraw's Shapes set has and the Shape tool does not
@@ -125,6 +125,17 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   taps) and an immersion-well photoreactor; Lab equipment has a rotary evaporator, a syringe pump, a fraction collector
   for under the chromatography column, and a spectrometer light path (lamp, lens, cuvette and detector). The ice bath
   stays the cooling bath. Lab is now 47 items and Lab equipment 26.
+- Membranes (issue 95). A line, arc or pen curve can take the Membrane line style (the Actions panel's Line pick, or
+  Membrane in the Shape tool), as ChemDraw's BioDraw has membrane lines, arcs and ellipses. It is drawn as a lipid
+  bilayer along its path, with the Lipid bilayer drawing's lipids (render.ts `membrane`): each side has its own
+  lipids about 0.25 bond lengths apart, so a longer line has more lipids of the same size, and a curve has fewer
+  inside. The object's scale sizes the lipids. Biomolecules' Lipid bilayer is now a membrane line, Curved membrane
+  and Cell membrane are an open and a closed pen curve, and Receptor and Ion channel have a membrane line each side
+  of the protein, outside the protein's group, so a drag on its outer end makes it longer. The heads are filled with
+  the light tint (the membrane's colour when it has one). CDXML (and so CDX and .oct): an integral group ChemDraw
+  shows, each lipid's head as a filled circle and its outline and its tails as curves, marked as Octet's drawing
+  only, with the line, arc or curve in the group's Octet data. ChemDraw's own BioDraw membrane object (bioshape) is
+  not written: how it stores its shape is not known.
 - `node tools/library/build.mjs --keep-shipped` builds the new sets and keeps the sets released in 1.1 as
   `src/library.json` has them. Built again from scratch, the hexose chairs, the chair conformers and the Cp and arene
   sets come out a little different from 1.1 (later changes to the chair and to Clean Up); they are not rebuilt.

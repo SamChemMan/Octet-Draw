@@ -307,7 +307,7 @@ export function parse(text: string): Mol {
     out.arrows = (d.arrows as Record<string, unknown>[]).map((a, k): Arrow => {
       const orb = a?.orbital as { shape?: unknown; phase?: unknown } | undefined;
       if (!ALL_ARROW_KINDS.includes(a?.kind as ArrowKind) || ![a.x1, a.y1, a.x2, a.y2].every(num) || (a.bend !== undefined && !(num(a.bend) && Math.abs(a.bend as number) <= 5))
-        || (a.style !== undefined && !["dashed", "bold", "wavy", "doubled"].includes(a.style as string))
+        || (a.style !== undefined && !["dashed", "bold", "wavy", "doubled", "membrane"].includes(a.style as string))
         || (a.start !== undefined && !HEADS.includes(a.start as Head)) || (a.end !== undefined && !HEADS.includes(a.end as Head))
         || (a.head !== undefined && !["solid", "hollow", "angled"].includes(a.head as string)) || (a.fill !== undefined && !["solid", "shaded", "faded"].includes(a.fill as string))
         // A pen curve has points; so may a fragmentation line (its corners), and nothing else.
