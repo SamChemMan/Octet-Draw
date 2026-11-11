@@ -63,17 +63,20 @@ if (isMainThread) {
   console.error(`Drew ${done.length - failed} of ${inputs.length} inputs in ${((performance.now() - t0) / 1000).toFixed(1)} s with ${Math.min(jobs, inputs.length)} workers.`);
   process.exit(failed || refused.length ? 1 : 0);
 } else {
-  const { load, drawing } = await import("./host.ts");
+  const { load, drawing, session } = await import("./host.ts");
   const { handle } = await import("../../src/mcp.ts");
   const version = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
   await load();
   parentPort!.on("message", async (input: Input) => {
     const t = performance.now(), d = drawing(workerData.purpose, input.name), errors: string[] = [];
     let id = 0, structures = 0, warnings = 0;
-    const call = async (c: Call) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: c }), () => d.host, version, { client: "Octet headless" }));
+    const call = async (c: Call) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: c }), () => d.host, version, session("Octet headless", input.name)));
+    // Each input is a session: its brief (set_brief) is its own first call, else the drawing's purpose (--for) as the
+    // destination, so it is drawn as before.
+    const purpose: string = workerData.purpose, brief = input.calls[0]?.name === "set_brief" ? [] : [{ name: "set_brief", arguments: { destination: { kind: purpose === "experiment" ? "notebook" : purpose } } }];
     try {
       const results: unknown[] = [];
-      for (const c of input.calls) {
+      for (const c of [...brief, ...input.calls]) {
         const r = await call(c), text: string = r.error?.message ?? r.result?.content?.[0]?.text ?? "";
         if (r.error || r.result?.isError) errors.push(`${c.name}: ${text.split("\n")[0]}`);
         // The result's text without the JSON after it, which is its structuredContent (data).

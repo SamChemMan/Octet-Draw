@@ -4,7 +4,9 @@
 // Each case:
 //   prompt     what the user types in the AI app
 //   for        the drawing the case starts in: "paper" (the default) or "experiment"
-//   setup      calls made before the AI app starts (a drawing to read or fix), with the case's client
+//   setup      calls made before the AI app starts (a drawing to read or fix), by the user's own session
+//   brief      the simulated user's answers to Octet's three questions (test plan 13.2), given to the AI app when it
+//              asks: ANSWERS (no preference) unless the case says
 //   picture    a structure or scheme Octet draws first, given to the AI app as a PNG (see run.mjs pictures)
 //   want       SMILES Octet turns into InChIKeys before the run, so checks compare structures, not strings
 //   check      ({ d, answer, key, loose, answered }) => [[ok, what, found], ...]: d is read (detail full) at
@@ -87,6 +89,10 @@ const LANTHANIDE = JSON.parse(readFileSync(new URL("./lanthanide.json", import.m
 // The figure's five compound numbers, with or without spaces (S-1, S - 1), and its five structures.
 const figureParts = (d) => [[d.structures.length >= 5, "five structures", String(d.structures.length)], ...["S-1", "S-2", "S-3", "I-1", "I-2"].map((n) => [[...d.structures.map((s) => s.number ?? ""), words(d)].join(" ").replace(/\s/g, "").includes(n.toLowerCase()) || d.structures.some((s) => s.number?.replace(/\s/g, "") === n), `${n} is there`])];
 
+// What the simulated user answers when the AI app asks Octet's three questions (plan 3.1) and the case says nothing:
+// no preference, so Octet's default, Quick start.
+export const ANSWERS = "1. No, I have no style of my own. 2. Nowhere in particular: a quick look, no page. 3. Nothing to emphasise, and no layout to follow.";
+
 export const CASES = [
   // ---- J1: schemes from procedures ----
   { id: "scheme-fischer", set: "train", job: "scheme",
@@ -158,13 +164,13 @@ export const CASES = [
     check: ({ d }) => [clean(d), [d.structures.some((s) => s.formula === "C6H5NO2" && s.number === "1"), "nitrobenzene is still 1"], [d.structures.length === 2, "two structures", String(d.structures.length)]] },
 
   // ---- J4: experiment pages ----
-  { id: "experiment-boc", set: "train", job: "experiment", for: "experiment",
+  { id: "experiment-boc", set: "train", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: "Fill in this experiment page from my procedure: draw the reaction and fill in the reagent table and the details. Title it 'Boc protection of benzylamine', notebook SE-120, date 4 November 2026. Procedure: benzylamine (1.07 g, 10.0 mmol) in CH2Cl2 (20 mL) was treated with Boc2O (2.40 g, 11.0 mmol) and Et3N (1.5 mL) at rt for 3 h to give tert-butyl benzylcarbamate (2.01 g).",
     check: ({ d, key }) => [[d.experiment?.title === "Boc protection of benzylamine", "title", d.experiment?.title], [d.experiment?.notebook === "SE-120", "notebook", d.experiment?.notebook], ...is(d, key(S.bocBenzylamine), "the carbamate", { as: "product" }), amount(d, key(S.benzylamine), "mass", 1.07), [d.reagentTables?.[0]?.limiting === d.reagentTables?.[0]?.columns.find((c) => c.formula === "C7H9N")?.key, "benzylamine is limiting", d.reagentTables?.[0]?.limiting], amount(d, key(S.bocBenzylamine), "measured", 2.01), counted(d), ...layout(d)] },
-  { id: "experiment-suzuki", set: "train", job: "experiment", for: "experiment",
+  { id: "experiment-suzuki", set: "train", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: `Set this page up for my Suzuki coupling, with the reagent table filled in and the title 'Suzuki coupling'. ${SUZUKI}`,
     check: ({ d, key }) => [[/suzuki/i.test(d.experiment?.title ?? ""), "title", d.experiment?.title], ...is(d, key(S.methoxybiphenyl), "4-methoxybiphenyl", { as: "product" }), amount(d, key(S.bromoanisole), "mass", 1.87), amount(d, key(S.phenylboronic), "mass", 1.46), [d.reagentTables?.[0]?.limiting === d.reagentTables?.[0]?.columns.find((c) => c.formula === "C7H7BrO")?.key, "4-bromoanisole is limiting", d.reagentTables?.[0]?.limiting], amount(d, key(S.methoxybiphenyl), "measured", 1.62), counted(d), ...layout(d)] },
-  { id: "experiment-fischer", set: "held", job: "experiment", for: "experiment",
+  { id: "experiment-fischer", set: "held", job: "experiment", for: "experiment", brief: "1. No style of my own. 2. My lab notebook: this experiment page. 3. Nothing to emphasise.",
     prompt: "Make this into my experiment page, called 'Methyl benzoate', with the amounts in the table: a mixture of benzoic acid (12.2 g, 100 mmol), methanol (50 mL) and concentrated sulfuric acid (1 mL) was heated at reflux for 6 h. Work-up gave methyl benzoate (12.0 g).",
     check: ({ d, key }) => [[d.experiment?.title === "Methyl benzoate", "title", d.experiment?.title], amount(d, key(S.benzoicAcid), "mass", 12.2), amount(d, key(S.methylBenzoate), "measured", 12), counted(d), ...layout(d)] },
 
@@ -184,16 +190,16 @@ export const CASES = [
 
   // ---- J6: style and export ----
   { id: "style-jacs", set: "train", job: "style", setup: [["advanced", { tool: "set_style", args: { preset: "New Document (ChemDraw)" } }], ["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
-    prompt: "Make this drawing ready for a figure in a J. Am. Chem. Soc. paper.",
+    prompt: "Make this drawing ready for a figure in a J. Am. Chem. Soc. paper.", brief: "1. No style of my own: the journal's. 2. A J. Am. Chem. Soc. paper, one column. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "ACS Document 1996", "the ACS style", d.style], ...layout(d)] },
   { id: "style-rsc", set: "train", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
-    prompt: "Change my drawing to the RSC style, two-column width.",
+    prompt: "Change my drawing to the RSC style, two-column width.", brief: "1. No, the RSC style. 2. An RSC journal, two columns wide. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "RSC", "the RSC style", d.style], ...layout(d)] },
   { id: "read-smiles", set: "train", job: "read", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]], answerSmiles: true,
     prompt: "Give me the SMILES of every compound in this drawing.",
     check: ({ d, answered }) => d.structures.map((s) => [answered.includes(s.inchiKey), `gives ${s.name ?? s.formula} as SMILES`]) },
   { id: "style-wiley", set: "held", job: "style", setup: [["draw", { kind: "reaction", ...SUZUKI_DRAWN }]],
-    prompt: "This is going in Angewandte. Set the drawing up for it.",
+    prompt: "This is going in Angewandte. Set the drawing up for it.", brief: "1. No, Angewandte's style. 2. Angewandte Chemie, one column. 3. Nothing to emphasise.",
     check: ({ d }) => [[d.style === "Wiley (Angewandte)", "the Wiley style", d.style], ...layout(d)] },
 
   // ---- Speed (plan section 21): Elliot's figure from its picture, and restyling it. set "speed": run only by name.

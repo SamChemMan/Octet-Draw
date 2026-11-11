@@ -55,7 +55,10 @@ const host: Host = {
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
 };
 let n = 0;
-const send = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }), () => host, "1.2.0", { client: "Test", session: "s-1" }));
+// Each session's brief (set_brief), as mcp.rs keeps it: a new session has none.
+const briefs = new Map<string, string>();
+const as = (session: string) => ({ client: "Test", session, brief: briefs.get(session), keep: (b: string) => void briefs.set(session, b) });
+const send = async (method: string, params?: unknown, session = "s-1") => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }), () => host, "1.2.0", as(session)));
 // A value against a tool's outputSchema (the parts of JSON Schema the tools use).
 const fits = (s: any, v: any): boolean => !s?.type || (s.type === "object" ? !!v && typeof v === "object" && !Array.isArray(v) && (s.required ?? []).every((k: string) => v[k] !== undefined) && Object.entries(s.properties ?? {}).every(([k, p]) => v[k] === undefined || fits(p, v[k])) : s.type === "array" ? Array.isArray(v) && v.every((x) => fits(s.items, x)) : typeof v === s.type);
 // The most characters a reply has when nothing more was asked for (no detail: full, atoms, picture or file): test plan P2.
@@ -64,12 +67,12 @@ const MOST = 20_000;
 // tool, a read or a file, a drawings action.
 const opOf = (name: string, a: any): string | undefined => {
   const first = a?.operations?.[0];
-  return name === "draw" ? a?.kind : name === "change" ? (a?.operations?.length > 1 ? "batch" : first?.op === "draw" ? first.kind : first?.op) : name === "advanced" ? a?.tool : name === "read" ? (a && typeof a === "object" && "format" in a ? "file" : "read") : (a?.action ?? "list");
+  return name === "set_brief" ? "brief" : name === "draw" ? a?.kind : name === "change" ? (a?.operations?.length > 1 ? "batch" : first?.op === "draw" ? first.kind : first?.op) : name === "advanced" ? a?.tool : name === "read" ? (a && typeof a === "object" && "format" in a ? "file" : "read") : (a?.action ?? "list");
 };
 // Every call in these checks: its structuredContent fits the tool's outputSchema (the specification's MUST) and its
 // operation's own, which says more; and a default reply is at most MOST characters.
-const call = async (name: string, args: any) => {
-  const asked = JSON.stringify(args ?? null), op = opOf(name, args), out = (await send("tools/call", { name, arguments: args })).result as { content: { type: string; text?: string; data?: string }[]; isError?: true; structuredContent?: any };
+const call = async (name: string, args: any, session?: string) => {
+  const asked = JSON.stringify(args ?? null), op = opOf(name, args), out = (await send("tools/call", { name, arguments: args }, session)).result as { content: { type: string; text?: string; data?: string }[]; isError?: true; structuredContent?: any };
   if (out.structuredContent) for (const schema of [TOOL_TABLE.find((t) => t.name === name)!.outputSchema, OP_TABLE.find((t) => t.name === op)?.outputSchema]) assert.ok(fits(schema, out.structuredContent), `${name} ${op}: structuredContent does not fit its outputSchema: ${JSON.stringify(out.structuredContent).slice(0, 300)}`);
   const size = out.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
   if (op !== "file" && !/"detail":"full"|"atoms":true/i.test(asked)) assert.ok(size <= MOST, `${name} ${op}: a default reply of ${size} characters`);
@@ -87,9 +90,9 @@ assert.equal(r.result.serverInfo.name, "octet-draw");
 assert.match(r.result.instructions, /draw with kind reaction/);
 assert.equal((await send("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion, "2025-11-25");
 assert.deepEqual((await send("ping")).result, {});
-// Five tools are listed (plan 5.1), each with a closed object schema and hints.
+// Six tools are listed (plan 5.1; set_brief, plan 3.1), each with a closed object schema and hints.
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
-assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced"]);
+assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
@@ -162,9 +165,10 @@ for (const t of tools as unknown as { name: string; title: string; description: 
   assert.ok(!(t.annotations.readOnlyHint && t.annotations.destructiveHint), t.name);
 }
 // A tool's hints are its operations': it is read-only or idempotent only when every one is, and destructive when one
-// is. Only a read changes nothing when it is called again. (replace and edit make a compound's changes again.)
+// is. Only a read, and the same brief again, change nothing when called again. (replace and edit make a compound's
+// changes again.)
 const hinted = (k: string) => (tools as unknown as { name: string; annotations: Record<string, boolean> }[]).filter((t) => t.annotations[k]).map((t) => t.name);
-assert.deepEqual([hinted("readOnlyHint"), hinted("idempotentHint"), hinted("destructiveHint")], [["read"], ["read"], ["change", "advanced"]]);
+assert.deepEqual([hinted("readOnlyHint"), hinted("idempotentHint"), hinted("destructiveHint")], [["read"], ["read", "set_brief"], ["change", "advanced"]]);
 assert.ok(["replace", "edit", "batch", "run_command"].every((n) => !OP_TABLE.find((t) => t.name === n)!.hints.idempotent));
 assert.ok(OP_TABLE.every((t) => t.hints.readOnly || t.done), "every operation that changes the drawing tells the user");
 assert.equal(new Set(TOOL_NAMES).size, TOOL_NAMES.length);
@@ -173,6 +177,47 @@ assert.equal(JSON.parse(await handle("{nope", () => host, "1", { client: "Test" 
 assert.equal(JSON.parse(await handle(JSON.stringify({ id: 1, method: "ping" }), () => host, "1", { client: "Test" })).error.code, -32600);
 assert.equal((await send("sampling/createMessage")).error.code, -32601);
 assert.equal((await send("tools/call", { name: "rm_rf", arguments: {} })).error.code, -32602);
+
+// The brief (plan 3.1, test plan B1, B2, B5, B12). A new session has none: a scheme, a cycle, a figure, a grid, and a
+// change whose operations draw any of these (or more than one structure in all) are refused with the three
+// questions, word for word, and nothing changes.
+fresh();
+const QUESTIONS = "Octet needs the brief first. Ask the user these three questions, then call set_brief: 1. Do you have a preferred working style? If so, ask them for a drawing in it. 2. Where is this going, and how big does it need to be? 3. Is there anything to emphasise, or a layout to follow?";
+{
+  const one = (text: string) => ({ op: "draw", kind: "structures", structures: [{ text }] });
+  for (const [name, args] of [
+    ["draw", { kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] }],
+    ["draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene" }] }],
+    ["draw", { kind: "figure", panels: [{ rows: [[{ structure: "benzene" }]] }] }],
+    ["draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] }],
+    ["change", { operations: [{ op: "draw", kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] }] }],
+    ["change", { operations: [one("benzene"), { op: "draw", kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene" }] }] }],
+    ["change", { operations: [one("benzene"), one("toluene")] }],
+  ] as [string, object][]) {
+    const o = await call(name, args);
+    assert.ok(o.isError, name);
+    assert.equal(text(o), QUESTIONS, JSON.stringify(args));
+  }
+  assert.equal(m, EMPTY);
+  assert.equal(steps.length, 0);
+  // B12: one structure draws at once in the drawing's style, as one from a template or a file does. B2: reading,
+  // listing and changing what is there need no brief.
+  for (const [name, args] of [
+    ["draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }] }],
+    ["change", { operations: [one("toluene")] }],
+    ["advanced", { tool: "place_template", args: { name: "Round-bottom flask" } }],
+    ["advanced", { tool: "add_file", args: { text: "CCO" } }],
+    ["change", { operations: [{ op: "number", structure: "1", number: "2" }, { op: "move", ids: ["2"], dx: 1 }, { op: "edit", ids: ["2"], colour: "#B42323" }, { op: "select", ids: [] }] }],
+    ["change", { operations: [{ op: "delete", ids: ["2"] }] }],
+    ["read", {}], ["read", { format: "smiles" }], ["drawings", { action: "list" }], ["advanced", { tool: "help", args: { of: "reaction" } }],
+  ] as [string, object][]) assert.ok(!(await call(name, args)).isError, `${name} ${JSON.stringify(args)}`);
+  assert.equal(m.style, undefined, "no call changed the drawing's style");
+  assert.equal(steps.length, 6);
+  // The server instructions ask the three questions in their first lines, so an AI app asks before its first call.
+  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions, then call set_brief with the answers: ${QUESTIONS.split(": ").slice(1).join(": ")}`));
+}
+// The session the rest of this file's calls come in gives its brief here: a paper.
+assert.ok(!(await call("set_brief", { destination: { kind: "paper" } })).isError);
 
 // The check: a call with wrong arguments changes nothing and says what is wrong.
 fresh();
@@ -397,15 +442,15 @@ assert.deepEqual(m.captions!.map((c) => c.text), seven.map((s) => s.number));
   assert.equal(out.structuredContent.check, "clean");
   fresh();
   out = await call("draw", { kind: "structures", structures: dodecanes(6), columns: 6 });
-  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. A row of 6 is [\d.]+ bond lengths wide \(the page has 35\.4\): give columns: 3, or a larger page \(set_style\)\. One undo step\./);
+  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. A row of 6 is [\d.]+ bond lengths wide \(the page has 35\.4\): give columns: 3, or a larger page \(set_brief\)\. One undo step\./);
   assert.equal(new Set(m.atoms.map((a) => Math.round(a.location[1]))).size, 1, "the columns asked for are kept");
   // A row wider than the page inside its margins, though narrower than the page, lies in the margins: it is said too.
   fresh();
   out = await call("draw", { kind: "structures", structures: Array.from({ length: 3 }, () => ({ text: "C".repeat(14) })), columns: 3 });
-  assert.match(text(out), /^Drew 3 structures in 1 row of 3\. A row of 3 is 38\.\d bond lengths wide \(the page has 35\.4\): give columns: 2, or a larger page \(set_style\)\./);
+  assert.match(text(out), /^Drew 3 structures in 1 row of 3\. A row of 3 is 38\.\d bond lengths wide \(the page has 35\.4\): give columns: 2, or a larger page \(set_brief\)\./);
   fresh();
   out = await call("draw", { kind: "structures", structures: dodecanes(63) });
-  assert.match(text(out), /^Drew 63 structures in 21 rows of 3\. \d+ of the 21 rows are past the bottom of the page: draw the structures after the first (\d+) in a new drawing, or give a larger page \(set_style\)\./);
+  assert.match(text(out), /^Drew 63 structures in 21 rows of 3\. \d+ of the 21 rows are past the bottom of the page: draw the structures after the first (\d+) in a new drawing, or give a larger page \(set_brief\)\./);
   const on = Number(/after the first (\d+)/.exec(text(out))![1]), bottom = (-pageSize(DEFAULT_STYLE)[1] / 2) * (72 / 25.4 / DEFAULT_STYLE.bond), low = (g: number[]) => Math.min(...g.map((i) => m.atoms[i].location[1]));
   assert.ok(on % 3 === 0 && low(fragments(m)[on - 1]) > bottom && low(fragments(m)[on]) < bottom, `the first ${on} are on the page, and the next is not`);
   fresh();
@@ -563,7 +608,7 @@ const rd = await call("read", {}) as unknown as { structuredContent: { structure
 assert.deepEqual(rd.structuredContent, JSON.parse(rd.content[0].text));
 
 // A session whose drawing has closed: every tool but drawings list, drawings use and drawings new says so.
-const lost = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/call", params: { name, arguments: args } }), () => host, "1", { client: "Test", session: "s-1", lost: "draw-7" })).result;
+const lost = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/call", params: { name, arguments: args } }), () => host, "1", { ...as("s-1"), lost: "draw-7" })).result;
 assert.match((await lost("read", {})).content[0].text, /draw-7\) is closed\. Call drawings, then drawings with use\./);
 assert.ok(!(await lost("drawings", { action: "list" })).isError);
 
@@ -731,7 +776,7 @@ host.cleanReactions = (ids) => ids.size;
   fresh();
   const notes: { progress: number; total?: number; message?: string }[] = [];
   const steps3 = [{ products: [{ text: "ethanol" }] }, { products: [{ text: "CC=O" }] }, { products: [{ text: "CC(=O)O" }] }];
-  const go = (from: { progress?: (t: string) => void; cancelled?: () => boolean }) => handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { kind: "reaction", start: [{ text: "C=C" }], steps: steps3 }, _meta: { progressToken: "p1" } } }), () => host, "1.2.0", { client: "Test", session: "s-1", ...from }).then(JSON.parse);
+  const go = (from: { progress?: (t: string) => void; cancelled?: () => boolean }) => handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { kind: "reaction", start: [{ text: "C=C" }], steps: steps3 }, _meta: { progressToken: "p1" } } }), () => host, "1.2.0", { ...as("s-1"), ...from }).then(JSON.parse);
   let res = await go({ progress: (t) => { const x = JSON.parse(t); assert.equal(x.method, "notifications/progress"); assert.equal(x.params.progressToken, "p1"); notes.push(x.params); } });
   assert.ok(!res.result.isError, res.result.content[0].text);
   assert.deepEqual(notes.map((x) => [x.progress, x.total]), [[0, 3], [1, 3], [2, 3]]);
@@ -1042,7 +1087,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // F5: the instructions name only tools that exist, and the fast way.
 {
   const ins = (await send("initialize", {})).result.instructions as string;
-  for (const name of ins.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(["right_of", "ring_fill", ...tools[4].inputSchema.properties.tool.enum].includes(name), name);
+  for (const name of ins.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(["right_of", "ring_fill", ...TOOL_NAMES, ...tools[4].inputSchema.properties.tool.enum].includes(name), name);
   assert.match(ins, /Make all your fixes in one change\./);
   assert.match(ins, /figure for a figure of panels/);
   // What misled AI apps in the evals (mcp-v2-eval-notes.md): reagent or reactant, where amounts go, what the ids in
@@ -1214,7 +1259,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   let sets = 0;
   const set = host.set;
   host.set = (x) => { sets++; return set(x); };
-  const res = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { kind: "figure", panels: [{ title: "A", rows }] }, _meta: { progressToken: "f1" } } }), () => host, "1.2.0", { client: "Test", session: "s-1", progress: (t) => notes.push(JSON.parse(t).params) }));
+  const res = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { kind: "figure", panels: [{ title: "A", rows }] }, _meta: { progressToken: "f1" } } }), () => host, "1.2.0", { ...as("s-1"), progress: (t) => notes.push(JSON.parse(t).params) }));
   host.set = set;
   assert.ok(!res.result.isError, res.result.content[0].text);
   assert.deepEqual(notes.map((x) => [x.progress, x.total]), [[2, 5], [4, 5], [5, 5]]);
@@ -1766,6 +1811,98 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(sc.text[0].text.length === 201 && sc.text[0].text.endsWith("…"), "free text in a summary is cut at 200 characters");
   assert.equal(sc.more.rest, "detail: full reads all", "a cut read says how to read the rest");
   assert.ok(text(await ask("read", { detail: "full" })).length > 10 * MOST, "detail: full reads all of it");
+}
+
+// The brief kept for each session (test plan B3 to B6, B8, B9, D1, D7 to D9).
+{
+  const { toCdxml } = await import("./cdxml.ts");
+  const { readOct, writeOct } = await import("./oct.ts");
+  const { PRESETS, readStyle } = await import("./docstyle.ts");
+  const brief = async (args: object, session: string) => { const o = await call("set_brief", args, session); return { o, said: text(o), sc: o.structuredContent }; };
+  const reaction = { kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] };
+  // B3, D1: no preference is Quick start: ACS Document 1996 with no page, no journal, and no advice on fit.
+  fresh();
+  let b = await brief({ destination: { kind: "quick" } }, "s-2");
+  assert.ok(!b.o.isError && m.style!.preset === "ACS Document 1996" && !m.style!.edges && !m.style!.purpose, b.said);
+  assert.deepEqual(b.sc.brief, { destination: { kind: "quick" }, style: "destination" });
+  assert.match(b.said, /^Octet keeps this brief for the session\. The drawing now uses ACS Document 1996 with no page \(Quick start\), with 10 pt labels and 14\.4 pt bonds\. With no page, nothing runs off it\. One undo step\.\n\{/);
+  assert.equal(steps.length, 1);
+  assert.deepEqual(said, ["Test set the brief."]);
+  // B4, B5: the brief is the session's own. Another session has none, and a new one starts with none.
+  assert.ok(!(await call("draw", reaction, "s-2")).isError);
+  assert.equal(text(await call("draw", reaction, "s-3")), QUESTIONS);
+  assert.equal(JSON.parse(briefs.get("s-2")!).destination.kind, "quick");
+  assert.ok(!briefs.has("s-3"));
+  // B9: on Quick start a row wider than any page draws with no advice.
+  let o = await call("draw", { kind: "structures", structures: Array.from({ length: 6 }, () => ({ text: "CCCCCCCCCCCCCC" })), columns: 6 }, "s-2");
+  assert.ok(!/page/.test(text(o)), text(o));
+  // B6: a new brief mid-session restyles in one undo step, and says what changed. A journal and a column give its
+  // preset's own sizes on its column's page (D2, D3).
+  fresh();
+  b = await brief({ destination: { kind: "paper", journal: "nature", columns: 2 }, emphasis: "the new C-C bond" }, "s-2");
+  const s = m.style!;
+  assert.deepEqual([s.preset, s.page, s.custom, s.edges, s.purpose, s.labelSize, s.bond], ["Nature", "Custom", [183, 240], true, "paper", PRESETS.Nature.labelSize, PRESETS.Nature.bond]);
+  assert.match(b.said, /^Octet changed the brief's destination, emphasis\. The drawing now uses Nature on a 183 x 240 mm page, with 6 pt labels and 10\.8 pt bonds\. Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\. Follow its emphasis and layout as you draw\. One undo step\./);
+  assert.deepEqual(b.sc.brief, { destination: { kind: "paper", journal: "Nature", columns: 2 }, style: "destination", emphasis: "the new C-C bond" });
+  assert.equal(steps.length, 1);
+  // The same brief again changes nothing (no undo step); ACS's column is its own named page.
+  b = await brief({ destination: { kind: "paper", journal: "Nature", columns: 2 }, emphasis: "the new C-C bond" }, "s-2");
+  assert.match(b.said, /^The brief is as it was\. The drawing uses Nature/);
+  assert.equal(m.style, s);
+  await brief({ destination: { kind: "paper", journal: "JACS".replace("JACS", "ACS"), columns: 1 } }, "s-2");
+  assert.deepEqual([m.style!.page, m.style!.preset], ["ACS1", "ACS Document 1996"]);
+  // B6, B9: what is drawn is restyled with it, and the advice names what no longer fits, with the choices.
+  fresh();
+  await brief({ destination: { kind: "paper" } }, "s-2");
+  o = await call("draw", { kind: "structures", structures: Array.from({ length: 4 }, () => ({ text: "CCCCCCCC" })), columns: 4 }, "s-2");
+  assert.ok(!/page/.test(text(o)), `a row that fits gets no advice: ${text(o)}`);
+  b = await brief({ destination: { kind: "paper", size_mm: [60, 120] } }, "s-2");
+  assert.deepEqual([m.style!.page, m.style!.custom, m.style!.preset], ["Custom", [60, 120], "ACS Document 1996"]);
+  assert.match(b.said, /Inside its margins the page is 5\.9 by 17\.7 bond lengths\. (s\d+, )+s\d+ run past the page now: give more rows, split it into schemes, give two columns or a larger page \(set_brief\)\./);
+  // D8: a size in mm that a draw does not fit says so, with what to do.
+  o = await call("draw", { kind: "structures", structures: Array.from({ length: 3 }, () => ({ text: "CCCCCCCC" })), columns: 3 }, "s-2");
+  assert.match(text(o), /A row of 3 is [\d.]+ bond lengths wide \(the page has 5\.9\): give columns: 1, or a larger page \(set_brief\)\./);
+  // D9: a journal or page Octet has no preset for is said, with the nearest it has, and nothing changes.
+  const was = m;
+  for (const [journal, nearest] of [["Org. Lett.", "ACS Document 1996"], ["Nature Chemistry", "Nature"], ["Chem. Commun.", "RSC"], ["Angew. Chem.", "Wiley (Angewandte)"], ["New", "ACS Document 1996"]]) {
+    o = await call("set_brief", { destination: { kind: "paper", journal } }, "s-2");
+    assert.ok(o.isError && text(o).includes(`Octet has no preset for ${journal}. The nearest it has is ${nearest}. Ask the user whether to use it (journal: '${nearest}')`), text(o));
+  }
+  assert.match(text(await call("set_brief", { destination: { kind: "paper", journal: "Wiley", columns: 2 } }, "s-2")), / Octet has no 2-column page for Wiley \(Angewandte\): give size_mm\./);
+  assert.match(text(await call("set_brief", { destination: { kind: "poster" } }, "s-2")), /^Octet changed the brief's destination\. The drawing now uses ACS Document 1996 on A0, with 30 pt labels/);
+  assert.match(text(await call("set_brief", { destination: { kind: "notebook" } }, "s-2")), / For an experiment page with a reagent table, call drawings with action new, for experiment\./);
+  assert.ok((await call("set_brief", { destination: { kind: "book" } }, "s-2")).isError);
+  // Each short name the destination lists is a preset.
+  for (const name of (tools.find((t) => t.name === "set_brief")!.inputSchema.properties.destination.description as string).slice("2. journal: ".length).split("; ")[0].split(", ")) {
+    m = was;
+    const r = await call("set_brief", { destination: { kind: "paper", journal: name } }, "s-5");
+    assert.ok(!r.isError && Object.keys(PRESETS).includes(r.structuredContent.brief.destination.journal) && r.structuredContent.brief.destination.journal.startsWith(name), name);
+  }
+  // D7, B8: a style from a file is every value of its document style (bond length, line widths, bold width, margin,
+  // hash spacing, bond spacing, fonts, sizes), on the destination's page; from a CDXML or a .oct, for this session
+  // only (nothing is stored but the brief). A file with no style, a damaged one and one that is not a drawing are
+  // refused with the reason, and nothing changes.
+  const mine = readStyle({ bond: 17, line: 0.75, bold: 2.6, margin: 2, hash: 2.6, spacing: 15, labelFont: "Helvetica", labelSize: 12, captionFont: "Helvetica", captionSize: 9, page: "Letter" });
+  for (const file of [toCdxml(EMPTY, mine), writeOct(EMPTY, mine)]) {
+    fresh();
+    b = await brief({ style: { from_file: file }, destination: { kind: "thesis" } }, "s-6");
+    const own = readOct(file).mol.style!;
+    for (const k of ["bond", "line", "bold", "margin", "hash", "spacing", "labelFont", "labelSize", "captionFont", "captionSize"] as const) assert.equal(m.style![k], own[k], k), assert.equal(m.style![k], mine[k], k);
+    assert.deepEqual([m.style!.page, m.style!.purpose, b.sc.brief.style], ["A4", "thesis", "from_file"]);
+  }
+  assert.ok(!JSON.stringify([...briefs.values()]).includes("CDXML"), "the file is not kept");
+  fresh();
+  for (const [file, why] of [
+    ['<?xml version="1.0"?><CDXML><page id="1"/></CDXML>', /^from_file has no document style\. Ask the user for a drawing in their style, or give style none\.$/],
+    ['<CDXML BondLength="14" <<<', /^Octet cannot read from_file: This ChemDraw file is damaged\. Ask the user/],
+    ["CCO", /^from_file is not the text of a CDXML or \.oct file\./],
+  ] as [string, RegExp][]) { o = await call("set_brief", { style: { from_file: file }, destination: { kind: "paper" } }, "s-7"); assert.ok(o.isError && why.test(text(o)), text(o)); }
+  assert.ok(m === EMPTY && !briefs.has("s-7"));
+  // This drawing's own style, on the destination's page; another drawing's is refused with how to give it.
+  m = { ...EMPTY, style: mine };
+  b = await brief({ style: { from_drawing: "draw-1" }, destination: { kind: "paper" } }, "s-7");
+  assert.deepEqual([m.style!.bond, m.style!.labelFont, m.style!.page, b.sc.brief.style], [17, "Helvetica", "A4", "from_drawing"]);
+  assert.match(text(await call("set_brief", { style: { from_drawing: "draw-9" }, destination: { kind: "paper" } }, "s-7")), /^Octet reads the style of this session's drawing \(draw-1\) only\./);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

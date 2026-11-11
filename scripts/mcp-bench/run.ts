@@ -11,6 +11,8 @@
 // A case is cases/NAME.mjs with a default export:
 //   about     one line: what the job is and where it comes from
 //   for       the drawing it starts in (File > New For): paper by default
+//   brief     set_brief's arguments, the user's answers (plan 3.1): the job's first call, counted with the rest. By
+//             default the destination is the drawing's page (a corpus job was drawn on a paper page)
 //   calls     [{ name, arguments }]: arguments may be a function of the results so far, for ids made earlier
 //   expect    { smiles: { number: SMILES or InChIKey } }: each compound number's structure in the finished drawing
 // corpus/PAPER.json holds jobs from one paper (corpus/README.md): each is a case of one call. A name on the command
@@ -21,13 +23,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 type Call = { name: string; arguments?: unknown | ((results: any[]) => unknown) };
-type Case = { about: string; for?: string; calls: Call[]; expect?: { smiles?: Record<string, string> } };
+type Case = { about: string; for?: string; brief?: object; calls: Call[]; expect?: { smiles?: Record<string, string> } };
 type Measure = { calls: number; failed: number; coerced: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number; summary?: number };
 
 // As draw.ts: Indigo's wasm as first compiled, so the process ends when the work does.
 if (!process.execArgv.includes("--liftoff-only")) process.exit(spawnSync(process.execPath, ["--liftoff-only", ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" }).status ?? 1);
 
-const { load, drawing } = await import("../headless/host.ts");
+const { load, drawing, session } = await import("../headless/host.ts");
 const { handle } = await import("../../src/mcp.ts");
 const { parseStructure, toInchiKey } = await import("../../src/chem.ts");
 const here = new URL("./", import.meta.url), version = JSON.parse(readFileSync(new URL("../../package.json", here), "utf8")).version;
@@ -35,7 +37,7 @@ const argv = process.argv.slice(2), write = argv.includes("--write"), named = ar
 // Every case by name: cases/NAME.mjs, and each job of corpus/PAPER.json (named PAPER-...).
 const all = new Map<string, () => Promise<Case>>(readdirSync(new URL("cases/", here)).filter((f) => f.endsWith(".mjs")).map((f) => [f.slice(0, -4), async () => (await import(new URL(`cases/${f}`, here).href)).default]));
 for (const f of existsSync(new URL("corpus/", here)) ? readdirSync(new URL("corpus/", here)).filter((x) => x.endsWith(".json")) : [])
-  for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) all.set(j.id, async () => ({ about: j.prompt, for: j.for, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
+  for (const j of JSON.parse(readFileSync(new URL(`corpus/${f}`, here), "utf8")).jobs) all.set(j.id, async () => ({ about: j.prompt, for: j.for, brief: j.brief, calls: [{ name: j.tool, arguments: j.arguments }], expect: j.expect }));
 const keptTimes = Object.fromEntries(readdirSync(new URL("cases/", here)).map((f) => [f.slice(0, -4), true]));
 const names = [...all.keys()].filter((n) => !named.length || named.some((x) => n === x || n.startsWith(`${x}-`))).sort();
 await load();
@@ -43,15 +45,18 @@ await load();
 const KEY = /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/;
 const keyOf = (text: string) => (KEY.test(text) ? text : toInchiKey(parseStructure(text)));
 
+let runs = 0;
 async function run(c: Case): Promise<Measure> {
-  const d = drawing(c.for ?? "paper"), results: any[] = [], m: Measure = { calls: 0, failed: 0, coerced: 0, sent: 0, read: 0, ms: 0, slowest: 0 };
-  const rpc = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), () => d.host, version, { client: "Octet bench" }));
-  for (const call of c.calls) {
+  const d = drawing(c.for ?? "paper"), results: any[] = [], m: Measure = { calls: 0, failed: 0, coerced: 0, sent: 0, read: 0, ms: 0, slowest: 0 }, from = `bench-${++runs}`;
+  const rpc = async (method: string, params?: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), () => d.host, version, session("Octet bench", from)));
+  // Each run is a new session, so it gives its brief first (results holds the job's own calls).
+  const page = c.for ?? "paper", brief: Call = { name: "set_brief", arguments: c.brief ?? { destination: { kind: page === "experiment" ? "notebook" : page } } };
+  for (const call of [brief, ...c.calls]) {
     const args = typeof call.arguments === "function" ? call.arguments(results) : (call.arguments ?? {}), t = performance.now();
     const r = await rpc("tools/call", { name: call.name, arguments: structuredClone(args) }), ms = performance.now() - t;
     // What the AI app reads: the text and any picture (structuredContent repeats the text's data).
     const content: { text?: string; data?: string }[] = r.result?.content ?? [{ text: r.error?.message }];
-    results.push(r.result?.structuredContent ?? {});
+    if (call !== brief) results.push(r.result?.structuredContent ?? {});
     m.calls++; m.sent += JSON.stringify(args).length; m.read += content.reduce((n, x) => n + (x.text?.length ?? 0) + (x.data?.length ?? 0), 0);
     m.ms += ms; m.slowest = Math.max(m.slowest, ms);
     if (r.error || r.result?.isError) m.failed++;

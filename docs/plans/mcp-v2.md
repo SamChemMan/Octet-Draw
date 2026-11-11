@@ -214,6 +214,68 @@ Before drawing, Octet works out whether the job fits the destination:
   a larger page. It never shrinks text below the destination's own size to make things fit.
 - Quick start has no page, so it gives no advice on fit.
 
+### 3.3 As built (step 2, 11 November 2026, branch `mcp/brief`)
+
+- **`set_brief`** is the sixth tool (last in `tools/list`), the operation `brief` in `OPS` (`setBrief` in `src/mcp.ts`),
+  with the arguments of 3.1. Its hints: not read-only, not destructive, idempotent (the same brief again changes
+  nothing and opens no undo step). Its reply: what changed since the last brief (B6), the style with its label and bond
+  sizes, the advice, then the brief as JSON (also its `structuredContent.brief`).
+- **Kept per session.** `From` (`src/mcp.ts`) has `brief` and `keep`. In the app, `Session.brief` in `mcp.rs` is sent
+  with each request as `brief`, and the page keeps a new one with `mcp_brief(session, brief)` (16 KB at most). Requests
+  with no session (an older client) share one, so they can still draw a scheme. In memory only: a new session, or Octet
+  started again, has none. `scripts/headless/host.ts` keeps them the same way (`session(client, id)`), and so does the
+  stand-in of `src/mcp.check.ts`.
+- **The refusal** comes after a call is routed and before its schema check (`needsBrief`): draw with kind reaction,
+  cycle or figure, or structures with more than one; a change with one of these, or with more than one structure
+  drawn in all. The text is exactly 3.1's, with nothing before it.
+- **Destination.** quick is `QUICK_STYLE` (page edges off, no purpose). paper, thesis, slides and poster are their
+  purposes (`purposeStyle`). notebook is the experiment purpose when the drawing is an experiment page, else paper's,
+  and the reply says how to open an experiment page. journal is the one preset whose name starts with what is given
+  (case, spaces and stops aside), so `ACS`, `Wiley` and `Thieme` are presets; else it is refused with the nearest
+  preset (by publisher, else ACS Document 1996) and nothing changes (D9). columns is the journal's column
+  (`COLUMNS` in `docstyle.ts`: ACS1 and ACS2, Nature 89 and 183 mm, RSC 83 mm); a journal with none says to give
+  size_mm. size_mm is a page of that size (a named page when it is one).
+- **A style from a file** (`readOct`: CDXML, `.oct`, or an old `.octet` file) gives every value of its document style,
+  on the destination's page. Refused with the reason: text that is not a drawing's, a damaged file (the reader's own
+  words), and a CDXML whose document gives no style (no BondLength, LineWidth or LabelSize). Nothing is kept but the
+  brief (Sam's answer 5). `from_drawing` takes this session's drawing only: another drawing's style is in its own
+  window, so the reply says to read it with format cdxml and give that as from_file.
+- **Advice on fit (3.2).** `set_brief` gives the page's room inside its margins in bond lengths, and what of the drawing
+  runs past the page now, with the choices: more rows, split into schemes, two columns, a larger page. A draw that
+  does not fit says what it said before, with `set_brief` in place of `set_style` for a larger page. Quick start has
+  no page, so the layout check no longer names what runs past one (`layoutWarnings`, test plan L2): before, every
+  Quick start drawing was told to fix what lay past an A4 page that is not there.
+- **Instructions and prompts.** The instructions' second line asks the three questions and says one structure needs
+  none. draw_scheme, redraw_picture and fill_experiment start with the brief; journal_figure gives the journal through
+  `set_brief`.
+- **Room in `tools/list`.** `set_brief` is 1,409 characters; the list went from 13,995 to 13,994. What was cut, each
+  said elsewhere or moved behind help:
+  - `advanced`: the 13 preset names, the 13 page names and the 16 export formats. set_brief lists the journals by
+    their short names (made from `PRESETS`); help of set_style gives the presets and pages, and of export the formats.
+    "Octet redraws everything in it, and" went.
+  - `read`: "Results of draw and change already give ids, boxes and a layout check, so you seldom need to read" (the
+    instructions say it); "atoms lists atom and bond ids, for change", "picture adds a PNG", format's "The drawing as
+    this file's text, in place of the reading" and ids' "Read only these objects" (each said once, not twice); picture's
+    own description.
+  - `change`: "Also ops: draw (with kind), set_style, place_template, add_file, fill_experiment" (op's enum lists them)
+    is "draw: kind, and its arguments as draw takes them"; arrange's 12 values are "left, top, across, page and more";
+    highlight's "Octet's Highlight behind an atom, a bond, or all of a structure" (the instructions say it); the
+    letters after '$1.s[0]' (the sentence before gives them). How to add a step to a drawn scheme is in help of arrow,
+    and change says so.
+  - `draw`: "Give a compound's name when you know it, else a SMILES" (the instructions say it); the reaction and cycle
+    kinds say less, as steps' own description says each part.
+  - "Add a PNG of what changed" on draw, change and advanced (the instructions say it). drawings' wording is shorter.
+- **Not built:** asking the user through MCP elicitation (step 7); carrying out emphasis and layout (kept with the
+  brief and said back: the AI app does them with draw and change).
+- **Benchmark.** Each case gives its brief first, counted as a call: its own (`brief` in the case), else the page it
+  starts on (every corpus job: paper, as drawn before). Every one of the 64 cases has one call more, sends 32
+  characters more (`{"destination":{"kind":"paper"}}`) and reads 231 more (the brief's reply). Nothing else moved:
+  failed calls, coerced, structures right, warnings and summaries are as they were. Times: `results.json` keeps each
+  case's lower time. The four main cases, the code before and after in turn, four rounds each at load 6 to 8 (the
+  quickest): `taxol-schemes` 2,579 and 2,517 ms, `taxol-chained` 1,754 and 1,761, `taxol-v1-job` 3,895 and 3,883,
+  `corpus-chained` 103 and 105. set_brief takes 0.03 ms on an empty drawing when nothing changes, 0.07 with a scheme
+  drawn, and about 0.7 ms when it sets a new page; a refused call 0.004 ms.
+
 ## 4. Compounds as changes to earlier compounds
 
 The biggest saving. In a synthesis, almost every compound is the one before with one change. v2 lets the AI say that.
@@ -846,6 +908,10 @@ benchmark runner should time only the MCP part.
 | | | | taxol-schemes | 3 | 0 | 4,490 | 2,208 | 2,481 | 19 of 19 | 40 |
 | | | | taxol-v1-job | 33 | 0 | 16,010 | 169,892 | 3,713 | 19 of 19 | 9 |
 | | | | corpus-chained | 3 | 0 | 1,781 | 1,232 | 105 | 6 of 6 | 2 |
+| 2: the brief (11 Nov, `mcp/brief`) | 13,994 (4,000), 6 tools | 2,768 | taxol-chained | 4 | 0 | 3,731 | 3,050 | 1,776 | 19 of 19 | 40 |
+| | | | taxol-schemes | 4 | 0 | 4,522 | 2,439 | 2,481 | 19 of 19 | 40 |
+| | | | taxol-v1-job | 34 | 0 | 16,042 | 170,123 | 3,713 | 19 of 19 | 9 |
+| | | | corpus-chained | 4 | 0 | 1,813 | 1,463 | 105 | 6 of 6 | 2 |
 
 - 3b (named transformations): `taxol-chained` has 18 of its 21 structures written `from` another; only 2 and 8 (each
   scheme's new skeleton) and taxol 1 (its side chain is a reagent, not an earlier compound) are text. The 18 take

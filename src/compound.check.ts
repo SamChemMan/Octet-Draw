@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("compound.check: skipped (no OPSIN build)"); process.exit(0); }
-const { load, drawing } = await import("../scripts/headless/host.ts");
+const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
 const { change, tagged } = await import("./compound.ts");
 const { parseStructure, stereoLabels, toInchiKey, expandLabels } = await import("./chem.ts");
@@ -17,8 +17,10 @@ type Mol = import("./render.ts").Mol;
 await load();
 
 let d = drawing(), n = 0;
-const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", { client: "Check" })).result;
+const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }), () => d.host, "1", session("Check", "compound"))).result;
 const said = (r: { content: { text: string }[] }) => r.content[0].text.split("\n")[0];
+// The session's brief first (plan 3.1): these drawings are for a paper.
+assert.ok(!(await call("set_brief", { destination: { kind: "paper" } })).isError);
 // (In full: the default read is a summary, with no SMILES or InChIKey. Plan section 10.)
 const reading = async () => (await call("read", { detail: "full" })).structuredContent;
 // The structure with a compound number, as it is drawn.

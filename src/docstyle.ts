@@ -279,7 +279,7 @@ export function purposeOf(s: Pick<Purposes, "ownPurposes">, id?: string): { name
 
 // Journal columns, as outlines for Paper (mm, portrait): ACS 3.25 and 7 in by 9.5 in; Nature 89 and 183 mm wide, 240 mm
 // tall as ChemDraw 26.1's Nature pad; RSC 83 x 228 mm, ChemDraw 26.1's RSC (1 Column) pad.
-const COLUMNS: Record<string, [string, number, number][]> = {
+export const COLUMNS: Record<string, [string, number, number][]> = {
   "ACS Document 1996": [[PAGE_NAMES.ACS1, ...PAGES.ACS1], [PAGE_NAMES.ACS2, ...PAGES.ACS2]],
   "Nature": [["Nature 1-column", 89, 240], ["Nature 2-column", 183, 240]],
   "RSC": [["RSC 1-column", 83, 228]],
