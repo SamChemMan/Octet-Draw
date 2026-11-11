@@ -1561,7 +1561,7 @@ export default function Editor() {
     let template: Mol | undefined;
     try { template = own?.start ? parse(own.start) : undefined; } catch { template = undefined; }
     const fresh: Mol = { ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, template) : {}) };
-    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
+    drawingColours.current = []; passing.current.clear(); set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
@@ -1797,6 +1797,7 @@ export default function Editor() {
   // comes as it is.
   function load(path: string | undefined, text: string | Mol, title?: string) {
     drawingColours.current = [];
+    passing.current.clear();
     try {
       let read: ReturnType<typeof readOct>;
       if (typeof text !== "string") read = { mol: text, lost: {} };
@@ -6764,7 +6765,8 @@ export default function Editor() {
   const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has((p.shape ?? p.caption)!)));
   const subsetProblems = () => selectedOf(allProblems());
   // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
-  // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
+  // Color menu lists each document's colours. A colour stays in the row until another drawing opens. passing: the
+  // colours the picker passed through (.drag), kept out of the row until another drawing opens.
   const drawingColours = useRef<string[]>([]), passing = useRef(new Set<string>());
   const docColours = useMemo(() => {
     const known = new Set([...COLOURS.map(([, hex]) => hex), ...settings.palette.map((c) => c.hex)].map((h) => h.toLowerCase()));
@@ -6997,9 +6999,9 @@ export default function Editor() {
     set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label] } : a)) }, true);
   }
   // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
-  // each document).
+  // each document). Only the user's first 20 colours, as when 20 was their limit, so the drawing's own keep their room.
   const savedStyle = (): DocStyle => {
-    const own = [...settings.palette, ...(style.palette ?? []).filter((c) => !settings.palette.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
+    const mine = settings.palette.slice(0, 20), own = [...mine, ...(style.palette ?? []).filter((c) => !mine.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
     return own.length ? { ...style, palette: own } : style;
   };
   function runAction(command: string) {

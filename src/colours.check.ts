@@ -80,3 +80,12 @@ assert.match(menu, /eyedropper::pick_colour/);
 // A colour changed in the picker is one step to undo, for ink as for highlights and ring fills.
 assert.match(editor, /const \[hex, drag\] = command\.slice\(7\)\.split\("\."\)/);
 assert.match(actions, /run\(`colour\.\$\{hex\}\$\{live \? "\.drag" : ""\}`\)/);
+// A colour chosen in any colour menu joins the recent ones. The window's eyedropper takes the keys first, so Escape
+// does not close Settings or a dialog under it. A long right-click colour list scrolls. Saved files take the user's
+// first 20 colours, as before OWN_MOST, so a drawing's own palette keeps its room. Off X11 the screen is not read.
+assert.match(picker, /rememberColour\(hex\);\s*onPick\(hex\);/);
+const menus = read("./Menu.tsx");
+assert.match(menus, /listOpen = \(\) => [^\n]*\.eyedropper/);
+assert.match(menus, /addEventListener\("wheel", away, true\)/);
+assert.match(editor, /const mine = settings\.palette\.slice\(0, 20\)/);
+assert.match(read("../src-tauri/src/eyedropper.rs"), /type_\(\)\.name\(\) != "GdkX11Display"/);

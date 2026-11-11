@@ -3873,13 +3873,13 @@ button.variant.add {
   align-items: center;
   justify-content: space-between;
 }
-/* The window's own eyedropper (pickColour in ColourPicker.tsx): a crosshair over the whole window, and the colour under
-   it beside the pointer. */
+/* The window's own eyedropper (pickColour in ColourPicker.tsx): Octet's crosshair over the whole window, and the colour
+   under it beside the pointer. */
 .eyedropper {
   position: fixed;
   inset: 0;
   z-index: 100;
-  cursor: crosshair;
+  cursor: var(--cursor-cross, crosshair);
 }
 .eyedropper span {
   position: fixed;

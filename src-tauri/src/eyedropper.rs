@@ -52,7 +52,12 @@ fn sample(tx: Sender<Option<String>>) {
 fn sample(tx: Sender<Option<String>>) {
     use gtk::gdk::{self, prelude::*};
     let pixel = || {
-        let (screen, x, y) = gdk::Display::default()?.default_seat()?.pointer()?.position();
+        let display = gdk::Display::default()?;
+        // Only X11 lets an app read the screen: under Wayland the root window is not the screen.
+        if display.type_().name() != "GdkX11Display" {
+            return None;
+        }
+        let (screen, x, y) = display.default_seat()?.pointer()?.position();
         let bytes = screen.root_window()?.pixbuf(x, y, 1, 1)?.read_pixel_bytes();
         (bytes.len() >= 3).then(|| hex([bytes[0], bytes[1], bytes[2]]))
     };

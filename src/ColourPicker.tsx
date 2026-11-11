@@ -186,7 +186,10 @@ export function ColourPick({ label, value, presets, none, own, drawing = [], onP
   const choose = (key: string) => {
     if (key === PICK) return void pickColour().then((hex) => hex && onPick(hex));
     if (key === ADD) { const from = /^#[0-9a-f]{6}$/i.test(value) ? value : "#3F6BFF"; return setAdding({ anchor: box.current!.getBoundingClientRect(), from, hex: from }); }
-    onPick(options.flat().find((o) => o.key === key)?.hex ?? "none");
+    // The colour chosen joins the recent ones wherever the menu is (Settings' text colour too); None does not.
+    const hex = options.flat().find((o) => o.key === key)?.hex ?? "none";
+    rememberColour(hex);
+    onPick(hex);
   };
   // A press on one of the user's own colours that moves is a drag: the colour moves along the list as the pointer passes
   // the others, and the click it ends with chooses nothing.

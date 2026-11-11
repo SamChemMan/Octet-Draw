@@ -79,7 +79,11 @@ export function Menu(p: Props) {
                 <label className="variant">
                   {item.icon}
                   <input className="variant-input" aria-label={`Name of ${item.name}`} defaultValue={item.name} maxLength={40} spellCheck={false} autoFocus onFocus={(e) => e.currentTarget.select()}
-                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); }} onBlur={(e) => item.rename!(e.currentTarget.value)} />
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      // Return keeps the name and gives the focus back to the option, so the list's keys work on.
+                      if (e.key === "Enter") { const cell = e.currentTarget.closest(".variant-cell"); e.currentTarget.blur(); requestAnimationFrame(() => cell?.querySelector<HTMLElement>("button.variant")?.focus()); }
+                    }} onBlur={(e) => item.rename!(e.currentTarget.value)} />
                 </label>
               ) : (
                 <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
@@ -134,7 +138,7 @@ export function Menu(p: Props) {
 // opened by a click leaves it where it was (in text being typed, say). A right-click on an option (or the Menu key)
 // opens the option's own menu, where the list has one (the user's own colours in a colour list).
 const ROW = 32; // px: a list option's height and the gap under it
-export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving)"); // a list or a colour picker is open: its keys come first
+export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving), .eyedropper"); // a list, a colour picker or the eyedropper is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
   value: string; // the key chosen now
@@ -257,9 +261,10 @@ export const menuKey = (e: React.KeyboardEvent) => e.key === "ContextMenu" || (e
 
 // A right-click menu (and the Menu key's, and Shift+F10's): the menu above as one column at the pointer. An option
 // with more (a caret) opens its own options beside it as the pointer comes onto it, or with the right arrow key; left
-// closes them. Up and down move along it, Return chooses and Escape closes. A click away, a scroll or the window losing
-// the focus closes it. Opened from the keyboard, the first option takes the focus; from the pointer, the menu does (so
-// the arrow keys work at once). sub: the options an option with more opens, under its title.
+// closes them. Up and down move along it, Return chooses and Escape closes. A click or a scroll away from it, or the
+// window losing the focus, closes it: a long menu (many colours) scrolls. Opened from the keyboard, the first option
+// takes the focus; from the pointer, the menu does (so the arrow keys work at once). sub: the options an option with
+// more opens, under its title.
 export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClose }: {
   label: string; at: { x: number; y: number }; keyboard?: boolean; groups: MenuItem[][];
   sub: (key: string) => { label: string; groups: MenuItem[][] } | undefined; onChoose: (key: string) => void; onClose: () => void;
@@ -278,13 +283,13 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     onChoose(key);
   };
   useEffect(() => {
-    const away = (e: PointerEvent) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
+    const away = (e: Event) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
     const gone = () => onClose();
     addEventListener("pointerdown", away, true);
-    addEventListener("wheel", gone, true);
+    addEventListener("wheel", away, true);
     addEventListener("blur", gone);
     addEventListener("resize", gone);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", gone, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", away, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => { (keyboard ? main.current?.querySelector<HTMLElement>(".variant") : main.current)?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The focus goes in a frame later, after the options' own menu has settled (it gives the focus back as it closes).
