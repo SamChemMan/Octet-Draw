@@ -915,6 +915,18 @@ in `docs/plans/mcp-v2-corpus-faults.md`. Grouped:
 The label, salt, layout and tool-gap groups are MCP work and are in the build order. Names and metals change what
 every user sees, so each needs Sam's yes and the ChemDraw cross-check.
 
+### 17.1.1 In the app (11 November 2026, the MCP Beta dev build with wave A merged)
+
+`node scripts/mcp-acceptance.mjs`: 113 checks pass and 2 fail. Both failures are one fault, in cases 5 and 6 (the
+experiment page): the second line under the arrow ("90%") overlaps the top of the reagent table by 0.1 bond
+lengths. With no window the same overlap is there before wave A and after it, so it is the editor's placing of the
+reagent table (it clears the first line under the arrow, not the second), not tonight's work. It needs a fix in the
+editor's own code and Sam's yes. Case 18 (the relay and Claude Desktop's bundle against a dev build's
+`mcp-dev.json`) passes.
+
+Not seen by anyone yet, as no agent may drive the app's window: the overlay in WKWebView (light, dark, Reduce
+Motion, VoiceOver), and that the first thing drawn on a new Paper drawing comes into view.
+
 ### 17.2 Indigo stops working after about 1,266 refused calls
 
 Found by the 1.1.2 session on the same night (it is the cause of the 1.1.1 crash): each call Indigo refuses loses 32
