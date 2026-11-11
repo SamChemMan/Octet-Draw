@@ -559,3 +559,77 @@ first.
 - Calls on one session wait behind a long batch (section 8).
 - The MCP Beta build shares `mcp.json` and the app data folder with the installed Octet. Two Octets running fight over
   `mcp.json`. Give dev builds their own identifier, or their own file name.
+
+## 18. Scripting (#89) and batch conversion (#91): a proposal for Sam's yes
+
+Sam's answers (Start here, 10): a script uses the same tools as AI apps; from the command line it may also open and
+save files and loop over a folder; AI apps still have no file access; batch conversion runs from the command line
+only, with no menu item; it handles everything Octet opens and saves. **Not built until Sam says yes to this section.**
+
+### 18.1 One engine: Octet with no window
+
+Both issues ask for Octet's work "without opening the program". Both get it from one new mode of the app's own
+program, so nothing is written twice and every format and layout is the app's own:
+
+- `Octet Draw --headless` starts Octet with one drawing window that is never shown (no Dock icon, no Home). The page
+  in it is the normal drawing page, so Name to Structure, Clean Up, the readers and the exporters are the ones the
+  app uses. It ends when its input ends.
+- It does not use the server, the key or `mcp.json`, and it does not need "Let AI apps use Octet" on. It talks only
+  to the program that started it, on standard input and output. Nothing listens on a port.
+- The Node runner in `scripts/headless/` stays what it is: a test tool for this repository. It is not shipped.
+
+### 18.2 Scripting (#89)
+
+- `Octet Draw --headless --mcp` speaks MCP on standard input and output, with the v2 tools (section 5). A script in
+  any language starts it and sends tool calls, exactly as an AI app does. With Octet open, `Octet Draw --mcp` (the
+  relay that exists) does the same in the user's open drawing.
+- **Files are the script's own work.** The script reads a file and gives its text to `drawings { new, from: text }`
+  (CDXML, CDX, MOL, SDF, RXN, SMILES, InChI, CML and `.oct`). It asks `read { file: format }` for the drawing's text
+  or bytes and writes the file itself. So Octet needs no tool that takes a path, and decision 0021's "no files" rule
+  stays whole for AI apps and scripts alike.
+- For that, `read`'s `file` takes every format Export has: the text formats of today, and SVG, PDF, PNG and EMF (the
+  binary ones as base64), each with the Export dialog's own options (`width_mm`, `dpi`, `transparent`, `selection`).
+  It makes the file's bytes with the app's export code and returns them. It opens no dialog and writes nothing.
+- Documentation: one page, `scripting.html` on octet.software, with the tool list and four worked examples from the
+  issue (renumber compounds across the schemes of a review; apply a journal's style to every figure in a folder; one
+  drawing a row from a table of SMILES; check every structure in a manuscript). Each example is under 30 lines of
+  Python and of JavaScript, with no package to install: a 20-line client that starts Octet and sends JSON lines.
+- No Python package, no interpreter inside Octet, no add-in system (issue #90 is closed).
+
+### 18.3 Batch conversion (#91)
+
+A command of the same program, with no menu item and no setting:
+
+```
+Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET] [--each]
+```
+
+- `INPUT`: files or folders (a folder gives every drawing file in it; `--recursive` goes into folders inside it).
+- `--to`: any format Export or Save writes. With `--to sdf --each`, one SDF of every compound in each drawing.
+- `--out`: where the files go (beside each input by default). A file that exists is never written over: the new one
+  gets a number, and `--overwrite` allows it.
+- `--width` and `--dpi` are Export's own options. `--style` restyles first (a journal preset or a `.oct` or CDXML
+  whose style to use), as `set_brief` does.
+- It prints one line a file (`figure3.cdxml -> figure3.pdf`) and ends with the count. A file that cannot be read is
+  named with the reason, the rest carry on, and the exit code is 1.
+- It is the headless engine with the loop and the file reads and writes in Rust. Rust reads and writes only the
+  paths given on the command line (the user picked them). Each file is parsed in the page with the same limits as
+  File > Open (every file is hostile input).
+- Windows: the release build is a window program, so its output does not show in a console. `--convert` writes its
+  lines to the console it was started from when there is one (`AttachConsole`), as the relay's pipes already work.
+
+### 18.4 Order and tests
+
+After step 5 (the tool merge), so scripts are written against the final tool names:
+
+| Step | Work | Done when |
+|---|---|---|
+| 9 | `--headless`: a hidden window that answers on standard input and output; `read { file }` in every export format | The acceptance script passes through `--headless --mcp` with no Octet open; a PDF and an SVG from `read` are the same bytes as Export's |
+| 10 | `--convert` | The 68 CDXML round-trip files convert to `.oct`, PDF, SVG and SDF and back with nothing lost; a 200-file folder converts with a bounded memory use |
+| 11 | The scripting page and its four examples | Each example runs as written on Mac, Windows and Linux |
+
+Tests are in `mcp-v2-tests.md`, section 15.
+
+Open for Sam: is the command's name `--convert` on the app's own program right (on Mac that is
+`/Applications/Octet Draw.app/Contents/MacOS/Octet Draw --convert ...`), or does he want a short `octet` command
+installed on the PATH (an installer step on each platform)?

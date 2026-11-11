@@ -299,3 +299,21 @@ The building session asks Sam for the open items at the start (`mcp-v2.md`, **St
   programme. Record tokens and cost per case (section 13, item 4). Plan the matrix to fit it, and report the spend.
 - **The 1.1.1 crash scheme:** Sam will provide it. Ask for it at the start. It is a case for R3 and P6.
 - **Still to ask:** which non-Anthropic AI app to test (A3), and how Sam wants eval spending reported.
+
+## 15. Scripting (#89) and the command line (#91)
+
+For `mcp-v2.md` section 18. None of this is built until Sam says yes to that section.
+
+| ID | Test |
+|---|---|
+| K1 | `--headless --mcp` with no Octet open: every acceptance case that needs no dialog passes over standard input and output |
+| K2 | No window, no Dock icon and no port while it runs; it ends when its input ends, and when its starter dies |
+| K3 | `read { file }` in each export format gives the same bytes as Export with the same options (PDF, SVG, PNG, EMF, and each text format) |
+| K4 | `--convert` on the 68 CDXML round-trip files to `.oct` and back: nothing lost. To PDF, SVG, PNG: each opens, at the width and resolution asked |
+| K5 | `--convert` on a folder of 200 files: one line a file, the count at the end, memory bounded (P6), time a file written down |
+| K6 | Bad input: a file that is not a drawing, a 10 MB file, a file with no read permission, a folder that does not exist. Each is named with its reason, the rest are converted, the exit code is 1 |
+| K7 | Nothing written over without `--overwrite`; nothing written outside `--out` or beside the inputs |
+| K8 | `--to sdf --each`: every compound of every drawing, with its number as a data field |
+| K9 | Windows release build: output shows in the console it was started from, and the exit code reaches the shell |
+| K10 | The four examples on the scripting page run as written, in Python and in JavaScript, on Mac, Windows and Linux |
+| K11 | An AI app still cannot read or write a file: no v2 tool takes a path (a check on the tool schemas) |
