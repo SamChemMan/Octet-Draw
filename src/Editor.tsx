@@ -139,6 +139,8 @@ import "./editor.css";
 const MAC = navigator.platform.startsWith("Mac");
 // Windows: Copy can put an Octet Drawing object on the clipboard for Office (decision 0023).
 const WINDOWS = navigator.platform.startsWith("Win");
+// Linux: the system's print dialog shows no preview, so Print shows Octet's first (printDrawing).
+const LINUX = navigator.platform.startsWith("Linux");
 const MOD = MAC ? "⌘" : "Ctrl+";
 // Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
@@ -1310,18 +1312,22 @@ export default function Editor() {
   // File > Print (⌘P): every page the drawing covers, at true size, the drawing where it sits on them, as pictures the
   // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog. The pages
   // tile the canvas from the document's page, as ChemDraw's poster pages do, in reading order. File > Print Selection
-  // prints the selection alone, on the pages it covers (ChemDraw's Print dialog: Selection).
+  // prints the selection alone, on the pages it covers (ChemDraw's Print dialog: Selection). The Mac's and Windows'
+  // print dialogs show the pages before they print. Linux's does not, so there Octet shows them first, as they tile
+  // the drawing, and its Print… goes on to the system's dialog (issue 119).
   const [printing, setPrinting] = useState<{ srcs: string[]; w: number; h: number }>();
   async function printDrawing(selectionOnly = false) {
-    const canvas = svg.current, [, w, h] = pages[0], pw = w * mm * L, ph = h * mm * L;
+    const canvas = svg.current, [page, w, h] = pages[0], pw = w * mm * L, ph = h * mm * L;
     const part = selectionOnly ? selectedPart() : doc;
     if (!canvas) return;
     if (!part) return setNotice("Select what to print first.", "info");
     flushSync(() => setExporting(part));
     const texts: string[] = [];
+    let across = 1;
     try {
-      const { count, pages: sheets } = pagesOver(canvasInk(canvas) ?? [0, 0, 0, 0], pw, ph);
+      const { count, cols, pages: sheets } = pagesOver(canvasInk(canvas) ?? [0, 0, 0, 0], pw, ph);
       if (count > MAX_PRINT_PAGES) return setNotice(`The drawing covers ${count} pages. Octet prints ${MAX_PRINT_PAGES} pages at most. Move the drawing nearer to the page, or make it smaller.`);
+      across = cols;
       for (const [i, j] of sheets) texts.push(standaloneSvg(canvas, [(i - 0.5) * pw, (j - 0.5) * ph, (i + 0.5) * pw, (j + 0.5) * ph], 1 / pt));
     } finally { flushSync(() => setExporting(undefined)); }
     const srcs = texts.map((text) => {
@@ -1331,11 +1337,16 @@ export default function Editor() {
       return `data:image/svg+xml;base64,${btoa(bin)}`;
     });
     const size = { w: (w * 72) / 25.4, h: (h * 72) / 25.4 };
+    if (LINUX) return setDialog({ kind: "print", srcs, ...size, cols: across, page });
+    await printPages({ srcs, ...size });
+  }
+  // The pages (pictures w by h pt) to the system's print dialog.
+  async function printPages({ srcs, w, h }: { srcs: string[]; w: number; h: number }) {
     // The paper size, as an @page rule in a sheet made here: the CSP allows no <style> element (REL-31).
     pageSheet ??= new CSSStyleSheet();
-    pageSheet.replaceSync(`@page { size: ${size.w.toFixed(2)}pt ${size.h.toFixed(2)}pt; margin: 0; }`);
+    pageSheet.replaceSync(`@page { size: ${w.toFixed(2)}pt ${h.toFixed(2)}pt; margin: 0; }`);
     if (!document.adoptedStyleSheets.includes(pageSheet)) document.adoptedStyleSheets = [...document.adoptedStyleSheets, pageSheet];
-    flushSync(() => setPrinting({ srcs, ...size }));
+    flushSync(() => setPrinting({ srcs, w, h }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(failure("Octet cannot print.", e)); }
   }
@@ -3075,7 +3086,7 @@ export default function Editor() {
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "details"; values: Details } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
-    | { kind: "changed"; done: (saved: boolean) => void }
+    | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
     | { kind: "dictionary"; name: string; smiles: string; inchi?: string }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
@@ -9651,6 +9662,19 @@ export default function Editor() {
       <Exit>{dialog?.kind === "revert" && (
         <Dialog title={`Revert to the saved “${name}”?`} action="Revert" onClose={() => setDialog(undefined)} onAction={() => { setDialog(undefined); revert(); }}>
           <p className="dialog-note">Octet opens the file as you last saved it. Undo brings your changes back.</p>
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "print" && (
+        // Print on Linux: the pages as they tile the drawing, white paper as Print gives it, so a break through a
+        // structure shows before the system's print dialog. --across: the pages' width over their height, all together.
+        <Dialog title="Print" action="Print…" onClose={() => setDialog(undefined)} onAction={() => { setDialog(undefined); void printPages(dialog); }}>
+          <div className="print-preview" data-theme="light">
+            <div className="print-sheets" role="img" aria-label="Preview"
+              style={{ gridTemplateColumns: `repeat(${dialog.cols}, 1fr)`, "--across": (dialog.cols * dialog.cols * dialog.w) / (dialog.srcs.length * dialog.h) } as React.CSSProperties}>
+              {dialog.srcs.map((src, k) => <img key={k} src={src} alt="" />)}
+            </div>
+          </div>
+          <p className="export-size">{dialog.srcs.length} {dialog.srcs.length === 1 ? "page" : "pages"} · {dialog.page}</p>
         </Dialog>
       )}</Exit>
       <Exit>{dialog?.kind === "discard" && (
