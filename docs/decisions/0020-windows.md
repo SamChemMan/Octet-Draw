@@ -24,11 +24,13 @@ more than one drawing open at a time, each in a window of its own, with Home lis
 - File > Home in a drawing window brings Home to the front, and opens it again if it was closed. When Home's window
   holds a drawing, Home shows over it, as File > Home does in that window.
 - Menu commands go to the window in front. Each window sends its ticks, colours and fonts when it comes to the front;
-  the menu bar is built again only when a list changes. On the Mac the Window menu lists the windows.
+  the menu bar is built again only when a list changes. The Window menu lists the open drawings, with a tick on the
+  one in front: on the Mac the system lists the windows, and on Windows and Linux Octet lists the drawings that Home
+  lists (issue 73).
 - Quit asks about each window with unsaved changes in turn; Cancel stops it. The Dock's Quit and a logout do the same.
 - Recovery keeps a copy for each window (`<session>z<window>`). Settings are shared through storage events.
 - Files from Finder open one window each. A file dropped on a drawing goes into that drawing.
 
 ## Not done
 
-Cascade and Tile (ChemDraw's Windows toolbar).
+Cascade and Tile (ChemDraw's Windows toolbar). The operating system already arranges windows (Sam, issue 73).

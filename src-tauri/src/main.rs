@@ -963,12 +963,17 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
     ])?;
-    // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
-    // full screen item.
+    // Window: Minimize and Full Screen where the system has them (GTK on Linux has neither, Windows has no full screen
+    // item), then the open drawings. The Mac lists the windows itself (set_bar); Windows and Linux list them here.
     section.replace("Window".into());
-    let window = Submenu::with_id_and_items(app, "window", "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    let window = Submenu::with_id(app, "window", "&Window", true)?;
+    #[cfg(not(target_os = "linux"))]
+    window.append(&PredefinedMenuItem::minimize(app, None)?)?;
     #[cfg(target_os = "macos")]
     window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    if !cfg!(target_os = "macos") {
+        windows::list(app, &window)?;
+    }
     // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
     // search field.
     section.replace("Help".into());
@@ -1011,9 +1016,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if online {
         items.push(&search);
     }
-    if !cfg!(target_os = "linux") {
-        items.push(&window);
-    }
+    items.push(&window);
     items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
@@ -1115,6 +1118,11 @@ fn main() {
                 if id == "recent_clear" {
                     recent::clear(app);
                 }
+                // Window > a drawing (Windows and Linux): its window comes to the front, and the menu ticks it again.
+                if let Some(label) = id.strip_prefix("window_") {
+                    tauri::async_runtime::spawn(windows::window_show(app.clone(), label.to_string()));
+                    return;
+                }
                 if let Some(w) = app.get_webview_window("reaxys").filter(|w| w.is_focused().unwrap_or(false)) {
                     let js = match id {
                         "undo" => Some("document.execCommand('undo')"),
@@ -1137,7 +1145,7 @@ fn main() {
         // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(true) = event {
-                windows::focused(window.label());
+                windows::focused(window.app_handle(), window.label());
             }
             // Only Home and the drawing windows take files (not the Reaxys window).
             if !windows::ours(window.label()) {
