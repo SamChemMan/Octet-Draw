@@ -1712,6 +1712,12 @@ Tests are in `mcp-v2-tests.md`, section 15.
   the one platforms.yml installs to; `/usr/bin/octet` and the AppImage come from tauri.conf.json, not from an
   install. Before the page goes on the website, run the four examples in both languages on a Windows and a Linux
   install.
+- Windows and Linux (branch `mcp/ci`): platforms.yml's `examples` job builds a release with no installer, copies it
+  to a folder named `Octet Draw`, runs `scripts/examples/run-all.mjs` (the files made through the program, the four
+  examples in both languages, a failure on any difference) and `--convert` to PDF and SVG. headless.check runs the same
+  script against `scripts/headless/stdio.ts`. The office-objects job checks that the installer puts `octet.exe` at the
+  page's Windows path and that it answers initialize. Nothing installs a `.deb`, `.rpm` or AppImage, so the Linux paths
+  are not checked. Not run yet when written: the job runs on push to main, or by hand.
 - For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
   given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
   gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the
