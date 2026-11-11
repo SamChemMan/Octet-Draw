@@ -646,7 +646,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // F5: the instructions name only tools that exist, and the fast way.
 {
   const ins = (await send("initialize", {})).result.instructions as string;
-  for (const name of ins.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(TOOL_NAMES.includes(name) || ["right_of"].includes(name), name);
+  for (const name of ins.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(TOOL_NAMES.includes(name) || ["right_of", "ring_fill"].includes(name), name);
   assert.match(ins, /batch/);
   assert.match(ins, /draw_figure/);
 }
@@ -873,6 +873,12 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(g2.every((i) => m.atoms[i].shade), "perspective"); assert.ok(g2.every((i) => m.atoms[i].cip), "stereo labels"); assert.ok(g2.every((i) => m.atoms[i].circle), "aromatic circles");
   assert.deepEqual(g2.map((i) => m.atoms[i].number).sort(), g2.map((_, k) => String(k + 1)).sort(), "atom numbers");
   assert.match(text(await call("edit", { ids: [s2], charge: 1 })), /takes no charge/);
+  r = await call("edit", { ids: [s2, `${s1}.1`], ignore_warnings: true });
+  assert.ok(!r.isError, text(r));
+  assert.ok(g2.every((i) => m.atoms[i].ignoreWarnings) && m.atoms[0].ignoreWarnings, "Display Warnings off");
+  // A problem on an atom with Display Warnings off is not a warning (as the window hides it).
+  r = await call("edit", { ids: [`${s2}.1`], charge: 3 });
+  assert.ok(!JSON.parse(text(await call("read_drawing", {}))).warnings.some((w: { atom?: string }) => w.atom === `${s2}.1`), "hidden problem not listed");
   // Text: conditions on an arrow (Add conditions above), kept on it; freed again with arrow none.
   fresh();
   r = await call("draw_reaction", { start: [{ text: "toluene" }], steps: [{ products: [{ text: "phenol" }] }] });
@@ -957,6 +963,25 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   r = await call("run_command", { command: "shape.kind.hexagon" });
   assert.ok(r.isError); assert.match(text(r), /no command/);
   assert.ok((await call("run_command", { command: "halo.#FF0000", ids: ["s99"] })).isError);
+  // place_template (8 November 2026): the whole library by name, from the Lab set, and a name the
+  // library does not have.
+  fresh();
+  r = await call("place_template", { name: "Round-bottom flask" });
+  assert.ok(!r.isError, text(r));
+  assert.match(text(r), /Placed Round-bottom flask from Lab\./);
+  assert.ok((m.arrows?.length ?? 0) > 0, "the flask's pen lines are drawn");
+  r = await call("place_template", { name: "Unobtainium flask" });
+  assert.ok(r.isError); assert.match(text(r), /no template Unobtainium flask/);
+  assert.ok((await call("place_template", { name: "ATP", set: "Nowhere" })).isError);
+  // A structure over the arrow is the one given there, and the product the product (6 November 2026: they were read
+  // products first and drawn structures first, so they swapped).
+  fresh();
+  r = await call("draw_reaction", { start: [{ text: "toluene" }], steps: [{ above: ["structure: water"], products: [{ text: "phenol", number: "2" }] }] });
+  assert.ok(!r.isError, text(r));
+  const over = fragments(m).find((g) => g.length === 1)!, prod = fragments(m).find((g) => g.length === 7 && g.some((i) => m.atoms[i].label === "O"))!;
+  assert.equal(m.atoms[over[0]].label, "O");
+  assert.ok(m.captions!.some((c) => c.text === "2" && c.under!.includes(prod[0])), "the number is under the product");
+
   // The scheme reads the same way round throughout: each product turned to lie as its starting material (Augmented
   // Clean Up Reaction), unless keep_orientation is false; like turns a structure as one drawn.
   const ringAngle = (g: number[]) => { const [p, q] = m.bonds.find((b) => g.includes(b.atoms[0]) && g.includes(b.atoms[1]) && m.atoms[b.atoms[0]].label === "C" && m.atoms[b.atoms[1]].label === "C")!.atoms.map((i) => m.atoms[i].location); return ((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI + 360) % 60; };

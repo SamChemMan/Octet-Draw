@@ -6,7 +6,8 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable } from "./edit.ts";
+import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable } from "./edit.ts";
+import { LIBRARY } from "./library.ts";
 import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
@@ -220,7 +221,7 @@ const BOX: Schema = { ...list(num(-1000, 1000), 4, 4), description: "[x0, y0, x1
 const SIZES = { small: 600, medium: 1000, large: 1568 };
 // A batch (F1): the tools a step can be, at most 40 steps. Not batch itself, the reads, or the tools that change where
 // calls go, open dialogs or run Undo.
-const BATCHABLE = ["draw_structures", "draw_reaction", "draw_cycle", "draw_figure", "add_file", "add_text", "add_arrow", "add_shape", "edit", "move", "arrange", "delete", "set_style", "set_number", "replace_structure", "fill_experiment"] as const;
+const BATCHABLE = ["draw_structures", "draw_reaction", "draw_cycle", "draw_figure", "add_file", "place_template", "add_text", "add_arrow", "add_shape", "edit", "move", "arrange", "delete", "set_style", "set_number", "replace_structure", "fill_experiment"] as const;
 const MOST_STEPS = 40;
 const PLACE_NOTE = " Place it with at [x, y] and anchor (the point of its box there; centre by default), or right_of, left_of, below or above an id with gap (1.5) and align. With none, it goes below what is drawn.";
 
@@ -347,6 +348,12 @@ const TOOLS: Tool[] = [
     run: addFile, place: true,
   },
   {
+    name: "place_template", title: "Place a library template", hints: ADD, outputSchema: CHANGE, done: "placed a template",
+    description: "Places a template from Octet's library by name, as the Template tool does: a structure (ATP, ferrocene) or a picture (Round-bottom flask, microscope, cell). set when two sets share a name. on: an atom (s3.2) or bond (s3.1-2) to put it on." + PLACE_NOTE,
+    inputSchema: obj({ name: str(80), set: str(40), on: str(20), ...placing("at") }, ["name"]),
+    run: placeTemplate, place: true,
+  },
+  {
     name: "new_drawing", title: "New drawing", hints: ADD, outputSchema: CHANGE, done: "opened a new drawing",
     description: "Opens a new drawing for a purpose, as File > New For does (experiment: a page with details and a reagent table), in a new window when this one has work in it. Later calls go to it (use_drawing goes back).",
     inputSchema: obj({ for: pick(["paper", "thesis", "slides", "poster", "experiment", "quick"]) }, ["for"]),
@@ -396,11 +403,11 @@ const TOOLS: Tool[] = [
   },
   {
     name: "edit", title: "Change objects", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed part of the drawing",
-    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read_drawing with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties). A bond (s3.1-2): bond, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), number, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
+    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read_drawing with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles. Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical. An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, png (a picture), rgroup; a table's or plate's text takes bold, italic, underline, size and font.",
     inputSchema: obj({
       ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: str(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), query: QUERY,
       bond: pick(Object.keys(BONDS)), position: pick(["left", "centre", "right", "auto"]), spacing: num(1, 100), topology: pick(["ring", "chain", "either", "none"]), reaction_centre: pick(["centre", "makebreak", "change", "makechange", "not", "nochange", "unmapped", "none"]), bond_query: pick(["any", "sd", "sa", "da", "none"]),
-      highlight: COLOUR_OR_NONE, ring_fill: COLOUR_OR_NONE, rotate: num(-360, 360), scale: num(10, 1000), flip: pick(["horizontal", "vertical"]), perspective: { type: "boolean" }, stereo_labels: { type: "boolean" }, atom_numbers: { type: "boolean" }, aromatic_circles: { type: "boolean" },
+      ignore_warnings: { type: "boolean" }, highlight: COLOUR_OR_NONE, ring_fill: COLOUR_OR_NONE, rotate: num(-360, 360), scale: num(10, 1000), flip: pick(["horizontal", "vertical"]), perspective: { type: "boolean" }, stereo_labels: { type: "boolean" }, atom_numbers: { type: "boolean" }, aromatic_circles: { type: "boolean" },
       text: str(2000), runs: RUNS, ...TEXT_STYLE, align: pick(["left", "centre", "right", "justify", "above", "below", "auto"]), width: num(0.5, 300), line_height: LINE_HEIGHT, arrow: str(12, "a7, or none"), side: pick(["above", "below"]),
       ...ARROW_PROPS, kind: pick([...["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"], ...["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"]]), from: POINT, to: POINT,
       ...SHAPE_PROPS, structure: str(MAX_STRUCTURE), number: str(12), box: BOX,
@@ -415,7 +422,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "add_shape", title: "Add a shape", hints: ADD, outputSchema: CHANGE, done: "drew a shape",
-    description: "Draws a box, rounded box, oval, highlight (a pale panel behind what it covers), brackets, TLC plate, table or picture round the ids (pad 0.5 bond lengths, 0.3 for brackets; an atom id such as s3.2 is its label), or at a box [x0, y0, x1, y1]. dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, mark (‡, n, 2+ on brackets), radius, line_width, bracket_side, usage, bracket_label, colour, table (cells, lines, align), tlc (lanes, spots) and png (base64) are as edit takes them. angle turns it (degrees, anticlockwise).",
+    description: "Draws a frame or panel: a box, rounded box, oval, highlight (a pale panel behind a whole region), brackets, TLC plate, table or picture round the ids. Not for highlighting atoms or groups: that is edit with highlight (Octet's Highlight). It goes round the ids (pad 0.5 bond lengths, 0.3 for brackets; an atom id such as s3.2 is its label), or at a box [x0, y0, x1, y1]. dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, mark (‡, n, 2+ on brackets), radius, line_width, bracket_side, usage, bracket_label, colour, table (cells, lines, align), tlc (lanes, spots) and png (base64) are as edit takes them. angle turns it (degrees, anticlockwise).",
     inputSchema: obj({ kind: pick(["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"]), around: list(str(40), 200, 1), box: BOX, pad: num(0, 20), angle: num(-360, 360), colour: str(7), ...SHAPE_PROPS }, ["kind"]),
     run: addShapeTool,
   },
@@ -447,6 +454,7 @@ const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's 
 - Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. To match a picture, add hints to the SMILES instead of writing coordinates: a label for each * (labels), up, down, left or right (an atom that points that way), rotate, flip, geometry for a metal centre, and colours. Example, an octahedral complex: {structure: '*(*)(*)(N#CC)(N#CC)(*)*', labels: ['MIV', 'OSiPh3', 'OSiPh3', 'OSiPh3', 'OSiPh3'], geometry: 'octahedral'}. Give a molecule with coordinates only for what the hints cannot draw, such as a ring through a metal (a chelate) or a cage.
 - Every write result gives the ids of what it made and changed, the boxes of the top-level ones (a number, conditions and a cycle's text move with what they belong to), and Octet's new warnings. Use them to place the next thing (right_of, below, at), with no read in between.
 - Every write result has check: "clean" when nothing in the drawing overlaps, runs off the page, lies on a bond or across a shape's edge, and no two labels meet; else the ids (an atom s3.2 is the second atom as you gave it; move, edit and delete take atom ids). Fix every id it names: none is a near miss to leave. Clean means no boxes meet. It does not mean the drawing reads well, so for a figure look at it before you say it is done: read_drawing with picture and the ids of each part (a whole page in one picture is too small to show a crowded label), then make every fix in one batch.
+- To highlight an atom, a bond, a group or a structure, use edit with highlight (Octet's Highlight: a pale disc behind the label, a band behind the bond), or ring_fill for a ring. Never draw an oval, box or dot for a highlight: a shape is a frame or a panel, not a highlight.
 - Colour only what the user asks to colour. Keep the default black unless they name colours.
 - Each call is one undo step. Never delete what the user drew unless they ask.`;
 
@@ -628,9 +636,16 @@ function orient(m: Mol, o: Orient): Mol | string {
       mol = { ...mol, bonds: mol.bonds.map((b, j) => (j === k ? { ...b, atoms: [hub, atom] as [number, number], type: 1, stereo: stereo || undefined, display: undefined } : b)) };
     });
   }
-  // The middle hints turn about: the centre when it has four or more bonds (a metal), else the middle of the atoms.
+  // The middle the hints turn about: the centre when it has four or more bonds (a metal); else the middle of the
+  // rings (the atoms left when every chain end is pruned away), so a substituent named up points straight out from
+  // its ring, as a chemist reads it; else the middle of the atoms.
   const xs = mol.atoms.map((a) => a.location[0]), ys = mol.atoms.map((a) => a.location[1]);
-  const c: P = degree[hub] >= 4 ? at(hub) : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  const core = (() => {
+    const left = new Set(mol.atoms.map((_, i) => i)), deg = [...degree];
+    for (let again = true; again;) { again = false; for (const i of left) if (deg[i] <= 1) { left.delete(i); again = true; for (const b of mol.bonds) if (b.atoms.includes(i)) deg[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]]--; } }
+    return [...left];
+  })();
+  const c: P = degree[hub] >= 4 ? at(hub) : core.length >= 3 ? [core.reduce((t, i) => t + at(i)[0], 0) / core.length, core.reduce((t, i) => t + at(i)[1], 0) / core.length] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
   const ways = (Object.keys(WAYS) as (keyof typeof WAYS)[]).filter((w) => o[w] !== undefined);
   if (ways.length > 2) return "give at most two of up, down, left and right";
   const find = (w: keyof typeof WAYS) => atomNamed(mol, o[w]!);
@@ -743,7 +758,8 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   // Every compound read first, so nothing is drawn when one of them cannot be.
   const structured = (t: string) => /^structure:/i.test(t);
   const lines = a.steps.map(stepLines);
-  const all = [...a.start, ...a.steps.flatMap((s, k) => [...s.products, ...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t) => ({ text: t.replace(/^structure:\s*/i, "") }))])];
+  // In the order they are drawn: each step's structures over and under its arrow, then its products.
+  const all = [...a.start, ...a.steps.flatMap((s, k) => [...[...lines[k].above, ...lines[k].below].map(([t]) => t).filter(structured).map((t) => ({ text: t.replace(/^structure:\s*/i, "") })), ...s.products])];
   const { ok, failed, wrong } = await read(host, all);
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
@@ -1214,7 +1230,7 @@ type TlcIn = { lanes?: number; spots?: SpotIn[]; rf?: boolean; origin?: number; 
 type HeadSizeIn = "large" | "medium" | "small" | { length: number; centre: number; width: number };
 type ArrowIn = { kind?: string; style?: LineStyle | "plain"; start?: Head; end?: Head; head?: HeadShape; head_size?: HeadSizeIn; bend?: number; ratio?: number; shaft?: number; line_width?: number; fill?: CurveFill | "none"; orbital_shape?: OrbitalShape; orbital_phase?: Phase; colour?: string };
 type ShapeIn = { dashed?: boolean; bold?: boolean; fill?: "solid" | "shaded" | "faded" | "none"; shadow?: boolean; mark?: string; radius?: number; line_width?: number; bracket_side?: "left" | "right" | "both"; usage?: BracketUsage; bracket_label?: string; shade_depth?: number; shade_blur?: number; shade_opacity?: number; table?: TableIn; tlc?: TlcIn; png?: string; rgroup?: string; colour?: string };
-type Edit = { ids: string[]; runs?: RunIn[]; box?: number[]; label?: string; charge?: number; isotope?: number; radical?: (typeof RADICALS)[number]; lone_pairs?: number; bars?: boolean; enhanced?: string; atom_number?: string; hidden?: boolean; chemical?: boolean; label_angle?: number; query?: QueryIn;
+type Edit = { ids: string[]; runs?: RunIn[]; box?: number[]; ignore_warnings?: boolean; label?: string; charge?: number; isotope?: number; radical?: (typeof RADICALS)[number]; lone_pairs?: number; bars?: boolean; enhanced?: string; atom_number?: string; hidden?: boolean; chemical?: boolean; label_angle?: number; query?: QueryIn;
   bond?: BondKind; position?: "left" | "centre" | "right" | "auto"; spacing?: number; topology?: "ring" | "chain" | "either" | "none"; reaction_centre?: NonNullable<Mol["bonds"][number]["rxn"]> | "none"; bond_query?: "any" | "sd" | "sa" | "da" | "none";
   highlight?: string; ring_fill?: string; rotate?: number; scale?: number; flip?: "horizontal" | "vertical"; perspective?: boolean; stereo_labels?: boolean; atom_numbers?: boolean; aromatic_circles?: boolean;
   text?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; align?: Caption["align"] | Atom["align"] | "auto"; width?: number; line_height?: "auto" | "variable" | number; arrow?: string; side?: "above" | "below";
@@ -1314,7 +1330,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
     const bond = bondOf(m, id, host), atom = bond === undefined ? atomOf(m, id, host) : undefined, structure = atom === undefined && bond === undefined ? structureOf(m, id, host) : undefined;
     const n = Number(/^[tac](\d+)$/.exec(id)?.[1]), caption = m.captions?.find((c) => c.id === n && id.startsWith("t")), arrow = m.arrows?.find((x) => x.id === n && id.startsWith("a")), shape = m.shapes?.find((x) => x.id === Number(/^b(\d+)$/.exec(id)?.[1]));
     if (atom !== undefined) {
-      const use = fits(id, ["label", "runs", "charge", "isotope", "radical", "lone_pairs", "bars", "enhanced", "align", "colour", "highlight", "atom_number", "hidden", "chemical", "label_angle", "query", "scale", "ring_fill", ...STYLE]);
+      const use = fits(id, ["label", "runs", "charge", "isotope", "radical", "lone_pairs", "bars", "enhanced", "align", "colour", "highlight", "atom_number", "hidden", "chemical", "label_angle", "query", "scale", "ring_fill", "ignore_warnings", ...STYLE]);
       if (use.includes("label") && a.label!.trim()) m = setLabel(m, atom, clean(a.label!));
       if (use.includes("runs") && runs) { const t = plain(runs); m = setLabel(m, atom, t); m = { ...m, atoms: m.atoms.map((x, k) => (k === atom ? { ...x, text: t, runs } : x)) }; }
       const change: Partial<Atom> = textOf(use);
@@ -1329,6 +1345,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("hidden")) change.hidden = or(a.hidden, true as const);
       if (use.includes("chemical")) change.chemical = a.chemical ? undefined : false;
       if (use.includes("label_angle")) change.labelAngle = a.label_angle || undefined;
+      if (use.includes("ignore_warnings")) change.ignoreWarnings = or(a.ignore_warnings, true as const);
       if (use.includes("query")) {
         const q = a.query!, query: AtomQuery = { ...(q.substituents ? { subst: { kind: q.substituents, n: q.n ?? 0 } } : {}), ...(q.no_h ? { noH: true as const } : {}), ...(q.rings ? { rings: q.rings } : {}), ...(q.unsaturation ? { unsat: q.unsaturation } : {}), ...(q.change ? { change: true as const } : {}), ...(q.stereo ? { stereo: q.stereo } : {}), ...(q.valence ? { valence: true as const } : {}) };
         change.query = Object.keys(query).length ? query : undefined;
@@ -1340,7 +1357,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("scale")) scaled.atoms.add(atom);
       if (use.includes("ring_fill")) filled.add(atom);
     } else if (bond !== undefined) {
-      const use = fits(id, ["bond", "colour", "highlight", "position", "spacing", "topology", "reaction_centre", "bond_query"]);
+      const use = fits(id, ["bond", "colour", "highlight", "position", "spacing", "topology", "reaction_centre", "bond_query", "ignore_warnings"]);
       if (use.includes("bond")) m = setBondSpec(m, bond, BONDS[a.bond!].spec);
       const change: Partial<Mol["bonds"][number]> = {};
       if (use.includes("colour")) change.colour = ink;
@@ -1350,16 +1367,18 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       if (use.includes("topology")) change.topology = a.topology === "none" ? undefined : a.topology;
       if (use.includes("reaction_centre")) change.rxn = a.reaction_centre === "none" ? undefined : a.reaction_centre;
       if (use.includes("bond_query")) change.query = a.bond_query === "none" ? undefined : a.bond_query;
+      if (use.includes("ignore_warnings")) change.ignoreWarnings = or(a.ignore_warnings, true as const);
       m = { ...m, bonds: m.bonds.map((b, k) => (k === bond ? { ...b, ...change } : b)) };
     } else if (structure) {
-      const use = fits(id, ["structure", "number", "colour", "highlight", "ring_fill", "rotate", "scale", "flip", "perspective", "stereo_labels", "atom_numbers", "aromatic_circles", ...STYLE]), set = new Set(structure);
+      const use = fits(id, ["structure", "number", "colour", "highlight", "ring_fill", "rotate", "scale", "flip", "perspective", "stereo_labels", "atom_numbers", "aromatic_circles", "ignore_warnings", ...STYLE]), set = new Set(structure);
       const each: Partial<Atom> = textOf(use);
       if (use.includes("colour")) each.colour = ink;
       if (use.includes("highlight")) each.halo = halo;
       if (use.includes("perspective")) each.shade = or(a.perspective, true as const);
       if (use.includes("stereo_labels")) each.cip = or(a.stereo_labels, true as const);
       if (use.includes("aromatic_circles")) each.circle = or(a.aromatic_circles, true as const);
-      m = { ...m, atoms: m.atoms.map((x, k) => (set.has(k) ? { ...x, ...each, ...(use.includes("atom_numbers") ? { number: a.atom_numbers ? String(structure.indexOf(k) + 1) : undefined } : {}) } : x)), bonds: m.bonds.map((b) => (set.has(b.atoms[0]) && set.has(b.atoms[1]) ? { ...b, ...(use.includes("colour") ? { colour: ink } : {}), ...(use.includes("highlight") ? { halo } : {}) } : b)) };
+      if (use.includes("ignore_warnings")) each.ignoreWarnings = or(a.ignore_warnings, true as const);
+      m = { ...m, atoms: m.atoms.map((x, k) => (set.has(k) ? { ...x, ...each, ...(use.includes("atom_numbers") ? { number: a.atom_numbers ? String(structure.indexOf(k) + 1) : undefined } : {}) } : x)), bonds: m.bonds.map((b) => (set.has(b.atoms[0]) && set.has(b.atoms[1]) ? { ...b, ...(use.includes("colour") ? { colour: ink } : {}), ...(use.includes("highlight") ? { halo } : {}), ...(use.includes("ignore_warnings") ? { ignoreWarnings: or(a.ignore_warnings, true as const) } : {}) } : b)) };
       if (use.includes("rotate") && a.rotate) m = rotateAtoms(m, set, a.rotate);
       if (use.includes("flip")) m = flipAtoms(m, set, a.flip!, false);
       if (use.includes("scale")) structure.forEach((i) => scaled.atoms.add(i));
@@ -1522,6 +1541,26 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   await host.settle();
   const dialog = /dialog$|^(save|save_as|print|export|atom_properties|bond_properties|bracket_properties|document|page_setup|experiment_details|insert_|properties$|arrow\.(above|below))/.test(id);
   return ran ? { text: `Ran ${id}.${dialog ? " Octet shows its dialog, or a box to type in: the user finishes it." : ""}` } : { text: `Octet cannot run ${id} now.`, error: true };
+}
+
+// place_template: a library template by name (or by a word it is found by), placed by the Template tool's own code
+// (edit.ts addTemplate): on an atom or bond, or below what is drawn and then where placing puts it.
+async function placeTemplate(host: Host, a: { name: string; set?: string; on?: string }): Promise<Result> {
+  await host.ready();
+  const low = (t: string) => t.trim().toLowerCase(), sets = a.set ? LIBRARY.filter((c) => low(c.name) === low(a.set!)) : LIBRARY;
+  if (!sets.length) return { text: `The library has no set ${a.set}. Its sets: ${LIBRARY.map((c) => c.name).join(", ")}.`, error: true };
+  const items = sets.flatMap((c) => c.items), want = low(a.name);
+  const item = items.find((t) => low(t.name) === want) ?? items.find((t) => t.also?.split(",").some((w) => low(w) === want));
+  if (!item) {
+    const near = items.filter((t) => low(t.name).includes(want) || t.also?.toLowerCase().includes(want)).slice(0, 8).map((t) => t.name);
+    return { text: `The library has no template ${a.name}.${near.length ? ` Near: ${near.join(", ")}.` : ""}`, error: true };
+  }
+  let m = host.doc();
+  const bond = a.on !== undefined ? bondOf(m, a.on, host) : undefined, atom = a.on !== undefined && bond === undefined ? atomOf(m, a.on, host) : undefined;
+  if (a.on !== undefined && bond === undefined && atom === undefined) return { text: `No atom or bond ${a.on}.`, error: true };
+  m = host.set(addTemplate(m, item.mol, bond !== undefined ? { bond } : atom !== undefined ? { atom } : { point: origin(host, m) }));
+  await host.settle();
+  return { text: `Placed ${item.name} from ${item.category}.${UNDO}` };
 }
 
 async function addFile(host: Host, a: { text: string }): Promise<Result> {
@@ -1919,7 +1958,9 @@ function layoutCheck(host: Host, m: Mol): Check {
   return { ...(overlaps.length ? { overlaps: overlaps.slice(0, 20) } : {}), ...(off.length ? { off_page: off.slice(0, 20) } : {}), ...(on.length ? { text_on_bonds: on } : {}), ...(clash.length ? { labels_overlap: clash } : {}), ...(edges.length ? { on_shape_edges: edges } : {}) };
 }
 // Every warning's text: Octet's chemical warnings, then the layout's.
-const warningTexts = (host: Host, m: Mol) => [...host.problems().map((p) => p.message), ...layoutWarnings(host, m).map((w) => w.message)];
+// (A problem on an object with Display Warnings off is hidden in the window, so it is not a warning here either.)
+const shownProblems = (host: Host) => host.problems().filter((p) => !p.hidden);
+const warningTexts = (host: Host, m: Mol) => [...shownProblems(host).map((p) => p.message), ...layoutWarnings(host, m).map((w) => w.message)];
 
 // ---- A step's conditions as data (3b) ----
 
@@ -2013,7 +2054,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   const free = (m.captions ?? []).filter((c) => !c.on && !c.cycle && !(c.bold && c.under) && !inReactions.has(c.id) && keep(`t${c.id}`)).map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)] }));
   const arrows = (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) }));
   const warnings: { message: string; structure?: string; ids?: string[]; fix?: string }[] = [
-    ...host.problems().map((p) => ({ message: p.message, structure: p.atom !== undefined ? idOf([p.atom]) : undefined, ...(p.atom !== undefined ? { atom: atomId(p.atom) } : {}), ...(p.fix ? { fix: p.fix.label } : {}) })),
+    ...shownProblems(host).map((p) => ({ message: p.message, structure: p.atom !== undefined ? idOf([p.atom]) : undefined, ...(p.atom !== undefined ? { atom: atomId(p.atom) } : {}), ...(p.fix ? { fix: p.fix.label } : {}) })),
     ...layoutWarnings(host, m),
   ];
   // A compound number on two structures (as ChemDraw numbers them, each is the drawing's own).
