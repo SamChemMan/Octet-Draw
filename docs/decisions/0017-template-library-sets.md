@@ -130,7 +130,8 @@ one list, the drawings after Paddlewheels.
 
 - The library has a switch under its search field: Structures or Clip art. Each shows its own sets. Clip art is Lab and
   the drawn sets (a set whose templates have no atoms, `library.ts` ART_SETS); every other set is Structures. The
-  user's own sets show with both.
+  user's own sets show with both. Photochemistry has no atoms either, but it is notation for schemes, so it shows with
+  the structures (`library.ts` NOTATION_SETS).
 - It opens on the kind of the template in hand: a flask chosen last time opens Clip art, on its set. With a ring in
   hand, the Ring tool's library opens Structures.
 - Search looks in both kinds. Its results show in two groups, Structures and Clip art, each under its name, the kind the
