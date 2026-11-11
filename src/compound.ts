@@ -9,6 +9,7 @@ import { bend, bondedTo, bondIndex, bondOrders, bondTo, deleteAtoms, deleteBond,
 import { GROUPS, isElement, isGeneric, labelSmiles } from "./labels.ts";
 import { classes, expandWithOrigins, labelHits, parseStructure, stereoFacts, stereoLabels, toInchiKey, toMolfile, toSmiles } from "./chem.ts";
 import { problems } from "./check.ts";
+import { NAMED, TO, WITH } from "./named.ts";
 import { hydrogens, type Mol } from "./render.ts";
 
 // One change: a group for a group ({ swap: { OBn: "OTES" } }, with occurrence when the group is there more than once,
@@ -611,8 +612,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     }
   };
   const protect = (name: string, group: string | undefined, ats: number[]) => (DIOL.includes(group!) ? (ats.length === 2 ? bridge(group!, ats[0], ats[1]) : `${group} takes at: the two atoms that carry a diol's hydroxyls ('4-5')`) : PG.includes(group!) ? chosen(name, free(group!, false), ats) : `${name} takes with: ${[...PG, ...DIOL].join(", ")}`);
-  const WITH = ["protect", "deprotect", "esterify", "hydroborate", "open_epoxide", "join"], TO = ["close", "join"];
-  const DO: Record<string, (c: Change, ats: number[]) => string | undefined> = {
+  const DO: Record<(typeof NAMED)[number], (c: Change, ats: number[]) => string | undefined> = {
     protect: (c, ats) => protect("protect", c.with, ats),
     deprotect: (c, ats) => (DIOL.includes(c.with!) ? chosen("deprotect", bridges(c.with!), ats) : PG.includes(c.with!) ? chosen("deprotect", off(c.with!), ats) : `deprotect takes with: ${[...PG, ...DIOL].join(", ")}`),
     acetylate: (_, ats) => protect("acetylate", "Ac", ats),
@@ -685,7 +685,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const at = c.at?.trim(), lettered = at && /^[A-Z][a-z]?(\d+)$/.exec(at), on = at && (/^\d+$/.test(at) || (lettered && m.atoms.some((a) => a.tag === Number(lettered[1])))) ? atomAt(at) : undefined;
     if (typeof on === "string") return on;
     if (c.do !== undefined) {
-      if (!Object.keys(DO).includes(String(c.do))) return `${String(c.do).slice(0, 40)} is not a transformation. They are: ${Object.keys(DO).join(", ")}`;
+      if (!(NAMED as readonly string[]).includes(String(c.do))) return `${String(c.do).slice(0, 40)} is not a transformation. They are: ${NAMED.join(", ")}`;
       if (c.with !== undefined && (typeof c.with !== "string" || !c.with.trim() || c.with.length > 40)) return "with is a group's label, or a compound's number";
       // An O-H, S-H or N-H that an earlier change wrote as a label (OH) is that atom: a transformation reads atoms.
       m.atoms.forEach((x, i) => { if (x.text && /^(OH|SH|NH2?)$/.test(x.text)) m = setElement(m, i, x.label); });
@@ -695,7 +695,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       if (typeof ats === "string") return ats;
       // A transformation says what it does at a centre (a group goes on or comes off an O; a centre is made or goes),
       // so the reply has no word on a centre that keeps its configuration, as it has for set, add and remove.
-      const had = new Set(was.filter((_, i) => hit[i])), wrong = DO[c.do](c, ats);
+      const had = new Set(was.filter((_, i) => hit[i])), wrong = DO[c.do as (typeof NAMED)[number]](c, ats);
       hit = was.map((w) => had.has(w));
       return wrong;
     }
