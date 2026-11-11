@@ -2391,6 +2391,10 @@ export function orbitalPaths(a: Arrow, k: number): { path: P[]; second: boolean 
     }
   }
 }
+// An orbital's outline (px): its width, at the bold width when bold, and its dashes when dashed, as a shape's (0.2 bond
+// lengths on and off). Both follow the orbital's scale.
+export const orbitalLine = (a: Pick<Arrow, "style" | "scale">, s: Style) =>
+  ({ width: (a.style === "bold" ? s.bold : s.line) * scaleOf(a), dash: a.style === "dashed" ? 0.2 * s.bond * scaleOf(a) : undefined });
 
 // A TLC plate's layout (drawing units): its box, the origin and solvent front heights, each lane's middle, and
 // where a spot of a given Rf sits.

@@ -118,6 +118,7 @@ assert.deepEqual(said(addArrow(ch2o, { kind: "curved", from: [1.3, 0.3], to: [0.
 assert.deepEqual(said(addArrow(ch2o, { kind: "fishhook", from: [5, 5], to: [6, 5] })[0], { formulas: false }).filter(([role]) => role !== "structure"), [["fishhook arrow", "Fishhook"]]);
 assert.deepEqual(said(addArrow({ atoms: [], bonds: [] }, { kind: "line", from: [0, 0], to: [2, 0], style: "dashed" })[0]), [["shape", "Dashed line"]]);
 assert.deepEqual(said(addArrow({ atoms: [], bonds: [] }, { kind: "orbital", from: [0, 0], to: [1, 0], orbital: { shape: "p", phase: "shaded" } })[0]), [["shape", "p orbital, shaded"]]);
+assert.deepEqual(said(addArrow({ atoms: [], bonds: [] }, { kind: "orbital", from: [0, 0], to: [1, 0], orbital: { shape: "d", phase: "plain" }, style: "dashed" })[0]), [["shape", "d orbital, dashed"]]);
 const plate = addShape({ atoms: [], bonds: [] }, { kind: "tlc", from: [0, 0], to: [3, 4], tlc: { lanes: 2, spots: [{ lane: 0, rf: 0.6 }, { lane: 0, rf: 0.3 }, { lane: 1, rf: 0.45 }] } })[0];
 assert.deepEqual(said(plate), [["shape", "TLC plate, two lanes, three spots", "Lane 1: Rf 0.3, 0.6. Lane 2: Rf 0.45"]]);
 const table = addShape({ atoms: [], bonds: [] }, { kind: "table", from: [0, 0], to: [4, 2], table: { cells: [["Entry", "Yield"], ["1", "85%"]] } })[0];

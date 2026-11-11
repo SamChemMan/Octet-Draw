@@ -95,7 +95,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -7664,8 +7664,10 @@ export default function Editor() {
       if (what === "closed") return each((a) => (a.curve ? { curve: { ...a.curve, closed: !a.curve.closed || undefined }, ...(a.curve.closed ? { fill: undefined } : {}) } : {}));
       if (what === "fill") return each((a) => (a.curve?.closed || a.kind === "block" ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
       // A style chip sets it; the arrows' Dashed line action turns dashes on and off. Heads set by hand double as
-      // the line goes bold and halve as it stops being bold, as in ChemDraw (a kind's own size follows by itself).
+      // the line goes bold and halve as it stops being bold, as in ChemDraw (a kind's own size follows by itself). An
+      // orbital's line is only plain, dashed or bold (Curves > Double leaves it).
       if (what === "style") return each((a) => {
+        if (isOrbital(a) && arg !== "plain" && arg !== "dashed" && arg !== "bold") return {};
         const style = arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]);
         const k = (style === "bold") === (a.style === "bold") ? 1 : style === "bold" ? 2 : 0.5, h = a.headSize;
         return { style, ...(h && k !== 1 ? { headSize: { length: h.length * k, centre: h.centre * k, width: h.width * k } } : {}) };
@@ -8847,8 +8849,8 @@ export default function Editor() {
         ))}
         {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
           const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
-          const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
-          return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={lined(a.width).line * scaleOf(a)} />;
+          const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)", line = orbitalLine(a, lined(a.width));
+          return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={line.width} strokeDasharray={line.dash} />;
         }))}
       </g>
     );
