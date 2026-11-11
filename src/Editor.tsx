@@ -591,8 +591,8 @@ export default function Editor() {
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
   const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
-    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
+    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit }),
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -5830,7 +5830,7 @@ export default function Editor() {
     structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
-    bottom: (id) => { const p = placed.find((x) => x.id === id); return p && -p.box[3] / L; },
+    captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
     captionSize: style.captionSize, perPt: pt / L, experiment: expPage,
   }) : []; }, [loaded, namesLoaded, doc, drawing, placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5864,7 +5864,7 @@ export default function Editor() {
     if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
     if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
     if (row.product !== c.product && row.product !== undefined) return { text: "" };
-    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass") };
+    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass"), typed: c.typed.mass !== undefined };
     if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
     if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
     if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
@@ -5893,7 +5893,9 @@ export default function Editor() {
   // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
   // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
   // others (they are four ways to say how much); a product's equivalents are its coefficient. Limiting? sets the
-  // limiting reactant.
+  // limiting reactant. A product's Expected mass is the mass wanted, kept as its mass (issue 136). One value sets the
+  // scale: the mass wanted clears the reactants' amounts and another product's mass wanted, and a reactant's amount
+  // clears it.
   function commitGridCell(typed: string) {
     const w = gridEdit, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
@@ -5906,12 +5908,17 @@ export default function Editor() {
       const typed = { ...(g.typed[w.key] ?? {}) };
       if (!text.trim()) delete typed[field0];
       else {
-        const fields: Field[] = w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
-        const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
-        const value = field && parseAmount(text, field);
+        const target = w.product && row.id === "expected", fields: Field[] = target ? ["mass"] : w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
+        const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && !target && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
+        const value = field && parseAmount(text, field, settings.massUnit);
         if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info"); return {}; }
         if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
         typed[field] = value;
+        const amount = (fd: string) => ["mass", "moles", "volume"].includes(fd);
+        if (target || (!w.product && amount(field))) {
+          const others = Object.fromEntries(Object.entries(g.typed).map(([k, t]) => [k, Object.fromEntries(Object.entries(t).filter(([fd]) => (k[0] === "p" ? fd !== "mass" : !target || !amount(fd))))]));
+          return { typed: { ...others, [w.key]: typed } };
+        }
       }
       return { typed: { ...g.typed, [w.key]: typed } };
     });
@@ -8826,7 +8833,7 @@ export default function Editor() {
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (gc && gc.row === "limiting") { if (!gc.product) changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
-          if (gc && !["name", "formula", "mw", "expected", "expectedMoles", "yield"].includes(gc.row)) {
+          if (gc && !["name", "formula", "mw", "expectedMoles", "yield"].includes(gc.row) && (gc.row !== "expected" || gc.product)) {
             const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
             return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
           }

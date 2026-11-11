@@ -2,13 +2,17 @@
 // moles, equivalents, volume with density or molarity, purity) gives its moles and the rest; equivalents are relative
 // to the limiting reactant; each product's expected amount follows from the limiting reactant times the product's
 // equivalents (its coefficient, 1 unless typed, as ChemDraw's product Equivalents row), and a measured mass gives its
-// yield. Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+// yield. A product's mass typed (its Expected mass) is the mass wanted: with no reactant amount, it sets the scale
+// (issue 136). Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
 
 import type { Grid } from "./render.ts";
+import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
 export type Typed = Partial<Record<Field, number>>;
-export type Component = { key: string; mw: number; product: boolean; typed: Typed };
+// given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
+// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is).
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number };
 export type Solved = {
   mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number;
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
@@ -18,6 +22,8 @@ export type Solved = {
 export function solve(components: Component[], limiting?: string): Record<string, Solved> {
   const out: Record<string, Solved> = {};
   const reactants = components.filter((c) => !c.product), lim = reactants.find((c) => c.key === limiting) ?? reactants[0];
+  // Its equivalents: typed, else as its text gives them, else its coefficient over the limiting reactant's (issue 133).
+  const ref = lim?.coef ?? 1, given = (c: Component) => c.typed.equiv ?? c.given ?? (c.coef === undefined ? undefined : c.coef / ref);
   // A reactant's moles from what was typed: moles, mass, volume with density, or volume with molarity.
   const own = (c: Component): number | undefined => {
     const t = c.typed, purity = t.purity ?? 1;
@@ -29,17 +35,19 @@ export function solve(components: Component[], limiting?: string): Record<string
   };
   let limMoles = lim ? own(lim) : undefined;
   // With the limiting reactant's amount unknown, another reactant with an amount and equivalents fixes it.
-  if (limMoles === undefined) for (const c of reactants) { const m = own(c); if (m !== undefined && c.typed.equiv) { limMoles = m / c.typed.equiv; break; } }
+  if (limMoles === undefined) for (const c of reactants) { const m = own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
+  // With no reactant amount, a product's mass wanted fixes it.
+  if (limMoles === undefined) for (const c of components) { const e = given(c) ?? 1; if (c.product && c.typed.mass !== undefined && c.mw > 0 && e > 0) { limMoles = c.typed.mass / c.mw / e; break; } }
   for (const c of reactants) {
     const t = c.typed, purity = t.purity ?? 1;
     let moles = own(c);
-    if (moles === undefined && limMoles !== undefined) moles = limMoles * (c === lim ? 1 : t.equiv ?? 1);
+    if (moles === undefined && limMoles !== undefined) moles = limMoles * (c === lim ? 1 : given(c) ?? 1);
     const mass = moles !== undefined && c.mw > 0 ? (moles * c.mw) / purity : t.mass;
     const volume = t.volume ?? (mass !== undefined && t.density ? mass / t.density : moles !== undefined && t.molarity ? (moles / t.molarity) * 1000 : undefined);
-    out[c.key] = { moles, mass, volume, purity, density: t.density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : t.equiv };
+    out[c.key] = { moles, mass, volume, purity, density: t.density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : given(c) };
   }
   for (const c of components.filter((x) => x.product)) {
-    const purity = c.typed.purity ?? 1, equiv = c.typed.equiv ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
+    const purity = c.typed.purity ?? 1, equiv = given(c) ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
     const productMoles = c.typed.measured !== undefined && c.mw > 0 ? (c.typed.measured * purity) / c.mw : undefined;
     out[c.key] = { purity, equiv, expectedMoles, expectedMass, measured: c.typed.measured, productMoles, yield: productMoles !== undefined && expectedMoles ? productMoles / expectedMoles : undefined };
   }
@@ -58,13 +66,14 @@ const UNITS: Record<Field, Record<string, number>> = {
   purity: { "%": 0.01 },
 };
 // A typed amount in base units: "250 mg", "1.2 eq", "0.5 mL", "98%". A bare number is taken in the field's usual unit
-// (mg, mmol, mL, g/mL, M, eq, %). Undefined when it is not a finite number of 0 or more, with a unit the field takes.
-// Greek mu (μ, as \mu types it) is the micro sign.
-export function parseAmount(text: string, field: Field): number | undefined {
+// (mmol, mL, g/mL, M, eq, %; a mass in g as ChemDraw takes it, or in mg as Settings > Typing can say, issue 134).
+// Undefined when it is not a finite number of 0 or more, with a unit the field takes. Greek mu (μ, as \mu types it) is
+// the micro sign.
+export function parseAmount(text: string, field: Field, mass: "g" | "mg" = "g"): number | undefined {
   const m = /^\s*(\d+(?:\.\d+)?|\.\d+)(?:e([+-]?\d+))?\s*([a-zA-Zµ%/0-9]*)\s*$/.exec(text.replace(",", ".").replace(/\u03bc/g, "µ"));
   if (!m) return undefined;
   const value = Number(m[1]) * 10 ** Number(m[2] ?? 0), unit = m[3], units = UNITS[field];
-  const plain: Record<Field, string> = { mass: "mg", measured: "mg", moles: "mmol", volume: "mL", density: "g/mL", molarity: "M", equiv: "eq", purity: "%" };
+  const plain: Record<Field, string> = { mass, measured: mass, moles: "mmol", volume: "mL", density: "g/mL", molarity: "M", equiv: "eq", purity: "%" };
   const k = unit === "" ? units[plain[field]] : units[unit];
   return k === undefined || !(value >= 0) || !Number.isFinite(value * k) ? undefined : value * k;
 }
@@ -105,6 +114,17 @@ export function reagentName(text: string): string {
   }
   return t;
 }
+// A number in front of a reagent's name ("2 HCl", "0.5 H2") or on its own ("2", before a structure in a scheme): the
+// text after it and the number, as a coefficient (issue 133). The text and undefined when there is none.
+export function coefficient(text: string): [string, number | undefined] {
+  const m = /^(\d+(?:\.\d+)?)(?:\s+(?=\S)|\s*$)/.exec(text);
+  return m ? [text.slice(m[0].length), Number(m[1]) || undefined] : [text, undefined];
+}
+// The equivalents a reagent's text gives: "K2CO3 (2 eq.)", "1.5 equiv NaBH4", "Pd(PPh3)4 (5 mol%)". Undefined if none.
+export function reagentEquiv(text: string): number | undefined {
+  const m = /\b(\d+(?:\.\d+)?)\s*(eq(?:uiv)?\.?|mol\s?%)/i.exec(text);
+  return m ? Number(m[1]) * (m[2].endsWith("%") ? 0.01 : 1) : undefined;
+}
 // A line of conditions as its items: split at commas, semicolons and line breaks outside brackets, so
 // "toluene/EtOH/H2O (4:1:1, 30 mL)" stays one item.
 export function conditionItems(text: string): string[] {
@@ -125,17 +145,35 @@ const GROUPS: [RegExp, string][] = [
   [/OAc/g, "(C2H3O2)"], [/OTf/g, "(CF3SO3)"], [/OTs/g, "(C7H7SO3)"], [/OMe/g, "(OCH3)"], [/OEt/g, "(OC2H5)"], [/tBu/g, "(C4H9)"], [/iPr/g, "(C3H7)"], [/nBu|Bu/g, "(C4H9)"],
   [/Ph/g, "(C6H5)"], [/Bn/g, "(C7H7)"], [/Bz/g, "(C7H5O)"], [/Ts/g, "(C7H7SO2)"], [/Tf/g, "(CF3SO2)"], [/Cp/g, "(C5H5)"], [/Ac/g, "(C2H3O)"], [/Me/g, "(CH3)"], [/Et/g, "(C2H5)"], [/Pr/g, "(C3H7)"],
 ];
+// Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
+let abbreviated: Map<string, string> | undefined;
+const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
+// Words for what a formula says (issue 132). A Map, so "constructor" is not one.
+const WORDS = new Map([["proton", "H+"], ["hydroxide", "OH−"], ["hydronium", "H3O+"], ["hydride", "H−"], ["water", "H2O"]]);
+// A formula and the charge at its end, raised: H+ is H and ⁺, OH− is OH and ⁻, SO4 2− and SO42− are SO4 and ²⁻, Fe³⁺
+// is Fe and ³⁺ (issue 132). Digits before the sign are the charge's when set apart or raised, after one element (Cu2+)
+// or after another digit (SO42−), else the formula's (NH4+, H3O+). With no charge, the text and "". The gap and the
+// digits are short, so long text takes no longer than its length.
+const RAISED: Record<string, string> = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "−": "⁻" };
+function charged(text: string): [string, string] {
+  const m = /^(.+?)(\s?\^?)(\d{0,3}|[⁰¹²³⁴⁵⁶⁷⁸⁹]{0,3})([+\-−⁺⁻])$/.exec(text);
+  if (!m) return [text, ""];
+  const [, base, gap, n, sign] = m, own = !gap && /^\d+$/.test(n) && !/^[A-Z][a-z]?$/.test(base) ? n.slice(0, n.length > 1 ? -1 : undefined) : "";
+  return [base + own, [...n.slice(own.length) + sign].map((ch) => RAISED[ch] ?? ch).join("")];
+}
 // A reagent's formula and molar mass as the reagent table takes it (Editor.tsx gridViews): an acronym (NBS,
-// DMF, THF: capitals, no digits) as Name to Structure reads it; else the formula as written, its groups written out;
-// else Name to Structure's reading; else an atom label's. read: a name to SMILES; label: a label to SMILES; weigh:
-// SMILES to its formula and weight. Undefined when none reads it.
+// DMF, THF: capitals, no digits) as Octet's abbreviations or Name to Structure read it; else the formula as written,
+// its groups written out, with any charge (H+, OH−; its mass the formula's); else the abbreviations' or Name to
+// Structure's reading; else an atom label's, so THF is never read as tritium fluoride. Proton, hydroxide, hydronium,
+// hydride and water read as their formulas. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI
+// to its formula and weight. Undefined when none reads it.
 export function reagentFormula(text: string, read: (name: string) => string | undefined, label: (text: string) => string | undefined, weigh: (smiles: string) => { formula: string; weight: number } | undefined): { formula: string; weight: number } | undefined {
-  const plain = reagentName(text).replace(/^\d+\s+(?=\S)/, ""), named = () => { const s = read(plain); return s ? weigh(s) : undefined; };
+  const said = coefficient(reagentName(text))[0], plain = WORDS.get(said.toLowerCase()) ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
   // A mixture (toluene/EtOH/H2O) is not one compound: it has no formula of its own.
   if (/[\w)]\s*\/\s*[\w(]/.test(plain)) return undefined;
   if (/^[A-Z]{2,6}$/.test(plain)) { const n = named(); if (n) return n; }
-  const written = /^[A-Za-z0-9()[\]·.\s]+$/.test(plain) ? GROUPS.reduce((t, [g, f]) => t.replace(g, f), plain) : undefined, w = written ? formulaWeight(written) : undefined;
-  if (w !== undefined) return { formula: plain.replace(/\s+/g, ""), weight: w };
+  const [body, charge] = charged(plain), written = /^[A-Za-z0-9()[\]·.\s]+$/.test(body) ? GROUPS.reduce((t, [g, f]) => t.replace(g, f), body) : undefined, w = written ? formulaWeight(written) : undefined;
+  if (w !== undefined) return { formula: body.replace(/\s+/g, "") + charge, weight: w };
   const n = named();
   if (n) return n;
   const s = label(plain);

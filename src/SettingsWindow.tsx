@@ -25,7 +25,7 @@ export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance
 // and ChemDraw's other preferences that change the drawing or what opening a file gives (settings.ts, CH-34).
 export type DrawingPrefs = {
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; pairBars: boolean;
-  autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles";
+  autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles"; massUnit: "g" | "mg";
 };
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent" | "page"; margin: number; quality: number; // JPEG, 1 to 100
@@ -551,6 +551,10 @@ export function SettingsWindow(p: Props) {
       // The same for atom labels, where ChemDraw asks for Option-Return unless told otherwise.
       d("keys", "Typing", "New line in labels", "atom label text new line return enter option", (
         <Select label="New line in labels" value={p.labelReturnNewLine ? "return" : "option"} options={[["option", "⌥ Return"], ["return", "Return"]]} onChange={(v) => p.onLabelReturnNewLine(v === "return")} />
+      )),
+      // A number typed with no unit in a stoichiometry table's mass cell: grams, as ChemDraw takes it, or milligrams.
+      d("keys", "Typing", "Mass without a unit", "stoichiometry table mass unit number grams milligrams g mg", (
+        <Select label="Mass without a unit" value={p.drawing.massUnit} options={[["g", "Grams"], ["mg", "Milligrams"]]} onChange={(v) => p.onDrawing({ massUnit: v === "mg" ? "mg" : "g" })} />
       )),
       // The menu commands' shortcuts, as the menus show them (fixed, as ChemDraw's), so a search finds them here too.
       ...p.menuKeys.map(([name, keys]) => d("keys", "Menu commands", name, `${name} menu command shortcut ${keys}`, <kbd className="menu-key">{keys}</kbd>)),
