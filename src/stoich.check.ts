@@ -220,4 +220,25 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(g.typed, { "r:C2H6O": { mass: 0.25 }, 'r:"K2CO3"': { equiv: 2 }, "p:C4H8O2": { measured: 0.3 } });
   assert.equal(formatAmount(g.typed["r:C2H6O"].mass, "mass"), "250 mg");
 }
+// Issue 136: a product's Expected mass typed is the mass wanted, kept as its mass. With no reactant amount it sets the
+// scale: 5 g of C (MW 50) is 0.1 mol, so 0.1 mol of A (10 g) and B at 2 eq. (0.8 g/mL: 2 g, 2.5 mL); by A → 2 C,
+// 0.05 mol of A. A reactant's amount wins. Octet 1.1.1 reads the grid (a mass on any column) and leaves the target out.
+{
+  const a = { key: "r:A", mw: 100, product: false, typed: {} }, b = { key: "r:B", mw: 10, product: false, typed: { equiv: 2, density: 0.8 } }, c = { key: "p:C", mw: 50, product: true, typed: { mass: 5 } };
+  const s = solve([a, b, c]);
+  near(s["r:A"].moles, 0.1, "the limiting reactant's moles");
+  near(s["r:A"].mass, 10, "its mass");
+  near(s["r:B"].mass, 2, "B's mass");
+  near(s["r:B"].volume, 2.5, "B's volume");
+  near(s["p:C"].expectedMass, 5, "the mass wanted");
+  near(solve([a, { ...c, typed: { mass: 5, equiv: 2 } }])["r:A"].moles, 0.05, "A → 2 C");
+  near(solve([{ ...a, coef: 1 }, { ...c, coef: 2 }])["r:A"].moles, 0.05, "A → 2 C, written in the scheme");
+  near(solve([{ ...a, typed: { mass: 1 } }, c])["p:C"].expectedMass, 0.5, "a reactant's amount wins");
+  const m: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, typed: { "p:C": { mass: 5 } } }] };
+  assert.deepEqual(parse(serialize(m)).grids![0].typed, { "p:C": { mass: 5 } }, "kept in Octet's file");
+  assert.deepEqual(fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.grids![0].typed, { "p:C": { mass: 5 } }, "and in CDXML");
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /if \(row\.id === "expected"\) return \{ text: formatAmount\(s\?\.expectedMass, "mass"\), typed: c\.typed\.mass !== undefined \};/, "shown bold when typed");
+  assert.match(editor, /\(gc\.row !== "expected" \|\| gc\.product\)/, "a product's Expected mass can be typed in");
+}
 console.log("stoich.check: ok");

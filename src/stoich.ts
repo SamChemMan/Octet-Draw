@@ -2,7 +2,8 @@
 // moles, equivalents, volume with density or molarity, purity) gives its moles and the rest; equivalents are relative
 // to the limiting reactant; each product's expected amount follows from the limiting reactant times the product's
 // equivalents (its coefficient, 1 unless typed, as ChemDraw's product Equivalents row), and a measured mass gives its
-// yield. Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+// yield. A product's mass typed (its Expected mass) is the mass wanted: with no reactant amount, it sets the scale
+// (issue 136). Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
 
 import type { Grid } from "./render.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
@@ -35,6 +36,8 @@ export function solve(components: Component[], limiting?: string): Record<string
   let limMoles = lim ? own(lim) : undefined;
   // With the limiting reactant's amount unknown, another reactant with an amount and equivalents fixes it.
   if (limMoles === undefined) for (const c of reactants) { const m = own(c), e = given(c); if (m !== undefined && e) { limMoles = m / e; break; } }
+  // With no reactant amount, a product's mass wanted fixes it.
+  if (limMoles === undefined) for (const c of components) { const e = given(c) ?? 1; if (c.product && c.typed.mass !== undefined && c.mw > 0 && e > 0) { limMoles = c.typed.mass / c.mw / e; break; } }
   for (const c of reactants) {
     const t = c.typed, purity = t.purity ?? 1;
     let moles = own(c);

@@ -11,13 +11,14 @@ import type { Part, RoleStep } from "./interpret.ts";
 // The grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only once one of these
 // was typed somewhere; product: rows for products (true) or reactants (false) only. Equivalents are a product's
 // coefficient too, as ChemDraw's product column has them. Volume and Density always show for reactants, so a density
-// typed gives the volume to measure out (issue 135).
+// typed gives the volume to measure out (issue 135). A product's Expected mass can be typed, as the mass wanted, kept
+// as its mass (issue 136).
 export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
   { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "limiting", name: "Limiting?", product: false },
   { id: "equiv", name: "Equivalents", field: "equiv" }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
   { id: "volume", name: "Volume", field: "volume", product: false }, { id: "density", name: "Density", field: "density", product: false },
   { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
-  { id: "expected", name: "Expected mass", product: true }, { id: "expectedMoles", name: "Expected moles", product: true },
+  { id: "expected", name: "Expected mass", field: "mass", product: true }, { id: "expectedMoles", name: "Expected moles", product: true },
   { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
 ];
 
