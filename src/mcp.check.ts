@@ -1499,16 +1499,21 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(await call("draw", { kind: "structures", structures: [{ text: "*[Pd]*", labels: ["L"] }] })), /has 2 \* but 1 labels/);
   // C6: a label Octet reads no group in, and that stands in for none, is named in the reply of every draw that takes
   // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in
-  // (L, Ar, R1) and a label written round one (OR, NHPG) are not named. Ar stays a generic group: it is no phenyl.
+  // (L, Ar, R1) and a label written round one (OR, NHPG, OPG, CO2Alkyl) are not named. Ar stays a generic group: it is no phenyl.
   fresh();
   out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
   assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
   fresh();
-  out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }] });
+  out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }, { text: "*C(*)(*)*", labels: ["OPG", "CO2Alkyl", "HNu", "MLn"] }] });
   assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));
   const drawn = (await read()).structures.map((x: { smiles: string; formula: string }) => [x.formula, x.smiles]);
   assert.equal(drawn[0][0], "BrPd", "L and Ar count as no atoms");
   assert.ok(drawn[1][0] === "C16H25BO2" && !drawn[1][1].includes("*"), `Bpin and t-Bu are read: ${drawn[1]}`);
+  // A nitrile ligand written from its N is no amine: Octet reads no group in it, and says so (it drew PhNHEt).
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["MeCN"] }] });
+  assert.match(text(out), / Octet does not know the label NCMe: it is drawn as text\./);
+  assert.equal((await read()).structures[0].formula, "C6H5");
   for (const [tool, args] of [
     ["draw", { kind: "structures", structures: [{ molecule: { atoms: [{ label: "Xyz", x: 0, y: 0 }, { label: "OTBS", x: 1, y: 0 }], bonds: [{ from: 0, to: 1 }] } }] }],
     ["draw", { kind: "reaction", start: [{ text: "*c1ccccc1", labels: ["Xyz"] }], steps: [{ products: [{ text: "benzene" }] }] }],

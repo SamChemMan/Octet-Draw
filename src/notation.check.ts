@@ -79,9 +79,13 @@ assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATIO
   assert.match(two.refused, /Line 2: piperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first/);
   const three = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=cyclopropy (9b)" })) as { refused: string };
   assert.match(three.refused, /Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first/);
-  // A stand-in (Alkyl, Het) stays a label as L does (labels.ts standsIn): it was refused as a word Octet cannot join.
-  const four = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=Alkyl (9a) | R=Het (9b)" })) as { structures: string[] };
-  assert.deepEqual(four.structures, ["9a=undefined", "9b=undefined"]);
+  // A stand-in (Alkyl, Het) stays a label as L does (labels.ts standsIn), and so does a label written round one
+  // (CO2Alkyl, OPG): each was refused as a word Octet cannot join. The reply names none of them.
+  let said = "";
+  const four = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=Alkyl (9a) | R=Het (9b) | R=CO2Alkyl (9c) | R=OPG (9d)" }, undefined, (r) => { said = r.content[0].text; })) as { structures: string[] };
+  assert.deepEqual(four.structures, ["9a=undefined", "9b=undefined", "9c=undefined", "9d=undefined"]);
+  assert.deepEqual(d.host.doc().atoms.filter((a) => a.text).map((a) => a.text), ["Alkyl", "Het", "CO2Alkyl", "OPG"]);
+  assert.doesNotMatch(said, /does not know|cannot join/, said);
 }
 // A label Octet reads no group in is named once in the short reply of a draw by lines, in a scheme and in a scope, and
 // a label written from the left is kept from its attachment atom there too; a reply with none has no such line.

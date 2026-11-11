@@ -11,7 +11,9 @@ assert.deepEqual(units("CCl3").map((u) => [u.text, u.count ?? ""]), [["C", ""], 
 // A word Octet cannot read as elements and groups is one unit (an abbreviation it does not know), after its first
 // element when an abbreviation follows: ODMT is O and DMT, never O, D, M, T.
 for (const [label, want] of Object.entries({ ODMT: "O|DMT", DMT: "DMT", ODMTr: "O|DMTr", CH2ODMT: "C|H2|O|DMT", NPhth: "N|Phth", NHPG: "N|H|PG",
-  SEM: "SEM", OSEM: "O|SEM", PG: "PG", ONf: "O|Nf", Nu: "Nu", ALK: "ALK", "R'": "R'", OR: "O|R", NR2: "N|R2", OTBS: "O|TBS", NHBoc: "N|H|Boc" }))
+  SEM: "SEM", OSEM: "O|SEM", PG: "PG", ONf: "O|Nf", Nu: "Nu", ALK: "ALK", "R'": "R'", OR: "O|R", NR2: "N|R2", OTBS: "O|TBS", NHBoc: "N|H|Boc",
+  // A stand-in after a formula or after the word's first atom or stand-in is its own unit.
+  OPG: "O|PG", OL: "O|L", OLG: "O|LG", HNu: "H|Nu", MLn: "M|Ln", CO2Alkyl: "C|O2|Alkyl", OAlkyl: "O|Alkyl" }))
   assert.equal(units(label).map((u) => u.text + (u.count ?? "")).join("|"), want, label);
 assert.equal(anchorElement("OMe"), "O");
 assert.equal(anchorElement("Ph"), undefined);
@@ -152,7 +154,10 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
   // D or T is a letter of an abbreviation (OTPS is no tritium compound, CDI no deuterium on carbon).
   for (const label of ["Ar", "Ar1", "Ar'", "OAr", "ArO", "NHAr", "CH2Ar", "SO2Ar", "N(Ar)2", "R", "R1", "X", "OR", "NR2", "Het", "HetAr", "L", "Ln", "Alkyl", "Aryl", "EWG", "PG", "Nu", "MIV", "MII", "M(IV)", "Xyz", "ODMT", "n-Hex",
     "pin", "Spin", "B2pin2", "4-C6H4", "3,5-MeC6H3", "3,3-Me2C6H3", "1-ClC6H4", "4-ClC6H3", "4-XyzC6H4", "4-OPh", "4-SPh", "4-NPh", "4-NHPh", "4-CPh", "4-CHPh", "4-CH2Ph", "4-COPh", "4-SOPh", "4-SO2Ph", "4-OC6H4", "4-C(O)Ph",
-    "3,5-NO2C6H3", "3,4,5-CF3C6H2", "3,5-OMeC6H3", "THF", "DBU", "DCC", "TPS", "OTPS", "CDI", "PDC", "BHT", "COT", "HBTU", "T3P", "CuTC", "TS", "T3C", "CDCl3", "CH2D", "PhD", "DCl"]) assert.equal(labelSmiles(label), undefined, label);
+    "3,5-NO2C6H3", "3,4,5-CF3C6H2", "3,5-OMeC6H3", "THF", "DBU", "DCC", "TPS", "OTPS", "CDI", "PDC", "BHT", "COT", "HBTU", "T3P", "CuTC", "TS", "T3C", "CDCl3", "CH2D", "PhD", "DCl",
+    // A nitrile ligand written from its N: no amine (it was NC(C), ethylamino).
+    "MeCN", "NCMe", "NCCH3", "PhCN", "NCPh"]) assert.equal(labelSmiles(label), undefined, label);
+  assert.equal(labelSmiles("CH2CN"), "CC#N");
   for (const label of ["Ar", "Ar1", "Ar'", "Het", "HetAr", "L", "Ln", "L'", "Alkyl", "Aryl", "EWG", "EDG", "PG", "LG", "Nu", "E", "Hal", "R", "R1", "R''", "X", "ALK", "Q", "MIV", "MII", "MIII", "MX", "M(IV)", "M(0)"]) assert.ok(standsIn(label), label);
   for (const label of ["Xyz", "Ph", "Me", "ODMT", "OAr", "Arg", "Lys", "Li", "Al", "EtO", "All", "Allyl", "Mn", "Me", "MIVa", "M(IV", "MIV)", "M()"]) assert.ok(!standsIn(label), label);
   // What read before reads as before: tin, where Sn and Bu could be S and nBu; and every group's own name.

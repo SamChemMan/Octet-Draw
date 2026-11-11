@@ -19,7 +19,7 @@ import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION, written } from "./notation.ts";
-import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, unknownLabel } from "./labels.ts";
+import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles } from "./names.ts";
 import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
@@ -925,10 +925,11 @@ function unread(atoms: Atom[]): { unread?: string[] } {
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
 // SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
 // name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
-// (4-phenylpiperidine). Two N–H, and a word Octet cannot join, are refused. Undefined: it stays a label (L, Nu, dppf).
+// (4-phenylpiperidine). Two N–H, and a word Octet cannot join, are refused. Undefined: it stays a label (L, Nu, dppf,
+// and one written round a stand-in: OR, CO2Alkyl).
 function group(host: Host, v: string): Mol | string | undefined {
   const smiles = looksLikeSmiles(v);
-  if (!(smiles && /(\d).*\1/.test(v)) && (labelSmiles(v) || standsIn(v))) return undefined;
+  if (!(smiles && /(\d).*\1/.test(v)) && (labelSmiles(v) || units(v).some((u) => standsIn(u.text)))) return undefined;
   const named = host.named(v);
   if (!named && smiles) return host.structure(v);
   if (!named || /yl$/.test(v)) {

@@ -99,11 +99,15 @@ function token(rest: string): Unit {
 // reads DMTO, not TMDO). R, X and Ar are read as groups (OR, CH2X, OAr). The word's first element (not H, D or T),
 // with an H after it, is a unit of its own when what follows is an abbreviation: three letters or more, a capital and
 // a small letter (Nf), or two capitals after the H (NHPG reads PGHN). Else the whole word is one unit (SEM, BOM, PG).
+// A stand-in is one unit (Alkyl in CO2Alkyl), and so is one after the word's first atom or stand-in (OPG, HNu, MLn).
 // Undefined for a word that reads as elements and groups.
 function word(w: string): Unit[] | undefined {
   const ts: Unit[] = [];
   for (let k = 0; k < w.length; ) { const t = token(w.slice(k)); ts.push(t); k += t.text.length; }
   if (!ts.some((t) => t.kind === "other" && !/^(?:R|X|Ar)$/.test(t.text))) return undefined;
+  if (standsIn(w)) return [{ text: w, kind: "other" }];
+  const lead = ts[0].text, after = w.slice(lead.length);
+  if (((ts[0].kind === "element" && !/^[DT]$/.test(lead)) || standsIn(lead)) && standsIn(after)) return [ts[0], { text: after, kind: "other" }];
   const head = ts[0].kind === "element" && !/^[HDT]$/.test(ts[0].text) ? [ts[0], ...(ts[1]?.text === "H" ? [ts[1]] : [])] : [];
   const rest = w.slice(head.reduce((n, t) => n + t.text.length, 0));
   const ok = head.length && (rest.length >= 3 || /^[A-Z][a-z]$/.test(rest) || (head.length === 2 && /^[A-Z]{2}$/.test(rest)));
@@ -288,6 +292,9 @@ export function labelSmiles(label: string): string | undefined {
   if (FORMULAS[reverse]) return FORMULAS[reverse];
   const left = fromEnd(us);
   if (left) us = fromAtom(back);
+  // A nitrile written from its N (MeCN, NCMe, NCCH3, PhCN) is a ligand on a dative bond, which a label does not hold:
+  // Octet reads no group in it, where read on as below it would be an amine.
+  if (us[0].text === "N" && us[1]?.text === "C" && !us[0].count && !us[1].count && ((us.length === 3 && us[2].kind === "group" && !us[2].count) || written(us.slice(2)) === "CH3")) return undefined;
   // Read from its attachment atom as a condensed formula, every valence used (CH2N3 an azide, SO2Me a sulfone, CH2CN a
   // nitrile), when it can be read in one way; else left to right as below. A label written from the left needs it
   // where an O or S comes after its atom (MeO2S, Ph2(O)P, EtOC), but for the ester the reading below gets right (MeO2C).
