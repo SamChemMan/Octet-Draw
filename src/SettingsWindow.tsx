@@ -604,8 +604,8 @@ export function SettingsWindow(p: Props) {
         <Switch on={p.warningTypes[w.id] ?? w.on} label={w.name} onChange={(on) => p.onWarningTypes({ ...p.warningTypes, [w.id]: on })} />
       ))),
       d("general", "Check Structure", "Check when copying or exporting", "check structure copy export clipboard warnings", <Switch on={p.checkCopy} label="Check when copying or exporting" onChange={p.onCheckCopy} />),
-      // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
-      d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
+      // Off hides Search Reaxys, Search PubChem and the Properties panel's Find hazards everywhere (decision 0008).
+      d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline hazards ghs safety", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];

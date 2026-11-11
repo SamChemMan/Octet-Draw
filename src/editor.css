@@ -4310,9 +4310,11 @@ button.variant.add {
 .prop-row.long {
   grid-template-columns: 16px 1fr;
 }
-.prop-row.long .prop-value {
+.prop-row.long .prop-value,
+.prop-row.long .prop-links {
   grid-column: 2;
   text-align: left;
+  justify-content: flex-start;
 }
 .prop-name {
   font: 13px/18px var(--font-sans);
@@ -4333,6 +4335,66 @@ button.variant.add {
   cursor: copy;
 }
 .prop-value:hover {
+  background: var(--surface-sunken);
+}
+/* GHS pictograms (Find hazards), each structure's set apart from the next. */
+.ghs-set {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+.ghs-set + .ghs-set {
+  margin-left: var(--space-2);
+}
+.ghs {
+  width: 22px;
+  height: 22px;
+}
+.ghs path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ghs .ghs-diamond {
+  stroke: var(--error);
+  stroke-width: 6;
+}
+.ghs .ghs-solid {
+  fill: var(--ink);
+  stroke: none;
+}
+/* Hazard statements, one to a line. */
+.prop-lines {
+  display: block;
+}
+.prop-lines > span {
+  display: block;
+}
+.prop-lines + .prop-lines {
+  margin-top: var(--space-1);
+}
+/* A PubChem CID: a link to the compound's page, one for each structure. */
+.prop-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.prop-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand);
+  font: 13px/18px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.prop-link:hover {
   background: var(--surface-sunken);
 }
 .prop-check {
@@ -4381,6 +4443,7 @@ button.variant.add {
   color: var(--ink-faint);
 }
 .prop-value:focus-visible,
+.prop-link:focus-visible,
 .prop-check:focus-visible,
 .prop-add:focus-visible {
   outline: none;

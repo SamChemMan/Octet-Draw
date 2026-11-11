@@ -70,7 +70,7 @@ export type Settings = {
   stripHeight?: number; // the height (px) the user gave the spectrum strip by its top edge (plan B1.3); unset: 35% of the window
   massSpec: MsPrefs; // the Mass spec panel's mode, ion, charge state, source, calculated peak and match tolerance
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
-  onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008); off hides them everywhere
+  onlineSearch: boolean; // Search Reaxys, Search PubChem and Find hazards are offered (decision 0008); off hides them everywhere
   interpretation: boolean; // View > Show Reaction Interpretation: pointing at a reaction shows what each part of it is
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
   // 15° step (Option frees it while it is held). sproutRings: ChemDraw's "Sprout Rings Instead of Spiro When Clicking".

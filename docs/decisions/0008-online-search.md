@@ -65,3 +65,17 @@ Reaxys's website keeps its Query Builder form in the browser and, on a link, sea
 Decision 0015: with Online search on, Name to Structure asks PubChem's PUG REST service for a name or InChIKey that
 nothing offline reads, when the user presses Return. Octet makes that connection itself (`src-tauri/src/pubchem.rs`),
 with the updater's HTTPS client, to a fixed address. Only the typed text goes. Off, Octet asks nothing.
+
+## Update, 11 November 2026: Find hazards in the Properties panel
+
+Issue 116. With Online search on, the Properties panel has Find hazards. It shows each structure's GHS pictograms,
+signal word, hazard statements, precautionary statement codes, their source and the PubChem CID, which opens the
+compound's Safety and Hazards page in the browser. Octet shows the first source PubChem lists, as PubChem's own page
+does. ChemDraw's PubChem GHS LCSS add-in shows the whole LCSS page and can copy from one source or all of them.
+
+- Octet asks only when the user presses Find hazards, never on a selection change. A compound's answer is kept while
+  its window is open, so a structure found before shows its hazards again with no new request.
+- Only each structure's standard InChIKey goes to PubChem (NIH), from `src-tauri/src/pubchem.rs`, to fixed addresses:
+  PUG REST for the CID, then PUG View for the GHS Classification section. One key at a time.
+- The answer is hostile: at most 1 MB of UTF-8, read with `JSON.parse` and each value's type checked (`src/ghs.ts`).
+  No answer, or no network, shows nothing.

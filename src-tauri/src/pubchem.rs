@@ -1,15 +1,19 @@
 // Name to Structure's online step (decision 0015): when nothing offline reads a name or an InChIKey and Settings >
 // Online search is on, the page asks PubChem's PUG REST service for the structure, after the user presses Return.
 // Only the typed text goes, to a fixed address. The answer is read as hostile: at most 64 KB, and each line must be
-// SMILES and nothing else. The page reads that SMILES with its usual limits.
+// SMILES and nothing else. The page reads that SMILES with its usual limits. The Properties panel's Find hazards
+// (decision 0008) asks it for a structure's GHS classification, by the structure's standard InChIKey.
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
 const BY_NAME: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/property/SMILES/TXT";
 const BY_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/";
+const BY_CID: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/";
 const MOST_TEXT: usize = 300;
 const MOST_ANSWER: usize = 64 * 1024;
+// A compound's GHS classification: about 115 KB for ethanol or benzene, whose many sources PubChem lists.
+const MOST_HAZARDS: usize = 1024 * 1024;
 const MOST_SMILES: usize = 4000;
 pub const UNREACHED: &str = "Octet cannot reach PubChem.";
 pub const SEVERAL: &str = "PubChem has more than one structure for this name. Type a more exact name.";
@@ -46,27 +50,22 @@ pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<St
     lookup(text.trim(), &app.package_info().version.to_string()).await
 }
 
-// PubChem's structure for a name or InChIKey. version: Octet's, for the user agent.
-async fn lookup(text: &str, version: &str) -> Result<Option<String>, String> {
-    if text.is_empty() || text.len() > MOST_TEXT || text.chars().any(char::is_control) {
-        return Ok(None);
-    }
+// The client that asks PubChem. version: Octet's, for the user agent.
+fn client(version: &str) -> Result<reqwest::Client, String> {
     // The updater installs the same provider; whichever runs first does it.
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
-    let client = reqwest::Client::builder()
+    reqwest::Client::builder()
         .user_agent(format!("Octet Draw {version}"))
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
         .build()
-        .map_err(|_| UNREACHED.to_string())?;
-    // A name goes in the body, so no character of it can change the address.
-    let request = if is_inchikey(text) {
-        client.get(format!("{BY_KEY}{text}/property/SMILES/TXT"))
-    } else {
-        client.post(BY_NAME).header("Content-Type", "application/x-www-form-urlencoded").body(format!("name={}", crate::search::encode(text)))
-    };
+        .map_err(|_| UNREACHED.to_string())
+}
+
+// PubChem's answer as text, refused when larger than most bytes or not UTF-8. None when PubChem has nothing (404).
+async fn answer(request: reqwest::RequestBuilder, most: usize) -> Result<Option<String>, String> {
     let mut response = request.send().await.map_err(|_| UNREACHED.to_string())?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -77,11 +76,63 @@ async fn lookup(text: &str, version: &str) -> Result<Option<String>, String> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| UNREACHED.to_string())? {
         body.extend_from_slice(&chunk);
-        if body.len() > MOST_ANSWER {
+        if body.len() > most {
             return Err(UNREACHED.into());
         }
     }
-    structure_of(std::str::from_utf8(&body).map_err(|_| UNREACHED.to_string())?)
+    String::from_utf8(body).map(Some).map_err(|_| UNREACHED.to_string())
+}
+
+// PubChem's structure for a name or InChIKey.
+async fn lookup(text: &str, version: &str) -> Result<Option<String>, String> {
+    if text.is_empty() || text.len() > MOST_TEXT || text.chars().any(char::is_control) {
+        return Ok(None);
+    }
+    let client = client(version)?;
+    // A name goes in the body, so no character of it can change the address.
+    let request = if is_inchikey(text) {
+        client.get(format!("{BY_KEY}{text}/property/SMILES/TXT"))
+    } else {
+        client.post(BY_NAME).header("Content-Type", "application/x-www-form-urlencoded").body(format!("name={}", crate::search::encode(text)))
+    };
+    match answer(request, MOST_ANSWER).await? {
+        Some(text) => structure_of(&text),
+        None => Ok(None),
+    }
+}
+
+// The CID in PubChem's answer: its first line, digits only.
+pub fn cid_of(answer: &str) -> Option<&str> {
+    answer.lines().next().map(str::trim).filter(|c| (1..=12).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_digit()))
+}
+
+// Runs only when the user presses Find hazards in the Properties panel.
+#[tauri::command]
+pub async fn pubchem_hazards(app: AppHandle, key: String) -> Result<Option<String>, String> {
+    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
+        return Err("Online search is off in Settings.".into());
+    }
+    hazards(&key, &app.package_info().version.to_string()).await
+}
+
+// The GHS classification PubChem has for a compound's standard InChIKey, as PubChem's JSON, which the page reads as
+// hostile (src/ghs.ts). Only the InChIKey goes, to fixed addresses: first for the compound's CID, then for its GHS
+// Classification section. None when PubChem has no compound with the key, or no classification for it.
+async fn hazards(key: &str, version: &str) -> Result<Option<String>, String> {
+    if !is_inchikey(key) {
+        return Ok(None);
+    }
+    let client = client(version)?;
+    let Some(cids) = answer(client.get(format!("{BY_KEY}{key}/cids/TXT")), MOST_ANSWER).await? else {
+        return Ok(None);
+    };
+    let cid = cid_of(&cids).ok_or(UNREACHED)?;
+    answer(client.get(format!("{BY_CID}{cid}/JSON?heading=GHS+Classification")), MOST_HAZARDS).await
+}
+
+// A compound's Safety and Hazards section on PubChem's site, for a CID (the Properties panel's PubChem CID).
+pub fn safety_page(cid: &str) -> Option<String> {
+    cid_of(cid).filter(|c| *c == cid).map(|c| format!("https://pubchem.ncbi.nlm.nih.gov/compound/{c}#section=Safety-and-Hazards"))
 }
 
 #[cfg(test)]
@@ -106,6 +157,18 @@ mod tests {
         assert_eq!(structure_of(&"C".repeat(MOST_SMILES + 1)).unwrap_err(), UNREACHED);
     }
 
+    #[test]
+    fn cids_and_pages() {
+        assert_eq!(cid_of("702\n"), Some("702"));
+        assert_eq!(cid_of("702\n1234\n"), Some("702"));
+        assert_eq!(cid_of("<html>"), None);
+        assert_eq!(cid_of(""), None);
+        assert_eq!(cid_of("1234567890123"), None);
+        assert_eq!(safety_page("702").as_deref(), Some("https://pubchem.ncbi.nlm.nih.gov/compound/702#section=Safety-and-Hazards"));
+        assert_eq!(safety_page("702\nevil"), None);
+        assert_eq!(safety_page("702/../x"), None);
+    }
+
     // Asks PubChem itself, so it runs only when asked: cargo test pubchem -- --ignored
     #[test]
     #[ignore]
@@ -115,5 +178,8 @@ mod tests {
         assert_eq!(ask("Tylenol / paracetamol & co").unwrap(), None);
         assert_eq!(ask("BSYNRYMUTXBXSQ-UHFFFAOYSA-N").unwrap().as_deref(), Some("CC(=O)OC1=CC=CC=C1C(=O)O"));
         assert_eq!(ask("qwertyuiopasdf").unwrap(), None);
+        let hazards = |k: &str| tauri::async_runtime::block_on(hazards(k, "test"));
+        assert!(hazards("LFQSCWFLJHTTHZ-UHFFFAOYSA-N").unwrap().unwrap().contains("GHS02"), "ethanol is flammable");
+        assert_eq!(hazards("AAAAAAAAAAAAAA-UHFFFAOYSA-N").unwrap(), None);
     }
 }
