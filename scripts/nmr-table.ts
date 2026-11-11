@@ -170,11 +170,10 @@ if (test) {
         if (!p) { missed++; continue; }
         errors.push(Math.abs(p.shift - o.shift));
         levels[p.level]++;
-        const metal = nucleus !== "1H" && nucleus !== "13C" && env.edges[o.atom].some((e) => isMetal(g.atoms[e.to].el));
-        const broad = nucleus === "1H" && ["O", "N", "S"].includes(g.atoms[o.atom].el);
-        rated[quality({ atoms: [], shift: p.shift, nuclei: 1, couplings: [], sd: p.sd, based: p.based, level: p.level, ...(metal ? { metal: true as const } : {}), ...(broad ? { broad } : {}) }, nucleus)].push(Math.abs(p.shift - o.shift));
+        const metal = nucleus !== "1H" && nucleus !== "13C" && env.edges[o.atom].some((e) => isMetal(g.atoms[e.to].el)), x = ["O", "N", "S"].includes(g.atoms[o.atom].el);
+        rated[quality({ atoms: [], shift: p.shift, nuclei: 1, couplings: [], sd: p.sd, based: p.based, level: p.level, ...(metal ? { metal: true as const } : {}), ...(nucleus === "1H" && x ? { broad: true } : {}) }, nucleus)].push(Math.abs(p.shift - o.shift));
         if (!o.solvent) continue;
-        const q = lookup(env, nucleus, o.atom, o.solvent)!, x = ["O", "N", "S"].includes(g.atoms[o.atom].el);
+        const q = lookup(env, nucleus, o.atom, o.solvent)!;
         known.any.push(Math.abs(p.shift - o.shift)); known.own.push(Math.abs(q.shift - o.shift));
         if (x) { known.anyX.push(Math.abs(p.shift - o.shift)); known.ownX.push(Math.abs(q.shift - o.shift)); }
       }

@@ -47,5 +47,6 @@ on kinds: they made it worse (14.66 to 14.78 ppm). The codes by labels are as be
 0.250 ppm (13,237 shifts), ¹³C 2.353 to 2.198 (37,275), ¹⁹F 6.18 to 6.06 (645), ³¹P 14.66 (no change). ¹³C beside a
 sulfonyl 4.93 to 2.96 ppm (106 shifts), in heteroaromatic rings 2.99 to 2.65 (5,429), in bridged bicyclics 3.40 to
 3.11 (1,222), beside a peroxide O 7.50 to 6.89 (6). ¹H beside a sulfonyl 0.94 to 0.79 (32), in heteroaromatic rings
-0.33 to 0.32 (1,043), in bridged bicyclics 0.42 to 0.41 (609), beside a peroxide O 0.20 to 0.21 (7). Hydrogens on O, N and S are now rated rough: 20% of
-them were rated good, and those were 0.5 ppm out. The file grew from 6.64 to 7.11 MB.
+0.33 to 0.32 (1,043), in bridged bicyclics 0.42 to 0.41 (609), beside a peroxide O 0.20 to 0.21 (7). Hydrogens on
+O, N and S are now rated rough: 20% of them were rated good, and those were 0.5 ppm out. The file grew from 6.64 to
+7.11 MB.
