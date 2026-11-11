@@ -1,7 +1,8 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, solve } from "./stoich.ts";
+import { coefficient, conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, solve } from "./stoich.ts";
+import { gridViews, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -131,5 +132,68 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   }
   for (const text of ["+", "2+", "-", "e-"]) assert.equal(read(text), undefined, text);
   assert.equal(read("K2CO3")?.formula, "K2CO3", "a formula with no charge is as written");
+}
+// Issue 133: a coefficient in the scheme sets equivalents, relative to the limiting reactant's coefficient, products
+// too; a number on its own before a structure has no column; a value typed wins; over the arrow "2 HCl" is 2 eq.
+{
+  assert.deepEqual(coefficient("2 HCl"), ["HCl", 2]);
+  assert.deepEqual(coefficient("0.5 H2"), ["H2", 0.5]);
+  assert.deepEqual(coefficient("2"), ["", 2]);
+  for (const t of ["1,4-dioxane", "2a", "H2"]) assert.deepEqual(coefficient(t), [t, undefined], t);
+  // A row: text and structures (atoms 0, 1, 2...), plus signs and one arrow (id 9); each structure is "S" and its atom.
+  type Item = string | number | "+" | "→";
+  const grid = (row: Item[], typed: object, limiting?: string, above: string[] = [], carried?: { atom: number; box: number[] }) => {
+    const captions: { id: number; text: string; x: number; y: number }[] = [];
+    let x = 0;
+    const steps = row.map((it) => {
+      const box = [x, -0.5, x + 1, 0.5]; x += 1.5;
+      if (it === "→") return { kind: "arrow", id: 9, box };
+      if (it === "+") return { kind: "plus", id: 100 + x, box };
+      if (typeof it === "number") return { kind: "structure", atoms: [it], box, ...(carried?.atom === it ? { carry: { captions: [50], atoms: [], arrows: [], shapes: [], ends: [], boxes: [] } } : {}) };
+      captions.push({ id: captions.length + 1, text: it, x: 0, y: 0 });
+      return { kind: "text", id: captions.length, box };
+    });
+    const conditions = above.map((text, k) => { captions.push({ id: 200 + k, text, x: 0, y: 0 }); return { kind: "text", id: 200 + k, box: [5, 1, 6, 2] }; });
+    if (carried) captions.push({ id: 50, text: "2", x: 0, y: 0 });
+    const at = steps.findIndex((s) => s.kind === "arrow"), parts = (l: typeof steps) => l.filter((s) => s.kind === "structure" || s.kind === "text");
+    const m = { atoms: [], bonds: [], captions, arrows: [{ id: 9, kind: "reaction", from: [0, 0], to: [1, 0] }], grids: [{ arrow: 9, typed, limiting }] } as unknown as Mol;
+    const deps: GridDeps = {
+      reaction: () => ({ steps, arrows: [9], atoms: [], captions: [], carried: [], conditions: new Map() }) as never,
+      steps: (r) => [{ arrow: 9, reactants: parts(r.steps.slice(0, at)), products: parts(r.steps.slice(at + 1)), above: conditions, below: [] }] as never,
+      structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 }), reagent: (t) => (/HCl|H2/.test(t) ? { formula: "X", weight: 36 } : undefined),
+      captionBox: (id) => (id === 50 && carried ? carried.box : undefined) as never, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: false,
+    };
+    const v = gridViews(m, deps)[0];
+    return { keys: v.all.map((c) => c.key), at: (key: string) => v.solved[key] };
+  };
+  // 2 A + B → C, B limiting at 10 mmol: 20 mmol of A at 2 eq., 10 mmol of C. The 2 has no column.
+  const bLim = grid(["2", 0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1");
+  assert.deepEqual(bLim.keys, ["r:S0", "r:S1", "p:S2"]);
+  near(bLim.at("r:S0").moles, 0.02, "two of A");
+  near(bLim.at("r:S0").equiv, 2, "A at 2 eq.");
+  near(bLim.at("p:S2").expectedMoles, 0.01, "one of C");
+  // A limiting at 20 mmol: B is 0.5 eq. (10 mmol), C 0.5 eq. (10 mmol).
+  const aLim = grid(["2", 0, "+", 1, "→", 2], { "r:S0": { moles: 0.02 } }, "r:S0");
+  near(aLim.at("r:S0").equiv, 1, "the limiting reactant is 1 eq.");
+  near(aLim.at("r:S1").moles, 0.01, "half as much B");
+  near(aLim.at("p:S2").expectedMoles, 0.01, "half as much C");
+  // A → 2 B: twice the moles of product.
+  near(grid([0, "→", "2", 1], { "r:S0": { moles: 0.01 } }).at("p:S1").expectedMoles, 0.02, "A → 2 B");
+  // A value typed wins: A typed at 3 eq.
+  near(grid(["2", 0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 }, "r:S0": { equiv: 3 } }, "r:S1").at("r:S0").moles, 0.03, "typed equivalents win");
+  // Written in the reagent's text: 2 HCl and 0.5 H2 in the row.
+  const text = grid([0, "+", "2 HCl", "+", "0.5 H2", "→", 1], { "r:S0": { moles: 0.01 } });
+  near(text.at('r:"2 HCl"').moles, 0.02, "2 HCl");
+  near(text.at('r:"0.5 H2"').moles, 0.005, "0.5 H2");
+  // Over the arrow, 2 HCl is 2 eq. of the limiting reactant, whatever its coefficient; a reagent there without one is 1 eq.
+  const side = grid(["2", 0, "→", 1], { "r:S0": { moles: 0.02 } }, undefined, ["2 HCl", "H2"]);
+  near(side.at('r:"2 HCl"').moles, 0.04, "2 HCl over the arrow");
+  near(side.at('r:"H2"').moles, 0.02, "H2 over the arrow");
+  // A number a structure carries on its left (typed close to it) is its coefficient too.
+  near(grid([0, "+", 1, "→", 2], { "r:S1": { moles: 0.01 } }, "r:S1", [], { atom: 0, box: [-0.4, -0.2, -0.1, 0.2] }).at("r:S0").moles, 0.02, "a carried 2");
+  // A number with a plus sign after it is not a coefficient; with none written, nothing changes.
+  assert.ok(grid(["2", "+", 0, "→", 1], {}).keys.includes('r:"2"'), "2 + A");
+  assert.equal(grid([0, "+", 1, "→", 2], { "r:S0": { moles: 0.01 } }).at("r:S1").equiv, 1);
+  assert.equal(grid([0, "+", 1, "→", 2], {}).at("r:S1").equiv, undefined, "no equivalents shown where none are given");
 }
 console.log("stoich.check: ok");

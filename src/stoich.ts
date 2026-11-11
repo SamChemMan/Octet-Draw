@@ -9,8 +9,9 @@ import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
 export type Typed = Partial<Record<Field, number>>;
-// given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed.
-export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number };
+// given: the equivalents its text gives ("K2CO3 (2 eq.)"), used when none are typed. coef: its coefficient in the
+// scheme (2 in 2 A + B → C), on each part of the equation once one is written there (1 where none is).
+export type Component = { key: string; mw: number; product: boolean; typed: Typed; given?: number; coef?: number };
 export type Solved = {
   mass?: number; moles?: number; equiv?: number; volume?: number; density?: number; molarity?: number; purity: number;
   expectedMass?: number; expectedMoles?: number; measured?: number; productMoles?: number; yield?: number;
@@ -20,8 +21,8 @@ export type Solved = {
 export function solve(components: Component[], limiting?: string): Record<string, Solved> {
   const out: Record<string, Solved> = {};
   const reactants = components.filter((c) => !c.product), lim = reactants.find((c) => c.key === limiting) ?? reactants[0];
-  // Its equivalents: typed, else as its text gives them.
-  const given = (c: Component) => c.typed.equiv ?? c.given;
+  // Its equivalents: typed, else as its text gives them, else its coefficient over the limiting reactant's (issue 133).
+  const ref = lim?.coef ?? 1, given = (c: Component) => c.typed.equiv ?? c.given ?? (c.coef === undefined ? undefined : c.coef / ref);
   // A reactant's moles from what was typed: moles, mass, volume with density, or volume with molarity.
   const own = (c: Component): number | undefined => {
     const t = c.typed, purity = t.purity ?? 1;
@@ -109,6 +110,12 @@ export function reagentName(text: string): string {
   }
   return t;
 }
+// A number in front of a reagent's name ("2 HCl", "0.5 H2") or on its own ("2", before a structure in a scheme): the
+// text after it and the number, as a coefficient (issue 133). The text and undefined when there is none.
+export function coefficient(text: string): [string, number | undefined] {
+  const m = /^(\d+(?:\.\d+)?)(?:\s+(?=\S)|\s*$)/.exec(text);
+  return m ? [text.slice(m[0].length), Number(m[1]) || undefined] : [text, undefined];
+}
 // The equivalents a reagent's text gives: "K2CO3 (2 eq.)", "1.5 equiv NaBH4", "Pd(PPh3)4 (5 mol%)". Undefined if none.
 export function reagentEquiv(text: string): number | undefined {
   const m = /(\d+(?:\.\d+)?)\s*(eq(?:uiv)?\.?|mol\s?%)/i.exec(text);
@@ -156,7 +163,7 @@ function charged(text: string): [string, string] {
 // hydride and water read as their formulas. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI
 // to its formula and weight. Undefined when none reads it.
 export function reagentFormula(text: string, read: (name: string) => string | undefined, label: (text: string) => string | undefined, weigh: (smiles: string) => { formula: string; weight: number } | undefined): { formula: string; weight: number } | undefined {
-  const said = reagentName(text).replace(/^\d+\s+(?=\S)/, ""), plain = WORDS[said.toLowerCase()] ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
+  const said = coefficient(reagentName(text))[0], plain = WORDS[said.toLowerCase()] ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
   // A mixture (toluene/EtOH/H2O) is not one compound: it has no formula of its own.
   if (/[\w)]\s*\/\s*[\w(]/.test(plain)) return undefined;
   if (/^[A-Z]{2,6}$/.test(plain)) { const n = named(); if (n) return n; }

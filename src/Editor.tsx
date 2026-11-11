@@ -5752,7 +5752,7 @@ export default function Editor() {
     structure: (atoms) => analyse(pickAtoms(m, atoms))?.[0],
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
-    bottom: (id) => { const p = placed.find((x) => x.id === id); return p && -p.box[3] / L; },
+    captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
     captionSize: style.captionSize, perPt: pt / L, experiment: expPage,
   }) : []; }, [loaded, namesLoaded, doc, drawing, placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
