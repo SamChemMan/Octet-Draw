@@ -250,7 +250,10 @@ assert.match(String(fromLines({ lines: "A -> B", kind: "cycle" })), /kind does n
 assert.deepEqual(fromLines({ lines: "A -> B", kind: "reaction" }), { op: "reaction", args: { start: A, steps: [{ products: [B] }] } });
 // Several drawings take what the reply is to have, and nothing that places one drawing.
 assert.deepEqual(fromLines({ lines: "# S\nA -> B", picture: true }), { op: "route", args: { schemes: [{ title: "S", start: A, steps: [{ products: [B] }] }], picture: true } });
-assert.match(String(fromLines({ lines: "# S\nA -> B", columns: 2 })), /columns goes with one drawing, and these lines make 2: draw them in separate calls, or leave columns out/);
+// A route (a titled scheme, or one reaction with a step label) is one drawing that Octet places itself.
+assert.match(String(fromLines({ lines: "# S\nA -> B", columns: 2 })), /^columns does not go with a route \(lines with a # title, a step label or more than one scheme\): Octet places it below what is drawn\. Leave columns out$/);
+assert.match(String(fromLines({ lines: "A -> B, (a) NaOH", at: [0, 0] })), /^at does not go with a route/);
+assert.match(String(fromLines({ lines: "A -> B\nC (1)", at: [0, 0] })), /^at goes with one drawing, and these lines make 2: draw them in separate calls, or leave at out$/);
 
 // ---- Speed, and hostile text ----
 

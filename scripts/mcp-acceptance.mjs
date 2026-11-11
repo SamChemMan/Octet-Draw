@@ -287,7 +287,7 @@ const CASES = {
     console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
-    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("draw_route for a reaction"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
+    check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("make ONE draw call with lines"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
     r.send({ jsonrpc: "2.0", method: "notifications/initialized" });
     const tools = (await r.ask("tools/list")).result?.tools ?? [];
     check(tools.length === 6 && JSON.stringify(tools).length < 14000, "the six tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);

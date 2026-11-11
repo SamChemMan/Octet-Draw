@@ -102,6 +102,11 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // The list is read at the start of every chat (test plan P4, A5): under 14,000 characters, about 4,000 tokens. The
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
+// draw's JSON compound says what its text takes, and what a change's at names, as the JSON form needs them.
+{
+  const c = (tools[0].inputSchema as any).$defs.compound.properties;
+  assert.ok(c.text.description.includes("CAS number, SMILES, InChI or MOL file") && /map number given in a SMILES, with its hydrogens \(\[C@H:7\]\)/.test(c.changes.description) && c.changes.description.includes("occurrence: 2"));
+}
 // Each tool's schema stands alone (some AI apps do not look outside it): every reference in it has its definition in
 // its own $defs, and it lists no other piece. draw lists the compound once, however many places take one, and a place
 // beside (an id or ids) once for its four sides. draw_route's compounds are as draw's, which its description says.
@@ -238,6 +243,10 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   assert.deepEqual([steps.length, said], [1, ["Test drew a reaction."]]);
   // The session keeps it: its next scheme needs none.
   assert.ok(!(await call("draw", { lines: "ethanol -> water" }, "s-8")).isError);
+  // A draw by lines says what it drew and nothing every such call says (Clean Up, one undo step, no page).
+  fresh();
+  o = await call("draw", { lines: "ethanol -> water", brief: "quick" }, "s-lean");
+  assert.match(text(o), /^Octet keeps this brief for the session\. The drawing (?:now )?uses ACS Document 1996 with no page \(Quick start\), with 10 pt labels and 14\.4 pt bonds\. Drew the reaction\.\n\{/);
   for (const [brief, why] of [["Bull. Chem. Soc. Jpn.", /^Octet has no preset for Bull\. Chem\. Soc\. Jpn\. The nearest it has is ACS Document 1996\./], ["emphasis: x", /^Octet changed nothing\. brief: give quick, or where the drawing goes/], [{ destination: { kind: "book" } }, /^Octet changed nothing\. brief\.destination\.kind: not one of/]] as [unknown, RegExp][]) {
     fresh();
     o = await call("draw", { lines: "ethanol -> water", brief }, "s-9");
@@ -251,6 +260,14 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     ["Angew. Chem. Int. Ed.", { destination: { kind: "paper", journal: "Wiley (Angewandte)" }, style: "destination" }],
     ["poster, 600 x 900 mm; layout: one row", { destination: { kind: "poster", size_mm: [600, 900] }, style: "destination", layout: "one row" }],
     [{ destination: { kind: "slides" } }, { destination: { kind: "slides" }, style: "destination" }],
+    // As the user types them, full stops and all (the lab's own answers), and with the words in any order.
+    ["No, I have no preferred style. A paper, no particular journal. Nothing to emphasise.", { destination: { kind: "paper" }, style: "destination" }],
+    ["No preferred style.", { destination: { kind: "quick" }, style: "destination" }],
+    ["a JACS paper", { destination: { kind: "paper", journal: "ACS Document 1996" }, style: "destination" }],
+    ["JACS, 2 columns", { destination: { kind: "paper", journal: "ACS Document 1996", columns: 2 }, style: "destination" }],
+    ["paper (JACS), double column", { destination: { kind: "paper", journal: "ACS Document 1996", columns: 2 }, style: "destination" }],
+    ["thesis, A4", { destination: { kind: "thesis" }, style: "destination" }], ["slides 16:9", { destination: { kind: "slides" }, style: "destination" }],
+    ["a paper on US Letter", { destination: { kind: "paper", size_mm: [215.9, 279.4] }, style: "destination" }],
   ] as [unknown, object][]) {
     fresh();
     briefs.delete("s-10");
@@ -317,6 +334,7 @@ assert.equal(steps.length, 0);
   const no = async (name: string, args: unknown, why: RegExp) => { const o = await call(name, args); assert.ok(o.isError && why.test(text(o)), `${name} ${JSON.stringify(args)}: ${text(o)}`); };
   // (structures alone is the structures kind: draw lists it with lines, plan 19.2.)
   await no("draw", {}, /^Octet changed nothing\. give lines, or structures\.$/);
+  await no("draw", { lines: "ethanol -> water", structures: [{ text: "water" }], brief: "quick" }, /^Octet changed nothing\. give lines or structures, not both\.$/);
   await no("draw", { kind: "scheme", start: [{ text: "water" }] }, /^Octet changed nothing\. kind: not one of structures, reaction, cycle, figure\.$/);
   await no("draw", { kind: "structures", start: [{ text: "water" }], structures: [{ text: "water" }] }, /^Octet changed nothing\. arguments: start is not an argument of this tool\. advanced help of structures gives its arguments\.$/);
   await no("draw", { kind: "structures", structures: [{ name: "water" }] }, /^Octet changed nothing\. structures\[0\]: name is not an argument of this tool\. advanced help of structures gives its arguments\.$/);

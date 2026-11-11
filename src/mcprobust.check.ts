@@ -248,6 +248,23 @@ assert.deepEqual(own, [], "the five tools' own arguments");
 // The smallest call R1 found that changed the drawing it said it had not: edit turned the structure, then could not
 // read its new text. Now the drawing goes back as it was, and in the window its step goes (history.check.ts).
 { const o = await one("change", { operations: [{ op: "edit", ids: ["s2"], rotate: 30, structure: "x" }] }); assert.equal(o.outcome, "refused", o.said); }
+// draw's lines and brief are read in its route (fromLines, briefOf), which no operation's schema has: lines made at
+// random from the notation's own pieces (brackets, labels, arrows, titles, grids, changes), some broken and some very
+// long, and briefs of random words, with and without other arguments. Each is done or refused, never crashed or slow.
+{
+  const rnd = random(SEED + 99), at = <T>(a: T[]) => a[Math.floor(rnd() * a.length)], faults: string[] = [];
+  const BITS = ["benzene", "CCO", "NaBH4", "MeOH", "0 °C", "91%", "(1)", "(2 equiv)", "(a)", "(b, c)", "->", "<=>", "-/->", "=>", " + ", ", ", "; ", "|", "^", "_", "@", '"', "'", "[", "]", "(", ")", "{R}", "{", "}", ":", "#", "# Scheme 1", "R=Me", "CORE{R}:", "aspirin[OAc>OH]", "3[OBn>OTES]", "3[7:OTBS]", "3[7+OH]", "3[5=6]", "[C@H:7]", "+x", "-x", "3", "é", "\ud800", "‮", "\t", "  "];
+  const LINE = () => Array.from({ length: 1 + Math.floor(rnd() * 12) }, () => at(BITS)).join(rnd() < 0.5 ? " " : "");
+  const BRIEF = ["quick", "paper", "thesis", "slides", "JACS", "2 columns", "no", "A4", "16:9", "600 x 900 mm", "emphasis:", "layout:", ".", ",", ";", "(", ")", "Bull. Chem. Soc. Jpn.", "nothing", "x"];
+  const lines = [...Array.from({ length: 60 }, (_, k) => k % 4 ? Array.from({ length: 1 + Math.floor(rnd() * 6) }, LINE).join("\n") : "benzene -> phenol (1), NaOH"), "(".repeat(50_000) + ")".repeat(50_000), "[".repeat(100_000), Array(14_000).fill("a -> b").join("\n"), `${"x".repeat(99_000)} -> y`, Array(5_000).fill("(a)").join(", ")];
+  for (const [k, l] of lines.entries()) {
+    const brief = rnd() < 0.5 ? Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => at(BRIEF)).join(at([" ", ", ", ". "])) : undefined;
+    const args = { lines: l, ...(brief !== undefined ? { brief } : {}), ...(k % 3 === 1 ? { at: [0, 0] } : k % 3 === 2 ? { columns: 2, structures: [{ text: "C" }] } : {}) };
+    const t = performance.now(), o = await one("draw", args), ms = performance.now() - t;
+    if (!["refused", "done"].includes(o.outcome) || ms > 2000) faults.push(`${o.outcome} (${Math.round(ms)} ms): seed ${SEED}, draw ${JSON.stringify(args).slice(0, 200)} -> ${o.said.slice(0, 160)}`);
+  }
+  assert.deepEqual(faults, [], "draw's lines and brief");
+}
 
 // ---- R9: text that tries to steer ----
 

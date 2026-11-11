@@ -18,9 +18,9 @@
 //   expect    { smiles: { number: SMILES or InChIKey } }: each compound number's structure in the finished drawing
 // corpus/PAPER.json holds jobs from one paper (corpus/README.md): each is a case of one call. A name on the command
 // line runs that case, or every job of that paper. lines-JOB is the same job as the line notation writes it
-// (lines.json, src/notation.check.ts): one draw call with the brief in it. Those run only when named (lines runs them
-// all): with every other case in one process they reach the end of Indigo's stack (plan 17.2), so they run in a
-// process of their own until 1.1.2's fix is merged in.
+// (lines.json, src/notation.check.ts): one draw call with the brief in it. A run of every case runs them after the rest
+// in a process of their own (lines runs them alone): with every other case in one process they reach the end of
+// Indigo's stack (plan 17.2). One process for all once 1.1.2's fix is merged in.
 // Right counts those; Warnings is Octet's own count for the finished drawing (chemistry and layout). Summary is the
 // characters of the finished drawing's default read (plan section 10: under 5,000 for the taxol figure).
 import { spawnSync } from "node:child_process";
@@ -114,4 +114,6 @@ for (const [name, m] of Object.entries(now.cases)) {
 // (A run of every case keeps the lines cases it did not run.)
 if (write) writeFileSync(file, JSON.stringify(kept ? { ...now, cases: { ...Object.fromEntries(Object.entries(kept.cases).filter(([k]) => named.length || k.startsWith("lines-"))), ...now.cases } } : now, null, 1) + "\n");
 else for (const w of worse) console.error(`WORSE ${w}`);
-process.exit(write || !worse.length ? 0 : 1);
+// A run of every case runs the lines cases too, in a process of their own (above), after this one has written.
+const linesRun = named.length ? 0 : spawnSync(process.execPath, [...process.execArgv, process.argv[1], ...(write ? ["--write"] : []), "lines"], { stdio: "inherit" }).status ?? 1;
+process.exit((write || !worse.length) && !linesRun ? 0 : 1);

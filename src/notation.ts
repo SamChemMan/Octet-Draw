@@ -488,14 +488,15 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   if (!ops.length) return "There is nothing to draw: write one reaction a line (A + B -> C, conditions), or compounds";
   if (rest.kind !== undefined && (ops.length > 1 || rest.kind !== ops[0].tool)) return `kind does not go with lines, which draw ${ops.length > 1 ? "several things" : `a ${ops[0].tool}`}: leave kind out`;
   delete rest.kind;
-  // Several drawings take only what the reply is to have; where each goes is for one drawing.
-  const one = ops.length > 1 && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
-  if (one) return `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
   // Schemes alone, with a title or more than one, or a step's label, are a route (plan 5.4): one series of numbers,
   // each title over its scheme, wrapped to the page, and with a label, letters on the arrows and the conditions in a
   // note under each scheme.
   const lettered = ops.some((o) => o.tool === "reaction" && (o.args.steps as Step[]).some((st) => st.label));
-  if ((lettered || ops.length > 1) && ops.every((o) => o.tool === "text" || o.tool === "reaction") && ops[ops.length - 1].tool === "reaction") {
+  const route = (lettered || ops.length > 1) && ops.every((o) => o.tool === "text" || o.tool === "reaction") && ops[ops.length - 1].tool === "reaction";
+  // Several drawings, and a route, take only what the reply is to have: Octet places them below what is drawn.
+  const one = (route || ops.length > 1) && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
+  if (one) return route ? `${one} does not go with a route (lines with a # title, a step label or more than one scheme): Octet places it below what is drawn. Leave ${one} out` : `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
+  if (route) {
     const schemes: object[] = [];
     let titles: string[] = [];
     for (const o of ops) if (o.tool === "text") titles.push(o.args.text as string); else { schemes.push({ ...(titles.length ? { title: titles.join(" ") } : {}), ...o.args }); titles = []; }

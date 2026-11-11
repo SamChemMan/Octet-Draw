@@ -16,7 +16,7 @@ import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, isSide, type Cycle } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
-import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName } from "./docstyle.ts";
+import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import { fromLines, NOTATION } from "./notation.ts";
 import { ASCENT, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
@@ -597,8 +597,8 @@ const stray = (a: object, listed: ObjSchema, op: string, what: string) => { cons
 // The compound as draw lists it, for the JSON form: the hints that turn it as a picture shows it (the eval agents
 // called help for them), and a compound's changes typed. Its molecule and other hints are in advanced help.
 const LISTED_COMPOUND: Schema = { ...obj({
-  text: str(MAX_STRUCTURE), labels: LABELS, from: str(40, "An earlier compound's number or id, or previous"),
-  changes: { ...list(obj({ swap: { type: "object", properties: {}, additionalProperties: true }, occurrence: int(1, 99), at: str(40), set: str(40), add: str(40), remove: yes(), bond: str(40), to: pick(["single", "double", "triple"]) }), 20), description: "As lines write them: {swap: {OBn: 'OTES'}}, {at: '7', set: 'OTBS'}, {at, add}, {at, remove: true}, {bond: '5-6', to: 'double'}; {do: 'reduce', at: '7', config: 'R'}, a named transformation (advanced help of transformations lists them)" },
+  text: str(MAX_STRUCTURE, "A name, CAS number, SMILES, InChI or MOL file"), labels: LABELS, from: str(40, "An earlier compound's number or id, or previous"),
+  changes: { ...list(obj({ swap: { type: "object", properties: {}, additionalProperties: true }, occurrence: int(1, 99), at: str(40), set: str(40), add: str(40), remove: yes(), bond: str(40), to: pick(["single", "double", "triple"]) }), 20), description: "Made in order on from's drawing: {swap: {OBn: 'OTES'}} (occurrence: 2, the second), {at: '7', set: 'OTBS'}, {at, add}, {at, remove: true}, {bond: '5-6', to: 'double'}; at is a map number given in a SMILES, with its hydrogens ([C@H:7]); {do: 'reduce', at: '7', config: 'R'}, a named transformation (advanced help of transformations lists them)" },
   number: numeral(12), caption: str(MAX_TEXT), up: str(40), down: str(40), left: str(40), right: str(40), rotate: num(-360, 360), flip: pick(["horizontal", "vertical"]),
 }), description: "number is bold under it, caption under the number. up, down, left, right: an atom that points that way from the middle (a label, an element, or #n, the n-th atom of the SMILES from 0); a second at right angles sets the side. rotate: degrees, anticlockwise" };
 const COMPOUNDS = list({ $ref: "#/$defs/compound" }, MOST_STRUCTURES);
@@ -624,20 +624,31 @@ const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { defa
 // set_brief's own object. Words that are no destination, column, size or emphasis are the journal, which set_brief
 // refuses with the nearest when Octet has nothing for it.
 const BRIEF_NOTE = "The user's answers to the three questions, when this call draws more than one structure and the session has none: quick (no preference: Quick start, no page), or where it goes (paper, thesis, slides, poster, notebook) with a journal, 1 or 2 columns, or a size in mm, then emphasis: and layout: in the user's words. Octet keeps it for the session. For the style of the user's own file, call set_brief.";
+// The answers come as the user typed them ("No, I have no preferred style. A paper, no particular journal.", "a JACS
+// paper", "thesis, A4"), so each part (split at commas, semicolons and full stops) gives the destination, columns,
+// size and page wherever they are in it; the words left are the journal, unless they say no or nothing.
+const PAGE_WORD = /\b(a[0-4]|(?:us\s+)?letter|legal|tabloid)\b|(16:9|4:3)/i;
 function briefOf(b: unknown): unknown {
   if (typeof b !== "string") return b;
-  const [head, ...said] = b.split(/\b(emphasis|layout)\s*:\s*/i), d: Record<string, unknown> = {}, out: Record<string, unknown> = {};
+  const [head, ...said] = b.split(/\b(emphasis|layout)\s*:\s*/i), d: Record<string, unknown> = {}, out: Record<string, unknown> = {}, journal: string[] = [];
   for (let k = 0; k < said.length; k += 2) out[said[k].toLowerCase()] = clean(said[k + 1]).replace(/[\s,;.]+$/, "");
-  for (const part of head.split(/[,;]\s*/).map((x) => clean(x).replace(/^(?:a|an|the|my|for)\s+/i, "").replace(/\.$/, "")).filter(Boolean)) {
-    let m: RegExpExecArray | null;
-    if (/^(?:quick(?: start| look)?|no preference|none|no page|screen)$/i.test(part)) d.kind = "quick";
-    else if (/^(?:no|nothing|any)\b/i.test(part)) continue;
-    else if ((m = /^(paper|thesis|slides|poster|notebook)$/i.exec(part))) d.kind = m[1].toLowerCase();
-    else if ((m = /^(1|2|one|two)[\s-]*col(?:umn)?s?$/i.exec(part))) d.columns = /^(?:1|one)$/i.test(m[1]) ? 1 : 2;
-    else if ((m = /^(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*mm$/i.exec(part))) d.size_mm = [Number(m[1]), Number(m[2])];
-    else d.journal = d.journal === undefined ? part : `${d.journal}, ${part}`;
+  let page: PageName | undefined, none = false, m: RegExpExecArray | null;
+  for (let part of head.split(/[,;]\s*|(?<=\.)\s+/).map((x) => clean(x)).filter(Boolean)) {
+    if (/^(?:quick(?: start| look)?|no preference|none|no page|screen)\.?$/i.test(part)) { d.kind = "quick"; continue; }
+    if ((m = /\b(paper|thesis|slides?|poster|notebook)\b/i.exec(part))) { d.kind = m[1].toLowerCase().replace(/^slide$/, "slides"); part = part.replace(m[0], " "); }
+    if ((m = /\b(1|2|one|two|single|double)[\s-]*col(?:umn)?s?\b/i.exec(part))) { d.columns = /^(?:1|one|single)$/i.test(m[1]) ? 1 : 2; part = part.replace(m[0], " "); }
+    if ((m = /(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*mm\b/i.exec(part))) { d.size_mm = [Number(m[1]), Number(m[2])]; part = part.replace(m[0], " "); }
+    if ((m = PAGE_WORD.exec(part))) { page = m[2] ? (m[2] === "16:9" ? "Slide169" : "Slide43") : /letter/i.test(m[1]) ? "Letter" : (m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()) as PageName; part = part.replace(m[0], " "); }
+    const left = clean(part.replace(/[()[\]]/g, " ")).replace(/^(?:(?:a|an|the|my|for|in|on|as|with|to)\b\s*)+/i, "");
+    if (/\b(?:no|not|nothing|none|any)\b/i.test(left)) none ||= /prefer|style/i.test(left);
+    else if (/[a-z0-9]/i.test(left)) journal.push(left);
   }
-  if (d.kind === undefined && d.journal === undefined && !d.columns && !d.size_mm) return `brief: give quick, or where the drawing goes (paper, thesis, slides, poster or notebook), not "${short(clean(b), 60)}"`;
+  if (journal.length) d.journal = journal.join(" ");
+  // A page is a size, unless it is the destination's own page (a thesis on A4, slides at 16:9).
+  const own = purposeStyle((d.kind === "quick" || d.kind === "notebook" || d.kind === undefined ? "paper" : d.kind) as PurposeKind);
+  if (page && page !== "Custom" && page !== own.page && !d.size_mm) d.size_mm = page.startsWith("Slide") ? [...PAGES[page]].reverse() : PAGES[page];
+  if (d.kind === undefined && none && d.journal === undefined && !d.columns && !d.size_mm) d.kind = "quick";
+  if (d.kind === undefined && d.journal === undefined && !d.columns && !d.size_mm) return `brief: give quick, or where the drawing goes (paper, thesis, slides, poster or notebook) with a journal, 1 or 2 columns or a page, as in "JACS, 2 columns", not "${short(clean(b), 60)}"`;
   return { destination: { kind: "paper", ...d }, ...out };
 }
 const TOOLS: Tool[] = [
@@ -652,7 +663,7 @@ const TOOLS: Tool[] = [
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), r = rest.lines !== undefined ? fromLines(rest) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
       return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: true as const } : {}) };
     },
   },
@@ -2901,8 +2912,11 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         // The brief given with the call, set first in the same undo step, and said in a line before the result.
         const set = brief === undefined ? undefined : await opOf("brief").run(h, brief, ctx);
         const out = set?.error ? set : await runOp(tool, h, args, ctx);
-        // (The room inside the page's margins is left out: the draw says what does not fit.)
-        if (set && !out.error) out.text = `${set.text.split("\n")[0].replace(UNDO, "").replace(/ Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\./, "")} ${out.text}`;
+        // A draw by lines answers in as few characters as carry it (plan 19.2): not that Octet laid it out or that it is
+        // one undo step, which every such call is.
+        if (routed.lines && !wantFull && !out.error) out.text = out.text.replace(UNDO, "").replace(/ Octet (?:laid it out|laid out each) with Clean Up Reaction\.| Octet tidied it with Clean Up\./, "");
+        // (The room inside the page's margins, or that there is no page, is left out: the draw says what does not fit.)
+        if (set && !out.error) out.text = `${set.text.split("\n")[0].replace(UNDO, "").replace(/ Inside its margins the page is [\d.]+ by [\d.]+ bond lengths\.| With no page, nothing runs off it\./, "")} ${out.text}`;
         // A tool that refuses part way (edit's structure, after a rotate) leaves nothing behind, as a throw does.
         if (out.error && changes && h.doc() !== before) h.set(before);
         // Stop, or a cancel, while the tool ran: what it did goes too.
