@@ -1004,27 +1004,9 @@ button.variant.add {
   flex: none;
   font-weight: 500;
 }
-.notice-close {
-  display: grid;
+/* The notice's X is a panel's Close (.actions-close), kept at its size beside long text. */
+.notice .actions-close {
   flex: none;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink-muted);
-}
-@media (hover: hover) and (pointer: fine) {
-  .notice-close:hover {
-    background: var(--surface-sunken);
-    color: var(--ink);
-  }
-}
-.notice-close:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 @media (prefers-reduced-motion: reduce) {
   .notice {
@@ -2552,11 +2534,14 @@ div.facts {
   border-right: 1px solid var(--hairline);
   background: var(--surface);
 }
-.settings-search {
+/* Every search field (Settings, Templates, Home's Experiments): one look, 28 px, and the same clear button
+   (.search-clear) once it has text, in place of the platform's own. */
+.settings-search,
+.library-search {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: 28px;
   margin-bottom: var(--space-2);
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
@@ -2565,11 +2550,16 @@ div.facts {
   color: var(--ink-faint);
   transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
-.settings-search:focus-within {
+.library-search {
+  margin-bottom: var(--space-1);
+}
+.settings-search:focus-within,
+.library-search:focus-within {
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
 }
-.settings-search input {
+.settings-search input,
+.library-search input {
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -2583,7 +2573,8 @@ div.facts {
   -webkit-user-select: text;
   user-select: text;
 }
-.settings-search input::-webkit-search-cancel-button {
+.settings-search input::-webkit-search-cancel-button,
+.library-search input::-webkit-search-cancel-button {
   display: none;
 }
 .search-clear {
@@ -3031,22 +3022,19 @@ div.facts {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The template size button and the close button: small round buttons on the bar. */
-.floating-size,
-.floating-close {
+/* The template size button on the bar: the look of the panel controls (.actions-close), as the palette's X beside it. */
+.floating-size {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
-  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
 .floating-size:focus-visible,
-.floating-close:focus-visible,
 .floating-item:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
@@ -3087,12 +3075,10 @@ div.facts {
 }
 @media (hover: hover) and (pointer: fine) {
   .floating-item:not([aria-checked="true"]):hover,
-  .floating-size:hover,
-  .floating-close:hover {
+  .floating-size:hover {
     background: var(--surface-sunken);
   }
-  .floating-size:hover,
-  .floating-close:hover {
+  .floating-size:hover {
     color: var(--ink);
   }
 }
@@ -3100,35 +3086,6 @@ div.facts {
   .floating-templates {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
-}
-.library-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  margin-bottom: var(--space-1);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  background: var(--canvas);
-  color: var(--ink-faint);
-  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
-}
-.library-search:focus-within {
-  border-color: var(--brand-bright);
-  box-shadow: var(--shadow-focus);
-}
-.library-search input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--ink);
-  font: 13px var(--font-sans);
-  -webkit-user-select: text;
-  user-select: text;
 }
 .library-category {
   display: flex;
@@ -3759,11 +3716,13 @@ div.facts {
 .atom-map {
   fill: var(--brand);
 }
-/* Short text standing in for an icon (L, C, R, Rf, R/S) fits the icon's square. */
+/* Short text standing in for an icon (L, C, R, Rf, R/S) fits the icon's square. It is in Octet's font wherever it sits,
+   so the A for Automatic is the same in a label's chips (the atom label font) as in its Alignment menu. */
 .glyph-text {
   display: inline-block;
   width: auto;
   min-width: 18px;
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -4539,9 +4498,9 @@ div.facts {
   gap: 2px;
 }
 /* The X that closes a pill or a spectrum tab (CloseX in PanelControls.tsx): one look, the panel controls' (no fill,
-   muted ink, sunken under the pointer, no motion) at 18 px, so it fits a 24 px pill or tab. It shows on hover and focus
-   of its pill or tab, and always for touch and pen. ".segmented button.close-x" outranks the segmented control's own
-   button rules, so a tab's X looks the same as a pill's. */
+   muted ink, sunken under the pointer with the controls' 6 px corners, no motion) at 18 px, so it fits a 24 px pill or
+   tab. It shows on hover and focus of its pill or tab, and always for touch and pen. ".segmented button.close-x"
+   outranks the segmented control's own button rules, so a tab's X looks the same as a pill's. */
 .close-x,
 .segmented button.close-x {
   display: none;
@@ -4551,7 +4510,7 @@ div.facts {
   height: 18px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
   transform: none;

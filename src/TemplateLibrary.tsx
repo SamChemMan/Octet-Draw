@@ -348,6 +348,7 @@ export function LibraryPanel(p: TemplateActions & {
           <MagnifyingGlass size={16} aria-hidden />
           <input placeholder="Search" aria-label="Search templates" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }} />
+          {query && <button className="search-clear" onClick={(e) => { setQuery(""); (e.currentTarget.previousElementSibling as HTMLElement).focus(); }} aria-label="Clear search"><X size={12} /></button>}
         </label>
         <div className="library-sets">
           {categories.map((c, k) => (
@@ -514,7 +515,7 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
         onContextMenu={(e) => { e.preventDefault(); if (actions.onSaveSet && items.length) setSetMenuAt({ x: e.clientX, y: e.clientY }); }}>
         <h3 className="floating-title">{palette.set}</h3>
         <SizeChoice className="floating-size" px={12} size={palette.size} onSize={onSize} />
-        <button className="floating-close" aria-label={`Close ${palette.set}`} data-tip="Close" onClick={onClose}><X size={12} /></button>
+        <button className="actions-close" aria-label={`Close ${palette.set}`} data-tip="Close" onClick={onClose}><X size={12} /></button>
       </header>
       <div ref={grid} className="floating-grid" role="menu" aria-label={palette.set} style={{ gridTemplateColumns: `repeat(${columns}, ${cell}px)` }}>
         {items.map((t, k) => {
