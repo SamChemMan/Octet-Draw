@@ -1,8 +1,9 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, SWEEPS, arrowPath, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, sweepBend, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 import { arialGlyph } from "./cdxml.ts";
+import { distToPath } from "./hit.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -357,13 +358,35 @@ console.log("render.check: written labels ok");
   assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
   // A closed pen curve (it ends where it starts) is still drawn.
   assert.equal(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } }, S, k).length, 3);
-  // A pen curve whose ends are close together (a loop) keeps its whole head: only straight arrows are kept to two thirds.
-  const loop = arrowShapes({ id: 3, kind: "curve", from: [0, 0], to: [0.3, 0], end: "full", curve: { points: [{ at: [0, 0], c2: [-2, 2] }, { at: [0.3, 0], c1: [2.3, 2] }] } }, S, k);
-  const loopHead = loop[loop.length - 1];
-  assert.ok(Math.abs(Math.hypot(loopHead[2][0] - loopHead[0][0], loopHead[2][1] - loopHead[0][1]) - 8.75 * lw) < 1e-6, "a curve's whole head");
+  // A pen curve of one point (a file can hold one) has no shaft for a head to sit on, and draws nothing.
+  assert.deepEqual(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], end: "full", curve: { points: [{ at: [0, 0] }] } }, S, k), []);
+  // A pen curve whose ends are close together (a loop) keeps its whole head: a head is kept to two thirds of the arrow
+  // measured round its curve, so its barbs stand the head's whole width (2.5 line widths) off the curve.
+  const loopArrow: Arrow = { id: 3, kind: "curve", from: [0, 0], to: [0.3, 0], end: "full", curve: { points: [{ at: [0, 0], c2: [-2, 2] }, { at: [0.3, 0], c1: [2.3, 2] }] } };
+  const loop = arrowShapes(loopArrow, S, k), loopPath = arrowPath(loopArrow, k);
+  assert.ok(Math.abs(Math.max(...loop[loop.length - 1].map((q) => distToPath(q, loopPath))) - 2.5 * lw) < 1e-6, "a curve's whole head");
+  // A pen curve with a corner (a point clicked, not dragged) just before its tip: its head is a straight dart (both
+  // barbs as far from the tip), not bent round the corner.
+  const corner = arrowShapes({ id: 5, kind: "curve", from: [0, 0], to: [0.8, 0.2], end: "full", curve: { points: [{ at: [0, 0] }, { at: [0.8, 0] }, { at: [0.8, 0.2] }] } }, S, k);
+  const cornerHead = corner[corner.length - 1], fromTip = (q: P) => Math.hypot(q[0] - cornerHead[0][0], q[1] - cornerHead[0][1]);
+  assert.ok(cornerHead.length === 4 && Math.abs(fromTip(cornerHead[1]) - fromTip(cornerHead[3])) < 1e-9, "a head at a corner");
+  // An arc's head is laid along its arc (#63), so head and shaft draw as one curve at any length: every point of the
+  // head is within its width of the arc, a full head's notch is on the arc and a half head's inner corner is on the
+  // shaft's edge. A short arc's head is kept to two thirds of the arc, as a straight arrow's is (its width is a quarter
+  // of its length). Drawn along the head's chord instead, a small fishhook's barb crossed its own shaft.
+  for (const sweep of SWEEPS) for (const bend of [sweepBend(sweep), -sweepBend(sweep)]) for (const L of [0.2, 0.35, 0.6, 1.5]) for (const kind of ["curved", "fishhook", "double"] as const) {
+    const arc: Arrow = { id: 4, kind, from: [0, 0], to: [L, 0], bend }, line = arrowPath(arc, k), drawn = arrowShapes(arc, S, k);
+    const along = line.slice(1).reduce((sum, q, i) => sum + Math.hypot(q[0] - line[i][0], q[1] - line[i][1]), 0), W = Math.min(2 * lw, along / 6);
+    for (const h of drawn.slice(kind === "double" ? -2 : -1)) {
+      const off = h.map((q) => distToPath(q, line)), what = `${kind} ${sweep}° ${bend > 0 ? "up" : "down"} ${L}`;
+      assert.ok(off.every((d) => d <= W + 1e-9) && Math.max(...off) > 0.99 * W, `${what}: the head along its arc`);
+      assert.ok(kind === "fishhook" ? off.some((d) => Math.abs(d - lw / 2) < 1e-9) : off.slice(1).some((d) => d < 1e-9), `${what}: the head joins its shaft`);
+    }
+  }
   // Every polygon winds the same way, so a head over its shaft, or over an arrow joined at its tip, leaves no hole.
   const area = (p: [number, number][]) => p.reduce((s, q, i) => s + q[0] * p[(i + 1) % p.length][1] - p[(i + 1) % p.length][0] * q[1], 0);
-  for (const more of [{}, { headSize: headOfLength(22.5) }, { style: "bold" }, { kind: "equilibrium" }, { kind: "resonance" }, { end: "right" }, { start: "left" }, { kind: "nogo" }, { kind: "block" }] as Partial<Arrow>[])
+  for (const more of [{}, { headSize: headOfLength(22.5) }, { style: "bold" }, { kind: "equilibrium" }, { kind: "resonance" }, { end: "right" }, { start: "left" }, { kind: "nogo" }, { kind: "block" },
+    { kind: "curved", bend: sweepBend(270) }, { kind: "fishhook", to: [0.4, 0], bend: sweepBend(120) }, { kind: "fishhook", bend: -sweepBend(90) }, { kind: "double", to: [0.6, 0], bend: sweepBend(180) }] as Partial<Arrow>[])
     assert.ok(arrowShapes({ ...a, ...more }, S, k).every((p) => area(p) < 0), `winding: ${JSON.stringify(more)}`);
   console.log("render.check: arrow sizes and kinds ok");
 }
