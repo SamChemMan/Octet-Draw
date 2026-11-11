@@ -1812,6 +1812,10 @@ button.variant.add {
 .facts:active {
   transform: scale(0.98);
 }
+/* No formula (a dash): nothing to copy. */
+div.facts {
+  pointer-events: none;
+}
 /* The abbreviation Octet knows for the structure (TREN), then its formula: cut short with an ellipsis, never the mass. */
 .facts-what {
   min-width: 0;

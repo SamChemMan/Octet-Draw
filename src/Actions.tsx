@@ -755,6 +755,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <span>{massText(a, "weight", 2)} g/mol</span>
         </button>
       ))}
+      {facts.current?.length === 0 && whole && <div className="facts"><span className="formula">–</span></div>}
 
       {problems.length > 0 && context.kind !== "empty" && (
         <div className="problems" role="status">

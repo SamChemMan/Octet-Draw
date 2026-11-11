@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
-import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
@@ -161,8 +161,6 @@ let pageSheet: CSSStyleSheet | undefined;
 const NATIVE_CLIP = TAURI;
 
 const L = STYLE.bond; // px per bond length at 100%
-// The largest structure the canvas for screen readers names (access.ts): naming a larger one could hold up the window.
-const MOST_NAMED = 120;
 // The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
 // labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
 // purpose opens with bonds the same length on screen (IDEA-SIZE-7): Slides and Poster show their page smaller round
@@ -1168,7 +1166,13 @@ export default function Editor() {
     return !!there;
   };
 
-  useEffect(() => { ready.then(() => setLoaded(true)); }, []);
+  // Indigo loads at start, and again after a call damages it (chem.ts watched): the chemistry waits for it. A notice
+  // says when it cannot load.
+  useEffect(() => {
+    const wait = () => ready.then(() => setLoaded(true), (e) => { logError(`Indigo did not load: ${e}`); setNotice("Octet cannot load its chemistry engine. Restart Octet."); });
+    void wait();
+    return onRestart((e) => { logError(`Indigo loads again after: ${e instanceof Error ? e : (e as object | null)?.constructor?.name}`); setLoaded(false); void wait(); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Clean Up's code is made ready soon after start (the browser compiles it as it runs): a few small clean-ups that
   // change nothing, a moment apart, so the first Clean Up is as quick as the next (decision 0024).
   useEffect(() => {
@@ -3196,7 +3200,7 @@ export default function Editor() {
   // The Document window's preview: paracetamol with its compound number, drawn in the style at 125% of true size
   // (smaller if it would not fit), so a change of preset shows as a change of size. It is drawn on the page's own
   // background, with the canvas's ink: white paper and black ink unless the Background is dark, in both themes.
-  const sample = useMemo(() => (loaded && docOpen ? parseStructure("CC(=O)Nc1ccc(O)cc1") : undefined), [loaded, docOpen]);
+  const sample = useMemo(() => { try { return loaded && docOpen ? parseStructure("CC(=O)Nc1ccc(O)cc1") : undefined; } catch { return undefined; } }, [loaded, docOpen]);
   // A template being made (Custom template on Home) shows in its own style.
   const previewStyle = madeTemplate?.style ?? style;
   const preview = useMemo(() => {
@@ -6086,9 +6090,10 @@ export default function Editor() {
   const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure" || (panelContext?.kind === "caption" && panelContext.mode === "picked") || ((panelContext?.kind === "atom" || panelContext?.kind === "bond") && !!panelContext.molecule));
   const analysis = useMemo(() => {
     if (!loaded || !facts) return undefined;
-    const own = selection.size ? undefined : pickedChem(picked);
-    // With each structure's abbreviation, once the names engine has loaded (TREN · C6H18N4).
-    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3, namesLoaded ? abbreviationOf : undefined);
+    const own = selection.size ? undefined : pickedChem(picked), m = selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol;
+    // With each structure's abbreviation, once the names engine has loaded (TREN · C6H18N4). When Indigo can work out
+    // none of the structures, the panel shows a dash.
+    return analyse(m, 3, namesLoaded ? abbreviationOf : undefined) ?? (m.atoms.length ? [] : undefined);
   }, [loaded, facts, doc, chem, selection, picked, namesLoaded, settings.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
