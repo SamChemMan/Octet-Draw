@@ -292,6 +292,22 @@ fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<Str
     rebuild(&app)
 }
 
+// File > More Formats (Settings > Pro > More formats): the rare formats the page lists (40 at most), each an id ("more_"
+// and the format) and its name (cut to 60 characters). None while the switch is off: File has no More Formats.
+#[derive(Default)]
+struct MoreFormats(Mutex<Option<Vec<(String, String)>>>);
+
+#[tauri::command]
+fn set_more_formats(app: AppHandle, formats: Option<Vec<(String, String)>>) -> Result<(), String> {
+    let next = formats.map(|list| list.into_iter()
+        .filter(|(id, _)| id.len() <= 60 && id.starts_with("more_") && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .take(40).map(|(id, name)| (id, name.chars().filter(|c| !c.is_control()).take(60).collect())).collect());
+    if !keep_new(&app.state::<MoreFormats>().0, next) {
+        return Ok(());
+    }
+    rebuild(&app)
+}
+
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
@@ -584,6 +600,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     ctp_list.extend(ctp_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
     let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
+    // File > More Formats, while Settings > Pro > More formats is on: the rare formats, as the page lists them. Each is a
+    // command with a shortcut, as File's others are. Off, File has no More Formats.
+    let more_list = app.state::<MoreFormats>().0.lock().unwrap().clone();
+    section.replace("File › More Formats".into());
+    let more_items = more_list.iter().flatten().map(|(id, name)| item(id, name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let more = Submenu::with_items(app, "More Formats", !more_items.is_empty(), &more_items.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
     let revert = item("revert", "Revert to Saved", "")?;
@@ -602,6 +624,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
         &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
         &save_ctp,
+        &more,
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
@@ -617,6 +640,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
     if object.is_some() {
         file.remove(&revert)?;
+    }
+    if more_list.is_none() {
+        file.remove(&more)?;
     }
     let close_text = object.map(|h| format!("Close and Return to {h}"));
     #[cfg(not(target_os = "linux"))]
@@ -1078,7 +1104,8 @@ fn main() {
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
+        .manage(MoreFormats::default())
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
