@@ -68,7 +68,7 @@ export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
 // An atom's scale (decision 0007). Bonds, chains, rings and templates drawn from an atom take it, so they match the
 // bonds already there (ChemDraw's sprouted bonds take the structure's own bond length too).
 export const scaleAt = (m: Mol, i: number) => m.atoms[i]?.scale ?? 1;
-const withAtom = (m: Mol, p: P, label = "C", scale = 1): [Mol, number] => [{ ...m, atoms: [...m.atoms, { label, location: [p[0], p[1], 0], ...(scale !== 1 ? { scale } : {}) }] }, m.atoms.length];
+export const withAtom = (m: Mol, p: P, label = "C", scale = 1): [Mol, number] => [{ ...m, atoms: [...m.atoms, { label, location: [p[0], p[1], 0], ...(scale !== 1 ? { scale } : {}) }] }, m.atoms.length];
 // The atom at p, or a new carbon there at this scale.
 function atomOrNew(m: Mol, p: P, scale = 1): [Mol, number] {
   const i = atomAt(m, p, 0.1 * Math.min(1, scale));

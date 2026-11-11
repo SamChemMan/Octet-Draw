@@ -13,6 +13,8 @@ import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
 import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
+import { elementFacts } from "./periodic.ts";
+import { PeriodicTable } from "./PeriodicTable";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
@@ -454,6 +456,8 @@ type PaletteProps = {
   findNamed: (query: string, read: boolean) => LibraryItem[]; // names and abbreviations for the library's search
   onTool: (t: Tool) => void;
   onVariant: (t: keyof Variants, kind: string) => void;
+  element?: string; // the element the Text tool puts on atoms, chosen from its periodic table
+  onElement: (el?: string) => void; // an element chosen there (the Text tool in hand), or Text again
   onPinned: (pinned: string[]) => void;
   onAddName: (name: string) => boolean;
   onAdd: (set: string, tool: TemplateTool) => void; // the selection into a set, or with nothing selected, a structure picked next
@@ -648,7 +652,8 @@ export function Palette(p: PaletteProps) {
     { id: "cycle", name: CYCLES[p.variants.cycle] ?? "Catalytic cycle", icon: <CycleGlyph v={p.variants.cycle} /> },
     { id: "shape", name: shapeName(p.variants.shape) ?? "Shape", icon: <ElementGlyph v={p.variants.shape} /> },
     { id: "bracket", name: BRACKETS[p.variants.bracket] ?? "Brackets", icon: <BracketGlyph v={p.variants.bracket} /> },
-    { id: "text", name: "Text", icon: <TextT size={20} /> },
+    // The Text tool shows the element it puts on atoms, when one was chosen from its periodic table.
+    { id: "text", name: p.element ? `${elementFacts(p.element).name}. Text` : "Text", icon: p.element ? <Icon><text x={128} y={128} dy="0.35em" textAnchor="middle" fill="currentColor" stroke="none" style={{ font: `600 ${p.element.length > 1 ? 136 : 176}px var(--font-sans)` }}>{p.element}</text></Icon> : <TextT size={20} /> },
     { id: "erase", name: "Eraser ([ and ] change its size)", icon: <Eraser size={20} /> },
   ];
   // The specialist slot: the special tool in hand, or the one last used.
@@ -760,7 +765,7 @@ export function Palette(p: PaletteProps) {
       <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
-        const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : undefined;
+        const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : t.id === "text" ? [] : undefined; // the Text tool's is its periodic table
         return (
           <div key={t.id} className="slot" data-col={wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
@@ -797,6 +802,10 @@ export function Palette(p: PaletteProps) {
               <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id }))]}
                 columns={columnsOf("more")} onColumns={(n) => p.onStripWidth("more", menuWidth(n))}
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
+            )}</Exit>
+            <Exit>{t.id === "text" && open === "text" && (
+              <PeriodicTable current={p.element} onChoose={(el) => { p.onElement(el); setOpen(undefined); }}
+                onRelease={(el) => { if (held) { p.onElement(el); setOpen(undefined); } }} />
             )}</Exit>
             <Exit>{t.id === "template" && open === "template" && (
               <LibraryPanel current={p.variants.template} mine={mine} {...own("template")}
