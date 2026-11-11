@@ -122,6 +122,29 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   starting (or 1.5 s after, where WebKit has no requestIdleCallback), or at once when the library opens; Vite puts it
   in a chunk of its own.
 
+## Structures and clip art (1.1.2)
+
+ChemDraw 26.1 lists every set in one alphabetical Templates menu: Clipware, BioArt, Anatomy and Bugs sit between
+Aromatics and Bicyclics. Its BioDraw tools are a toolbar of their own. Octet's library had the same problem: 30 sets in
+one list, the drawings after Paddlewheels.
+
+- The library has a switch under its search field: Structures or Clip art. Each shows its own sets. Clip art is Lab and
+  the drawn sets (a set whose templates have no atoms, `library.ts` ART_SETS); every other set is Structures. The
+  user's own sets show with both.
+- It opens on the kind of the template in hand: a flask chosen last time opens Clip art, on its set. With a ring in
+  hand, the Ring tool's library opens Structures.
+- Search looks in both kinds. Its results show in two groups, Structures and Clip art, each under its name, the kind the
+  switch was on first (so "tube" on Clip art shows the test tubes before the structures found by name). While a search
+  shows, neither half of the switch is on, as no set is. A click on either half clears the search.
+- View > Templates and File > Save Templates for ChemDraw list the user's sets, then Octet's structures, then its clip
+  art, with a separator between each group. The menu is built again when the later sets load, so each item opens the set
+  it names (before, the items after the first group could open the wrong set once `library-more.json` had loaded).
+- The command palette finds every template by "structure" or "clip art" (a command's other words now match words in a
+  row, as "clip art").
+- The library is 30 px wider (the side is 180 px), so the switch's two halves are equal and "Cp and arene rings" fits on
+  one line. Where the window is too narrow for it beside the Ring menu, it moves left to stay 8 px inside the window,
+  over that menu's edge.
+
 ## Not done
 
 - Bridged rings (norbornane, adamantane, bicyclo[2.2.2]octane, DABCO) stay flat, as Indigo lays them out. Drawn in 3D

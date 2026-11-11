@@ -2885,8 +2885,8 @@ div.facts {
   left: calc(100% + var(--space-2));
   z-index: 2; /* over the floating palettes, as the strips are */
   display: grid;
-  grid-template-columns: 150px 1fr;
-  width: 560px;
+  grid-template-columns: 180px 1fr;
+  width: 590px;
   height: 420px;
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
@@ -3129,6 +3129,29 @@ div.facts {
   font: 13px var(--font-sans);
   -webkit-user-select: text;
   user-select: text;
+}
+/* Structures or Clip art, under the search field: two halves the side's width. */
+.segmented.library-kind {
+  display: flex;
+  margin-bottom: var(--space-1);
+}
+.segmented.library-kind button {
+  flex: 1;
+  padding: 0 6px;
+  font: 13px var(--font-sans);
+}
+/* Search results, in a group for each kind under its name, as the Actions panel names its sections. */
+.library-group {
+  display: contents;
+}
+.library-group-name {
+  grid-column: 1 / -1;
+  padding: var(--space-1) var(--space-1) 2px;
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+}
+.library-group + .library-group .library-group-name {
+  padding-top: var(--space-3);
 }
 .library-category {
   display: flex;
