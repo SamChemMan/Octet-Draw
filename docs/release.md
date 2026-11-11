@@ -102,11 +102,12 @@ Open Anyway.
 On the Mac: `npm run tauri dev` and `npm run tauri build` have Feedback, so a build made there for testers has it.
 `OCTET_FEEDBACK=0 npm run tauri build` makes one with no Feedback, as the public release is.
 
-Each run also makes a Flatpak for testers on Linux (issue 37): the artifact `Octet-Draw-x86_64.flatpak`. It is the
-run's .deb on the GNOME runtime and its WebKitGTK (`src-tauri/linux/io.github.samchemman.octet-draw.yml`), and it
-is not put in the release. A tester installs it with `flatpak install --user Octet-Draw.flatpak` and starts it with
-`flatpak run io.github.samchemman.octet-draw`. Every other Octet must be closed first, as a running Octet takes the
-start. Check for Updates cannot install an update in the Flatpak.
+Each run also makes a Flatpak for testers on Linux (issue 37): the artifact `Octet-Draw-x86_64.flatpak`, a zip file
+with `Octet-Draw.flatpak` in it. It is the run's .deb on the GNOME runtime and its WebKitGTK
+(`src-tauri/linux/io.github.samchemman.octet-draw.yml`), and it is not put in the release. A tester installs it with
+`flatpak install --user Octet-Draw.flatpak` and starts it with `flatpak run io.github.samchemman.octet-draw`. Close
+every other Octet first: if one runs, the Flatpak gives its files to that Octet and ends. Check for Updates cannot
+install an update in the Flatpak.
 
 ## What each release has
 
