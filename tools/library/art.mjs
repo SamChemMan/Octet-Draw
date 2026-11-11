@@ -1,7 +1,8 @@
 // Drawings for the library's illustration sets, written as SVG path data (a 100-unit box, y down) and turned into
-// Octet's pen curves and lines here: each subpath one curve, every arc and quadratic made a cubic Bézier. Every
-// drawing in these sets is Octet's own, drawn for this file; nothing comes from another program's files.
-import { item, LIQUID, LIQUID_LIGHT } from "./lab.mjs";
+// Octet's pen curves and lines here: each subpath one curve (lines that meet end to end one curve), every arc and
+// quadratic made a cubic Bézier. Every drawing in these sets is Octet's own, drawn for this file; nothing comes from
+// another program's files.
+import { item, join, LIQUID, LIQUID_LIGHT, reverse } from "./lab.mjs";
 
 // The tints a drawing may fill with: the Lab group's two at the logo's hue. Only small parts are filled (a liquid, an
 // organelle, a head group), so a drawing still reads on a dark page, where its lines are light.
@@ -78,22 +79,57 @@ export const ellipse = (cx, cy, rx, ry) => `M${cx + rx} ${cy}A${rx} ${ry} 0 1 1 
 export const rect = (x, y, w, h, r = 0) => (r ? `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z` : `M${x} ${y}H${x + w}V${y + h}H${x}Z`);
 export const seg = (x0, y0, x1, y1) => `M${x0} ${y0}L${x1} ${y1}`;
 
+// A curve with its stretch from point i to the next cut at its middle (de Casteljau): the new point comes after i.
+const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+function halve(ps, i) {
+  const a = ps[i], b = ps[i + 1];
+  if (!a.c2 && !b.c1) return [...ps.slice(0, i + 1), { at: mid(a.at, b.at) }, ...ps.slice(i + 1)];
+  const p1 = a.c2 ?? a.at, p2 = b.c1 ?? b.at, q0 = mid(a.at, p1), q1 = mid(p1, p2), q2 = mid(p2, b.at), r0 = mid(q0, q1), r1 = mid(q1, q2);
+  return [...ps.slice(0, i), { ...a, c2: q0 }, { at: mid(r0, r1), c1: r0, c2: r1 }, { ...b, c1: q2 }, ...ps.slice(i + 2)];
+}
+
 // A drawing as a library item: its parts in order (fills first is up to the drawing), size the larger side of its
 // box in bond lengths, or { per } the drawing's units in one bond length (so a set's items keep their sizes to each
 // other). Lines take the document's width; fills are closed curves in one of the tints.
 export function art(name, also, size, parts) {
   let all = parts.flatMap(([kind, d, more]) => subpaths(d).map((p) => [kind, p, more]));
+  // Open lines that meet end to end (two ends at a point, no more) are one line, so the join turns as a line does
+  // (a flask's neck into its sphere, a leg at its knee) where two ends side by side left a notch.
+  const same = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6, ends = (x) => [x[1].points[0].at, x[1].points[x[1].points.length - 1].at];
+  const alike = (a, b) => a !== b && JSON.stringify(a[2]) === JSON.stringify(b[2]);
+  for (let joined = true; joined; ) {
+    joined = false;
+    const open = all.filter((x) => x[0] === "ink" && !x[1].closed), at = open.flatMap(ends);
+    for (const a of open) for (const b of open) {
+      const p = !joined && alike(a, b) && ends(a).find((q) => ends(b).some((r) => same(q, r)) && at.filter((r) => same(q, r)).length === 2);
+      if (!p) continue;
+      a[1].points = join(same(ends(a)[1], p) ? a[1].points : reverse(a[1].points), same(ends(b)[0], p) ? b[1].points : reverse(b[1].points));
+      all = all.filter((x) => x !== b);
+      joined = true;
+    }
+  }
+  // A line that comes back to its start (three points or more) is closed, so it has no ends there.
+  const open = all.filter((x) => x[0] === "ink" && !x[1].closed);
+  for (const x of open) {
+    const q = x[1].points, [s, e] = ends(x), l = q[q.length - 1];
+    if (q.length > 3 && same(s, e) && open.flatMap(ends).filter((p) => same(p, s)).length === 2) x[1] = { points: [{ at: q[0].at, ...(l.c1 ? { c1: l.c1 } : {}), ...(q[0].c2 ? { c2: q[0].c2 } : {}) }, ...q.slice(1, -1)], closed: true };
+  }
   // A drawing of one line is drawn as two that meet (a group of one object does not come back from a CDXML file, and
-  // every drawing is one group). A closed line is cut into two open halves.
+  // every drawing is one group), cut in the middle of a stretch, where the two halves run on as one line. A line that
+  // comes back to its start starts there too, so neither join is at a corner.
   if (all.length === 1 && all[0][0] === "ink") {
-    const [kind, { points, closed }, more] = all[0], ring = closed ? [...points, { ...points[0], c2: undefined }] : points, m = Math.floor(ring.length / 2);
-    const half = (ps, first, last) => ps.map((q, i) => ({ at: q.at, ...(i > 0 || !first ? (q.c1 ? { c1: q.c1 } : {}) : {}), ...(i < ps.length - 1 || !last ? (q.c2 ? { c2: q.c2 } : {}) : {}) }));
-    all = [[kind, { points: half(ring.slice(0, m + 1), true, true), closed: false }, more], [kind, { points: half(ring.slice(m), true, true), closed: false }, more]];
+    const [kind, { points, closed }, more] = all[0];
+    const loop = closed ? [...points, { ...points[0], c2: undefined }] : same(...ends(all[0])) ? points : null, r = loop && halve(loop, 0);
+    const line = r ? [r[1], ...r.slice(2, -1), { ...r[r.length - 1], c2: r[0].c2 }, { at: r[1].at, c1: r[1].c1 }] : points;
+    const m = Math.floor((line.length - 1) / 2), cut = halve(line, m);
+    const half = (ps) => ps.map((q, i) => ({ at: q.at, ...(i > 0 && q.c1 ? { c1: q.c1 } : {}), ...(i < ps.length - 1 && q.c2 ? { c2: q.c2 } : {}) }));
+    all = [[kind, { points: half(cut.slice(0, m + 2)), closed: false }, more], [kind, { points: half(cut.slice(m + 1)), closed: false }, more]];
   }
   const xs = all.flatMap(([, p]) => p.points.map((q) => q.at[0])), ys = all.flatMap(([, p]) => p.points.map((q) => q.at[1]));
   const k = typeof size === "object" ? 1 / size.per : size / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-  // Kept to 0.01 bond length (0.15 pt at the default style), which keeps the library small to load.
-  const r2 = (v) => Math.round(v * 100) / 100 + 0, map = (q) => [r2(q[0] * k), r2(-q[1] * k)];
+  // Kept to 0.001 bond length (item rounds them), as a handle a few hundredths long needs: at 0.01 the handles either
+  // side of a smooth point no longer lined up, and a smooth curve drew with a kink at every point.
+  const map = (q) => [q[0] * k, -q[1] * k];
   const conv = (p) => p.points.map((q) => ({ at: map(q.at), ...(q.c1 ? { c1: map(q.c1) } : {}), ...(q.c2 ? { c2: map(q.c2) } : {}) }));
   return item(name, also, all.map(([kind, p, more]) => {
     const ps = conv(p);

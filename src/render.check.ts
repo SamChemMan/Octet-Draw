@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, SWEEPS, arrowPath, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, sweepBend, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, SWEEPS, arrowPath, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, sweepBend, tableLayout, tlcLayout, turnedWith, waveAlong, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 import { arialGlyph } from "./cdxml.ts";
 import { distToPath } from "./hit.ts";
@@ -345,7 +345,8 @@ console.log("render.check: written labels ok");
   // A bent equilibrium (a point, then its middle dragged): two arcs beside its own, each with its half head; with a
   // ratio of 3 the back arc sweeps a third of the forward one.
   const bentEq = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3 }, S, k), bentShort = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3, ratio: 3 }, S, k);
-  assert.ok(Math.min(...ys(bentEq)) < -0.3 * 4 * k + 0.2 * k && bentShort.length < bentEq.length, "curved equilibrium");
+  const across = (p: [number, number][]) => Math.max(...xs([p])) - Math.min(...xs([p]));
+  assert.ok(Math.min(...ys(bentEq)) < -0.3 * 4 * k + 0.2 * k && across(bentShort[2]) < 0.5 * across(bentEq[2]), "curved equilibrium");
   // A block arrow: shaft 12 line widths wide, barbs 12 off the axis and 12 back from the tip.
   const o = blockOutline({ ...a, kind: "block" }, S, k);
   const X = (4 * k) / lw, round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
@@ -356,8 +357,33 @@ console.log("render.check: written labels ok");
   assert.ok(pts.length === 4 && Math.hypot(pts[0][0], pts[0][1]) < 1e-9 && Math.hypot(pts[3][0] - 0.5, pts[3][1] - 1.2) < 1e-9 && e.end === "full");
   const c = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2], long = Math.hypot(pts[0][0] - c[0], pts[0][1] - c[1]), shortAxis = Math.hypot(pts[3][0] - c[0], pts[3][1] - c[1]);
   assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
-  // A closed pen curve (it ends where it starts) is still drawn.
-  assert.equal(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } }, S, k).length, 3);
+  // A closed pen curve (it ends where it starts) is still drawn: one loop each side, with no ends.
+  const triangle: Arrow = { id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } };
+  assert.equal(arrowShapes(triangle, S, k).length, 2);
+  // A pen curve is one outline, filled nonzero: every point within its half-width of the line is inked, round every
+  // bend and corner (a bar for each step left a wedge outside every turn, which showed as seams), and no corner spikes
+  // out past twice its half-width. A clip-art curve, a tight hairpin, corners of a closed curve, and a wavy line.
+  const wind = (polys: P[][], q: P) => polys.reduce((sum, p) => sum + p.reduce((w, a, i) => {
+    const b = p[(i + 1) % p.length], side = (b[0] - a[0]) * (q[1] - a[1]) - (q[0] - a[0]) * (b[1] - a[1]);
+    return w + (a[1] <= q[1] ? (b[1] > q[1] && side > 0 ? 1 : 0) : (b[1] <= q[1] && side < 0 ? -1 : 0));
+  }, 0), 0);
+  const smooth: Arrow = { id: 6, kind: "curve", from: [0, 0], to: [2, 0], curve: { points: [{ at: [0, 0], c2: [0.5, 1] }, { at: [1, 0], c1: [0.6, -0.8], c2: [1.4, 0.8] }, { at: [2, 0], c1: [1.5, -1] }] } };
+  const hairpin: Arrow = { id: 7, kind: "curve", from: [0, 0], to: [0, 0.02], curve: { points: [{ at: [0, 0], c2: [1, 0] }, { at: [0, 0.02], c1: [1, 0.02] }] } };
+  const wavy: Arrow = { ...smooth, style: "wavy" };
+  for (const [c, path] of [[smooth, arrowPath(smooth, k)], [hairpin, arrowPath(hairpin, k)], [triangle, arrowPath(triangle, k)], [wavy, waveAlong(arrowPath(smooth, k), 0.06 * k, 0.2 * k)]] as [Arrow, P[]][]) {
+    const drawn = arrowShapes(c, S, k), w = 0.95 * (lw / 2), ring = !!c.curve?.closed;
+    path.forEach((p, i) => {
+      const q = path[i + 1], d = q ? Math.hypot(q[0] - p[0], q[1] - p[1]) : 0;
+      if (d > 1e-9) for (const f of [0.1, 0.5, 0.9]) {
+        const n: P = [-(q[1] - p[1]) / d, (q[0] - p[0]) / d], m: P = [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+        for (const s of [-1, 1]) assert.notEqual(wind(drawn, [m[0] + n[0] * s * w, m[1] + n[1] * s * w]), 0, `pen curve ${c.id} ${c.style ?? ""}: inked across its width`);
+      }
+      if (ring || (i > 0 && i + 1 < path.length)) for (let j = 0; j < 24; j++) assert.notEqual(wind(drawn, [p[0] + w * Math.cos((j * Math.PI) / 12), p[1] + w * Math.sin((j * Math.PI) / 12)]), 0, `pen curve ${c.id} ${c.style ?? ""}: inked round its turns`);
+    });
+    assert.ok(drawn.flat().every((q) => distToPath(q, path) <= lw + 1e-9), `pen curve ${c.id} ${c.style ?? ""}: no spikes`);
+  }
+  // About two points for each point of the line (a bar for each step had four), so the page has half the path to draw.
+  assert.ok(arrowShapes(smooth, S, k).flat().length <= 2 * arrowPath(smooth, k).length, "a pen curve's outline is small");
   // A pen curve of one point (a file can hold one) has no shaft for a head to sit on, and draws nothing.
   assert.deepEqual(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], end: "full", curve: { points: [{ at: [0, 0] }] } }, S, k), []);
   // A pen curve whose ends are close together (a loop) keeps its whole head: a head is kept to two thirds of the arrow

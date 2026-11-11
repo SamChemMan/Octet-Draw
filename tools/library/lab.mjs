@@ -34,9 +34,9 @@ class Path {
   lip(x, top, dir) { return this.l(x, top - LIP).c(x, top - LIP * 0.45, x + dir * LIP * 0.45, top, x + dir * LIP, top); }
 }
 const mirror = (ps) => ps.map((q) => ({ at: [-q.at[0], q.at[1]], ...(q.c1 ? { c1: [-q.c1[0], q.c1[1]] } : {}), ...(q.c2 ? { c2: [-q.c2[0], q.c2[1]] } : {}) }));
-const reverse = (ps) => [...ps].reverse().map((q) => ({ at: q.at, ...(q.c2 ? { c1: q.c2 } : {}), ...(q.c1 ? { c2: q.c1 } : {}) }));
+export const reverse = (ps) => [...ps].reverse().map((q) => ({ at: q.at, ...(q.c2 ? { c1: q.c2 } : {}), ...(q.c1 ? { c2: q.c1 } : {}) }));
 // Two paths end to end: where the first ends on the second's start, the two points become one.
-function join(a, b) {
+export function join(a, b) {
   const p = a[a.length - 1], q = b[0];
   if (Math.hypot(p.at[0] - q.at[0], p.at[1] - q.at[1]) > 1e-9) return [...a, ...b];
   return [...a.slice(0, -1), { at: p.at, ...(p.c1 ? { c1: p.c1 } : {}), ...(q.c2 ? { c2: q.c2 } : {}) }, ...b.slice(1)];

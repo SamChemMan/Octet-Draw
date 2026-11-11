@@ -64,8 +64,9 @@ function zebrafish() {
   ]);
 }
 function nematode() {
-  // A worm on an S curve, its head end rounded and its tail tapering to a point; a dot for the mouth.
-  const N = 60, mid = (t) => [-56 + 112 * t, 14 * Math.sin(t * 2 * Math.PI)], width = (t) => 3.2 * Math.min(1, 6 * t, 4 * (1 - t)) + 0.3;
+  // A worm on an S curve, its head end rounded and its tail tapering to a point; a dot for the mouth. Its width eases in
+  // and out (a straight ramp put a corner in its outline where the ramp ended).
+  const N = 24, mid = (t) => [-56 + 112 * t, 14 * Math.sin(t * 2 * Math.PI)], ease = (x) => x * x * (3 - 2 * x), width = (t) => 3.2 * ease(Math.min(1, 6 * t, 4 * (1 - t))) + 0.3;
   const side = (s) => Array.from({ length: N + 1 }, (_, k) => {
     const t = k / N, [x, y] = mid(t), [x2, y2] = mid(Math.min(1, t + 1e-3)), [x1, y1] = mid(Math.max(0, t - 1e-3)), dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy);
     return [x - (dy / l) * width(t) * s, y + (dx / l) * width(t) * s];
@@ -200,7 +201,7 @@ function tRNA() {
   ]);
 }
 function mRNA() {
-  const N = 60, y = (x) => 6 * Math.sin(x / 9);
+  const N = 20, y = (x) => 6 * Math.sin(x / 9);
   const strand = smooth(Array.from({ length: N + 1 }, (_, k) => { const x = -60 + (120 * k) / N; return [x, y(x)]; }));
   return art("mRNA", "messenger RNA, transcript, strand, codons", PER, [ink(strand), ...Array.from({ length: 15 }, (_, k) => { const x = -56 + k * 8; return fine(ink(seg(x, y(x), x, y(x) - 7))); }), ink(`M60 ${f(y(60))}L66 ${f(y(60))}`)]);
 }
