@@ -1,7 +1,7 @@
 // Run: node src/stoich.check.ts. Fails loudly if the stoichiometry sums break.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, solve } from "./stoich.ts";
+import { conditionItems, inert, keyColumns, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, solve } from "./stoich.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -117,5 +117,19 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.equal(solve([r("a", {}), r("k", {}, 2)]).k.equiv, 2, "shown before any amount is typed");
   near(solve([r("a", { moles: 0.01 }), r("k", { equiv: 3 }, 2)]).k.moles, 0.03, "a value typed wins");
   near(solve([r("a", {}), r("k", { mass: 2 }, 2)]).a.moles, 0.01, "a reagent's amount over its equivalents sets the scale");
+}
+// Issue 132: a charge at the end of a formula (+, -, −, 2+, raised) is read as a charge, its mass the formula's, and
+// the formula shows it raised; proton, hydroxide, hydronium, hydride and water read as their formulas.
+{
+  const none = () => undefined, read = (t: string) => reagentFormula(t, none, none, none);
+  for (const [text, formula, mass] of [["H+", "H⁺", 1.008], ["H⁺", "H⁺", 1.008], ["OH-", "OH⁻", 17.007], ["OH−", "OH⁻", 17.007], ["OH⁻", "OH⁻", 17.007], ["HO-", "HO⁻", 17.007],
+    ["H3O+", "H3O⁺", 19.023], ["NH4+", "NH4⁺", 18.039], ["Na+", "Na⁺", 22.99], ["Cl⁻", "Cl⁻", 35.45], ["Cu2+", "Cu²⁺", 63.546], ["Fe³⁺", "Fe³⁺", 55.845], ["SO42−", "SO4²⁻", 96.056],
+    ["SO4 2-", "SO4²⁻", 96.056], ["SO4²⁻", "SO4²⁻", 96.056], ["proton", "H⁺", 1.008], ["Proton", "H⁺", 1.008], ["hydroxide", "OH⁻", 17.007], ["hydronium", "H3O⁺", 19.023],
+    ["hydride", "H⁻", 1.008], ["water", "H2O", 18.015]] as const) {
+    assert.equal(read(text)?.formula, formula, text);
+    near(read(text)?.weight, mass, text);
+  }
+  for (const text of ["+", "2+", "-", "e-"]) assert.equal(read(text), undefined, text);
+  assert.equal(read("K2CO3")?.formula, "K2CO3", "a formula with no charge is as written");
 }
 console.log("stoich.check: ok");

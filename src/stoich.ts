@@ -137,18 +137,31 @@ const GROUPS: [RegExp, string][] = [
 // Octet's reagent abbreviations (src/abbreviations.json) by name, each to its standard InChI.
 let abbreviated: Map<string, string> | undefined;
 const abbreviation = (name: string) => (abbreviated ??= new Map(Object.entries(ABBREVIATIONS as Record<string, string>).map(([inchi, n]) => [n, inchi]))).get(name);
+// Words for what a formula says (issue 132).
+const WORDS: Record<string, string> = { proton: "H+", hydroxide: "OH−", hydronium: "H3O+", hydride: "H−", water: "H2O" };
+// A formula and the charge at its end, raised: H+ is H and ⁺, OH− is OH and ⁻, SO4 2− and SO42− are SO4 and ²⁻, Fe³⁺
+// is Fe and ³⁺ (issue 132). Digits before the sign are the charge's when set apart or raised, after one element (Cu2+)
+// or after another digit (SO42−), else the formula's (NH4+, H3O+). With no charge, the text and "".
+const RAISED: Record<string, string> = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "−": "⁻" };
+function charged(text: string): [string, string] {
+  const m = /^(.+?)(\s*\^?)(\d*|[⁰¹²³⁴⁵⁶⁷⁸⁹]*)([+\-−⁺⁻])$/.exec(text);
+  if (!m) return [text, ""];
+  const [, base, gap, n, sign] = m, own = !gap && /^\d+$/.test(n) && !/^[A-Z][a-z]?$/.test(base) ? n.slice(0, n.length > 1 ? -1 : undefined) : "";
+  return [base + own, [...n.slice(own.length) + sign].map((ch) => RAISED[ch] ?? ch).join("")];
+}
 // A reagent's formula and molar mass as the reagent table takes it (Editor.tsx gridViews): an acronym (NBS,
 // DMF, THF: capitals, no digits) as Octet's abbreviations or Name to Structure read it; else the formula as written,
-// its groups written out; else the abbreviations' or Name to Structure's reading; else an atom label's, so THF is
-// never read as tritium fluoride. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI to its
-// formula and weight. Undefined when none reads it.
+// its groups written out, with any charge (H+, OH−; its mass the formula's); else the abbreviations' or Name to
+// Structure's reading; else an atom label's, so THF is never read as tritium fluoride. Proton, hydroxide, hydronium,
+// hydride and water read as their formulas. read: a name to SMILES; label: a label to SMILES; weigh: SMILES or InChI
+// to its formula and weight. Undefined when none reads it.
 export function reagentFormula(text: string, read: (name: string) => string | undefined, label: (text: string) => string | undefined, weigh: (smiles: string) => { formula: string; weight: number } | undefined): { formula: string; weight: number } | undefined {
-  const plain = reagentName(text).replace(/^\d+\s+(?=\S)/, ""), named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
+  const said = reagentName(text).replace(/^\d+\s+(?=\S)/, ""), plain = WORDS[said.toLowerCase()] ?? said, named = () => { const s = abbreviation(plain) ?? read(plain); return s ? weigh(s) : undefined; };
   // A mixture (toluene/EtOH/H2O) is not one compound: it has no formula of its own.
   if (/[\w)]\s*\/\s*[\w(]/.test(plain)) return undefined;
   if (/^[A-Z]{2,6}$/.test(plain)) { const n = named(); if (n) return n; }
-  const written = /^[A-Za-z0-9()[\]·.\s]+$/.test(plain) ? GROUPS.reduce((t, [g, f]) => t.replace(g, f), plain) : undefined, w = written ? formulaWeight(written) : undefined;
-  if (w !== undefined) return { formula: plain.replace(/\s+/g, ""), weight: w };
+  const [body, charge] = charged(plain), written = /^[A-Za-z0-9()[\]·.\s]+$/.test(body) ? GROUPS.reduce((t, [g, f]) => t.replace(g, f), body) : undefined, w = written ? formulaWeight(written) : undefined;
+  if (w !== undefined) return { formula: body.replace(/\s+/g, "") + charge, weight: w };
   const n = named();
   if (n) return n;
   const s = label(plain);
