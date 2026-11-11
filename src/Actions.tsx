@@ -523,7 +523,9 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
 // A titled section that folds to its title row (Sam, 18 October 2026: every section is open by default and can fold,
 // so the panel is cleaner and still hides nothing). A click on the title, or Return or Space on it, folds or opens it,
 // and Octet keeps that choice for every kind of selection. A folded section opens while the pointer rests on it, and
-// folds again a short time after the pointer leaves it, unless the keyboard focus is in it.
+// folds again a short time after the pointer leaves it, unless the keyboard focus is in it. A click on its title folds
+// it again at once, and it stays folded until the pointer leaves it and comes back. A press on the title before the
+// section opens stops it opening, so a quick click, or a tap on a touch screen, opens it.
 // While the pointer is in the panel, the panel keeps its height and a section opens and closes below its title, so
 // nothing above it moves. A section above the pointer stays open until the pointer goes above it or out of the panel,
 // so nothing moves under the pointer either. When the pointer leaves, the panel takes its full height again.
@@ -533,7 +535,7 @@ const PEEK_DELAY = 100, PEEK_LINGER = 300; // ms the pointer rests before a fold
 function Fold({ id, title, className, folded, onFold, folds, children }: { id: string; title: string; className: string; folded: boolean; onFold: (id: string, folded: boolean) => void; folds: Folds; children: React.ReactNode }) {
   const [peek, setPeek] = useState(false);
   const box = useRef<HTMLDivElement>(null), body = useId();
-  const timer = useRef(0), over = useRef(false), focused = useRef(false), quiet = useRef(false); // quiet: folded by a click, and the pointer has not left it since
+  const timer = useRef(0), over = useRef(false), focused = useRef(false), quiet = useRef(false); // quiet: closed by a click, and the pointer has not left it since
   const open = !folded || peek;
   // Folds it again when neither the pointer nor the focus is on it and the pointer is not below it.
   const settle = useRef(() => {
@@ -552,13 +554,13 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
   const toggle = (e: React.MouseEvent) => {
     const pointer = e.detail > 0; // a click, not Return or Space
     if (pointer) folds.hold();
-    quiet.current = pointer && !folded;
+    quiet.current = pointer && open;
     folds.peeks.delete(id);
     setPeek(false);
-    onFold(id, !folded);
+    if (!folded || !peek) onFold(id, !folded); // a section open on hover closes and stays folded
   };
   return (
-    <div ref={box} className={`${className} fold`} role="group" aria-label={title} data-folded={folded || undefined}
+    <div ref={box} className={`${className} fold`} role="group" aria-label={title}
       onPointerEnter={() => {
         over.current = true;
         clearTimeout(timer.current);
@@ -567,7 +569,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
       onPointerLeave={() => { over.current = false; quiet.current = false; clearTimeout(timer.current); timer.current = window.setTimeout(settle, PEEK_LINGER); }}
       onFocus={(e) => { if (e.target.matches(":focus-visible")) focused.current = true; }}
       onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) { focused.current = false; window.setTimeout(settle, PEEK_LINGER); } }}>
-      <button className="fold-title" aria-expanded={open} aria-controls={body} onClick={toggle}>
+      <button className="fold-title" aria-expanded={open} aria-controls={body} onPointerDown={() => clearTimeout(timer.current)} onClick={toggle}>
         {title}
         <CaretDown size={12} className="fold-caret" aria-hidden />
       </button>
