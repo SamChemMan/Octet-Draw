@@ -101,6 +101,26 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
   assert.deepEqual(back.grids, [{ arrow: back.arrows![0].id, typed: { "r:C7H6O": { mass: 1.06 } }, layout: "rows" }]);
   assert.equal(fromCdxml(toCdxml({ ...m, grids: [{ arrow: 4, typed: {} }] }, DEFAULT_STYLE)).mol.grids?.[0].layout, undefined, "columns stay the default");
 }
+// The fields added after 1.1.2 (roles, taken, conc, conditions, step) are each read alone: a bad one is left out and
+// the grid kept. They go through Octet's file and CDXML, and none is inside typed, where Octet 1.1.1 calls a grid
+// damaged for a field it does not know (1.1.1 reads the rest of the grid and leaves them out).
+{
+  const full = { typed: { "r:A": { mass: 1 } }, roles: { 'r:"THF"': "solvent" as const, "r:B": "catalyst" as const }, taken: { "r:A": "mass" as const }, conc: 0.1, conditions: { temperature: "0 °C", atmosphere: "N2" }, step: true as const };
+  assert.deepEqual(readGrid(full, 3), { arrow: 3, ...full });
+  assert.deepEqual(readGrid({ typed: {}, roles: {} }, 3)?.roles, {}, "a new table's roles, empty, are kept");
+  const many = Object.fromEntries(Array.from({ length: 61 }, (_, k) => [`r${k}`, "reactant"]));
+  for (const [field, bad] of [["roles", { "p:C": "solvent" }], ["roles", { "r:A": "oxidant" }], ["roles", ["solvent"]], ["roles", many], ["roles", { __proto__: "solvent" }], ["taken", { "r:A": "moles" }], ["taken", { "p:C": "mass" }],
+    ["conc", 0], ["conc", -1], ["conc", 1001], ["conc", Infinity], ["conc", "0.1"], ["conditions", { colour: "red" }], ["conditions", { time: 5 }], ["conditions", "2 h"], ["step", 1], ["step", "true"]] as const) {
+    const g = readGrid({ typed: { "r:A": { mass: 1 } }, [field]: field === "roles" && "__proto__" in (bad as object) ? JSON.parse('{"__proto__":"solvent"}') : bad }, 3);
+    assert.ok(g && !(field in g), `${field}: ${JSON.stringify(bad)} left out`);
+    assert.deepEqual(g.typed, { "r:A": { mass: 1 } }, "and the grid kept");
+  }
+  assert.deepEqual(readGrid({ typed: {}, conditions: { other: "x".repeat(5000), time: "2\nh" } }, 3)?.conditions, { other: "x".repeat(200), time: "2 h" }, "each condition one line of 200 at most");
+  const m: Mol = { atoms: [], bonds: [], arrows: [{ id: 4, kind: "reaction", from: [0, 0], to: [3, 0] }], grids: [{ arrow: 4, ...full }] };
+  for (const g of [parse(serialize(m)).grids![0], fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.grids![0]]) { const { arrow: _, ...rest } = g; assert.deepEqual(rest, full); }
+  const saved = JSON.parse(serialize(m)).grids[0] as { typed: Record<string, object> };
+  assert.ok(Object.values(saved.typed).every((t) => Object.keys(t).every((f) => ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"].includes(f))), "typed holds only 1.1.1's fields");
+}
 // The editor lays out a table of rows from the same sums (solve) as the columns, with the reagents and the products in
 // sections of their own, and Hide row hides what shows as a row.
 {

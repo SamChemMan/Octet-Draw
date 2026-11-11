@@ -5,7 +5,8 @@
 // yield. A product's mass typed (its Expected mass) is the mass wanted: with no reactant amount, it sets the scale
 // (issue 136). Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
 
-import type { Grid } from "./render.ts";
+import type { Grid, GridConditions, GridRole } from "./render.ts";
+import { oneLine } from "./experiment.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
@@ -228,10 +229,27 @@ export function formulaWeight(text: string): number | undefined {
 }
 
 // A saved grid read as a hostile file is: typed amounts finite and not negative under known fields, keys short, at most
-// 60 components and the rows Octet has, and a layout only when it is "rows"; undefined when it is damaged.
+// 60 components and the rows Octet has, and a layout only when it is "rows"; undefined when it is damaged. The fields
+// added after 1.1.2 are each checked alone, and one that is wrong is left out with the grid kept: roles and taken at
+// most 60, each a reactant's key with a value from its list; conc a number above 0 and at most 1000 mol/L; conditions
+// the four names only, each one line of at most 200 characters (experiment.ts oneLine); step only true.
 const FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
 const KEY = /^(?:[rp]\d{1,2}|[rp]:[^\n\r]{1,80})$/;
-export const GRID_ROW_IDS = ["formula", "mw", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "purity", "expected", "expectedMoles", "measured", "yield"];
+export const GRID_ROW_IDS = ["formula", "mw", "role", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "conc", "purity", "expected", "expectedMoles", "measured", "yield"];
+export const ROLES: GridRole[] = ["reactant", "catalyst", "solvent"];
+export const CONDITIONS = [["temperature", "Temperature"], ["time", "Time"], ["atmosphere", "Atmosphere"], ["other", "Other"]] as const;
+const reactantKeyed = <T extends string>(x: unknown, values: readonly T[]): Record<string, T> | undefined => {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const list = Object.entries(x);
+  return list.length <= 60 && list.every(([k, v]) => KEY.test(k) && k[0] === "r" && values.includes(v)) ? Object.fromEntries(list) : undefined;
+};
+function readConditions(x: unknown): GridConditions | undefined {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const list = Object.entries(x);
+  if (!list.every(([k, v]) => CONDITIONS.some(([name]) => name === k) && typeof v === "string")) return undefined;
+  const kept = list.map(([k, v]) => [k, oneLine(v as string)]).filter(([, v]) => v);
+  return kept.length ? Object.fromEntries(kept) : undefined;
+}
 export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const g = raw as Record<string, unknown> | undefined, typed = g?.typed as Record<string, Record<string, unknown>> | undefined;
   if (!g || typeof typed !== "object" || !typed || Array.isArray(typed) || Object.keys(typed).length > 60) return undefined;
@@ -241,7 +259,10 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && GRID_ROW_IDS.includes(x)).slice(0, 20) : [];
   const cols = Array.isArray(h?.cols) ? (h!.cols as unknown[]).filter((x): x is string => typeof x === "string" && KEY.test(x)).slice(0, 60) : [];
   const colour = typeof g.colour === "string" && /^#[0-9a-f]{6}$/i.test(g.colour) ? g.colour : undefined;
-  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}) };
+  const roles = reactantKeyed(g.roles, ROLES), taken = reactantKeyed(g.taken, ["mass", "volume"] as const), conditions = readConditions(g.conditions);
+  const conc = typeof g.conc === "number" && Number.isFinite(g.conc) && g.conc > 0 && g.conc <= 1000 ? g.conc : undefined;
+  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
+    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}) };
 }
 
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what

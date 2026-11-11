@@ -456,9 +456,19 @@ export type Annotation = { keyword: string; content: string };
 // "rows": each reagent on a row of its own and the products in a section of their own under them (issue 34); unset,
 // a column under each component, as ChemDraw's grid. Everything else is worked out from the reaction as it is drawn
 // (stoich.ts).
+// Fields added after Octet 1.1.2, each at the top level (Octet 1.1.1 calls a grid damaged when typed holds a field it
+// does not know, and leaves out the rest): roles, each reactant-side column's role by its key (a table Octet makes has
+// roles, even empty, and there a known solvent not listed is a solvent; a table with no roles, from an older Octet, has
+// every column a reactant until the user sets one); taken, the amount measured out for a column, its mass or its
+// volume (drawn red and underlined); conc, the concentration typed (mol/L), which gives the volume of the solvent with
+// no amount typed; conditions, the lines of the block beside the table; step, the table covers its own arrow only (one
+// table for each step of a scheme).
+export type GridRole = "reactant" | "catalyst" | "solvent";
+export type GridConditions = Partial<Record<"temperature" | "time" | "atmosphere" | "other", string>>;
 export type Grid = {
   arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
   hidden?: { rows?: string[]; cols?: string[] }; colour?: string; layout?: "rows";
+  roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true;
 };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
