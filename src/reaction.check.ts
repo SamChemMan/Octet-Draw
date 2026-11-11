@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { frameStyle, pageSize, readStyle } from "./docstyle.ts";
 import { addArrow, addCaption, addRing, addShape, EMPTY, fragments, pos, wholeGroups } from "./edit.ts";
+import { compounds } from "./mixtures.ts";
 import { readOct } from "./oct.ts";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, reactionClean, roleOf, withStructure, type Layout, type Reaction } from "./reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Arrow, type Box, type Mol } from "./render.ts";
@@ -666,23 +667,37 @@ for (const caption of ["85%", "single diastereomer, 85%, used crude"]) {
   const twice = cleanAll(once, () => true).mol;
   assert.deepEqual(twice.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), once.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), `${caption}: a second clean-up moves nothing`);
 }
-// A compound of several structures (the ions of a salt in one integral group, as Group and then Pick as One make) is
-// one part of a row: Clean Up Reaction adds no plus sign between its ions and moves them together, and its number is
-// under all of it. The same ions in a group that is not integral, or in no group, are two reactants.
+// A compound of several structures is one part of a row (mixtures.ts compounds): the ions of a salt (charges that
+// cancel, near each other), or structures under one number. Clean Up Reaction adds no plus sign between its parts and
+// moves them together. Two starting materials in one group (Group, then Pick as One, to move them together) stay two.
 {
-  const row = (integral?: boolean) => {
+  const row = (how: "number" | "ions" | "group") => {
     let t: Mol = addRing(addRing(addRing({ ...EMPTY, style: readStyle({}) }, 6, true, { point: [0, 0] }), 5, false, { point: [2.6, 0] }), 6, true, { point: [10, 0] }), id: number;
     [t, id] = addArrow(t, { kind: "reaction", from: [5, 0], to: [7.5, 0] });
-    t = addCaption(t, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] })[0];
-    return { t: integral === undefined ? t : wholeGroups({ ...t, groups: [{ id: 99, atoms: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], items: [], ...(integral ? { integral: true as const } : {}) }] }), id };
+    if (how === "number") t = addCaption(t, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] })[0];
+    if (how === "ions") t = { ...t, atoms: t.atoms.map((a, i) => (i === 0 ? { ...a, charge: 1 } : i === 6 ? { ...a, charge: -1 } : a)) };
+    if (how === "group") t = wholeGroups({ ...t, groups: [{ id: 99, atoms: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], items: [], integral: true }] });
+    return { t, id };
   };
-  for (const integral of [true, false, undefined]) {
-    const { t, id } = row(integral), d = drawn(t), r = findReaction(t, id, d.arrows, d.ink, d.captionBox)!;
-    assert.deepEqual(r.steps.map((s) => (s.kind === "structure" ? s.atoms.length : s.kind)), integral ? [11, "arrow", 6] : [6, 5, "arrow", 6], `integral ${integral}: the row`);
+  for (const how of ["number", "ions", "group"] as const) {
+    const { t, id } = row(how), d = drawn(t), r = findReaction(t, id, d.arrows, d.ink, d.captionBox)!, one = how !== "group";
+    assert.deepEqual(r.steps.map((s) => (s.kind === "structure" ? s.atoms.length : s.kind)), one ? [11, "arrow", 6] : [6, 5, "arrow", 6], `${how}: the row`);
     const done = cleanAll(t, () => true).mol, apart = (mol: Mol) => mol.atoms[6].location[0] - mol.atoms[0].location[0];
-    assert.equal((done.captions ?? []).filter((c) => c.text === "+").length, integral ? 0 : 1, `integral ${integral}: plus signs`);
-    if (integral) assert.ok(Math.abs(apart(done) - apart(t)) < 1e-9, "the ions keep their places in the compound");
+    assert.equal((done.captions ?? []).filter((c) => c.text === "+").length, one ? 0 : 1, `${how}: plus signs`);
+    if (one) assert.ok(Math.abs(apart(done) - apart(t)) < 1e-9, `${how}: the parts keep their places in the compound`);
   }
+  // Two salts side by side are two compounds: each ion goes with the counter-ion nearest it. Under their own numbers,
+  // ions nearer each other than to their own counter-ions stay apart too.
+  const ion = (label: string, charge: number, x: number) => ({ label, charge, location: [x, 0, 0] as [number, number, number] });
+  const pair: Mol = { atoms: [ion("Na", 1, 0), ion("Cl", -1, 1.2), ion("K", 1, 2.6), ion("Br", -1, 3.8)], bonds: [] };
+  assert.deepEqual(compounds(pair, fragments(pair)), [[0, 1], [2, 3]], "two salts side by side");
+  const own: Mol = { ...pair, captions: [{ id: 1, text: "1", x: 0, y: 0, bold: true, under: [0, 3] }, { id: 2, text: "2", x: 0, y: 0, bold: true, under: [1, 2] }] };
+  assert.deepEqual(compounds(own, fragments(own)), [[0, 3], [1, 2]], "each under its number");
+  // A proton by an anion is a step of a mechanism (Sam's epoxide drawings), not a salt; a hydride is.
+  const proton: Mol = { atoms: [ion("C", 0, 0), { ...ion("O", -1, 1.2), location: [1.2, 0, 0] }, ion("H", 1, 2.4)], bonds: [{ type: 1, atoms: [0, 1] }] };
+  assert.deepEqual(compounds(proton, fragments(proton)), [[0, 1], [2]], "a proton");
+  const hydride: Mol = { atoms: [ion("Na", 1, 0), ion("H", -1, 1.2)], bonds: [] };
+  assert.deepEqual(compounds(hydride, fragments(hydride)), [[0, 1]], "sodium hydride");
 }
 // Products that do not fit their line go on the next, after a plus sign (Clean Up Reaction breaks a line before a
 // plus sign when it must). The reaction reads whole from its arrow: the product on the second line is a product, its

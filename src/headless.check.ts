@@ -265,7 +265,7 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.deepEqual([read2.reactions.map((r: { route: string }) => r.route), read2.text], [["s1 -> s2", "1 + 2 -> 3a + 3b"], undefined]);
   d = drawing("paper", "Nothing fits");
   const long: { content: { text: string }[] } = await call("draw_reaction", { start: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCCO" }], steps: [{ products: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCC=O" }] }] });
-  assert.match(long.content[0].text, /^Drew the reaction\. Octet laid it out with Clean Up Reaction\. The scheme is [\d.]+ bond lengths wide, and the page is 35\.4 wide inside its margins: /);
+  assert.match(long.content[0].text, /^Drew the reaction\. Octet laid it out with Clean Up Reaction\. The scheme is [\d.]+ bond lengths wide \(the page is 41\.3\): give a larger page or landscape \(set_style\), or a starting material in above\./);
   // On a drawing with no page there is no such advice.
   d = drawing("quick", "No page");
   assert.doesNotMatch((await call("draw_reaction", { start: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCCO" }], steps: [{ products: [{ text: "CCCCCCCCCCCCCCCCCCCCCCCC=O" }] }] })).content[0].text, /the page is/);
@@ -280,6 +280,11 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   d = drawing("paper", "A long side text");
   const side: Wrote = await call("draw_cycle", { intermediates: [{ text: "C[CH]C" }, { text: "CC(C)C1C=C(C)c2ccccc2[NH+]1" }, { text: "CC(C)[C]1C=C(C)c2ccccc2N1" }], steps: [{ step: 2, out: "product·H+, PhI, RCO2−, CO2" }] });
   assert.equal(side.structuredContent.check, "clean", JSON.stringify(side.structuredContent.check));
+  assert.doesNotMatch(ni.content[0].text + side.content[0].text, /side text|bond lengths wide/);
+  // Side text too long for the page: the reply says so, and what to do.
+  d = drawing("paper", "A side text too long");
+  const long: Wrote & { content: { text: string }[] } = await call("draw_cycle", { intermediates: [{ text: "benzene" }, { text: "toluene" }, { text: "phenol" }], steps: [{ step: 0, in: Array.from({ length: 12 }, (_, k) => `reagent ${k + 1}`).join(" and ") }] });
+  assert.match(long.content[0].text, /\. The cycle is [\d.]+ bond lengths wide \(the page has 35\.4\): give shorter side text, or a larger page or landscape \(set_style\)\./, long.content[0].text);
 }
 
 // The runner: two inputs, a list of tool calls and a draw_reaction argument, drawn by two workers.

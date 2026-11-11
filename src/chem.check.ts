@@ -233,6 +233,12 @@ console.log("chem.check: attachment points ok");
   const salt = mapReaction([ions], [ions])!;
   assert.deepEqual([salt.reactants[0].length, salt.products[0].length], [5, 5]);
   assert.deepEqual(salt.reactants[0].slice(0, 4), salt.products[0].slice(0, 4));
+  // A salt drawn by hand can have the atoms of its ions in any order (the sodium drawn between the acetate's atoms).
+  const at = (label: string, x: number, charge?: number): Mol["atoms"][number] => ({ label, location: [x, 0, 0], ...(charge ? { charge } : {}) });
+  const mixed: Mol = { atoms: [at("C", 0), at("Na", 5, 1), at("C", 1), at("O", 2, -1), at("O", 1.5)], bonds: [{ type: 1, atoms: [0, 2] }, { type: 1, atoms: [2, 3] }, { type: 2, atoms: [2, 4] }] };
+  const inOrder: Mol = { atoms: [0, 2, 3, 4, 1].map((i) => mixed.atoms[i]), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 2, atoms: [1, 3] }] };
+  const both = mapReaction([mixed], [inOrder])!;
+  assert.deepEqual([0, 2, 3, 4, 1].map((i) => both.reactants[0][i]), both.products[0], "a salt with its atoms in any order");
   // An MDL file's chiral flag alone (no V3000 stereo collections) is what Stereo flags from the chiral flag hides.
   assert.ok(chiralFlagOnly("\n  Octet\n\n  1  0  0  0  1  0  0  0  0  0999 V2000\n"));
   assert.ok(!chiralFlagOnly("M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STERAC1 ATOMS=(1 2)\nM  V30 END COLLECTION\n V3000"));

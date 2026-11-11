@@ -1669,10 +1669,10 @@ export function mapReaction(reactants: Mol[], products: Mol[], keep = false): { 
     const ket = JSON.parse(JSON.parse(ind.automap(rxn, keep ? "keep" : "discard", "ket", opts)).struct);
     const pieces: (number | undefined)[][] = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
     // A compound of several structures (the ions of a salt) comes back as its structures, one after another: they
-    // are put together again, where each structure's atoms follow the one before in the compound (as Octet draws one).
+    // are put together again: Indigo gives them in the order of their first atoms, each with its atoms in order.
     const mols = [...reactants, ...products].map((m) => {
-      const out: (number | undefined)[] = [];
-      for (const g of fragments(m)) { const p = pieces.shift(); if (!p || p.length !== g.length || g.sort((i, j) => i - j).some((i, k) => i !== out.length + k)) return undefined; out.push(...p); }
+      const out: (number | undefined)[] = new Array(m.atoms.length);
+      for (const g of fragments(m)) { const p = pieces.shift(); if (!p || p.length !== g.length) return undefined; g.sort((i, j) => i - j).forEach((i, k) => (out[i] = p[k])); }
       return out;
     });
     if (pieces.length || mols.some((x) => !x)) return undefined;

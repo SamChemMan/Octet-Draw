@@ -6,8 +6,9 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addTemplate, insertMol, addArrow, addCaption, addCycle, compounds, fragments, groupSelection, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
+import { addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms } from "./edit.ts";
 import { change, tagged, type Change } from "./compound.ts";
+import { compounds } from "./mixtures.ts";
 import { LIBRARY } from "./library.ts";
 import { alignByMap, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
@@ -794,10 +795,6 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
   if (over) [mol, first] = addCaption(mol, { ...over, under: atoms });
   if (s.number) [mol, number] = addCaption(mol, { text: s.number, x: 0, y: 0, bold: true, under: atoms });
   if (s.caption) mol = addCaption(mol, { text: s.caption, x: 0, y: 0, under: atoms })[0];
-  // A compound of several structures (the ions of a salt) is one object in the drawing: an integral group, as Group
-  // and then Pick as One make. Octet reads it as one compound (edit.ts compounds).
-  const whole = fragments(s.mol).length > 1 ? groupSelection(mol, new Set(atoms), new Set()) : undefined;
-  if (whole) mol = { ...whole[0], groups: whole[0].groups!.map((g) => (g.id === whole[1] ? { ...g, integral: true as const } : g)) };
   return { mol, atoms, width: b[2] - b[0], number, over: first };
 }
 // The names Octet read as another name (decision 0021, misread names): each name given, with the formula and Octet's
@@ -862,8 +859,8 @@ async function drawStructures(host: Host, a: { structures: { text: string; numbe
   }
   // What does not fit the page, said in the reply with what the AI app can do (the layout check names the ids): rows
   // wider than the page, and rows past its bottom edge (deep: the rows that are on the page).
-  const r1 = (v: number) => Math.round(v * 10) / 10, [pw, ph] = pageSize(st), k = 72 / 25.4 / st.bond, deep = Math.max(0, Math.floor((y0 - cell[1] / 2 - down + (ph / 2) * k) / h + 1e-6) + 1);
-  const advice = !paged || placed(a) ? "" : `${wide > pw * k + 1e-6 ? ` A row of ${cols} is ${r1(wide)} bond lengths wide, and the page is ${r1(inside)} wide inside its margins: ${fits >= cols ? "its widest structure is too wide" : `${fits} fit in a row`}. Give ${fits >= cols ? "" : `columns: ${fits}, or `}a larger page (set_style).` : ""}${rows > deep ? ` ${rows - deep} of the ${rows} rows ${rows - deep > 1 ? "are" : "is"} past the bottom of the page: draw ${deep ? `the structures after the first ${deep * cols}` : "them"} in a new drawing, or give a larger page (set_style).` : ""}`;
+  const r1 = (v: number) => Math.round(v * 10) / 10, ph = pageSize(st)[1], k = 72 / 25.4 / st.bond, deep = Math.max(0, Math.floor((y0 - cell[1] / 2 - down + (ph / 2) * k) / h + 1e-6) + 1);
+  const advice = !paged || placed(a) ? "" : `${wide > inside + 1e-6 ? ` A row of ${cols} is ${r1(wide)} bond lengths wide (the page has ${r1(inside)}): give ${fits >= cols ? "" : `columns: ${fits}, or `}a larger page (set_style).` : ""}${rows > deep ? ` ${rows - deep} of the ${rows} rows ${rows - deep > 1 ? "are" : "is"} past the bottom of the page: draw ${deep ? `the structures after the first ${deep * cols}` : "them"} in a new drawing, or give a larger page (set_style).` : ""}`;
   return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${rows} row${rows > 1 ? "s" : ""} of ${Math.min(cols, ok.length)}.${advice}${readAs(host, ok)}${failedNote(failed)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
@@ -973,7 +970,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     if (Math.hypot(...d) > 1e-6) { host.set(shift(now, new Set(atoms), new Set([...arrows, ...texts]), d)); await host.settle(); }
     // What does not fit the page, said with what the AI app can do: a line that cannot break, and a scheme too deep.
     const [pw, ph] = pageSize(st), k = 72 / 25.4 / st.bond, r1 = (v: number) => Math.round(v * 10) / 10;
-    if (st.edges && !host.experiment()) advice = `${b[2] - b[0] > pw * k + 1e-6 ? ` The scheme is ${r1(b[2] - b[0])} bond lengths wide, and the page is ${r1(-2 * leftMargin(st))} wide inside its margins: a line breaks only before an arrow, or before a plus sign after the first arrow. Give a larger page or landscape (set_style), or draw a starting material at its arrow (a compound in above).` : ""}${top - (b[3] - b[1]) < (-ph / 2) * k - 1e-6 ? " The scheme runs past the bottom of the page: give a larger page (set_style), or draw its last steps in a new drawing." : ""}`;
+    if (st.edges && !host.experiment()) advice = `${b[2] - b[0] > pw * k + 1e-6 ? ` The scheme is ${r1(b[2] - b[0])} bond lengths wide (the page is ${r1(pw * k)}): give a larger page or landscape (set_style), or a starting material in above.` : ""}${top - (b[3] - b[1]) < (-ph / 2) * k - 1e-6 ? " The scheme runs past the bottom of the page: give a larger page (set_style), or draw its last steps in a new drawing." : ""}`;
   }
   return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${advice}${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
@@ -1014,20 +1011,25 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   await host.settle();
   // A side arrow's text that lies on an intermediate: that end of the arrow goes further out from the circle, three
   // quarters of a bond length at a time, until its text is clear (6 times at most).
-  for (let k = 0; k < 6; k++) {
+  const lying = () => {
     m = host.doc();
-    const c = m.cycles!.find((x) => x.id === id)!, inks = c.nodes.map((atoms) => host.ink(atoms));
-    const on = (m.captions ?? []).filter((t) => t.cycle?.cycle === id && isSide(t.cycle) && inks.some((b) => { const tb = b && host.textBox(t.id); return !!tb && overlap(tb, b!); })).map((t) => t.cycle!);
-    if (!on.length) break;
-    const out = (br: NonNullable<Cycle["branches"]>[number]) => on.reduce((x, t) => (t.branch === x.id && (t.side === "in" || t.side === "out") ? { ...x, [t.side]: { ...x[t.side], reach: (x[t.side]?.reach ?? 1.1) + 0.75 } } : x), br);
+    const inks = m.cycles!.find((x) => x.id === id)!.nodes.map((atoms) => host.ink(atoms));
+    return (m.captions ?? []).filter((t) => t.cycle?.cycle === id && isSide(t.cycle) && inks.some((b) => { const tb = b && host.textBox(t.id); return !!tb && overlap(tb, b!); }));
+  };
+  let on = lying();
+  for (let k = 0; k < 6 && on.length; k++) {
+    const out = (br: NonNullable<Cycle["branches"]>[number]) => on.reduce((x, { cycle: t }) => (t!.branch === x.id && (t!.side === "in" || t!.side === "out") ? { ...x, [t!.side]: { ...x[t!.side], reach: (x[t!.side]?.reach ?? 1.1) + 0.75 } } : x), br);
     host.set({ ...m, cycles: m.cycles!.map((x) => (x.id === id ? { ...x, branches: x.branches?.map(out) } : x)) });
     await host.settle();
+    on = lying();
   }
-  // The cycle with its text goes on the page, as a scheme does, and no higher than where new work starts.
-  m = host.doc();
-  const b = placed(a) ? undefined : boxOfIds(host, m, [`c${id}`]), d: P = b ? [across(host.style(), b), Math.min(0, y0 - b[3])] : [0, 0];
+  // The cycle with its text goes on the page, as a scheme does, and no higher than where new work starts. What does
+  // not fit is said in the reply: side text still on an intermediate, and a cycle wider than the page.
+  const st = host.style(), b = placed(a) ? undefined : boxOfIds(host, m, [`c${id}`]), d: P = b ? [across(st, b), Math.min(0, y0 - b[3])] : [0, 0];
   if (Math.hypot(...d) > 1e-6) { host.set(shift(m, new Set(nodes.flat()), new Set([id]), d)); await host.settle(); }
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}. Octet tidied it with Clean Up.${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  const r1 = (v: number) => Math.round(v * 10) / 10, inside = -2 * leftMargin(st), wide = b && st.edges && !host.experiment() && b[2] - b[0] > inside + 1e-6;
+  const advice = `${on.length ? ` The side text ${on.map((t) => `t${t.id}`).join(", ")} lies on an intermediate: give shorter side text.` : ""}${wide ? ` The cycle is ${r1(b[2] - b[0])} bond lengths wide (the page has ${r1(inside)}): give shorter side text, or a larger page or landscape (set_style).` : ""}`;
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}. Octet tidied it with Clean Up.${advice}${readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 // ---- Ids (D5) ----
@@ -1035,7 +1037,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
 // Each structure and its id: "s" and the key its atoms carry (Atom.key), given the first time Octet sees it and never
 // again in this window. A structure copied, or split from another, takes a new key; one joined to another keeps the
 // key of its first atom. Worked out once for each state of the drawing. A compound of several structures (a salt's
-// ions, grouped to pick as one: edit.ts compounds) is one structure here, with one id.
+// ions, or the structures under one number: mixtures.ts compounds) is one structure here, with one id.
 let lastKey = 0;
 const keyed = new WeakMap<Mol, { atoms: number[]; id: string }[]>();
 // A new drawing in this window (or a new drawing for a headless host) starts its ids again, so the same calls on a
@@ -1048,7 +1050,7 @@ function structuresOf(m: Mol): { atoms: number[]; id: string }[] {
   const used = new Set<number>();
   // A structure's atoms in the order the drawing keeps them (the order a molecule or SMILES gave them), so an atom's
   // id (s3.2) is its place in what the AI app gave.
-  const out = compounds(m).map((g) => {
+  const out = compounds(m, fragments(m)).map((g) => {
     g.sort((p, q) => p - q);
     let k = g.map((i) => m.atoms[i].key).find((x): x is number => x !== undefined && !used.has(x));
     if (k === undefined) k = ++lastKey;

@@ -1108,26 +1108,6 @@ export function wholeGroups(m: Mol): Mol {
   });
   return tidyGroups(changed ? { ...m, groups } : m, frags);
 }
-// The drawing's compounds, each a list of atoms: its structures, with the structures of one integral group that holds
-// nothing else (Group, then Pick as One, on the ions of a salt or on a hydrate and its water: no part of it is picked
-// alone) as one compound. Such a group may hold the text under its structures (their number). A group that is not
-// integral is not a compound: its structures stay apart (two starting materials grouped to move together).
-export function compounds(m: Mol, frags = fragments(m)): number[][] {
-  const integral = m.groups?.filter((g) => g.integral && g.atoms.length);
-  if (!integral?.length) return frags;
-  const under = new Set((m.captions ?? []).flatMap((c) => (c.under?.length ? [c.id] : [])));
-  const whole = outerGroups(integral.filter((g) => g.items.every((id) => under.has(id))));
-  if (!whole.length) return frags;
-  const of = new Map<number, number>();
-  whole.forEach((g, k) => g.atoms.forEach((i) => of.set(i, k)));
-  const joined: number[][] = whole.map(() => []), out: number[][] = [];
-  for (const f of frags) {
-    const k = of.get(f[0]);
-    if (k === undefined) out.push(f);
-    else { if (!joined[k].length) out.push(joined[k]); joined[k].push(...f); }
-  }
-  return out;
-}
 // Object > Group: the selected things as one new group. A thing is a structure (whole), an object, or a group the
 // selection reaches into (whole), so Group adds one level. The new group goes in the smallest group that holds the
 // selection and more (a group in a group), or at the top. Undefined for fewer than two things.

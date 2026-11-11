@@ -239,8 +239,12 @@ assert.deepEqual(m.captions!.map((c) => c.text), seven.map((s) => s.number));
   assert.equal(out.structuredContent.check, "clean");
   fresh();
   out = await call("draw_structures", { structures: dodecanes(6), columns: 6 });
-  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. A row of 6 is [\d.]+ bond lengths wide, and the page is 35\.4 wide inside its margins: 3 fit in a row\. Give columns: 3, or a larger page \(set_style\)\. One undo step\./);
+  assert.match(text(out), /^Drew 6 structures in 1 row of 6\. A row of 6 is [\d.]+ bond lengths wide \(the page has 35\.4\): give columns: 3, or a larger page \(set_style\)\. One undo step\./);
   assert.equal(new Set(m.atoms.map((a) => Math.round(a.location[1]))).size, 1, "the columns asked for are kept");
+  // A row wider than the page inside its margins, though narrower than the page, lies in the margins: it is said too.
+  fresh();
+  out = await call("draw_structures", { structures: Array.from({ length: 3 }, () => ({ text: "C".repeat(14) })), columns: 3 });
+  assert.match(text(out), /^Drew 3 structures in 1 row of 3\. A row of 3 is 38\.\d bond lengths wide \(the page has 35\.4\): give columns: 2, or a larger page \(set_style\)\./);
   fresh();
   out = await call("draw_structures", { structures: dodecanes(63) });
   assert.match(text(out), /^Drew 63 structures in 21 rows of 3\. \d+ of the 21 rows are past the bottom of the page: draw the structures after the first (\d+) in a new drawing, or give a larger page \(set_style\)\./);
@@ -256,9 +260,10 @@ assert.deepEqual(m.captions!.map((c) => c.text), seven.map((s) => s.number));
 }
 
 // A salt given as one compound (a SMILES with a dot) is one compound everywhere (17.1, Salts): one id, one row with
-// the formula and SMILES of all of it, one number, and no warning. Its ions are one group, picked as one. What takes
-// its id takes all of it: move, replace_structure and delete. In a reaction it is one member of its side, and Octet
-// writes no plus sign between its ions.
+// the formula and SMILES of all of it, one number, and no warning. Its ions are in no group, as a salt drawn by hand
+// is: Octet reads the ions as one by their charges and by their one number. What takes its id takes all of it: move,
+// replace_structure and delete. In a reaction it is one member of its side, and Octet writes no plus sign between its
+// ions. Two starting materials put in one group to move together stay two.
 fresh();
 out = await call("draw_structures", { structures: [{ text: "C[N+](C)(C)C.[Cl-]", number: "1" }, { text: "ethanol", number: "2" }] });
 assert.equal(out.structuredContent.made.length, 2, "two structures made");
@@ -266,7 +271,7 @@ d = await read();
 assert.deepEqual(d.structures.map((s: { number: string; formula: string; atoms: number }) => [s.number, s.formula, s.atoms]), [["1", "C4H12ClN", 6], ["2", "C2H6O", 3]]);
 assert.match(d.structures[0].smiles, /\[N\+\].*\.\[Cl-\]|\[Cl-\]\..*\[N\+\]/);
 assert.deepEqual([d.warnings, m.captions!.map((c) => c.text)], [[], ["1", "2"]]);
-assert.deepEqual(m.groups!.map((g) => [g.integral, g.atoms.length, g.items.length]), [[true, 6, 1]]);
+assert.ok(!m.groups?.length, "no group");
 {
   const salt = d.structures[0].id, was = m.atoms.slice(0, 6).map((a) => a.location[0]);
   assert.ok(!(await call("move", { ids: [salt], dx: 2, dy: 0 })).isError);
@@ -282,6 +287,9 @@ fresh();
 await call("draw_reaction", { start: [{ text: "C[N+](C)(C)C.[Cl-]", number: "1" }, { text: "ethanol" }], steps: [{ products: [{ text: "water" }] }] });
 d = await read();
 assert.deepEqual([d.structures.length, d.reactions[0].steps[0].before.length, d.reactions[0].products.length, m.captions!.filter((c) => c.text === "+").length], [3, 2, 1, 1]);
+m = { ...m, groups: [{ id: 999, atoms: m.atoms.map((_, i) => i).filter((i) => i < 9), items: [], integral: true }] };
+d = await read();
+assert.deepEqual([d.structures.length, d.reactions[0].steps[0].before.length], [3, 2], "a group of the two starting materials");
 
 // Conditions that are too long for one line go on more (R4): a list as data breaks between its items, each line with
 // its own items, and reads back as the list; a line of text breaks after a comma. A short line stays as it was given.

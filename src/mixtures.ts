@@ -7,18 +7,54 @@ import { polymerBrackets, repeatCount } from "./query.ts";
 import type { Mol } from "./render.ts";
 
 // The structures to name (each a list of atoms), with the ions of a salt together: charged pieces within 3.5 bond
-// lengths of each other whose charges cancel are named as one, as sodium acetate rather than two names.
+// lengths of each other whose charges cancel are named as one, as sodium acetate rather than two names. The nearest
+// go together first, and a salt whose charges cancel takes no more: two salts side by side are two.
 export function withSalts(doc: Mol, all: number[][]): number[][] {
   const charge = (g: number[]) => g.reduce((q, i) => q + (doc.atoms[i].charge ?? 0), 0), at = (i: number) => doc.atoms[i].location;
-  const ions = all.filter((g) => charge(g) !== 0), group = ions.map((_, k) => k);
+  const ions = all.filter((g) => charge(g) !== 0), group = ions.map((_, k) => k), total = ions.map(charge);
   const root = (k: number): number => (group[k] === k ? k : (group[k] = root(group[k])));
-  const near = (g: number[], h: number[]) => g.some((i) => h.some((j) => Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1]) < 3.5));
-  ions.forEach((g, k) => ions.forEach((h, j) => { if (j > k && near(g, h)) group[root(j)] = root(k); }));
+  // (Each ion's box first: most pairs are too far apart to look at their atoms.)
+  const box = ions.map((g) => g.reduce((b, i) => [Math.min(b[0], at(i)[0]), Math.min(b[1], at(i)[1]), Math.max(b[2], at(i)[0]), Math.max(b[3], at(i)[1])], [Infinity, Infinity, -Infinity, -Infinity]));
+  const gap = (g: number[], h: number[]) => { let d = Infinity; for (const i of g) for (const j of h) d = Math.min(d, Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1])); return d; };
+  const pairs: [number, number, number][] = [];
+  ions.forEach((g, k) => ions.forEach((h, j) => {
+    const p = box[k], q = box[j];
+    if (j > k && Math.sign(total[k]) !== Math.sign(total[j]) && p[0] - q[2] < 3.5 && q[0] - p[2] < 3.5 && p[1] - q[3] < 3.5 && q[1] - p[3] < 3.5) { const d = gap(g, h); if (d < 3.5) pairs.push([d, k, j]); }
+  }));
+  for (const [, k, j] of pairs.sort((p, q) => p[0] - q[0])) {
+    const a = root(k), b = root(j);
+    if (a !== b && total[a] && total[b] && Math.sign(total[a]) !== Math.sign(total[b])) { group[b] = a; total[a] += total[b]; }
+  }
   const salts = new Map<number, number[][]>();
   ions.forEach((g, k) => salts.set(root(k), [...(salts.get(root(k)) ?? []), g]));
   const merged = [...salts.values()].filter((gs) => gs.length > 1 && gs.reduce((q, g) => q + charge(g), 0) === 0);
   const inSalt = new Set(merged.flat());
   return [...all.filter((g) => !inSalt.has(g)), ...merged.map((gs) => gs.flat())];
+}
+
+// The drawing's compounds, each a list of atoms, from its structures (frags, edit.ts fragments), in their order: the
+// ions of a salt (withSalts) are one compound, and so are the structures that one number is under (a salt or a hydrate
+// drawn apart). A group is not a compound: two starting materials grouped to move together stay two.
+export function compounds(doc: Mol, frags: number[][]): number[][] {
+  // (A structure with a number is its compound's already: ions of two salts side by side, each under its own number,
+  // are two compounds. A proton by an anion is a step of a mechanism, drawn on its own: Sam's drawings have them.)
+  const numbers = (doc.captions ?? []).filter((c) => c.bold && c.under?.length), charged = (g: number[]) => g.reduce((q, i) => q + (doc.atoms[i].charge ?? 0), 0);
+  const proton = (g: number[]) => g.length === 1 && doc.atoms[g[0]].label === "H" && !doc.atoms[g[0]].text && charged(g) > 0;
+  let ions = frags.filter((g) => charged(g) && !proton(g));
+  if (!numbers.length && ions.length < 2) return frags; // most drawings
+  const home = new Int32Array(doc.atoms.length).fill(-1), join = frags.map((_, k) => k), numbered = new Uint8Array(frags.length);
+  frags.forEach((g, k) => { for (const i of g) home[i] = k; });
+  const root = (k: number): number => (join[k] === k ? k : (join[k] = root(join[k])));
+  let any = false;
+  const tie = (atoms: number[]) => { const k = root(home[atoms[0]]); for (const i of atoms) { const j = root(home[i]); if (j !== k) { join[j] = k; any = true; } } };
+  for (const c of numbers) if (c.under!.every((i) => home[i] >= 0)) { tie(c.under!); for (const i of c.under!) numbered[home[i]] = 1; }
+  if (numbers.length) ions = ions.filter((g) => !numbered[home[g[0]]]);
+  const kept = new Set(ions);
+  if (ions.length > 1) for (const g of withSalts(doc, ions)) if (!kept.has(g)) tie(g);
+  if (!any) return frags;
+  const out = new Map<number, number[]>();
+  frags.forEach((g, k) => { const r = root(k), l = out.get(r); if (l) l.push(...g); else out.set(r, [...g]); });
+  return [...out.values()];
 }
 
 // The grouped mixtures among the structures to name (each a list of atoms): every group, outermost first, holding two

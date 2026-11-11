@@ -4,7 +4,8 @@
 // cleanUpReaction lays it out as ChemDraw 26.1's Structure > Clean Up Reaction does (⇧⌘X). The two are kept apart,
 // so a fuller reading of reactions (reaction interpretation) can replace findReaction and keep the layout.
 import { GAP_ARROW_PT, LINE, curveBox, curved, isNumber, straightArrow, type Arrow, type Box, type Caption, type Mol } from "./render.ts";
-import { addCaption, compounds, fragments, moveAtoms } from "./edit.ts";
+import { addCaption, fragments, moveAtoms } from "./edit.ts";
+import { compounds } from "./mixtures.ts";
 
 type P = [number, number];
 // One thing in the row, with its box in drawing units (y up): [left, bottom, right, top]. A part's carry: what stands
@@ -343,13 +344,19 @@ function stackedOn(m: Mol): Map<number, Caption[]> {
   }
   return by;
 }
+// A drawing's compounds, by its atoms, for the bonds and text they were found with.
+const found = new WeakMap<Mol["atoms"], { bonds: Mol["bonds"]; captions: Mol["captions"]; all: number[][] }>();
 export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
   const from = arrows.find((x) => x.id === arrowId);
   if (!from || !straightArrow(from)) return undefined;
   // The structures are the same for every row read here (a wrapped reaction reads a row for each arrow near it), so
   // they are found and measured once: each with its box, and the boxes of the text under it (its number, a caption).
-  // Structures grouped as one compound (a salt's ions) are one part of the row.
-  const parts = compounds(m).flatMap((atoms) => { const box = ink(atoms); return box ? [{ atoms, box }] : []; });
+  // A compound of several structures (a salt's ions, the structures under one number) is one part of the row. The
+  // compounds are found once for the drawing's atoms, bonds and text: Clean Up Reaction reads a row from each arrow.
+  let was = found.get(m.atoms);
+  if (was?.bonds !== m.bonds || was.captions !== m.captions) found.set(m.atoms, (was = { bonds: m.bonds, captions: m.captions, all: compounds(m, fragments(m)) }));
+  const all = was.all;
+  const parts = all.flatMap((atoms) => { const box = ink(atoms); return box ? [{ atoms, box }] : []; });
   let texts: number[][] | undefined; // each structure's text, by id
   const boxes: Box[][] = [];
   const drawn: Drawn = { parts, under: (k) => {

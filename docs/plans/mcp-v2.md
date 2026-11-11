@@ -884,7 +884,8 @@ Left after wave A:
 
 - Page fit (sections 3.2 and 5.4): a scheme taller than what is left of the page, and a line that cannot break.
   The three taxol schemes' 40 warnings are all this.
-- A salt drawn as two ions under one number still warns "number on more than one structure" (17.1, Salts).
+- A salt drawn as two ions under one number still warns "number on more than one structure" (17.1, Salts). Fixed
+  in `mcp/fit` (17.1).
 - Calls on one session wait behind a long batch (section 8, step 8).
 - A dev build beside the installed Octet on Windows and Linux: the second Octet gives its files to the first and
   ends, so a dev build needs its own identifier there (decision 0021). On every platform the two share recent
@@ -914,6 +915,18 @@ in `docs/plans/mcp-v2-corpus-faults.md`. Grouped:
 
 The label, salt, layout and tool-gap groups are MCP work and are in the build order. Names and metals change what
 every user sees, so each needs Sam's yes and the ChemDraw cross-check.
+
+- **Fixed in part (11 November, `mcp/fit`).** Salts: a compound of several structures is one compound in
+  `read_drawing`, ids, numbers and reaction sides (`compounds` in `src/mixtures.ts`): the ions of a salt, by the rule
+  Structure to Name uses (`withSalts`, which now pairs the nearest ions first, so two salts side by side are two), and
+  the structures under one number. A group is not a compound, and Octet makes none for a salt. A lone H+ by an anion
+  stays apart (a mechanism step). Layout: `draw_structures` takes its columns from the page and each structure's box
+  as drawn; conditions longer than 30 characters go on more lines; a second product goes to the next line and is
+  still read as the step's; a structure at an arrow gets room. Tool gaps: a line in `above` or `below` can be a
+  compound object. The reply says what does not fit (a grid, a scheme, a cycle and its side text). Benchmark: 162
+  warnings to 73, 225 to 227 right of 240. Left: a one-step reaction wider than the page is not fitted (zu2025-fig3a,
+  3b, 3c, 4b, robinson2026-fig3c, proctor2019-scheme72-52: the reply says so and what to do); grocott2025-fig4e still
+  has 7 warnings; a hydrate or other parts with no charge and no number read as several compounds.
 
 ### 17.1.1 In the app (11 November 2026, the MCP Beta dev build with wave A merged)
 
