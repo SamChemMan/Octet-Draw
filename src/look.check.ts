@@ -83,6 +83,10 @@ for (const line of css.split("\n")) {
   if (!m || /\.home-wordmark|\.nmr-shift/.test(selector)) continue;
   assert.ok([11, 13, 15, 20, 32, 64].includes(Number(m[1])), `editor.css: ${selector.trim()} uses ${m[1]} px`);
 }
+// Instrument Sans for every button's text (a button takes the system's font otherwise): menus, segmented controls and
+// the Actions panel's rows read in the same font as the text beside them. Menus open on body, so body has it too.
+assert.match(css, /^body \{\n  margin: 0;\n  background: var\(--surface\);\n  font-family: var\(--font-sans\);\n\}/m);
+assert.match(css, /^button \{\n  font-family: inherit;\n\}/m);
 
 // One list of highlight colours (and ring fills after them), each with its own name and colour.
 assert.equal(new Set(RING_FILLS.map(([n]) => n)).size, RING_FILLS.length);

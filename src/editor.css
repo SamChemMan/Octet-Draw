@@ -4,6 +4,11 @@
 body {
   margin: 0;
   background: var(--surface);
+  font-family: var(--font-sans);
+}
+/* A button's text is in Octet's font, as the text beside it is, not the system's (menus are on body, so it has it too). */
+button {
+  font-family: inherit;
 }
 
 /* No page selection anywhere: WebKit (the Mac and Linux app) needs the prefixed property too. */
@@ -2187,6 +2192,7 @@ div.facts {
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-muted);
+  font-size: 13px;
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .segmented button[aria-checked="true"] {
@@ -2499,7 +2505,6 @@ div.facts {
 }
 .segmented.purposes button {
   height: 22px;
-  font: 13px var(--font-sans);
 }
 .segmented.units button {
   width: 28px;
