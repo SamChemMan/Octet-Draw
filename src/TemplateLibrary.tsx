@@ -18,7 +18,7 @@ import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, loadMore, type LibraryItem } from "./library";
-import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
+import { arrowShapes, curvePath, isOrbital, labelTurn, LIPID_HEAD, membraneHeads, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
 import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type TemplateSize, type TemplateTool } from "./templates";
@@ -92,7 +92,7 @@ const Thumb = ({ item, px }: { item: LibraryItem; px?: number }) => <StructureTh
 // a highlight as its edge, an orbital as its axis, and its text as its words.
 function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const L = style.bond, drawing = render(mol, style, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
-  const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
+  const filled = (a: Arrow) => !!(a.curve?.closed && a.fill) && a.style !== "membrane", arrows = mol.arrows ?? [];
   // A TLC plate's origin and solvent front (unless hidden) and its spots, as the canvas draws them.
   const plates = (mol.shapes ?? []).filter((x) => x.kind === "tlc").map(tlcLayout), w = style.line / 2;
   const level = (x0: number, x1: number, y: number): [number, number][] => [at([x0, y]), at([x1, y])].flatMap(([x, y]) => [[x, y - w], [x, y + w]] as [number, number][]);
@@ -104,7 +104,7 @@ function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
   const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  return { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}`, side, line: style.line };
+  return { mol, d: toPath([...drawing.polygons, ...ink]), fills: [...arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), ...arrows.filter((a) => a.style === "membrane").map((a) => ({ d: membraneHeads(a, L), colour: a.colour ?? LIPID_HEAD }))], labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}`, side, line: style.line };
 }
 // Any structure as a thumbnail, drawn once per id, structure and size. px: the side it is shown at. A line is its fill
 // and its outline, so it shows twice its width; at a size where that is under a pixel (a small size, or a big structure

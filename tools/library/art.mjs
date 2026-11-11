@@ -72,6 +72,8 @@ export const ink = (d, more = {}) => ["ink", d, more];
 export const fill = (d, tint = "blue", more = {}) => ["fill", d, { ...more, tint }];
 export const solid = (d, more = {}) => ["solid", d, more];
 export const fine = (part) => [part[0], part[1], { ...part[2], fine: true }];
+// A membrane: a line or curve drawn as a lipid bilayer (Octet's Membrane style), its lipids the same size however long it is.
+export const membrane = (d) => ["ink", d, { style: "membrane" }];
 // Common SVG shapes as path data.
 export const circle = (cx, cy, r) => `M${cx + r} ${cy}A${r} ${r} 0 1 1 ${cx - r} ${cy}A${r} ${r} 0 1 1 ${cx + r} ${cy}Z`;
 export const ellipse = (cx, cy, rx, ry) => `M${cx + rx} ${cy}A${rx} ${ry} 0 1 1 ${cx - rx} ${cy}A${rx} ${ry} 0 1 1 ${cx + rx} ${cy}Z`;
@@ -85,7 +87,7 @@ export function art(name, also, size, parts) {
   let all = parts.flatMap(([kind, d, more]) => subpaths(d).map((p) => [kind, p, more]));
   // A drawing of one line is drawn as two that meet (a group of one object does not come back from a CDXML file, and
   // every drawing is one group). A closed line is cut into two open halves.
-  if (all.length === 1 && all[0][0] === "ink") {
+  if (all.length === 1 && all[0][0] === "ink" && !all[0][2].style) {
     const [kind, { points, closed }, more] = all[0], ring = closed ? [...points, { ...points[0], c2: undefined }] : points, m = Math.floor(ring.length / 2);
     const half = (ps, first, last) => ps.map((q, i) => ({ at: q.at, ...(i > 0 || !first ? (q.c1 ? { c1: q.c1 } : {}) : {}), ...(i < ps.length - 1 || !last ? (q.c2 ? { c2: q.c2 } : {}) : {}) }));
     all = [[kind, { points: half(ring.slice(0, m + 1), true, true), closed: false }, more], [kind, { points: half(ring.slice(m), true, true), closed: false }, more]];
@@ -100,7 +102,8 @@ export function art(name, also, size, parts) {
     // A closed curve runs from its last point back to its first (the last's c2 and the first's c1 shape that stretch).
     if (kind === "fill") return ["fill", ps, { fill: "solid", colour: TINT[more.tint] ?? more.tint }];
     if (kind === "solid") return ["fill", ps, { fill: "solid" }];
-    if (!p.closed && ps.length === 2 && !ps[0].c2 && !ps[1].c1) return ["line", ps, {}, more.fine];
-    return [p.closed ? "closed" : "open", ps, {}, more.fine];
+    const own = more.style ? { style: more.style } : {};
+    if (!p.closed && ps.length === 2 && !ps[0].c2 && !ps[1].c1) return ["line", ps, own, more.fine];
+    return [p.closed ? "closed" : "open", ps, own, more.fine];
   }));
 }

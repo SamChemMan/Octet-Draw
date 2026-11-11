@@ -1,6 +1,7 @@
 // Run: node src/lab.check.ts. The library's Lab group (tools/library/lab.mjs and glassware.mjs) and its drawn sets (Lab
 // equipment, Biomolecules, Cells, BioArt, Anatomy, Organisms, Bugs, Symbols): each drawing is one integral group of pen curves and lines that goes where it is
-// placed, takes the document's line width, and comes back whole from CDXML and from a .oct file.
+// placed, takes the document's line width, and comes back whole from CDXML and from a .oct file. A membrane in one (a
+// line or curve in the Membrane style) stays out of the group, so a drag on its end makes it longer.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
@@ -44,6 +45,7 @@ const sameArrow = (a: Arrow, b: Arrow, d: number) => {
   assert.equal(!!b.curve?.closed, !!a.curve?.closed);
   assert.equal(b.fill, a.fill);
   assert.equal(b.colour?.toUpperCase(), a.colour?.toUpperCase());
+  assert.equal(b.style, a.style);
   const qs = (x: Arrow) => (x.curve ? x.curve.points.flatMap((p) => [p.at, p.c1 ?? p.at, p.c2 ?? p.at]) : [x.from, x.to]);
   const [p, q] = [qs(a), qs(b)];
   assert.equal(q.length, p.length);
@@ -55,7 +57,8 @@ for (const t of lab.items) {
   // Drawn with Octet's own objects, all in one group, centred like every template.
   assert.equal(t.atoms.length + t.bonds.length, 0, t.name);
   assert.ok(t.arrows.every((a) => a.kind === "curve" || a.kind === "line"), t.name);
-  assert.deepEqual(t.groups.map((g) => [g.atoms.length, [...g.items].sort((x, y) => x - y), g.integral]), [[0, t.arrows.map((a) => a.id).sort((x, y) => x - y), true]], t.name);
+  const grouped = t.arrows.filter((a) => a.style !== "membrane").map((a) => a.id).sort((x, y) => x - y);
+  assert.deepEqual(t.groups.map((g) => [g.atoms.length, [...g.items].sort((x, y) => x - y), g.integral]), grouped.length ? [[0, grouped, true]] : [], t.name);
   const [x0, y0, x1, y1] = box(t.arrows);
   assert.ok(near((x0 + x1) / 2, 0, 0.002) && near((y0 + y1) / 2, 0, 0.002), `${t.name} is centred`);
   // Sized against each other: a flask 2 to 5.5 bond lengths tall, a stirrer bar a third of one across.
@@ -76,8 +79,8 @@ for (const t of lab.items) {
   assert.ok(near((a0 + a1) / 2, 10, 0.002) && near((b0 + b1) / 2, 5, 0.002), `${t.name} goes where it is placed`);
   // It keeps its way up: every point moves by the same step, so a lamp's rays stay above its glass.
   placed.arrows!.forEach((a, i) => assert.ok(near(a.from[0], t.arrows[i].from[0] + 10) && near(a.from[1], t.arrows[i].from[1] + 5), `${t.name} keeps its way up`));
-  assert.equal(placed.groups?.length, 1);
-  assert.deepEqual(new Set(placed.groups![0].items), ids);
+  assert.equal(placed.groups?.length ?? 0, t.groups.length);
+  if (t.groups.length) assert.deepEqual(new Set(placed.groups![0].items), new Set(placed.arrows!.filter((a) => a.style !== "membrane").map((a) => a.id)));
   // A click on a bond or atom with it in hand puts it at the click, not at the drawing's origin.
   const onBond = addTemplate(placed, mol, { bond: 0, point: [20, -5] }), mine = onBond.arrows!.filter((a) => !ids.has(a.id));
   const [c0, d0, c1, d1] = box(mine);
@@ -96,9 +99,9 @@ for (const t of lab.items) {
     const like = read.mol.arrows!.filter((b) => b.kind === a.kind && !!b.fill === !!a.fill && (b.curve?.points.length ?? 2) === (a.curve?.points.length ?? 2)).sort((p, q) => gap(a, p) - gap(a, q));
     sameArrow(a, like[0] ?? assert.fail(`${t.name}: a ${a.kind} is lost`), 0.002);
   }
-  assert.equal(read.mol.groups?.length, 1, `${t.name}: one group`);
-  assert.equal(read.mol.groups![0].items.length, placed.arrows!.length);
-  assert.ok(read.mol.groups![0].integral, "a click picks all of it, as ChemDraw's clip art");
+  assert.equal(read.mol.groups?.length ?? 0, t.groups.length, `${t.name}: its group`);
+  if (t.groups.length) assert.equal(read.mol.groups![0].items.length, t.groups[0].items.length);
+  if (t.groups.length) assert.ok(read.mol.groups![0].integral, "a click picks all of it, as ChemDraw's clip art");
   // A .oct file gives it back as it was.
   const oct = readOct(writeOct(placed, DEFAULT_STYLE)).mol;
   assert.equal(oct.arrows?.length, placed.arrows!.length);

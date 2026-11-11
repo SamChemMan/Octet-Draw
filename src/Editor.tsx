@@ -87,7 +87,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -3255,10 +3255,10 @@ export default function Editor() {
   // (Bring to Front, Send to Back; order.ts). level: a thing that is drawn in its layer.
   const level = (x?: { order?: number }) => !x?.order;
   // Arrow ink, one path per colour (unset is the document's ink), each arrow's part kept with the arrow.
-  // Filled pen curves draw their own outline with their fill, in order (below), so clip art's layers stack as drawn.
+  // Filled pen curves and membranes draw their own lines with their fill, in order (below), so clip art's layers stack as drawn.
   const arrowInk = useMemo(() => {
     const groups = new Map<string | undefined, string>();
-    for (const a of [...arrows.filter((x) => level(x) && !(x.curve?.closed && x.fill)), ...cycleArrows.filter(level)]) {
+    for (const a of [...arrows.filter((x) => level(x) && !(x.curve?.closed && x.fill) && x.style !== "membrane"), ...cycleArrows.filter(level)]) {
       const key = a.colour?.toLowerCase();
       groups.set(key, (groups.get(key) ?? "") + kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L))));
     }
@@ -7243,6 +7243,7 @@ export default function Editor() {
       // A style chip sets it; the arrows' Dashed line action turns dashes on and off. Heads set by hand double as
       // the line goes bold and halve as it stops being bold, as in ChemDraw (a kind's own size follows by itself).
       if (what === "style") return each((a) => {
+        if (arg === "membrane" && !isLine(a)) return {}; // a membrane is for lines, arcs and pen curves
         const style = arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]);
         const k = (style === "bold") === (a.style === "bold") ? 1 : style === "bold" ? 2 : 0.5, h = a.headSize;
         return { style, ...(h && k !== 1 ? { headSize: { length: h.length * k, centre: h.centre * k, width: h.width * k } } : {}) };
@@ -8352,6 +8353,12 @@ export default function Editor() {
   };
   // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
   const curveFill = (a: Arrow) => {
+    // A membrane: its heads' fill (kept as a filled curve keeps its outline), then its lines, so what is drawn after
+    // it (a receptor) covers it.
+    if (a.style === "membrane") {
+      const ink = a.colour ? textInk(a.colour) : "var(--ink)";
+      return <g key={`cf${a.id}`}><path d={kept(outlines, a, L, () => membraneHeads(a, L))} fill={a.colour ? ink : LIPID_HEAD} /><path d={kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)))} fill={ink} /></g>;
+    }
     if (!(a.curve?.closed && a.fill)) return null;
     // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
     // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
@@ -8654,7 +8661,7 @@ export default function Editor() {
     for (const sh of shown.shapes ?? []) if (sh.order) things.push([sh.order, <g key={`osh${sh.id}`}>{shapeFill(sh)}{shapeLines(sh)}</g>]);
     for (const a of [...arrows, ...cycleArrows]) if (a.order) things.push([a.order, (
       <g key={`oa${a.id}`}>
-        {isOrbital(a) ? orbitalsInk([a]) : a.curve?.closed && a.fill ? curveFill(a) : <path d={kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
+        {isOrbital(a) ? orbitalsInk([a]) : (a.curve?.closed && a.fill) || a.style === "membrane" ? curveFill(a) : <path d={kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
       </g>
     )]);
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />]);

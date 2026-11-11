@@ -39,7 +39,7 @@ Octet's own sets ChemDraw has no set for: Sugars, Nucleobases, Heterocycles, Lig
 
 For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 45
 items, and DNA and RNA, Side chains, Peptides, Supramolecules, Polyhedra, Carbon, Lab equipment, Biomolecules, Cells,
-BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 510 templates in 30 sets. See "1.2 sets" below.
+BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 512 templates in 30 sets. See "1.2 sets" below.
 
 What each ChemDraw set holds, and how it draws a Newman projection or a Cp ring, needs ChemDraw running
 (`~/octet-research/notes/chemdraw-checks-pending.md` item 22).
@@ -106,7 +106,7 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 - Carbon (4): C60 and (5,5) armchair and (9,0) zigzag nanotube segments, each atom at its place in 3D (kept as depth),
   and circumcoronene, a graphene flake. Double bonds: C60's 30 bonds between two hexagons; the others a perfect
   matching of their atoms.
-- Lab (29 more), Lab equipment (22), Biomolecules (13), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
+- Lab (29 more), Lab equipment (22), Biomolecules (15), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
   (8) and Symbols (18): drawings in the Lab group's line style, written as SVG path data in
   `tools/library/glassware.mjs`, `equipment.mjs`, `bio.mjs`, `life.mjs` and `symbols.mjs` and turned into Octet's pen
   curves and lines by `tools/library/art.mjs`. Symbols has what ChemDraw's Shapes set has and the Shape tool does not
@@ -114,6 +114,17 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   high voltage signs, the radiation trefoil and four GHS hazard diamonds. Fills use only the Lab group's two blue tints, on small parts, so a drawing
   reads on a dark page too. Each is one integral group that takes the document's line width and comes back whole
   from CDXML and .oct (`src/lab.check.ts`).
+- Membranes (issue 95). A line, arc or pen curve can take the Membrane line style (the Actions panel's Line pick, or
+  Membrane in the Shape tool), as ChemDraw's BioDraw has membrane lines, arcs and ellipses. It is drawn as a lipid
+  bilayer along its path, with the Lipid bilayer drawing's lipids (render.ts `membrane`): each side has its own
+  lipids about 0.25 bond lengths apart, so a longer line has more lipids of the same size, and a curve has fewer
+  inside. The object's scale sizes the lipids. Biomolecules' Lipid bilayer is now a membrane line, Curved membrane
+  and Cell membrane are an open and a closed pen curve, and Receptor and Ion channel have a membrane line each side
+  of the protein, outside the protein's group, so a drag on its outer end makes it longer. The heads are filled with
+  the light tint (the membrane's colour when it has one). CDXML (and so CDX and .oct): an integral group ChemDraw
+  shows, each lipid's head as a filled circle and its outline and its tails as curves, marked as Octet's drawing
+  only, with the line, arc or curve in the group's Octet data. ChemDraw's own BioDraw membrane object (bioshape) is
+  not written: how it stores its shape is not known.
 - `node tools/library/build.mjs --keep-shipped` builds the new sets and keeps the sets released in 1.1 as
   `src/library.json` has them. Built again from scratch, the hexose chairs, the chair conformers and the Cp and arene
   sets come out a little different from 1.1 (later changes to the chair and to Clean Up); they are not rebuilt.

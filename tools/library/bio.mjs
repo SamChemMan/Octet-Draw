@@ -1,7 +1,7 @@
 // The library's Biomolecules and Cells sets: membranes, proteins, nucleic acids, organelles, cells and microbes, in
 // the Lab group's line style (art.mjs path data, 40 units to a bond length, y down). Every drawing here is Octet's own,
 // worked out from simple geometry.
-import { art, circle, ellipse, fill, fine, ink, rect, seg, solid } from "./art.mjs";
+import { art, circle, ellipse, fill, fine, ink, membrane, rect, seg, solid } from "./art.mjs";
 
 const PER = { per: 40 };
 const f = (v) => Math.round(v * 100) / 100;
@@ -17,10 +17,11 @@ function lipid(x, y, angle, { h = 4.2, t = 20, tails = 2 } = {}) {
   const ends = tails === 2 ? [[-1.8, 0], [1.8, 0]] : [[0, 0]];
   return [fill(circle(f(x), f(y), h), "light"), ink(circle(f(x), f(y), h)), ...ends.map(([o]) => fine(ink(tail(base[0] + nx * o, base[1] + ny * o, ux, uy, t))))];
 }
-// A stretch of bilayer: n lipids a row, heads out, from x0 at gap g, the middle at y.
-const bilayer = (n, x0, g, y, t = 18) => Array.from({ length: n }, (_, k) => [...lipid(x0 + k * g, y - t - 4.6, 90, { t }), ...lipid(x0 + k * g, y + t + 4.6, -90, { t })]).flat();
-
-function lipidBilayer() { return art("Lipid bilayer", "membrane, phospholipid bilayer, cell membrane", PER, bilayer(9, -40, 10, 0)); }
+// Membranes: lines and curves in Octet's Membrane style, with lipid()'s lipids, nine a side to two bond lengths. A drag
+// on an end or a point makes one longer or bends it, and its lipids keep their size.
+function lipidBilayer() { return art("Lipid bilayer", "membrane, phospholipid bilayer, cell membrane", PER, [membrane(seg(-40, 0, 40, 0))]); }
+function curvedMembrane() { return art("Curved membrane", "membrane arc, curved bilayer, lipid bilayer", PER, [membrane("M-60 16A75 75 0 0 1 60 16")]); }
+function cellMembrane() { return art("Cell membrane", "plasma membrane, membrane ellipse, closed bilayer, vesicle", PER, [membrane(ellipse(0, 0, 80, 60))]); }
 function phospholipid() {
   return art("Phospholipid", "lipid, amphiphile, head group, fatty acid tails", PER, [fill(circle(0, -22, 8), "light"), ink(circle(0, -22, 8)), ink(tail(-3, -14, 0, 1, 40)), ink(tail(3, -14, 0, 1, 40))]);
 }
@@ -35,10 +36,10 @@ function liposome() {
   for (let k = 0; k < 18; k++) { const a = k * 20 + 10, [x, y] = polar(0, 0, 30, a); parts.push(...lipid(x, y, a, { t: 10 })); }
   return art("Liposome", "vesicle, lipid bilayer, drug delivery", PER, parts);
 }
-// A membrane protein in a strip of bilayer: the bilayer left and right of it, and the protein's drawing.
-const inMembrane = (left, right, protein) => [...bilayer(left, -60, 10, 0), ...bilayer(right, 60 - (right - 1) * 10, 10, 0).map((p) => p), ...protein];
+// A membrane protein with a membrane each side, which a drag on its outer end makes longer.
+const inMembrane = (x0, x1, protein) => [membrane(seg(-x1, 0, -x0, 0)), membrane(seg(x0, 0, x1, 0)), ...protein];
 function ionChannel() {
-  return art("Ion channel", "channel, pore, membrane protein, transport", PER, inMembrane(4, 4, [
+  return art("Ion channel", "channel, pore, membrane protein, transport", PER, inMembrane(34, 64, [
     ink(`M-24 -36Q-28 -30 -26 0Q-28 30 -24 36L-8 36Q-4 30 -6 0Q-4 -30 -8 -36Z`),
     ink(`M24 -36Q28 -30 26 0Q28 30 24 36L8 36Q4 30 6 0Q4 -30 8 -36Z`),
     fill(circle(0, -48, 4), "blue"), ink(circle(0, -48, 4)), fill(circle(0, 0, 4), "blue"), ink(circle(0, 0, 4)), fine(ink(`M0 14L0 30M-4 25L0 30L4 25`)),
@@ -50,7 +51,7 @@ function receptor() {
   for (let k = 0; k < 7; k++) { const x = -42 + k * 14; parts.push(ink(rect(x - 5, -26, 10, 52, 5))); }
   for (let k = 0; k < 6; k++) { const x = -42 + k * 14, y = k % 2 ? 26 : -26, d = k % 2 ? 8 : -8; parts.push(ink(`M${x} ${y}Q${x + 7} ${y + 2 * d} ${x + 14} ${y}`)); }
   parts.push(ink(`M-42 -26Q-48 -40 -38 -48`), ink(`M42 26Q48 38 40 46`));
-  return art("Receptor", "GPCR, seven-transmembrane, G protein-coupled receptor, membrane protein", PER, [...bilayer(2, -80, 10, 0), ...bilayer(2, 70, 10, 0), ...parts]);
+  return art("Receptor", "GPCR, seven-transmembrane, G protein-coupled receptor, membrane protein", PER, inMembrane(56, 86, parts));
 }
 // Antibody: two heavy chains and two light chains in a Y, with the binding sites at the tips of the arms.
 function antibody() {
@@ -219,7 +220,7 @@ function redBloodCell() {
   ]);
 }
 
-export const BIOMOLECULES = [lipidBilayer(), phospholipid(), micelle(), liposome(), ionChannel(), receptor(), antibody(), enzyme(), dnaHelix(), alphaHelix(),
+export const BIOMOLECULES = [lipidBilayer(), curvedMembrane(), cellMembrane(), phospholipid(), micelle(), liposome(), ionChannel(), receptor(), antibody(), enzyme(), dnaHelix(), alphaHelix(),
   betaStrand(), chromosome(), ribosome()];
 export const CELLS = [animalCell(), plantCell(), nucleus(), mitochondrion(), chloroplast(), golgi(), roughER(), smoothER(), vesicle(), centrioles(),
   bacterium(), cocci(), virus(), envelopedVirus(), bacteriophage(), yeast(), neuron(), redBloodCell()];

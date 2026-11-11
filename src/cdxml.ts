@@ -10,7 +10,7 @@
 import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD,
+  HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -498,9 +498,27 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? Math.round(headSize(a).length * 100) : undefined, ArrowheadCenterSize: heads ? Math.round(headSize(a).centre * 100) : undefined, ArrowheadWidth: heads ? Math.round(headSize(a).width * 100) : undefined,
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ kind: a.kind === "cut" ? "cut" : undefined, fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a), role: a.role }) }), 4, boxOf(qs), a.id);
   };
+  // A membrane: a group ChemDraw shows (each lipid's head as a filled circle and its outline, and its two tails), with
+  // the line, arc or pen curve it is drawn along in Octet's data.
+  const membraneOut = (a: Arrow) => {
+    const { heads, tails } = membrane(a, 1), page = (q: P) => at([q[0], -q[1]]), c = colour(a.colour), lines = ownLines(scaleOf(a), a.width), k = 0.5523;
+    const curve = (qs: P[], more: Record<string, string | number | undefined>) => el("curve", { id: fresh(), Z: Z(), ...more, CurvePoints: qs.map(pt).join(" "), Octet: DERIVED });
+    const rings = heads.map(({ at: h, r }) => ({ o: page(h), R: r * B }));
+    const kids = [
+      ...rings.flatMap(({ o, R }) => {
+        const qs = [0, 1, 2, 3].flatMap((i): P[] => { const x = Math.cos((i * Math.PI) / 2), y = Math.sin((i * Math.PI) / 2), q: P = [o[0] + R * x, o[1] + R * y]; return [[q[0] + k * R * y, q[1] - k * R * x], q, [q[0] - k * R * y, q[1] + k * R * x]]; });
+        return [curve(qs, { color: colour(a.colour ?? LIPID_HEAD), FillType: "Solid", CurveType: 129, Closed: "yes" }), curve(qs, { color: c, CurveType: 1, Closed: "yes", ...lines })];
+      }),
+      ...tails.map((t) => curve(t.map(page).flatMap((q) => [q, q, q]), { color: c, ...lines })),
+    ];
+    const box = boxOf([...rings.flatMap(({ o, R }): P[] => [[o[0] - R, o[1] - R], [o[0] + R, o[1] + R]]), ...tails.flat().map(page)]);
+    put(el("group", { id: idOf.get(a.id)!, BoundingBox: boxText(box), Z: Z(), color: c, Integral: "yes", Octet: priv({ kind: "membrane", line: a.kind === "arc" ? "arc" : undefined, bend: a.kind === "arc" ? a.bend : undefined,
+      ends: a.curve ? undefined : `${pt(at(a.from))} ${pt(at(a.to))}`, points: a.curve?.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map((q) => pt(at(q))).join(" "), closed: a.curve?.closed, width: a.width, scale: ownScale(a) }) }, kids.join("")), 4, box, a.id);
+  };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
-    if (a.kind === "orbital" && a.orbital) {
+    if (a.style === "membrane") membraneOut(a);
+    else if (a.kind === "orbital" && a.orbital) {
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
       const back = ORBITALS.find(([n]) => n === name)!, tip = at(a.to), nucleus = at(a.from);
@@ -932,6 +950,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
+    if (a.style === "membrane") continue; // written behind, above
     // A pen curve, or a fragmentation line with corners (a curve of straight runs, with Octet's kind).
     if ((a.kind === "curve" || a.kind === "cut") && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
     else if (a.kind !== "orbital") arrowOut(a, false);
@@ -1374,6 +1393,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     switch (x.name) {
       case "group":
         if (p?.kind === "table") return readTableGroup(x, p, group);
+        if (p?.kind === "membrane") return readMembrane(x, p, group);
         { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
@@ -2099,13 +2119,33 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       toOctet(tail[0], tail[1]), toOctet(head[0], head[1]), mid, zOf(x), curve);
   }
 
-  // A pen curve: points in threes per anchor (in-handle, anchor, out-handle), CurveType bits and the newer
-  // Closed, FillType and arrowhead fields together (spec 12).
-  function readCurve(x: Xml, group?: G) {
-    const raw = (x.attrs.CurvePoints ?? "").trim().split(/\s+/).map(real);
-    if (raw.length < 6 || raw.length % 6 || raw.length > 6000 || raw.some((v) => v === undefined)) return lose("curve");
+  // A pen curve's points: in threes per anchor (in-handle, anchor, out-handle), as CurvePoints holds them.
+  function curvePoints(text: string): CurvePoint[] | undefined {
+    const raw = text.trim().split(/\s+/).map(real);
+    if (raw.length < 6 || raw.length % 6 || raw.length > 6000 || raw.some((v) => v === undefined)) return undefined;
     const v = raw as number[], q = (k: number) => toOctet(v[2 * k], v[2 * k + 1]), same = (j: number, k: number) => v[2 * j] === v[2 * k] && v[2 * j + 1] === v[2 * k + 1];
-    const points: CurvePoint[] = Array.from({ length: v.length / 6 }, (_, k) => ({ at: q(3 * k + 1), ...(same(3 * k, 3 * k + 1) ? {} : { c1: q(3 * k) }), ...(same(3 * k + 2, 3 * k + 1) ? {} : { c2: q(3 * k + 2) }) }));
+    return Array.from({ length: v.length / 6 }, (_, k) => ({ at: q(3 * k + 1), ...(same(3 * k, 3 * k + 1) ? {} : { c1: q(3 * k) }), ...(same(3 * k + 2, 3 * k + 1) ? {} : { c2: q(3 * k + 2) }) }));
+  }
+  // A membrane Octet wrote: the line, arc or pen curve it is drawn along, from Octet's data (its lipids are for ChemDraw).
+  function readMembrane(x: Xml, p: Record<string, unknown>, group?: G) {
+    const ends = typeof p.ends === "string" ? reals(p.ends, 4) : undefined, points = typeof p.points === "string" ? curvePoints(p.points) : undefined, colour = colourOf(x.attrs.color);
+    const from = points?.[0].at ?? (ends && toOctet(ends[0], ends[1])), to = points?.[points.length - 1].at ?? (ends && toOctet(ends[2], ends[3]));
+    if (!from || !to) return lose("membrane");
+    const a: Arrow & { z: number } = { id: newId(x), kind: points ? "curve" : p.line === "arc" ? "arc" : "line", from, to, style: "membrane", z: zOf(x) };
+    if (points) a.curve = { points, ...(p.closed === true ? { closed: true } : {}) };
+    if (a.kind === "arc" && isNum(p.bend, -5, 5) && p.bend) a.bend = p.bend;
+    if (colour) a.colour = colour;
+    if (isNum(p.width, 0.05, 20)) a.width = p.width;
+    const f = graphicScale(x, p);
+    if (f) a.scale = f;
+    arrows.push(a);
+    objectOf.set(int(x.attrs.id) ?? -1, a.id);
+    member(group, a.id);
+  }
+  // A pen curve: its points, CurveType bits and the newer Closed, FillType and arrowhead fields together (spec 12).
+  function readCurve(x: Xml, group?: G) {
+    const points = curvePoints(x.attrs.CurvePoints ?? "");
+    if (!points) return lose("curve");
     const bits = int(x.attrs.CurveType) ?? 0, p = priv(x), closed = !!(bits & 1) || yes(x.attrs.Closed), colour = colourOf(x.attrs.color);
     const a: Arrow & { z: number } = { id: newId(x), kind: p?.kind === "cut" ? "cut" : "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(closed ? { closed: true } : {}) }, z: zOf(x) };
     const fill: CurveFill | undefined = p?.fill === "faded" ? "faded" : bits & 128 || x.attrs.FillType === "Solid" ? "solid" : bits & 256 || x.attrs.FillType === "Shaded" ? "shaded" : undefined;

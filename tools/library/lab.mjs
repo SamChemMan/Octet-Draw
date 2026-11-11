@@ -72,13 +72,14 @@ function cut(P, t0, t1) {
 
 // An item's objects: outlines (open or closed) at the document's width, fills behind them, and straight lines. Its
 // icon (20 px, in the tool icons' strokes) shows the outlines that are not details: fine parts would run together.
+// A membrane (a line or pen curve in the Membrane style) stays out of the group, so a drag on its end makes it longer.
 export function item(name, also, parts) {
   let id = 1;
   const arrows = [], icon = [];
   for (const [kind, ps, more = {}, fine] of parts) {
     if (kind !== "fill" && !fine) icon.push(id);
     const points = ps.map((q) => ({ at: q.at.map(r3), ...(q.c1 ? { c1: q.c1.map(r3) } : {}), ...(q.c2 ? { c2: q.c2.map(r3) } : {}) }));
-    if (kind === "line") arrows.push({ id: id++, kind: "line", from: points[0].at, to: points[1].at });
+    if (kind === "line") arrows.push({ id: id++, kind: "line", from: points[0].at, to: points[1].at, ...more });
     else arrows.push({ id: id++, kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(kind === "open" ? {} : { closed: true }) }, ...more });
   }
   // Centred on the middle of its box, as the library's structures are.
@@ -89,7 +90,8 @@ export function item(name, also, parts) {
     a.to = move(a.to);
     if (a.curve) a.curve.points = a.curve.points.map((q) => ({ at: move(q.at), ...(q.c1 ? { c1: move(q.c1) } : {}), ...(q.c2 ? { c2: move(q.c2) } : {}) }));
   }
-  return { name, ...(also ? { also } : {}), atoms: [], bonds: [], arrows, groups: [{ id, atoms: [], items: arrows.map((a) => a.id), integral: true }], icon };
+  const grouped = arrows.filter((a) => a.style !== "membrane").map((a) => a.id);
+  return { name, ...(also ? { also } : {}), atoms: [], bonds: [], arrows, groups: grouped.length ? [{ id, atoms: [], items: grouped, integral: true }] : [], icon };
 }
 const fill = (ps, colour = LIQUID) => ["fill", ps, { fill: "solid", colour }];
 const solid = (ps) => ["fill", ps, { fill: "solid" }]; // in the ink colour

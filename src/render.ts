@@ -172,13 +172,13 @@ export type Kept = { attrs: Record<string, string>; atoms: number[] };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
 // straight line, as a fraction of its length, to the left looking from start to end.
 // line and arc are drawing elements with no head; they share the arrows' handles. style: how the shaft is drawn
-// (dashed suits a proposed step; wavy and bold are for lines).
+// (dashed suits a proposed step; wavy and bold are for lines; membrane draws a line as a lipid bilayer, membrane()).
 // orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
 // cut: a fragmentation line across bonds (the Mass spec analysis tool's), whose pieces the Mass spec panel analyses.
 // nogo and hash: a reaction arrow crossed out, or struck through with two slashes (ChemDraw's No-Go Cross and Hash).
 // dipole: an arrow with a bar across its tail. block: a hollow block arrow (a wide shaft and head drawn as an outline).
 export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "hash" | "dipole" | "block" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
-export type LineStyle = "dashed" | "bold" | "wavy" | "doubled";
+export type LineStyle = "dashed" | "bold" | "wavy" | "doubled" | "membrane";
 // The Curves model, as ChemDraw's Curves menu: a head at either end of a line (none, full, or a half head with its
 // barb on the left or right, looking the way the head points), the heads' shape, and a closed curve's fill.
 export type Head = "none" | "full" | "left" | "right";
@@ -264,7 +264,7 @@ type ArrowContext = { kind: "arrow"; arrow: string; ratio: number; heads: boolea
 type CycleContext = { kind: "cycle"; side?: PickSide; head: HeadShape; size: string; step: boolean; reversible: boolean; balance: string };
 const END_HEADS = [["none", "None"], ["full", "Arrowhead"], ["left", "Half, left"], ["right", "Half, right"]] as const;
 const HEAD_NAMES = [["solid", "Solid"], ["hollow", "Hollow"], ["angled", "Angled"]] as const;
-const LINE_STYLES = [["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"]] as const;
+const LINE_STYLES = [["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"], ["membrane", "Membrane"]] as const;
 const HEAD_SIZES = [["large", "Large"], ["medium", "Medium"], ["small", "Small"]] as const;
 const FILLS = [["none", "None"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const;
 export function arrowPicks(context: { kind: string } | undefined): { label: string; picks: ArrowPick[] }[] {
@@ -274,12 +274,13 @@ export function arrowPicks(context: { kind: string } | undefined): { label: stri
   if (c && (c.heads || c.curved || c.fillable || c.size !== undefined || c.arrow === "orbital")) {
     // An orbital's line is plain, dashed or bold, as ChemDraw's drawing element menu has it.
     const orbital = c.arrow === "orbital", picks: ArrowPick[] = [];
-    if (c.heads || orbital) picks.push({ label: "Line", command: "arrow.style", value: c.style ?? "plain", options: LINE_STYLES.filter(([id]) => !orbital || id === "plain" || id === "dashed" || id === "bold") });
-    if (c.heads) picks.push({ label: "Start", command: "arrow.start", value: c.start ?? "none", options: END_HEADS, head: c.head }, { label: "End", command: "arrow.end", value: c.end ?? "none", options: END_HEADS, head: c.head });
+    // A membrane is for lines, arcs and pen curves, and has no heads.
+    if (c.heads || orbital) picks.push({ label: "Line", command: "arrow.style", value: c.style ?? "plain", options: LINE_STYLES.filter(([id]) => (!orbital || id === "plain" || id === "dashed" || id === "bold") && (id !== "membrane" || isLine({ kind: c.arrow as ArrowKind }))) });
+    if (c.heads && c.style !== "membrane") picks.push({ label: "Start", command: "arrow.start", value: c.start ?? "none", options: END_HEADS, head: c.head }, { label: "End", command: "arrow.end", value: c.end ?? "none", options: END_HEADS, head: c.head });
     if (headShaped(c)) picks.push({ label: "Heads", command: "arrow.head", value: c.head ?? "solid", options: HEAD_NAMES });
     if (c.curved) picks.push({ label: "Curve", command: "arrow.sweep", value: String(c.sweep ?? 120), options: SWEEPS.map((s) => [String(s), `${s}°`] as const) });
     if (c.size !== undefined) picks.push({ label: "Size", command: "arrow.size", value: c.size, options: [...(c.arrow === "block" ? HEAD_SIZES.slice(0, 2) : HEAD_SIZES), ...(c.size === "own" ? [["own", "Own size"] as const] : [])] });
-    if (c.fillable) picks.push({ label: "Fill", command: "arrow.fill", value: c.fill ?? "none", options: FILLS });
+    if (c.fillable && c.style !== "membrane") picks.push({ label: "Fill", command: "arrow.fill", value: c.fill ?? "none", options: FILLS });
     groups.push({ label: "Line and arrowheads", picks });
   }
   const side = y ? y.side : t;
@@ -1997,6 +1998,13 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   const hw = s.line / 2, H = size.length * s.line * fit, C = size.centre * s.line * fit, W = size.width * s.line * fit;
   const out: P[][] = [];
   const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
+  // A membrane: its tails, and each head a ring (wound against the bars' way inside, so its middle stays clear).
+  if (a.style === "membrane") {
+    const { heads, tails } = membrane(a, k), ring = (c: P, r: number, way: number) => Array.from({ length: 24 }, (_, i): P => add(c, mul([Math.cos((way * Math.PI * i) / 12), Math.sin((way * Math.PI * i) / 12)], r)));
+    for (const t of tails) for (let i = 0; i + 1 < t.length; i++) bar(t[i], t[i + 1]);
+    for (const h of heads) out.push(ring(h.at, h.r + hw, -1), ring(h.at, Math.max(0, h.r - hw), 1));
+    return out;
+  }
   // Points shortened at their end by `trim` (where a head takes over).
   const cut = (pts: P[], trim: number) => {
     const path = [...pts];
@@ -2132,6 +2140,35 @@ function offsetPath(path: P[], d: number): P[] {
     return len(t) < 1e-9 ? p : add(p, mul(perp(unit(t)), d));
   });
 }
+
+// A membrane (a line, arc or pen curve in the Membrane style; ChemDraw's membrane line, arc and ellipse): a lipid
+// bilayer along it, drawn as the library's lipids are. In bond lengths at the arrow's scale, each lipid is a head of
+// radius 0.105 whose middle is 0.565 from the line, and two tails 0.45 long and 0.09 apart that zigzag in towards the
+// line. Each side has its lipids evenly along its own length, about 0.25 apart: a longer line gets more lipids of the
+// same size, and a curve gets fewer on its inside. At most 2000 a side (a membrane 500 bond lengths long), so a file
+// cannot make one that takes too long to draw. px (y down), at k px per bond length.
+export const LIPID_HEAD = "#C9D6F4"; // the heads' fill: the library's light tint (tools/library/lab.mjs)
+export function membrane(a: Arrow, k: number): { heads: { at: P; r: number }[]; tails: P[][] } {
+  const b = k * scaleOf(a), r = 0.105 * b, path = arrowPath(a, k), closed = !!a.curve?.closed, heads: { at: P; r: number }[] = [], tails: P[][] = [];
+  for (const side of [1, -1]) {
+    const leaf = offsetPath(path, side * 0.565 * b), run = [0];
+    for (let i = 1; i < leaf.length; i++) run.push(run[i - 1] + len(sub(leaf[i], leaf[i - 1])));
+    const total = run[run.length - 1], n = Math.min(2000, closed ? Math.max(3, Math.round(total / (0.25 * b))) : Math.round(total / (0.25 * b)) + 1);
+    for (let j = 0, i = 0; j < n; j++) {
+      const at = closed ? (total * j) / n : n > 1 ? (total * j) / (n - 1) : total / 2;
+      while (i < leaf.length - 2 && run[i + 1] < at) i++;
+      const d = sub(leaf[i + 1] ?? leaf[i], leaf[i]), l = len(d);
+      if (l < 1e-9) continue;
+      // u along the side, v in towards the line; a tail's corners stand 0.035 off its axis, one way then the other.
+      const u = mul(d, 1 / l), v = mul(perp(u), -side), c = add(leaf[i], mul(u, at - run[i]));
+      heads.push({ at: c, r });
+      for (const o of [-0.045, 0.045]) tails.push([0, 1, 2, 3, 4].map((m) => add(c, add(mul(v, r + (0.45 * b * m) / 4), mul(u, (o + (m ? (m % 2 ? 0.035 : -0.035) : 0)) * b)))));
+    }
+  }
+  return { heads, tails };
+}
+// A membrane's heads as SVG path data (px, y down), for their fill.
+export const membraneHeads = (a: Arrow, k: number) => membrane(a, k).heads.map(({ at: [x, y], r }) => `M${x + r} ${y}A${r} ${r} 0 1 1 ${x - r} ${y}A${r} ${r} 0 1 1 ${x + r} ${y}Z`).join("");
 
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
 // outline is its edge. Rounded corners have a radius of 0.3 bond lengths (or the box's own); bracket ends reach 0.25
