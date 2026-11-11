@@ -96,8 +96,14 @@ for (const file of ["Spectrum.tsx", "MassSpec.tsx"]) assert.match(read(`./${file
 // B1.8: a session's spectra as tabs, each closable, and + to add a kind that applies.
 const spectrum = read("./Spectrum.tsx");
 assert.match(spectrum, /role="tablist" aria-label="Spectra"/);
-assert.match(spectrum, /if \(e\.key === "Delete" \|\| e\.key === "Backspace"\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); onClose\(k\); \}/);
-assert.match(spectrum, /<Pick label="Add spectrum"/);
+assert.match(spectrum, /if \(closable && \(e\.key === "Delete" \|\| e\.key === "Backspace"\)\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); onClose\(k\); \}/);
+// A tab has a close button only when there are two or more (one alone closes with the panel), in room of its own so it
+// never covers the name; + is the last segment of the same control, outside the tab list.
+assert.match(spectrum, /const closable = keys\.length > 1;/);
+assert.match(spectrum, /\{closable && <button type="button" className="tab-close"/);
+assert.match(read("editor.css"), /\.spectrum-tab\.closable button\[role="tab"\] \{\n  padding-right: 22px;/);
+assert.match(spectrum, /<\/span>\n    \{children\}\n    <\/span>/);
+assert.match(spectrum, /<Pick label="Add spectrum" value="" className="tab-add"/);
 assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
 assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
 assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");

@@ -296,12 +296,13 @@ function Panel(p: Props) {
         <h2 onPointerEnter={() => p.onPointTitle(true)} onPointerLeave={() => p.onPointTitle(false)}>{p.title || nameOf(p.spectrumKey)}{m && showM && m.title && <span className="spectrum-title">{m.title}</span>}</h2>
       </header>
       <div className="spectrum-controls">
-        <Tabs keys={p.keys} value={p.spectrumKey} onKey={p.onKey} onClose={p.onCloseTab} />
-        {p.addable.length > 0 && (
-          <Pick label="Add spectrum" value="" className="spectrum-button tab-add" title="Add spectrum" groups={[p.addable.map((k) => ({ key: k, name: keyName(k), icon: <ChartLine size={18} /> }))]} onPick={p.onAddKey}>
-            <Plus size={16} aria-hidden />
-          </Pick>
-        )}
+        <Tabs keys={p.keys} value={p.spectrumKey} onKey={p.onKey} onClose={p.onCloseTab}>
+          {p.addable.length > 0 && (
+            <Pick label="Add spectrum" value="" className="tab-add" title="Add spectrum" groups={[p.addable.map((k) => ({ key: k, name: keyName(k), icon: <ChartLine size={18} /> }))]} onPick={p.onAddKey}>
+              <Plus size={16} aria-hidden />
+            </Pick>
+          )}
+        </Tabs>
         {p.noStructure && <span className="spectrum-none" role="status">No structure</span>}
         {m && nucleus && <Segmented label="Show" value={show} options={[["predicted", "Predicted"], ["measured", "Measured"], ["stacked", "Stacked"], ["overlaid", "Overlaid"]]} onChange={p.onShow} />}
         {showP && <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />}
@@ -557,11 +558,14 @@ function Panel(p: Props) {
   );
 }
 
-// A session's spectra as tabs (B1.8): the arrow keys move between them, and each has a close button on hover or focus.
-// Delete or Backspace on a tab closes it.
-function Tabs({ keys, value, onKey, onClose }: { keys: string[]; value: string; onKey: (k: string) => void; onClose: (k: string) => void }) {
+// A session's spectra as tabs (B1.8): the arrow keys move between them. With two or more, each has a close button in
+// room of its own beside its name, shown on hover or focus; Delete or Backspace on a tab closes it. One spectrum alone
+// closes with the panel's Close. children: the + that adds a spectrum, the last segment of the same control.
+function Tabs({ keys, value, onKey, onClose, children }: { keys: string[]; value: string; onKey: (k: string) => void; onClose: (k: string) => void; children?: React.ReactNode }) {
+  const closable = keys.length > 1;
   return (
-    <span className="segmented spectrum-tabs" role="tablist" aria-label="Spectra"
+    <span className="segmented spectrum-tabs">
+    <span role="tablist" aria-label="Spectra"
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
@@ -570,12 +574,14 @@ function Tabs({ keys, value, onKey, onClose }: { keys: string[]; value: string; 
         e.currentTarget.querySelector<HTMLElement>(`[data-key="${next}"]`)?.focus();
       }}>
       {keys.map((k) => (
-        <span key={k} className="spectrum-tab">
+        <span key={k} className={closable ? "spectrum-tab closable" : "spectrum-tab"}>
           <button type="button" role="tab" data-key={k} aria-selected={k === value} tabIndex={k === value ? 0 : -1} onClick={() => onKey(k)}
-            onKeyDown={(e) => { if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); e.stopPropagation(); onClose(k); } }}>{keyName(k)}</button>
-          <button type="button" className="tab-close" tabIndex={-1} aria-label={`Close ${keyName(k)}`} data-tip="Close" onClick={() => onClose(k)}><X size={12} /></button>
+            onKeyDown={(e) => { if (closable && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); e.stopPropagation(); onClose(k); } }}>{keyName(k)}</button>
+          {closable && <button type="button" className="tab-close" tabIndex={-1} aria-label={`Close ${keyName(k)}`} data-tip="Close" onClick={() => onClose(k)}><X size={12} /></button>}
         </span>
       ))}
+    </span>
+    {children}
     </span>
   );
 }

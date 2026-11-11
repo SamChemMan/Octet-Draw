@@ -4542,8 +4542,14 @@ div.facts {
   position: relative;
   display: inline-flex;
 }
+.spectrum-tabs [role="tablist"] {
+  display: inline-flex;
+}
 .spectrum-tabs button[role="tab"] {
   height: 100%;
+}
+.spectrum-tab.closable button[role="tab"] {
+  padding-right: 22px;
 }
 .spectrum-tabs button[aria-selected="true"] {
   background: var(--brand-mist);
@@ -4553,11 +4559,11 @@ div.facts {
   min-width: 0;
   position: absolute;
   top: 50%;
-  right: 1px;
+  right: 4px;
   display: none;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
