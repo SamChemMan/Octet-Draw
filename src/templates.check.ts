@@ -651,19 +651,30 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
   assert.deepEqual(frames.map((t) => [t.name, t.mol.atoms.length, t.mol.bonds.length]), [["Trigonal bipyramid", 5, 9], ["Square pyramid", 5, 8], ["Octahedron", 6, 12],
     ["Pentagonal bipyramid", 7, 15], ["Capped octahedron", 7, 15], ["Capped trigonal prism", 7, 13], ["Cube", 8, 12], ["Square antiprism", 8, 16], ["Triangular dodecahedron", 8, 18],
     ["Hexagonal bipyramid", 8, 18], ["Tricapped trigonal prism", 9, 21], ["Capped square antiprism", 9, 20], ["Bicapped square antiprism", 10, 24], ["Icosahedron", 12, 30]], "the frames, corners and edges");
+  // A corner seen on an edge it is not on reads as a bend in that edge: each is 0.2 bond lengths or more from it.
+  const { distToPath } = await import("./hit.ts"), seen = (a: Atom): [number, number] => [a.location[0], a.location[1]];
   for (const { name, mol } of frames) {
     assert.ok(mol.atoms.every((a, i) => edges(mol, i) >= 3 && !!a.ignoreWarnings === edges(mol, i) > 4), `${name}: a frame, warnings off on its corners of five edges or more`);
     assert.ok(mol.bonds.some((b) => b.display === "dashed") && mol.atoms.some((a) => a.location[2]), `${name}: in perspective, its hidden edges dashed`);
+    assert.ok(mol.atoms.every((a, i) => mol.bonds.every((b) => b.atoms.includes(i) || distToPath(seen(a), b.atoms.map((j) => seen(mol.atoms[j]))) >= 0.2)), `${name}: no corner seen on an edge it is not on`);
   }
   const ico = set("Polyhedra").find((t) => t.name === "Icosahedron")!.mol, bare = { ...ico, atoms: ico.atoms.map(({ ignoreWarnings, ...a }) => a) };
   assert.equal(problems(bare, chem.stereoFacts(bare)).filter((p) => p.type === "valence").length, 12, "bare, a corner of five edges has a valence warning");
   const c70 = set("Carbon").find((t) => t.name === "C70")!.mol;
   assert.deepEqual([c70.atoms.length, c70.bonds.length, c70.bonds.filter((b) => b.type === 2).length], [70, 105, 35], "C70: 70 carbons, 105 bonds, 35 double");
   assert.ok(c70.atoms.every((_, i) => edges(c70, i) === 3 && c70.bonds.filter((b) => b.type === 2 && b.atoms.includes(i)).length === 1), "C70: each carbon on three bonds, one double");
+  // The C70 chemists isolate (D5h, the one C70 cage with no two pentagons side by side), with the fewest double bonds
+  // in a pentagon.
+  const { rings } = await import("./rings.ts"), { graphOf } = await import("./naming.ts");
+  const fives = rings(graphOf(c70)!).filter((r) => r.length === 5), inFive = (b: Bond) => fives.filter((r) => b.atoms.every((i) => r.includes(i))).length;
+  assert.equal(fives.length, 12, "C70: 12 pentagons");
+  assert.ok(c70.bonds.every((b) => inFive(b) < 2), "C70: no bond shared by two pentagons");
+  assert.equal(c70.bonds.filter((b) => b.type === 2 && inFive(b)).length, 5, "C70: five double bonds in a pentagon, the fewest it can have");
   assert.ok(c70.bonds.every((b) => { const [p, q] = b.atoms.map((i) => c70.atoms[i].location); return Math.abs(Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) - 1) < 0.02; }), "C70: every bond one bond length");
   const span = (k: number) => Math.max(...c70.atoms.map((a) => a.location[k])) - Math.min(...c70.atoms.map((a) => a.location[k]));
   assert.ok(span(0) > span(1) * 1.05, "C70: longer than it is wide, along the page");
-  // Each comes back from CDXML, CDX and .oct with its depths, dashed edges, double bonds and warnings off.
+  // Each comes back from CDXML, CDX and .oct with its depths, dashed edges, double bonds and warnings off, and from MOL
+  // (which has no dashed bond or warnings flag) with its bonds and depths.
   const { fromCdxml } = await import("./cdxml.ts"), { readOct, writeOct } = await import("./oct.ts");
   const look = (m: Mol) => [m.atoms.map((a) => [a.label, !!a.ignoreWarnings]), m.bonds.map((b) => [b.atoms, b.type, b.display])];
   for (const t of [...frames, set("Carbon").find((x) => x.name === "C70")!]) {
@@ -672,6 +683,9 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
       assert.deepEqual(look(back), look(t.mol), `${t.name} comes back from ${how}`);
       assert.ok(back.atoms.every((a, i) => a.location.every((v, k) => Math.abs(v - t.mol.atoms[i].location[k]) < 0.01)), `${t.name}: its places and depths come back from ${how}`);
     }
+    const mol = chem.importStructure(chem.toMolfile(t.mol));
+    assert.deepEqual(mol.bonds.map((b) => [b.atoms, b.type]), t.mol.bonds.map((b) => [b.atoms, b.type]), `${t.name} comes back from MOL`);
+    assert.ok(mol.atoms.some((a) => a.location[2]), `${t.name}: its depths come back from MOL`);
   }
-  console.log(`templates: ${frames.length} polyhedron frames and the fullerenes show no warning, no bond end on, and come back from CDXML, CDX and .oct ok`);
+  console.log(`templates: ${frames.length} polyhedron frames and the fullerenes show no warning, no bond end on, and come back from CDXML, CDX, .oct and MOL ok`);
 }

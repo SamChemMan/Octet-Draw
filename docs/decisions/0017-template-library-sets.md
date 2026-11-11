@@ -39,7 +39,8 @@ Octet's own sets ChemDraw has no set for: Sugars, Nucleobases, Heterocycles, Lig
 
 For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 45
 items, and DNA and RNA, Side chains, Peptides, Supramolecules, Polyhedra, Carbon, Lab equipment, Biomolecules, Cells,
-BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 525 templates in 30 sets (issue 97 added 14 polyhedra and C70). See "1.2 sets" below.
+BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 525 templates in 30 sets (issue 97 added 14
+polyhedra and C70). See "1.2 sets" below.
 
 What each ChemDraw set holds, and how it draws a Newman projection or a Cp ring, needs ChemDraw running
 (`~/octet-research/notes/chemdraw-checks-pending.md` item 22).
@@ -102,13 +103,16 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   them: plain bonds in the page, wedges towards the viewer and hashes away, each M-L bond 1.7 bond lengths so the bond
   between two labels shows; 14 coordination polyhedra as frames (issue 97), from the trigonal bipyramid to the
   icosahedron, a corner where each ligand goes, 1.7 bond lengths from the middle on average, in perspective with the
-  hidden edges dashed (a corner of five or six edges has its warnings off, as no carbon has that valence); and the cages tetrahedrane, prismane, pentaprismane and dodecahedrane in perspective, an
-  edge with no face turned towards the viewer dashed (`tools/library/polyhedra.mjs`). Octet reads a dashed bond as
-  one behind the page, as ChemDraw's, so the cages' corners get r and s labels; `templates.check.ts` lets them off.
-- Carbon (5): C60, C70 (issue 97: C60's halves across a five-fold axis, eclipsed, with a belt of ten carbons
-  between them, relaxed so every pentagon is regular and every hexagon flat), (5,5) armchair and (9,0) zigzag nanotube segments, each atom at its place in 3D (kept as depth),
-  and circumcoronene, a graphene flake. Double bonds: C60's 30 bonds between two hexagons; the others a perfect
-  matching of their atoms (C70's found by search, bonds between two hexagons first).
+  hidden edges dashed and no corner seen on an edge it is not on (a corner of five or six edges has its warnings off,
+  as no carbon has that valence); and the cages tetrahedrane, prismane, pentaprismane and dodecahedrane in
+  perspective, an edge with no face turned towards the viewer dashed (`tools/library/polyhedra.mjs`). Octet reads a
+  dashed bond as one behind the page, as ChemDraw's, so the corners get r and s labels; `templates.check.ts` lets
+  them off.
+- Carbon (5): C60, C70 (issue 97: C60's halves across a five-fold axis, eclipsed, with a belt of ten carbons between
+  them, relaxed so every pentagon is regular and every hexagon flat), (5,5) armchair and (9,0) zigzag nanotube
+  segments, each atom at its place in 3D (kept as depth), and circumcoronene, a graphene flake. Double bonds: C60's 30
+  bonds between two hexagons; the others a perfect matching of their atoms (C70's found by search, with the fewest in
+  a pentagon: five).
 - Lab (29 more), Lab equipment (22), Biomolecules (13), Cells (18), BioArt (8), Anatomy (7), Organisms (7), Bugs
   (8) and Symbols (18): drawings in the Lab group's line style, written as SVG path data in
   `tools/library/glassware.mjs`, `equipment.mjs`, `bio.mjs`, `life.mjs` and `symbols.mjs` and turned into Octet's pen
@@ -135,7 +139,8 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
   CpMn(CO)3, bis(benzene)chromium, Mo2(OAc)4, IMes and IPr (carbenes), cis- and trans-decalin, cubane.
 - ChemDraw writes a Newman projection's depth to CDXML as `xyz`; ChemDraw draws it without the circle.
 - Left out because they did not look right: cyclodextrins and cucurbiturils (no clear drawing of a ring of six to
-  eight sugars, or of glycolurils, came out of a flat layout or a simple 3D build), the nucleosome, and from the drawn sets the heart, the stomach and the brain.
+  eight sugars, or of glycolurils, came out of a flat layout or a simple 3D build), the nucleosome, and from the drawn
+  sets the heart, the stomach and the brain.
 - ChemDraw's Animals set has many farm and zoo animals; Organisms has the lab model organisms only (mouse, rat, rabbit,
   zebrafish, frog, nematode, plant). Its Shapes set's weather clouds, recycling and biohazard symbols, skull and
   crossbones, caduceus and rod of Asclepius are not in Symbols.
