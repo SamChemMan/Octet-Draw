@@ -84,7 +84,7 @@ d = drawing("paper", "Ids");
 await call("draw_structures", { structures: [{ text: "acetone" }] });
 for (const [name, args] of [["edit", { ids: ["s1.2"], charge: 1 }], ["add_arrow", { kind: "curved", from: "s1.4:pair", to: "s1.2-4" }], ["add_shape", { kind: "brackets", around: ["s1"], mark: "‡" }]] as const)
   assert.ok(!(await call(name, args)).isError, name);
-const ids = (await call("read_drawing", { atoms: true })).structuredContent;
+const ids = (await call("read_drawing", { atoms: true, detail: "full" })).structuredContent;
 assert.equal(ids.structures[0].smiles, "C[C+](C)=O");
 assert.deepEqual([ids.arrows.map((a: { kind: string }) => a.kind), ids.shapes.map((s: { kind: string; mark: string }) => [s.kind, s.mark])], [["curved"], [["brackets", "‡"]]]);
 

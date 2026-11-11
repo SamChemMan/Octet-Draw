@@ -1,6 +1,6 @@
 {
  "tools": 26,
- "toolsList": 63462,
+ "toolsList": 60515,
  "instructions": 2358,
  "cases": {
   "taxol-schemes": {
@@ -8,24 +8,26 @@
    "failed": 0,
    "coerced": 1,
    "sent": 4436,
-   "read": 15889,
-   "ms": 2599,
-   "slowest": 1589,
+   "read": 2489,
+   "ms": 2586,
+   "slowest": 1592,
    "right": 19,
    "of": 19,
-   "warnings": 42
+   "warnings": 42,
+   "summary": 2825
   },
   "taxol-v1-job": {
    "calls": 33,
    "failed": 0,
    "coerced": 5,
    "sent": 15482,
-   "read": 359204,
-   "ms": 4236,
-   "slowest": 1604,
+   "read": 178153,
+   "ms": 4114,
+   "slowest": 1612,
    "right": 19,
    "of": 19,
-   "warnings": 23
+   "warnings": 23,
+   "summary": 3380
   }
  }
 }

@@ -445,6 +445,44 @@ animation on screen, in Octet's style, for the whole time Claude is working, not
 - Pictures: only when asked. Default `medium`, PNG at most 1000 px. Look at a faster picture path. 4.6 s for a large
   picture is the slowest thing Octet does for an AI app; profile `pictureOf` and `mcp_png`.
 
+Built on 11 November 2026 (the result in `answer`, and `summary`, in `mcp.ts`):
+
+- **A write result** is the sentence, then `{ made, boxes, warnings, check }`. `made` is the top-level objects, 200 at
+  most: a number, conditions and a cycle's text belong to their structure, arrow or cycle. `warnings` is the new
+  chemical warnings, 10 at most. The layout is in `check`, by id, and not in the warnings again. `more` says how many
+  objects or warnings were left out. A tool's own answer stays (`opened` from `new_drawing`, `tables` from
+  `fill_experiment`).
+- **The sentence** says what was done in a few words. It names a compound only where Name to Structure read a name
+  as another name (decision 0021): the name given, its formula and Octet's name (120 characters at most, 12 names at
+  most). A SMILES or a file is drawn as given: it gets no name, and Octet does not work one out (12 ms a compound)
+  until `detail: "full"` asks.
+- **`detail: "full"`** gives the data as it was before this step: the drawing, every id made, changed and deleted,
+  their boxes, `names`, a figure's or a batch's ids by step, and the layout's warnings in words. Checked on both
+  benchmark cases against the replies before: the same but for the sentence. A batch step's `detail` is the batch's.
+  Every tool whose result is a change takes it, but `tools/list` lists it only on `read_drawing`: 23 more copies are
+  1,200 characters in every chat, and take the tools past the 52,000 that `mcp.check.ts` allows. The instructions say
+  it in one line. **Step 5:** list it on the merged tools.
+- **`read_drawing`** is a summary by default: each structure's id, number and formula; each reaction as
+  `{ route: "1 + s4 -> 2 -> 3", conditions: { a7: "TBSCl, imidazole; DMF; 95%" } }`; cycles as before; free text (200
+  characters of each); arrows and shapes outside reactions by id and kind; the check; the first 10 chemical
+  warnings, each `at` its atom or structure. A compound goes by its number when the number is on one structure only
+  and is not an id's form (`s9`), else by its id. The arrow is `->`, `<=>` (equilibrium), `=>` (retro), `<->`
+  (resonance) or `-/->` (no reaction). `smiles: true` adds each SMILES. No default read is over 20,000 characters:
+  while one is, its longest list loses its last half, and `more` counts what was left out. `atoms: true` and
+  `detail: "full"` are never cut. A drawing as a resource is the summary.
+- **Text and `structuredContent`** hold the same data, each once. The specification (2025-06-18 and 2025-11-25,
+  Tools, Structured Content) says: "For backwards compatibility, a tool that returns structured content SHOULD also
+  return the serialized JSON in a TextContent block." So an AI app gives its model one of the two, and each must be
+  whole: a write's text is the sentence, a line break, then the JSON without the sentence; its `structuredContent`
+  has the sentence as `done`. A read's text is its JSON. Data in only one of them would leave some AI apps without it.
+  Octet cannot stop an AI app that gives its model both, and short replies make that cost small.
+- **`outputSchema`** of a write: `done`, `made`, `warnings` and `check` are required, which holds short and full.
+  Every call in `mcp.check.ts` is checked against its tool's `outputSchema`, and every default reply against the
+  20,000 limit.
+- **Speed.** A read no longer indexes the drawing for a change it does not report (2.4 ms a read on 40 structures),
+  and the layout check skips its second pass when no shape has an edge to cross.
+- Not built: `advice` (it comes with the brief, section 3.2) and the picture work above.
+
 ## 11. Instructions and prompts
 
 The server instructions are rewritten around the new flow, in this order:
@@ -538,6 +576,8 @@ benchmark runner should time only the MCP part.
 | | | | taxol-v1-job | 33 | 6 | 15,365 | 282,623 | 3,649 | 18 of 19 | 17 |
 | 1, arguments: lenient (11 Nov) | 63,462 (18,130), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 15,889 | 2,657 | 19 of 19 | 42 |
 | | | | taxol-v1-job | 33 | 0 | 15,482 | 359,204 | 4,236 | 19 of 19 | 23 |
+| 1, replies: short (11 Nov) | 60,515 (17,290), 26 tools | 2,358 | taxol-schemes | 3 | 0 | 4,436 | 2,489 | 2,586 | 19 of 19 | 42 |
+| | | | taxol-v1-job | 33 | 0 | 15,482 | 178,153 | 4,114 | 19 of 19 | 23 |
 
 - `taxol-schemes` is the three final `draw_reaction` calls only. `taxol-v1-job` is the whole job rebuilt from section
   0's notes (no record of the chat's calls was kept): the six refusals, the check grid, the style changes, the titles,
@@ -557,6 +597,15 @@ benchmark runner should time only the MCP part.
   `short`. Times were taken with other work running on the Mac: the three schemes took 2,656 ms before the change on
   the same day, so `results.json` keeps 2,599 for them. The coerce step itself takes about 4 µs on scheme 3's
   arguments (the dispatcher refuses them in 18 µs, 13 to 14 before) and nothing that can be measured on a small call.
+- Step 1, replies: the three schemes' replies went from 15,889 characters to 2,489. In `taxol-v1-job` the 22 calls
+  that change the drawing went from 58,052 to 15,542, and the five default reads from 154,261 to 15,720 (2,236 to
+  4,368 each). The four reads that ask for `detail: "full"` are 138,990 of the 178,153 left, and the two files 7,901.
+  The runner has a new column, Summary: the default read of the finished drawing, 2,825 and 3,380 characters (the
+  target is under 5,000). `tools/list` is 2,947 characters shorter (the write tools' `outputSchema`), and what an AI
+  app gives its model (name, description, input schema) is 51,722, from 51,725. Octet's time, taken in one process
+  with the code before and after in turn (best of 4, other work running): the schemes 2,697 ms before and 2,637
+  after, the job 4,368 and 4,102, a default read of the finished drawing 57.5 and 32.9, a full read 59.5 and 57.8.
+  Nearly all of the schemes' time is Map Reaction Atoms (2.7 s in 17 calls).
 - **The benchmark's own data was wrong.** `structures.json` had compounds 4 to 7 and 9 to 11 with the TBDPS group
   joined through its tert-butyl carbon (`scheme.mjs` wrote the group as a prefix). Octet's drawings were right. Fixed
   in `scheme.mjs` on 11 November.

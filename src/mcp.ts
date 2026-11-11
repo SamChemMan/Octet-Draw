@@ -81,9 +81,10 @@ type ObjSchema = { type: "object"; properties: Record<string, Schema | Prop>; re
 type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: number; minItems?: number; description?: string } | { anyOf: (Schema | Prop)[]; description: string };
 // The lenient readings (coerce). numeral: a JSON number is read as its text (a compound number); also: other names for
 // an enum's values; default: the value a required argument takes when it is left out.
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string };
+// unlisted: an argument tools/list leaves out (detail on a write tool: the instructions say it once, for every tool).
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string } | { type: "boolean"; description?: string };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
-const pick = (values: readonly string[], description?: string, lenient?: { also?: Record<string, string>; default?: string }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...lenient });
+const pick = (values: readonly string[], description?: string, lenient?: { also?: Record<string, string>; default?: string; unlisted?: true }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...lenient });
 const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
@@ -154,6 +155,8 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
 const wrongWith = (s: Schema, args: unknown, notes: Notes) => check(s, coerce(s, args, "", notes), "");
 // Control characters out of text the AI app gives (a line break stays where text takes one).
 const clean = (t: string, lines = false) => t.replace(lines ? /[\u0000-\u0009\u000b-\u001f\u007f]+/g : /[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " ").trim();
+// Text cut to its first characters, for a result to quote.
+const short = (t: string, most: number) => (t.length <= most ? t : `${t.slice(0, most)}…`);
 
 // ---- The tools ----
 
@@ -267,9 +270,11 @@ type Hints = { readOnly: boolean; destructive: boolean; idempotent: boolean };
 // refuse: what is wrong with the arguments beyond their schema, checked before the call begins (no undo step opens).
 type Tool = { name: string; title: string; description: string; inputSchema: ObjSchema; outputSchema?: object; hints: Hints; done?: string; place?: true; refuse?: (a: any) => string | undefined; run: (host: Host, a: any, ctx: Ctx) => Promise<Result> };
 // data: what goes in structuredContent with the change's ids (a write tool) or alone (a read tool).
+// more: what detail: full adds to it (R6), worked out only then: Octet's name for each compound takes time.
 // picture: add a PNG of `of` (or the drawing), cropped to `crop`, its long side at most `longest` px. cropped: a picture
-// of what the call changed, as picture: true on the call gives (a batch step asked for one).
-type Result = { text: string; picture?: boolean; error?: true; data?: Record<string, unknown>; of?: Mol; crop?: Box; longest?: number; cropped?: true };
+// of what the call changed, as picture: true on the call gives (a batch step asked for one). full: detail: full, as
+// on the call (a batch step asked for it).
+type Result = { text: string; picture?: boolean; error?: true; data?: Record<string, unknown>; more?: () => Record<string, unknown>; of?: Mol; crop?: Box; longest?: number; cropped?: true; full?: true };
 // progress: tells the AI app how far a long call is (when it asked); check: stops the call here when it was cancelled
 // (notifications/cancelled, or Stop in Octet's notice), and the drawing goes back as it was.
 // watched: the AI app asked for progress, so a long call shows each part as it goes.
@@ -280,25 +285,28 @@ const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, AD
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
 const CHANGE_SAFE: Hints = { readOnly: false, destructive: true, idempotent: true }, CHANGE_ONCE: Hints = { readOnly: false, destructive: true, idempotent: false };
 const ids = { type: "array", items: { type: "string" } };
-// What every write tool's structuredContent holds (D9): the drawing, what was done, the ids made, changed and deleted,
-// Octet's reading of each name given, and the warnings the call caused.
-// (Kept short: every write tool lists it. names, boxes and check are in it too, unlisted.)
-const CHANGE = { type: "object", required: ["drawing", "done", "made", "changed", "deleted", "warnings"], properties: { made: ids, changed: ids, deleted: ids, warnings: ids } };
+// What every write tool's structuredContent holds (D9, R6): what was done, the ids of the top-level objects made, the
+// chemical warnings the call caused and Octet's check of the layout.
+// (Kept short: every write tool lists it. The boxes are in it too, unlisted, and all that detail: full adds: the
+// drawing, every id made, changed and deleted, Octet's reading of each name given, and the layout's warnings.)
+const CHANGE = { type: "object", required: ["done", "made", "warnings", "check"], properties: { made: ids, warnings: ids } };
+// detail on a read, and on every tool that changes the drawing: short unless full is asked for (R6).
+const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also: { short: "summary", brief: "summary" }, ...(unlisted && { unlisted }) });
 const DRAWINGS = { type: "object", required: ["using", "drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
 const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
 const TOOLS: Tool[] = [
   {
     name: "read_drawing", title: "Read the drawing", hints: READ, outputSchema: READING,
-    description: "Reads the open drawing: structures (id, SMILES, formula, name, number, box), reactions (each step's structures and conditions, then its products), cycles, free text, the style and page, and Octet's chemical warnings. detail: full adds every caption with its id and box, and the page's box. ids reads only those. atoms lists atom and bond ids for edit. picture adds a PNG. Boxes are in bond lengths, y up. Write results already give boxes and a layout check, so you seldom need to read.",
-    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: pick(["summary", "full"], "full adds every caption (numbers, conditions, cycle text) with its box, to check the layout", { also: { short: "summary", brief: "summary" } }), atoms: yes("List each structure's atoms (ids such as s3.2, with element, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
+    description: "Reads the open drawing as a summary: structures (id, number, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), each step's conditions as fields, and every caption's id and box. ids reads only those. atoms lists atom and bond ids for edit. picture adds a PNG. Write results already give boxes and a layout check, so you seldom need to read.",
+    inputSchema: obj({ picture: yes("Add a PNG of the drawing (or of the ids)"), picture_size: pick(["small", "medium", "large"], "The picture's long side: 600, 1000 (default) or 1568 px"), ids: { ...list(str(40), 500), description: "Read only these objects" }, detail: detail(), smiles: yes(), atoms: yes("List each structure's atoms (ids such as s3.2, with element, charge, isotope, radical, lone pairs) and bonds (s3.1-2, with kind), for edit") }),
     // One snapshot (D3): the JSON and the picture are of the same drawing.
     run: async (host, a) => {
       await host.ready();
       // An atom or bond id (s3.2, s3.1-2) reads its structure.
       const m = host.doc(), only = a.ids?.length ? (a.ids as string[]).map((id) => (bondOf(m, id, host) ?? atomOf(m, id, host)) === undefined ? id : id.replace(/\.[\d-]+(?::pair)?$/, "")) : undefined;
       if (only) { const { unknown } = idsOf(host, m, only); if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read_drawing without ids for every id.`, error: true }; }
-      const data = summary(host, m, a.detail === "full", !!a.atoms, only);
+      const data = summary(host, m, a.detail === "full", !!a.atoms, only, !!a.smiles);
       return { text: JSON.stringify(data), picture: !!a.picture, data, of: m, crop: only && boxOfIds(host, m, only, 1), longest: SIZES[(a.picture_size ?? "medium") as keyof typeof SIZES] };
     },
   },
@@ -469,7 +477,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "draw_figure", title: "Draw a figure", hints: ADD, outputSchema: CHANGE, done: "drew a figure",
-    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. The result gives each part's id by place, and its box. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
+    description: "Draws a whole figure in one call, laid out in the drawing's style: panels one under another, the same width, each with a bold title and a subtitle (a citation) at its top left, then rows of items in equal columns, their middles on one line. An item is a structure (a name, SMILES, MOL or CDXML, with labels and the hints draw_structures lists; or a molecule) with its number (bold, under it), caption (under the number, or over it with number_under_caption; \n for a second line), brackets (brackets, parens or braces, a mark such as n or 2+, brackets_bold) and colour; or text alone ('when M = Ce'). Any text can be runs. frame: none, line or fill (a flat rounded panel). colour_by_element colours labels as Colour by Element does; element_colours sets your own, by element or label. detail: full gives each part's id by place. Example: panels [{title:'A  Siloxides', subtitle:'Mazzanti et al.', rows:[[{structure:'*[Ce](*)(*)(*)(*)(N#CC)N#CC', labels:['OSiPh3','OSiPh3','OSiPh3','OSiPh3'], geometry:'octahedral', number:'S-2', caption:'M = Ce, Pr'}, {text:'and'}]]}]." + PLACE_NOTE,
     inputSchema: obj({ panels: list(PANEL, 8, 1), number_under_caption: yes(), colour_by_element: yes(), element_colours: { type: "object", properties: {}, additionalProperties: true, description: "{O: '#C42B2B', OSiPh3: '#E0352B'}" }, width: num(5, 300, "Bond lengths; by default the page inside its margins (about 35 on A4 in ACS style)"), ...placing("at") }, ["panels"]),
     run: drawFigure, place: true,
   },
@@ -482,11 +490,14 @@ const TOOLS: Tool[] = [
 ];
 // Every tool that changes the drawing takes picture: true, for a picture of what it made or changed (F2).
 for (const t of TOOLS) if (!t.hints.readOnly && t.inputSchema.type === "object") t.inputSchema.properties.picture ??= yes("Add a PNG of what changed");
+// Every tool whose result is a change takes detail: full, for all the result's data (R6). tools/list does not list
+// it: 23 copies are 1,200 characters in every chat, and the instructions say it in one line.
+for (const t of TOOLS) if (t.outputSchema === CHANGE) t.inputSchema.properties.detail ??= detail(true);
 
 const INSTRUCTIONS = `Octet Draw is the chemical drawing app open on the user's computer. These tools draw in the user's open drawing with Octet's own commands, and read it back.
 - Work in few calls: each call costs the user a wait. Plan the whole drawing first, then draw it in one call: draw_reaction for a scheme, draw_cycle for a catalytic cycle, draw_structures for a list, draw_figure for a figure of panels, and batch for anything else or for several changes at once.
 - Give Octet names (IUPAC, common and trade names, abbreviations such as TREN or dppf) or SMILES. To match a picture, add hints to the SMILES instead of writing coordinates: a label for each * (labels), up, down, left or right (an atom that points that way), rotate, flip, geometry for a metal centre, and colours. Example, an octahedral complex: {structure: '*(*)(*)(N#CC)(N#CC)(*)*', labels: ['MIV', 'OSiPh3', 'OSiPh3', 'OSiPh3', 'OSiPh3'], geometry: 'octahedral'}. Give a molecule with coordinates only for what the hints cannot draw, such as a ring through a metal (a chelate) or a cage.
-- Every write result gives the ids of what it made and changed, the boxes of the top-level ones (a number, conditions and a cycle's text move with what they belong to), and Octet's new warnings. Use them to place the next thing (right_of, below, at), with no read in between.
+- Every write result gives the ids and boxes of what it made (a number, conditions and a cycle's text move with what they belong to) and Octet's new warnings. Use them to place the next thing (right_of, below, at), with no read in between. detail: 'full' adds all it changed.
 - Every write result has check: "clean" when nothing in the drawing overlaps, runs off the page, lies on a bond or across a shape's edge, and no two labels meet; else the ids (an atom s3.2 is the second atom as you gave it; move, edit and delete take atom ids). Fix every id it names: none is a near miss to leave. Clean means no boxes meet. It does not mean the drawing reads well, so for a figure look at it before you say it is done: read_drawing with picture and the ids of each part (a whole page in one picture is too small to show a crowded label), then make every fix in one batch.
 - To highlight an atom, a bond, a group or a structure, use edit with highlight (Octet's Highlight: a pale disc behind the label, a band behind the bond), or ring_fill for a ring. Never draw an oval, box or dot for a highlight: a shape is a frame or a panel, not a highlight.
 - Colour only what the user asks to colour. Keep the default black unless they name colours.
@@ -567,7 +578,7 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx): Promise<{ ok: R
     // characters go. A MOL file's first line is often blank, so it is not trimmed.
     const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), read = host.structure(text);
     let mol = read && crowded(read) ? host.tidy(read) : read;
-    if (!mol?.atoms.length) { failed.push(text.length > 60 ? `${text.slice(0, 60)}…` : text); continue; }
+    if (!mol?.atoms.length) { failed.push(short(text, 60)); continue; }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
     if (it.labels?.length) {
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
@@ -731,25 +742,27 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
   let mol = r.mol;
   const atoms = [...r.atoms], key = ++lastKey;
   for (const i of atoms) mol.atoms[i].key = key;
-  sources.set(key, { given: s.text.length <= 200 ? s.text : `${s.text.slice(0, 200)}…`, named: !!s.named });
+  sources.set(key, { given: short(s.text, 200), named: !!s.named });
   let number: number | undefined, first: number | undefined;
   if (over) [mol, first] = addCaption(mol, { ...over, under: atoms });
   if (s.number) [mol, number] = addCaption(mol, { text: s.number, x: 0, y: 0, bold: true, under: atoms });
   if (s.caption) mol = addCaption(mol, { text: s.caption, x: 0, y: 0, under: atoms })[0];
   return { mol, atoms, width: b[2] - b[0], number, over: first };
 }
-// A compound as a result names it: the name given, else Octet's name for it, else its formula.
-// A compound as a result names it: the name given, with its formula and Octet's own name for what it drew when that
-// is another name (so a name read another way shows at once); for SMILES and files, Octet's name, else the formula.
+// The names Octet read as another name (decision 0021, misread names): each name given, with the formula and Octet's
+// own name for what it drew, so a name read another way shows at once. They are all a result's sentence says of its
+// compounds (R6): a SMILES or a file is drawn as given, so it has no name to check, and naming it takes time.
 const plainName = (t: string) => t.toLowerCase().replace(/[\s\-,()[\]']/g, "");
-function label(host: Host, s: Read): string {
-  const given = s.text.length <= 80 && host.named(s.text) ? s.text : undefined;
-  const { name: own, formula } = about(host, s.mol);
-  const what = given ? (own && plainName(own) !== plainName(given) ? `${given} (${formula}; Octet's name: ${own})` : given) : own ?? formula ?? "a structure";
-  return `${what}${s.number ? ` (${s.number})` : ""}`;
+function readAs(host: Host, list: Read[]): string {
+  const odd = list.flatMap((s) => {
+    if (!s.named) return [];
+    const { name: own, formula } = about(host, s.mol);
+    return own && plainName(own) !== plainName(s.text) ? [`${short(s.text, 80)} (${formula}; Octet's name: ${short(own, 120)})`] : [];
+  });
+  return odd.length ? ` Octet read the names as: ${odd.slice(0, 12).join(", ")}${odd.length > 12 ? `, and ${odd.length - 12} more (detail: full gives each)` : ""}.` : "";
 }
 // Octet's reading of each name given (D9).
-const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own, formula } = about(host, x.mol); return { given: x.text.length <= 80 ? x.text : `${x.text.slice(0, 80)}…`, ...(own ? { octet: own } : {}), ...(formula ? { formula } : {}) }; });
+const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own, formula } = about(host, x.mol); return { given: short(x.text, 80), ...(own ? { octet: own } : {}), ...(formula ? { formula } : {}) }; });
 const failedNote = (failed: string[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f}"`).join(", ")}: give a SMILES instead (with * for a generic group such as L or R, and its labels).${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
 const UNDO = " One undo step.";
 
@@ -769,7 +782,7 @@ async function drawStructures(host: Host, a: { structures: { text: string; numbe
     if (k === ok.length - 1 || (ok.length <= 30 && k % cols === cols - 1)) m = host.set(m); // a small grid is drawn a row at a time
   });
   await host.settle();
-  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${Math.ceil(ok.length / cols)} row${ok.length > cols ? "s" : ""} of ${Math.min(cols, ok.length)}: ${ok.map((s) => label(host, s)).join(", ")}.${failedNote(failed)}${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew ${ok.length} structure${ok.length > 1 ? "s" : ""} in ${Math.ceil(ok.length / cols)} row${ok.length > cols ? "s" : ""} of ${Math.min(cols, ok.length)}.${readAs(host, ok)}${failedNote(failed)}${UNDO}`, more: () => ({ names: names(host, ok) }) };
 }
 
 type StepIn = StepFacts & { arrow?: ArrowKind; above?: string[]; below?: string[]; products: CompoundIn[] };
@@ -801,22 +814,21 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   if (failed.length || wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   const next = (() => { let k = 0; return () => ok[k++]; })();
   let m = host.doc();
-  const [x0, y] = origin(host, m), arrows = new Set<number>(), said: string[] = [];
+  const [x0, y] = origin(host, m), arrows = new Set<number>();
   let x = x0;
   // Each step's structures (their atoms), for the turn that lays each product as its starting material.
   const laid: { reactants: number[][]; products: number[][] }[] = [];
   let last: number[][] = [];
   const group = (n: number) => {
-    const names: string[] = [], groups: number[][] = [];
+    const groups: number[][] = [];
     for (let k = 0; k < n; k++) {
       if (k) { m = addCaption(m, { text: "+", x: x + 0.6, y: y - 0.3 })[0]; x += 1.8; }
-      const s = next(), r = place(m, s, x, y);
-      m = r.mol; x += r.width + 1.5; names.push(label(host, s)); groups.push(r.atoms);
+      const r = place(m, next(), x, y);
+      m = r.mol; x += r.width + 1.5; groups.push(r.atoms);
     }
     last = groups;
-    return names.join(" + ");
   };
-  said.push(group(a.start.length));
+  group(a.start.length);
   for (const [k, st] of a.steps.entries()) {
     const reactants = last;
     await ctx.check();
@@ -835,7 +847,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
       for (const t of side === "above" ? lines.reverse() : lines) m = addCaption(m, { text: t, x: x + length / 2, y, align: "centre", on: { arrow: id, side }, ...(facts.has(t) ? { facts: facts.get(t) } : {}) })[0];
     }
     x += length + 1.5;
-    said.push(`→ ${group(st.products.length)}${above.length || below.length ? ` (${[...above, ...below].join("; ")})` : ""}`);
+    group(st.products.length);
     laid.push({ reactants, products: last });
     // Each product turned to lie as the reactant it shares most atoms with (Augmented Clean Up Reaction, as a chemist
     // copies a structure and changes a group), so the scheme reads the same way round throughout. The map that turns
@@ -862,7 +874,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     host.set(shift(host.doc(), new Set(r.atoms), new Set([...r.arrows, ...r.captions]), [over, 0]));
     await host.settle();
   }
-  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}: ${said.join(" ")}. Octet laid it out with Clean Up Reaction.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew ${a.steps.length === 1 ? "the reaction" : `a scheme of ${a.steps.length} steps`}. Octet laid it out with Clean Up Reaction.${readAs(host, ok)}${UNDO}`, more: () => ({ names: names(host, ok) }) };
 }
 
 async function drawCycle(host: Host, a: { intermediates: { text: string; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean }): Promise<Result> {
@@ -881,7 +893,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   let id: number;
   [m, id] = addCycle(m, { centre, radius, clockwise, nodes, at });
   if (a.centre) m = addCaption(m, { text: clean(a.centre, true), x: centre[0], y: centre[1], align: "centre", cycle: { cycle: id, step: 0, side: "centre" } })[0];
-  const sides: string[] = [];
+  const sides: number[] = [];
   for (const st of a.steps ?? []) {
     if (st.step >= n) continue;
     const [i, o] = [st.in && clean(st.in, true), st.out && clean(st.out, true)];
@@ -891,7 +903,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
       m = mol;
       if (i) m = addCaption(m, { text: i, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "in", branch } })[0];
       if (o) m = addCaption(m, { text: o, x: 0, y: 0, cycle: { cycle: id, step: st.step, side: "out", branch } })[0];
-      sides.push(`step ${st.step}: ${[i && `${i} in`, o && `${o} out`].filter(Boolean).join(", ")}`);
+      sides.push(st.step);
     }
     if (st.name) m = addCaption(m, { text: clean(st.name, true), x: 0, y: 0, italic: true, cycle: { cycle: id, step: st.step, side: "name" } })[0];
   }
@@ -899,7 +911,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; number?
   await host.settle();
   host.tidyCycle(id);
   await host.settle();
-  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}: ${ok.map((s) => label(host, s)).join(" → ")}${a.centre ? `, with "${clean(a.centre)}" in the middle` : ""}${sides.length ? `; side arrows at ${sides.join("; ")}` : ""}. Octet tidied it with Clean Up.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Drew a catalytic cycle of ${n} intermediates, ${clockwise ? "clockwise" : "anticlockwise"}${sides.length ? `, with side arrows at step${sides.length > 1 ? "s" : ""} ${sides.join(", ")}` : ""}. Octet tidied it with Clean Up.${readAs(host, ok)}${UNDO}`, more: () => ({ names: names(host, ok) }) };
 }
 
 // ---- Ids (D5) ----
@@ -952,7 +964,7 @@ async function replaceStructure(host: Host, a: { structure: string; text: string
   const b = boxOf(ok[0].mol), r = place(kept, { ...ok[0], number: number?.text }, (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, (old[1] + old[3]) / 2);
   host.set(r.mol);
   await host.settle();
-  return { text: `Replaced ${a.structure} with ${label(host, ok[0])}${number ? `, numbered ${number.text}` : ""}.${UNDO}`, data: { names: names(host, ok) } };
+  return { text: `Replaced ${a.structure}${number ? `, which keeps its number ${number.text}` : ""}.${readAs(host, ok)}${UNDO}`, more: () => ({ names: names(host, ok) }) };
 }
 
 async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
@@ -1723,7 +1735,8 @@ function resolve(v: unknown, made: Made[], top: string[][], notes: Notes): unkno
 async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number]; args: Record<string, unknown> }[]; picture_size?: keyof typeof SIZES }, ctx: Ctx): Promise<Result> {
   const toolOf = (name: string) => TOOLS.find((t) => t.name === name)!, args = a.steps.map((st) => { const { picture: _, ...rest } = st.args; return rest; });
   // A step that asks for a picture asks for the batch's (one picture of all it changed).
-  const picture = a.steps.some((st) => st.args.picture === true), data: Record<string, unknown>[] = [];
+  const picture = a.steps.some((st) => st.args.picture === true), data: (() => Record<string, unknown>)[] = [];
+  let full = false;
   // Every step checked before anything is drawn: its arguments against its own tool, and each reference to an
   // earlier step.
   for (const [k, st] of a.steps.entries()) {
@@ -1739,16 +1752,19 @@ async function batch(host: Host, a: { steps: { tool: (typeof BATCHABLE)[number];
     try { given = resolve(args[k], made, top, ctx.notes) as Record<string, unknown>; } catch (e) { throw new Error(`Step ${k + 1} (${st.tool}): ${(e as Error).message}.`); }
     const wrong = wrongWith(toolOf(st.tool).inputSchema, given, ctx.notes);
     if (wrong) throw new Error(`Step ${k + 1} (${st.tool}): ${wrong}.`);
+    // A step that asks for detail: full asks for the batch's, as with a picture.
+    if (given.detail === "full") full = true;
+    delete given.detail;
     await host.settle();
     const was = index(host.doc()), out = await runTool(toolOf(st.tool), host, given, ctx);
     if (out.error) throw new Error(`Step ${k + 1} (${st.tool}) failed: ${out.text}`);
-    data.push(out.data ?? {});
+    data.push(() => ({ ...out.data, ...out.more?.() }));
     await host.settle();
     const now = host.doc(), fresh = [...index(now).keys()].filter((id) => !was.has(id)), owned = ownedText(now);
     made.push(byKind(fresh)); top.push(fresh.filter((id) => !owned.has(id)));
     said.push(`${k + 1}. ${out.text.replace(UNDO, "").replace(/ Call read_drawing[^.]*\.$/, "")}`);
   }
-  return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, data: { steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]).filter(([key]) => key !== "names")) })) }, ...(picture ? { cropped: true as const } : {}), longest: SIZES[a.picture_size ?? "small"] + (a.picture_size ? 0 : 200) };
+  return { text: `Did ${a.steps.length} step${a.steps.length > 1 ? "s" : ""} as one undo step:\n${said.join("\n")}`, more: () => ({ steps: made.map((x, k) => ({ step: k + 1, ...Object.fromEntries(Object.entries(x).filter(([, l]) => l.length)), ...Object.fromEntries(Object.entries(data[k]()).filter(([key]) => key !== "names")) })) }), ...(picture ? { cropped: true as const } : {}), ...(full ? { full: true as const } : {}), longest: SIZES[a.picture_size ?? "small"] + (a.picture_size ? 0 : 200) };
 }
 
 // ---- A figure (F4) ----
@@ -1913,7 +1929,7 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
   const n = atoms.length ? ok.length : 0;
   const inside = (pageSize(s)[0] - 30) * k, r1 = (v: number) => Math.round(v * 10) / 10;
   const wider = `${need > asked + 1e-6 ? ` (wider than ${a.width ? "asked" : "the page allows"}: its rows need ${r1(need)})` : ""}${W > inside + 1e-6 ? `. The page is ${r1(inside)} bond lengths wide inside its margins: use a larger page (set_style) or fewer items a row` : ""}`;
-  return { text: `Drew a figure of ${a.panels.length} panel${a.panels.length > 1 ? "s" : ""} and ${n} structure${n === 1 ? "" : "s"}, ${Math.round(W * 10) / 10} bond lengths wide${wider}: ${ok.map((x) => label(host, x)).join(", ")}.${UNDO}`, data: { figure, names: names(host, ok) } };
+  return { text: `Drew a figure of ${a.panels.length} panel${a.panels.length > 1 ? "s" : ""} and ${n} structure${n === 1 ? "" : "s"}, ${Math.round(W * 10) / 10} bond lengths wide${wider}.${readAs(host, ok)}${UNDO}`, more: () => ({ figure, names: names(host, ok) }) };
 }
 
 // ---- Layout warnings (D10) ----
@@ -1928,7 +1944,7 @@ function placedOf(host: Host, m: Mol): Placed[] {
   for (const s of structuresOf(m)) { const b = host.ink(s.atoms); if (b) out.push({ id: s.id, label: `structure ${s.id}`, box: b }); }
   for (const c of m.captions ?? []) {
     const b = host.textBox(c.id);
-    if (b && c.text.trim()) out.push({ id: `t${c.id}`, label: `the text "${c.text.length > 30 ? `${c.text.slice(0, 30)}…` : c.text}" (t${c.id})`, box: b, of: c.under ? sid(m, c.under) : c.on ? `a${c.on.arrow}` : c.cycle ? `c${c.cycle.cycle}` : undefined });
+    if (b && c.text.trim()) out.push({ id: `t${c.id}`, label: `the text "${short(c.text, 30)}" (t${c.id})`, box: b, of: c.under ? sid(m, c.under) : c.on ? `a${c.on.arrow}` : c.cycle ? `c${c.cycle.cycle}` : undefined });
   }
   for (const a of m.arrows ?? []) if (straightArrow(a)) out.push({ id: `a${a.id}`, label: `arrow a${a.id}`, box: [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]) - 0.05, Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1]) + 0.05] });
   // A straight line (a panel's divider) with a little room each side, so text that only touches it counts. Lines that
@@ -2000,7 +2016,7 @@ function layoutCheck(host: Host, m: Mol): Check {
   // or an arrow that reaches into one.
   const edges: string[][] = [], within = (p: Box, q: Box) => p[0] >= q[0] - 0.02 && p[1] >= q[1] - 0.02 && p[2] <= q[2] + 0.02 && p[3] <= q[3] + 0.02;
   const crossed = (m.shapes ?? []).filter((x) => ["box", "rounded", "oval", "picture"].includes(x.kind)).map((x) => ({ id: `b${x.id}`, box: corners([x.from, x.to]) }));
-  for (const p of placedOf(host, m).filter((x) => x.id[0] === "s" || x.id[0] === "t")) for (const q of crossed) {
+  for (const p of crossed.length ? placedOf(host, m).filter((x) => x.id[0] === "s" || x.id[0] === "t") : []) for (const q of crossed) {
     const cut = p.box[0] < q.box[2] - 0.05 && q.box[0] < p.box[2] - 0.05 && p.box[1] < q.box[3] - 0.05 && q.box[1] < p.box[3] - 0.05;
     if (edges.length < 20 && cut && !within(p.box, q.box) && !within(q.box, p.box)) edges.push([p.id, q.id]);
   }
@@ -2056,23 +2072,33 @@ function fieldsOf(host: Host, m: Mol, arrow: number) {
 
 // ---- Reading the drawing back ----
 
+// A reaction's arrow in a route, by its kind (-> for the rest).
+const SIGNS: Partial<Record<ArrowKind, string>> = { equilibrium: "<=>", retro: "=>", resonance: "<->", nogo: "-/->" };
+// A short result or read gives this many warnings, and more says how many it left out.
+const MOST_WARNINGS = 10;
+// The default read is a summary (R6): each structure's id, number and formula (its SMILES when asked), each reaction
+// as its route with each arrow's conditions, the layout as its check, and no boxes. full: everything.
 // only: read just these ids (structures, text, arrows, shapes, cycles, as numbers and names too) and the reactions and
 // warnings they are in.
-function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: string[]) {
+function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: string[], smiles = false) {
   const want = only && new Set(only.flatMap((id) => { const g = structureOf(m, id, host); return g ? [sid(m, g)!] : /^g\d+$/.test(id) ? [id, `a${id.slice(1)}`] : [id]; }));
   const keep = (id?: string) => !want || (id !== undefined && want.has(id));
   const s = host.style(), groups = structuresOf(m).map((x) => x.atoms).filter((g) => keep(sid(m, g)));
   const idOf = (atoms: number[]) => sid(m, atoms);
   // An atom's id as atoms: true gives it (s3.2: its structure, then its place in it).
   const atomId = (i: number) => { const g = groups.find((x) => x.includes(i)); return g ? `${sid(m, g)}.${g.indexOf(i) + 1}` : undefined; };
-  const numberOf = (g: number[]) => (m.captions ?? []).find((c) => c.bold && c.under?.some((i) => g.includes(i)))?.text;
+  // A structure's number, its part of the drawing, and Octet's name, formula and InChI for it, each worked out once a
+  // read (a summary needs the last only for a number that is on two structures).
+  const once = <V,>(f: (g: number[]) => V) => { const had = new Map<number[], V>(); return (g: number[]) => (had.has(g) ? had.get(g)! : had.set(g, f(g)).get(g)!); };
+  const numberOf = once((g) => (m.captions ?? []).find((c) => c.bold && c.under?.some((i) => g.includes(i)))?.text), partOf = once((g) => pickPart(m, g)), factsOf = once((g) => about(host, partOf(g)));
   const structures = groups.map((g) => {
-    const part = pickPart(m, g), b = host.ink(g);
-    const it = about(host, part), src = sources.get(m.atoms[g[0]].key ?? -1), id = sid(m, g)!;
+    const id = sid(m, g)!;
     const parts = withAtoms ? {
       atoms: g.map((i, k) => { const x = m.atoms[i]; return { id: `${id}.${k + 1}`, label: x.text ?? x.label, ...(x.charge ? { charge: x.charge } : {}), ...(x.isotope ? { isotope: x.isotope } : {}), ...(x.radical ? { radical: RADICALS[x.radical] } : {}), ...(x.pairs ? { lone_pairs: x.pairs } : {}), ...(x.enhanced ? { enhanced: x.enhanced } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.halo ? { highlight: x.halo } : {}), ...(x.number ? { atom_number: x.number } : {}) }; }),
       bonds: m.bonds.flatMap((b) => { const [p, q] = b.atoms.map((i) => g.indexOf(i)); return p < 0 || q < 0 ? [] : [{ id: `${id}.${Math.min(p, q) + 1}-${Math.max(p, q) + 1}`, kind: bondKind(b), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { highlight: b.halo } : {}) }]; }),
     } : {};
+    if (!full) return { id, number: numberOf(g), formula: host.formula(partOf(g)), ...(smiles ? { smiles: host.smiles(partOf(g)) } : {}), ...parts };
+    const it = factsOf(g), src = sources.get(m.atoms[g[0]].key ?? -1), b = host.ink(g);
     return { id, smiles: it.smiles, inchi: it.inchi, inchiKey: it.key, formula: it.formula, name: it.name, ...(src ? { source: src } : {}), number: numberOf(g), atoms: g.length, box: b?.map((v) => Math.round(v * 10) / 10) , ...parts };
   });
   const text = (id: number) => m.captions?.find((c) => c.id === id)?.text;
@@ -2082,12 +2108,12 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     if (!r) return [];
     r.arrows.forEach((id) => seen.add(id));
     const part = (st: Reaction["steps"][number]) => (st.kind === "structure" ? idOf(st.atoms) : st.kind === "text" ? text(st.id) : undefined);
-    const steps: { arrow: string; before: unknown[]; above: unknown[]; below: unknown[]; fields: unknown }[] = [];
+    const steps: { arrow: string; before: unknown[]; above: unknown[]; below: unknown[]; fields?: unknown }[] = [];
     let before: unknown[] = [];
     for (const st of r.steps) {
       if (st.kind === "arrow") {
         const c = r.conditions.get(st.id), on = (side: "above" | "below") => { const kept = (m.captions ?? []).filter((x) => x.on?.arrow === st.id && x.on.side === side).map((x) => x.text); return [...(side === "above" ? kept.reverse() : kept), ...(c?.[side] ?? []).map(part)]; };
-        steps.push({ arrow: `a${st.id}`, before, above: on("above"), below: on("below"), fields: fieldsOf(host, m, st.id) });
+        steps.push({ arrow: `a${st.id}`, before, above: on("above"), below: on("below"), ...(full ? { fields: fieldsOf(host, m, st.id) } : {}) });
         before = [];
       } else if (st.kind !== "plus") before.push(part(st));
     }
@@ -2101,25 +2127,69 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   }));
   const inReactions = new Set([...seen].flatMap((id) => host.reaction(id)?.captions ?? []));
   const at = (v: number) => Math.round(v * 10) / 10;
-  const free = (m.captions ?? []).filter((c) => !c.on && !c.cycle && !(c.bold && c.under) && !inReactions.has(c.id) && keep(`t${c.id}`)).map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)] }));
-  const arrows = (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) }));
-  const warnings: { message: string; structure?: string; ids?: string[]; fix?: string }[] = [
+  const free = (m.captions ?? []).filter((c) => !c.on && !c.cycle && !(c.bold && c.under) && !inReactions.has(c.id) && keep(`t${c.id}`));
+  // Octet's chemical warnings, the layout's (in a full read: a summary has the layout in its check), and a compound
+  // number on two structures that differ (as ChemDraw numbers them, each is the drawing's own). One compound drawn
+  // twice, as a scheme's product that starts the next scheme, keeps its number.
+  const numbered = new Map<string, number[][]>();
+  for (const g of groups) { const k = numberOf(g); if (k) numbered.set(k, [...(numbered.get(k) ?? []), g]); }
+  const warned: { message: string; structure?: string; atom?: string; ids?: string[]; fix?: string }[] = [
     ...shownProblems(host).map((p) => ({ message: p.message, structure: p.atom !== undefined ? idOf([p.atom]) : undefined, ...(p.atom !== undefined ? { atom: atomId(p.atom) } : {}), ...(p.fix ? { fix: p.fix.label } : {}) })),
-    ...layoutWarnings(host, m),
-  ];
-  // A compound number on two structures that differ (as ChemDraw numbers them, each is the drawing's own). One compound
-  // drawn twice, as a scheme's product that starts the next scheme, keeps its number.
-  const numbered = new Map<string, Set<string>>();
-  for (const x of structures) if (x.number) numbered.set(x.number, (numbered.get(x.number) ?? new Set()).add(x.inchiKey ?? x.smiles ?? x.id));
-  for (const [k, compounds] of numbered) if (compounds.size > 1) warnings.push({ message: `Compound number ${k} is on more than one structure.`, structure: undefined });
+    ...(full ? layoutWarnings(host, m) : []),
+    ...[...numbered].flatMap(([k, gs]) => (gs.length > 1 && new Set(gs.map((g) => { const it = factsOf(g); return it.key ?? it.smiles ?? sid(m, g); })).size > 1 ? [{ message: `Compound number ${k} is on more than one structure.`, structure: undefined }] : [])),
+  ], warnings = want ? warned.filter((w) => keep(w.structure) || w.ids?.some(keep)) : warned;
   const sel = host.selection(), selected = [...new Set([...groups.filter((g) => g.some((i) => sel.atoms.includes(i))).map((g) => sid(m, g)!), ...sel.items.map((id) => `${m.cycles?.some((c) => c.id === id) ? "c" : m.arrows?.some((x) => x.id === id) ? "a" : "t"}${id}`)])];
   const details = host.experiment() ? detailsOf(m.annotations) : undefined;
   const box = (b?: Box) => b?.map((v) => Math.round(v * 10) / 10);
-  const captions = full ? (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) })) : undefined;
-  const page = (() => { const [w, h] = pageSize(s), k = 72 / 25.4 / s.bond; return [-w / 2 * k, -h / 2 * k, w / 2 * k, h / 2 * k].map((v) => Math.round(v * 10) / 10); })();
   const tables = host.tables(), grids = tables.length ? tables.map((t) => { const gr = m.grids?.find((x) => x.arrow === t.arrow); return { arrow: `a${t.arrow}`, box: box(t.box), ...(gr?.limiting ? { limiting: gr.limiting } : {}), columns: t.columns.map((c) => ({ key: c.key, what: c.what.replace(/^"(.*)"$/, "$1"), formula: c.formula, mw: Math.round(c.mw * 100) / 100, product: c.product, typed: c.typed })) }; }) : undefined;
+  const head = { drawing: { id: host.window().id, title: host.window().name }, style: s.preset, page: s.page, landscape: s.landscape || undefined };
+  if (!full) {
+    // A compound goes by its number when that is on no other structure and is no id itself, else by its id.
+    const count = new Map<string, number>();
+    for (const c of m.captions ?? []) if (c.bold && c.under?.length) count.set(c.text, (count.get(c.text) ?? 0) + 1);
+    const named = new Map(structuresOf(m).map((x) => { const k = numberOf(x.atoms); return [x.id, k && count.get(k) === 1 && !/^[a-z]\d+$/.test(k) ? k : x.id]; }));
+    const by = (l: unknown[]) => l.flatMap((x) => (typeof x === "string" ? [named.get(x) ?? x] : []));
+    const some = <T,>(l: T[]) => (l.length ? l : undefined);
+    // The layout by id, once (the layout's warnings say the same in words); of the ids read, when some were asked for.
+    const all = layoutCheck(host, m), mine = all === "clean" ? {} : Object.fromEntries(Object.entries(all).map(([k, l]) => [k, (l as (string | string[])[]).filter((e) => [e].flat().some((id) => keep(id.replace(/\..*$/, ""))))]).filter(([, l]) => l.length));
+    const data = {
+      ...head, experiment: details, reagentTables: grids, structures,
+      reactions: reactions.map((r) => ({
+        route: [...r.steps.map((st) => `${by(st.before).join(" + ")} ${SIGNS[m.arrows!.find((x) => `a${x.id}` === st.arrow)!.kind] ?? "->"}`), by(r.products).join(" + ")].join(" ").trim(),
+        conditions: Object.fromEntries(r.steps.map((st) => [st.arrow, by([...st.above, ...st.below]).join("; ")])),
+      })),
+      cycles: some(cycles), text: some(free.map((c) => ({ id: `t${c.id}`, text: short(c.text, 200) }))),
+      arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),
+      shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind }))),
+      selected: some(selected), check: Object.keys(mine).length ? mine : "clean",
+      // The first warnings, each at its atom or structure.
+      warnings: warnings.slice(0, MOST_WARNINGS).map(({ message, structure, atom, fix }) => ({ message, at: atom ?? structure, fix })), ...(warnings.length > MOST_WARNINGS ? { more: { warnings: warnings.length - MOST_WARNINGS } } : {}),
+    };
+    return withAtoms ? data : fit(data);
+  }
+  const captions = (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) }));
+  const page = (() => { const [w, h] = pageSize(s), k = 72 / 25.4 / s.bond; return [-w / 2 * k, -h / 2 * k, w / 2 * k, h / 2 * k].map((v) => Math.round(v * 10) / 10); })();
   const shapes = (m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, box: box([Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])]), ...(x.mark ? { mark: x.mark } : {}), ...(x.fill ? { fill: x.fill } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.dashed ? { dashed: true } : {}), ...(x.angle ? { angle: Math.round(x.angle) } : {}), ...(x.table ? { table: x.table.cells } : {}), ...(x.tlc ? { tlc: { lanes: x.tlc.lanes, spots: x.tlc.spots.map((s) => ({ lane: s.lane, rf: s.rf })) } } : {}) }));
-  return { drawing: { id: host.window().id, title: host.window().name }, style: s.preset, page: s.page, landscape: s.landscape || undefined, ...(full ? { pageBox: page, captions } : {}), units: "bond lengths, y up", experiment: details, reagentTables: grids, structures, reactions, cycles, text: free, arrows, ...(shapes.length ? { shapes } : {}), selected, warnings: want ? warnings.filter((w) => keep(w.structure) || w.ids?.some(keep)) : warnings };
+  return {
+    ...head, pageBox: page, captions, units: "bond lengths, y up", experiment: details, reagentTables: grids, structures, reactions, cycles,
+    text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)] })),
+    arrows: (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) })),
+    ...(shapes.length ? { shapes } : {}), selected, warnings,
+  };
+}
+// No default read is over 20,000 characters (P2): while one is, its longest list loses its last half, and more says how
+// many of each kind were left out (ids, or detail: full, reads them).
+const MOST_READ = 20_000;
+function fit(data: Record<string, unknown>): Record<string, unknown> {
+  const more = { ...(data.more as Record<string, number> | undefined) };
+  for (let out = data; ; ) {
+    if (JSON.stringify(out).length <= MOST_READ) return out;
+    const lists = Object.entries(out).filter(([, v]) => Array.isArray(v) && v.length > 1) as [string, unknown[]][];
+    if (!lists.length) return out;
+    const [k, l] = lists.reduce((p, q) => (JSON.stringify(q[1]).length > JSON.stringify(p[1]).length ? q : p)), kept = l.length >> 1;
+    more[k] = (more[k] ?? 0) + l.length - kept;
+    out = { ...out, [k]: l.slice(0, kept), more };
+  }
 }
 
 // ---- The protocol: JSON-RPC 2.0 messages, one at a time (MCP 2025-03-26 to 2025-11-25) ----
@@ -2240,17 +2310,20 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         progress: (done, total, message) => { if ((typeof token === "string" || typeof token === "number") && from.progress) from.progress(JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: token, progress: done, ...(total ? { total } : {}), ...(message ? { message } : {}) } })); },
         check: async () => { if (stopped || (await from.cancelled?.())) throw new Cancelled(); },
       };
-      const changes = !tool.hints.readOnly;
-      // picture on a tool that changes the drawing is the dispatcher's (F2): the tool never sees it.
-      const wantPicture = changes && args.picture === true;
+      const changes = !tool.hints.readOnly, reports = tool.outputSchema === CHANGE;
+      // picture on a tool that changes the drawing is the dispatcher's (F2): the tool never sees it. detail on a tool
+      // whose result is a change is too (R6).
+      const wantPicture = changes && args.picture === true, wantFull = reports && args.detail === "full";
       if (changes) delete args.picture;
+      if (reports) delete args.detail;
       ctx.watched = token !== undefined;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(`${ctx.client} is drawing.`, () => { stopped = true; }); }
       let before: Mol | undefined, told = false;
       try {
         await h.settle();
         before = h.doc();
-        const was = index(before), warned = changes ? new Set(warningTexts(h, before)) : undefined;
+        // (A read reports no change, and a call that changes nothing causes no warning: neither is worked out.)
+        const was = reports ? index(before) : undefined, warned = changes ? new Set(warningTexts(h, before)) : undefined;
         keepIdsAbove(highest(before));
         const out = await runTool(tool, h, args, ctx);
         // Stop, or a cancel, while the tool ran: what it did goes too.
@@ -2258,23 +2331,32 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
         await h.settle();
         const after = h.doc();
         keepIdsAbove(highest(after));
-        // What Octet warns about now that it did not before.
-        const fresh = warned && !out.error ? [...new Set(warningTexts(h, after))].filter((x) => !warned.has(x)) : [];
-        const text = fresh.length ? `${out.text} Octet warns: ${fresh.slice(0, 10).join(" ")}` : out.text;
+        // A short result unless the call (or a batch's step) asked for detail: full (R6).
+        const full = wantFull || !!out.full;
+        // What Octet warns about now that it did not before: the chemistry, and in a full result the layout too (a
+        // short one has the layout once, by id, in its check).
+        const fresh = warned && !out.error ? [...new Set(full ? warningTexts(h, after) : shownProblems(h).map((p) => p.message))].filter((x) => !warned.has(x)) : [];
+        const text = full && fresh.length ? `${out.text} Octet warns: ${fresh.slice(0, MOST_WARNINGS).join(" ")}` : out.text;
         let structured: Record<string, unknown> | undefined = out.data, touched: string[] = [];
-        if (tool.outputSchema === CHANGE && !out.error) {
-          const now = index(after), drawing = h.window(), made = [...now.keys()].filter((k) => !was.has(k)), changed = [...now.keys()].filter((k) => was.has(k) && was.get(k) !== now.get(k));
-          // The box of each object made or changed (F2), with what belongs to it, so the next call can place against
-          // it without a read.
+        if (was && !out.error) {
+          const now = index(after), made = [...now.keys()].filter((k) => !was.has(k)), changed = [...now.keys()].filter((k) => was.has(k) && was.get(k) !== now.get(k));
           touched = [...made, ...changed];
-          // Only the top-level objects': a caption that belongs to something (a number, conditions, a cycle's text) is
-          // in its box already, and leaving it out keeps the result short for the AI app to read.
-          const owned = ownedText(after);
-          const boxes = Object.fromEntries(touched.filter((k) => !owned.has(k)).slice(0, 200).flatMap((k) => { const b = boxOfIds(h, after, [k]); return b ? [[k, rounded(b)]] : []; }));
-          structured = { drawing: { id: drawing.id, title: drawing.name }, done: text, made, changed, deleted: [...was.keys()].filter((k) => !now.has(k)), ...(touched.length ? { boxes } : {}), ...out.data, warnings: fresh, check: layoutCheck(h, after) };
+          // The box of each object made (and in a full result, changed), with what belongs to it (F2), so the next
+          // call can place against it without a read. Only the top-level objects': a caption that belongs to something
+          // (a number, conditions, a cycle's text) is in its box already. A short result lists only those as made, 200
+          // at most, and its first warnings: more says how many of each it left out.
+          const owned = ownedText(after), top = (full ? touched : made).filter((k) => !owned.has(k)), listed = top.slice(0, 200);
+          const boxes = Object.fromEntries(listed.flatMap((k) => { const b = boxOfIds(h, after, [k]); return b ? [[k, rounded(b)]] : []; }));
+          const drawing = h.window(), check = layoutCheck(h, after), more = { ...(top.length > listed.length ? { made: top.length - listed.length } : {}), ...(fresh.length > MOST_WARNINGS ? { warnings: fresh.length - MOST_WARNINGS } : {}) };
+          structured = full
+            ? { drawing: { id: drawing.id, title: drawing.name }, done: text, made, changed, deleted: [...was.keys()].filter((k) => !now.has(k)), ...(touched.length ? { boxes } : {}), ...out.data, ...out.more?.(), warnings: fresh, check }
+            : { done: text, made: listed, ...(listed.length ? { boxes } : {}), ...out.data, warnings: fresh.slice(0, MOST_WARNINGS), check, ...(Object.keys(more).length ? { more } : {}) };
         }
         // The sentence once, then the data as compact JSON (without the sentence again), for AI apps that read text.
-        const content: unknown[] = [{ type: "text", text: tool.outputSchema === CHANGE && structured ? `${text}\n${JSON.stringify({ ...structured, done: undefined })}` : text }];
+        // structuredContent holds the same, for AI apps that read that: the specification (2025-06-18 and 2025-11-25,
+        // Tools, Structured Content) has a tool that gives structured content give its JSON in a text block too. An AI
+        // app reads one of the two, so each holds everything, once.
+        const content: unknown[] = [{ type: "text", text: reports && structured ? `${text}\n${JSON.stringify({ ...structured, done: undefined })}` : text }];
         // What the arguments were read as (R5), a line each, after the result (a read's text stays its JSON).
         const coerced = noted(notes);
         if (coerced.length) { content.push({ type: "text", text: coerced.join("\n") }); if (structured) structured = { ...structured, coerced }; }
@@ -2300,12 +2382,13 @@ async function answer(body: string, host: () => Host, version: string, from: Fro
 // A tool's schema as tools/list gives it (R4): without the limits Octet checks itself (lengths, counts, ranges; a
 // call past one is refused and told the limit), so the list an AI app reads is shorter. The enums and types stay, and
 // a tool's own arguments stay closed (additionalProperties false), so a misspelt one is refused. The lenient readings
-// (numeral, also, default) are Octet's own too: an AI app is told the one form each argument takes.
+// (numeral, also, default) are Octet's own too: an AI app is told the one form each argument takes. An unlisted
+// argument is left out.
 const LIMITS = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;
-  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !LIMITS.has(k) && !(k === "additionalProperties" && v === false) && !(k === "required" && Array.isArray(v) && !v.length)).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as object).map(([n, p]) => [n, published(p)])) : published(v)]));
+  return Object.fromEntries(Object.entries(x).filter(([k, v]) => !LIMITS.has(k) && !(k === "additionalProperties" && v === false) && !(k === "required" && Array.isArray(v) && !v.length)).map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as Record<string, Prop>).filter(([, p]) => !("unlisted" in p)).map(([n, p]) => [n, published(p)])) : published(v)]));
 }
 
 const reply = (id: Message["id"], result?: unknown, error?: { code: number; message: string }) => JSON.stringify({ jsonrpc: "2.0", id, ...(error ? { error } : { result }) });

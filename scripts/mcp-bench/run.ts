@@ -13,13 +13,14 @@
 //   for       the drawing it starts in (File > New For): paper by default
 //   calls     [{ name, arguments }]: arguments may be a function of the results so far, for ids made earlier
 //   expect    { smiles: { number: SMILES or InChIKey } }: each compound number's structure in the finished drawing
-// Right counts those; Warnings is Octet's own count for the finished drawing (chemistry and layout).
+// Right counts those; Warnings is Octet's own count for the finished drawing (chemistry and layout). Summary is the
+// characters of the finished drawing's default read (plan section 10: under 5,000 for the taxol figure).
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 type Call = { name: string; arguments?: unknown | ((results: any[]) => unknown) };
 type Case = { about: string; for?: string; calls: Call[]; expect?: { smiles?: Record<string, string> } };
-type Measure = { calls: number; failed: number; coerced: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number };
+type Measure = { calls: number; failed: number; coerced: number; sent: number; read: number; ms: number; slowest: number; right?: number; of?: number; warnings?: number; summary?: number };
 
 // As draw.ts: Indigo's wasm as first compiled, so the process ends when the work does.
 if (!process.execArgv.includes("--liftoff-only")) process.exit(spawnSync(process.execPath, ["--liftoff-only", ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" }).status ?? 1);
@@ -55,6 +56,7 @@ async function run(c: Case): Promise<Measure> {
   const want = Object.entries(c.expect?.smiles ?? {});
   if (want.length) [m.right, m.of] = [want.filter(([number, text]) => end?.structures?.some((s: any) => s.number === number && s.inchiKey === keyOf(text))).length, want.length];
   m.warnings = end?.warnings?.length;
+  m.summary = (await rpc("tools/call", { name: "read_drawing", arguments: {} })).result?.content?.[0]?.text?.length;
   return m;
 }
 
@@ -74,11 +76,11 @@ const tokens = (chars: number) => Math.round(chars / 3.5);
 console.log(`tools/list: ${now.tools} tools, ${now.toolsList} characters (about ${tokens(now.toolsList)} tokens)${kept ? `, was ${kept.toolsList}` : ""}. Instructions: ${now.instructions} characters.`);
 than("tools/list characters", now.toolsList, kept?.toolsList);
 than("instructions characters", now.instructions, kept?.instructions);
-console.log("| Case | Calls | Failed | Coerced | Sent | Read | Octet ms | Slowest call ms | Right | Warnings |\n|---|---|---|---|---|---|---|---|---|---|");
+console.log("| Case | Calls | Failed | Coerced | Sent | Read | Octet ms | Slowest call ms | Right | Warnings | Summary |\n|---|---|---|---|---|---|---|---|---|---|---|");
 for (const [name, m] of Object.entries(now.cases)) {
-  const was = kept?.cases[name], cell = (k: "calls" | "failed" | "coerced" | "sent" | "read" | "ms" | "slowest" | "warnings") => (was && was[k] !== m[k] ? `${m[k]} (was ${was[k]})` : `${m[k] ?? ""}`);
-  console.log(`| ${name} | ${cell("calls")} | ${cell("failed")} | ${cell("coerced")} | ${cell("sent")} | ${cell("read")} | ${cell("ms")} | ${cell("slowest")} | ${m.of ? `${m.right} of ${m.of}` : ""} | ${cell("warnings")} |`);
-  for (const k of ["calls", "failed", "sent", "read", "warnings"] as const) than(`${name} ${k}`, m[k], was?.[k]);
+  const was = kept?.cases[name], cell = (k: "calls" | "failed" | "coerced" | "sent" | "read" | "ms" | "slowest" | "warnings" | "summary") => (was && was[k] !== m[k] ? `${m[k]} (was ${was[k]})` : `${m[k] ?? ""}`);
+  console.log(`| ${name} | ${cell("calls")} | ${cell("failed")} | ${cell("coerced")} | ${cell("sent")} | ${cell("read")} | ${cell("ms")} | ${cell("slowest")} | ${m.of ? `${m.right} of ${m.of}` : ""} | ${cell("warnings")} | ${cell("summary")} |`);
+  for (const k of ["calls", "failed", "sent", "read", "warnings", "summary"] as const) than(`${name} ${k}`, m[k], was?.[k]);
   than(`${name} ms`, m.ms, was?.ms, (v) => v * 1.2 + 50);
   if ((m.right ?? 0) < (was?.right ?? 0)) worse.push(`${name} structures right: ${m.right}, was ${was?.right}`);
 }
