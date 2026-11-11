@@ -2,6 +2,7 @@
 // modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Toolbox, Warning, X } from "@phosphor-icons/react";
 import { ColourPick, ColourPicker, ColourPop } from "./ColourPicker";
 import { OWN_MOST } from "./colours";
@@ -40,8 +41,10 @@ const MAC = navigator.platform.startsWith("Mac");
 // Office object: on Windows only, Copy puts an Octet Drawing object first, which Word, PowerPoint and Excel keep and
 // open in Octet (decision 0023).
 const WINDOWS = navigator.platform.startsWith("Win");
+// Add to LibreOffice: on Linux only, Octet's extension for LibreOffice (tools/libreoffice).
+const LINUX = navigator.platform.startsWith("Linux");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
-const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "EMF, with the structure inside";
+const PICTURE = MAC ? "PDF, with the structure inside" : LINUX ? "PDF, PNG and SVG" : "EMF, with the structure inside";
 // 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides).
 export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { office: true, pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png" };
 
@@ -599,7 +602,7 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "JPEG quality", "jpeg jpg quality compression", <NumberField label="JPEG quality" unit="%" min={1} max={100} step={5} value={files.quality} onChange={(n) => setFiles({ quality: Math.round(n) })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is a PDF on
-      // the Mac, a PNG on Windows, and a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
+      // the Mac, an EMF on Windows, and a PDF, a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
       ...([...(WINDOWS ? [["office", "Office object", "office object ole embed word powerpoint excel edit double click"]] as const : []), ["pdf", PICTURE, "picture image pdf png svg word powerpoint keynote office"], ["cdx", "CDX", "cdx chemdraw binary"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
       d("general", "Windows", "Open each drawing in a new window", "windows multiple multi window tabs home new open drawing each own single", <Switch on={p.windows} label="Open each drawing in a new window" onChange={p.onWindows} />),
@@ -611,6 +614,11 @@ export function SettingsWindow(p: Props) {
       // new user.
       ...(MAC ? [d("general", "Microsoft Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
         <Switch on={p.wordClick} label="Double-click opens a structure in Octet" onChange={p.onWordClick} />
+      ))] : []),
+      // Opens Octet's extension, which LibreOffice's Extension Manager adds: a double-click on a structure in Writer,
+      // Impress or Draw then opens it in Octet.
+      ...(LINUX ? [d("general", "LibreOffice", "Edit structures in LibreOffice", "libreoffice writer impress draw extension oxt add install double click edit office document", (
+        <button className="text-button" onClick={() => void invoke("add_to_libreoffice").catch(() => undefined)}>Add to LibreOffice</button>
       ))] : []),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (

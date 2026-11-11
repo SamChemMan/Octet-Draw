@@ -2867,6 +2867,9 @@ div.facts {
 .setting-control .page-button {
   width: 140px;
 }
+.setting-control .text-button {
+  white-space: nowrap;
+}
 
 /* The template library opens beside the Ring strip: categories and search down the side, templates in a grid. */
 .library {
