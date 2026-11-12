@@ -170,7 +170,7 @@ export function FontPick({ label, font, fonts, onPick, className = "chip size-bu
 
 // The text size: a click opens the sizes (ChemDraw's sizes times the document scale), and Other size…, Return or a
 // double-click types any size.
-function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: (command: string) => void }) {
+export function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: (command: string) => void }) {
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
   const startTyping = () => { typing.current = true; setTyped(String(size)); };
