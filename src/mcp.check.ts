@@ -217,6 +217,9 @@ assert.equal((await send("tools/call", { name: "rm_rf", arguments: {} })).error.
 // questions, word for word, and nothing changes.
 fresh();
 const QUESTIONS = "Octet needs the brief first. Ask the user these three questions, then call set_brief: 1. Do you have a preferred working style? If so, ask them for a drawing in it. 2. Where is this going, and how big does it need to be? 3. Is there anything to emphasise, or a layout to follow?";
+// draw and change take the brief themselves, so their refusal says to give it in the call (the lab's Haiku called
+// set_brief after change was refused, though the user had answered in the same message).
+const HERE = `Octet needs the brief first. If the user has not answered these three questions, ask them, then call again with their answers as brief: ${QUESTIONS.split(": ").slice(1).join(": ")}`;
 {
   const one = (text: string) => ({ op: "draw", kind: "structures", structures: [{ text }] });
   for (const [name, args] of [
@@ -231,7 +234,7 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   ] as [string, object][]) {
     const o = await call(name, args);
     assert.ok(o.isError, name);
-    assert.equal(text(o), QUESTIONS, JSON.stringify(args));
+    assert.equal(text(o), name === "draw_route" ? QUESTIONS : HERE, JSON.stringify(args));
   }
   assert.equal(m, EMPTY);
   assert.equal(steps.length, 0);
@@ -254,7 +257,7 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
   // set_brief sets it, in the same undo step, said in a line before the result, and kept for the session. A brief Octet
   // refuses changes and keeps nothing. With no brief anywhere a scheme is refused with the three questions, as before.
   fresh();
-  assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "s-8")), QUESTIONS);
+  assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "s-8")), HERE);
   let o = await call("draw", { lines: "ethanol -> water", brief: "JACS, 2 columns, emphasis: the water, as drawn" }, "s-8");
   assert.ok(!o.isError && m.style!.page === "ACS2" && m.style!.preset === "ACS Document 1996", text(o));
   // (In the fewest words that say it is kept, with its style and page: models repeated all of it to the user.)
@@ -276,6 +279,45 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     o = await call("draw", { lines: "ethanol -> water", brief }, "s-9");
     assert.ok(o.isError && why.test(text(o)) && m === EMPTY && !briefs.has("s-9"), text(o));
   }
+  // The brief in the user's own words as the lab's Haiku gave it (11 November, the user's "No, I have no preferred
+  // style. Just a quick look on screen, no page."): a quick look, on screen, no page or nowhere in particular, among
+  // filler and the question's own words, is Quick start. A destination it names wins.
+  for (const [k, [brief, want]] of ([
+    ["Quick start, no page. On screen only, a quick look. Emphasis: none. Layout: a clockwise cycle, species 1 to 4.", { kind: "quick" }],
+    ["quick: no preference, a quick look on screen, no page. Emphasis: nothing; layout: none.", { kind: "quick" }],
+    ["quick (no preference, on screen, no page); emphasis: none; layout: none", { kind: "quick" }],
+    ["Quick start, no page. Where it goes: on screen only. Emphasis: nothing to emphasise. Layout: no preference.", { kind: "quick" }],
+    ["quick: no preference, on screen, no page; emphasis: none; layout: none", { kind: "quick" }],
+    ["No, I have no preferred style. Just a quick look on screen, no page. Nothing to emphasise.", { kind: "quick" }],
+    ["nowhere in particular", { kind: "quick" }],
+    ["a quick look for a JACS paper", { kind: "paper", journal: "ACS Document 1996" }],
+    ["JACS, on screen", { kind: "paper", journal: "ACS Document 1996" }],
+  ] as [string, object][]).entries()) {
+    fresh();
+    o = await call("draw", { lines: "ethanol -> water", brief }, `s-q${k}`);
+    assert.ok(!o.isError, text(o));
+    assert.deepEqual(JSON.parse(briefs.get(`s-q${k}`)!).destination, want, brief);
+  }
+  // set_brief's destination in words is read so too.
+  fresh();
+  o = await call("set_brief", { destination: "On screen only, a quick look" }, "s-qw");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-qw")!).destination.kind === "quick", text(o));
+  // The call's own emphasis wins over one in the words, and words Octet cannot read are refused as destination's.
+  fresh();
+  o = await call("set_brief", { destination: "JACS. Emphasis: the water", emphasis: "the product" }, "s-qe");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-qe")!).emphasis === "the product", text(o));
+  assert.match(text(await call("set_brief", { destination: "no idea" }, "s-qn")), /^Octet changed nothing\. destination: give quick/);
+  // change takes brief as draw does (the lab's Haiku drew a cycle with change, and was refused for want of it).
+  const cycle = { op: "draw", kind: "cycle", intermediates: [{ text: "OC(=O)[C@@H]1CCCN1" }, { text: "C/C(CCC1(C)C(=O)CCC1=O)=[N+]1\\CCC[C@H]1C([O-])=O" }, { text: "OC(=O)[C@@H]1CCCN1C(=C)CCC1(C)C(=O)CCC1=O" }, { text: "C[C@]12CC/C(=[N+]3/CCC[C@H]3C([O-])=O)C[C@@]1(O)CCC2=O" }], steps: [{ step: 0, in: "triketone", name: "cond" }, { step: 1, name: "tautom" }, { step: 2, name: "aldol" }, { step: 3, out: "ketol", name: "hydrol" }], anticlockwise: false };
+  fresh();
+  assert.equal(text(await call("change", { operations: [cycle], detail: "summary" }, "s-c")), HERE);
+  o = await call("change", { operations: [cycle], detail: "summary", brief: "No, I have no preferred style. Just a quick look on screen, no page. Nothing to emphasise." }, "s-c");
+  assert.ok(!o.isError && m.cycles?.length === 1, text(o));
+  assert.match(text(o), /^Brief kept: Quick start \(ACS Document 1996, no page\)\. Drew a catalytic cycle of 4 intermediates/);
+  assert.deepEqual([steps.length, JSON.parse(briefs.get("s-c")!).destination], [1, { kind: "quick" }]);
+  fresh();
+  o = await call("change", { operations: [cycle], brief: { destination: { kind: "thesis" } } }, "s-c2");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-c2")!).destination.kind === "thesis", text(o));
   // Plan 3.1, 7.3: an AI app that takes elicitation. Octet asks the user the brief itself, through the AI app's form,
   // and the same call draws with the answers, as it would with them as draw's brief. An AI app without it is told the
   // three questions, word for word, as before.
@@ -357,7 +399,7 @@ const QUESTIONS = "Octet needs the brief first. Ask the user these three questio
     reply("");
     // An AI app without elicitation is asked nothing, and gets the three questions as before.
     const before = asked.length;
-    assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "e-5")), QUESTIONS);
+    assert.equal(text(await call("draw", { lines: "ethanol -> water" }, "e-5")), HERE);
     assert.equal(asked.length, before);
     // set_brief with the answers missing asks the same form; without elicitation it is refused as before.
     fresh();
@@ -2280,7 +2322,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(said, ["Test set the brief."]);
   // B4, B5: the brief is the session's own. Another session has none, and a new one starts with none.
   assert.ok(!(await call("draw", reaction, "s-2")).isError);
-  assert.equal(text(await call("draw", reaction, "s-3")), QUESTIONS);
+  assert.equal(text(await call("draw", reaction, "s-3")), HERE);
   assert.equal(JSON.parse(briefs.get("s-2")!).destination.kind, "quick");
   assert.ok(!briefs.has("s-3"));
   // B9: on Quick start a row wider than any page draws with no advice.
@@ -2388,6 +2430,12 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   b = await brief({ style: { from_drawing: "draw-1" }, destination: { kind: "paper" } }, "s-7");
   assert.deepEqual([m.style!.bond, m.style!.labelFont, m.style!.page, b.sc.brief.style], [17, "Helvetica", "A4", "from_drawing"]);
   assert.match(text(await call("set_brief", { style: { from_drawing: "draw-9" }, destination: { kind: "paper" } }, "s-7")), /^Octet reads the style of this session's drawing \(draw-1\) only\./);
+  // This drawing as the user says it (the lab's Haiku gave 'current', 11 November).
+  for (const [k, d] of ["current", "this", "this drawing", "open", "the current drawing"].entries()) {
+    m = { ...EMPTY, style: mine };
+    b = await brief({ destination: { kind: "paper", journal: "Angewandte Chemie" }, style: { from_drawing: d } }, `s-7${k}`);
+    assert.ok(!b.o.isError && m.style!.bond === 17 && b.sc.brief.style === "from_drawing", b.said);
+  }
 }
 
 // What a model sees and sends, for speed (plan 19.2). A draw by lines answers so the AI app can tell the user at once:
