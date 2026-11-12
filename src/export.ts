@@ -129,8 +129,8 @@ export const glyphInk: GlyphInk = (ch, el) => {
   return [-m.actualBoundingBoxLeft, -m.actualBoundingBoxAscent, m.actualBoundingBoxRight, m.actualBoundingBoxDescent];
 };
 
-// Copy: the picture (standaloneSvg of the selection, with the selection's CDXML hidden in it: on the Mac a PDF, on
-// Windows an EMF, on Linux a PNG), then CDX, the CDXML as its own type (cdxmlType), its molfile, SMILES and Octet's
+// Copy: the picture (standaloneSvg of the selection, with the selection's CDXML hidden in it: on the Mac Office's
+// copy and a PDF, on Windows an EMF, on Linux a PNG), then CDX, the CDXML as its own type (cdxmlType), its molfile, SMILES and Octet's
 // JSON, on the clipboard under ChemDraw's names on each system (src-tauri/src/clipboard.rs). ChemDraw itself puts no
 // CDXML type on; ChemDraw JS does. Each left out is not put on. Call it from the copy event after preventDefault(),
 // and set nothing on clipboardData: plain text would make ChemDraw paste a caption. With `text`, only that text goes

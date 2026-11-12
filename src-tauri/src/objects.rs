@@ -218,6 +218,9 @@ enum To {
 enum Kind {
     Pdf,   // a PDF with the drawing's CDXML in it, as Copy makes on the Mac (export::make_pdf)
     Cdxml, // the drawing's CDXML
+    // A picture in Word on the Mac: the pictures Copy gives Word, Office's own copy and the PDF (word::picture)
+    #[cfg(target_os = "macos")]
+    Word,
 }
 
 impl Kind {
@@ -233,6 +236,8 @@ impl Kind {
         match self {
             Kind::Pdf => crate::export::make_pdf(svg, Some(cdxml), None),
             Kind::Cdxml => Ok(crate::export::cdxml_document(cdxml).into_bytes()),
+            #[cfg(target_os = "macos")]
+            Kind::Word => crate::word::picture(svg, cdxml),
         }
     }
 }
@@ -252,6 +257,9 @@ impl File {
             _ if bytes.is_empty() => String::new(),
             Kind::Pdf => crate::export::cdxml_from_pdf(&bytes).ok_or(CANNOT_OPEN)?,
             Kind::Cdxml => String::from_utf8(bytes).map_err(|_| CANNOT_OPEN)?,
+            // No file is one: Kind::of gives it for none.
+            #[cfg(target_os = "macos")]
+            Kind::Word => return Err(CANNOT_OPEN),
         };
         let session = Session::new(&crate::ole::host_name(host), oct);
         *session.app.borrow_mut() = crate::ole::program_name(program);
@@ -372,7 +380,7 @@ fn mark(path: &Path, name: &str) {
 // Edit Picture from Word (word.rs): an object window for the picture, or for a new drawing at Word's cursor.
 #[cfg(target_os = "macos")]
 pub async fn open_word(app: &AppHandle, found: crate::word::Found) {
-    let f = File { session: Session::new(&found.host, found.oct), kind: Kind::Pdf, to: To::Word { mark: found.mark, placed: found.placed } };
+    let f = File { session: Session::new(&found.host, found.oct), kind: Kind::Word, to: To::Word { mark: found.mark, placed: found.placed } };
     *f.session.app.borrow_mut() = "Word".into();
     open(app, f).await;
 }
@@ -515,7 +523,7 @@ mod tests {
         let files = Files::default();
         files.0.lock().unwrap().insert(id, f);
         #[cfg(target_os = "macos")]
-        files.0.lock().unwrap().insert(0, File { session: Session::new("Report.docx", String::new()), kind: Kind::Pdf, to: To::Word { mark: "m".into(), placed: true } });
+        files.0.lock().unwrap().insert(0, File { session: Session::new("Report.docx", String::new()), kind: Kind::Word, to: To::Word { mark: "m".into(), placed: true } });
         shutdown(&files);
         assert_eq!(std::fs::read(&path).unwrap(), b"new");
         assert!(dir.join("closed").exists());

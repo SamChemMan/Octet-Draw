@@ -1381,7 +1381,7 @@ pub async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T +
 // here, as Copy makes it. The window sends its picture once the drawing is open, so GetData and GetExtent have it,
 // and then its newest drawing after each change, for Close and Quit (Session::message).
 pub async fn update(app: AppHandle, id: u64, oct: String, svg: String, cdxml: String, send: Option<bool>, seq: Option<u64>) -> std::result::Result<(), String> {
-    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml));
+    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml), None);
     on_main(&app, move || {
         let o = OPEN.with(|m| m.borrow().get(&id).cloned()).filter(|o| !o.closing.get()).ok_or("The document is closed. Save a copy to keep this drawing.")?;
         match o.message(seq, send != Some(false), oct, emf) {
@@ -1640,7 +1640,7 @@ mod tests {
     fn the_object_gives_its_picture_and_storage() {
         ole(|| {
             let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
-            let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"));
+            let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"), None);
             let d = windows_core::ComObject::new(Drawing::new());
             d.picture(emf.clone(), true);
             *d.oct.borrow_mut() = OCT.into();

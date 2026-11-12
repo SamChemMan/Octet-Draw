@@ -77,6 +77,23 @@ fn mean(stops: &[usvg::Stop], opacity: f32) -> ([f32; 3], f32) {
     ([sum[0] / n, sum[1] / n, sum[2] / n], opacity * sum[3] / n)
 }
 
+// The bytes the drawing's pictures (a photo, a pasted screenshot) take in an EMF, which keeps each as raw pixels: 3
+// bytes a pixel, in rows of whole 4-byte words. 0 for a drawing with no picture. Mac Copy leaves Office's copy out when
+// this is over its limit, before any pixel is drawn (clipboard.rs).
+pub(crate) fn pixel_bytes(tree: &usvg::Tree) -> usize {
+    fn sum(g: &usvg::Group) -> usize {
+        g.children().iter().fold(0, |n, node| match node {
+            Node::Group(c) => n.saturating_add(sum(c)),
+            Node::Image(img) if img.is_visible() => {
+                let (w, h) = pixels(img);
+                n.saturating_add(((w as usize).saturating_mul(3).saturating_add(3) & !3).saturating_mul(h as usize))
+            }
+            _ => n,
+        })
+    }
+    sum(tree.root())
+}
+
 // Every visible path and picture in the tree, in drawing order, in pt. usvg measures in CSS px (96 to the inch); pt
 // are 72. With `text` (the EMF), text goes in as runs where it can; otherwise all of it as glyph outlines.
 fn marks(tree: &usvg::Tree, text: bool) -> Vec<Mark> {
@@ -226,16 +243,24 @@ fn pick_runs(t: &usvg::Text, db: &usvg::fontdb::Database, base: Transform, opaci
     Some(runs)
 }
 
-// A picture's pixels: its own (a PNG's, a JPEG's), but no more than 300 dpi of the size it is drawn at and 16 million
-// in all, drawn on white at its opacity. None if it has no size or cannot be drawn.
-fn picture(node: &Node, img: &usvg::Image, opacity: f32) -> Option<Picture> {
+// How many pixels a picture goes in as, across and down: its own (a PNG's, a JPEG's), but no more than 300 dpi of the
+// size it is drawn at and 16 million in all.
+fn pixels(img: &usvg::Image) -> (f32, f32) {
     let to_pt = img.abs_transform().post_scale(0.75, 0.75);
     let (w, h) = (img.size().width(), img.size().height());
     // Its drawn size in pt along each of its sides.
     let (dw, dh) = (w * to_pt.sx.hypot(to_pt.ky), h * to_pt.kx.hypot(to_pt.sy));
     let (pw, ph) = (w.min(dw * 300.0 / 72.0), h.min(dh * 300.0 / 72.0));
     let k = (16e6 / (pw * ph)).sqrt().min(1.0);
-    let (pw, ph) = ((pw * k).round().max(1.0), (ph * k).round().max(1.0));
+    ((pw * k).round().max(1.0), (ph * k).round().max(1.0))
+}
+
+// A picture's pixels (as many as `pixels` says), drawn on white at its opacity. None if it has no size or cannot be
+// drawn.
+fn picture(node: &Node, img: &usvg::Image, opacity: f32) -> Option<Picture> {
+    let to_pt = img.abs_transform().post_scale(0.75, 0.75);
+    let (w, h) = (img.size().width(), img.size().height());
+    let (pw, ph) = pixels(img);
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pw as u32, ph as u32)?;
     // resvg draws an image node in its own units (0 to its size), after taking its box's corner to the origin.
     let bbox = node.abs_layer_bounding_box()?;
@@ -253,7 +278,7 @@ fn scale(t: &Transform) -> f32 {
 }
 
 // The picture's size in pt.
-fn size(tree: &usvg::Tree) -> (f32, f32) {
+pub(crate) fn size(tree: &usvg::Tree) -> (f32, f32) {
     (tree.size().width() * 0.75, tree.size().height() * 0.75)
 }
 
@@ -438,7 +463,13 @@ const CDXML_TAG: &[u8] = b"Octet CDXML\0";
 
 // An EMF of the SVG at true size: its frame (which Word, PowerPoint and Keynote place it by) is the picture's size.
 // With `cdxml`, the drawing goes in an EMR_COMMENT after the header, which GDI and Office skip when they draw.
-pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>) -> Vec<u8> {
+// With `pdf` (the same picture as a PDF, for the Mac's copy), the PDF goes in a comment of its own before that one
+// (with_pdf). Word for Mac draws the PDF. Windows has no use for a PDF and draws the records. With None the EMF has no
+// such comment, and its bytes are what they were before make_emf took a PDF.
+pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>, pdf: Option<&[u8]>) -> Vec<u8> {
+    if let Some(pdf) = pdf {
+        return with_pdf(&make_emf(tree, cdxml, None), pdf);
+    }
     let (w, h) = size(tree);
     // The picture in device px (whole ones, the logical units fifteen to each), and its frame in hundredths of a mm.
     let px = |pt: f32| (((pt * UNIT).ceil().max(1.0) as i32).saturating_add(PER_PX - 1)) / PER_PX;
@@ -527,6 +558,51 @@ pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>) -> Vec<u8> {
     e.out
 }
 
+// The EMF's header: one record of 108 bytes.
+const HEADER: usize = 108;
+
+// `emf` (an EMF make_emf made with no PDF) with `pdf` in a comment, for the Mac's copy: the bytes make_emf gives with
+// that PDF. Mac Copy makes the EMF on one thread while it makes the PDF on another, and puts the PDF in here.
+// The comment is EMR_COMMENT_MULTIFORMATS, the comment for the same picture in other formats. It is the first record
+// after the header: Word for Mac does not use one that comes after the drawing's records. The data's size, then the
+// data: "GDIC", the comment's kind, the output rectangle (the picture's bounds), and two formats, each its name, its
+// version, its size and where it starts in the data:
+// - The PDF (the bytes " FDP", version 0), at 60. Word for Mac draws it.
+// - An EMF that draws nothing (this EMF's header and its last record, EMR_EOF: 128 bytes), after the PDF's last whole
+//   4-byte word. It is there for Windows GDI, which plays the first format it knows and reports a comment with none
+//   as a record that failed. GDI plays this one, which draws nothing, and then the drawing's records.
+// The header's totals count the new record.
+const NOTHING: usize = HEADER + 20;
+// How many bytes with_pdf adds for a PDF of `pdf` bytes: the record's 12 bytes, the data's 60 bytes of fields, the PDF
+// in whole 4-byte words, and the EMF that draws nothing.
+pub(crate) fn pdf_comment(pdf: usize) -> usize {
+    72 + pdf.next_multiple_of(4) + NOTHING
+}
+pub(crate) fn with_pdf(emf: &[u8], pdf: &[u8]) -> Vec<u8> {
+    let field = |at: usize| i32::from_le_bytes([emf[at], emf[at + 1], emf[at + 2], emf[at + 3]]);
+    let mut nothing = [&emf[..HEADER], &emf[emf.len() - 20..]].concat();
+    nothing[48..52].copy_from_slice(&(NOTHING as u32).to_le_bytes());
+    nothing[52..56].copy_from_slice(&2u32.to_le_bytes());
+    let padded = pdf.len().next_multiple_of(4);
+    let mut e = Emf { out: Vec::with_capacity(emf.len() + pdf_comment(pdf.len())), records: 0 };
+    e.out.extend_from_slice(&emf[..HEADER]);
+    let fields = [
+        (60 + padded + NOTHING) as i32, 0x4349_4447, 0x4000_0004, field(8), field(12), field(16), field(20), 2,
+        0x5044_4620, 0, pdf.len() as i32, 60,
+        0x464D_4520, 0x1_0000, NOTHING as i32, 60 + padded as i32,
+    ];
+    e.record_with(70, &fields, pdf);
+    e.out.extend_from_slice(&nothing);
+    // The record's size, with the second format in it.
+    let size = (e.out.len() - HEADER) as u32;
+    e.out[HEADER + 4..HEADER + 8].copy_from_slice(&size.to_le_bytes());
+    e.out.extend_from_slice(&emf[HEADER..]);
+    let (bytes, records) = (e.out.len() as u32, field(52) as u32 + 1);
+    e.out[48..52].copy_from_slice(&bytes.to_le_bytes());
+    e.out[52..56].copy_from_slice(&records.to_le_bytes());
+    e.out
+}
+
 // The CDXML in an EMF's Octet comment, if it has one. The records are walked with bounds checks (the bytes come from
 // the clipboard and are hostile): each must fit in the file, and at most 100,000 are read.
 pub fn cdxml_from_emf(emf: &[u8]) -> Option<String> {
@@ -574,10 +650,10 @@ pub(crate) mod tests {
 
     #[test]
     fn emf_header_and_records_add_up() {
-        let emf = make_emf(&tree(SVG), None);
+        let emf = make_emf(&tree(SVG), None, None);
         assert_eq!(cdxml_from_emf(&emf), None);
         let cdxml = "<?xml version=\"1.0\"?><CDXML><page/></CDXML>";
-        let with = make_emf(&tree(SVG), Some(cdxml));
+        let with = make_emf(&tree(SVG), Some(cdxml), None);
         assert_eq!(cdxml_from_emf(&with).as_deref(), Some(cdxml));
         assert_eq!(cdxml_from_emf(&with[..with.len() / 2]), Some(cdxml.to_string()), "the comment comes first");
         assert_eq!(cdxml_from_emf(&[70, 0, 0, 0, 255, 255, 255, 255]), None, "a record larger than the file");
@@ -597,6 +673,150 @@ pub(crate) mod tests {
         assert_eq!(at, emf.len());
         assert_eq!(count, u(52));
         assert_eq!(last, 14);
+    }
+
+    // The Mac's copy for Office (clipboard.rs office_package): with a PDF, the second record is the comment that holds
+    // it, laid out as Word for Mac reads it, with an EMF that draws nothing after it for Windows GDI. Nothing else
+    // changes but the header's two totals. Without a PDF, the EMF for Windows (the clipboard, the Office object,
+    // Export) is the bytes it was: a later change shows here.
+    #[test]
+    fn a_pdf_goes_in_the_first_comment_and_changes_nothing_else() {
+        let u = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+        let cdxml = "<CDXML><page/></CDXML>";
+        // 41 bytes, so it ends in 3 bytes of padding. The record: 12 bytes, 60 of fields, the PDF in 44, and the EMF
+        // that draws nothing in 128.
+        let pdf = b"%PDF-1.7\nnot a PDF, only a stand-in\n%%EOF";
+        assert_eq!(pdf.len(), 41);
+        for (svg, cdxml) in [(SVG, None), (SVG, Some(cdxml)), (PROLINE, Some(cdxml)), (&picture_svg(), Some(cdxml))] {
+            let tree = crate::export::tree(svg).unwrap();
+            let (plain, with) = (make_emf(&tree, cdxml, None), make_emf(&tree, cdxml, Some(pdf)));
+            let (before, after) = (records(&plain), records(&with));
+            // The comment: record 70 straight after the 108-byte header, 244 bytes long.
+            assert_eq!((after[0], after[1], after[2].1), ((1, 0), (70, 108), 352));
+            assert_eq!((u(&with, 112), u(&with, 116)), (244, 232), "the record's size and the data's");
+            assert_eq!(&with[120..128], b"GDIC\x04\0\0\x40", "a public comment, EMR_COMMENT_MULTIFORMATS");
+            assert_eq!(&with[128..144], &with[8..24], "the output rectangle: the picture's bounds");
+            assert_eq!([144, 148, 152, 156, 160].map(|k| u(&with, k)), [2, 0x5044_4620, 0, 41, 60], "two formats. The PDF: its name, version, size and offset");
+            assert_eq!([164, 168, 172, 176].map(|k| u(&with, k)), [0x464D_4520, 0x1_0000, 128, 104], "the EMF: its name, version, size and offset");
+            assert_eq!((&with[148..152], &with[180..221], &with[221..224]), (&b" FDP"[..], &pdf[..], &[0; 3][..]));
+            // The EMF that draws nothing: the header with its own totals, then EMR_EOF. It reads as an EMF of 2 records.
+            let nothing = &with[224..352];
+            assert_eq!((&nothing[..48], &nothing[56..108], &nothing[108..]), (&plain[..48], &plain[56..108], &plain[plain.len() - 20..]));
+            assert_eq!((u(nothing, 48), u(nothing, 52)), (128, 2));
+            assert_eq!(records(nothing), [(1, 0), (14, 108)]);
+            // Every other record is the same, in the same order: the bytes after the comment are the bytes after the
+            // header without it. The header differs in its byte and record totals alone.
+            assert_eq!(after.len(), before.len() + 1);
+            assert_eq!(after.iter().skip(2).map(|r| (r.0, r.1 - 244)).collect::<Vec<_>>(), before[1..]);
+            assert_eq!(with[352..], plain[108..]);
+            assert_eq!((&with[..48], &with[56..108]), (&plain[..48], &plain[56..108]));
+            assert_eq!((u(&with, 48), u(&with, 52)), (u(&plain, 48) + 244, u(&plain, 52) + 1));
+            assert_eq!(cdxml_from_emf(&with).as_deref(), cdxml, "the CDXML comment is read past the PDF's");
+            // A PDF of whole 4-byte words has no padding, and the EMF that draws nothing comes straight after it.
+            let whole = make_emf(&tree, cdxml, Some(&pdf[..40]));
+            assert_eq!((u(&whole, 112), u(&whole, 156), u(&whole, 176), &whole[220..224]), (240, 40, 100, &plain[..4]));
+        }
+        // No fonts in this picture, so the bytes are the same on every system.
+        let emf = make_emf(&tree(SVG), None, None);
+        assert_eq!((emf.len(), crate::export::crc32(&emf)), (752, 0xEE1B_B281), "the EMF without a PDF has changed");
+        let emf = make_emf(&tree(SVG), Some(cdxml), None);
+        assert_eq!((emf.len(), crate::export::crc32(&emf)), (800, 0x420E_C9C5), "the EMF with CDXML and no PDF has changed");
+    }
+
+    // Windows draws an EMF with the PDF comment as it draws the EMF without it. GDI plays each into a bitmap of its own
+    // (32 bits a pixel, 4 px a pt, on white): it plays every record of both (the comment too, through its EMF that
+    // draws nothing), and the two bitmaps are the same, with ink in them. GDI+, which reads a metafile its own way,
+    // draws both without an error and the same. "ole" is in the name for the Office objects job (platforms.yml), the
+    // one job that runs Rust tests on Windows: it runs the tests with "ole" in their names.
+    #[cfg(windows)]
+    #[test]
+    fn ole_job_gdi_draws_the_records_and_skips_the_pdf() {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::Graphics::Gdi::{
+            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteEnhMetaFile, DeleteObject, GdiFlush, PatBlt, PlayEnhMetaFile, SelectObject, SetEnhMetaFileBits, BITMAPINFO, BITMAPINFOHEADER,
+            BI_RGB, DIB_RGB_COLORS, RGBQUAD, WHITENESS,
+        };
+        use windows_sys::Win32::Graphics::GdiPlus::{
+            GdipBitmapGetPixel, GdipCreateBitmapFromScan0, GdipCreateMetafileFromEmf, GdipDeleteGraphics, GdipDisposeImage, GdipDrawImageRectI, GdipGetImageGraphicsContext, GdipGraphicsClear, GdiplusShutdown,
+            GdiplusStartup, GdiplusStartupInput, GpBitmap, GpGraphics, GpImage, GpMetafile,
+        };
+        // The pixels GDI draws for an EMF in a box of `w` by `h` px: 4 bytes a pixel, rows from the top.
+        fn play(emf: &[u8], w: i32, h: i32) -> Vec<u8> {
+            let header = BITMAPINFOHEADER { biSize: 40, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, biCompression: BI_RGB, biSizeImage: 0, biXPelsPerMeter: 0, biYPelsPerMeter: 0, biClrUsed: 0, biClrImportant: 0 };
+            let info = BITMAPINFO { bmiHeader: header, bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }] };
+            let rect = RECT { left: 0, top: 0, right: w, bottom: h };
+            let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+            // SAFETY: every handle is checked before it is used and freed before the function returns. `bits` is the
+            // DIB section's own memory, w * h * 4 bytes for a 32-bit bitmap, read while the bitmap is alive and after
+            // GdiFlush. The EMF's pointer and length are one slice's.
+            unsafe {
+                let dc = CreateCompatibleDC(std::ptr::null_mut());
+                assert!(!dc.is_null(), "a memory DC");
+                let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
+                assert!(!bitmap.is_null() && !bits.is_null(), "a DIB section");
+                let old = SelectObject(dc, bitmap);
+                assert!(!old.is_null(), "the bitmap goes into the DC");
+                assert_ne!(PatBlt(dc, 0, 0, w, h, WHITENESS), 0);
+                let metafile = SetEnhMetaFileBits(emf.len() as u32, emf.as_ptr());
+                assert!(!metafile.is_null(), "GDI takes the EMF");
+                assert_ne!(PlayEnhMetaFile(dc, metafile, &rect), 0, "GDI plays every record of the EMF");
+                GdiFlush();
+                let pixels = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize).to_vec();
+                DeleteEnhMetaFile(metafile);
+                SelectObject(dc, old);
+                DeleteObject(bitmap);
+                DeleteDC(dc);
+                pixels
+            }
+        }
+        // The pixels GDI+ draws for an EMF in a box of `w` by `h` px on white: one ARGB value a pixel.
+        fn plus(emf: &[u8], w: i32, h: i32) -> Vec<u32> {
+            let mut pixels = Vec::with_capacity((w * h) as usize);
+            // SAFETY: each call's status is checked before its result is used, and each object is freed before the
+            // function returns. GDI+ owns the metafile's handle once GdipCreateMetafileFromEmf has it. The EMF's
+            // pointer and length are one slice's.
+            unsafe {
+                let mut token: usize = 0;
+                let input = GdiplusStartupInput { GdiplusVersion: 1, DebugEventCallback: 0, SuppressBackgroundThread: 0, SuppressExternalCodecs: 0 };
+                assert_eq!(GdiplusStartup(&mut token, &input, std::ptr::null_mut()), 0, "GDI+ starts");
+                let handle = SetEnhMetaFileBits(emf.len() as u32, emf.as_ptr());
+                assert!(!handle.is_null(), "GDI takes the EMF");
+                let mut metafile: *mut GpMetafile = std::ptr::null_mut();
+                assert_eq!(GdipCreateMetafileFromEmf(handle, 1, &mut metafile), 0, "GDI+ takes the EMF");
+                let mut bitmap: *mut GpBitmap = std::ptr::null_mut();
+                assert_eq!(GdipCreateBitmapFromScan0(w, h, 0, 0x0026_200A, std::ptr::null_mut(), &mut bitmap), 0, "a bitmap of 32 bits a pixel");
+                let mut graphics: *mut GpGraphics = std::ptr::null_mut();
+                assert_eq!(GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics), 0);
+                assert_eq!(GdipGraphicsClear(graphics, 0xFFFF_FFFF), 0);
+                assert_eq!(GdipDrawImageRectI(graphics, metafile as *mut GpImage, 0, 0, w, h), 0, "GDI+ draws the EMF");
+                for y in 0..h {
+                    for x in 0..w {
+                        let mut argb = 0u32;
+                        assert_eq!(GdipBitmapGetPixel(bitmap, x, y, &mut argb), 0);
+                        pixels.push(argb);
+                    }
+                }
+                GdipDeleteGraphics(graphics);
+                GdipDisposeImage(bitmap as *mut GpImage);
+                GdipDisposeImage(metafile as *mut GpImage);
+                GdiplusShutdown(token);
+            }
+            pixels
+        }
+        for (svg, name) in [(SVG, "a line and a box"), (PROLINE, "proline, with labels"), (&picture_svg(), "a picture")] {
+            let tree = crate::export::tree(svg).unwrap();
+            let pdf = crate::export::make_pdf(svg, Some("<CDXML/>"), None).unwrap();
+            let (plain, with) = (make_emf(&tree, Some("<CDXML/>"), None), make_emf(&tree, Some("<CDXML/>"), Some(&pdf)));
+            assert!(with.len() > plain.len() + pdf.len());
+            let (pt_w, pt_h) = size(&tree);
+            let (w, h) = ((pt_w * 4.0).ceil() as i32, (pt_h * 4.0).ceil() as i32);
+            let (a, b) = (play(&plain, w, h), play(&with, w, h));
+            assert!(a.chunks_exact(4).any(|p| p[..3] != [255, 255, 255]), "{name}: GDI drew nothing");
+            assert!(a == b, "{name}: GDI draws the EMF with the PDF comment differently");
+            let (a, b) = (plus(&plain, w, h), plus(&with, w, h));
+            assert!(a.iter().any(|p| p & 0xFF_FFFF != 0xFF_FFFF), "{name}: GDI+ drew nothing");
+            assert!(a == b, "{name}: GDI+ draws the EMF with the PDF comment differently");
+        }
     }
 
     // Issue 16: a copy's view box starts where the selection does, and the labels must land inside the picture with
@@ -635,7 +855,7 @@ pub(crate) mod tests {
     // units, and every bounds record in device px.
     #[test]
     fn emf_reference_device_is_96_dpi() {
-        let emf = make_emf(&tree(SVG), None);
+        let emf = make_emf(&tree(SVG), None, None);
         let v = |at: usize| i32_at(&emf, at);
         assert_eq!((v(8), v(12), v(16), v(20)), (0, 0, 95, 47), "bounds: 72 by 36 pt is 96 by 48 px");
         assert_eq!((v(24), v(28), v(32), v(36)), (0, 0, 2540, 1270), "the frame, in 0.01 mm, is the picture");
@@ -662,7 +882,7 @@ pub(crate) mod tests {
         let mut pictures: Vec<(f64, f64, String)> = [(72.0, 36.0), (86.1, 65.0), (56.55, 55.28), (13.3, 7.7), (595.0, 842.0)].map(|(w, h)| (w, h, labelled(w as f32, h as f32))).to_vec();
         pictures.push((56.21, 36.55, PROLINE.to_string()));
         for (w, h, svg) in pictures {
-            let emf = make_emf(&crate::export::tree(&svg).unwrap(), None);
+            let emf = make_emf(&crate::export::tree(&svg).unwrap(), None, None);
             assert!(!texts(&emf).is_empty(), "{w} by {h}: text, the case Word sizes by the bounds");
             let v = |at: usize| f64::from(i32_at(&emf, at));
             let dpi = v(72) * 25.4 / v(80);
@@ -711,7 +931,7 @@ pub(crate) mod tests {
     #[test]
     fn labels_are_text_at_their_glyph_positions() {
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120pt" height="72pt" viewBox="0 0 120 72"><g transform="scale(0.75)"><path d="M0 0h20v1h-20z" fill="#000"/><g font-family="Arial, Helvetica, sans-serif" font-size="13.3333px" fill="rgb(15, 23, 42)"><text x="20" y="30">NH</text><text x="20" y="50">OH</text><text x="60" y="30">H</text><text x="69.62890625" y="30">O</text><text x="100" y="30">O</text><text x="80" y="60">CH<tspan dy="2.827" font-size="10px">3</tspan></text><text x="20" y="80">NH<tspan dy="-4" font-size="10px">+</tspan></text></g></g></svg>"##;
-        let emf = make_emf(&crate::export::tree(svg).unwrap(), None);
+        let emf = make_emf(&crate::export::tree(svg).unwrap(), None, None);
         let all = records(&emf);
         let count = |k: u32| all.iter().filter(|r| r.0 == k).count();
         // Record histogram: the bond is the only path; each run has its font made, chosen, coloured and deleted.
@@ -751,7 +971,7 @@ pub(crate) mod tests {
     fn turned_or_underlined_text_is_outlines() {
         for attrs in [r#"transform="rotate(30 40 40)""#, r#"text-decoration="underline""#] {
             let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="80pt" height="80pt" viewBox="0 0 80 80"><text x="30" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10pt" {attrs}>OH</text></svg>"##);
-            let all = records(&make_emf(&crate::export::tree(&svg).unwrap(), None));
+            let all = records(&make_emf(&crate::export::tree(&svg).unwrap(), None, None));
             assert!(!all.iter().any(|r| r.0 == 84) && all.iter().any(|r| r.0 == 62), "{attrs}: {:?}", all.iter().map(|r| r.0).collect::<Vec<_>>());
         }
         assert_eq!((windows_font("Arial"), windows_font("Liberation Sans"), windows_font("helvetica")), (Some("Arial"), Some("Arial"), Some("Arial")));
@@ -772,7 +992,7 @@ pub(crate) mod tests {
         let arial = tree.fontdb().faces().any(|f| f.families.iter().any(|(n, _)| n == "Arial"));
         let room = if arial { 0.1 } else { 0.3 };
         assert!(slack.iter().all(|s| (-room..=room).contains(s)), "{slack:?}");
-        let emf = make_emf(&tree, None);
+        let emf = make_emf(&tree, None, None);
         assert_eq!([24, 28, 32, 36].map(|k| i32_at(&emf, k)), [0, 0, 1983, 1289], "the frame in 0.01 mm");
         let t = texts(&emf);
         assert_eq!(t.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["HO", "O", "N", "H"]);
@@ -800,7 +1020,7 @@ pub(crate) mod tests {
         assert!(eps.contains("/Width 4 /Height 2 /BitsPerComponent 8"));
         assert!(eps.contains(&format!("image\n{}\n>\ngrestore\n", "FF0000".repeat(8))), "{eps}");
         // EMF: the world transform takes the pixels there in 1/20 pt; StretchDIBits draws 4 by 2, bottom row first, BGR.
-        let emf = make_emf(&tree(&svg), None);
+        let emf = make_emf(&tree(&svg), None, None);
         let u = |at: usize| u32::from_le_bytes(emf[at..at + 4].try_into().unwrap());
         let f = |at: usize| f32::from_bits(u(at));
         let (mut at, mut seen) = (0, Vec::new());
