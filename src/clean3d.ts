@@ -3,7 +3,7 @@
 // that is lowest at a sound shape, taken downhill from the drawing until it settles. Its terms: each bond and each
 // angle at an atom (from its hybridisation) as a target distance between two atoms; each double bond's cis or trans, as
 // drawn; flat double bonds, aromatic rings and sp2 atoms; a pull to flat across a single bond between two sp2 atoms
-// (conjugation: firm in an amide, weak between two aromatic rings); and a least distance between atoms three or more
+// (conjugation: firm in an amide, weak between two aromatic rings or to an O or N); and a least distance between atoms three or more
 // bonds apart. The hydrogens the drawing leaves out take part (they are what twists biphenyl), and are not added to
 // the drawing. A stereocentre keeps the hand its wedges and hashes draw, and a saturated six-membered ring starts as a
 // chair (a strained result is tried again from the other chairs). Lengths are in bond lengths: a bond is its real
