@@ -112,6 +112,8 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // The list is read at the start of every chat (test plan P4, A5): under 14,000 characters, about 4,000 tokens. The
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
+// Real Claude Code runs (plan 19.10): the models tried RDKit in the shell on their own SMILES before they drew. draw says not to.
+assert.match(tools.find((t: { name: string }) => t.name === "draw").description, /do not test a name or SMILES with other tools first/);
 // The scripting page (docs/scripting.md, plan 18.2) cannot drift: its table of tools is the tools tools/list gives, and
 // each file it shows (### name, then its code) is the file in scripts/examples as it is.
 {

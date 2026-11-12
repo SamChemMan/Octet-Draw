@@ -714,7 +714,7 @@ function briefOf(b: unknown): unknown {
 const TOOLS: Tool[] = [
   {
     name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND, side: SIDE },
-    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text.",
+    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text. Octet reads and checks every structure and the reply gives each formula: do not test a name or SMILES with other tools first.",
     inputSchema: obj({
       lines: str(100_000, NOTATION), brief: str(2000, BRIEF_NOTE),
       structures: COMPOUNDS, columns: int(1, 20),
