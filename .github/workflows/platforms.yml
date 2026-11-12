@@ -179,16 +179,42 @@ jobs:
           Write-Output "Octet $((Get-Content package.json | ConvertFrom-Json).version): $octet, $((Get-Item $octet).Length) bytes"
 
       # As the drive job: a virtual screen for the hidden windows, a session bus of their own, and WebKit with no DMA-BUF.
+      # The session bus has no accessibility bus, so GTK's bridge to it is off (NO_AT_BRIDGE): it wrote a warning to
+      # standard error each time Octet started, which a user's desktop does not.
       - name: The examples (Linux, on a virtual screen)
         if: runner.os == 'Linux'
         timeout-minutes: 20
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          NO_AT_BRIDGE: "1"
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/run-all.mjs examples-out
       - name: The examples (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 20
         run: node scripts/examples/run-all.mjs examples-out
+      # A script that sends one request and closes its end of the pipe gets the answer, and Octet ends with code 0
+      # (run 43125258175: there the installed Octet on Windows panicked and answered nothing).
+      - name: One request, then the end of input (Linux, on a virtual screen)
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        timeout-minutes: 5
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          NO_AT_BRIDGE: "1"
+        run: |
+          set +e
+          reply=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' | xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- "$OCTET" --headless --mcp)
+          code=$?
+          echo "exit $code: $reply"
+          [ "$code" = 0 ] && grep -q '"serverInfo"' <<< "$reply"
+      - name: One request, then the end of input (Windows)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $hello = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          $reply = $hello | & $env:OCTET --headless --mcp
+          Write-Output "exit ${LASTEXITCODE}: $reply"
+          if ($LASTEXITCODE -ne 0 -or -not ("$reply" -match '"serverInfo"')) { throw "no answer to initialize, or not exit 0" }
       - name: --convert to PDF and SVG (Linux, on a virtual screen)
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         timeout-minutes: 10
