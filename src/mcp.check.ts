@@ -880,6 +880,18 @@ assert.deepEqual(d.cycles[0].names.map((x: { text: string; at: string }) => `${x
 // 0, 3" made Haiku put a side arrow one step early and never know.
 assert.match(text(out), /clockwise; in: PhBr at 1→5; in: ArB\(OH\)2, out: B\(OH\)3 at 5→3; out: Ph–Ar at 3→1\./);
 assert.deepEqual(d.cycles[0].sides.map((x: { side: string; text: string; at: string }) => `${x.side} ${x.text} ${x.at}`), ["in PhBr 1→5", "in ArB(OH)2 5→3", "out B(OH)3 5→3", "out Ph–Ar 3→1"]);
+// A replaced intermediate keeps its place in the cycle, its number and the side texts at its steps (real-r4-opus-1
+// paper-cycle, plan 19.10: two replaced in one change fell out of the cycle, which read as [s1, null, s3, null]).
+// replace with ids of one structure and no structure is that structure (real-r4-haiku-3 say-fix).
+out = await call("change", { operations: [{ op: "replace", structure: d.structures[1].id, text: "COc1ccccc1" }, { op: "replace", ids: [d.structures[2].id], text: "Nc1ccccc1" }] });
+assert.ok(!out.isError, text(out));
+assert.equal(out.content[1]?.text, "Read ids as structure.");
+{
+  const e = await read(), formula = (id: string) => e.structures.find((s: { id: string }) => s.id === id)?.formula;
+  assert.deepEqual(e.cycles[0].intermediates.map(formula), ["C6H6", "C7H8O", "C6H7N"]);
+  assert.deepEqual(e.cycles[0].sides, d.cycles[0].sides);
+  assert.equal(m.cycles![0].branches!.length, 3);
+}
 
 // replace keeps the place and the number; delete takes structures and text away; select picks them.
 fresh();

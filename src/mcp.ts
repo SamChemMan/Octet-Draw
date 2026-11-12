@@ -13,7 +13,7 @@ import { LIBRARY } from "./library.ts";
 import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, sizedHead, turns, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle } from "./cycle.ts";
+import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
@@ -764,6 +764,8 @@ const TOOLS: Tool[] = [
         const no = op === "draw" && !lined ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
         if (no) return no;
         const { kind, ...rest } = args;
+        // replace with the ids of one structure and no structure is that structure (Haiku, plan 19.10).
+        if (op === "replace" && args.structure === undefined && Array.isArray(args.ids) && args.ids.length === 1) { [args.structure] = args.ids; delete args.ids; note(notes, "replace ids", "Read ids as structure."); }
         steps.push(lined ? { tool: lined.op, args: lined.args } : op === "draw" ? { tool: kind, args: rest } : { tool: op, args });
       }
       return { ...(steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" }), ...(where.size ? { where } : {}), ...(given !== undefined ? { brief: given } : {}) };
@@ -1587,7 +1589,11 @@ async function replaceStructure(host: Host, a: { structure: string; text?: strin
   const old = host.ink(atoms)!, under = (m.captions ?? []).filter((c) => c.under?.some((i) => atoms.includes(i))), number = under.find((c) => c.bold);
   const kept = erase(m, new Set(m.bonds.flatMap((b, k) => (atoms.includes(b.atoms[0]) ? [k] : []))), new Set(atoms));
   const b = boxOf(ok[0].mol), r = place(kept, ok[0], own && !turn ? b[0] : (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, own && !turn ? (b[1] + b[3]) / 2 : (old[1] + old[3]) / 2);
-  host.set(under.reduce((mol, { id: _, property: _p, ...c }) => addCaption(mol, { ...c, under: r.atoms })[0], r.mol));
+  // A cycle's intermediate (or a side arrow's compound) that was the old structure is the new one, in its place: erase
+  // leaves an empty node there (plan 19.10: a replaced intermediate fell out of its cycle).
+  const was = (n?: number[]) => !!n?.length && n.every((i) => atoms.includes(i)), into = (e: CycleEnd | undefined, o: CycleEnd | undefined) => (e && was(o?.atoms) ? { ...e, atoms: r.atoms } : e);
+  const cycles = r.mol.cycles?.map((c, k) => { const o = m.cycles![k]; return { ...c, nodes: c.nodes.map((n, j) => (was(o.nodes[j]) ? r.atoms : n)), ...(c.branches ? { branches: c.branches.map((x, j) => ({ ...x, in: into(x.in, o.branches?.[j]?.in), out: into(x.out, o.branches?.[j]?.out) })) } : {}) }; });
+  host.set(under.reduce((mol, { id: _, property: _p, ...c }) => addCaption(mol, { ...c, under: r.atoms })[0], cycles ? { ...r.mol, cycles } : r.mol));
   await host.settle();
   // A structure made by changes is named, with what they did at each stereocentre and its new id, so the AI app
   // sees the change is the one it meant. One from text is named only when Octet read its name another way.

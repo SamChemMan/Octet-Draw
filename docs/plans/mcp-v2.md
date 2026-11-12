@@ -2061,3 +2061,11 @@ session can keep or drop each by what the lab says next.
   the argument), so change's set_style reads them the same way. tools/list is unchanged (neither is published).
   Changed checks: `{tool: 'export', format: 'pdf'}` (refused before) gives an unknown argument (`colour`) beside it;
   `set_style {journal: 'Nature'}` (refused before) gives `font`; help with `detail` (refused before) gives `picture`.
+- **replace in a catalytic cycle.** real-r4-opus-1 paper-cycle replaced intermediates 2 and 4 (E/Z it had worked out
+  from read's InChI) and the job's check "the four intermediates in order" failed though the reply said `changed: c5`
+  and check clean. Replayed through `scripts/headless/host.ts`, the cycle read `[s1, null, s3, null]`: `erase` leaves an
+  empty node where a structure was, and replace never filled it. Now `replaceStructure` puts the new structure in each
+  node (and side arrow end) that was the old one, so it keeps its place, number and side texts. Replayed again, the
+  cycle is `[s1, s5, s3, s6]` and all four InChIKeys are the job's (2 OWBIRFRDSASUHN-OKHBPPCESA-N, 4
+  LCJXXGHDFMYFGG-CRVSIBDBSA-N): the run would have passed. change's replace with the ids of one structure and no
+  structure (real-r4-haiku-3 say-fix: "structure is missing") is that structure ("Read ids as structure.").
