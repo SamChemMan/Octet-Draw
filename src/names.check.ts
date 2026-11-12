@@ -109,6 +109,8 @@ const counts = (k: string) => countsOf(inchi(nameToSmiles(k) ?? "") ?? "InChI=1S
 for (const k of ["CH2Cl2", "NaCl", "K2CO3", "(COCl)2", "H2O", "D2O", "CDCl3", "PdCl2", "LiAlH4", "NaOH", "KCN", "CuSO4", "FeCl3", "Mn(CO)5Br", "aspirin", "naproxen"]) assert.ok(!citable(k, counts(k)), k);
 for (const k of ["TREN", "Et3N", "AcOH", "TsCl", "PPh3", "Pd(OAc)2", "CuTC", "LAH", "DMSO-d6", "IMes·HCl", "Wilkinson's catalyst", "NBS", "DIOP", "DBU", "HFIP", "PCC"]) assert.ok(citable(k, counts(k)), k);
 assert.ok(!citable("CuSO4·5H2O", { Cu: 1, S: 1, O: 9, H: 10 }));
+// [n]cycloparaphenylene is n benzene rings in one ring, C(6n)H(4n). The dictionary gave [8] the structure of [12].
+for (const [k, n] of [["[8]cycloparaphenylene", 8], ["[5]cycloparaphenylene", 5], ["[12]CPP", 12], ["[8]-cyclo-p-phenylene", 8]] as const) assert.deepEqual(counts(k), { C: 6 * n, H: 4 * n }, k);
 // The abbreviations by InChI are up to date, and each is the first citable key listed for its structure.
 assert.deepEqual(abbreviations(), cites, "src/abbreviations.json is out of date: run node tools/names/index.mjs");
 assert.equal(abbreviationOf(tren), "TREN");

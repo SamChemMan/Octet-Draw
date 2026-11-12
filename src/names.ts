@@ -218,7 +218,15 @@ function one(s: string): string | undefined {
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);
-  return beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read);
+  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read);
+}
+
+// [n]cycloparaphenylene: n benzene rings joined para in one ring, C(6n)H(4n). OPSIN does not read it, and the
+// dictionary's one entry ([8], from Wikidata) had the structure of [12]. Also "[8]CPP", "8-cyclo-p-phenylene" and
+// "[8]cyclo-1,4-phenylene". 4 to 40 rings.
+function hoopSmiles(s: string): string | undefined {
+  const m = /^\[?(\d{1,2})\]?[\s-]*(?:cyclo[\s-]*\(?(?:para|p|1,4)[\s-]*phenylene\)?|cpp)$/i.exec(s), n = m ? Number(m[1]) : 0;
+  return n >= 4 && n <= 40 ? `c1cc2ccc1${"-c1ccc(cc1)".repeat(n - 2)}-c1ccc2cc1` : undefined;
 }
 
 // Acid addition salts and hydrates of a name, as the name and the acid (or water) side by side, as PubChem draws them.
