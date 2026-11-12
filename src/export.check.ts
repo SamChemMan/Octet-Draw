@@ -159,4 +159,12 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   const ink = /function canvasInk\([\s\S]*?\n  \}\n/.exec(editor)?.[0] ?? "";
   assert.match(ink, /el\.closest\("defs, mask, clipPath, pattern, marker, symbol, filter"\)\) continue;/, "canvasInk leaves out defs and masks");
 }
+// A picture that leaves Octet (Copy, Export) draws each bond, ring circle, symbol and arrow as a path of its own, as
+// ChemDraw's PDF does, so Inkscape and Illustrator can move each one. The canvas keeps one path per colour.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /function structurePaths\(d: Drawing, apart = false\)[\s\S]*?d\.owners!\[i\]/, "a path for each owner");
+  assert.match(editor, /const structureInk = useMemo\([^\n]*structurePaths\(d, !!exporting\)[^\n]*\[drawing, exporting\]\)/, "structures apart when exporting");
+  assert.match(editor, /if \(exporting\) each\.push\(\[key, path\]\);/, "arrows apart when exporting");
+}
 console.log("export.check: ok");

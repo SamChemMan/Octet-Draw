@@ -405,8 +405,21 @@ function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [st
 const moveBy = ([x, y]: P, k = 1, turn = 0) => (turn ? `translate(${x} ${y}) rotate(${turn})${k !== 1 ? ` scale(${k})` : ""}` : k !== 1 ? `translate(${x} ${y}) scale(${k})` : x || y ? `translate(${x} ${y})` : undefined);
 // A structure's ink as one path per colour and, in 3D structures, per how strongly it is drawn (Structure
 // Perspective): [colour|alpha, path]. Made once for each drawing of the structure.
+// apart: one path for each bond, ring circle and symbol ([colour|alpha|owner, path]), for a picture that leaves Octet
+// (Copy, Export): ChemDraw's PDF draws each bond on its own, and Inkscape and Illustrator make each path an object
+// the user can move. The canvas keeps one path per colour, so drawing is no slower.
 const inkPaths = new WeakMap<Drawing, [string, string][]>();
-function structurePaths(d: Drawing): [string, string][] {
+function structurePaths(d: Drawing, apart = false): [string, string][] {
+  if (apart && d.owners) {
+    const owned = new Map<string, P[][]>();
+    d.polygons.forEach((poly, i) => {
+      const key = `${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}|${d.owners![i]}`;
+      const list = owned.get(key);
+      if (list) list.push(poly);
+      else owned.set(key, [poly]);
+    });
+    return [...owned].map(([key, polys]) => [key, toPath(polys)]);
+  }
   let paths = inkPaths.get(d);
   if (!paths) {
     paths = byColour(d.polygons.map((poly, i) => [`${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}`, [poly]] as const)).map(([key, polys]) => [key ?? "|1", toPath(polys)]);
@@ -3483,18 +3496,21 @@ export default function Editor() {
   // Each object's ink is drawn in its layer, or on its own under or over all the layers when it has a draw order
   // (Bring to Front, Send to Back; order.ts). level: a thing that is drawn in its layer.
   const level = (x?: { order?: number }) => !x?.order;
-  // Arrow ink, one path per colour (unset is the document's ink), each arrow's part kept with the arrow.
+  // Arrow ink, one path per colour (unset is the document's ink), each arrow's part kept with the arrow. In a picture
+  // that leaves Octet (exporting), one path for each arrow, as structurePaths' apart.
   // Filled pen curves and membranes draw their own lines with their fill, in order (below), so clip art's layers stack as drawn.
   const arrowInk = useMemo(() => {
     const groups = new Map<string | undefined, string>();
+    const each: [string | undefined, string][] = [];
     for (const a of [...arrows.filter((x) => level(x) && !(x.curve?.closed && x.fill) && x.style !== "membrane"), ...cycleArrows.filter(level)]) {
-      const key = a.colour?.toLowerCase();
-      groups.set(key, (groups.get(key) ?? "") + kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L))));
+      const key = a.colour?.toLowerCase(), path = kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)));
+      if (exporting) each.push([key, path]);
+      else groups.set(key, (groups.get(key) ?? "") + path);
     }
-    return [...groups];
-  }, [arrows, cycleArrows, frame]);
+    return exporting ? each : [...groups];
+  }, [arrows, cycleArrows, frame, exporting]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d, !!exporting).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure that settles into ink (FEEL-43): its atoms from this one on.
   const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
@@ -9322,7 +9338,7 @@ export default function Editor() {
           {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
         </>
       )}
-      {arrowInk.map(([colour, d]) => <path key={`a${colour}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
+      {arrowInk.map(([colour, d], i) => <path key={`a${colour}${exporting ? i : ""}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
     </>
   ), [drawing.beads, structureInk, arrowInk, darkPaper, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
@@ -9352,7 +9368,7 @@ export default function Editor() {
       const o = shown.atoms[ids[0]]?.order;
       if (o) things.push([o, (
         <g key={`os${ids[0]}`} data-glide="structure">
-          {structurePaths(d).map(([key, path]) => { const [colour, alpha] = key.split("|"); return <path key={key} d={path} transform={moveBy(at, grown, turn)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+          {structurePaths(d, !!exporting).map(([key, path]) => { const [colour, alpha] = key.split("|"); return <path key={key} d={path} transform={moveBy(at, grown, turn)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
           {labelTexts[k]}
         </g>
       )]);
@@ -9366,7 +9382,7 @@ export default function Editor() {
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />]);
     things.sort((a, b) => a[0] - b[0]);
     return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
-  }, [shown, frame, darkPaper, draggedSpot, spotPick, featurePick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, frame, darkPaper, draggedSpot, spotPick, featurePick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The selection's colour, when the user has picked their own (editor.css, data-select), with its tints.
   const ownSelect = settings.selectColour !== SELECT_DEFAULT ? settings.selectColour : undefined;
@@ -10078,7 +10094,7 @@ export default function Editor() {
         templateSets={settings.templateSets}
         onTemplateSets={templateSets}
         pinned={settings.pinned}
-        onPinned={(pinned) => setSettings((s) => ({ ...s, pinned }))}
+        onPinned={(pinned) => { if (pinned.length > settings.pinned.length) saw("pin"); setSettings((s) => ({ ...s, pinned })); }}
         canAddSelection={selection.size > 0 || picked.size > 0}
         reveal={reveal}
         preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
