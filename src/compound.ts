@@ -34,7 +34,7 @@ open_epoxide: at the carbon that loses the oxygen (with: the group it takes; non
 lactonise: at an acid's or ester's carbon and the atom that carries the O-H ('1-5')
 close: a new bond between two atoms ('9-10'; to: single, double or triple). open: a ring bond broken
 join: a new bond from this compound's atom to an atom of another ('2-31'; with: that compound's number or id; to as close)
-at is an atom's number or a group's label (OTBS: the atom it is on), or two numbers with a hyphen. With no at, the one place the transformation fits.
+at is an atom's number, a group's label (OTBS: the atom it is on), a kind of place (lactone, ester, acetonide), or two numbers with a hyphen. With no at, the one place the transformation fits.
 config, on any change: the label of a new stereocentre ({'9': 'S'}) or double bond ({'5-6': 'E'}) in the new compound.`;
 // A group: the atoms on first's side of the one bond from the atom that carries it (on) to first.
 type Part = { on: number; first: number; atoms: number[] };
@@ -146,12 +146,49 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     const piece = pickAtoms(m, [p.on, ...p.atoms]), on = p.atoms.filter((i) => i < p.on).length;
     return keyOf({ atoms: piece.atoms.map((a, i) => (i === on ? { ...CAP, location: a.location } : a)), bonds: piece.bonds.map((b) => (b.atoms.includes(on) ? { type: b.type, atoms: b.atoms } : b)) });
   };
-  // The one of them a change means: the only one, or the one occurrence says.
-  const one = (parts: Part[] | string, what: string, occurrence?: number): Part | string => {
-    if (typeof parts === "string") return parts;
-    if (!parts.length) return `there is no ${what.slice(0, 40)}. ${places()}`;
-    if (occurrence !== undefined) return parts[occurrence - 1] ?? `there ${parts.length === 1 ? "is 1" : `are ${parts.length}`} ${what}, so no occurrence ${occurrence}`;
-    return parts.length === 1 ? parts[0] : `there are ${parts.length} ${what} (on ${parts.map((p) => who(p.on)).join(", ")}): say which with occurrence (1 to ${parts.length}, in the order of the compound's atoms)`;
+  // A group's class as chemists say it of an alcohol: 1°, 2° or 3° for the carbons on the sp3 carbon that carries it.
+  // On an aryl (4) or other sp2 or sp carbon (5) it has none (a phenol is not 2°); 0 on an atom that is not carbon.
+  const rank = (p: Part) => {
+    if (!is(p.on, "C")) return 0;
+    const near = bondedTo(m), multiple = m.bonds.filter((b) => b.type > 1 && b.atoms.includes(p.on) && !b.atoms.includes(p.first));
+    if (multiple.length) return multiple.some((b) => aromatic(near, b.atoms, ringBonds(m))) ? 4 : 5;
+    return Math.min(3, Math.max(1, near[p.on].filter((j) => j !== p.first && (m.atoms[j].text ? labelKey(m.atoms[j].text!).first : m.atoms[j].label) === "C").length));
+  };
+  const CLASS = /^(?:(both|all)\s+)?(?:([123])°\s*|(prim(?:ary)?|sec(?:ondary)?|tert(?:iary)?)[.\s-]\s*|([pst])-)?(\S+)$/, RANKS: Record<string, number> = { p: 1, s: 2, t: 3 }, WORDS = ["", "primary", "secondary", "tertiary", "aryl", "sp²"];
+  const NUMBERS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"], count = (n: number) => NUMBERS[n] ?? String(n);
+  const and = (xs: string[], word = "and") => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} ${word} ${xs[xs.length - 1]}` : xs[0]);
+  // The places a group's name means, each changed by act: the only one, the one occurrence says, the one of a class
+  // (2° OTBS: also primary, secondary, tertiary, prim, sec, tert, and p-, s-, t- where the group is on an sp3 carbon),
+  // or with both or all each one, as the user says it. A name that is a label whole (t-Bu) is that label. More than
+  // one with nothing to pick by is refused with their classes, so the AI app's next call is right.
+  const each = (text: string, occurrence: number | undefined, on: number | undefined, to: unknown, act: (p: Part) => string | undefined): string | undefined => {
+    const t = text.trim(), x = labelKey(t).atoms || m.atoms.some((a) => a.text === t) ? null : CLASS.exec(t), label = x ? x[5] : t;
+    const all = named(label);
+    if (typeof all === "string") return all;
+    // (p-OMe on an arene is para, not primary.)
+    const cls = x && (x[2] ? Number(x[2]) : x[3] || (x[4] && all.some((p) => rank(p) >= 1 && rank(p) <= 3)) ? RANKS[(x[3] ?? x[4])[0]] : undefined);
+    if (x?.[1] && occurrence !== undefined) return `occurrence does not go with ${x[1]}`;
+    const parts = all.filter((p) => (on === undefined || p.on === on) && (!cls || rank(p) === cls)), what = `${cls ? `${cls}° ` : ""}${label}${on === undefined ? "" : ` on ${who(on)}`}`;
+    // How many, in words where a class goes before the group (two 2° OH, not 2 2° OH).
+    const are = (n: number) => `there ${n === 1 ? "is" : "are"} ${cls ? count(n) : n} ${what}`;
+    // The classes it has, said in words: OTBS is on a secondary carbon and a tertiary carbon; OH is on two secondary carbons.
+    // (Worked out only for a refusal or a choice: a plain swap of the one group there needs none of it.)
+    const here = all.filter((p) => on === undefined || p.on === on), ks = parts.length === 1 && !cls ? [] : here.map(rank).sort();
+    const where = `${label} is on ${and([...new Set(ks)].map((k) => { const n = ks.filter((y) => y === k).length; return n === 1 ? `${k >= 4 ? "an" : "a"} ${WORDS[k]} carbon` : `${count(n)} ${WORDS[k]} carbons`; }))}`;
+    if (!parts.length) return cls && here.length && ks.every(Boolean) ? `there is no ${what.slice(0, 40)}: ${where}` : `there is no ${what.slice(0, 40)}. ${places()}`;
+    if (x?.[1]) {
+      if (x[1] === "both" && parts.length !== 2) return `both is for 2, and ${are(parts.length)}`;
+      // Each by its atoms as they were, as a change before it takes atoms away.
+      for (const [o, f, ...a] of parts.map((p) => [p.on, p.first, ...p.atoms].map((i) => was[i]))) { const back = (w: number) => was.indexOf(w), wrong = act({ on: back(o), first: back(f), atoms: a.map(back) }); if (wrong) return wrong; }
+      note(`Changed ${parts.length === 1 ? "one" : parts.length === 2 ? "both" : `all ${parts.length}`} ${what} to ${to ?? "H"}.`);
+      return undefined;
+    }
+    if (occurrence !== undefined) return parts[occurrence - 1] ? act(parts[occurrence - 1]) : `${are(parts.length)}, so no occurrence ${occurrence}`;
+    if (parts.length === 1) return act(parts[0]);
+    const alone = [1, 2, 3].filter((k) => ks.filter((y) => y === k).length === 1), many = parts.length === 2 ? "both" : "all";
+    return on === undefined && !cls && alone.length && ks.every(Boolean)
+      ? `${where}: write ${and(alone.map((k) => `${k}° ${label}`), "or")} for one, or ${many} ${label}${alone.length < parts.length ? `, or say which with occurrence (1 to ${parts.length}, in the order of the compound's atoms)` : ""}`
+      : `${are(parts.length)} (on ${parts.map((p) => who(p.on)).join(", ")}): say which with occurrence (1 to ${parts.length}, in the order of the compound's atoms)${on === undefined ? `, or write ${many} ${what}` : ""}`;
   };
   // The group an atom carries: its one part through an atom that is not carbon (OH, OTBS, =O, Br), which is the
   // functional group a chemist means; with none, its one carbon part, when the atom has other bonds to stay on (an
@@ -257,24 +294,26 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   // one bond apart, or new atoms that lie on others, have the new ring drawn again alone (ringed); only when that does
   // not work is the compound laid out again, and the reply says so. ----
   const configs: [string, string][] = []; // each label config asks for, by its atom's number or its bond's two
-  type Site = { at: number[]; say: string; run: (ats: number[]) => string | undefined };
+  // kind: what a chemist calls the place (ester, lactone, ketone), for at to name it.
+  type Site = { at: number[]; say: string; kind?: string; run: (ats: number[]) => string | undefined };
   const is = (i: number, ...labels: string[]) => !m.atoms[i].text && labels.includes(m.atoms[i].label);
   const hs = (i: number) => (m.atoms[i].text ? 0 : hydrogens(m.atoms[i].label, m.atoms[i].charge ?? 0, bondOrders(m)[i], m.atoms[i].radical) + bondedTo(m)[i].filter((j) => is(j, "H")).length);
   const typeOf = (i: number, j: number) => m.bonds[bondOf(i, j)]?.type;
   const heavy = (near: number[][], i: number) => near[i].filter((j) => !is(j, "H"));
   const ROOM = "there is no room for the new atom: give the compound as text";
   const ORDER: Record<string, number> = { single: 1, double: 2, triple: 3 };
+  const KINDS = ["aldehyde", "ketone", "acid", "ester", "lactone", "acetonide", "carbonate", "acetal", "epoxide"];
   const PG = ["TBS", "TBDPS", "TES", "TMS", "TIPS", "Bn", "PMB", "MOM", "Ac", "Bz", "Boc", "Cbz", "Fmoc"], DIOL = ["acetonide", "carbonate"];
   // One atom by its number, or two ("4-5").
   const spots = (at: string): number[] | string => {
     const ends = at.split("-").map(atomAt), bad = ends.find((e): e is string => typeof e === "string");
     return bad ?? (ends.length > 2 || ends[0] === ends[1] ? "at is an atom's number, or two with a hyphen ('4-5')" : (ends as number[]));
   };
-  // The one place a transformation is made at: the place every atom of at is part of.
-  const chosen = (name: string, sites: Site[], ats: number[]): string | undefined => {
-    const found = sites.filter((s) => ats.every((i) => s.at.includes(i)));
+  // The one place a transformation is made at: the place every atom of at is part of, or of the kind at names.
+  const chosen = (name: string, sites: Site[], ats: number[], kind?: string): string | undefined => {
+    const found = sites.filter((s) => ats.every((i) => s.at.includes(i)) && (!kind || s.kind === kind));
     if (found.length === 1) return found[0].run(ats);
-    return found.length ? `${name} fits ${found.length} places (${found.map((s) => s.say).join("; ")}): say which with at, an atom's number${found.some((s) => !s.at.some((i) => m.atoms[i].tag)) ? " (number an atom in the compound's SMILES to name it, as [CH2:7])" : ""}` : `${name} fits no place ${ats.length ? `at ${ats.map(who).join(" and ")}` : "in this compound"}. ${places()}`;
+    return found.length ? `${name} fits ${found.length} places (${found.map((s) => s.say).join("; ")}): say which with at, an atom's number${found.some((s) => !s.at.some((i) => m.atoms[i].tag)) ? " (number an atom in the compound's SMILES to name it, as [CH2:7])" : ""}` : kind && sites.some((s) => s.kind) ? `${name} fits no ${kind} in this compound, only ${and([...new Set(sites.flatMap((s) => (s.kind ? [s.kind] : [])))].map((k) => `${/^[aeiou]/.test(k) ? "an" : "a"} ${k}`))}` : `${name} fits no ${kind ?? "place"} ${ats.length ? `at ${ats.map(who).join(" and ")}` : "in this compound"}. ${places()}`;
   };
   // A new atom on an atom: at a point, or where the bond tool puts it. Where an atom is there already, it goes 60° to
   // one side or the other (the O of a ring just opened is where the bond tool would put the acid's), or a little off
@@ -434,9 +473,9 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   };
 
   // A label in a label's place, for each label atom that test fits: CH2OH to CHO.
-  const relabel = (test: RegExp, to: (text: string) => string): Site[] => {
+  const relabel = (test: RegExp, to: (text: string) => string, kind?: (text: string) => string): Site[] => {
     const near = bondedTo(m);
-    return m.atoms.flatMap((a, i): Site[] => (a.text && test.test(a.text) && near[i].length === 1 ? [{ at: [i, near[i][0]], say: `${a.text} on ${who(near[i][0])}`, run: () => (labelKey(to(a.text!)).atoms ? put({ on: near[i][0], first: i, atoms: [i] }, to(a.text!)) : `Octet cannot read ${to(a.text!)} as a group`) }] : []));
+    return m.atoms.flatMap((a, i): Site[] => (a.text && test.test(a.text) && near[i].length === 1 ? [{ at: [i, near[i][0]], say: `${a.text} on ${who(near[i][0])}`, kind: kind?.(a.text), run: () => (labelKey(to(a.text!)).atoms ? put({ on: near[i][0], first: i, atoms: [i] }, to(a.text!)) : `Octet cannot read ${to(a.text!)} as a group`) }] : []));
   };
   // Each O-H, N-H and S-H (with acids, each acid's O-H alone), to take a group in place of its hydrogen: an atom at the
   // end of a chain becomes the label a chemist writes (OTBS, NHBoc), and one in a chain or ring takes the group on it.
@@ -465,7 +504,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       const os = near[c].filter((j) => is(j, "O") && near[j].length === 2 && typeOf(c, j) === 1), rest = near[c].filter((j) => !os.includes(j));
       if (!is(c, "C") || os.length !== 2 || !reach(near, os[0], c).has(os[1]) || !(kind === "acetonide" ? rest.length === 2 && rest.every((j) => is(j, "C") && near[j].length === 1) : rest.length === 1 && is(rest[0], "O") && typeOf(c, rest[0]) === 2)) return [];
       const on = os.map((o) => near[o].find((j) => j !== c)!);
-      return [{ at: [c, ...os, ...on], say: `the ${kind} on ${on.map(who).join(" and ")}`, run: () => { for (const i of on) hit[i] = true; return drop([c, ...rest]) ? undefined : NOTHING; } }];
+      return [{ at: [c, ...os, ...on], say: `the ${kind} on ${on.map(who).join(" and ")}`, kind, run: () => { for (const i of on) hit[i] = true; return drop([c, ...rest]) ? undefined : NOTHING; } }];
     });
   };
   // A diol's acetonide or carbonate made: the two O-H and a new carbon close a ring with the atoms between a and b.
@@ -499,7 +538,8 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   };
   // Each ester hydrolysed; or, with reduce, each aldehyde, ketone, acid and ester reduced to its alcohols.
   const acyls = (reduce: boolean): Site[] => carbonyls().filter((s) => reduce || s.r !== undefined).map(({ c, o, x, r }): Site => ({
-    at: [c, o, ...(x === undefined ? [] : [x]), ...(r === undefined ? [] : [r])], say: `the ${x === undefined ? "C=O" : r === undefined ? "acid" : "ester"} at ${who(c)}`,
+    at: [c, o, ...(x === undefined ? [] : [x]), ...(r === undefined ? [] : [r])], say: `the ${x === undefined ? "C=O" : r === undefined ? "acid" : reach(bondedTo(m), c, x).has(r) ? "lactone" : "ester"} at ${who(c)}`,
+    kind: x === undefined ? (hs(c) ? "aldehyde" : "ketone") : r === undefined ? "acid" : reach(bondedTo(m), c, x).has(r) ? "lactone" : "ester",
     run: (ats) => {
       const keep = x === undefined ? "" : r === undefined ? "acid" : stays(c, x, r, ats), rest = () => [...reach(bondedTo(m), x!, c)];
       if (keep === "alcohol") return take({ on: x!, first: c, atoms: [...reach(bondedTo(m), c, x!)] });
@@ -517,7 +557,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     return m.atoms.flatMap((_, c): Site[] => {
       const os = near[c].filter((j) => is(j, "O")), rs = os.map((o) => heavy(near, o).find((j) => j !== c)!);
       if (!is(c, "C") || os.length !== 2 || os.some((o) => typeOf(c, o) !== 1 || heavy(near, o).length !== 2) || rs.some((r) => !is(r, "C")) || [c, ...os].some((i) => taken.has(i))) return [];
-      return [{ at: [c, ...os, ...rs], say: `the acetal at ${who(c)}`, run: (ats) => {
+      return [{ at: [c, ...os, ...rs], say: `the acetal at ${who(c)}`, kind: "acetal", run: (ats) => {
         const apart = bondedTo({ ...m, bonds: m.bonds.filter((b) => !(b.atoms.includes(c) && b.atoms.some((i) => os.includes(i)))) }), parts: Set<number>[] = [];
         for (const i of [c, ...os]) if (!parts.some((p) => p.has(i))) parts.push(reach(apart, i, -1));
         const size = (p: Set<number>) => p.size + (p.has(c) ? 1 : 0), named = parts.filter((p) => ats.some((i) => p.has(i))), most = Math.max(...parts.map(size));
@@ -535,9 +575,9 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     });
   };
   // Each C=C (and, with triple, C≡C) that is not in an aromatic ring.
-  const alkenes = (name: string, run: (a: number, b: number, ats: number[]) => string | undefined, ats: number[], triple = false) => {
+  const alkenes = (name: string, run: (a: number, b: number, ats: number[]) => string | undefined, ats: number[], kind?: string, triple = false) => {
     const near = bondedTo(m), inRing = ringBonds(m);
-    return chosen(name, m.bonds.flatMap((b): Site[] => ((b.type === 2 || (triple && b.type === 3)) && b.atoms.every((i) => is(i, "C")) && !aromatic(near, b.atoms, inRing) ? [{ at: b.atoms, say: `the C${b.type === 2 ? "=" : "#"}C of ${who(b.atoms[0])} and ${who(b.atoms[1])}`, run: (named) => run(b.atoms[0], b.atoms[1], named) }] : [])), ats);
+    return chosen(name, m.bonds.flatMap((b): Site[] => ((b.type === 2 || (triple && b.type === 3)) && b.atoms.every((i) => is(i, "C")) && !aromatic(near, b.atoms, inRing) ? [{ at: b.atoms, say: `the C${b.type === 2 ? "=" : "#"}C of ${who(b.atoms[0])} and ${who(b.atoms[1])}`, run: (named) => run(b.atoms[0], b.atoms[1], named) }] : [])), ats, kind);
   };
   // The compound laid out again, as one read from a file is: for a ring closed between atoms that are far apart, and
   // for new atoms that lie on others, when the new ring cannot be drawn alone (ringed). Indigo lays out a MOL file of it (which keeps the order of its atoms and bonds;
@@ -617,36 +657,37 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       m = out;
     }
   };
-  const protect = (name: string, group: string | undefined, ats: number[]) => (DIOL.includes(group!) ? (ats.length === 2 ? bridge(group!, ats[0], ats[1]) : `${group} takes at: the two atoms that carry a diol's hydroxyls ('4-5')`) : PG.includes(group!) ? chosen(name, free(group!, false), ats) : `${name} takes with: ${[...PG, ...DIOL].join(", ")}`);
-  const DO: Record<(typeof NAMED)[number], (c: Change, ats: number[]) => string | undefined> = {
-    protect: (c, ats) => protect("protect", c.with, ats),
-    deprotect: (c, ats) => (DIOL.includes(c.with!) ? chosen("deprotect", bridges(c.with!), ats) : PG.includes(c.with!) ? chosen("deprotect", off(c.with!), ats) : `deprotect takes with: ${[...PG, ...DIOL].join(", ")}`),
-    acetylate: (_, ats) => protect("acetylate", "Ac", ats),
-    benzoylate: (_, ats) => protect("benzoylate", "Bz", ats),
-    form_carbonate: (_, ats) => protect("form_carbonate", "carbonate", ats),
-    esterify: (c, ats) => (c.with && labelKey(c.with).atoms ? chosen("esterify", free(c.with, !ats.length), ats) : "esterify takes with: the group the O-H takes (Me, Et, Bn, Ac)"),
-    hydrolyse: (_, ats) => { const sites = [...acyls(false), ...relabel(/^(CO2|COO)(?!H$)./, () => "CO2H"), ...["Ac", "Bz"].flatMap((g) => off(g, false)), ...["TBS", "TBDPS", "TES", "TMS", "TIPS", "MOM"].flatMap((g) => off(g)), ...DIOL.flatMap(bridges)]; return chosen("hydrolyse", [...sites, ...acetals(sites)], ats); },
-    oxidise: (_, ats) => {
+  const protect = (name: string, group: string | undefined, ats: number[], kind?: string) => (DIOL.includes(group!) ? (ats.length === 2 ? bridge(group!, ats[0], ats[1]) : `${group} takes at: the two atoms that carry a diol's hydroxyls ('4-5')`) : PG.includes(group!) ? chosen(name, free(group!, false), ats, kind) : `${name} takes with: ${[...PG, ...DIOL].join(", ")}`);
+  // kind: the kind of place at names (lactone), as chosen takes it.
+  const DO: Record<(typeof NAMED)[number], (c: Change, ats: number[], kind?: string) => string | undefined> = {
+    protect: (c, ats, k) => protect("protect", c.with, ats, k),
+    deprotect: (c, ats, k) => (DIOL.includes(c.with!) ? chosen("deprotect", bridges(c.with!), ats, k) : PG.includes(c.with!) ? chosen("deprotect", off(c.with!), ats, k) : `deprotect takes with: ${[...PG, ...DIOL].join(", ")}`),
+    acetylate: (_, ats, k) => protect("acetylate", "Ac", ats, k),
+    benzoylate: (_, ats, k) => protect("benzoylate", "Bz", ats, k),
+    form_carbonate: (_, ats, k) => protect("form_carbonate", "carbonate", ats, k),
+    esterify: (c, ats, k) => (c.with && labelKey(c.with).atoms ? chosen("esterify", free(c.with, !ats.length), ats, k) : "esterify takes with: the group the O-H takes (Me, Et, Bn, Ac)"),
+    hydrolyse: (_, ats, k) => { const sites = [...acyls(false), ...relabel(/^(CO2|COO)(?!H$)./, () => "CO2H"), ...["Ac", "Bz"].flatMap((g) => off(g, false)), ...["TBS", "TBDPS", "TES", "TMS", "TIPS", "MOM"].flatMap((g) => off(g)), ...DIOL.flatMap(bridges)]; return chosen("hydrolyse", [...sites, ...acetals(sites)], ats, k); },
+    oxidise: (_, ats, k) => {
       const near = bondedTo(m);
       return chosen("oxidise", [
         ...m.atoms.flatMap((_x, c): Site[] => (is(c, "C") && hs(c) ? near[c].filter((x) => is(x, "O") && typeOf(c, x) === 1 && heavy(near, x).length === 1 && hs(x)).map((x) => ({ at: [c, x], say: `the O-H on ${who(c)}`, run: () => put({ on: c, first: x, atoms: [x, ...near[x].filter((j) => j !== c)] }, "=O") })) : [])),
-        ...carbonyls().filter((s) => s.x === undefined && hs(s.c)).map(({ c, o }): Site => ({ at: [c, o], say: `the aldehyde at ${who(c)}`, run: () => grow(c, "OH") })),
-        ...relabel(/^CH2OH$/, () => "CHO"), ...relabel(/^CHO$/, () => "CO2H")], ats);
+        ...carbonyls().filter((s) => s.x === undefined && hs(s.c)).map(({ c, o }): Site => ({ at: [c, o], say: `the aldehyde at ${who(c)}`, kind: "aldehyde", run: () => grow(c, "OH") })),
+        ...relabel(/^CH2OH$/, () => "CHO"), ...relabel(/^CHO$/, () => "CO2H", () => "aldehyde")], ats, k);
     },
-    reduce: (_, ats) => chosen("reduce", [...acyls(true), ...relabel(/^CHO$|^(CO2|COO)./, () => "CH2OH")], ats),
-    hydrogenate: (_, ats) => alkenes("hydrogenate", (a, b) => retype(bondOf(a, b), 1), ats, true),
-    epoxidise: (_, ats) => alkenes("epoxidise", (a, b) => {
+    reduce: (_, ats, k) => chosen("reduce", [...acyls(true), ...relabel(/^CHO$|^(CO2|COO)./, () => "CH2OH", (t) => (t === "CHO" ? "aldehyde" : /H$/.test(t) ? "acid" : "ester"))], ats, k),
+    hydrogenate: (_, ats, k) => alkenes("hydrogenate", (a, b) => retype(bondOf(a, b), 1), ats, k, true),
+    epoxidise: (_, ats, k) => alkenes("epoxidise", (a, b) => {
       retype(bondOf(a, b), 1);
       const o = plant(a, "O", 1, round([a, b], 1)[0]);
       if (o === undefined) return ROOM;
       rings.push([a, b, o].map((i) => was[i]));
       return link(b, o);
-    }, ats),
-    dihydroxylate: (_, ats) => alkenes("dihydroxylate", (a, b) => retype(bondOf(a, b), 1) ?? grow(a, "OH") ?? grow(b, "OH"), ats),
+    }, ats, k),
+    dihydroxylate: (_, ats, k) => alkenes("dihydroxylate", (a, b) => retype(bondOf(a, b), 1) ?? grow(a, "OH") ?? grow(b, "OH"), ats, k),
     hydroborate: (c, ats) => (ats.length === 1 ? alkenes("hydroborate", (a, b) => retype(bondOf(a, b), 1) ?? grow(ats[0], c.with ?? "OH"), ats) : "hydroborate takes at: the carbon of the C=C that takes the OH"),
-    open_epoxide: (c, ats) => {
+    open_epoxide: (c, ats, k) => {
       const near = bondedTo(m);
-      return chosen("open_epoxide", m.atoms.flatMap((_x, x): Site[] => (is(x, "O") && near[x].length === 2 && bondOf(near[x][0], near[x][1]) >= 0 ? [{ at: [x, ...near[x]], say: `the epoxide on ${near[x].map(who).join(" and ")}`, run: () => {
+      return chosen("open_epoxide", m.atoms.flatMap((_x, x): Site[] => (is(x, "O") && near[x].length === 2 && bondOf(near[x][0], near[x][1]) >= 0 ? [{ at: [x, ...near[x]], say: `the epoxide on ${near[x].map(who).join(" and ")}`, kind: "epoxide", run: () => {
         const on = near[x].filter((i) => ats.includes(i));
         if (on.length !== 1) return "open_epoxide takes at: the carbon that loses the oxygen";
         const wrong = cut(on[0], x);
@@ -656,7 +697,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
         const plain: Mol = { ...m, bonds: m.bonds.map((b) => (b.stereo && b.atoms[0] === on[0] ? { ...b, stereo: undefined } : b)) }, [l0, l1] = [stereoLabels(m)?.atoms, stereoLabels(plain)?.atoms];
         if (m.atoms.every((_a, i) => i === on[0] || l0?.[i] === l1?.[i])) m = plain;
         return c.with ? grow(on[0], c.with) : undefined;
-      } }] : [])), ats);
+      } }] : [])), ats, k);
     },
     lactonise: (_, ats) => {
       const near = bondedTo(m), acyl = carbonyls().filter((s) => s.x !== undefined && ats.includes(s.c)), on = ats.find((i) => i !== acyl[0]?.c);
@@ -695,13 +736,14 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       if (c.with !== undefined && (typeof c.with !== "string" || !c.with.trim() || c.with.length > 40)) return "with is a group's label, or a compound's number";
       // An O-H, S-H or N-H that an earlier change wrote as a label (OH) is that atom: a transformation reads atoms.
       m.atoms.forEach((x, i) => { if (x.text && /^(OH|SH|NH2?)$/.test(x.text)) m = setElement(m, i, x.label); });
-      // at as a label (OTBS) is the atom the label is on, as it is for set, add and remove.
-      const parts = !at || c.do === "join" || on !== undefined || at.includes("-") ? undefined : named(at);
-      const ats = c.do === "join" || !at ? [] : !parts ? (on !== undefined ? [on] : spots(at)) : typeof parts === "string" ? parts : parts.length === 1 ? [parts[0].on] : parts.length ? `there are ${parts.length} ${at.slice(0, 40)} (on ${parts.map((p) => who(p.on)).join(", ")}): give at as the number of the atom the group is on` : `there is no ${at.slice(0, 40)}. ${places()}`;
+      // at as a kind of place (lactone, ester, acetonide), as a chemist names it: the places of that kind. at as a label
+      // (OTBS) is the atom the label is on, as it is for set, add and remove.
+      const kind = KINDS.find((k) => k === at?.toLowerCase()), parts = !at || kind || c.do === "join" || on !== undefined || at.includes("-") ? undefined : named(at);
+      const ats = c.do === "join" || !at || kind ? [] : !parts ? (on !== undefined ? [on] : spots(at)) : typeof parts === "string" ? parts : parts.length === 1 ? [parts[0].on] : parts.length ? `there are ${parts.length} ${at.slice(0, 40)} (on ${parts.map((p) => who(p.on)).join(", ")}): give at as the number of the atom the group is on` : `there is no ${at.slice(0, 40)}. ${places()}`;
       if (typeof ats === "string") return ats;
       // A transformation says what it does at a centre (a group goes on or comes off an O; a centre is made or goes),
       // so the reply has no word on a centre that keeps its configuration, as it has for set, add and remove.
-      const had = new Set(was.filter((_, i) => hit[i])), wrong = DO[c.do as (typeof NAMED)[number]](c, ats);
+      const had = new Set(was.filter((_, i) => hit[i])), wrong = DO[c.do as (typeof NAMED)[number]](c, ats, kind);
       hit = was.map((w) => had.has(w));
       return wrong;
     }
@@ -710,7 +752,7 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
       if (at && on === undefined) return "with swap, at is the number of the atom the group is on";
       for (const [old, to] of Object.entries(c.swap)) {
         // With at, the group of that name on that atom.
-        const all = named(old), p = one(typeof all === "string" || on === undefined ? all : all.filter((x) => x.on === on), on === undefined ? old : `${old} on ${who(on)}`, c.occurrence), wrong = typeof p === "string" ? p : put(p, to);
+        const wrong = each(old, c.occurrence, on, to, (p) => put(p, to));
         if (wrong) return wrong;
       }
       return undefined;
@@ -718,8 +760,10 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
     if (!at) return "say where with at: an atom's number, or a group's label";
     if (on !== undefined && c.occurrence !== undefined) return "occurrence goes with a label that is there more than once, not with an atom's number";
     if (c.add !== undefined) return on === undefined ? "add takes an atom's number in at: the atom the new group goes on" : grow(on, c.add);
-    const p = on === undefined ? one(named(at), at, c.occurrence) : carried(on);
-    return typeof p === "string" ? p : c.remove ? take(p) : put(p, c.set);
+    const act = (p: Part) => (c.remove ? take(p) : put(p, c.set));
+    if (on === undefined) return each(at, c.occurrence, undefined, c.set, act);
+    const p = carried(on);
+    return typeof p === "string" ? p : act(p);
   };
   for (const [n, c] of changes.entries()) {
     const wrong = make(c);

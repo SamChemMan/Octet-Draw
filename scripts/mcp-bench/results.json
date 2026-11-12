@@ -1,7 +1,7 @@
 {
  "tools": 6,
- "toolsList": 12677,
- "instructions": 2157,
+ "toolsList": 13081,
+ "instructions": 2040,
  "cases": {
   "corpus-chained": {
    "calls": 4,
@@ -14,7 +14,7 @@
    "right": 6,
    "of": 6,
    "warnings": 2,
-   "summary": 1344
+   "summary": 1450
   },
   "gaunt2007-catalysts": {
    "calls": 2,
@@ -27,7 +27,7 @@
    "right": 10,
    "of": 11,
    "warnings": 0,
-   "summary": 667
+   "summary": 840
   },
   "gaunt2007-fig1": {
    "calls": 2,
@@ -40,7 +40,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 354
+   "summary": 386
   },
   "gaunt2007-fig1-cycle": {
    "calls": 2,
@@ -53,7 +53,7 @@
    "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 538
+   "summary": 606
   },
   "gaunt2007-fig11d": {
    "calls": 2,
@@ -66,7 +66,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 443
+   "summary": 519
   },
   "gaunt2007-fig13": {
    "calls": 2,
@@ -79,7 +79,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 426
+   "summary": 473
   },
   "gaunt2007-fig14": {
    "calls": 2,
@@ -92,7 +92,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 425
+   "summary": 476
   },
   "gaunt2007-fig17": {
    "calls": 2,
@@ -105,7 +105,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 507
+   "summary": 571
   },
   "gaunt2007-fig3": {
    "calls": 2,
@@ -118,7 +118,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 494
+   "summary": 567
   },
   "gaunt2007-fig8": {
    "calls": 2,
@@ -131,7 +131,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 393
+   "summary": 427
   },
   "gaunt2007-fig9": {
    "calls": 2,
@@ -144,7 +144,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 369
+   "summary": 399
   },
   "grocott2025-fig2a": {
    "calls": 2,
@@ -157,7 +157,7 @@
    "right": 3,
    "of": 4,
    "warnings": 0,
-   "summary": 507
+   "summary": 522
   },
   "grocott2025-fig2a-catalyst": {
    "calls": 2,
@@ -183,7 +183,7 @@
    "right": 20,
    "of": 20,
    "warnings": 20,
-   "summary": 1232
+   "summary": 1369
   },
   "grocott2025-fig2c": {
    "calls": 2,
@@ -196,7 +196,7 @@
    "right": 4,
    "of": 4,
    "warnings": 1,
-   "summary": 644
+   "summary": 742
   },
   "grocott2025-fig3a": {
    "calls": 2,
@@ -209,7 +209,7 @@
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 354
+   "summary": 408
   },
   "grocott2025-fig3b": {
    "calls": 2,
@@ -222,7 +222,7 @@
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 369
+   "summary": 459
   },
   "grocott2025-fig4a": {
    "calls": 2,
@@ -235,7 +235,7 @@
    "right": 1,
    "of": 2,
    "warnings": 1,
-   "summary": 570
+   "summary": 630
   },
   "grocott2025-fig4c": {
    "calls": 2,
@@ -248,7 +248,7 @@
    "right": 1,
    "of": 2,
    "warnings": 0,
-   "summary": 428
+   "summary": 460
   },
   "grocott2025-fig4d": {
    "calls": 2,
@@ -261,7 +261,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 343
+   "summary": 373
   },
   "grocott2025-fig4e": {
    "calls": 2,
@@ -274,7 +274,796 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 507
+   "summary": 537
+  },
+  "lines-gaunt2007-catalysts": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 560,
+   "read": 596,
+   "ms": 419,
+   "slowest": 419,
+   "right": 10,
+   "of": 11,
+   "warnings": 0,
+   "summary": 840
+  },
+  "lines-gaunt2007-fig1": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 176,
+   "read": 205,
+   "ms": 62,
+   "slowest": 62,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 386
+  },
+  "lines-gaunt2007-fig1-cycle": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 234,
+   "read": 316,
+   "ms": 52,
+   "slowest": 52,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 606
+  },
+  "lines-gaunt2007-fig11d": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 302,
+   "read": 220,
+   "ms": 87,
+   "slowest": 87,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 519
+  },
+  "lines-gaunt2007-fig13": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 283,
+   "read": 265,
+   "ms": 90,
+   "slowest": 90,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 473
+  },
+  "lines-gaunt2007-fig14": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 285,
+   "read": 228,
+   "ms": 106,
+   "slowest": 106,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 476
+  },
+  "lines-gaunt2007-fig17": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 310,
+   "read": 403,
+   "ms": 107,
+   "slowest": 107,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 571
+  },
+  "lines-gaunt2007-fig3": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 276,
+   "read": 298,
+   "ms": 54,
+   "slowest": 54,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 567
+  },
+  "lines-gaunt2007-fig8": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 238,
+   "read": 173,
+   "ms": 158,
+   "slowest": 158,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 427
+  },
+  "lines-gaunt2007-fig9": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 181,
+   "read": 213,
+   "ms": 24,
+   "slowest": 24,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 399
+  },
+  "lines-grocott2025-fig2a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 268,
+   "read": 198,
+   "ms": 23,
+   "slowest": 23,
+   "right": 3,
+   "of": 4,
+   "warnings": 0,
+   "summary": 522
+  },
+  "lines-grocott2025-fig2a-catalyst": {
+   "calls": 1,
+   "failed": 1,
+   "coerced": 0,
+   "sent": 62,
+   "read": 91,
+   "ms": 1,
+   "slowest": 1,
+   "right": 0,
+   "of": 1,
+   "warnings": 0,
+   "summary": 149
+  },
+  "lines-grocott2025-fig2b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 883,
+   "read": 824,
+   "ms": 139,
+   "slowest": 139,
+   "right": 20,
+   "of": 20,
+   "warnings": 20,
+   "summary": 1369
+  },
+  "lines-grocott2025-fig2c": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 427,
+   "read": 571,
+   "ms": 107,
+   "slowest": 107,
+   "right": 4,
+   "of": 4,
+   "warnings": 1,
+   "summary": 742
+  },
+  "lines-grocott2025-fig3a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 278,
+   "read": 305,
+   "ms": 352,
+   "slowest": 352,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 407
+  },
+  "lines-grocott2025-fig3b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 325,
+   "read": 218,
+   "ms": 542,
+   "slowest": 542,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 459
+  },
+  "lines-grocott2025-fig4a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 315,
+   "read": 442,
+   "ms": 231,
+   "slowest": 231,
+   "right": 1,
+   "of": 2,
+   "warnings": 1,
+   "summary": 630
+  },
+  "lines-grocott2025-fig4c": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 247,
+   "read": 175,
+   "ms": 22,
+   "slowest": 22,
+   "right": 1,
+   "of": 2,
+   "warnings": 0,
+   "summary": 460
+  },
+  "lines-grocott2025-fig4d": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 136,
+   "read": 166,
+   "ms": 18,
+   "slowest": 18,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 373
+  },
+  "lines-grocott2025-fig4e": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 327,
+   "read": 183,
+   "ms": 50,
+   "slowest": 50,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 537
+  },
+  "lines-proctor2019-scheme11-chain": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 194,
+   "read": 290,
+   "ms": 12,
+   "slowest": 12,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 632
+  },
+  "lines-proctor2019-scheme39": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 164,
+   "read": 211,
+   "ms": 41,
+   "slowest": 41,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 363
+  },
+  "lines-proctor2019-scheme40-scope": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 313,
+   "read": 379,
+   "ms": 22,
+   "slowest": 22,
+   "right": 7,
+   "of": 7,
+   "warnings": 2,
+   "summary": 506
+  },
+  "lines-proctor2019-scheme45-one-pot": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 207,
+   "read": 379,
+   "ms": 89,
+   "slowest": 89,
+   "right": 1,
+   "of": 1,
+   "warnings": 1,
+   "summary": 530
+  },
+  "lines-proctor2019-scheme47": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 447,
+   "read": 279,
+   "ms": 60,
+   "slowest": 60,
+   "right": 6,
+   "of": 6,
+   "warnings": 0,
+   "summary": 769
+  },
+  "lines-proctor2019-scheme53": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 274,
+   "read": 487,
+   "ms": 57,
+   "slowest": 57,
+   "right": 2,
+   "of": 2,
+   "warnings": 1,
+   "summary": 647
+  },
+  "lines-proctor2019-scheme68-quinoline": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 259,
+   "read": 189,
+   "ms": 47,
+   "slowest": 47,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 439
+  },
+  "lines-proctor2019-scheme72-52": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 263,
+   "read": 359,
+   "ms": 52,
+   "slowest": 52,
+   "right": 1,
+   "of": 1,
+   "warnings": 1,
+   "summary": 459
+  },
+  "lines-proctor2019-scheme72-73-scope": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 758,
+   "read": 449,
+   "ms": 93,
+   "slowest": 93,
+   "right": 9,
+   "of": 9,
+   "warnings": 0,
+   "summary": 1245
+  },
+  "lines-proctor2019-scheme9-mechanism": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 283,
+   "read": 217,
+   "ms": 31,
+   "slowest": 31,
+   "right": 3,
+   "of": 4,
+   "warnings": 0,
+   "summary": 531
+  },
+  "lines-robinson2026-fig2-mechanism": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 225,
+   "read": 412,
+   "ms": 18,
+   "slowest": 18,
+   "warnings": 1,
+   "summary": 949
+  },
+  "lines-robinson2026-fig2-reaction": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 252,
+   "read": 199,
+   "ms": 45,
+   "slowest": 45,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 502
+  },
+  "lines-robinson2026-fig3a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 238,
+   "read": 312,
+   "ms": 344,
+   "slowest": 344,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 393
+  },
+  "lines-robinson2026-fig3b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 381,
+   "read": 735,
+   "ms": 53,
+   "slowest": 53,
+   "right": 4,
+   "of": 4,
+   "warnings": 5,
+   "summary": 769
+  },
+  "lines-robinson2026-fig3c": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 319,
+   "read": 321,
+   "ms": 374,
+   "slowest": 374,
+   "right": 2,
+   "of": 2,
+   "warnings": 2,
+   "summary": 493
+  },
+  "lines-robinson2026-fig4a-2x": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 171,
+   "read": 152,
+   "ms": 26,
+   "slowest": 26,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 387
+  },
+  "lines-robinson2026-fig4a-scope": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 652,
+   "read": 491,
+   "ms": 68,
+   "slowest": 68,
+   "right": 19,
+   "of": 19,
+   "warnings": 0,
+   "summary": 1126
+  },
+  "lines-robinson2026-fig5a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 303,
+   "read": 295,
+   "ms": 347,
+   "slowest": 347,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 520
+  },
+  "lines-robinson2026-fig5b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 175,
+   "read": 221,
+   "ms": 15,
+   "slowest": 15,
+   "right": 5,
+   "of": 5,
+   "warnings": 0,
+   "summary": 393
+  },
+  "lines-robinson2026-fig5d": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 338,
+   "read": 210,
+   "ms": 67,
+   "slowest": 67,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 532
+  },
+  "lines-trowbridge2018-fig2a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 244,
+   "read": 234,
+   "ms": 40,
+   "slowest": 40,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 498
+  },
+  "lines-trowbridge2018-fig2a-catalyst": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 90,
+   "read": 431,
+   "ms": 49,
+   "slowest": 49,
+   "right": 2,
+   "of": 2,
+   "warnings": 3,
+   "summary": 679
+  },
+  "lines-trowbridge2018-fig2b-5aq": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 301,
+   "read": 203,
+   "ms": 33,
+   "slowest": 33,
+   "right": 2,
+   "of": 2,
+   "warnings": 0,
+   "summary": 520
+  },
+  "lines-trowbridge2018-fig2b-aldehydes": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 545,
+   "read": 372,
+   "ms": 33,
+   "slowest": 33,
+   "right": 13,
+   "of": 13,
+   "warnings": 0,
+   "summary": 783
+  },
+  "lines-trowbridge2018-fig3a-cycle": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 223,
+   "read": 1093,
+   "ms": 159,
+   "slowest": 159,
+   "right": 3,
+   "of": 3,
+   "warnings": 9,
+   "summary": 2042
+  },
+  "lines-trowbridge2018-fig3a-pathway": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 386,
+   "read": 343,
+   "ms": 58,
+   "slowest": 58,
+   "right": 7,
+   "of": 7,
+   "warnings": 0,
+   "summary": 703
+  },
+  "lines-trowbridge2018-fig3b-d4": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 282,
+   "read": 187,
+   "ms": 19,
+   "slowest": 19,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 474
+  },
+  "lines-trowbridge2018-fig4a-amines": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 594,
+   "read": 747,
+   "ms": 82,
+   "slowest": 82,
+   "right": 12,
+   "of": 12,
+   "warnings": 7,
+   "summary": 1257
+  },
+  "lines-trowbridge2018-fig4b-10a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 269,
+   "read": 180,
+   "ms": 40,
+   "slowest": 40,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 479
+  },
+  "lines-trowbridge2018-fig4c-drugs": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 369,
+   "read": 293,
+   "ms": 71,
+   "slowest": 71,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 479
+  },
+  "lines-zu2025-fig2a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 264,
+   "read": 183,
+   "ms": 32,
+   "slowest": 32,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 505
+  },
+  "lines-zu2025-fig2b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 222,
+   "read": 298,
+   "ms": 32,
+   "slowest": 32,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 509
+  },
+  "lines-zu2025-fig2c": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 124,
+   "read": 150,
+   "ms": 20,
+   "slowest": 20,
+   "right": 1,
+   "of": 1,
+   "warnings": 0,
+   "summary": 215
+  },
+  "lines-zu2025-fig3a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 263,
+   "read": 325,
+   "ms": 94,
+   "slowest": 94,
+   "right": 2,
+   "of": 2,
+   "warnings": 2,
+   "summary": 438
+  },
+  "lines-zu2025-fig3b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 258,
+   "read": 362,
+   "ms": 71,
+   "slowest": 71,
+   "right": 2,
+   "of": 2,
+   "warnings": 2,
+   "summary": 432
+  },
+  "lines-zu2025-fig3c": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 263,
+   "read": 421,
+   "ms": 64,
+   "slowest": 64,
+   "right": 2,
+   "of": 2,
+   "warnings": 2,
+   "summary": 410
+  },
+  "lines-zu2025-fig4a": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 286,
+   "read": 197,
+   "ms": 38,
+   "slowest": 38,
+   "right": 3,
+   "of": 3,
+   "warnings": 0,
+   "summary": 510
+  },
+  "lines-zu2025-fig4b": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 314,
+   "read": 501,
+   "ms": 45,
+   "slowest": 45,
+   "right": 3,
+   "of": 3,
+   "warnings": 3,
+   "summary": 753
+  },
+  "lines-zu2025-fig4d": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 283,
+   "read": 309,
+   "ms": 15,
+   "slowest": 15,
+   "warnings": 0,
+   "summary": 893
+  },
+  "lines-zu2025-table1": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 728,
+   "read": 676,
+   "ms": 150,
+   "slowest": 150,
+   "right": 17,
+   "of": 17,
+   "warnings": 2,
+   "summary": 1254
+  },
+  "paper-cycle": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 314,
+   "read": 330,
+   "ms": 26,
+   "slowest": 26,
+   "right": 4,
+   "of": 4,
+   "warnings": 0,
+   "summary": 858
   },
   "proctor2019-scheme11-chain": {
    "calls": 2,
@@ -326,7 +1115,7 @@
    "right": 1,
    "of": 1,
    "warnings": 1,
-   "summary": 488
+   "summary": 530
   },
   "proctor2019-scheme47": {
    "calls": 2,
@@ -378,7 +1167,7 @@
    "right": 1,
    "of": 1,
    "warnings": 1,
-   "summary": 444
+   "summary": 459
   },
   "proctor2019-scheme72-73-scope": {
    "calls": 2,
@@ -391,7 +1180,7 @@
    "right": 9,
    "of": 9,
    "warnings": 0,
-   "summary": 1110
+   "summary": 1245
   },
   "proctor2019-scheme9-mechanism": {
    "calls": 2,
@@ -480,7 +1269,7 @@
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 357
+   "summary": 387
   },
   "robinson2026-fig4a-scope": {
    "calls": 2,
@@ -493,7 +1282,7 @@
    "right": 19,
    "of": 19,
    "warnings": 0,
-   "summary": 1062
+   "summary": 1126
   },
   "robinson2026-fig5a": {
    "calls": 2,
@@ -545,7 +1334,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 482
+   "summary": 558
   },
   "route-gaunt2007-fig3": {
    "calls": 2,
@@ -558,7 +1347,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 532
+   "summary": 605
   },
   "route-grocott2025-fig2a": {
    "calls": 2,
@@ -571,7 +1360,7 @@
    "right": 3,
    "of": 4,
    "warnings": 0,
-   "summary": 545
+   "summary": 560
   },
   "route-grocott2025-fig4e": {
    "calls": 2,
@@ -584,7 +1373,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 546
+   "summary": 576
   },
   "route-proctor2019-scheme47": {
    "calls": 2,
@@ -690,6 +1479,80 @@
    "warnings": 0,
    "summary": 523
   },
+  "say-two-schemes": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 918,
+   "read": 408,
+   "ms": 914,
+   "slowest": 914,
+   "right": 5,
+   "of": 5,
+   "warnings": 0,
+   "summary": 1022
+  },
+  "size-200-structures": {
+   "calls": 2,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 6844,
+   "read": 8017,
+   "ms": 216,
+   "slowest": 215,
+   "right": 4,
+   "of": 4,
+   "warnings": 40,
+   "summary": 9639
+  },
+  "size-cdxml": {
+   "calls": 4,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 294028,
+   "read": 258842,
+   "ms": 312,
+   "slowest": 193,
+   "warnings": 40,
+   "summary": 19111
+  },
+  "size-change-40": {
+   "calls": 3,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 2531,
+   "read": 2017,
+   "ms": 30,
+   "slowest": 18,
+   "warnings": 0,
+   "summary": 1045
+  },
+  "size-peptide": {
+   "calls": 2,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 1837,
+   "read": 470,
+   "ms": 193,
+   "slowest": 193,
+   "right": 1,
+   "of": 1,
+   "warnings": 2,
+   "summary": 219
+  },
+  "size-scheme-50": {
+   "calls": 4,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 5274,
+   "read": 4688,
+   "ms": 354,
+   "slowest": 148,
+   "right": 3,
+   "of": 3,
+   "warnings": 40,
+   "summary": 4307
+  },
   "taxol-chained": {
    "calls": 4,
    "failed": 0,
@@ -701,33 +1564,46 @@
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2402
+   "summary": 2983
+  },
+  "taxol-lines": {
+   "calls": 1,
+   "failed": 0,
+   "coerced": 0,
+   "sent": 1780,
+   "read": 1254,
+   "ms": 1851,
+   "slowest": 1851,
+   "right": 19,
+   "of": 19,
+   "warnings": 0,
+   "summary": 3024
   },
   "taxol-route": {
    "calls": 3,
    "failed": 0,
    "coerced": 0,
    "sent": 3606,
-   "read": 4989,
+   "read": 5570,
    "ms": 1788,
    "slowest": 1776,
    "right": 19,
    "of": 19,
    "warnings": 0,
-   "summary": 2443
+   "summary": 3024
   },
   "taxol-route-paper": {
    "calls": 3,
    "failed": 0,
    "coerced": 0,
    "sent": 3606,
-   "read": 5453,
+   "read": 6034,
    "ms": 1804,
    "slowest": 1792,
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2569
+   "summary": 3150
   },
   "taxol-schemes": {
    "calls": 4,
@@ -740,20 +1616,20 @@
    "right": 19,
    "of": 19,
    "warnings": 40,
-   "summary": 2458
+   "summary": 3039
   },
   "taxol-v1-job": {
    "calls": 34,
    "failed": 0,
    "coerced": 5,
    "sent": 16042,
-   "read": 170521,
+   "read": 176867,
    "ms": 3713,
    "slowest": 1545,
    "right": 19,
    "of": 19,
    "warnings": 9,
-   "summary": 2926
+   "summary": 3524
   },
   "trowbridge2018-fig2a": {
    "calls": 2,
@@ -792,7 +1668,7 @@
    "right": 2,
    "of": 2,
    "warnings": 0,
-   "summary": 488
+   "summary": 520
   },
   "trowbridge2018-fig2b-aldehydes": {
    "calls": 2,
@@ -857,7 +1733,7 @@
    "right": 12,
    "of": 12,
    "warnings": 7,
-   "summary": 1092
+   "summary": 1257
   },
   "trowbridge2018-fig4b-10a": {
    "calls": 2,
@@ -883,7 +1759,7 @@
    "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 351
+   "summary": 479
   },
   "zu2025-fig2a": {
    "calls": 2,
@@ -896,7 +1772,7 @@
    "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 490
+   "summary": 505
   },
   "zu2025-fig2b": {
    "calls": 2,
@@ -922,7 +1798,7 @@
    "right": 1,
    "of": 1,
    "warnings": 0,
-   "summary": 198
+   "summary": 215
   },
   "zu2025-fig3a": {
    "calls": 2,
@@ -935,7 +1811,7 @@
    "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 423
+   "summary": 438
   },
   "zu2025-fig3b": {
    "calls": 2,
@@ -948,7 +1824,7 @@
    "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 400
+   "summary": 432
   },
   "zu2025-fig3c": {
    "calls": 2,
@@ -961,7 +1837,7 @@
    "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 395
+   "summary": 410
   },
   "zu2025-fig4a": {
    "calls": 2,
@@ -974,7 +1850,7 @@
    "right": 3,
    "of": 3,
    "warnings": 0,
-   "summary": 494
+   "summary": 509
   },
   "zu2025-fig4b": {
    "calls": 2,
@@ -987,7 +1863,7 @@
    "right": 3,
    "of": 3,
    "warnings": 3,
-   "summary": 721
+   "summary": 753
   },
   "zu2025-fig4d": {
    "calls": 2,
@@ -1011,883 +1887,7 @@
    "right": 17,
    "of": 17,
    "warnings": 2,
-   "summary": 999
-  },
-  "size-200-structures": {
-   "calls": 2,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 6844,
-   "read": 8017,
-   "ms": 216,
-   "slowest": 215,
-   "right": 4,
-   "of": 4,
-   "warnings": 40,
-   "summary": 9639
-  },
-  "size-cdxml": {
-   "calls": 4,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 294028,
-   "read": 258842,
-   "ms": 312,
-   "slowest": 193,
-   "warnings": 40,
-   "summary": 19111
-  },
-  "size-change-40": {
-   "calls": 3,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 2531,
-   "read": 2017,
-   "ms": 30,
-   "slowest": 18,
-   "warnings": 0,
-   "summary": 1045
-  },
-  "size-peptide": {
-   "calls": 2,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 1837,
-   "read": 470,
-   "ms": 193,
-   "slowest": 193,
-   "right": 1,
-   "of": 1,
-   "warnings": 2,
-   "summary": 219
-  },
-  "size-scheme-50": {
-   "calls": 4,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 5274,
-   "read": 4688,
-   "ms": 354,
-   "slowest": 148,
-   "right": 3,
-   "of": 3,
-   "warnings": 40,
-   "summary": 4307
-  },
-  "lines-gaunt2007-catalysts": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 560,
-   "read": 544,
-   "ms": 419,
-   "slowest": 419,
-   "right": 10,
-   "of": 11,
-   "warnings": 0,
-   "summary": 667
-  },
-  "lines-gaunt2007-fig1": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 176,
-   "read": 195,
-   "ms": 62,
-   "slowest": 62,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 354
-  },
-  "lines-gaunt2007-fig1-cycle": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 234,
-   "read": 292,
-   "ms": 52,
-   "slowest": 52,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 538
-  },
-  "lines-gaunt2007-fig11d": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 302,
-   "read": 188,
-   "ms": 87,
-   "slowest": 87,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 443
-  },
-  "lines-gaunt2007-fig13": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 283,
-   "read": 251,
-   "ms": 90,
-   "slowest": 90,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 426
-  },
-  "lines-gaunt2007-fig14": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 285,
-   "read": 210,
-   "ms": 106,
-   "slowest": 106,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 425
-  },
-  "lines-gaunt2007-fig17": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 310,
-   "read": 383,
-   "ms": 107,
-   "slowest": 107,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 507
-  },
-  "lines-gaunt2007-fig3": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 276,
-   "read": 258,
-   "ms": 54,
-   "slowest": 54,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 494
-  },
-  "lines-gaunt2007-fig8": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 238,
-   "read": 161,
-   "ms": 158,
-   "slowest": 158,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 393
-  },
-  "lines-gaunt2007-fig9": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 181,
-   "read": 205,
-   "ms": 24,
-   "slowest": 24,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 369
-  },
-  "lines-grocott2025-fig2a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 268,
-   "read": 194,
-   "ms": 23,
-   "slowest": 23,
-   "right": 3,
-   "of": 4,
-   "warnings": 0,
-   "summary": 507
-  },
-  "lines-grocott2025-fig2a-catalyst": {
-   "calls": 1,
-   "failed": 1,
-   "coerced": 0,
-   "sent": 62,
-   "read": 91,
-   "ms": 1,
-   "slowest": 1,
-   "right": 0,
-   "of": 1,
-   "warnings": 0,
-   "summary": 149
-  },
-  "lines-grocott2025-fig2b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 883,
-   "read": 764,
-   "ms": 139,
-   "slowest": 139,
-   "right": 20,
-   "of": 20,
-   "warnings": 20,
-   "summary": 1232
-  },
-  "lines-grocott2025-fig2c": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 427,
-   "read": 517,
-   "ms": 107,
-   "slowest": 107,
-   "right": 4,
-   "of": 4,
-   "warnings": 1,
-   "summary": 644
-  },
-  "lines-grocott2025-fig3a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 278,
-   "read": 273,
-   "ms": 352,
-   "slowest": 352,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 353
-  },
-  "lines-grocott2025-fig3b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 325,
-   "read": 150,
-   "ms": 542,
-   "slowest": 542,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 369
-  },
-  "lines-grocott2025-fig4a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 315,
-   "read": 404,
-   "ms": 231,
-   "slowest": 231,
-   "right": 1,
-   "of": 2,
-   "warnings": 1,
-   "summary": 570
-  },
-  "lines-grocott2025-fig4c": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 247,
-   "read": 165,
-   "ms": 22,
-   "slowest": 22,
-   "right": 1,
-   "of": 2,
-   "warnings": 0,
-   "summary": 428
-  },
-  "lines-grocott2025-fig4d": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 136,
-   "read": 158,
-   "ms": 18,
-   "slowest": 18,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 343
-  },
-  "lines-grocott2025-fig4e": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 327,
-   "read": 175,
-   "ms": 50,
-   "slowest": 50,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 507
-  },
-  "lines-proctor2019-scheme11-chain": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 194,
-   "read": 290,
-   "ms": 12,
-   "slowest": 12,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 632
-  },
-  "lines-proctor2019-scheme39": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 164,
-   "read": 211,
-   "ms": 41,
-   "slowest": 41,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 363
-  },
-  "lines-proctor2019-scheme40-scope": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 313,
-   "read": 379,
-   "ms": 22,
-   "slowest": 22,
-   "right": 7,
-   "of": 7,
-   "warnings": 2,
-   "summary": 506
-  },
-  "lines-proctor2019-scheme45-one-pot": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 207,
-   "read": 359,
-   "ms": 89,
-   "slowest": 89,
-   "right": 1,
-   "of": 1,
-   "warnings": 1,
-   "summary": 488
-  },
-  "lines-proctor2019-scheme47": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 447,
-   "read": 279,
-   "ms": 60,
-   "slowest": 60,
-   "right": 6,
-   "of": 6,
-   "warnings": 0,
-   "summary": 769
-  },
-  "lines-proctor2019-scheme53": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 274,
-   "read": 487,
-   "ms": 57,
-   "slowest": 57,
-   "right": 2,
-   "of": 2,
-   "warnings": 1,
-   "summary": 647
-  },
-  "lines-proctor2019-scheme68-quinoline": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 259,
-   "read": 189,
-   "ms": 47,
-   "slowest": 47,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 439
-  },
-  "lines-proctor2019-scheme72-52": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 263,
-   "read": 355,
-   "ms": 52,
-   "slowest": 52,
-   "right": 1,
-   "of": 1,
-   "warnings": 1,
-   "summary": 444
-  },
-  "lines-proctor2019-scheme72-73-scope": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 758,
-   "read": 413,
-   "ms": 93,
-   "slowest": 93,
-   "right": 9,
-   "of": 9,
-   "warnings": 0,
-   "summary": 1110
-  },
-  "lines-proctor2019-scheme9-mechanism": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 283,
-   "read": 217,
-   "ms": 31,
-   "slowest": 31,
-   "right": 3,
-   "of": 4,
-   "warnings": 0,
-   "summary": 531
-  },
-  "lines-robinson2026-fig2-mechanism": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 225,
-   "read": 412,
-   "ms": 18,
-   "slowest": 18,
-   "warnings": 1,
-   "summary": 949
-  },
-  "lines-robinson2026-fig2-reaction": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 252,
-   "read": 199,
-   "ms": 45,
-   "slowest": 45,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 502
-  },
-  "lines-robinson2026-fig3a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 238,
-   "read": 312,
-   "ms": 344,
-   "slowest": 344,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 393
-  },
-  "lines-robinson2026-fig3b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 381,
-   "read": 735,
-   "ms": 53,
-   "slowest": 53,
-   "right": 4,
-   "of": 4,
-   "warnings": 5,
-   "summary": 769
-  },
-  "lines-robinson2026-fig3c": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 319,
-   "read": 321,
-   "ms": 374,
-   "slowest": 374,
-   "right": 2,
-   "of": 2,
-   "warnings": 2,
-   "summary": 493
-  },
-  "lines-robinson2026-fig4a-2x": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 171,
-   "read": 144,
-   "ms": 26,
-   "slowest": 26,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 357
-  },
-  "lines-robinson2026-fig4a-scope": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 652,
-   "read": 471,
-   "ms": 68,
-   "slowest": 68,
-   "right": 19,
-   "of": 19,
-   "warnings": 0,
-   "summary": 1062
-  },
-  "lines-robinson2026-fig5a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 303,
-   "read": 295,
-   "ms": 347,
-   "slowest": 347,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 520
-  },
-  "lines-robinson2026-fig5b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 175,
-   "read": 221,
-   "ms": 15,
-   "slowest": 15,
-   "right": 5,
-   "of": 5,
-   "warnings": 0,
-   "summary": 393
-  },
-  "lines-robinson2026-fig5d": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 338,
-   "read": 210,
-   "ms": 67,
-   "slowest": 67,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 532
-  },
-  "lines-trowbridge2018-fig2a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 244,
-   "read": 234,
-   "ms": 40,
-   "slowest": 40,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 498
-  },
-  "lines-trowbridge2018-fig2a-catalyst": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 90,
-   "read": 431,
-   "ms": 49,
-   "slowest": 49,
-   "right": 2,
-   "of": 2,
-   "warnings": 3,
-   "summary": 679
-  },
-  "lines-trowbridge2018-fig2b-5aq": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 301,
-   "read": 193,
-   "ms": 33,
-   "slowest": 33,
-   "right": 2,
-   "of": 2,
-   "warnings": 0,
-   "summary": 488
-  },
-  "lines-trowbridge2018-fig2b-aldehydes": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 545,
-   "read": 372,
-   "ms": 33,
-   "slowest": 33,
-   "right": 13,
-   "of": 13,
-   "warnings": 0,
-   "summary": 783
-  },
-  "lines-trowbridge2018-fig3a-cycle": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 223,
-   "read": 1093,
-   "ms": 159,
-   "slowest": 159,
-   "right": 3,
-   "of": 3,
-   "warnings": 9,
-   "summary": 2042
-  },
-  "lines-trowbridge2018-fig3a-pathway": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 386,
-   "read": 343,
-   "ms": 58,
-   "slowest": 58,
-   "right": 7,
-   "of": 7,
-   "warnings": 0,
-   "summary": 703
-  },
-  "lines-trowbridge2018-fig3b-d4": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 282,
-   "read": 187,
-   "ms": 19,
-   "slowest": 19,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 474
-  },
-  "lines-trowbridge2018-fig4a-amines": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 594,
-   "read": 637,
-   "ms": 82,
-   "slowest": 82,
-   "right": 12,
-   "of": 12,
-   "warnings": 7,
-   "summary": 1092
-  },
-  "lines-trowbridge2018-fig4b-10a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 269,
-   "read": 180,
-   "ms": 40,
-   "slowest": 40,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 479
-  },
-  "lines-trowbridge2018-fig4c-drugs": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 369,
-   "read": 209,
-   "ms": 71,
-   "slowest": 71,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 351
-  },
-  "lines-zu2025-fig2a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 264,
-   "read": 179,
-   "ms": 32,
-   "slowest": 32,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 490
-  },
-  "lines-zu2025-fig2b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 222,
-   "read": 298,
-   "ms": 32,
-   "slowest": 32,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 509
-  },
-  "lines-zu2025-fig2c": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 124,
-   "read": 144,
-   "ms": 20,
-   "slowest": 20,
-   "right": 1,
-   "of": 1,
-   "warnings": 0,
-   "summary": 198
-  },
-  "lines-zu2025-fig3a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 263,
-   "read": 321,
-   "ms": 94,
-   "slowest": 94,
-   "right": 2,
-   "of": 2,
-   "warnings": 2,
-   "summary": 423
-  },
-  "lines-zu2025-fig3b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 258,
-   "read": 352,
-   "ms": 71,
-   "slowest": 71,
-   "right": 2,
-   "of": 2,
-   "warnings": 2,
-   "summary": 400
-  },
-  "lines-zu2025-fig3c": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 263,
-   "read": 417,
-   "ms": 64,
-   "slowest": 64,
-   "right": 2,
-   "of": 2,
-   "warnings": 2,
-   "summary": 395
-  },
-  "lines-zu2025-fig4a": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 286,
-   "read": 193,
-   "ms": 38,
-   "slowest": 38,
-   "right": 3,
-   "of": 3,
-   "warnings": 0,
-   "summary": 495
-  },
-  "lines-zu2025-fig4b": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 314,
-   "read": 491,
-   "ms": 45,
-   "slowest": 45,
-   "right": 3,
-   "of": 3,
-   "warnings": 3,
-   "summary": 721
-  },
-  "lines-zu2025-fig4d": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 283,
-   "read": 309,
-   "ms": 15,
-   "slowest": 15,
-   "warnings": 0,
-   "summary": 893
-  },
-  "lines-zu2025-table1": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 728,
-   "read": 608,
-   "ms": 150,
-   "slowest": 150,
-   "right": 17,
-   "of": 17,
-   "warnings": 2,
-   "summary": 999
-  },
-  "taxol-lines": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 1780,
-   "read": 950,
-   "ms": 1851,
-   "slowest": 1851,
-   "right": 19,
-   "of": 19,
-   "warnings": 0,
-   "summary": 2443
-  },
-  "paper-cycle": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 314,
-   "read": 293,
-   "ms": 26,
-   "slowest": 26,
-   "right": 4,
-   "of": 4,
-   "warnings": 0,
-   "summary": 777
-  },
-  "say-two-schemes": {
-   "calls": 1,
-   "failed": 0,
-   "coerced": 0,
-   "sent": 918,
-   "read": 302,
-   "ms": 914,
-   "slowest": 914,
-   "right": 5,
-   "of": 5,
-   "warnings": 0,
-   "summary": 832
+   "summary": 1254
   }
  }
 }

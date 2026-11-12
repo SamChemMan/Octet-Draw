@@ -10,7 +10,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("notation.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
-const { callOf, fromLines, NOTATION } = await import("./notation.ts");
+const { callOf, fromLines, linesOf, NOTATION } = await import("./notation.ts");
 await load();
 
 const words = (t: string) => t.split(/[\s,;]+/).filter(Boolean);
@@ -41,6 +41,13 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 // It goes in the tool list, which is 14,000 characters in all (610 before it said a step's label and a name changed,
 // in the room draw_route's listing left).
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
+// Round 4: the scope's example names an amine whole, and says where it joins: a model given "the products R2N–X from
+// these amines" had written every product out as SMILES.
+assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at N\)/);
+// The change line shows the plain forms: the class forms (both OH, 2° OTBS) it showed in round 5 made Opus write a
+// step in words as changes it could not get right, at more cost than SMILES (plan 19.10). Each of its changes reads.
+assert.match(NOTATION, /3\[\.\.\] changes 3: OBn>OTES, 7:OTBS, 7:H, 7\+OH \(7: map \[C:7\]\), 5=6, reduce 9\. /);
+{ const line = /3\[\.\.\] changes 3: (.*?)\. R=/.exec(NOTATION)![1]; assert.ok(typeof fromLines({ lines: `3[${line.replace(/ \(7: map \[C:7\]\)/, "").replaceAll(",", ";")}] (4)` }) !== "string", line); }
 // Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
@@ -75,17 +82,40 @@ assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATIO
 {
   const one = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=N1CCC(CC1)c1ccccc1 (8a) | R=4-phenylpiperidine (8b) | R=L (8c)\nR=N1CCOCC1 (8d) | R=morpholino (8e) | R=C1CC1 (8f) | R=cyclopropyl (8g) | R=methyl (8h)" })) as { structures: string[] };
   assert.deepEqual(one.structures, ["8a=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8b=CFWNOCYKHOLNLA-UHFFFAOYSA-N", "8c=undefined", "8d=AKQWEDMTPCAESO-UHFFFAOYSA-N", "8e=AKQWEDMTPCAESO-UHFFFAOYSA-N", "8f=SWHHCKFQUJBPPQ-UHFFFAOYSA-N", "8g=SWHHCKFQUJBPPQ-UHFFFAOYSA-N", "8h=GNKZMNRKLCTJAY-UHFFFAOYSA-N"]);
-  const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b)" })) as { refused: string };
-  assert.match(two.refused, /Line 2: piperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first/);
-  const three = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=cyclopropy (9b)" })) as { refused: string };
-  assert.match(three.refused, /Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first/);
+  // Round 4: two N–H that are the same (piperazine) join at either. Two that differ, and a word Octet cannot join, leave
+  // that compound out with its line and what to give, as a name Octet cannot read does; the rest is drawn.
+  let said = "";
+  const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b) | R=2-methylpiperazine (9c) | R=cyclopropy (9d)" }, undefined, (r) => (said = r.content[0].text))) as { structures: string[] };
+  assert.deepEqual(two.structures, ["9a=NTPLXRHDUXRPNE-UHFFFAOYSA-N", "9b=KPXVKKBJROCIJB-UHFFFAOYSA-N"]);
+  assert.match(said, /^Drew 2 structures .* Line 2: 2-methylpiperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first\. Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first\./);
   // A stand-in (Alkyl, Het) stays a label as L does (labels.ts standsIn), and so does a label written round one
   // (CO2Alkyl, OPG): each was refused as a word Octet cannot join. The reply names none of them.
-  let said = "";
+  said = "";
   const four = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=Alkyl (9a) | R=Het (9b) | R=CO2Alkyl (9c) | R=OPG (9d)" }, undefined, (r) => { said = r.content[0].text; })) as { structures: string[] };
   assert.deepEqual(four.structures, ["9a=undefined", "9b=undefined", "9c=undefined", "9d=undefined"]);
   assert.deepEqual(d.host.doc().atoms.filter((a) => a.text).map((a) => a.text), ["Alkyl", "Het", "CO2Alkyl", "OPG"]);
   assert.doesNotMatch(said, /does not know|cannot join/, said);
+}
+// Round 4: paper-scope (scripts/mcp-evals/speed.mjs) as one scope, the shared part once and R= each amine as the user
+// named it: both models had written the twelve products out as SMILES. Each is the structure the job's check wants (7f
+// with no stereo: its name gives none and its bridge allows one). It takes a name with a second N that has no H
+// (1-Boc-piperazine), stereo from a name (cis-2,6-dimethylmorpholine, and "(cis)" after one), acyclic amines, a new row
+// and a whole compound among the R= cells.
+{
+  const scope = JSON.parse(readFileSync(new URL("../scripts/mcp-bench/corpus/trowbridge2018.json", import.meta.url), "utf8")).jobs.find((j: { id: string }) => j.id === "trowbridge2018-fig4a-amines").expect.smiles as Record<string, string>;
+  const want = (await shown("draw", { structures: Object.entries(scope).map(([number, text]) => ({ text, number })) })) as { structures: string[] };
+  const got = (await shown("draw", { lines: `{R}C(CCC)CC(c1ccccc1)c1ccccc1: R=4-phenylpiperidine (7a) 51% | R=4-(trifluoromethyl)piperidine (7b) 54% | R=1-Boc-piperazine (7c) 38% | R=cis-2,6-dimethylmorpholine (7d) 60% | R=3-azabicyclo[3.1.0]hexane (cis) (7e) 25% | R=2,3,4,5-tetrahydro-1H-1,5-methano-3-benzazepine (7f) 38%
+R=nortropinone (7g) 34% | R=3-methoxyazetidine (7h) 81% | R=N-ethylcyclohexylamine (7i) 69% | R=N-(2-methoxyethyl)methylamine (7j) 86% | R=dimethylamine (7k) 88% | benzyl (2S,4S)-2-tert-butyl-5-oxo-4-[2-(2,2,6,6-tetramethylpiperidin-1-yl)ethyl]-1,3-oxazolidine-3-carboxylate (7l) 61% (>20:1 d.r.)` })) as { structures: string[] };
+  const loose = (x: string) => (x.startsWith("7f=") ? x.slice(0, 17) : x);
+  assert.deepEqual(got.structures.map(loose), want.structures.map(loose));
+  // Only (cis) or (trans) goes with the group: other words in brackets before the number are dropped, as before, so
+  // R=Me (S) is methyl and X=Cl (racemic) chloro.
+  const kept = fromLines({ lines: "{R}c1ccc(cc1)C(C)=O: R=Me (S) (5b) | R=Cl (racemic) (5c) | R=3-azabicyclo[3.1.0]hexane (cis) (5d)" }) as { args: { structures: { labels: string[] }[] } };
+  assert.deepEqual(kept.args.structures.map((s) => s.labels[0]), ["Me", "Cl", "3-azabicyclo[3.1.0]hexane (cis)"]);
+  // labels take 7f's 47 characters for the scope to join, but a label that stays one is at most 40, as the CDXML reader
+  // keeps (it had drawn, and read back cut with "label text" lost).
+  const long = (await shown("draw", { structures: [{ text: "*c1ccccc1", labels: ["2,3,4,5-tetrahydro-1H-1,5-methano-3-benzazepinyl"] }] })) as { refused: string };
+  assert.match(long.refused, /^Octet drew nothing\. labels\[0\]: longer than 40 characters\.$/);
 }
 // A label Octet reads no group in is named once in the short reply of a draw by lines, in a scheme and in a scope, and
 // a label written from the left is kept from its attachment atom there too; a reply with none has no such line.
@@ -149,7 +179,8 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
 
 // Each job is one draw call with its lines and the brief, in a session with no brief: drawn as its JSON draws it, and
 // answered so the AI app can tell the user at once, with no read: every structure drawn in compounds, each with its
-// formula, and the check, in under 1,200 characters (the longest is printed).
+// formula and stereo, and the check, in under 1,300 characters (the longest is printed; 1,200 before each compound
+// said its stereo, plan 19.10, which put the taxol route at 1,254).
 {
   let k = 0, most = [0, ""] as [number, string];
   // (The taxol route on a paper page runs past it: its reply then names each of the 20 ids past the page and says
@@ -162,7 +193,7 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
     else assert.deepEqual(got, want, id);
     if (!r) continue;
     const said = r.content.map((c: { text: string }) => c.text).join("\n"), sc = r.structuredContent;
-    assert.ok(said.length < 1200, `${id}: ${said.length} characters\n${said}`);
+    assert.ok(said.length < 1300, `${id}: ${said.length} characters\n${said}`);
     assert.equal(sc.compounds.length, (await call("read", {}, `one-${k}`)).structuredContent.structures.length, `${id}: ${said}`);
     assert.ok(sc.compounds.every((c: string) => /^(?:\S+ )?s\d+ (?:[A-Z]|=s\d+$)/.test(c)) && sc.check !== undefined && !("boxes" in sc), `${id}: ${said}`);
     if (said.length > most[0]) most = [said.length, id];
@@ -221,6 +252,9 @@ const HARD: [string, object | RegExp][] = [
   ["7[2:OH; join 2-1 8 (2S); 1:H; 1=14] (9)", { op: "structures", args: { structures: [{ from: "7", changes: [{ at: "2", set: "OH" }, { do: "join", at: "2-1", with: "8", config: { 2: "S" } }, { at: "1", remove: true }, { bond: "1-14", to: "double" }], number: "9" }] } }],
   ["14[hydroborate 5 S, deprotect acetonide, 7:OBn>OTES]", { op: "structures", args: { structures: [{ from: "14", changes: [{ do: "hydroborate", at: "5", config: "S" }, { do: "deprotect", with: "acetonide" }, { swap: { OBn: "OTES" }, at: "7" }] }] } }],
   ["3[2nd OBn>OTES; 7+OH; 5#6; oxidize 7; open epoxide 14; close 9-10 double (1S,2R)] (4)", { op: "structures", args: { structures: [{ from: "3", changes: [{ swap: { OBn: "OTES" }, occurrence: 2 }, { at: "7", add: "OH" }, { bond: "5-6", to: "triple" }, { do: "oxidise", at: "7" }, { do: "open_epoxide", at: "14" }, { do: "close", at: "9-10", to: "double", config: { 1: "S", 2: "R" } }], number: "4" }] } }],
+  // Which of a group, as the user says it: a class (2°, sec, tert., s-), both or all, and a kind of place for a named one.
+  ["2[both OH>OTBS; CO2Et>CH2OH] (3)", { op: "structures", args: { structures: [{ from: "2", changes: [{ swap: { "both OH": "OTBS" } }, { swap: { CO2Et: "CH2OH" } }], number: "3" }] } }],
+  ["3[2° OTBS>OH; sec OTBS>OBn; tert. OTBS>OH; s-OTBS>OH; all OH>OAc; reduce lactone] (4)", { op: "structures", args: { structures: [{ from: "3", changes: [{ swap: { "2° OTBS": "OH" } }, { swap: { "sec OTBS": "OBn" } }, { swap: { "tert. OTBS": "OH" } }, { swap: { "s-OTBS": "OH" } }, { swap: { "all OH": "OAc" } }, { do: "reduce", at: "lactone" }], number: "4" }] } }],
   ["A (1) -> [OMe>OH] (2), BBr3", R([{ text: "A", number: "1" }], [{ reagents: ["BBr3"], products: [{ from: "1", changes: [{ swap: { OMe: "OH" } }], number: "2" }] }])],
   // {R} is a label; a * with none is refused.
   ["{R}c1ccccc1 + {Ar}B(O)O -> {R}c1ccc({Ar})cc1", R([{ text: "*c1ccccc1", labels: ["R"] }, { text: "*B(O)O", labels: ["Ar"] }], [{ products: [{ text: "*c1ccc(*)cc1", labels: ["R", "Ar"] }] }])],
@@ -339,6 +373,13 @@ const HARD: [string, object | RegExp][] = [
   ["A -> B,X, 90%", /: put a space after the comma before X \(a comma with no space is part of a name, as in 2,6-lutidine\)\. Write: A -> B, X, 90%$/],
   ["P (A) -> Q (B), +X, @Y -> A, -Z", /^Line 1: @Y: a cycle's steps take text, not a structure\. Write: P \(A\) -> Q \(B\), \+X, Y -> A, -Z$/],
 ];
+// Lines as a JSON array of lines, in text or as a list (Haiku, plan 19.10), are those lines; one may hold several.
+// (Read once where the lines arrive, in draw's and change's routes: src/mcp.check.ts draws them.)
+assert.equal(linesOf('["A (1)", "-> B (2), X"]'), "A (1)\n-> B (2), X");
+assert.equal(linesOf('[ "A (1)\\n-> B (2), X" ]'), "A (1)\n-> B (2), X");
+assert.equal(linesOf(["A (1)", "-> B (2), X"]), "A (1)\n-> B (2), X");
+// (A SMILES in square brackets is no JSON, and an empty list or one of other things is no lines: each is as given.)
+for (const v of ["[Pd]", "[]", "[1, 2]", [], [1]]) assert.equal(linesOf(v), v);
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
   if (want instanceof RegExp) assert.match(String(got), want, text);
@@ -461,6 +502,36 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   assert.deepEqual(cond("CCO (1) -> CC=O (2), H2 (1atm), Pd/C"), [1, { reagents: ["H2 (1atm)", "Pd/C"], products: [{ text: "CC=O", number: "2" }] }]);
   assert.deepEqual(cond("A (1) -> B (2), CH2Cl2 (16h)"), [1, { solvents: ["CH2Cl2 (16h)"], products: [{ text: "B", number: "2" }] }]);
   assert.deepEqual(cond("bromobenzene (1)\n-> biphenyl (2), PhB(OH)2, Pd2(dba)3 (2), K3PO4"), [1, { reagents: ["PhB(OH)2", "Pd2(dba)3 (2)", "K3PO4"], products: [{ text: "biphenyl", number: "2" }] }]);
+}
+// Plan 19.10 (real-r4-haiku-3 say-one-step): a list on a line of its own under an arrow's line, with no arrow and no
+// compound number, can only be more conditions for that arrow, and the reply says so. With any doubt (a blank line
+// before it, a line after it that starts with an arrow, a compound number) it is refused as a list, saying where
+// conditions go: it was told to put a space after a comma that had one.
+{
+  let said = "";
+  const one = fromLines({ lines: "2-Methyl-2-(3-oxobutyl)cyclopentane-1,3-dione (1) -> C[C@]12CCC(=O)C[C@@]1(O)CCC2=O (2), 99% ee\nL-proline (20 mol%), CHCl3, rt" }, (_, l) => (said = l));
+  assert.deepEqual(one, R([{ text: "2-Methyl-2-(3-oxobutyl)cyclopentane-1,3-dione", number: "1" }], [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O", number: "2" }] }]));
+  assert.equal(said, "Line 2: Octet read it as more conditions for the arrow on line 1.");
+  for (const l of ["A -> B\n\nX (5 mol%), Y, rt", "A -> B\nX (5 mol%), Y, rt\n-> C", "A -> B (2)\n3, rt"]) assert.match(String(fromLines({ lines: l })), /is a list, not a compound: put conditions after the product on its arrow's line$/, l);
+  // (With no arrow line just before it, a list is compounds the model meant: it is told how to write them.)
+  for (const l of ["aspirin, caffeine", "benzene | aspirin, caffeine", "A -> B\nC\nX, Y"]) assert.match(String(fromLines({ lines: l })), /"(?:aspirin, caffeine|X, Y)" is a list, not a compound: put each compound between \| or on a line of its own$/, l);
+}
+// Plan 19.10 (real-r4-haiku-2 say-three-step): a number that is no compound yet, with a SMILES in brackets after it, is
+// that compound with that number. One that is a compound of the call already keeps the bracket as its caption.
+{
+  const P = { "11a": "Cc1ccc(cc1)S(=O)(=O)OCCC=C", "12a": "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]", "13a": "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]" };
+  const got = await shown("draw", { lines: `piribedil + 11a (${P["11a"]}) -> 12a (${P["12a"]})\n12a -> 13a (${P["13a"]}), 9-BBN–H` }) as { structures: string[] };
+  const want = await shown("draw", { lines: `piribedil + ${P["11a"]} (11a) -> ${P["12a"]} (12a)\n12a -> ${P["13a"]} (13a), 9-BBN–H` }) as { structures: string[] };
+  assert.deepEqual(got.structures, want.structures);
+  assert.deepEqual(got.structures.map((x) => x.split("=")[0]), ["11a", "12a", "13a", ""]);
+  // A short SMILES in the bracket reads as a compound number (11a (CCO) is 11a renumbered CCO): with no compound 11a,
+  // it is compound 11a, and the reply says so.
+  let note = "";
+  const short = await shown("draw", { lines: "11a (CCO) -> 12a (CC=O)" }, undefined, (r) => (note = r.content[1]?.text)) as { structures: string[] };
+  assert.deepEqual(short.structures, (await shown("draw", { lines: "CCO (11a) -> CC=O (12a)" }) as { structures: string[] }).structures);
+  assert.equal(note, "Read 11a (CCO) as compound 11a, and 1 more the same way.");
+  const kept = await shown("draw", { lines: "CCO (5) -> CC=O (6), PCC\n5 (CCCCCCCCCCCCCCCC) -> CCOC (7), NaH, MeI" }) as { text: string[] };
+  assert.ok(kept.text.includes("(CCCCCCCCCCCCCCCC)"), JSON.stringify(kept));
 }
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });

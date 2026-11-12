@@ -13,7 +13,7 @@ import { conditionKind, solvent } from "./stoich.ts";
 // What a model reads in the tool list (at most 820 characters: the list is 14,000 in all). Examples, as models copy
 // them: a route from its starting materials on a line of their own (the second one joined by +, as models put it with
 // the conditions when the example did), and a second scheme from it by its number with lettered parts on one arrow; a
-// scope with a group joined by name; a grid; a cycle one step a line; then one line of marks.
+// scope with an amine joined by its name; a grid; a cycle one step a line; then one line of marks.
 export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Biaryl 3
 4-bromoanisole (2) + PhB(OH)2
@@ -21,7 +21,7 @@ export const NOTATION = `Lines as chemists type them, as in these 4 drawings:
 # Triflate 4
 3 -> 3[OMe>OTf] (4), (a) BBr3, CH2Cl2, −78 °C, 78%; (b) Tf2O, pyridine, 90%
 
-{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=morpholin-4-yl (5b) 85%
+{R}c1ccc(cc1)C(C)=O: R=OMe (5a) 91% | R=morpholine (5b) 85%
 
 anisole (6a) 51% | toluene (6b) 54%
 
@@ -31,7 +31,7 @@ Pd(0)L2 (1)
 -> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name. | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at N). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -120,7 +120,8 @@ function apart(s: string): [string, { sign: "+" | "-"; text: string }[]] {
 // ((1.2 equiv), (0.5), (5 mol%), (cat.)), which is a caption.
 const isNumber = (t: string) => t.length <= 14 && !/[\s,;%]/.test(t) && /[\dA-Z]/.test(t) && !/^\d*\.\d/.test(t);
 // An earlier compound by its number, which a SMILES or a name never is: 13, 4a, 4a′.
-const REFERENCE = /^\d{1,4}[a-z]{0,3}['′″]*$/;
+export const REFERENCE = /^\d{1,4}[a-z]{0,3}['′″]*$/;
+const LIST = "is a list, not a compound: ";
 
 // A compound as written: name, formula or SMILES ({R} for a label), an earlier one by its number, or one changed
 // ([...] after its number, or alone for the one before). Then its number in brackets and a caption.
@@ -153,7 +154,8 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
   // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
   const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
-  if (odd > 0) return fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
+  // (A comma with a space after it is a list. Under an arrow's line it was its conditions, which fromLines says.)
+  if (odd > 0) return /^\s/.test(commas[odd]) ? `"${t.slice(0, 40)}" ${LIST}put each compound between | or on a line of its own` : fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
   // An earlier compound, changed: 3[...], or [...] for the one before. A name or SMILES changed (aspirin[OAc>OH]) is
@@ -179,7 +181,7 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   return { text, ...(labels.length ? { labels } : {}), ...(changes ? { changes } : {}), ...own };
 }
 
-// A compound's changes, as compound.ts takes them: OBn>OTES, 2nd OBn>OTES, 7:OBn>OTES, 7:OTBS, 7:=O, 7:H, 7+OH, 5=6,
+// A compound's changes, as compound.ts takes them: OBn>OTES, 2nd OBn>OTES, 2° OTBS>OH, both OH>OTBS, 7:OBn>OTES, 7:OTBS, 7:=O, 7:H, 7+OH, 5=6,
 // and named ones (reduce 9, protect 4-20 acetonide, join 2-1 8 (2S)). Each may end with a configuration: S, 9S, (1S,2R).
 const CONFIG = /^\(?((?:(?:\d+(?:-\d+)?)?[RSEZ],?)+)\)?$/;
 function configOf(t: string): unknown {
@@ -200,7 +202,7 @@ function changesOf(block: string): Change[] | string {
     const t = words.join(" ").replace(/\s*(?:->|→)\s*/, ">"), c = (x: Change): Change => (config === undefined ? x : { ...x, config });
     let m: RegExpExecArray | null;
     if ((m = SWAP_AT.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, at: m[1] }));
-    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?([^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
+    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?((?:(?:both|all)\s+)?(?:(?:[123]°|prim(?:ary)?|sec(?:ondary)?|tert(?:iary)?)\.?\s+)?[^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
     else if ((m = REMOVE.exec(t))) out.push(c({ at: m[1], remove: true }));
     else if ((m = SET.exec(t))) out.push(c({ at: m[1], set: m[2] }));
     else if ((m = ADD.exec(t))) out.push(c({ at: m[1], add: m[2] }));
@@ -377,6 +379,16 @@ const head = (l: string) => /^(#+)\s*(.*)$/.exec(l)!;
 
 // A scope's core: a SMILES with {R} groups, then a colon (or after "core:").
 const cored = (l: string) => l.includes("{") && /:(?:\s|$)|^core\b/i.test(l);
+/** A value that asks for nothing: null, empty text, '[]' or '{}', or an empty list or object. */
+export const blank = (v: unknown) => v === null || (typeof v === "string" ? /^\s*(?:\[\s*\]|\{\s*\})?\s*$/.test(v) : typeof v === "object" && !Object.keys(v as object).length);
+/** Lines given as a JSON array of lines, as a list or as text that reads as one (Haiku wrote them so), are those lines,
+ * one under the other (one may hold several). Anything else is as given. Read where draw's and change's lines arrive. */
+export function linesOf(v: unknown): unknown {
+  const t = typeof v === "string" ? v.trim() : "";
+  let x = v;
+  if (t[0] === "[" && t[t.length - 1] === "]") try { x = JSON.parse(t); } catch { return v; }
+  return Array.isArray(x) && x.length && x.every((l) => typeof l === "string") ? x.join("\n") : v;
+}
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
@@ -417,6 +429,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   }
   for (const [, kind, line] of left.sort((a, b) => a[0] - b[0])) said?.(kind, line);
   const known = new Set<string>(), ops: Op[] = [];
+  let arrowed = -1; // the last line with an arrow
   let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound[] | undefined;
   const add = (c: Compound, at: number) => { if (c.number) known.add(c.number); if (c.text !== undefined && where && !where.has(written(c as { text: string }))) where.set(written(c as { text: string }), at); };
   // What is wrong with a line, with the line as Octet would have it when it can work that out (fixed).
@@ -554,6 +567,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
     if (centre !== undefined && chain && cyclic(chain)) { chain.centre.push(centre); continue; }
     if (def) { const no = flush(); if (no) return no; defs.push(centre!); continue; }
     if (split.arrows.length) {
+      arrowed = i;
       const { parts, arrows } = split, begin = (start: Compound[], hs: string[]): Chain => { const c = { start, steps: [], heads: hs, asides: [], raw: [], defs, centre: [] }; defs = []; return c; };
       let reactants: Compound[], before = "", added: Compound[] = [];
       if (!parts[0]) {
@@ -608,6 +622,16 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
       }
       continue;
     }
+    // A list with no arrow and no compound number on the line under an arrow's line can only be more conditions for
+    // that arrow (Haiku put them so, plan 19.10): not after a blank line, in a scope, or before a line that starts with
+    // an arrow (then it is a start), and not with | or + (a row, or starting materials).
+    const items = chain && arrowed === i - 1 && !all[i].gap && !core && !/\||\s\+\s/.test(line) && !arrowAt(all[i + 1]?.line ?? "", 0) ? cut(line, (j) => sepAt(line, j)) : [];
+    if (items.length > 1 && items.every((x) => ((c) => typeof c === "string" || !c.number)(compound(x.text, known)))) {
+      const s = chain!.steps[chain!.steps.length - 1];
+      s.conditions = [s.conditions, line].filter(Boolean).join(", ");
+      said?.("conditions", `Line ${at}: Octet read it as more conditions for the arrow on line ${all[i - 1].at}.`);
+      continue;
+    }
     // Compounds, one or more on a line between | (in a scope, ; too before the next R=).
     if (chain) { const no = flush(); if (no) return no; }
     grid ??= [{ heads, rows: [] }];
@@ -625,8 +649,10 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         t = t.replace(/^(.*=\s*\S+)\s+(\d{1,4}[a-z]{0,3}['′″]*)(?=\s|$)/, "$1 ($2)");
         const tail = /\s(?=[([]|\*\*|")|$/.exec(t)!, own = compound(`x${t.slice(tail.index)}`, known), values = new Map<string, string>();
         if (typeof own === "string") return wrong(at, own);
-        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=.
-        const given = t.slice(0, tail.index).replace(/\s*=\s*/g, "=");
+        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=. A (cis) or
+        // (trans) before the number is the last group's (R=3-azabicyclo[3.1.0]hexane (cis) (7e)); other words there are
+        // dropped, as before ((S), (racemic)).
+        const given = (t.slice(0, tail.index) + (/^\s*\((?:cis|trans)\)$/i.test(own.text?.slice(1) ?? "") ? own.text!.slice(1) : "")).replace(/\s*=\s*/g, "=");
         for (const kv of cut(given, (i) => sepAt(given, i)).flatMap((x) => x.text.split(/\s+(?=[^\s=]+=)/)).map((x) => x.trim()).filter(Boolean)) {
           const m = /^([^=]+)=(.+)$/.exec(kv), k = m?.[1].trim();
           if (!m || !core.slots.includes(k!)) return `Line ${at}: "${kv.slice(0, 40)}" is not a group of the core (${core.slots.join(", ")}): write R=Me`;
@@ -638,7 +664,7 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         if (typeof c !== "string") { c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) }; where?.set(`=${written(c as { text: string })}`, at); }
       } else if (starts) { const made = compounds(t, [], at); if (typeof made === "string") return made; row.push(...made); continue; }
       else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
-      if (typeof c === "string") return wrong(at, c);
+      if (typeof c === "string") return wrong(at, arrowed >= 0 && arrowed === i - 1 && c.includes(LIST) ? `${c.slice(0, c.indexOf(LIST) + LIST.length)}put conditions after the product on its arrow's line` : c);
       row.push(c); add(c, at);
     }
     rows.push(row);
@@ -656,8 +682,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   // note under each scheme.
   const lettered = ops.some((o) => o.tool === "reaction" && (o.args.steps as Step[]).some((st) => st.label));
   const route = (lettered || ops.length > 1) && ops.every((o) => o.tool === "text" || o.tool === "reaction") && ops[ops.length - 1].tool === "reaction";
-  // Several drawings, and a route, take only what the reply is to have: Octet places them below what is drawn.
-  const one = (route || ops.length > 1) && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
+  // Several drawings, and a route, take only what the reply is to have: Octet places them below what is drawn. (An
+  // empty one asks for nothing: the check leaves it out.)
+  const one = (route || ops.length > 1) && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k) && !blank(rest[k]));
   if (one) return route ? `${one} does not go with a route (lines with a # title, a step label or more than one scheme): Octet places it below what is drawn. Leave ${one} out` : `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
   if (route) {
     const schemes: object[] = [];

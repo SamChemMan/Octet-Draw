@@ -270,11 +270,13 @@ export function looksLikeSmiles(text: string): boolean {
 }
 
 // Catalogue and supplier quirks: brackets round a plain multiplied group ("10,15,20-(triphenyl)porphyrin"),
-// "meso-tetra…porphyrin" for the 5,10,15,20 positions, and stray spaces or a full stop.
+// "meso-tetra…porphyrin" for the 5,10,15,20 positions, cis or trans in brackets after the name ("3-azabicyclo[3.1.0]hexane
+// (cis)", as papers list amines), and stray spaces or a full stop.
 function tidy(s: string): string {
   return s
     .replace(/(\d[\d,']*-)\(([a-z]{4,})\)(?=[a-z])/gi, (all, locants: string, inner: string) => (/^[ivx]+$/i.test(inner) ? all : locants + inner))
     .replace(/\bmeso-(tetra(?:kis)?)(?=.*porphyrin)/i, "5,10,15,20-$1")
+    .replace(/^(.+?)\s*\((cis|trans)\)$/i, "$2-$1")
     .replace(/\s+/g, " ")
     .replace(/\.$/, "");
 }

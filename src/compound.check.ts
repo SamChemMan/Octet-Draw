@@ -48,6 +48,25 @@ const TABLE: Row[] = [
   { what: "two hydroxyls by their atoms' numbers", from: "C[C@H:2](O)C[C@H:4](O)CC", changes: [{ at: "2", set: "OTBS" }, { at: "4", set: "OBn" }], want: "C[C@H](O[Si](C)(C)C(C)(C)C)C[C@H](OCc1ccccc1)CC" },
   { what: "a sugar's primary hydroxyl", from: "CO[C@H]1O[C@H]([CH2:6]O)[C@@H](O)[C@H](O)[C@H]1O", changes: [{ at: "C6", set: "OTr" }], want: "CO[C@H]1O[C@H](COC(c2ccccc2)(c2ccccc2)c2ccccc2)[C@@H](O)[C@H](O)[C@H]1O" },
   { what: "a label named as the place", from: "*[C@H]1CC[C@@H](*)CC1", labels: ["OTBS", "OBn"], changes: [{ at: "OBn", set: "OH" }], want: "O[C@H]1CC[C@@H](O[Si](C)(C)C(C)(C)C)CC1" },
+  // Which of a group, as the user says it: both or all, or the class of the carbon it is on.
+  { what: "both hydroxyls", from: "C[C@H](O)C[C@@](C)(O)CC", changes: [{ swap: { "both OH": "OTBS" } }], want: "C[C@H](O[Si](C)(C)C(C)(C)C)C[C@@](C)(O[Si](C)(C)C(C)(C)C)CC", says: /Changed both OH to OTBS\./ },
+  { what: "all three hydroxyls", from: "OC[C@@H](O)C[C@@](C)(O)CC", changes: [{ swap: { "all OH": "OAc" } }], want: "CC(=O)OC[C@@H](OC(C)=O)C[C@@](C)(OC(C)=O)CC", says: /Changed all 3 OH to OAc\./ },
+  { what: "the secondary of two silyl ethers", from: "C[C@H](*)C[C@@](C)(*)CC", labels: ["OTBS", "OTBS"], changes: [{ swap: { "2° OTBS": "OH" } }], want: "C[C@H](O)C[C@@](C)(O[Si](C)(C)C(C)(C)C)CC" },
+  { what: "the tertiary of two, written t-", from: "C[C@H](*)C[C@@](C)(*)CC", labels: ["OTBS", "OTBS"], changes: [{ swap: { "t-OTBS": "OH" } }], want: "C[C@H](O[Si](C)(C)C(C)(C)C)C[C@@](C)(O)CC" },
+  { what: "the primary of two hydroxyls, as the place of set", from: "OC[C@@H](O)CC", changes: [{ at: "prim OH", set: "OTBS" }], want: "CC[C@H](O)CO[Si](C)(C)C(C)(C)C" },
+  { what: "both secondary of three hydroxyls, then the one left", from: "C[C@H](O)C[C@@H](O)C[C@@](C)(O)CC", changes: [{ swap: { "both 2° OH": "OBn" } }, { swap: { OH: "OMe" } }], want: "C[C@H](OCc1ccccc1)C[C@@H](OCc1ccccc1)C[C@@](C)(OC)CC" },
+  { what: "a lactone reduced by its kind, beside an ester", from: "CCOC(=O)C[C@H]1CCC(=O)O1", changes: [{ do: "reduce", at: "lactone" }], want: "CCOC(=O)C[C@H](O)CCCO" },
+  { what: "an ester reduced by its kind, beside a lactone", from: "CCOC(=O)C[C@H]1CCC(=O)O1", changes: [{ do: "reduce", at: "ester" }], want: "OCC[C@H]1CCC(=O)O1" },
+  // A kind is each kind of C=O (a ketone too), in any letters, and a CO2Et label is an ester.
+  { what: "a ketone reduced by its kind, beside an ester", from: "CC(=O)CCC(=O)OC", changes: [{ do: "reduce", at: "ketone" }], want: "CC(O)CCC(=O)OC" },
+  { what: "an ester named with a capital", from: "CC(=O)CCC(=O)OC", changes: [{ do: "reduce", at: "Ester" }], want: "CC(=O)CCCO" },
+  { what: "an ester label reduced by its kind, beside a ketone", from: "CC(=O)CC*", labels: ["CO2Et"], changes: [{ do: "reduce", at: "ester" }], want: "CC(=O)CCCO" },
+  // The class in full, as the refusal says it; all of a class with one there says one; p- of a group on an arene is
+  // para, not primary.
+  { what: "the tertiary of two hydroxyls, in full", from: "C[C@H](O)C[C@@](C)(O)CC", changes: [{ swap: { "tertiary OH": "OAc" } }], want: "C[C@H](O)C[C@@](C)(OC(C)=O)CC" },
+  { what: "all secondary hydroxyls, one there", from: "C[C@H](O)C[C@@](C)(O)CC", changes: [{ swap: { "all 2° OH": "OAc" } }], want: "C[C@H](OC(C)=O)C[C@@](C)(O)CC", says: /Changed one 2° OH to OAc\./ },
+  { what: "the primary alcohol beside a phenol", from: "Oc1ccc(CCO)cc1", changes: [{ swap: { "1° OH": "OAc" } }], want: "Oc1ccc(CCOC(C)=O)cc1" },
+  { what: "a para methoxy, p-", from: "COc1ccc(C)cc1", changes: [{ swap: { "p-OMe": "OH" } }], want: "Oc1ccc(C)cc1" },
   { what: "one of an atom's two groups, by swap with at", from: "C[C@H:2](O)[C:1](=O)OC", changes: [{ at: "1", swap: { OMe: "OH" } }], want: "C[C@H](O)C(=O)O" },
   { what: "the hydroxyl on one of two atoms alike, by swap with at", from: "C[C:1](C)(O)C[C:2](C)(O)C", changes: [{ at: "2", swap: { OH: "OAc" } }], want: "CC(C)(O)CC(C)(C)OC(C)=O" },
   // Amines.
@@ -263,7 +282,26 @@ for (const row of TABLE) {
   await refuse({ text: "C[CH2:1]OC(=O)c1ccccc1" }, [{ at: "1", remove: true }], /is larger than the part that stays \(CC\)/);
   // A label that is there twice, or not there: the places are listed.
   await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OTBS"] }, [{ swap: { OTBS: "OH" } }], /there are 2 OTBS \(on atom #1, atom #4\): say which with occurrence \(1 to 2/);
+  await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OTBS"] }, [{ swap: { OTBS: "OH" } }], /in the order of the compound's atoms\), or write both OTBS\.$/);
   await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OTBS"] }, [{ swap: { OTBS: "OH" }, occurrence: 3 }], /there are 2 OTBS, so no occurrence 3/);
+  // On carbons of two classes, the classes are said, so the AI app's next call is right; a class or both that does
+  // not fit is refused with what is there.
+  const classes = { text: "C[C@H](*)C[C@@](C)(*)CC", labels: ["OTBS", "OTBS"] };
+  await refuse(classes, [{ swap: { OTBS: "OH" } }], /changes\[0\]: OTBS is on a secondary carbon and a tertiary carbon: write 2° OTBS or 3° OTBS for one, or both OTBS\./);
+  await refuse(classes, [{ at: "OTBS", remove: true }], /OTBS is on a secondary carbon and a tertiary carbon/);
+  await refuse(classes, [{ swap: { "1° OTBS": "OH" } }], /there is no 1° OTBS: OTBS is on a secondary carbon and a tertiary carbon\./);
+  await refuse({ text: "OC[C@@H](O)C[C@@](C)(O)CC" }, [{ swap: { "both OH": "OAc" } }], /both is for 2, and there are 3 OH/);
+  await refuse({ text: "C[C@H](O)C[C@@H](O)C[C@@](C)(O)CC" }, [{ swap: { "2° OH": "OAc" } }], /there are two 2° OH \(on atom #1, atom #4\): say which with occurrence \(1 to 2, in the order of the compound's atoms\), or write both 2° OH\./);
+  // Two of one class are said once, with how many; a phenol's carbon is an aryl carbon, with no class, so 2° OH is not
+  // the phenol; both or all goes with no occurrence.
+  await refuse({ text: "C[C@H](O)C[C@@H](O)C" }, [{ swap: { "1° OH": "OAc" } }], /there is no 1° OH: OH is on two secondary carbons\.$/);
+  await refuse({ text: "C[C@H](O)C[C@@H](O)CC(C)(C)O" }, [{ swap: { OH: "OAc" } }], /^Octet drew nothing\. .*OH is on two secondary carbons and a tertiary carbon: write 3° OH for one, or all OH, or say which/);
+  await refuse({ text: "Oc1ccc(CCO)cc1" }, [{ swap: { OH: "OAc" } }], /OH is on a primary carbon and an aryl carbon: write 1° OH for one, or both OH, or say which with occurrence/);
+  await refuse({ text: "Oc1ccc(CCO)cc1" }, [{ swap: { "2° OH": "OAc" } }], /there is no 2° OH: OH is on a primary carbon and an aryl carbon\./);
+  await refuse({ text: "COc1ccc(OC)cc1" }, [{ swap: { "p-OMe": "OH" } }], /there are 2 OMe \(on atom #2, atom #5\)/);
+  await refuse(classes, [{ swap: { "both OTBS": "OH" }, occurrence: 1 }], /occurrence does not go with both/);
+  await refuse({ text: "CC(=O)CCC(=O)OC" }, [{ do: "reduce", at: "aldehyde" }], /reduce fits no aldehyde in this compound, only a ketone and an ester\./);
+  await refuse({ text: "CCOC(=O)CCC" }, [{ do: "reduce", at: "lactone" }], /reduce fits no lactone in this compound/);
   await refuse({ text: "*C1CCC(*)CC1", labels: ["OTBS", "OBn"] }, [{ swap: { OTES: "OH" } }], /there is no OTES\. This compound has no atom numbers and the labels OTBS, OBn/);
   await refuse(lactate, [{ at: "OBn", set: "OH" }], /there is no OBn\. This compound has the atom numbers 1, 2/);
   // A map number that is not there, or there twice.
@@ -815,4 +853,32 @@ const route = bench("route"), FULL: Record<string, string> = bench("structures")
   assert.ok(fromChanges <= fromSmiles, `from changes ${fromChanges.toFixed(1)} ms, from SMILES ${fromSmiles.toFixed(1)} ms`);
   if (process.argv.includes("--time")) console.log(`compound.check: the route's ${chained.length} compounds with changes: from the compound before ${fromChanges.toFixed(1)} ms, from SMILES ${fromSmiles.toFixed(1)} ms. The ${again[2]} of them that are drawn again: ${again[0].toFixed(1)} ms, from SMILES ${again[1].toFixed(1)} ms`);
 }
+// The same route with each step that the paper says in words written so (both OH, 2° OTBS, reduce lactone, 1° OAc), as
+// an AI app writes it with no atom numbers: every compound is the paper's, so every stereocentre is kept. (Each
+// group stays drawn as atoms where a later scheme names its atoms: reduce ester, 1° OH>OTBDPS, and 7 by its number.)
+{
+  d = drawing();
+  const words: Record<string, object[]> = {
+    3: [{ swap: { "both OH": "OTBS" } }, { do: "reduce", at: "ester" }], 4: [{ swap: { "2° OTBS": "OH" } }, { swap: { "1° OH": "OTBDPS" } }, { swap: { OH: "OBn" } }],
+    5: [{ do: "reduce", at: "lactone" }, { swap: { OTBS: "OH" } }], 16: [{ swap: { "1° OH": "OAc" } }], 17: [{ swap: { OBn: "OTES" } }, { swap: { "1° OAc": "OH" } }],
+  };
+  for (const { start, steps } of route.schemes) {
+    const r = await call("draw", { kind: "reaction", start, steps: steps.map((s: { products: { number: string }[] }) => ({ ...s, products: s.products.map((p) => (words[p.number] ? { ...p, changes: words[p.number] } : p)) })) });
+    assert.ok(!r.isError, said(r));
+  }
+  const drawn = (await reading()).structures as { number?: string; inchiKey: string }[];
+  for (const number of Object.keys(FULL).filter((k) => k !== "20")) {
+    const as = drawn.filter((s) => s.number === number);
+    assert.ok(as.length && as.every((s) => s.inchiKey === keyOf(FULL[number])), `taxol route in words: compound ${number}`);
+  }
+  // The five-step job (scripts/mcp-evals/speed.mjs, paper-five-step) by lines from 2's SMILES with no numbers. The
+  // acetonide 6 is a SMILES: an acetonide is made at two atoms' numbers, and no number is there to give.
+  d = drawing();
+  const five = await call("draw", { lines: `${FULL[2]} (2)\n-> 2[both OH>OTBS; CO2Et>CH2OH] (3), a) TBSOTf\n-> 3[2° OTBS>OH; CH2OH>CH2OTBDPS; OH>OBn] (4), c) CSA\n-> 4[reduce lactone; OTBS>OH] (5), LiAlH4\n-> ${FULL[6]} (6), CSA\n-> 6[CH2OH>CHO] (7), TPAP` });
+  assert.match(said(five), /^Drew a scheme of 5 steps\. Octet notes: from 2 \(3\) \[Changed both OH to OTBS\./);
+  const got = (await reading()).structures as { number?: string; inchiKey: string }[];
+  assert.deepEqual(got.map((s) => s.number), ["2", "3", "4", "5", "6", "7"]);
+  for (const s of got) assert.equal(s.inchiKey, keyOf(FULL[s.number!]), `five-step job: compound ${s.number}`);
+}
+
 console.log("compound.check: ok");

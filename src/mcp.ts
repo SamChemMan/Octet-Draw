@@ -13,14 +13,15 @@ import { LIBRARY, loadMore } from "./library.ts";
 import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
-import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle } from "./cycle.ts";
+import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { withDetails, detailsOf, oneLine, FIELDS, PROPERTIES, type Details, type Properties } from "./experiment.ts";
 import { readPlasmid } from "./cdxml.ts";
 import { emptyRows, setRole, stepGrids, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, type Field } from "./stoich.ts";
+import { stereoFacts, stereoLabels } from "./chem.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
-import { fromLines, NOTATION, written } from "./notation.ts";
+import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notation.ts";
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
@@ -104,10 +105,12 @@ type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: numbe
 // unlisted: an argument a listed schema leaves out (picture and detail on an operation: the tool that runs it lists
 // them).
 // quiet: values an enum takes that tools/list leaves out, for room (advanced help names them).
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
+// reads: a value in words the enum's own names do not cover (set_style's preset as a journal's name, plan 19.10).
+// names: other names an AI app gives the argument by (set_style's style for preset).
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; reads?: (v: string) => string | undefined; names?: readonly string[]; default?: string; unlisted?: true; quiet?: readonly string[] } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
 // own: what Octet keeps to itself (tools/list leaves it out): the lenient readings, and unlisted.
-const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
+const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; reads?: (v: string) => string | undefined; names?: readonly string[]; default?: string; unlisted?: true; quiet?: readonly string[] }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
 const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
@@ -159,7 +162,8 @@ function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
 // Lenient arguments (R5): before the check, a form that has one meaning is read as the form the tool takes, and the
 // reply says so in a line, so the AI app learns it. A whole number for a compound number is its text. An enum's value in
 // other letters, after a dot or by another of its names is that value. A required argument left out takes its default.
-// "1 (taxol)" as a compound number is number 1 with the caption taxol. Everything else is left for the check to refuse.
+// "1 (taxol)" as a compound number is number 1 with the caption taxol. An argument the object does not take, given
+// empty, is left out (plan 19.10). Everything else is left for the check to refuse.
 // notes: the readings of one call, each kind once: its first line, and how many there were.
 type Notes = Map<string, [string, number]>;
 const note = (notes: Notes, kind: string, line: string) => { const had = notes.get(kind); if (had) had[1]++; else notes.set(kind, [line, 1]); };
@@ -171,7 +175,14 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
     if (!v || typeof v !== "object" || Array.isArray(v)) return v;
     const o = v as Record<string, unknown>;
     for (const k of s.required ?? []) if (!(k in o)) { const p = s.properties[k]; if ("default" in p) { o[k] = p.default; note(notes, `${k} default`, `No "${k}" was given: read as ${p.default}.`); } }
-    for (const k of Object.keys(o)) { const p = s.properties[k]; if (p) o[k] = coerce(p, o[k], k, notes); }
+    // An argument by another of its names is that argument, when it is not given too, said with its value's reading in
+    // one line. One it does not take, given empty (null, white space, '[]', '{}', [] or {}), asks for nothing: it is
+    // left out.
+    for (const k of Object.keys(o)) {
+      const p = s.properties[k], named = p ? undefined : Object.keys(s.properties).find((n) => (s.properties[n] as { names?: readonly string[] }).names?.includes(k) && !(n in o));
+      if (named) { const was = o[k], now = (o[named] = coerce(s.properties[named], was, named, new Map())), as = now === was ? "" : ` ${clean(String(was)).slice(0, 40)}`; delete o[k]; note(notes, `${k} name`, `Read ${k}${as} as ${named}${as && ` ${now}`}.`); }
+      else if (p) o[k] = coerce(p, o[k], k, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); }
+    }
     const split = s.properties.caption && typeof o.number === "string" && o.caption === undefined ? /^(\S+) \(([^()]+)\)$/.exec(o.number.trim()) : null;
     if (split) { note(notes, "caption", `Read number ${clean(split[0])} as number ${split[1]} with the caption ${clean(split[2])}.`); [, o.number, o.caption] = split; }
     return o;
@@ -181,7 +192,7 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
   // (A whole number from 0 up: 2.5, -3 and 1e21 are no compound number, and are refused.)
   if (s.numeral && typeof v === "number" && Number.isSafeInteger(v) && v >= 0) { note(notes, `${key} text`, `Read ${key} ${v} as text.`); return String(v); }
   if (s.enum && typeof v === "string" && !s.enum.includes(v)) {
-    const t = v.trim().replace(/^\./, "").toLowerCase(), value = s.enum.find((e) => e.toLowerCase() === t) ?? s.also?.[t];
+    const t = v.trim().replace(/^\./, "").toLowerCase(), value = s.enum.find((e) => e.toLowerCase() === t) ?? s.also?.[t] ?? s.reads?.(v);
     if (typeof value === "string") { note(notes, `${key} ${value}`, `Read ${key} ${clean(v).slice(0, 40)} as ${value}.`); return value; }
   }
   return v;
@@ -195,6 +206,8 @@ function onLines(wrong: string, args: unknown, text: string): string {
   const [, path, why] = /^([\w.[\]]+): (.+)$/.exec(wrong) ?? [];
   if (!path) return wrong;
   const v = path.split(/[.[\]]+/).filter(Boolean).reduce((o: any, k) => o?.[k], args), first = [v].flat(3).find((x) => typeof x === "string") as string | undefined;
+  // (Of the call's own arguments, as an argument it does not take: no line made it.)
+  if (v === undefined) return wrong;
   const at = first ? text.split("\n").findIndex((l) => l.replace(/\s+/g, " ").includes(first.slice(0, 40))) + 1 : 0;
   if (typeof v === "string") return `${at ? `Line ${at}` : "The lines"}: "${short(v, 40)}" is ${why}${/^longer/.test(why) ? ": make it shorter" : ""}`;
   return `${at ? `Line ${at} has` : "The lines make"} ${why.replace(/\bitems?\b/, /(\w+)(?:\[\d+\])*$/.exec(path)![1])}${/^more/.test(why) ? ": draw them in parts" : ""}`;
@@ -236,7 +249,7 @@ type Geometry = keyof typeof GEOMETRIES;
 // The hints as a compound takes them (R2), in every kind of draw.
 const ORIENT = { up: str(40), down: str(40), left: str(40), right: str(40), rotate: num(-360, 360), flip: pick(["horizontal", "vertical"]), geometry: pick(Object.keys(GEOMETRIES)), colours: { type: "object", properties: {}, additionalProperties: true, description: "{label or element: '#rrggbb'}" }, like: str(40, "Drawn the same way round as this structure (an id such as s3), by the atoms they share") } as const;
 // A compound's changes to the one it is from (compound.ts reads each: a tool's list stays short).
-const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20), LABELS = { ...list(str(40), 20), description: "One for each *, in order" };
+const CHANGES = list({ type: "object", properties: {}, additionalProperties: true }, 20), LABELS = { ...list(str(MAX_TEXT), 20), description: "One for each *, in order" };
 const COMPOUND = define("compound", obj({
   text: structureText,
   molecule: MOLECULE,
@@ -489,7 +502,9 @@ const OPS: Op[] = [
   {
     name: "set_style", title: "Document style", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed the document style",
     description: `Sets the style and page, as Document settings do: a preset (${Object.keys(PRESETS).join("; ")}; it keeps the page) and a page (ACS1: JACS one column, 3.25 in; ACS2: two columns, 7 in), or page_size in mm. Octet redraws everything in the new style. properties: the drawing's title, author and keywords (Settings > Document > Properties), kept in the file and in exported PDFs; '' takes one away.`,
-    inputSchema: obj({ preset: pick(Object.keys(PRESETS)), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200) }) }),
+    // (A preset as the user names it, Angewandte Chemie, is as set_brief reads a journal; style, name, value or journal
+    // for preset is how Haiku gave it, plan 19.10.)
+    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200) }) }),
     run: setStyle,
   },
   {
@@ -641,6 +656,8 @@ const OPS: Op[] = [
       const of = clean(a.of ?? "").toLowerCase(), t = HELP.includes(of) ? opOf(of === "set_brief" ? "brief" : opName(of)) : undefined;
       // The named transformations a compound's change takes as do (compound.ts), which draw names in one example.
       if (of === "transformations") { const data = { of, call: "a compound's changes: {do, at, with, to, config}", description: TRANSFORMATIONS }; return { text: JSON.stringify(data), data }; }
+      // What draw's lines write (Haiku asked for help of grid, plan 19.10): the notation, as draw lists it.
+      if (/^(?:grid|scope|lines|scheme|route|notation)$/.test(of)) { const data = { of, call: "draw with lines", description: NOTATION }; return { text: JSON.stringify(data), data }; }
       if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}), a tool of advanced (${ADVANCED.join(", ")}), set_brief, file (read with format), new (drawings new) or transformations (a compound's changes with do).`, ...(of ? { error: true as const } : {}) };
       // (draw lists lines and structures: the other kinds' JSON goes as an operation of change, which takes it open.)
       const call = of === "set_brief" ? of : of === "file" ? "read with format" : of === "new" ? "drawings with action: 'new'" : of === "structures" ? "draw with structures" : KINDS.includes(of as never) ? `change, as an operation with op: 'draw' and kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
@@ -745,7 +762,7 @@ function briefOf(b: unknown): unknown {
 const TOOLS: Tool[] = [
   {
     name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND, side: SIDE },
-    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text.",
+    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text. Octet reads and checks every structure and the reply gives each formula and stereo (R, S, E, Z): do not test a name or SMILES with other tools first.",
     inputSchema: obj({
       lines: str(100_000, NOTATION), brief: str(2000, BRIEF_NOTE),
       structures: COMPOUNDS, columns: int(1, 20),
@@ -754,7 +771,10 @@ const TOOLS: Tool[] = [
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes, reads) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>();
+      // (Lines given as a JSON array are their text from here, so a refusal counts the array's lines.)
+      if (rest.lines !== undefined) rest.lines = linesOf(rest.lines);
+      const r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
       return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: rest.lines as string, where } : {}) };
     },
   },
@@ -770,12 +790,15 @@ const TOOLS: Tool[] = [
       const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [], where = new Map<string, number>();
       for (const [k, { op, ...args }] of (operations as any[]).entries()) {
         // Lines of one drawing are its kind (lines that make several go in a draw call of their own).
+        if (op === "draw" && args.lines !== undefined) args.lines = linesOf(args.lines);
         const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l), where, reads) : undefined;
         if (typeof lined === "string") return `operations[${k}]: ${lined}`;
         if (lined && (lined.op === "batch" || lined.op === "route")) return `operations[${k}]: these lines make several drawings: draw them with draw, then change them`;
         const no = op === "draw" && !lined ? wrongWith(KIND, args, notes, `operations[${k}]`) : undefined;
         if (no) return no;
         const { kind, ...rest } = args;
+        // replace with the ids of one structure and no structure is that structure (Haiku, plan 19.10).
+        if (op === "replace" && args.structure === undefined && Array.isArray(args.ids) && args.ids.length === 1) { [args.structure] = args.ids; delete args.ids; note(notes, "replace ids", "Read ids as structure."); }
         steps.push(lined ? { tool: lined.op, args: lined.args } : op === "draw" ? { tool: kind, args: rest } : { tool: op, args });
       }
       return { ...(steps.length > 1 ? { op: "batch", args: { steps, ...reply } } : { op: steps[0].tool, args: { ...steps[0].args, ...reply }, at: "operations[0]" }), ...(where.size ? { where } : {}), ...(given !== undefined ? { brief: given } : {}) };
@@ -783,7 +806,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
-    description: "Reads the drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
+    description: "Reads the drawing as a summary: structures (id, number, caption, formula, stereo), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
     inputSchema: READ_IN,
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
@@ -797,7 +820,28 @@ const TOOLS: Tool[] = [
     name: "advanced", title: "Other tools, and help", ops: [...ADVANCED.map(opName), "help"],
     description: `Octet's other tools, each with its args. run_command {command, ids}: any menu command or Actions panel action, on the ids or the selection: clean_up, clean_reaction, undo, scale.120 and the rest, which help lists. set_style {preset, page, landscape, page_size [w, h] in mm, properties {title, author, keywords}}: the style or page alone (set_brief sets both). export {format}: Octet's Export dialog (pdf, png, svg and more), for the user to save. place_template {name, set, on}: a library template (ATP, ferrocene, Round-bottom flask). add_file {text}: a drawing from file text (CDXML, MOL, SMILES and more). fill_experiment {details, amounts}: an experiment page's details and reagent table. draw_route {schemes, legend}: a route as JSON. help {of}: the description and schema of one of these, a kind of draw or an op of change.`,
     inputSchema: ADVANCED_IN,
-    route: (a, notes) => wrongWith(ADVANCED_IN, a, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, opName(tool), tool) || { op: opName(tool), args: { ...args, ...reply }, at: "args" })(a),
+    // As models call it (plan 19.10): a tool's own arguments beside tool are its args; {tool: 'set_brief'} is set_brief;
+    // help's detail is left out, and what help is about is args.of, of, or the one other text ({command: 'help
+    // set_style'} with no tool is help of set_style). Anything else stays where it was given, to be refused.
+    route: (a, notes) => {
+      const { tool, args, ...rest } = a, name = typeof tool === "string" ? tool.trim().toLowerCase() : tool, own = Object.keys(rest).filter((k) => !(k in ADVANCED_IN.properties)), text = own.filter((k) => typeof rest[k] === "string");
+      const asked = tool === undefined && text.length === 1 ? /^help\s+(\S+)$/i.exec(rest[text[0]].trim()) : null, help = name === "help" || !!asked;
+      let given = args;
+      if (help) {
+        const k = asked ? text[0] : args?.of !== undefined ? undefined : "of" in rest ? "of" : text.length === 1 ? text[0] : undefined;
+        if (k) { given = { ...args, of: asked ? asked[1] : rest[k] }; note(notes, "help of", k === "of" ? "Read of as args.of." : `Read ${k} as help of ${short(clean(String(given.of)), 40)}.`); delete rest[k]; }
+        if (rest.detail !== undefined) { note(notes, "detail", "Left out detail: help has none."); delete rest.detail; }
+      } else if (own.length) {
+        given = { ...args, ...Object.fromEntries(own.map((k) => [k, rest[k]])) };
+        for (const k of own) delete rest[k];
+        // (One the tool takes by another name, style for set_style's preset, is said where it is read as that name.)
+        const its = own.filter((k) => k in (BY_NAME.get(opName(String(name)))?.inputSchema.properties ?? {}));
+        if (its.length) note(notes, "args", `Read ${its.join(", ")} as ${its.length > 1 ? "arguments" : "an argument"} of ${tool} in args.`);
+      }
+      if (name === "set_brief") { note(notes, "set_brief", "Called set_brief."); return TOOLS.find((t) => t.name === "set_brief")!.route(given ?? {}, notes); }
+      const b = { ...(tool !== undefined ? { tool } : help ? { tool: "help" } : {}), ...(given !== undefined ? { args: given } : {}), ...rest };
+      return wrongWith(ADVANCED_IN, b, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, opName(tool), tool) || { op: opName(tool), args: { ...args, ...reply }, at: "args" })(b);
+    },
   },
   {
     name: "set_brief", title: "Set the brief", ops: ["brief"],
@@ -814,15 +858,15 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const INSTRUCTIONS = `Octet Draw is the chemical drawing app on the user's computer. These tools draw in the user's open drawing and read it.
-- Before a scheme, route, figure, cycle or grid, ask the user these three questions, unless they have answered them: ${QUESTIONS} Give the answers as draw's brief in the same call that draws ('quick' for no preference). One structure needs none.
-- Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (each under its # title), a grid or scope, or a catalytic cycle.
+const INSTRUCTIONS = `Octet Draw is the user's chemical drawing app. These tools draw in the user's open drawing and read it.
+- Before a scheme, route, figure, cycle or grid, ask the user these three questions unless answered: ${QUESTIONS} Give the answers as brief in the draw call ('quick' for no preference). One structure needs none.
+- Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (# titles), a grid or scope, or a catalytic cycle.
 - Write each compound as the name or SMILES you have (copy the user's); only with neither, as a change to an earlier one (3[OBn>OTES]), which keeps stereocentres. A generic group or metal ligand is {R} ({L}[Pd]{L}).
 - Do not sort conditions: list them after the product in any order. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
-- The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), its warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
-- To match a picture, turn a compound with hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
-- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what the user asks.
-- Each call is one undo step. Never delete the user's work unless they ask.
+- The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, only what differs from their request; no read or picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
+- To match a picture, give hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
+- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what is asked.
+- Each call is one undo step. Never delete the user's work unless asked.
 - advanced help gives the arguments of every draw kind, change op and tool.`;
 // The instructions for an AI app that takes elicitation (plan 3.1; mcp.rs reads that from its initialize): Octet asks
 // the user the brief's questions itself, so the AI app does not spend a turn on them. Only the bullet that asks them
@@ -887,14 +931,24 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 // Each compound read; the texts Octet cannot read (failed); and what is wrong with the rest (wrong: a molecule with a
 // bond to no atom, labels that do not fit the *s).
 // lost: the place in items of each that failed. where: the line each name or SMILES of the line notation is on, which
-// names it as the lines wrote it.
-type Failed = { text: string; line?: number };
-async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
+// names it as the lines wrote it. notes: the call's, for a compound read other than as written.
+// why: what is wrong with it, said in place of "cannot read" (a scope's group Octet cannot join).
+type Failed = { text: string; line?: number; why?: string };
+async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where, notes = ctx?.notes): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
   await host.ready();
   const ok: Read[] = [], failed: Failed[] = [], wrong: string[] = [], lost: number[] = [];
   let last: Read | undefined; // the compound before this one, when Octet read it
   const add = (r: Read, it: CompoundIn) => { ok.push(r); if (!it.aside) last = r; };
-  for (const [k, it] of items.entries()) {
+  for (let [k, it] of items.entries()) {
+    // A number that is no compound of this call or the drawing, with a name or SMILES in brackets after it (11a
+    // (Cc1ccc...), as Haiku wrote it, plan 19.10), is that compound with that number. (Else the bracket is its caption,
+    // or, short and no compound number itself, its number: 11a (CCO) reads as 11a renumbered CCO.)
+    const inner = it.from !== undefined && it.text === undefined && !it.changes && !it.molecule ? /^\((.+)\)$/s.exec(it.caption?.trim() ?? "")?.[1] ?? (it.from !== "previous" && it.number !== it.from && !REFERENCE.test(it.number ?? "1") ? it.number : undefined) : undefined;
+    if (inner && !ok.some((r) => r.number === it.from) && !structureOf(host.doc(), it.from!) && host.structure(clean(inner))) {
+      const { from, caption, ...rest } = it, own = caption?.trim() === `(${inner})`;
+      it = { ...rest, text: inner, number: own ? (it.number ?? from) : from, ...(own ? {} : caption ? { caption } : {}) };
+      if (notes) note(notes, "number first", `Read ${short(clean(`${from} (${inner})`), 40)} as compound ${from}.`);
+    }
     if (ctx && items.length > 10 && k % 10 === 0) { await ctx.check(); ctx.progress(k, items.length, `Reading ${k + 1} of ${items.length}`); await host.settle(); }
     const number = it.number ? clean(it.number) : undefined, caption = it.caption ? clean(it.caption, true) : undefined, before = last;
     if (!it.aside) last = undefined;
@@ -954,7 +1008,12 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
       // A scope's group by lines (R=) that is no label Octet reads is that structure, joined in its place.
       const line = where?.get(`=${written(it as { text: string })}`), joined = line ? [...at].map(([i, v]) => [i, group(host, v)] as const).filter(([, g]) => g) : [];
       const no = joined.find(([, g]) => typeof g === "string");
-      if (no) { wrong.push(`Line ${line}: ${no[1]}`); continue; }
+      // (One that cannot join is left out, as a name Octet cannot read is, and the rest is drawn.)
+      if (no) { failed.push({ text: short(at.get(no[0])!, 60), line, why: no[1] as string }); lost.push(k); continue; }
+      // labels take a scope's amine names (300 characters), but one that stays a label is at most 40, as the CDXML
+      // reader keeps, so the file reads back the same.
+      const long = [...at.keys()].findIndex((i) => at.get(i)!.length > 40 && !joined.some(([j]) => j === i));
+      if (long >= 0) { wrong.push(`labels[${long}]: longer than 40 characters.`); continue; }
       if (joined.length) mol = host.tidy(joined.reduce((x, [i, g]) => expandLabel(x, i, g as Mol), mol));
     }
     if (hinted(it)) {
@@ -977,8 +1036,8 @@ function unread(atoms: Atom[]): { unread?: string[] } {
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
 // SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
 // name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
-// (4-phenylpiperidine). Two N–H, and a word Octet cannot join, are refused. Undefined: it stays a label (L, Nu, dppf,
-// and one written round a stand-in: OR, CO2Alkyl).
+// (4-phenylpiperidine), or by either of two N–H that are the same (piperazine). Two N–H that differ, and a word Octet
+// cannot join, are refused. Undefined: it stays a label (L, Nu, dppf, and one written round a stand-in: OR, CO2Alkyl).
 function group(host: Host, v: string): Mol | string | undefined {
   const smiles = looksLikeSmiles(v);
   if (!(smiles && /(\d).*\1/.test(v)) && (labelSmiles(v) || units(v).some((u) => standsIn(u.text)))) return undefined;
@@ -990,7 +1049,8 @@ function group(host: Host, v: string): Mol | string | undefined {
     return /[a-z]{3}/.test(v) ? `Octet cannot join ${v}: give it as a SMILES, its joining atom first` : undefined;
   }
   const m = host.structure(v)!, used = bondOrders(m), nh = m.atoms.flatMap((a, i) => (a.label === "N" && hydrogens("N", a.charge ?? 0, used[i]) > 0 ? [i] : []));
-  if (nh.length > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
+  const on = (i: number) => host.inchi({ atoms: [...m.atoms, { label: "C", location: m.atoms[i].location }], bonds: [...m.bonds, { type: 1, atoms: [i, m.atoms.length] }] }).key;
+  if (nh.length > 1 && new Set(nh.map(on)).size > 1) return `${v} has ${nh.length} N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first`;
   return nh.length ? first(m, nh[0]) : undefined;
 }
 // m with atom k first, and atom drop left out.
@@ -1179,7 +1239,7 @@ function unreadNote(labels: string[] = []): string {
 // Octet's reading of each name given (D9).
 const names = (host: Host, list: Read[]) => list.map((x) => { const { name: own, formula } = about(host, x.mol); return { given: short(x.text, 80), ...(own ? { octet: own } : {}), ...(formula ? { formula } : {}) }; });
 // A name of the line notation is named as the lines wrote it, with its line.
-const failedNote = (failed: Failed[], wrong: string[] = []) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f.text}"${f.line ? ` (line ${f.line})` : ""}`).join(", ")}${failed.every((f) => f.line) ? " as a structure." : ": give a SMILES instead (with * for a generic group such as L or R, and its labels)."}${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f.text)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
+const failedNote = (all: Failed[], more: string[] = [], failed = all.filter((f) => !f.why), wrong = [...all.flatMap((f) => (f.why ? [`Line ${f.line}: ${f.why}.`] : [])), ...more]) => `${failed.length ? ` Octet cannot read ${failed.map((f) => `"${f.text}"${f.line ? ` (line ${f.line})` : ""}`).join(", ")}${failed.every((f) => f.line) ? " as a structure." : ": give a SMILES instead (with * for a generic group such as L or R, and its labels)."}${failed.some((f) => /\b(?:endo|exo|syn|anti)\b/i.test(f.text)) ? " Octet's names do not take endo, exo, syn or anti: give an isomeric SMILES (@ and @@)." : ""}` : ""}${wrong.map((w) => ` ${w}`).join("")}`;
 const UNDO = " One undo step.";
 
 async function drawStructures(host: Host, a: { structures: { text: string; number?: string }[]; columns?: number } & Placement, ctx: Ctx): Promise<Result> {
@@ -1267,7 +1327,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     for (const l of [...lines[k].above, ...lines[k].below].filter(([t]) => structured(t))) { all.push({ ...(typeof l[0] === "string" ? { text: l[0].replace(/^structure:\s*/i, "") } : l[0]), aside: true }); at.push(l); }
     all.push(...s.products); at.push(...s.products.map(() => undefined));
   }
-  const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where);
+  const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where, ctx.notes);
   // The first starting material and the products must be read. A '+' partner of lines (fromLines marks it in where)
   // Octet cannot read, and that is not a SMILES (a typo in one is refused), is a reagent's name: text over its arrow
   // (9-BBN–H), and the reply says so. One given in JSON, or as @name, is refused as before.
@@ -1477,7 +1537,7 @@ function stepAt(m: Mol, c: Cycle, k: number): string {
   return `${n(k)}→${n((k + 1) % c.nodes.length)}`;
 }
 async function drawCycle(host: Host, a: { intermediates: { text: string; labels?: string[]; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
-  const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where);
+  const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where, ctx?.notes);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   // An intermediate Octet cannot read as a structure (L2Pd(Ar)Br) is text, as the cycle tool writes one: with its labels
   // for its * and its number in bold under it, formulas with subscripts. Its box is a guess until Clean Up measures it.
@@ -1593,14 +1653,20 @@ async function replaceStructure(host: Host, a: { structure: string; text?: strin
   const old = host.ink(atoms)!, under = (m.captions ?? []).filter((c) => c.under?.some((i) => atoms.includes(i))), number = under.find((c) => c.bold);
   const kept = erase(m, new Set(m.bonds.flatMap((b, k) => (atoms.includes(b.atoms[0]) ? [k] : []))), new Set(atoms));
   const b = boxOf(ok[0].mol), r = place(kept, ok[0], own && !turn ? b[0] : (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, own && !turn ? (b[1] + b[3]) / 2 : (old[1] + old[3]) / 2);
-  host.set(under.reduce((mol, { id: _, property: _p, ...c }) => addCaption(mol, { ...c, under: r.atoms })[0], r.mol));
+  // A cycle's intermediate (or a side arrow's compound) that was the old structure is the new one, in its place: erase
+  // leaves an empty node there (plan 19.10: a replaced intermediate fell out of its cycle).
+  const was = (n?: number[]) => !!n?.length && n.every((i) => atoms.includes(i)), into = (e: CycleEnd | undefined, o: CycleEnd | undefined) => (e && was(o?.atoms) ? { ...e, atoms: r.atoms } : e);
+  const cycles = r.mol.cycles?.map((c, k) => { const o = m.cycles![k]; return { ...c, nodes: c.nodes.map((n, j) => (was(o.nodes[j]) ? r.atoms : n)), ...(c.branches ? { branches: c.branches.map((x, j) => ({ ...x, in: into(x.in, o.branches?.[j]?.in), out: into(x.out, o.branches?.[j]?.out) })) } : {}) }; });
+  host.set(under.reduce((mol, { id: _, property: _p, ...c }) => addCaption(mol, { ...c, under: r.atoms })[0], cycles ? { ...r.mol, cycles } : r.mol));
   await host.settle();
   // A structure made by changes is named, with what they did at each stereocentre and its new id, so the AI app
   // sees the change is the one it meant. One from text is named only when Octet read its name another way.
   // One only turned is the same compound: a summary names none (each name of a taxol intermediate is 300 characters).
   if (own && turn && !changes?.length && !ctx?.full) return { text: `Turned ${a.structure} (now ${sid(host.doc(), r.atoms)}).${UNDO}` };
-  const now = a.text === undefined ? about(host, ok[0].mol) : undefined, made = now ? ` with ${now.name ?? now.formula ?? "a structure"}${ok[0].note ? ` [${ok[0].note}]` : ""}, now ${sid(host.doc(), r.atoms)}` : "";
-  return { text: `Replaced ${a.structure}${made}${number ? `, which keeps its number ${number.text}` : ""}${under.length > (number ? 1 : 0) ? `${number ? " and" : ", which keeps"} its caption` : ""}.${made ? "" : readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  // One from text gives its formula and stereo, as a draw's reply does (plan 19.10: Opus replaced structures to set E/Z).
+  const now = a.text === undefined ? about(host, ok[0].mol) : undefined, part = now ? undefined : pickPart(host.doc(), r.atoms), st = part && stereoOf(part);
+  const made = now ? ` with ${now.name ?? now.formula ?? "a structure"}${ok[0].note ? ` [${ok[0].note}]` : ""}, now ${sid(host.doc(), r.atoms)}` : "", got = part ? ` with ${host.formula(part) ?? "a structure"}${st ? ` ${st}` : ""}` : "";
+  return { text: `Replaced ${a.structure}${made || got}${number ? `, which keeps its number ${number.text}` : ""}${under.length > (number ? 1 : 0) ? `${number ? " and" : ", which keeps"} its caption` : ""}.${made ? "" : readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
@@ -2569,6 +2635,17 @@ const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under |
 // Octet's name follows where a name was given and Octet's name for it is another (as readAs says them), so the AI app
 // can see it is the compound it meant.
 // A compound drawn again under its number (a later scheme's start) says which it repeats, with no formula: 15 s4 =s3.
+// A compound's stereo as a chemist writes it after the formula, as Show Stereochemistry works it out (chem.ts
+// stereoLabels: R, S, r, s on centres, E, Z on double bonds, M, P on axes, in atom order), and how many stereocentres
+// are drawn with no configuration (which Indigo reads for a structure with a wedge): (S,Z), (R; 1 undefined centre).
+// (A structure with no wedge is not read for them: that cost an Indigo call for each compound of every draw, 3.5% of
+// Octet's time on the corpus lines jobs, plan 19.10.)
+// Undefined for a compound with neither (plan 19.10: models ran RDKit, or read the InChI, to check their own SMILES).
+function stereoOf(part: Mol): string | undefined {
+  const l = stereoLabels(part), unset = stereoFacts(part).unset.size, at = (i: number) => part.bonds[i].atoms[0] < part.bonds[i].atoms[1] ? part.bonds[i].atoms[0] : part.bonds[i].atoms[1];
+  const marks = l ? [...l.atoms.flatMap((x, i) => (x ? [[i, x] as const] : [])), ...l.bonds.flatMap((x, k) => (x ? [[at(k), x] as const] : []))].sort((p, q) => p[0] - q[0]).map(([, x]) => x).join(",") : "";
+  return marks || unset ? `(${[marks, unset ? `${unset} undefined centre${unset > 1 ? "s" : ""}` : ""].filter(Boolean).join("; ")})` : undefined;
+}
 function madeCompounds(host: Host, m: Mol, made: string[]): string[] {
   const ids = new Set(made), number = new Map<number, string>(), first = new Map<string, { atoms: number[]; id: string }>(), all = structuresOf(m);
   for (const c of m.captions ?? []) if (c.bold) for (const i of c.under ?? []) if (!number.has(i)) number.set(i, c.text);
@@ -2576,8 +2653,8 @@ function madeCompounds(host: Host, m: Mol, made: string[]): string[] {
   return all.filter((x) => ids.has(x.id)).map((x) => {
     const n = number.get(x.atoms[0]), part = pickPart(m, x.atoms), was = n ? first.get(n) : undefined;
     if (was && was !== x && host.smiles(pickPart(m, was.atoms)) === host.smiles(part)) return `${n} ${x.id} =${was.id}`;
-    const src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined;
-    return `${n ? `${n} ` : ""}${x.id} ${it?.formula ?? host.formula(part)}${it?.name && plainName(it.name) !== plainName(src!.given) ? ` ${short(it.name, 120)}` : ""}`;
+    const src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined, st = stereoOf(part);
+    return `${n ? `${n} ` : ""}${x.id} ${it?.formula ?? host.formula(part)}${st ? ` ${st}` : ""}${it?.name && plainName(it.name) !== plainName(src!.given) ? ` ${short(it.name, 120)}` : ""}`;
   });
 }
 // "$2.s[0]": the first structure step 2 made; "$2.s" or "$2.made" in a list, all of them.
@@ -3026,9 +3103,10 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
       atoms: g.map((i, k) => { const x = m.atoms[i]; return { id: `${id}.${k + 1}`, label: x.text ?? x.label, ...(x.charge ? { charge: x.charge } : {}), ...(x.isotope ? { isotope: x.isotope } : {}), ...(x.radical ? { radical: RADICALS[x.radical] } : {}), ...(x.pairs ? { lone_pairs: x.pairs } : {}), ...(x.enhanced ? { enhanced: x.enhanced } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.halo ? { highlight: x.halo } : {}), ...(x.number ? { atom_number: x.number } : {}) }; }),
       bonds: m.bonds.flatMap((b) => { const [p, q] = b.atoms.map((i) => g.indexOf(i)); return p < 0 || q < 0 ? [] : [{ id: `${id}.${Math.min(p, q) + 1}-${Math.max(p, q) + 1}`, kind: bondKind(b), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { highlight: b.halo } : {}) }]; }),
     } : {};
-    if (!full) return { id, number: numberOf(g), caption: captionOf(g), formula: host.formula(partOf(g)), ...(smiles ? { smiles: host.smiles(partOf(g)) } : {}), ...parts };
+    const stereo = stereoOf(partOf(g));
+    if (!full) return { id, number: numberOf(g), caption: captionOf(g), formula: host.formula(partOf(g)), ...(stereo ? { stereo } : {}), ...(smiles ? { smiles: host.smiles(partOf(g)) } : {}), ...parts };
     const it = factsOf(g), src = sources.get(m.atoms[g[0]].key ?? -1), b = host.ink(g);
-    return { id, smiles: it.smiles, inchi: it.inchi, inchiKey: it.key, formula: it.formula, name: it.name, ...(src ? { source: src } : {}), number: numberOf(g), atoms: g.length, box: b?.map((v) => Math.round(v * 10) / 10) , ...parts };
+    return { id, smiles: it.smiles, inchi: it.inchi, inchiKey: it.key, formula: it.formula, ...(stereo ? { stereo } : {}), name: it.name, ...(src ? { source: src } : {}), number: numberOf(g), atoms: g.length, box: b?.map((v) => Math.round(v * 10) / 10) , ...parts };
   });
   const text = (id: number) => m.captions?.find((c) => c.id === id)?.text;
   // (inReactions: the text of the reactions read, kept as each is read: reading a reaction again from each of its
@@ -3270,7 +3348,9 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (part === "cdxml") { const text = await h.fileText("cdxml"); return text ? reply(id, { contents: [{ uri, mimeType: "chemical/x-cdxml", text }] }) : reply(id, undefined, { code: -32603, message: "Octet cannot write this drawing as CDXML." }); }
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
-    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false } })) });
+    // Claude Code defers every MCP tool until the model searches for it, a turn before the first call, unless the tool
+    // asks to load at once: every tool does (plan 19.10), as a restyle or a help call cost a search too.
+    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false }, _meta: { "anthropic/alwaysLoad": true } })) });
     case "tools/call": {
       const named = TOOLS.find((t) => t.name === msg.params?.name), given = msg.params?.arguments ?? {};
       if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
@@ -3430,7 +3510,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
 // stay. The lenient readings (numeral, also, default) are Octet's own too: an AI app is told the one form each
 // argument takes. An unlisted argument is left out. An object inside is listed open, as JSON Schema has one that
 // says nothing: Octet's own check is what closes it.
-const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default", "additionalProperties", "quiet"]);
+const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "reads", "names", "default", "additionalProperties", "quiet"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;

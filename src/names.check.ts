@@ -77,6 +77,10 @@ assert.equal(nameToSmiles("Et3N.HCl"), nameToSmiles("Et3N·HCl"));
 assert.equal(keyOf(nameToSmiles("MeI") ?? ""), keyOf("CI"));
 assert.deepEqual(partKeys(nameToSmiles("EDC·HCl") ?? ""), partKeys(`${opsin.parseToSmiles(COMMON.EDC)}.Cl`), "EDC·HCl");
 assert.equal(nameToSmiles("ethanol and unobtainium"), undefined);
+// cis or trans in brackets after a name, as papers list amines, reads as before it (paper-scope's 7e had lost its
+// stereo).
+assert.equal(nameToSmiles("3-azabicyclo[3.1.0]hexane (cis)"), nameToSmiles("cis-3-azabicyclo[3.1.0]hexane"));
+assert.ok(nameToSmiles("3-azabicyclo[3.1.0]hexane (cis)")!.includes("@"));
 
 // The index of Octet's own names for Structure to Name is up to date (tools/names/index.mjs), and each name in it
 // reads back as its structure.

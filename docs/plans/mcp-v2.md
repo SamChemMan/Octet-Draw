@@ -2010,3 +2010,163 @@ tries ("compound 11a is drawn", "an arrow from 11a to 12a"), where round 3 passe
 - **NOTATION's route** starts `4-bromoanisole (2) + PhB(OH)2` and then `-> 4-methoxybiphenyl (3), Pd(PPh3)4 ...`:
   the second reactant is a starting material (models had copied it into the conditions). 765
   characters; tools/list 12,429. The 36 replayed answers still score 35.
+
+### 19.8 As built (round 4, 11 November 2026, branch `mcp/ai4`)
+
+What the model spends: its turns and its thinking. A job given as names (paper-*) cost 2 to 6 times the same job as
+SMILES, because the model worked out every SMILES itself.
+
+- **draw, change and read load at once.** Claude Code defers every MCP tool until the model searches for it (a turn
+  before the first call) unless the tool's tools/list entry has `_meta: {"anthropic/alwaysLoad": true}`. These three
+  have it (`ALWAYS_LOADED`); drawings, advanced and set_brief do not. mcp.rs passes the page's tools/list through
+  unchanged, and gives none while Octet is closed.
+- **Instructions in 2,048 characters** (2,046 from 2,157; for an AI app that takes elicitation 1,867 from 1,944):
+  Claude Code before 2.1.296 cut them at 2,048 and lost the help line. The same instructions, in fewer words.
+- **A scope from the user's names.** paper-scope as one scope (the shared part once, R= each amine as the user named
+  it, 7l whole in the grid, two rows of six) draws the twelve structures its check wants. For that: a group's name can
+  be past 40 characters (labels take 300, as text does), but a label that stays a label is refused past 40, the most
+  the CDXML reader keeps; a `(cis)` or `(trans)` before a scope compound's number stays with its group
+  (`R=3-azabicyclo[3.1.0]hexane (cis) (7e)`), and other words in brackets there are dropped as before (`R=Me (S)`); a name with `(cis)` or `(trans)` after it reads as with it
+  before (Name to Structure too); two N–H that are the same (piperazine) join at either. A group that cannot join (two
+  N–H that differ, a word Octet cannot read) leaves out that compound only, with its line and "give it as a SMILES";
+  the rest is drawn, as a name Octet cannot read is.
+- **NOTATION** shows `R=morpholine (5b)` and says "R= takes a label, SMILES or name (an amine joins at its NH)" (at N since round 5): 788
+  characters from 765. tools/list 12,566 from 12,429 (111 of it the three `_meta`). The 36 replayed answers still score
+  35.
+- **Names for whole compounds:** no words added. paper-three-step gives names and Opus kept them; paper-five-step
+  describes each compound as a change to the one before, which instruction 3 already covers. Whether the scope change
+  moves the models is for the main session's runs.
+
+### 19.9 As built (round 5, 11 November 2026, branch `mcp/ai4`)
+
+paper-five-step tells each later compound in words ("both OH groups become TBS ethers", "the secondary TBS ether comes
+off", "reduces the lactone"). In all six runs both models wrote five whole SMILES by hand (Opus 4,008 output tokens,
+Haiku 13,929 and wrong stereo in some runs). Tried against the code before this round: steps 3, 4 and 5 could be
+written only with `occurrence` (1st OTBS was the tertiary one, by atom order, which a model cannot see) or map
+numbers, and the acetonide 6 only with two map numbers.
+
+- **Which of a group, as the user says it.** A swap's group (and a label as `at` of set or remove) can start with
+  `both` or `all` (every one; `both` is for two, and the reply says `Changed both OH to OTBS.`) and a class for the carbon
+  that carries it: `1°`, `2°`, `3°`, also `prim`, `sec`, `tert` and `p-`, `s-`, `t-`. A name that is a label whole
+  (`t-Bu`) is that label. One place in `compound.ts` (`each`) reads it for every caller: lines and JSON alike.
+- **Refused, never guessed:** a group there more than once with nothing to pick by is refused with its classes in words
+  (`OTBS is on a secondary carbon and a tertiary carbon: write 2° OTBS or 3° OTBS for one, or both OTBS.`); a class that is not
+  there says the classes that are; places of one class keep the occurrence advice and add `both`.
+- **A kind of place for a named transformation:** `at` as a word names the places of that kind (`reduce lactone`,
+  `reduce ketone`, `reduce ester`, `hydrolyse ester`, `deprotect acetonide`). A lactone is now called one in a refusal (it was "the ester").
+- **The route in words:** `2[both OH>OTBS; CO2Et>CH2OH]`, `3[2° OTBS>OH; CH2OH>CH2OTBDPS; OH>OBn]`,
+  `4[reduce lactone; OTBS>OH]` and `6[CH2OH>CHO]` from 2's SMILES with no numbers give the job's six InChIKeys
+  (compound.check). The bench's taxol route with steps 3, 4, 5, 16 and 17 so written gives every compound too.
+- **Not built:** the acetonide 6 from two named OH. 5 has a 1,2-diol and a 1,3-diol on the tertiary carbon, so
+  `protect acetonide 3° OH` has two readings, and naming "the CH2OH on the same carbon" needs more than this reader.
+  6 is a SMILES, or `protect acetonide 4-20` with map numbers.
+- **The corpus:** none of the 88 reactant-to-product steps in `lines.json` is one such change (searched by trying
+  each class, both and all swap among 30 labels, and reduce or hydrolyse by kind).
+- **Words:** instruction 3 says "only with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps
+  stereocentres." (the given name or SMILES still comes first, round 3b), and "Colour only what is asked" stays:
+  instructions 2,044 from 2,046. NOTATION's change line shows `both OH>OBn, 2° OTBS>OH, 7:OTBS`: the plain swap
+  (`OBn>OTES`, the class form without a class), remove (`7:H`) and add (`7+OH`) left it for room. 784 characters from
+  788 (the scope line says "an amine joins at N"); tools/list 12,562 from 12,566. The 36 replayed answers still score
+  35.
+- **After review:** the classes are for an sp3 carbon only: a group on an aryl or other sp2 carbon has none (a phenol
+  is not 2°), and `p-`, `s-`, `t-` are classes only where the group is on an sp3 carbon (`p-OMe` on an arene is the
+  OMe). `primary`, `secondary` and `tertiary` in full are classes too. A refusal says each class once with how many
+  (`OH is on two secondary carbons and a tertiary carbon`), counts with a class in words (`there are two 2° OH`,
+  `Changed both 2° OH to OBn.`), and `both` or `all` with `occurrence` is refused. A kind of place is a site's own
+  field (aldehyde, ketone, acid, ester, lactone, acetonide, carbonate, acetal, epoxide; a CO2Et label is an ester), in
+  any letters, passed to the one place that picks a site; with none of that kind the refusal names the kinds there
+  (`reduce fits no aldehyde in this compound, only a ketone and an ester.`).
+
+### 19.10 As built (what the real Claude Code runs showed, 12 November 2026, branch `mcp/ai4`)
+
+The lab ran the 14 speed jobs through the Claude Code command line on 6da8b80, three runs each on Opus and Haiku.
+Loading draw, change and read at once saved a turn a job and stays. Each point below is its own commit, so the main
+session can keep or drop each by what the lab says next.
+
+- **Every tool loads at once.** A restyle or a help call still cost a tool search (say-restyle: 5 turns on Opus, where
+  a job that draws is 2). All six tools have `_meta: {"anthropic/alwaysLoad": true}`: tools/list 12,854 from 12,740 (12,853 after
+  the next point's NOTATION).
+- **Round 5's words go back.** Told to write a step the user describes as a change (`3[2° OTBS>OH]`), Opus did so in
+  paper-five-step, was refused in two runs of three (`reduce 3`, `5[acetonide 9-13]: acetonide is not a
+  transformation`), and its clean run cost more than SMILES had (31.1 s and 3,382 tokens against 26.9 s and 2,915).
+  Instruction 3 and NOTATION's change line are as on `release-1.2-mcp` again (`only with neither, as a change to an
+  earlier one (3[OBn>OTES])`; `OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9`). The reader stays (both,
+  all, the classes, the kinds and their refusals): a model or a script that writes them is read. Instructions 2,040
+  from 2,044; NOTATION 783 from 784.
+- **Lines as a JSON array.** Haiku wrote draw's lines as an array of lines inside the text, about 12 calls in three
+  runs and never before (`'["# Substrate scope 7", "CCCC(...) (7a) 51% | ..."]'`), and was told line 1 was longer than
+  300 characters or could not be read as a structure. Lines that are a JSON array of strings, as a list or as text that
+  parses as one, are those lines one under the other (`linesOf` in `notation.ts`, called once where the lines arrive:
+  draw's route and change's draw operation, before `fromLines`, so a refusal counts the array's lines). The reply says nothing:
+  it is the same drawing. The schema stays text: a model that gives a list is read, and none is told to.
+- **An empty argument a tool does not take is left out.** draw `{operations: '[]', lines}` was told "The lines make
+  operations is not an argument of this tool". `coerce` now leaves out an argument an object does not take whose value
+  asks for nothing (null, `''`, `'[]'`, `'{}'`, `[]`, `{}`), with "Left out operations, which is empty." (plan 6: one
+  meaning, said). One with something in it is refused as the call's own (`arguments: operations is not an argument of
+  this tool`), not as the lines'. The existing check of `change {operations, steps: []}` gives `steps: [{}]` now.
+- **advanced and help as models call them.** Haiku's say-restyle had 11 refused calls in one job, and help with
+  `detail: 'full'` was refused 5 times. advanced's route now reads: `detail` with help is left out ("Left out detail:
+  help has none."); what help is about is `args.of`, `of`, or the one other text (`{tool: 'help', command:
+  'set_style'}`, `{tool: 'help', brief: 'set_style'}`), and `{command: 'help set_style'}` with no tool is help of
+  set_style ("Read command as help of set_style."); a tool's own arguments beside `tool` are its args ("Read style as an
+  argument of set_style in args."); `{tool: 'set_brief', ...}` goes through set_brief's own route. help of grid,
+  scope, lines, scheme, route or notation gives NOTATION (`call: 'draw with lines'`). set_style's `preset` takes a
+  preset as set_brief reads a journal (`Angewandte Chemie` is Wiley (Angewandte)), under `style`, `name`, `value` or
+  `journal` too: two options any argument can take in `coerce` (`reads`, a value in words; `names`, other names for
+  the argument), so change's set_style reads them the same way, said in one line ("Read style Angewandte Chemie as
+  preset Wiley (Angewandte)."). After review: `tool` is read in any letters (`Help`); `of` beside tool is said ("Read
+  of as args.of."); the move into args is said only for an argument the tool takes by that name; and any other argument
+  stays where it was given and is refused as before (`{tool: 'help', command: 'set_style', foo: 'x'}`: "command is not
+  an argument of this tool"). tools/list is unchanged (neither is published).
+  Changed checks: `{tool: 'export', format: 'pdf'}` (refused before) gives an unknown argument (`colour`) beside it;
+  `set_style {journal: 'Nature'}` (refused before) gives `font`; help with `detail` (refused before) gives `picture`.
+- **replace in a catalytic cycle.** real-r4-opus-1 paper-cycle replaced intermediates 2 and 4 (E/Z it had worked out
+  from read's InChI) and the job's check "the four intermediates in order" failed though the reply said `changed: c5`
+  and check clean. Replayed through `scripts/headless/host.ts`, the cycle read `[s1, null, s3, null]`: `erase` leaves an
+  empty node where a structure was, and replace never filled it. Now `replaceStructure` puts the new structure in each
+  node (and side arrow end) that was the old one, so it keeps its place, number and side texts. Replayed again, the
+  cycle is `[s1, s5, s3, s6]` and all four InChIKeys are the job's (2 OWBIRFRDSASUHN-OKHBPPCESA-N, 4
+  LCJXXGHDFMYFGG-CRVSIBDBSA-N): the run would have passed. change's replace with the ids of one structure and no
+  structure (real-r4-haiku-3 say-fix: "structure is missing") is that structure ("Read ids as structure.").
+- **Two lines forms Haiku wrote.** (a) Conditions on a line of their own under the arrow's line (real-r4-haiku-3
+  say-one-step: `... (2), 99% ee\nL-proline (20 mol%), CHCl3, rt`) were read as a compound and refused with "put a
+  space after the comma before  CHCl3", which had one: the check for a comma with no space took any comma. A list
+  (split at a comma with a space, or a semicolon) on the line right under an arrow's line, with no arrow, no `|` or ` + `, and no
+  compound number in it, can only be more conditions for that arrow, and is read so ("Line 2: Octet read it as more
+  conditions for the arrow on line 1."). Not after a blank line, in a scope, or before a line that starts with an arrow
+  (a start line, round 3c, or a lone compound): a compound with a comma and a space in it is refused there with "is a
+  list, not a compound: put conditions after the product on its arrow's line", and anywhere else with "is a list, not a
+  compound: put each compound between | or on a line of its own" (`aspirin, caffeine`). (b) The number before the
+  structure (real-r4-haiku-2 say-three-step: `piribedil + 11a (Cc1ccc(cc1)S(=O)(=O)OCCC=C) -> 12a (...)`) was "no
+  compound 11a earlier in this call or in the drawing". In `read` (`mcp.ts`), where every compound's number is matched
+  against the call and the drawing, a number that is neither, with a name or SMILES in brackets after it, is that
+  compound with that number; one that is a compound already keeps the bracket as its caption, as before. A short
+  SMILES in the brackets (`11a (CCO)`), which the notation reads as a new number, is read the same way when it is no
+  compound number itself and `11a` is no compound. The reply says so: "Read 11a (CCO) as compound 11a."
+- **The reply says each compound's stereo.** In both rounds both models tried RDKit in the shell on their own SMILES
+  (Opus: "Check CIP labels with RDKit"), and round 4's sentence moved Opus to read `{ids, detail: 'full'}`, work the E/Z
+  out of the InChI and replace two structures (paper-cycle: 3 and 2 calls where base had 1). Now a draw's and a
+  change's compounds, and read's summary (`stereo`, also in a full read), give each compound's descriptors after the
+  formula, as Show Stereochemistry works them out (`stereoLabels`: R, S, r, s, E, Z, M, P in atom order) and with how
+  many centres a wedged structure leaves undefined (`stereoFacts`, which Indigo reads only for a structure with a
+  wedge; for Sam: a structure with no wedge, `CC(O)CC`, is not said to have an undefined centre, as reading it cost an
+  Indigo call for each such compound of every draw, 3.5% more Octet ms on the corpus lines jobs measured turn about,
+  past noise. Left out until Sam decides): `2 s2 C15H21NO4 (Z,S)`, `3 C7H16O (S; 1 undefined centre)`. No locants: Octet has none cheaply. Nothing for a
+  compound with neither. One function, `stereoOf`, beside the formula in `madeCompounds` and `summary`; both chem.ts
+  functions keep what they work out by structure, and the layout check has already read the drawing's stereo.
+  draw's description: "the reply gives each formula and stereo (R, S, E, Z): do not test a name or SMILES with other
+  tools first"; read's: "structures (id, number, caption, formula, stereo)". tools/list 12,885 from 12,853. change's
+  replace from text gives the new structure's formula and stereo too ("Replaced 70 with C4H8 (Z), which keeps its
+  number 70."), as Opus replaced structures to set their E/Z: taxol-v1-job read 176,619 from 176,579. Changed check:
+  replace of 1 with toluene says "Replaced 1 with C7H8, which keeps its number 1 and its caption."
+- **Measured** (benchmark turn about with the commit before, two runs each, best of each): Octet ms over all 147 cases
+  27,133 then 27,331 (+0.7%, noise); taxol-lines 1,908 then 1,903, taxol-route 1,913 then 1,891, taxol-v1-job 3,826
+  then 3,824. Read characters rise only for compounds with stereo: taxol-lines 950 to 1,254, taxol-route 4,989 to
+  5,570, paper-cycle 293 to 330, say-two-schemes 302 to 408, and 35 corpus lines jobs by 4 to 110; summaries likewise
+  (taxol-route 2,443 to 3,024, under 5,000). results.json holds the new counts, tools/list and instructions; its times
+  are the ones it had. notation.check's longest reply of a job in one call goes to under 1,300 characters from 1,200
+  (the taxol route is 1,254). The 36 replayed answers still score 35.
+- **Counts by commit.** results.json was written once, in the stereo commit: the commits before it fail the benchmark
+  on tools/list alone. A session that drops a commit runs `node scripts/mcp-bench/run.ts --write` for the counts and
+  keeps the times that results.json had: alwaysLoad moves tools/list (12,854), the notation's line moves it by one
+  (12,853) and the instructions (2,040), and the stereo commit the rest.

@@ -105,12 +105,17 @@ assert.deepEqual((await send("ping")).result, {});
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
 assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
+// Claude Code loads every tool at once (alwaysLoad): one that waits for a tool search costs a turn before its first
+// call, which a restyle or a help call paid (plan 19.10).
+assert.deepEqual(tools.map((t) => (t as { _meta?: unknown })._meta), Array(6).fill({ "anthropic/alwaysLoad": true }));
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
 for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_command", "structures", "help"]) assert.equal((await send("tools/call", { name, arguments: {} })).error.code, -32602, name);
 // The list is read at the start of every chat (test plan P4, A5): under 14,000 characters, about 4,000 tokens. The
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
+// Real Claude Code runs (plan 19.10): the models tried RDKit in the shell on their own SMILES before they drew. draw says not to.
+assert.match(tools.find((t: { name: string }) => t.name === "draw").description, /the reply gives each formula and stereo \(R, S, E, Z\): do not test a name or SMILES with other tools first/);
 // The scripting page (docs/scripting.md, plan 18.2) cannot drift: its table of tools is the tools tools/list gives, and
 // each file it shows (### name, then its code) is the file in scripts/examples as it is.
 {
@@ -254,7 +259,7 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
   assert.equal(m.style, undefined, "no call changed the drawing's style");
   assert.equal(steps.length, 6);
   // The server instructions ask the three questions in their first lines, so an AI app asks before its first call.
-  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions, unless they have answered them: ${QUESTIONS.split(": ").slice(1).join(": ")} Give the answers as draw's brief in the same call that draws`));
+  assert.ok((await send("initialize", {})).result.instructions.split("\n")[1].includes(`ask the user these three questions unless answered: ${QUESTIONS.split(": ").slice(1).join(": ")} Give the answers as brief in the draw call`));
   // The brief inside the first drawing call (plan 19.2): draw's brief, in a line or as set_brief's object, is set as
   // set_brief sets it, in the same undo step, said in a line before the result, and kept for the session. A brief Octet
   // refuses changes and keeps nothing. With no brief anywhere a scheme is refused with the three questions, as before.
@@ -418,6 +423,8 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
     const ins = async (elicit: boolean) => (JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "initialize", params: { capabilities: {} } }), () => host, "1.2.0", { ...as("s-1"), ...(elicit ? { elicit: async () => "" } : {}) })).result.instructions as string).split("\n");
     const [plain, form2] = [await ins(false), await ins(true)];
     assert.deepEqual([form2.length, form2.filter((l, k) => l !== plain[k]).length], [plain.length, 1]);
+    // (Within the 2,048 characters an AI app keeps, as the others are.)
+    assert.ok(form2.join("\n").length <= 2048, `${form2.join("\n").length}`);
     assert.equal(form2[1], "- For a scheme, route, figure, cycle or grid, just call draw: Octet asks the user about style, destination and emphasis itself when it needs to. Give brief only for answers the user has already given in the chat.");
     // The prompts say the same: for an AI app that takes elicitation they only call, and give a brief only for answers
     // the user has given, the prompt's own among them (fill_experiment's notebook, journal_figure's journal), so Octet's
@@ -537,14 +544,16 @@ assert.equal(steps.length, 0);
   await no("change", { operations: [{ op: "run_command", command: "undo" }] }, /operations\[0\]\.op: not one of draw, edit, /);
   await no("change", { operations: [{ op: "draw", structures: [{ text: "water" }] }] }, /operations\[0\]: kind is missing/);
   await no("change", { operations: [{ op: "delete", ids: ["s1"] }, { op: "draw", kind: "table" }] }, /operations\[1\]\.kind: not one of structures, reaction, cycle, figure/);
-  await no("change", { operations: [{ op: "delete", ids: ["s1"] }], steps: [] }, /arguments: steps is not an argument of this tool\.$/);
+  await no("change", { operations: [{ op: "delete", ids: ["s1"] }], steps: [{}] }, /arguments: steps is not an argument of this tool\.$/);
   await no("change", { operations: [{ op: "move", ids: ["s1"], by: [1, 0] }] }, /^Octet changed nothing\. operations\[0\]: by is not an argument of this tool\. advanced help of move gives its arguments\.$/);
   await no("change", { operations: [{ op: "number", structure: "s1" }] }, /^Octet changed nothing\. operations\[0\]: number is missing\. advanced help of number gives its arguments\.$/);
   await no("advanced", { args: {} }, /arguments: tool is missing/);
   await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, draw_route, help\.$/);
   await no("advanced", { tool: "export", args: "pdf" }, /args: not an object/);
-  await no("advanced", { tool: "export", format: "pdf" }, /arguments: format is not an argument of this tool\.$/);
-  await no("advanced", { tool: "set_style", args: { journal: "Nature" } }, /^Octet changed nothing\. args: journal is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
+  // (A tool's own argument beside tool is taken into args, plan 19.10: one the tool does not take is refused there.)
+  await no("advanced", { tool: "export", format: "pdf", colour: "red" }, /^Octet changed nothing\. args: colour is not an argument of this tool\. advanced help of export gives its arguments\.$/);
+  // (journal is set_style's preset by another name now, plan 19.10.)
+  await no("advanced", { tool: "set_style", args: { font: "Arial" } }, /^Octet changed nothing\. args: font is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
   await no("drawings", { action: "shut" }, /action: not one of list, use, new, close/);
   await no("drawings", { action: "use" }, /drawing is missing/);
   await no("drawings", { action: "list", drawing: "draw-1" }, /drawing is not an argument of this tool\.$/);
@@ -553,7 +562,8 @@ assert.equal(steps.length, 0);
   // for its other operations is refused as it is, not as "not an argument of this tool".
   await no("read", { format: "mol", smiles: true }, /^Octet changed nothing\. smiles does not go with format\.$/);
   await no("read", { format: "smiles", picture: true }, /^Octet changed nothing\. picture does not go with format\.$/);
-  await no("advanced", { tool: "help", args: { of: "move" }, detail: "full" }, /^Octet changed nothing\. detail does not go with help\.$/);
+  // (help's detail is left out, plan 19.10: five calls of the real runs gave it.)
+  await no("advanced", { tool: "help", args: { of: "move" }, picture: true }, /^Octet changed nothing\. picture does not go with help\.$/);
   await no("advanced", { tool: "export", args: { format: "pdf" }, picture: true }, /^Octet changed nothing\. picture does not go with export\.$/);
   assert.equal(m, EMPTY);
   assert.equal(steps.length, 0);
@@ -874,6 +884,18 @@ assert.deepEqual(d.cycles[0].names.map((x: { text: string; at: string }) => `${x
 // 0, 3" made Haiku put a side arrow one step early and never know.
 assert.match(text(out), /clockwise; in: PhBr at 1→5; in: ArB\(OH\)2, out: B\(OH\)3 at 5→3; out: Ph–Ar at 3→1\./);
 assert.deepEqual(d.cycles[0].sides.map((x: { side: string; text: string; at: string }) => `${x.side} ${x.text} ${x.at}`), ["in PhBr 1→5", "in ArB(OH)2 5→3", "out B(OH)3 5→3", "out Ph–Ar 3→1"]);
+// A replaced intermediate keeps its place in the cycle, its number and the side texts at its steps (real-r4-opus-1
+// paper-cycle, plan 19.10: two replaced in one change fell out of the cycle, which read as [s1, null, s3, null]).
+// replace with ids of one structure and no structure is that structure (real-r4-haiku-3 say-fix).
+out = await call("change", { operations: [{ op: "replace", structure: d.structures[1].id, text: "COc1ccccc1" }, { op: "replace", ids: [d.structures[2].id], text: "Nc1ccccc1" }] });
+assert.ok(!out.isError, text(out));
+assert.equal(out.content[1]?.text, "Read ids as structure.");
+{
+  const e = await read(), formula = (id: string) => e.structures.find((s: { id: string }) => s.id === id)?.formula;
+  assert.deepEqual(e.cycles[0].intermediates.map(formula), ["C6H6", "C7H8O", "C6H7N"]);
+  assert.deepEqual(e.cycles[0].sides, d.cycles[0].sides);
+  assert.equal(m.cycles![0].branches!.length, 3);
+}
 
 // replace keeps the place and the number; delete takes structures and text away; select picks them.
 fresh();
@@ -1745,15 +1767,20 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to\./);
   // A clean check is a sentence or two to the user, with only what differs from what they asked: models answered with
   // 150 to 300 tokens that repeated every compound, the most of a plain job's time.
-  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two, and only what differs from what they asked: do not read back or ask for a picture unless asked how it looks\./);
+  assert.match(ins, /When check is "clean", tell the user it is drawn in a sentence or two, only what differs from their request; no read or picture unless asked how it looks\./);
   // What the compounds list says, a name in it a rule (Octet read the compound as another), and the =id of a repeat.
   assert.match(ins, /^Octet Draw is .* These tools draw in the user's open drawing and read it\.\n[^]*The reply lists each compound as Octet read it \(number, id, formula or =id if drawn again; a name only if read as another\)/);
   // Round 3b: given every compound's SMILES, Haiku tried to write them as changes ("write each compound once ... a
   // later one is a change to it" read as a rule), could not, and said sorry to the user. The SMILES given come first.
+  // Round 5 told the model to write a step the user says as a change (3[2° OTBS>OH]); in the real Claude Code runs Opus
+  // then did, was refused in two runs of three, and spent more than SMILES had (plan 19.10). The words of before stay.
   assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, as a change to an earlier one \(3\[OBn>OTES\]\), which keeps stereocentres\./);
   // (A group is highlighted with highlight too: a shape is a frame or panel.)
   assert.match(ins, /To highlight an atom, bond, group or structure, use change's edit with highlight/);
-  assert.ok(ins.length <= 2162, `${ins.length}`);
+  // (Only what is asked takes colour: the line kept that when it was cut to fit 2,048 characters.)
+  assert.match(ins, / Colour only what is asked\./);
+  // Claude Code before 2.1.296 cut a server's instructions at 2,048 characters: at 2,157 it lost the help line.
+  assert.ok(ins.length <= 2048, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what
   // advanced help gives for each kind, operation and tool.
   const gone = /\b(read_drawing|draw_structures|draw_reaction|draw_cycle|draw_figure|replace_structure|add_text|new_drawing|list_drawings|use_drawing|set_number|get_file|add_arrow|add_shape)\b/;
@@ -2297,7 +2324,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual([rows.structures.map((x) => [x.number, x.caption]), rows.text], [[["2", "from 3"], ["1", "paclitaxel"]], undefined]);
   // replace keeps the text under the structure, the caption too, and says so.
   o = await lenient("change", { operations: [{ op: "replace", structure: "1", text: "toluene" }] });
-  assert.match(text(o), /^Replaced 1, which keeps its number 1 and its caption\./);
+  // (It gives the new structure's formula, and its stereo when it has any, as a draw's reply does: plan 19.10.)
+  assert.match(text(o), /^Replaced 1 with C7H8, which keeps its number 1 and its caption\./);
   assert.deepEqual(under(), [["2", true], ["from 3", false], ["1", true], ["paclitaxel", false]]);
   assert.ok(m.captions!.filter((c) => c.text === "1" || c.text === "paclitaxel").every((c) => c.under!.every((i) => m.atoms[i].label === "C") && c.under!.length === 7), "under the new structure");
   // A number with spaces or a line break round it: the line is one line.
@@ -2442,7 +2470,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const described = (name: string) => OP_TABLE.find((t) => t.name === name)!.description!;
   assert.ok(/detail: full lists what changed\.$/.test(described("run_command")) && !/The result lists/.test(described("run_command")));
   assert.ok(/caption \(text under the number\)/.test(described("structures")) && /number, caption and the hints/.test(described("reaction")));
-  assert.ok(/caption under the number/.test(JSON.stringify(tools[0].inputSchema)) && /\(id, number, caption, formula\)/.test(tools[2].description));
+  assert.ok(/caption under the number/.test(JSON.stringify(tools[0].inputSchema)) && /\(id, number, caption, formula, stereo\)/.test(tools[2].description));
   // A reaction's plus signs are made, with their boxes: each has its own place, so a move of what a call made takes
   // all of the reaction (a plus sign left out of made would stay behind).
   fresh();
@@ -2714,6 +2742,68 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(o), /^Did 3 steps as one undo step:\n1–2\. Turned 4, 5 \(now s\d+, s\d+\)\.\n3\. /);
   o = await call("change", { operations: [{ op: "replace", structure: "4", flip: "vertical" }], detail: "full" });
   assert.match(text(o), /^Replaced 4 with [^,]+, now s\d+/);
+}
+
+// Plan 19.10: what the real Claude Code runs on 6da8b80 showed.
+{
+  // Haiku wrote draw's lines as a JSON array of lines in the text (about 12 calls in three runs), and was told line 1
+  // was longer than 300 characters. A list of lines, or text that reads as one, is those lines, and the reply is the
+  // reply to them.
+  const lines = ["OC(=O)c1ccccc1 (1) + CO", "-> COC(=O)c1ccccc1 (2), H2SO4, reflux, 88%"], drawn = async (a: object) => { fresh(); resetIds(); return (await call("draw", a)).content.map((c: { text: string }) => c.text); };
+  const plain = await drawn({ lines: lines.join("\n") });
+  assert.deepEqual(await drawn({ lines: JSON.stringify(lines) }), plain);
+  assert.deepEqual(await drawn({ lines }), plain);
+  assert.deepEqual(await drawn({ lines: JSON.stringify([lines.join("\n")]) }), plain);
+  // (change's draw operation reads them the same way, where its lines arrive.)
+  const changed = async (l: unknown) => { fresh(); resetIds(); return (await call("change", { operations: [{ op: "draw", lines: l }] })).content.map((c: { text: string }) => c.text); };
+  assert.deepEqual(await changed(JSON.stringify(lines)), await changed(lines.join("\n")));
+  // draw {operations: '[]', lines} was told "The lines make operations is not an argument of this tool". An empty
+  // argument a tool does not take is left out and said; one with something in it is refused as the call's.
+  assert.deepEqual(await drawn({ operations: "[]", lines: lines.join("\n") }), [...plain, "Left out operations, which is empty."]);
+  assert.deepEqual(await drawn({ operations: [{ op: "delete" }], lines: lines.join("\n") }), ["Octet changed nothing. arguments: operations is not an argument of this tool."]);
+}
+
+// advanced as the models called it (haiku-1 say-restyle: 11 refused calls in one job), each reading said in the notes.
+{
+  const help = async (a: object) => { const o = await call("advanced", a); assert.ok(!o.isError, `${JSON.stringify(a)}: ${text(o)}`); return [JSON.parse(text(o)).of, ...o.content.slice(1).map((c: { text: string }) => c.text)]; };
+  assert.deepEqual(await help({ tool: "help", args: { of: "cycle" }, detail: "full" }), ["cycle", "Left out detail: help has none."]);
+  assert.deepEqual(await help({ command: "help set_style" }), ["set_style", "Read command as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", command: "set_style" }), ["set_style", "Read command as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", brief: "set_style" }), ["set_style", "Read brief as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", of: "set_style" }), ["set_style", "Read of as args.of."]);
+  // (help in other letters is help; what help is not about is refused as before.)
+  assert.deepEqual(await help({ tool: "Help", of: "cycle" }), ["cycle", "Read of as args.of.\nRead tool Help as help."]);
+  const no = async (a: object, why: RegExp) => { const o = await call("advanced", a); assert.ok(o.isError && why.test(text(o)), `${JSON.stringify(a)}: ${text(o)}`); };
+  await no({ tool: "help", command: "set_style", foo: "x" }, /^Octet changed nothing\. arguments: command is not an argument of this tool\.$/);
+  await no({ tool: "help", of: "cycle", zz: 5 }, /^Octet changed nothing\. arguments: zz is not an argument of this tool\.$/);
+  await no({ tool: "help", args: { of: "cycle" }, command: "x" }, /^Octet changed nothing\. arguments: command is not an argument of this tool\.$/);
+  // grid, scope, lines, scheme, route and notation are what draw's lines write: help of each is the notation.
+  for (const x of ["grid", "scope", "lines", "scheme", "route", "notation"]) assert.equal(JSON.parse(text(await call("advanced", { tool: "help", args: { of: x } }))).description, NOTATION, x);
+  // set_style's preset as the user names it, under style, name, value, preset or journal, beside tool or in change.
+  const styled = async (name: string, a: object) => { fresh(); const o = await call(name, a); assert.ok(!o.isError && host.style().preset === "Wiley (Angewandte)", `${JSON.stringify(a)}: ${text(o)}`); return o.content.slice(1).map((c: { text: string }) => c.text).join(" "); };
+  assert.equal(await styled("advanced", { tool: "set_style", style: "Angewandte Chemie" }), "Read style Angewandte Chemie as preset Wiley (Angewandte).");
+  assert.equal(await styled("advanced", { tool: "set_style", preset: "Angewandte Chemie" }), "Read preset as an argument of set_style in args.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
+  for (const k of ["name", "value", "preset", "journal"]) await styled("advanced", { tool: "set_style", [k]: "Angewandte Chemie" });
+  assert.equal(await styled("change", { operations: [{ op: "set_style", style: "Angewandte Chemie" }] }), "Read style Angewandte Chemie as preset Wiley (Angewandte).");
+  // set_brief through advanced is set_brief.
+  const o = await call("advanced", { tool: "set_brief", destination: "a paper in Angewandte Chemie" }, "s-adv");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-adv")!).destination.journal === "Wiley (Angewandte)", text(o));
+  fresh();
+}
+
+// Each compound's stereo after its formula, as Show Stereochemistry has it (the real runs ran RDKit, or read the InChI
+// and drew again, to check their own SMILES), and how many centres a wedged structure leaves undefined; read's summary
+// gives the same. A compound with neither has nothing added.
+{
+  fresh();
+  const o = await call("draw", { lines: "C[C@H](O)CC (1) -> C/C=C/C(=O)O (2)\nC[C@H](O)CC(C)CC (3) -> c1ccccc1 (4)" });
+  assert.deepEqual(o.structuredContent.compounds.map((x: string) => x.replace(/ s\d+/, "")), ["1 C4H10O (S)", "2 C4H6O2 (E)", "3 C7H16O (S; 1 undefined centre)", "4 C6H6"], text(o));
+  assert.deepEqual((await call("read", {})).structuredContent.structures.map((x: { stereo?: string }) => x.stereo), ["(S)", "(E)", "(S; 1 undefined centre)", undefined]);
+  // replace's reply gives the new structure's formula and stereo, as a draw's does (Opus replaced two structures to
+  // set their E/Z and had to read again to see them).
+  fresh();
+  assert.ok(!(await call("draw", { lines: "CC(O)CC (70) -> CC(=O)CC (71)" })).isError);
+  assert.match(text(await call("change", { operations: [{ op: "replace", structure: "70", text: "C/C=C\\C" }] })), /^Replaced 70 with C4H8 \(Z\), which keeps its number 70\./);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");
