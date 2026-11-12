@@ -93,9 +93,11 @@ draws Octet's Windows EMF today.
   the file. Over paste's limit for one type (64 MB, less 64 KB for the zip's other parts) the PDF goes alone.
 - Update in Word (decision 0023) gives Word the same two types as Copy (`clipboard::mac_picture`, packed by
   `word::picture`), so an updated picture is Octet's EMF too.
-- To check before a release: a document pasted from Octet on a Mac, opened in Word and PowerPoint for Windows (on
-  screen, printed, saved as PDF), a paste into PowerPoint and Excel for Mac, Update in Word, and a paste of a drawing
-  that holds a photo (its EMF is stored in the zip, not deflated).
+- Checked in Word for Windows on 12 November 2026: Sam opened a document that holds Octet's EMF, and the picture is
+  sharp on screen. Update in Word was run with Word 16 on the Mac the same day (`update_in_word_live` in `word.rs`).
+- Still to check before a release: the same document in PowerPoint for Windows, printed and saved as PDF from Word
+  for Windows, a paste into PowerPoint and Excel for Mac, and a paste by hand of a drawing that holds a photo (its
+  EMF is stored in the zip, not deflated).
 - The zip's parts are deflated at the fastest level, but a part over 1 MB (an EMF with a picture's pixels) is stored.
   Copy reads the SVG once and makes the EMF's records on a thread beside the PDF.
 - Times on an M1 Pro (`mac_copy_time` in `clipboard.rs`), Copy against the PDF alone, which was Copy before. A
