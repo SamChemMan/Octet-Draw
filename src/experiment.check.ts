@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MAX_START, PURPOSES, outlines, pageSize, purposeStyle, readPurposes, styleFor } from "./docstyle.ts";
-import { FIELDS, MAX_MARKUP, detailsLayout, detailsOf, experimentPage, growScheme, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, templateOf, today, withDetails } from "./experiment.ts";
+import { FIELDS, MAX_MARKUP, detailsOf, experimentPage, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, today, withDetails, withHeader, type Sheet } from "./experiment.ts";
+import { addCaption, deleteGraphics, updateCaption } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
@@ -64,8 +65,9 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
 // A new page: Date today and the Procedure heading at the left margin, inside the page. A template made from a page
 // keeps its details but the date, and its free text; a new page from it gets today's date.
 {
-  const page = pageSize(purposeStyle("experiment")), start = newExperiment(page, 14.4, undefined, "2026-11-04");
-  assert.deepEqual(detailsOf(start.annotations), { date: "2026-11-04" });
+  const page = pageSize(purposeStyle("experiment")), sheet: Sheet = { page, bond: 14.4, size: 10, measure: (t, size) => t.length * size * 0.5 };
+  const whole = newExperiment(sheet, undefined, "2026-11-04"), start = { ...whole, captions: whole.captions!.filter((c) => c.text === "Reaction scheme" || c.text === "Procedure") };
+  assert.deepEqual(detailsOf(whole.annotations), { date: "2026-11-04" });
   const heading = start.captions!.find((c) => c.text === "Procedure")!, k = 72 / 25.4 / 14.4;
   assert.deepEqual([heading.text, heading.bold, heading.align], ["Procedure", true, "left"]);
   assert.ok(Math.abs(heading.x - (15 - 105) * k) < 1e-9 && heading.y < 0 && heading.y > (-page[1] / 2) * k);
@@ -75,13 +77,13 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.equal(start.shapes?.length, 2);
   const ids = [...start.captions!, ...start.shapes!].map((x) => x.id);
   assert.equal(new Set(ids).size, ids.length, "every heading and box has its own id");
-  const block = detailsLayout({ title: "x".repeat(200), ...details }, page, 14.4, 10, (t, size) => t.length * size * 0.5).box;
+  const rule = whole.arrows![0].from[1];
   start.shapes!.forEach((box, j) => {
     const h = start.captions![j], [x0, x1] = [Math.min(box.from[0], box.to[0]), Math.max(box.from[0], box.to[0])], [y0, y1] = [Math.min(box.from[1], box.to[1]), Math.max(box.from[1], box.to[1])];
     assert.equal(box.kind, "box");
     assert.ok(Math.abs(x0 - (15 - 105) * k) < 1e-9 && Math.abs(x1 - (105 - 15) * k) < 1e-9, "the box spans the margins");
     assert.ok(h.y > y1 && h.y - y1 < 4 * k, "the heading sits just above its box");
-    assert.ok(y1 < block[1] && y0 >= (15 - page[1] / 2) * k - 1e-9, "below the details, above the bottom margin");
+    assert.ok(y1 < rule && y0 >= (15 - page[1] / 2) * k - 1e-9, "below the details, above the bottom margin");
   });
   assert.ok(Math.max(start.shapes![1].from[1], start.shapes![1].to[1]) < Math.min(start.shapes![0].from[1], start.shapes![0].to[1]), "the boxes do not overlap");
   // Saved and opened again, through .oct and CDXML, they come back as text and boxes.
@@ -96,13 +98,15 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   const { date: _, ...undated } = details;
   assert.deepEqual(detailsOf(template.annotations), undated);
   assert.deepEqual(template.captions?.map((c) => c.text), ["Procedure"]);
-  const again = newExperiment(page, 14.4, template, "2026-12-01");
+  // A template from Octet 1.1.1 has no text for its details: a new page from it gets Octet's, with the template's values.
+  const again = newExperiment(sheet, template, "2026-12-01");
   assert.deepEqual(detailsOf(again.annotations), { ...details, date: "2026-12-01" });
-  assert.deepEqual(again.captions?.map((c) => c.text), ["Procedure"]);
+  assert.deepEqual(again.captions?.filter((c) => !c.field).map((c) => c.text), ["Procedure", ...FIELDS.slice(1).map(([, n]) => n)]);
+  assert.deepEqual(Object.fromEntries(again.captions!.filter((c) => c.field).map((c) => [c.field, c.text])), { ...details, date: "2026-12-01" });
   assert.equal(again.shapes, undefined, "a template with no boxes gives none");
   // A template keeps its boxes and tables, not a TLC plate or a picture.
   const boxed = templateOf({ ...drawing, shapes: [{ id: 5, kind: "box", from: [0, 0], to: [4, 3] }, { id: 6, kind: "tlc", from: [0, 0], to: [2, 3] }] });
-  assert.deepEqual(newExperiment(page, 14.4, parse(serialize(boxed))).shapes?.map((x) => x.kind), ["box"]);
+  assert.deepEqual(newExperiment(sheet, parse(serialize(boxed))).shapes?.map((x) => x.kind), ["box"]);
   // An own template keeps what it starts with, within limits.
   const own = (start: string) => readPurposes({ ownPurposes: [{ id: "u1", name: "My experiment", kind: "experiment", style: purposeStyle("experiment"), start }] }).ownPurposes[0];
   assert.equal(own(serialize(template)).start, serialize(template));
@@ -110,21 +114,91 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.equal(own("x".repeat(MAX_START + 1)).start, undefined);
 }
 
-// The block: the title in bold and larger, then the details two to a row, inside the page's margins.
+// The details are text at the top of the page (Octet 1.1.2): a bold name for each with its value after it, two to a
+// row, the title above them, and a rule under them, all inside the page. Every one is ordinary text.
 {
-  const measure = (t: string, size: number) => t.length * size * 0.5;
-  const page: [number, number] = [210, 297], k = 72 / 25.4 / 14.4;
-  const b = detailsLayout({ ...details, solvent: "w".repeat(200) }, page, 14.4, 10, measure);
-  assert.deepEqual([b.texts[0].text, b.texts[0].bold, b.texts[0].size], [details.title, true, 14]);
-  assert.deepEqual(b.texts.filter((t) => t.bold).map((t) => t.text), [details.title, ...FIELDS.slice(1).map(([, n]) => n)]);
-  const date = b.texts.find((t) => t.text === "Date")!, note = b.texts.find((t) => t.text === "Notebook")!;
-  assert.equal(date.y, note.y, "Date and Notebook share a row");
-  assert.ok(note.x > date.x);
-  const long = b.texts.find((t) => t.text.startsWith("www"))!;
-  assert.ok(long.text.endsWith("…") && long.x + (measure(long.text, 10) / 14.4) <= (page[0] / 2 - 15) * k + 1e-9, "a long value is cut to its column");
-  assert.ok(b.box[0] >= (-page[0] / 2) * k && b.box[2] <= (page[0] / 2) * k && b.box[3] <= (page[1] / 2) * k && b.box[1] < b.box[3]);
-  // With no title, the details start the block.
-  assert.equal(detailsLayout({}, page, 14.4, 10, measure).texts[0].text, "Date");
+  const measure = (t: string, size: number) => t.length * size * 0.5, page: [number, number] = [210, 297], k = 72 / 25.4 / 14.4, sheet: Sheet = { page, bond: 14.4, size: 10, measure };
+  const old: Mol = { atoms: [], bonds: [], annotations: withDetails(undefined, details) }, m = withHeader(old, sheet), caps = m.captions!;
+  assert.equal(m.fields, true);
+  assert.deepEqual(caps.filter((c) => !c.field).map((c) => [c.text, c.bold]), FIELDS.slice(1).map(([, n]) => [n, true]));
+  assert.deepEqual(Object.fromEntries(caps.filter((c) => c.field).map((c) => [c.field, c.text])), details);
+  assert.ok(caps.every((c) => c.chemical === false && c.align === "left"), "never read as chemistry: a solvent is not an atom label");
+  const title = caps.find((c) => c.field === "title")!, date = caps.find((c) => c.text === "Date")!, note = caps.find((c) => c.text === "Notebook")!, dateValue = caps.find((c) => c.field === "date")!;
+  assert.deepEqual([title.bold, title.size], [true, 14]);
+  assert.ok(date.y === note.y && note.x > date.x && dateValue.y === date.y && dateValue.x > date.x, "Date and Notebook share a row, each value after its name");
+  assert.ok(title.y > date.y && caps.every((c) => c.x >= (15 - 105) * k - 1e-9 && c.y <= (page[1] / 2 - 15) * k));
+  assert.deepEqual([m.arrows!.length, m.arrows![0].kind], [1, "line"]);
+  assert.ok(m.arrows![0].from[1] < Math.min(...caps.map((c) => c.y)), "the rule is under them");
+  // Saved and opened again through .oct and CDXML, each value is still its detail, and the page still says its details
+  // are text. Octet 1.1.1 drew the details itself: its page has no such text, and gets it once.
+  for (const back of [parse(serialize(m)), fromCdxml(toCdxml(m, purposeStyle("experiment"))).mol]) {
+    assert.equal(back.fields, true);
+    assert.deepEqual(Object.fromEntries(back.captions!.filter((c) => c.field).map((c) => [c.field, c.text])), details);
+  }
+  assert.equal(parse(serialize(old)).fields, undefined);
+  assert.equal(parse(serialize(m).replace('"field": "date"', '"field": "<b>"')).captions!.some((c) => c.field === "date"), false, "a field is a short lower-case name, or it is left out");
+
+  // Octet 1.1.1 saves the page with its text and drops what says the text is a detail. Opened again, the page gets no
+  // second set of names: each text that says a detail's value is that detail's again.
+  const by111: Mol = { ...m, fields: undefined, captions: caps.map(({ field: _, ...c }) => c) }, healed = withHeader(by111, sheet);
+  assert.equal(healed.captions!.length, caps.length);
+  assert.deepEqual(Object.fromEntries(healed.captions!.filter((c) => c.field).map((c) => [c.field, c.text])), details);
+  assert.deepEqual([healed.fields, healed.arrows!.length], [true, 1]);
+
+  // Each detail's place: its box holds its value's start and runs to the next name on the line or the right margin.
+  // Values of names that start at the same x start at the same x.
+  const slots = slotsOf(m, sheet), slot = (f: string) => slots.find((x) => x.field === f)!;
+  assert.deepEqual(slots.map((x) => x.field), FIELDS.map(([f]) => f));
+  assert.ok(slots.every((x) => x.caption === caps.find((c) => c.field === x.field)!.id && inSpan(x.box, x.at)));
+  assert.ok(slot("date").box[2] < note.x && Math.abs(slot("notebook").box[2] - (105 - 15) * k) < 1 && slot("date").at[0] === slot("temperature").at[0]);
+  // With no value, the place is after the name: a click there starts text that is the detail. The title, with no name
+  // of its own, goes above the top name, larger and bold; with a Title name on the page it goes after that, as the rest.
+  const bare = withHeader({ atoms: [], bonds: [] }, sheet, true), empty = slotsOf(bare, sheet);
+  assert.deepEqual(empty.map((x) => [x.field, x.caption]), FIELDS.map(([f]) => [f, undefined]));
+  const at = (f: string) => empty.find((x) => x.field === f)!;
+  assert.ok(at("date").at[0] === slot("date").at[0] && at("date").at[1] === slot("date").at[1], "a new page keeps a row for the title");
+  assert.ok(Math.abs(at("title").at[1] - at("date").at[1] - 2 * 10 / 14.4) < 1e-9 && at("title").at[0] === bare.captions![0].x);
+  assert.deepEqual([slotText(bare, at("title"), sheet).size, slotText(bare, at("title"), sheet).bold, slotText(bare, at("date"), sheet).size], [14, true, undefined]);
+  const named = addCaption(bare, { text: "title:", x: -5, y: -3 })[0], own = slotsOf(named, sheet).find((x) => x.field === "title")!;
+  assert.ok(own.at[1] === -3 && own.at[0] > -5 && slotText(named, own, sheet).size === undefined, "any text that says a detail's name is its name");
+  // A name deleted: its detail has no place. A value moved away keeps a box round its own text.
+  const gone = deleteGraphics(bare, new Set([bare.captions!.find((c) => c.text === "Pressure")!.id]));
+  assert.equal(slotsOf(gone, sheet).some((x) => x.field === "pressure"), false);
+  const moved = updateCaption(m, dateValue.id, { x: 3, y: -9 }), far = slotsOf(moved, sheet).find((x) => x.field === "date")!;
+  assert.ok(inSpan(far.box, [3.1, -9]) && !inSpan(far.box, slot("date").at) && far.caption === dateValue.id);
+
+  // The details and their text agree after each edit. A value typed on the page is the detail.
+  const typed = addCaption(bare, { ...slotText(bare, at("project"), sheet), text: "Biaryls" })[0], synced = syncDetails(bare, typed, sheet);
+  assert.deepEqual(detailsOf(synced.annotations), { project: "Biaryls" });
+  assert.equal(syncDetails(synced, synced, sheet), synced, "nothing to do: the same drawing");
+  // Changed where it was moved to, it is still the detail; deleted, the detail goes.
+  const project = synced.captions!.find((c) => c.field === "project")!.id, away = updateCaption(synced, project, { x: 2, y: -20, text: "Peptides" });
+  assert.deepEqual(detailsOf(syncDetails(synced, away, sheet).annotations), { project: "Peptides" });
+  assert.deepEqual(detailsOf(syncDetails(synced, deleteGraphics(synced, new Set([project])), sheet).annotations), {});
+  // A detail set another way (Experiment details…, a table's conditions) changes its text, adds it in its place, or
+  // deletes it. With no place on the page (its name deleted), the detail has no text.
+  const set = (from: Mol, d: Parameters<typeof withDetails>[1]) => syncDetails(from, { ...from, annotations: withDetails(from.annotations, d) }, sheet);
+  const changed = set(synced, { project: "Dyes", time: "2 h" });
+  assert.deepEqual(Object.fromEntries(changed.captions!.filter((c) => c.field).map((c) => [c.field, c.text])), { project: "Dyes", time: "2 h" });
+  assert.deepEqual(changed.captions!.find((c) => c.field === "time")!.x, at("time").at[0]);
+  assert.equal(set(changed, { time: "2 h" }).captions!.some((c) => c.field === "project"), false);
+  const hidden = set(gone, { pressure: "1 atm" });
+  assert.deepEqual([detailsOf(hidden.annotations).pressure, hidden.captions!.some((c) => c.field === "pressure")], ["1 atm", false]);
+
+  // A template made from the page keeps the names, the values but the Date, and the rule. A new page from it has
+  // today's date after the Date name, and no second set of names. With the Date name deleted, it shows no date.
+  const template = parse(serialize(templateOf(changed))), next = newExperiment(sheet, template, "2026-12-01", "Sam");
+  assert.deepEqual([template.fields, template.arrows?.length, template.captions!.some((c) => c.field === "date")], [true, 1, false]);
+  assert.deepEqual(Object.fromEntries(next.captions!.filter((c) => c.field).map((c) => [c.field, c.text])), { project: "Dyes", time: "2 h", date: "2026-12-01", author: "Sam" });
+  assert.equal(next.captions!.filter((c) => c.text === "Date").length, 1);
+  // Use for new documents keeps that template as Experiment's start (within the limit an own template has). A new page
+  // from it makes the same template again, so Settings shows the page as the default.
+  const kept = serialize(templateOf(changed));
+  assert.equal(serialize(templateOf({ atoms: [], bonds: [], ...newExperiment(sheet, parse(kept), "2026-12-02") })), kept);
+  assert.equal(readPurposes({ experimentStart: kept }).experimentStart, kept);
+  assert.equal(readPurposes({ experimentStart: "x".repeat(MAX_START + 1) }).experimentStart, undefined);
+  const undated = newExperiment(sheet, parse(serialize(templateOf(deleteGraphics(changed, new Set([changed.captions!.find((c) => c.text === "Date")!.id]))))), "2026-12-01");
+  assert.equal(undated.captions!.some((c) => c.field === "date" || c.text === "Date"), false);
 }
 
 // A reaction arrow drawn on the page gets a grid; an arrow already there, a curly arrow or a line does not, and no
@@ -191,11 +265,18 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
 }
 
 // In the editor: removing a grid takes off every grid of its reaction, as a reaction of two steps drawn on the page has
-// one on each arrow (one shows). Only Select opens the details with a double-click, as other tools draw on the page.
+// one on each arrow (one shows).
 {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /if \(what === "remove"\) \{ const r = reactionOf\(arrow\)\?\.arrows \?\? \[arrow\]; return set\(\{ \.\.\.doc, grids: doc\.grids\?\.filter\(\(g\) => !r\.includes\(g\.arrow\)\) \}, true\); \}/);
-  assert.match(editor, /if \(tool === "select" && t\.atom === undefined && [^\n]*detailsAt\(/);
+  // A click on a detail's text or in its box types it, with every tool but the Eraser; a press in an empty box is that
+  // click; the details agree with their text after each edit; a page from Octet 1.1.1 gets the text when it opens; and
+  // the boxes are on screen only.
+  assert.match(editor, /const slot = tool !== "erase" && !alt && !mods\?\.shift && !mods\?\.alt \? slotAt\(at, t\) : undefined;\n    if \(slot\) return typeField\(slot\);/);
+  assert.match(editor, /if \(tool !== "erase" && !e\.shiftKey && !e\.altKey && t\.caption === undefined && slotAt\(p, t\)\) return setDrag\(\{ kind: "click", /);
+  assert.match(editor, /next = expPage && mol\.style === doc\.style \? syncDetails\(doc, renumber\(newGrids\(doc, ordered\)\), sheetOf\(style\)\) : ordered;/);
+  assert.match(editor, /const mol = withFields\(wholeGroups\(asOpened\(/);
+  assert.match(editor, /\{!exporting && slots\.length > 0 && \(\n\s+<g className="fields">/);
   // Markup kept as typed (an escape, or Undo of the change) stays as typed when the caption is edited again.
   assert.match(editor, /if \(!\(expPage && markupCaption\(old\)\)\) marked\(m, w\.id\);/);
 }
@@ -205,7 +286,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
 // to hold a table that runs past its bottom, and the Procedure heading and box move down with it; a table that fits
 // leaves the page as it was. A page with no Reaction scheme heading (any other page) gets nothing from these.
 {
-  const page = pageSize(purposeStyle("experiment")), start = { atoms: [], bonds: [], ...newExperiment(page, 14.4, undefined, "2026-11-05") } as Mol;
+  const page = pageSize(purposeStyle("experiment")), start = { atoms: [], bonds: [], ...newExperiment({ page, bond: 14.4, size: 10, measure: (t, size) => t.length * size * 0.5 }, undefined, "2026-11-05") } as Mol;
   const box = schemeSpan(start)!, inside = (b: number[]) => b[0] >= box[0] && b[2] <= box[2] && b[1] >= box[1] && b[3] <= box[3];
   assert.ok(box && box[3] > box[1]);
   // A reaction 14 bond lengths wide and 3 high, about to land in the middle of a view scrolled off the page.

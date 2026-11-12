@@ -166,6 +166,9 @@ export type Caption = {
   // A compound number Octet gave (Number these compounds): an experiment page keeps it in reading order. Text the user
   // typed or edited, and every number in a file from Octet 1.1.0 or ChemDraw, has none and is never changed.
   auto?: true;
+  // On an experiment page: the text is this detail's value (experiment.ts FIELDS: "date", "notebook"), so the detail is
+  // what the text says, wherever the text is moved to.
+  field?: string;
 };
 // Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
 // their arrow has changed length or direction since.
@@ -455,7 +458,10 @@ export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
 // spectra: measured spectra (measured.ts), at most one for each key (¹H, ¹³C, IR and so on), shown in the Spectrum panel.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[] };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[];
+  // An experiment page whose details are text on the page (Octet 1.1.2; experiment.ts withHeader). A page without it,
+  // from Octet 1.1.1, gets that text when it opens.
+  fields?: true };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.

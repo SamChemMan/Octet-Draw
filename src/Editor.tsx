@@ -77,7 +77,7 @@ import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
-import { FIELDS as DETAILS, PROPERTIES, detailsLayout, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, schemeLanding, schemeSpan, templateOf, withDetails, type Details, type ExperimentEntry } from "./experiment";
+import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type Details, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -1022,9 +1022,10 @@ export default function Editor() {
     // that are no longer fewer than usual go (settleHydrogens).
     mol = settleHydrogens(followLeaders(doc, mol));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
-    // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once, and
-    // the compound numbers follow the compounds' order (numbering.ts).
-    const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), next = expPage && mol.style === doc.style ? renumber(newGrids(doc, ordered)) : ordered;
+    // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
+    // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
+    // page (experiment.ts syncDetails).
+    const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), next = expPage && mol.style === doc.style ? syncDetails(doc, renumber(newGrids(doc, ordered)), sheetOf(style)) : ordered;
     lastSet.current = next;
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
@@ -1668,6 +1669,13 @@ export default function Editor() {
     crashOffered = true;
     invoke<string | null>("crash_report").then((log) => { if (log) setDialog({ kind: "crashed", log }); }).catch(() => {});
   }, []);
+  // The page an experiment's details are laid out on (experiment.ts), and a drawing with them as text on its page: an
+  // experiment page from Octet 1.1.1, or a drawing just made one, gets that text.
+  const sheetOf = (d: DocStyle): Sheet => ({ page: pageSize(d), bond: d.bond, size: d.captionSize, measure: (text, size, bold) => textWidth(text, size, bold, false, fontStack(d.captionFont)) });
+  const withFields = (m: Mol): Mol => {
+    const d = readStyle(m.style ?? newStyle);
+    return !m.fields && experimentPage(purposeOf(settings, d.purpose)?.kind, d.purpose, m.annotations) ? withHeader(m, sheetOf(d)) : m;
+  };
   // A new drawing's author is the computer's user, unless its template names one.
   const authored = (m: Mol): Mol => {
     const p = detailsOf(m.annotations, PROPERTIES);
@@ -1679,11 +1687,16 @@ export default function Editor() {
   // An experiment page starts with its details (Date today) and its text, from its template.
   // New from a window that shows a drawing, even an untouched blank one, opens a window of its own (issue 38): a blank
   // page put in place of a blank page looks as if New did nothing. here: a new drawing window starts its own drawing.
-  const newDrawing = (id = settings.purpose, here = false) => elsewhere || (!here && ((homeWindow && !home) || drawWindow)) ? inNew({ new: id }) : keepWork(() => {
-    const style = styleFor(settings, id), own = settings.ownPurposes.find((p) => p.id === id);
+  // A new drawing for a purpose as it starts. An experiment page starts with an own template's text, or with the text
+  // kept for Experiment by Use for new documents.
+  const freshFor = (id: string): Mol => {
+    const style = styleFor(settings, id), start = settings.ownPurposes.find((p) => p.id === id)?.start ?? (id === "experiment" ? settings.experimentStart : undefined);
     let template: Mol | undefined;
-    try { template = own?.start ? parse(own.start) : undefined; } catch { template = undefined; }
-    const fresh = authored({ ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, template) : {}) });
+    try { template = start ? parse(start) : undefined; } catch { template = undefined; }
+    return authored({ ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(sheetOf(style), template, undefined, systemName || undefined) : {}) });
+  };
+  const newDrawing = (id = settings.purpose, here = false) => elsewhere || (!here && ((homeWindow && !home) || drawWindow)) ? inNew({ new: id }) : keepWork(() => {
+    const fresh = freshFor(id), style = fresh.style!;
     drawingColours.current = []; passing.current.clear(); set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
@@ -1726,7 +1739,7 @@ export default function Editor() {
   // undo step. The sizes it holds in points go with the scale (decision 0007).
   const applyPurpose = (id: string) => {
     const next = forPurpose(style, styleFor(settings, id));
-    set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true);
+    set(withFields({ ...scaleSizes(doc, next.scale / style.scale), style: next }), true);
   };
   // Every purpose, for Home, Settings, File > New For and the command palette: Octet's four, then the user's own.
   const purposeList = useMemo(() => [
@@ -1736,11 +1749,22 @@ export default function Editor() {
   // "Use for new documents": the style becomes its purpose's style for new drawings (with no purpose: Quick start's).
   // "Save as template…" (and Custom template on Home): a style becomes a purpose of the user's own, after the others.
   // The same name again saves over it. It gives the template's id.
-  const keepForNew = (d: DocStyle) => setSettings((s) => {
-    const id = purposeOf(s, d.purpose) ? d.purpose! : QUICK, { purpose: _, ...plain } = d, kept = id === QUICK ? plain : { ...d, purpose: id };
-    return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept } : p)) }
-      : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept } };
-  });
+  // On an experiment page, its text is kept too (experiment.ts templateOf): the details' names and values but the
+  // date, the headings and boxes. New experiment pages start with it.
+  const keepForNew = (d: DocStyle) => {
+    const start = expPage ? serialize(templateOf(doc)) : undefined;
+    setSettings((s) => {
+      const id = purposeOf(s, d.purpose) ? d.purpose! : QUICK, { purpose: _, ...plain } = d, kept = id === QUICK ? plain : { ...d, purpose: id };
+      return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept, ...(start && p.kind === "experiment" ? { start } : {}) } : p)) }
+        : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept }, ...(start && id === "experiment" ? { experimentStart: start } : {}) };
+    });
+  };
+  // Whether a new drawing for this drawing's purpose starts as this one is: the same style and, on an experiment
+  // page, the same text.
+  const isDefault = () => {
+    const id = purposeOf(settings, style.purpose) ? style.purpose! : QUICK;
+    return sameStyle(style, styleFor(settings, id)) && (!expPage || purposeKind !== "experiment" || serialize(templateOf(doc)) === serialize(templateOf(freshFor(id))));
+  };
   // A template of the user's own goes from Home, File > New For and Settings; New then starts Quick start if it started that one.
   const removePurpose = (id: string) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? QUICK : s.purpose }));
   // A template made from an experiment page keeps its details and text (experiment.ts templateOf); one made from
@@ -1946,7 +1970,7 @@ export default function Editor() {
       }
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
-      const mol = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
+      const mol = withFields(wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign)));
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
       // on the structures, or on everything else when there are none (text, arrows, pictures).
@@ -3177,12 +3201,18 @@ export default function Editor() {
   // is Page only.
   const purposeKind = purposeOf(settings, style.purpose)?.kind;
   const pages = useMemo(() => pageOutlines(style, purposeKind, settings.outlines), [style, purposeKind, settings.outlines]);
-  // An experiment page (experiment.ts): its details as a block at the top of the page. A double-click on the block
-  // opens them to edit.
+  // An experiment page (experiment.ts): its details are text at the top of the page. Each has a place (slotsOf), shown
+  // as a box on screen only: a click in it types the detail there, with every tool but the Eraser.
   const expPage = experimentPage(purposeKind, style.purpose, doc.annotations);
-  const details = useMemo(() => (expPage ? detailsLayout(detailsOf(doc.annotations), [pages[0][1], pages[0][2]], style.bond, style.captionSize,
-    (text, size, bold) => textWidth(text, size, bold, false, fontStack(style.captionFont))) : undefined), [expPage, doc.annotations, pages, style]);
-  const detailsAt = (p: P) => !!details && p[0] >= details.box[0] && p[0] <= details.box[2] && p[1] >= details.box[1] && p[1] <= details.box[3];
+  const slots = useMemo(() => (expPage ? slotsOf(doc, sheetOf(style)) : []), [expPage, doc.captions, style]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slotAt = (p: P, t: Hover): Slot | undefined => (t.caption !== undefined ? slots.find((x) => x.caption === t.caption) : Object.values(t).every((v) => v === undefined) ? slots.find((x) => inSpan(x.box, p)) : undefined);
+  // Once, on the first experiment page shown (Octet 1.1.2): where to keep the page's layout for new experiment pages.
+  // Another notice showing then comes first, and this one waits for the next page.
+  useEffect(() => {
+    if (!expPage || home || settings.experimentNoted || notice) return;
+    setNotice("To use this layout for each new experiment page, choose Use for new documents in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("document") });
+    setSettings((s) => ({ ...s, experimentNoted: true }));
+  }, [expPage, home]); // eslint-disable-line react-hooks/exhaustive-deps
   // A new page size on the same drawing (a purpose or a scale): the outlines grow or shrink into place about the page's
   // middle. A new or opened drawing shows them at once.
   const pagesEl = useRef<SVGGElement>(null), outlineFrom = useRef<number>(undefined);
@@ -4065,6 +4095,23 @@ export default function Editor() {
     if (row.x[k] === undefined) row.x[k] = at[0] + wide * (align === "right" ? 0 : align === "centre" ? 0.5 : 1) + gap;
     tabRow.current = { ...row, k };
     openWriting({ value: "", at: [row.x[k], at[1]], style: { ...(row.style[k] ?? w.style) } });
+  }
+  // An experiment's detail opens to type: its text, or new text at its place (experiment.ts slotText). Tab goes to the
+  // next detail on the page and Shift-Tab to the one before, as in a form.
+  function typeField(slot: Slot) {
+    if (slot.caption !== undefined) return startWriting({ id: slot.caption });
+    tabRow.current = undefined;
+    setSelection(new Set());
+    setPicked(new Set());
+    const { text: _, x, y, ...own } = slotText(doc, slot, sheetOf(style));
+    openWriting({ value: "", at: [x, y], style: own });
+  }
+  function tabField(back: boolean): boolean {
+    const w = writing, field = w && (w.style.field ?? doc.captions?.find((c) => c.id === w.id)?.field), k = slots.findIndex((x) => x.field === field);
+    if (!w || k < 0 || slots.length < 2) return false;
+    commitWriting();
+    typeField(slots[(k + (back ? slots.length - 1 : 1)) % slots.length]);
+    return true;
   }
   // Tab in a side arrow's text: the text is kept and the text at its other end opens (that end is added if missing).
   function tabSide(): boolean {
@@ -5041,6 +5088,8 @@ export default function Editor() {
       setPicked(new Set([lanePlate.id]));
       return setDrag({ kind: "lane", plate: lanePlate.id, from: tick, to: tick, base: doc, working: doc });
     }
+    // An experiment's detail with no text yet: the press is a click in its box, which types the detail (click).
+    if (tool !== "erase" && !e.shiftKey && !e.altKey && t.caption === undefined && slotAt(p, t)) return setDrag({ kind: "click", at: p, start: screen, target: t });
     if (tool === "select") {
       // Ctrl-click on Windows and Linux adds as Shift-click does, when the click ends (click, pressMods.shift). Its
       // press is Ctrl-drag's, which moves a copy, but on bare canvas, where it starts a box that adds, as Shift's does.
@@ -5204,7 +5253,7 @@ export default function Editor() {
         join: tool === "arrow" && e.shiftKey ? joinAt(p) : undefined,
         cycle: tool === "cycle" ? t.cycle ?? circleAt(p)?.id ?? (h?.id === overs.get().cycle ? overs.get().cycle : undefined) : undefined,
         grab: tool === "cycle" && (t.atom !== undefined || t.bond !== undefined || t.caption !== undefined),
-        details: tool === "select" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && detailsAt(p),
+        details: tool !== "erase" && !!slotAt(p, t),
       });
       // While the keyboard's focus is on the canvas (CanvasAccess), the pointer does not take the keys: VoiceOver can move
       // it to follow its cursor, and the keys act on the hotspot or the selection. A click gives the keys back to it.
@@ -7962,6 +8011,10 @@ export default function Editor() {
     // Sequence: the name field opens with the codes' prefix, and the structure lands where the click was,
     // also over a structure.
     if (tool === "sequence") return insertSequence(SEQUENCES[sequenceChoice].prefix);
+    // An experiment's detail: a click on its text or in its box types it, with every tool but the Eraser. Shift and
+    // Option keep their own clicks (Select adds to and takes from the selection).
+    const slot = tool !== "erase" && !alt && !mods?.shift && !mods?.alt ? slotAt(at, t) : undefined;
+    if (slot) return typeField(slot);
     // An integral group goes in or out whole, and a cycle with all its parts (as a click picks them).
     if (tool === "select" && mods && (mods.shift || mods.alt)) {
       const cycle = doc.cycles?.find((c) => c.id === t.cycle), [own, text] = cycle ? cycleParts(cycle) : [[], []];
@@ -9395,8 +9448,6 @@ export default function Editor() {
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (table) return openCell(table, toDoc(e.clientX, e.clientY));
-          // Double-click an experiment's details with Select to edit them (a click with a drawing tool there draws).
-          if (tool === "select" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && detailsAt(toDoc(e.clientX, e.clientY))) return setDialog({ kind: "details", values: detailsOf(doc.annotations) });
           // Double-click a reaction arrow to pick the whole reaction: structures, plus signs, arrows and their text.
           const a = t.arrow !== undefined ? arrows.find((x) => x.id === t.arrow) : undefined;
           if (a && !curved(a) && !isLine(a) && tool !== "erase") {
@@ -9431,11 +9482,11 @@ export default function Editor() {
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world" className={fast ? (fast.dom ? "gliding" : "gliding-structures") : undefined}>
-          {/* An experiment's details at the top of its page: part of the page as it prints and exports, not of a part copied. */}
-          {details && (!exporting || exporting === doc) && (
-            <g className="details" fill="var(--ink)">
-              {details.texts.map((x, k) => <text key={k} x={x.x * L} y={-x.y * L} style={{ font: `${x.bold ? "bold " : ""}${x.size * pt}px ${fontStack(style.captionFont)}` }}>{x.text}</text>)}
-              <line x1={details.rule[0] * L} x2={details.rule[1] * L} y1={-details.rule[2] * L} y2={-details.rule[2] * L} stroke="var(--ink)" strokeWidth={style.line * pt} />
+          {/* An experiment's details: a box at each one's place, on screen only. The empty title's says Title. */}
+          {!exporting && slots.length > 0 && (
+            <g className="fields">
+              {slots.map((x) => <rect key={x.field} x={x.box[0] * L} y={-x.box[3] * L} width={(x.box[2] - x.box[0]) * L} height={(x.box[3] - x.box[1]) * L} rx={3 / view.zoom} vectorEffect="non-scaling-stroke" />)}
+              {slots.filter((x) => x.field === "title" && x.caption === undefined && writing?.style.field !== "title").map((x) => <text key="title" x={x.at[0] * L} y={-x.at[1] * L} style={{ font: `bold ${slotText(doc, x, sheetOf(style)).size! * pt}px ${fontStack(style.captionFont)}` }}>Title</text>)}
             </g>
           )}
           {/* The whole drawing scaled in proportion is shown scaled as it is, as nothing in it changes but its size. */}
@@ -9815,7 +9866,8 @@ export default function Editor() {
               }
               // Return reaches here only when it does not make a new line (Settings: Option-Return for a new line).
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
-              if (e.key === "Tab" && !e.shiftKey && tabSide()) e.preventDefault();
+              if (e.key === "Tab" && tabField(e.shiftKey)) e.preventDefault();
+              else if (e.key === "Tab" && !e.shiftKey && tabSide()) e.preventDefault();
               else if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
               // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
@@ -9940,7 +9992,7 @@ export default function Editor() {
           onModule={(m) => { setSettingsOpen(m); setSettings((s) => ({ ...s, settingsModule: m })); }}
           template={madeTemplate?.name}
           style={madeTemplate?.style ?? style}
-          isDefault={sameStyle(style, styleFor(settings, purposeOf(settings, style.purpose) ? style.purpose! : QUICK))}
+          isDefault={isDefault()}
           preview={preview}
           onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
           onDefault={() => keepForNew(style)}
