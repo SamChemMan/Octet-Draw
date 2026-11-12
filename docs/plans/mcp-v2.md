@@ -935,7 +935,7 @@ animation on screen, in Octet's style, for the whole time Claude is working, not
 - **Rules:**
   - Brand colours only.
   - No overshoot unless Sam allows it (the toolbar drop is the only bounce today).
-  - Reduced motion: a still molecule and fades only.
+  - Reduced motion: the still mark and fades only.
   - It never touches the drawing. Decision 0024 (AI apps never glide) is about the drawing, not this overlay. Add a
     line to 0024 saying so.
   - `motion.check.ts` lets loop timings typed by hand through only as `Ns ease-in-out infinite`, which the current
@@ -946,10 +946,14 @@ animation on screen, in Octet's style, for the whole time Claude is working, not
 **Built (11 November 2026, branch `mcp/overlay`).** `src/McpMagic.tsx`, `src/magic.ts` and the `.mcp-` rules in
 `src/editor.css`; `src/motion.check.ts` holds its rules.
 
-- The molecules: benzene, caffeine, cyclooctatetraene (the octagon of the mark) and aspirin. One molecule has 7 s:
-  the first atom at 0.36 s, built by 2.0 to 2.4 s, whole until 6.0 s, clear by 7 s. Each atom pops in 260 ms with the
-  overshoot, each bond draws in 180 ms. A double bond in a ring has its second line inside the ring. A C=O is
-  centred, as the page draws one.
+- Redrawn 12 November 2026 (branch `mcp/mark-animation`; Sam: the molecules read as dots, not skeletal formulae).
+  Octet's mark draws itself: the hexagon's six bonds one after another (from 0.27 s), a Kekulé benzene's three inner
+  lines (18% in, cut back as the page draws them), the octagon's eight edges, then the solid mark fades in at 2.0 s
+  and the inner lines fade out. Whole until 4.6 s, gone by 5.4 s, then again. Each line draws in 180 ms. No overshoot.
+  The lines lie on the hole's edge and inside the outline, so the solid mark lands on them exactly
+  (`motion.check.ts` reads the numbers against `app-icon.svg`). Image to Structure's first-use card shows a grey photo
+  of aspirin, caffeine, paracetamol or ibuprofen read by a blue line, and Octet's own drawing of it (`StructureThumb`)
+  appearing in step beside it.
 - It is in the middle of the window for the whole time, the 8 s after the last call included (`LINGER`). **Sam to
   confirm.** Between calls the drawing is clear but for the molecule's ground, 200 px across, and an AI app's drawing
   lands in the middle of the window, so the ground covers part of it for up to 8 s. Clicks pass through the ground.
