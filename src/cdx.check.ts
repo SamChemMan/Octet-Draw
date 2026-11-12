@@ -122,8 +122,9 @@ const kept: Mol = {
   for (const n of ["embeddedobject", "chemicalproperty", "bracketedgroup", "bracketattachment", "crossingbond"]) assert.ok(names.includes(n), n);
   assert.match(cdxml, /Order="1 2"/);
   assert.match(cdxml, /highlightColor=/);
-  // Read back from CDXML, and from CDX as ChemDraw would see it (no Octet data): everything kept, nothing lost.
-  for (const read of [fromCdxml(cdxml), fromCdxml(cdxToXml(xmlToCdx(root)))]) {
+  // Read back from CDXML, from CDX, and from CDX as ChemDraw saves it (no Octet data): everything kept, nothing lost.
+  const bare = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(bare) });
+  for (const read of [fromCdxml(cdxml), fromCdxml(cdxToXml(xmlToCdx(root))), fromCdxml(cdxToXml(xmlToCdx(bare(root))))]) {
     const m = read.mol;
     assert.deepEqual(read.lost, {});
     assert.deepEqual(m.bonds.map((b) => [b.type, b.query, b.halo]), [[1, "sd", undefined], [2, undefined, "#FFD966"], [1, undefined, undefined], [1, undefined, undefined]]);
@@ -184,6 +185,54 @@ const kept: Mol = {
   assert.equal(clip.arrows?.[0].curve?.points.length, 1);
   assert.equal(readCdx(writeCdx(clip, DEFAULT_STYLE)).foreign, undefined);
   console.log("cdx.check: Octet's .cdx files ok");
+}
+
+// Octet's own data through CDX: a drawing exported as CDX and opened again is the drawing its CDXML gives. Each
+// compound number keeps its structure, a caption gains no font or size, and a table and a TLC plate come back whole.
+// The data is under a user-defined tag (0x4F44) that ChemDraw 22.2 reads past and leaves out when it saves.
+{
+  const m: Mol = {
+    atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 2, 0), A("C", 6, 0), A("C", 7, 0), A("O", 8, 0)],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [3, 4] }, { type: 2, atoms: [4, 5] }],
+    arrows: [{ id: 1, kind: "reaction", from: [3, 0], to: [5, 0] }],
+    captions: [{ id: 2, text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2] }, { id: 3, text: "2", x: 0, y: 0, bold: true, under: [3, 4, 5] }, { id: 4, text: "25 °C → Ω", x: 4, y: 3, align: "left", italic: true }],
+    shapes: [
+      { id: 5, kind: "table", from: [0, -4], to: [4, -6], table: { cells: [["Entry", "Yield"], ["1", "85 % at 25 °C, Ω"]] } },
+      { id: 6, kind: "tlc", from: [10, 0], to: [13, 4], tlc: { lanes: 2, spots: [{ lane: 0, rf: 0.3, w: 0.3, h: 0.2 }, { lane: 1, rf: 0.6, tail: 0.4 }] } },
+    ],
+  };
+  const xml = toCdxml(m, DEFAULT_STYLE), tree = parseXml(xml), bytes = xmlToCdx(tree), direct = fromCdxml(xml), back = fromCdxml(cdxToXml(bytes));
+  assert.deepEqual(direct.mol.captions!.map((c) => c.under), [[0, 1, 2], [3, 4, 5], undefined]);
+  assert.deepEqual(back.mol.captions!.map((c) => c.under), [[0, 1, 2], [3, 4, 5], undefined], "each number keeps its structure as CDX");
+  assert.deepEqual(back.mol.captions!.map((c) => [c.font, c.size]), [[undefined, undefined], [undefined, undefined], [undefined, undefined]], "no font or size of the document's on a caption");
+  assert.deepEqual(back, direct, "CDX gives the drawing CDXML gives");
+  assert.equal(back.mol.shapes!.find((s) => s.kind === "table")!.table!.cells[1][1], "85 % at 25 °C, Ω");
+  // The tree itself: the same Octet data on every object, and no style part the CDXML did not give.
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)], data = (x: Xml) => every(x).map((k) => k.attrs.Octet);
+  const read = cdxToXml(bytes), parts = (x: Xml) => every(x).filter((k) => k.name === "t" || k.name === "CDXML").map((k) => Object.keys(k.attrs).filter((a) => /^(Label|Caption)(Font|Face|Size|Color)$/.test(a)).sort());
+  assert.deepEqual(data(read), data(tree));
+  assert.deepEqual(parts(read), parts(tree));
+  // As ChemDraw saves it (the tags gone): its own drawing, with nothing lost, and no tie Octet did not read.
+  const bare = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(bare) });
+  const saved = fromCdxml(cdxToXml(xmlToCdx(bare(tree))));
+  assert.deepEqual(saved.lost, {});
+  assert.ok(saved.mol.captions!.every((c) => !c.under));
+  // A TLC spot's size is whole 1/65536 pt in CDX as in CDXML: the same spots from both, with Octet's data and without.
+  const spots = (r: { mol: Mol }) => r.mol.shapes!.find((s) => s.kind === "tlc")!.tlc!.spots;
+  assert.deepEqual(spots(saved), spots(fromCdxml(bare(tree))));
+  assert.ok(Math.abs(spots(saved)[0].w! - 0.3) < 1e-3 && Math.abs(spots(saved)[0].h! - 0.2) < 1e-3);
+  // Hostile data under Octet's tags: bytes that are not UTF-8 are left out, text that is not Octet's JSON is ignored,
+  // forged values are checked as CDXML's are, and a marker of the wrong length does nothing.
+  const forged = file(prop(0x4f44, ascii('{"v":1}')), prop(0x0805, coord(14.4)), obj(0x8001, 1,
+    obj(0x8003, 2, obj(0x8004, 3, prop(0x0200, [...coord(100), ...coord(100)])), obj(0x8004, 4, prop(0x0200, [...coord(100), ...coord(114.4)]))),
+    obj(0x8006, 5, prop(0x0200, [...coord(150), ...coord(100)]), prop(0x4f44, ascii('{"under":[1e99,"x",3,99],"xy":["a",1],"cycle":{"cycle":7,"step":99}}')), prop(0x4f45, [1, 2]), prop(0x0700, text([], ascii("1")))),
+    obj(0x8006, 6, prop(0x0200, [...coord(170), ...coord(100)]), prop(0x4f44, [0xff, 0xfe, 0x7b]), prop(0x0700, text([], ascii("2")))),
+    obj(0x8006, 7, prop(0x0200, [...coord(190), ...coord(100)]), prop(0x4f44, ascii("[1,2] not JSON")), prop(0x4f45, [0]), prop(0x0700, text([], ascii("3"))))));
+  const ft = cdxToXml(forged), fm = fromCdxml(ft).mol;
+  assert.deepEqual(every(ft).filter((x) => x.name === "t").map((x) => x.attrs.Octet), ['{"under":[1e99,"x",3,99],"xy":["a",1],"cycle":{"cycle":7,"step":99}}', undefined, "[1,2] not JSON"]);
+  assert.deepEqual(fm.captions!.map((c) => [c.text, c.under, c.cycle]), [["1", [0], undefined], ["2", undefined, undefined], ["3", undefined, undefined]]);
+  assert.ok(fm.captions!.every((c) => Number.isFinite(c.x) && Number.isFinite(c.y)));
+  console.log("cdx.check: Octet's own data as CDX ok");
 }
 
 // REL-15: as CDX too, turned text keeps its turn (RotationAngle), a Bold rectangle stays Bold, and a bond keeps its
