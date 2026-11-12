@@ -12,6 +12,13 @@ import { DAMAGED, TOO_BIG, fmt, pictureHex, type Xml } from "./cdxml.ts";
 export const MAGIC = "VjCD0100";
 // The magic, 04 03 02 01 and 10 reserved bytes; the document object's tag and id follow, as ChemDraw writes them.
 const HEADER = [0x56, 0x6a, 0x43, 0x44, 0x30, 0x31, 0x30, 0x30, 4, 3, 2, 1, ...new Array(10).fill(0)];
+// Octet's own data on an object (cdxml.ts's "Octet" attribute, JSON), as UTF-8 under a user-defined property tag (bit
+// 14 set, as the public CDX spec gives them). ChemDraw 22.2 opens and pastes a CDX that has it on every object, and
+// leaves it out when it saves, as it leaves the attribute out of CDXML: so what Octet reads is what Octet wrote.
+// Beside it, which parts of an object's label and caption styles the tree gave (bit 4w + k: w 0 Label, 1 Caption; k as
+// STYLE_PARTS): CDX holds each style as one record of all four, so the writer fills the rest from the document, and
+// without this a caption would come back with the document's font and size as its own.
+const OCTET = 0x4f44, GIVEN = 0x4f45;
 const MAX_BYTES = 64 * 1024 * 1024, MAX_DEPTH = 64, MAX_OBJECTS = 1_000_000, MAX_POINTS = 8191, MAX_SPECTRUM = 1 << 21;
 
 type Prop = { tag: number; name: string; kind: string; names?: Map<number, string>; values?: Map<string, number> };
@@ -33,8 +40,10 @@ for (const [tag, name, kind, list] of PROPS) {
 for (const [tag, name] of Object.entries(OBJECTS)) objectTag.set(name, Number(tag));
 // The style records' four parts, as CDXML splits them (LabelFont, LabelFace, LabelSize, LabelColor).
 const STYLE_PARTS = ["Font", "Face", "Size", "Color"];
-// Name on a tag and on a chemical property is plain bytes, not a styled string.
-const plainName = (el: Xml, p?: Prop): Prop | undefined => (p?.tag === 0x0008 && (el.name === "objecttag" || el.name === "chemicalproperty") ? { ...p, kind: "plain" } : p);
+// Name on a tag and on a chemical property is plain bytes, not a styled string. Width and Height on a TLC spot are
+// whole 1/65536 pt, in CDXML as in CDX.
+const plainName = (el: Xml, p?: Prop): Prop | undefined =>
+  p?.tag === 0x0008 && (el.name === "objecttag" || el.name === "chemicalproperty") ? { ...p, kind: "plain" } : (p?.tag === 0x0812 || p?.tag === 0x0813) && el.name === "tlcspot" ? { ...p, kind: "i32" } : p;
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 // Bytes as UTF-8 when they are, otherwise as Mac Roman.
@@ -136,10 +145,12 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
   };
 
   // One property into the element: an attribute, or the children CDXML gives it (tables, represent, text runs).
-  const prop = (el: Xml, tag: number, b: Uint8Array, text: { legacy?: Uint8Array; unicode?: Uint8Array }) => {
+  const prop = (el: Xml, tag: number, b: Uint8Array, text: { legacy?: Uint8Array; unicode?: Uint8Array; given?: number }) => {
     const p = plainName(el, byTag.get(tag)), d = new DataView(b.buffer, b.byteOffset, b.byteLength), a = el.attrs;
     const kid = (name: string, attrs: Record<string, string>) => { const x: Xml = { name, attrs: Object.assign(Object.create(null), attrs), kids: [], text: "" }; return x; };
     const raw = () => { a[p?.name || `attrib${tag.toString(16).padStart(4, "0")}`] = `|x|${hex(b)}`; };
+    if (tag === OCTET) { try { a.Octet = utf8.decode(b); } catch { /* not Octet's: left out */ } return; }
+    if (tag === GIVEN) { if (b.length === 1) text.given = b[0]; return; }
     if (!p) return raw();
     const name = p.name, n = b.length;
     switch (p.kind) {
@@ -253,7 +264,7 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
     if (++objects > MAX_OBJECTS || depth > MAX_DEPTH) throw new Error(TOO_BIG);
     const el: Xml = depth ? { name: OBJECTS[tag] ?? `object${tag.toString(16)}`, attrs: Object.create(null), kids: [], text: "" } : root!;
     if (id) el.attrs.id = String(id);
-    const text: { legacy?: Uint8Array; unicode?: Uint8Array } = {}, objects0: Xml[] = [];
+    const text: { legacy?: Uint8Array; unicode?: Uint8Array; given?: number } = {}, objects0: Xml[] = [];
     for (;;) {
       if (!depth && pos >= bytes.length) break; // a document left open at the end of the file
       const t = u16();
@@ -266,6 +277,8 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
       pos += len;
       prop(el, t, b, text);
     }
+    // Style parts the records hold that Octet's tree did not give.
+    if (text.given !== undefined) ["Label", "Caption"].forEach((which, w) => STYLE_PARTS.forEach((part, k) => { if (!((text.given! >> (4 * w + k)) & 1)) delete el.attrs[which + part]; }));
     // UTF-8 text wins over the legacy copy (as ChemDraw reads it).
     if (el.name === "spectrum" && el.text) { delete el.attrs.YLow; delete el.attrs.YScale; }
     const runs = text.unicode?.length ? runsOf(text.unicode, true, el) : text.legacy ? runsOf(text.legacy, false, el) : [];
@@ -324,8 +337,8 @@ function stringBytes(s: string, unicode = false): Uint8Array {
 // A styled string with no runs.
 const plainString = (s: string, unicode = false) => { const t = stringBytes(s, unicode); const b = new Uint8Array(2 + t.length); b.set(t, 2); return b; };
 
-// The CDXML tree (as cdxml.ts reads or writes it) as a CDX file. Attributes CDX has no tag for are left out (Octet's
-// own "Octet" data among them), as are elements it has no object for.
+// The CDXML tree (as cdxml.ts reads or writes it) as a CDX file. Octet's own "Octet" data goes under its own tag.
+// Other attributes CDX has no tag for are left out, as are elements it has no object for.
 export function xmlToCdx(root: Xml): Uint8Array {
   const out = new Out();
   out.bytes(HEADER);
@@ -429,21 +442,24 @@ export function xmlToCdx(root: Xml): Uint8Array {
       if (k === "id") continue;
       const m = /^attrib([0-9a-f]{4})$/.exec(k);
       if (m) { const b = rawValue(v); if (b) put(parseInt(m[1], 16), b); continue; }
+      if (k === "Octet") { put(OCTET, enc.encode(v)); continue; }
       const p = plainName(x, byName.get(k));
       if (!p) continue;
       if (p.kind === "style") { style[k] = v; continue; }
       if (p.kind === "raw") { const b = rawValue(v); if (b) put(p.tag, b); continue; }
-      // Width and Height on a TLC spot, and its Tail, are whole 1/65536 pt.
-      const kind = x.name === "tlcspot" && (k === "Width" || k === "Height") ? { ...p, kind: "i32" } : p;
-      const b = value(x, kind, v);
+      const b = value(x, p, v);
       if (b) put(p.tag, b);
     }
     // Label and caption styles: CDXML's four attributes as one 8-byte record, the document's filling any part left out.
-    for (const which of ["Label", "Caption"]) {
-      if (!STYLE_PARTS.some((part) => style[which + part] !== undefined)) continue;
+    let given = 0, filled = false;
+    ["Label", "Caption"].forEach((which, w) => {
+      const has = STYLE_PARTS.map((part) => style[which + part] !== undefined);
+      if (!has.some(Boolean)) return;
+      has.forEach((h, k) => { if (h) given |= 1 << (4 * w + k); else filled = true; });
       const part = (s: string, d: number) => { const v = real(style[which + s] ?? docStyle[which + s]); return v === undefined ? d : v; };
       put(which === "Label" ? 0x080a : 0x080b, le(2, part("Font", 0xffff), part("Face", 0), Math.round(part("Size", 10) * 20), part("Color", 3)));
-    }
+    });
+    if (filled && root.attrs.Octet !== undefined) put(GIVEN, le(1, given));
     // Children CDXML holds that CDX holds as properties.
     for (const k of x.kids) {
       if (k.name === "colortable") put(0x0300, new Uint8Array([...le(2, k.kids.length), ...k.kids.flatMap((c) => [...le(2, ...["r", "g", "b"].map((ch) => Math.round(Math.min(1, Math.max(0, real(c.attrs[ch]) ?? 0)) * 65535)))])]));

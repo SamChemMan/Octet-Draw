@@ -17,6 +17,11 @@ reads and writes CDX in full, with its own code.
   0x4F43, first in the document, beside a hash of the rest of the file. As with `.oct` (decision 0004), a
   matching hash gives Octet's drawing back exactly; after another program changes the file, Octet reads the
   CDX as ChemDraw's drawing. Export as CDX and the clipboard's CDX leave the JSON out.
+- Every CDX Octet writes holds each object's own Octet data (the `Octet` attribute of its CDXML, decision 0004)
+  under a user-defined property tag, 0x4F44, as UTF-8 (release 1.1.2). So a drawing exported or copied as CDX
+  and opened in Octet again is the drawing its CDXML gives: a compound number keeps its structure, a table
+  and a catalytic cycle come back as Octet's own objects. Until 1.1.1 the CDX writer left this data out, and
+  the drawing came back as ChemDraw would read it.
 - Copy puts ChemDraw's CDX type on the clipboard (under its PerkinElmer and Revvity names), after the PDF,
   as ChemDraw does. ChemDraw reads it first, so the whole drawing pastes into ChemDraw. Settings > Import and
   export > Copy has a CDX switch.
@@ -50,6 +55,20 @@ file-format library and the public CDX spec; `specs-draft/cdx-binary.md`). Facts
   ChemDraw 21 file from Windows holds it as base64 with line breaks (issue #22, release 1.1.1). Octet reads hex
   or padded base64, and ignores spaces, tabs and line breaks. It keeps and writes the bytes as uppercase hex,
   because ChemDraw on the Mac refuses a file with base64 picture data. CDX holds the bytes themselves.
+- The public CDX spec gives property tags with bit 14 set (0x4000 to 0x7FFF) to other programs' own data.
+  Octet uses three: 0x4F43 (the document's JSON, above), 0x4F44 (an object's Octet data) and 0x4F45 (one
+  byte beside it: which of the object's four label and four caption style parts its CDXML gave, because CDX
+  holds each style as one record of all four and the writer fills the rest from the document). ChemDraw 22.2
+  opens and pastes a CDX with these tags on every kind of object with no message, shows the same drawing, and
+  leaves all three out of the CDX and the CDXML it saves. So Octet's data in a CDX is always what Octet
+  wrote, as in CDXML.
+- ChemDraw's own tie between a number and its structure is not Octet's. Structure > Autonumber Reaction in
+  ChemDraw 22.2 writes each number as a caption ("(I)"), a `chemicalproperty` object of type 22 that names
+  the caption and lists the structure's atoms, bonds and fragment, and an `annotation` with keyword
+  ComponentID on the fragment, in CDX and CDXML alike. Octet keeps that property on the caption and writes it
+  back. It does not yet read it as a compound number, and it counts the annotation as lost.
+- A TLC spot's Width and Height are whole 1/65536 pt in CDX as in CDXML. Until 1.1.1 the reader gave them in
+  points, so a plate read from any CDX had spots about 65,536 times too small.
 - Flags are written with no data, Point3D in 12 bytes, style records in 8. The reader checks every length
   against the bytes left, caps nesting at 64 levels and objects at a million, and leaves out a property
   that does not read as its tag says.
@@ -75,6 +94,7 @@ file-format library and the public CDX spec; `specs-draft/cdx-binary.md`). Facts
   copy. If it writes a real µ or ® in a Symbol run with an iso-8859-1 font, Octet reads ∝ or →.
 - Not checked: whether ChemDraw for Windows writes base64 with no "=" padding. Octet refuses unpadded base64,
   so such a picture counts as lost.
-- ChemDraw keeps unknown properties when it saves, so a `.cdx` that ChemDraw saved still holds Octet's
-  JSON. The hash no longer matches, so Octet reads the CDX instead.
-  This is true of a saved `.cdx` only. The clipboard's CDX has no JSON (decision 0011).
+- Checked in ChemDraw 22.2 only (26.1 has no licence on Sam's Mac): it leaves Octet's three tags out when it
+  saves. An earlier note here said ChemDraw keeps unknown properties; 22.2 does not. If another program
+  keeps the tags and changes the drawing, the document's JSON is safe (its hash fails), but the objects'
+  data could be out of date, as it could in a CDXML file such a program saved.

@@ -39,8 +39,9 @@ CDXML is in the PDF. "CDXML" is ChemDraw JS's name.
   PDF, EMF or PNG file copied in Finder or the file manager. A PDF, EMF or PNG with CDXML in it also opens and drops
   as the drawing, and Export puts the CDXML in all three. The picture's CDXML comes before CDX. A paste from ChemDraw
   for Windows always takes CDX, because its EMF holds no CDXML.
-- The clipboard's CDX is the plain interchange form for other programs. It has none of Octet's own objects, such
-  as catalytic cycles: a cycle in it is only its arrows (issue 28). Octet's own JSON type is the lossless copy
+- The clipboard's CDX is the plain interchange form for other programs. They read none of Octet's own objects
+  from it, such as catalytic cycles: to them a cycle in it is only its arrows (issue 28). It holds Octet's data
+  under Octet's own tags, which ChemDraw reads past (decision 0009). Octet's own JSON type is the lossless copy
   from one Octet window to another. Paste reads it first, and Settings cannot switch it off.
 - Windows calls the clipboard through `windows-sys`; Linux through GTK (`gtk`), which the window already uses on
   X11 and Wayland. Both crates are in the build through Tauri already.
