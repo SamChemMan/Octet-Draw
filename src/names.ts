@@ -58,6 +58,8 @@ export function attachOpsin(mod: Opsin, words: string, known: Record<string, str
   names = [...words.split("\n").filter(Boolean), ...own.map((k) => k.toLowerCase())].sort();
   opsin = mod;
 }
+// OPSIN has loaded, so a name that does not read is no name.
+export const namesLoaded = () => !!opsin;
 
 // A name from Octet's own tables for a structure, by its standard InChI: for Structure to Name when Octet's namer has
 // no name (morphine, DBU, imatinib).
