@@ -1671,8 +1671,10 @@ export const MOST_CLEAN = MOST_ATOMS;
 // work: the energy terms each of the two passes may work out for one structure (see clean2d.ts); rounds: the rounds
 // each may take. labels: then, as
 // Name to Structure draws a structure, the labels whose ink a bond crosses or another label's touches are moved clear
-// (nudged), structure by structure in bond lengths (its scale taken out), where it keeps its InChI. Name to Structure
-// repairs its own drawings later (tidied), so it cleans up without.
+// (nudged), structure by structure in bond lengths (its scale taken out), where it keeps its InChI; and so is a carbon
+// left on a bond or in line (the structure check's warning: a bridged ring such as 9-BBN's bicyclo[3.3.1]nonane comes
+// out of clean2d with one, where Indigo's layout had none, plan 19.11). Name to Structure repairs its own drawings
+// later (tidied), so it cleans up without.
 export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: number, labels = true): Mol {
   const atoms = mol.atoms.map((a) => ({ ...a }));
   // Structures joined by bonds alone; one with a multi-centre or variable attachment keeps its place (the attachment
@@ -1717,10 +1719,12 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
   // A chain's centres keep their hands (keptHands).
   const kept = chains ? keptHands(mol, { ...mol, atoms }).bonds : mol.bonds;
   if (labels) for (const frag of groups) {
-    const own = ownScale(frag), local = new Map(frag.map((i, k) => [i, k]));
-    const piece: Mol = { atoms: frag.map((i) => ({ ...atoms[i], location: [atoms[i].location[0] / own, atoms[i].location[1] / own, 0], scale: scaleOf(atoms[i]) / own })),
-      bonds: kept.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) };
-    if (!inkHits(piece, inkBoxes(piece)).length) continue;
+    const own = ownScale(frag), local = new Map(frag.map((i, k) => [i, k])), bonds = kept.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] }));
+    const pieceOf = (from: Mol["atoms"]): Mol => ({ atoms: frag.map((i) => ({ ...from[i], location: [from[i].location[0] / own, from[i].location[1] / own, 0], scale: scaleOf(from[i]) / own })), bonds });
+    // A few carbons on a bond or in line that Clean Up left and the structure as drawn had not, in a structure Name to
+    // Structure would lay out again (as it nudges a few: there is no room among many, as on a carbon with 50 phenyls).
+    const piece = pieceOf(atoms), hits = inkHits(piece, inkBoxes(piece)), near = (x: Mol) => crowded(x, 0.15, 0, true), n = hits.length || frag.length > MOST_TIDIED ? 0 : near(piece);
+    if (!hits.length && !(n && n <= MOST_NUDGED && n > near(pieceOf(mol.atoms)))) continue;
     const moved = nudged(piece), was = toInchi(piece);
     if (was && moved !== piece && toInchi(moved) === was) frag.forEach((i, k) => { atoms[i] = { ...atoms[i], location: [moved.atoms[k].location[0] * own, moved.atoms[k].location[1] * own, 0] }; });
   }

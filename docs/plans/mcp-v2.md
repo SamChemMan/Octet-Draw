@@ -2156,6 +2156,28 @@ session can keep or drop each by what the lab says next.
 
 What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns. Each point is its own commit.
 
+- **A replace that overlaps is laid out again.** real-r5-opus-3 paper-three-step replaced 14a with a longer SMILES and
+  got check `{overlaps: [[s6, t9], [s6, a8]]}` (the new structure on its own number and its arrow), so Opus ran
+  run_command clean_up, and did the same after its next replace: four of the job's nine calls. Now, when a replace's
+  own check names an overlap with the structure it put in, its reaction is laid out again with Clean Up Reaction in the
+  same call (`clearOverlaps`, after `clearLabels` where every call's check is made, through `host.cleanReactions`,
+  which a draw's layout and clean_up use), and kept only when check is then clean and each structure in the reaction
+  keeps its InChIKey; else the drawing goes back. The reply is as it was, with check clean; one undo step takes it all
+  back. A structure in no reaction (alone, or a cycle's intermediate, which keeps its place in the cycle) is left where
+  it is. Any overlap with the new structure starts it, of any size: one the same size can overlap too, and a clean
+  check costs nothing. The replace there went from about 8 ms to 41 ms; taxol-v1-job's replace, which overlaps
+  nothing, is as before (72 and 73 ms, best of five turn about).
+- **Clean Up and 9-BBN.** In the same run, run_command clean_up gave "C105 is very close to a bond that it is not part
+  of" for 13a, which the draw had not, and Opus spent four more calls on it. Indigo lays bicyclo[3.3.1]nonane out with
+  no atom on a bond; Octet's clean-up (`clean2d`) puts one of its carbons on a bond, a limit of that layout for this
+  bridged ring (a second Clean Up moved it off for 9-BBN, never for the bare nonane). `cleanUp` in `chem.ts` already
+  moves labels off bonds with `nudged`, which keeps a move only if it is no worse and the InChI holds. It now also
+  nudges a structure of up to `MOST_TIDIED` atoms where Clean Up left from 1 to `MOST_NUDGED` carbons on a bond or in
+  line that the structure as drawn had not, the rule Name to Structure already uses for a few atoms on bonds. The
+  bicyclo[3.3.1]nonane, 9-butyl-9-BBN and 13a come out with no warning, once and twice (cleanup-geometry.check), and
+  the replay of the job's draw then clean_up reads with no warning. Clean Up's time is as before on the cleanup.check
+  structures (taxol 14.1 and 14.0 ms, a 166-phenyl carbon 131 and 130 ms, a 1,000-atom chain 112 and 112 ms, best of
+  15, turn about); a 2-butyne drawn with its ends on one point is still left as drawn.
 - **What no line begins with.** In about one call in eight Haiku wrote stray characters before its first line, and
   three forms were still refused: a lone `"` before the `# ` title (and one after the last line: "Line 1: a \" has no
   closing \"", haiku-2 paper-scope, haiku-3 say-two-schemes), `*/` before it (read as a structure, haiku-1 and haiku-2

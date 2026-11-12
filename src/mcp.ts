@@ -3009,7 +3009,7 @@ async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
   const gs = structuresOf(m).filter((g) => ours.has(g.id)), all = new Set(gs.flatMap((g) => g.atoms));
   if (!gs.length) return check;
   const key = (mol: Mol, atoms: number[]) => h.inchi(pickPart(mol, atoms)).key, keys = gs.map((g) => key(m, g.atoms)), picked = h.selection();
-  const arrows = new Set((m.arrows ?? []).filter((a) => straightArrow(a) && h.reaction(a.id)?.atoms.some((i) => all.has(i))).map((a) => a.id));
+  const arrows = arrowsWith(h, m, all);
   h.select([...all], []); await h.settle();
   h.command("clean_up"); await h.settle();
   h.select(picked.atoms, picked.items);
@@ -3024,6 +3024,24 @@ async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
   const n = h.doc(), after = layoutCheck(h, n), seen = new Set(Object.values(check).flat().map((e) => JSON.stringify(e)));
   const ok = after === "clean" || (!after.labels_overlap?.some((p) => p.some((x) => ours.has(x.replace(/\..*$/, "")))) && Object.entries(after).every(([k, l]) => k === "labels_overlap" || (l as unknown[]).every((e) => seen.has(JSON.stringify(e)))));
   if (ok && gs.every((g, k) => key(n, g.atoms) === keys[k])) return after;
+  h.set(m); await h.settle();
+  return check;
+}
+// The straight arrows of the reactions these atoms are in.
+const arrowsWith = (h: Host, m: Mol, atoms: Set<number>) => new Set((m.arrows ?? []).filter((a) => straightArrow(a) && h.reaction(a.id)?.atoms.some((i) => atoms.has(i))).map((a) => a.id));
+// A structure that replace put in, wider or narrower than the one before, can sit on its number or its arrow (real-r5
+// paper-three-step: s6 on t9 and a8), which an AI app then fixes with run_command clean_up. Its reaction is laid out
+// again with Clean Up Reaction, as a draw's is, and kept only when check is then clean and each structure in it keeps
+// its InChIKey; else the drawing goes back. One in no reaction (alone, or in a cycle) stays where it is.
+async function clearOverlaps(h: Host, before: Mol, check: Check): Promise<Check> {
+  if (check === "clean" || !check.overlaps) return check;
+  const was = new Set(structuresOf(before).map((g) => g.id)), m = h.doc(), ours = new Set(check.overlaps.flat().filter((x) => x[0] === "s" && !was.has(x)));
+  const arrows = arrowsWith(h, m, new Set(structuresOf(m).filter((g) => ours.has(g.id)).flatMap((g) => g.atoms)));
+  if (!arrows.size) return check;
+  const atoms = new Set([...arrows].flatMap((id) => h.reaction(id)?.atoms ?? [])), keys = (mol: Mol) => structuresOf(mol).filter((g) => atoms.has(g.atoms[0])).map((g) => `${g.id} ${h.inchi(pickPart(mol, g.atoms)).key}`).join(), had = keys(m);
+  h.cleanReactions(arrows); await h.settle();
+  const n = h.doc(), after = layoutCheck(h, n);
+  if (after === "clean" && keys(n) === had) return after;
   h.set(m); await h.settle();
   return check;
 }
@@ -3442,7 +3460,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         if (changes) await ctx.check();
         if (kept !== undefined && !out.error) await from.keep?.(kept);
         if (!free) await h.settle();
-        const laid = was && !out.error && !free ? layoutCheck(h, h.doc()) : undefined, cleared = laid && LAYS_OUT.has(tool.name) ? await clearLabels(h, before, laid) : laid;
+        const laid = was && !out.error && !free ? layoutCheck(h, h.doc()) : undefined, cleared = laid && LAYS_OUT.has(tool.name) ? await clearLabels(h, before, laid).then((c) => (tool.name === "replace" ? clearOverlaps(h, before!, c) : c)) : laid;
         const after = h.doc();
         if (!free) keepIdsAbove(highest(after));
         // A short result unless the call (or a batch's step) asked for detail: full (R6).

@@ -155,5 +155,16 @@ for (const [name, smiles, only] of structures) {
   const out = cleanUp({ ...m, atoms: m.atoms.map((a, i) => ({ ...a, location: [drawn[i][0], drawn[i][1], 0] })) });
   assert.ok(out.atoms.every((a, i) => Math.hypot(a.location[0] - drawn[i][0], a.location[1] - drawn[i][1]) < 1e-9), "2-butyne with its ends on one point: left as drawn");
 }
+// A bridged ring that clean2d lays out with a carbon on a bond, where Indigo's layout has none (9-BBN's
+// bicyclo[3.3.1]nonane: Opus spent four calls on its warning after run_command clean_up, plan 19.11), has it moved off
+// by Clean Up, keeping its InChI: the structure check names no carbon on a bond.
+{
+  const { problems } = await import("./check.ts"), { toInchi } = await import("./chem.ts");
+  const near = (m: Mol) => problems(m).filter((p) => p.type === "near").map((p) => p.message);
+  for (const smiles of ["C1CC2CCCC(C1)C2", "C1CC2CCCC(C1)B2CCCC", "B1(CCCC[N+]2(Cc3ccc4OCOc4c3)CCN(CC2)c2ncccn2)C2CCCC1CCC2.Cc1ccc(cc1)S(=O)(=O)[O-]"]) {
+    const m = parseStructure(smiles) as Mol, once = cleanUp(m);
+    assert.deepEqual([near(m), near(once), near(cleanUp(once)), toInchi(once)], [[], [], [], toInchi(m)], smiles);
+  }
+}
 console.log(`cleanup-geometry.check: ${structures.length} structures, each drawn up to 3 ways, cleaned exactly: bonds within ${(worst.bond * 100).toExponential(1)}%, ` +
   `rings ${worst.ring.toExponential(1)}°, angles ${worst.around.toExponential(1)}°, axes ${worst.axis.toExponential(1)}°, 30° grid ${worst.grid.toExponential(1)}°`);

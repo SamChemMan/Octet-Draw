@@ -637,6 +637,22 @@ try {
     assert.ok(r.check === "clean" && r.compounds.length === 5 && r.compounds.some((c: string) => /^11a s\d+ C11H14O3S\b/.test(c)), JSON.stringify(r));
     assert.deepEqual(await failed("paper-three-step"), [], l);
   }
+  // A replace by a structure of another size sat on its number and its arrow (real-r5-opus-3 paper-three-step: check
+  // named [s6, t9] and [s6, a8], and Opus ran clean_up after each of two replaces). Its reaction is laid out again in
+  // the same call: the reply is as it was, the check clean, and one undo takes it all back. A structure on its own that
+  // a replace puts on text is left where it is, and the check names it.
+  d = drawing("paper", "Replace in a scheme");
+  assert.ok(!(await call("draw", { brief: "quick", lines: "piribedil + C=CCCOS(=O)(=O)c1ccc(C)cc1 (11a)\n-> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-] (12a)\n-> B1(CCCC[N+]2(Cc3ccc4OCOc4c3)CCN(CC2)c2ncccn2)C2CCCC1CCC2.Cc1ccc(cc1)S(=O)(=O)[O-] (13a), 9-BBN–H\n-> c1ccc2OCOc2c1CCCCCN1CCN(CC1)c1ncccn1 (14a), SPhos·Pd-G3, t-BuOK, 47%" })).isError);
+  const drawn = d.host.doc(), swapped = await call("change", { operations: [{ op: "replace", structure: "s5", text: "C(CCCCN1CCN(CC1)c1ncccn1)c1ccc2OCOc2c1" }] });
+  assert.equal(swapped.content[0].text, 'Replaced s5 with C20H26N4O2, which keeps its number 14a. One undo step.\n{"made":["s6"],"boxes":{"s6":' + JSON.stringify(swapped.structuredContent.boxes.s6) + '},"warnings":[],"check":"clean"}');
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "undo" } })).isError);
+  assert.deepEqual(d.host.doc().atoms.map((a) => a.location), drawn.atoms.map((a) => a.location), "one undo step");
+  d = drawing("paper", "Replace alone");
+  assert.ok(!(await call("draw", { brief: "quick", structures: [{ text: "benzene" }], at: [0, 0] })).isError);
+  assert.ok(!(await call("change", { operations: [{ op: "text", text: "A note", at: [3, 0], anchor: "left" }] })).isError);
+  const alone = (await call("change", { operations: [{ op: "replace", structure: "s1", text: "CCCCCCCCCCCC" }] })).structuredContent;
+  const [id] = alone.made, box = alone.boxes[id];
+  assert.ok(alone.check !== "clean" && alone.check.overlaps.some((p: string[]) => p.includes(id)) && Math.abs((box[0] + box[2]) / 2) < 0.1, JSON.stringify(alone));
   d = drawing("paper", "A scope from names");
   const R = "CCCC(CC(c1ccccc1)c1ccccc1)";
   const scope = { "7a": "N1CCC(CC1)c1ccccc1", "7b": "N1CCC(CC1)C(F)(F)F", "7c": "N1CCN(CC1)C(=O)OC(C)(C)C", "7d": "N1C[C@@H](C)O[C@@H](C)C1", "7e": "N1C[C@H]2C[C@H]2C1", "7f": "N1CC2CC(C1)c1ccccc12", "7g": "N1C2CCC1CC(=O)C2", "7h": "N1CC(OC)C1", "7i": "N(CC)C1CCCCC1", "7j": "N(C)CCOC", "7k": "N(C)C" };
