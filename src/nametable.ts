@@ -50,7 +50,13 @@ class Ints {
   }
 }
 
-const pause = () => new Promise((ok) => setTimeout(ok, 0));
+// A turn of the event loop by a message, not a timer: WebKit holds a covered window's timers to about one a second, and
+// an AI app's first draw by name then waited over a minute for the dictionary (acceptance case 21).
+const pause = () => new Promise<void>((ok) => {
+  const c = new MessageChannel();
+  c.port1.onmessage = () => { c.port1.close(); ok(); };
+  c.port2.postMessage(0);
+});
 // A pause once 8 ms have gone since the last one (looked at every 64 calls), so no step holds the page longer, however
 // fast the code runs yet.
 function slicer(on: boolean) {

@@ -272,7 +272,7 @@ const CASES = {
     const n = await client("acceptance-n", false), scheme = { kind: "reaction", start: [{ text: "ethanol" }], steps: [{ products: [{ text: "acetic acid" }] }] };
     await n.call("drawings", { action: "new", for: "paper" });
     let r = await n.call("draw", scheme);
-    check(r.isError && r.text.startsWith("Octet needs the brief first. Ask the user these three questions, then call set_brief: 1."), "a new session's scheme waits for the brief", r.text.slice(0, 120));
+    check(r.isError && r.text.startsWith("Octet needs the brief first. If the user has not answered these three questions, ask them, then call again with their answers as brief: 1."), "a new session's scheme waits for the brief", r.text.slice(0, 120));
     r = await n.call("set_brief", { destination: { kind: "paper" } });
     check(!r.isError, "set_brief", r.text);
     await n.call("drawings", { action: "new", for: "paper" });

@@ -2279,3 +2279,43 @@ What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns
   Opus spends 15% less model time for the same passes. Haiku passes more and takes fewer turns; its model time is
   nearly all its own thinking and is not lower. The e206301 logs themselves were deleted in error; these totals are
   what was printed from them.
+
+### 19.13 As built (a covered window and the dictionary, 12 November 2026)
+
+Found by acceptance case 21 on the final code, with Octet behind another app (the display on, the screen not locked).
+
+- **The fault.** The first draw by name in a new drawing took 74 to 78 s (the second, 75 ms). Release 1.1.2's
+  dictionary (`nametable.ts`) reads in slices and paused between them with `setTimeout(ok, 0)`. WebKit holds the
+  timers of a covered window to about one a second, with background throttling off as well (`windows.rs`), so the 75
+  or so pauses took 75 s. Name to Structure waits for the dictionary (`loadNames`), and a draw by name waits for that.
+  This is what 17.5's last row guessed at; `settle`, `ready` and the new-drawing wait already used messages.
+- **The fix.** `pause` is a turn of the event loop by a `MessageChannel` message, which WebKit does not slow. Same
+  window, by hot reload: 76,168 ms to 1,126 ms. With the window in front it is no slower: in Node the names are ready
+  in about 180 ms (200 with the timer) and the suggestions in 390 (420). nametable.check counts the timers a sliced
+  read starts: none. Not looked at with a person typing while the dictionary reads; a message is a task as a timer is,
+  so input still comes between slices.
+- **Release 1.1.2 has the same pause.** There a covered window is slowed as a whole, so it matters less, but Name to
+  Structure is not ready for over a minute in a window that was covered while it loaded.
+- **The other timers.** Every `setTimeout`, `requestAnimationFrame` and `requestIdleCallback` in `src` was listed.
+  The two more that code waits on are Print (two frames) and Expand Generic Structures (a pause every 1,000
+  structures); no MCP call takes either path.
+- **What the dev build cannot show.** With `tauri dev` half of eight windows opened at once took 10 to 50 s to start:
+  each page loads its modules one by one from the dev server. And a plain debug program unpacks the name data so
+  slowly that eight first draws took a minute. Neither is the installed app. Case 21 is run on an optimised program
+  under the dev identity, with the page bundled:
+  `CARGO_PROFILE_DEV_OPT_LEVEL=3 CARGO_TARGET_DIR=$PWD/target npx tauri build --debug --no-bundle`, then
+  `OCTET_MCP=1 target/debug/octet`.
+- **The run.** Every acceptance case in that window, Octet behind another app: 172 checks pass. Case 21, median and
+  slowest in ms:
+
+  | Sessions at once | drawings new | set_brief | draw (by name) | draw_route | read |
+  |---|---|---|---|---|---|
+  | 1 | 62 / 62 | 320 / 320 | 488 / 488 | 73 / 73 | 7 / 7 |
+  | 2 | 75 / 145 | 361 / 432 | 539 / 573 | 136 / 139 | 6 / 8 |
+  | 4 | 247 / 248 | 598 / 828 | 691 / 769 | 209 / 267 | 49 / 55 |
+  | 8 | 739 / 761 | 1,300 / 1,721 | 4,857 / 5,922 | 728 / 3,086 | 68 / 108 |
+
+  The windowless release program: the whole script with `--headless`, 106 checks pass, and the scripting examples in
+  both languages are as the page gives them.
+- Case 9's check read the wording `set_brief` gives; `draw` takes `brief` since round 4 and answers "…call again with
+  their answers as brief". The check now reads that. It had not run since, as case 9 needs a window.
