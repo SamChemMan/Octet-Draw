@@ -2,6 +2,7 @@
 // picture.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { apartShapes, type Drawing } from "./render.ts";
 import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin } from "./export.ts";
 import { EMPTY, extractSelection, sprout } from "./edit.ts";
 
@@ -159,11 +160,15 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   const ink = /function canvasInk\([\s\S]*?\n  \}\n/.exec(editor)?.[0] ?? "";
   assert.match(ink, /el\.closest\("defs, mask, clipPath, pattern, marker, symbol, filter"\)\) continue;/, "canvasInk leaves out defs and masks");
 }
-// A picture that leaves Octet (Copy, Export) draws each bond, ring circle, symbol and arrow as a path of its own, as
+// A picture that leaves Octet (Copy, Export) draws each line of a bond, ring circle, symbol and arrow as a path of its own, as
 // ChemDraw's PDF does, so Inkscape and Illustrator can move each one. The canvas keeps one path per colour.
 {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /function structurePaths\(d: Drawing, apart = false\)[\s\S]*?d\.owners!\[i\]/, "a path for each owner");
+  assert.match(editor, /function structurePaths\(d: Drawing, apart = false\): \[string, string\]\[\] \{\n  if \(apart && d\.owners\) \{\n    return apartShapes\(d\)/, "structurePaths uses apartShapes");
+  // A double bond (owner 0) gives two paths; a ring circle (owner -1) keeps its hole, listed before the circle.
+  const sq = (x: number, y: number, w: number, h: number): [number, number][] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  const shapes = apartShapes({ polygons: [sq(0, 0, 10, 1), sq(1, 3, 8, 1), sq(23, 3, 4, 4), sq(20, 0, 10, 10)], colours: [undefined, undefined, undefined, undefined], alphas: [1, 1, 1, 1], owners: [0, 0, -1, -1] } as unknown as Drawing);
+  assert.deepEqual(shapes.map(([key, polys]) => [key, polys.length]), [["|1.00|0|0", 1], ["|1.00|0|1", 1], ["|1.00|-1|3", 2]], "each line apart, the hole with its circle");
   assert.match(editor, /const structureInk = useMemo\([^\n]*structurePaths\(d, !!exporting\)[^\n]*\[drawing, exporting\]\)/, "structures apart when exporting");
   assert.match(editor, /if \(exporting\) each\.push\(\[key, path\]\);/, "arrows apart when exporting");
 }
