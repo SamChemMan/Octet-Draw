@@ -137,4 +137,9 @@ for (const e of ["C", "H", "Ph", "Pr", "Ac", "Me"]) assert.equal(by[e], undefine
 const tokens = read("../brand/tokens.css");
 for (const name of ["n", "o", "s", "p", "halogen", "br", "i", "b", "si", "metal"]) assert.equal(tokens.match(new RegExp(`--atom-${name}:`, "g"))?.length, 3);
 
+// File > Edit Picture from Word is a menu command on the Mac only, so the command palette lists it there only. Its
+// icon is its own (the loop over the commands' icons above fails if another command has it).
+assert.ok(editorTsx.includes('...(TAURI && MAC ? { edit_word: ["Edit picture from Word", "", <FileDoc size={18} />] }'), "the palette has Edit picture from Word on the Mac");
+assert.ok(uses.some(([icon, command]) => icon === "FileDoc" && command === "edit_word"), "look.check reads its icon");
+
 console.log("look: ok");

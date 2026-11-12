@@ -291,8 +291,14 @@ pub fn read_stream(stated: u64, mut read: impl FnMut(&mut [u8]) -> Result<usize,
 // The container's and the document's names from SetHostNames, as the window's title takes them: no control
 // characters, 260 characters at most, and "Document" when the container gives none.
 pub fn host_name(name: &str) -> String {
-    let clean: String = name.chars().filter(|c| !c.is_control()).take(MAX_HOST).collect();
-    if clean.trim().is_empty() { "Document".into() } else { clean.trim().to_string() }
+    let clean = program_name(name);
+    if clean.is_empty() { "Document".into() } else { clean }
+}
+
+// The program's name for the Update button (Update in Word), cleaned as host_name cleans a document's name. Empty when
+// there is none: the button then names the document.
+pub fn program_name(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).take(MAX_HOST).collect::<String>().trim().into()
 }
 
 // The object window's title, as Windows' guidelines for objects opened in a window give it.
@@ -430,7 +436,7 @@ mod tests {
     #[test]
     fn extent_is_the_emf_frame() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
-        let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"));
+        let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"), None);
         assert_eq!(extent(&emf), Some((2540, 1270)), "1 in by 0.5 in");
         assert_eq!(extent(b"not a metafile"), None);
         let mut bad = emf.clone();
@@ -501,6 +507,8 @@ mod tests {
         assert_eq!(host_name("Paper\u{7}.docx"), "Paper.docx");
         assert_eq!(host_name("  "), "Document");
         assert_eq!(host_name(&"x".repeat(1000)).len(), 260);
+        assert_eq!(program_name(" Writer\u{7}"), "Writer");
+        assert_eq!(program_name("\u{7} "), "", "no name: the button names the document");
     }
 
     #[test]

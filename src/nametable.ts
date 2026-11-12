@@ -51,7 +51,7 @@ class Ints {
 }
 
 // A turn of the event loop by a message, not a timer: WebKit holds a covered window's timers to about one a second, and
-// an AI app's first draw by name then waited over a minute for the dictionary (acceptance case 21).
+// a window covered while it opened then waited over a minute for the dictionary (76 s measured; acceptance case 21).
 const pause = () => new Promise<void>((ok) => {
   const c = new MessageChannel();
   c.port1.onmessage = () => { c.port1.close(); ok(); };

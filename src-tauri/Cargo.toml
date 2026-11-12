@@ -46,8 +46,9 @@ tauri-plugin-single-instance = "2"
 
 # Copy and paste on Windows: the clipboard calls (src/clipboard_windows.rs). Alt and a menu's access key, from the web
 # view to the menu bar (src/access_keys.rs): WebView2's own interface. Both already in the build through Tauri.
+# Win32_Graphics_GdiPlus is for a test alone (src/vector.rs): it adds bindings, no code to the app.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_GdiPlus", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging"] }
 webview2-com = "0.39"
 # Octet Drawing objects in Office (src/ole_windows.rs, decision 0023): Microsoft's COM bindings and the #[implement]
 # macro for the server's interfaces (IOleObject, IDataObject, IPersistStorage, IClassFactory), the OLE clipboard and
@@ -66,8 +67,9 @@ objc2 = "0.6"
 dispatch2 = "0.3"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSString", "NSDictionary", "NSError", "NSPathUtilities", "NSURL"] }
 # The eyedropper (src/eyedropper.rs): the system's colour sampler (NSColorSampler, NSColor, NSColorSpace, block2), in
-# the same crate.
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSApplication", "NSColor", "NSColorSampler", "NSColorSpace", "block2", "objc2-core-foundation"] }
+# the same crate. Edit Picture from Word (src/word.rs): NSBeep (NSGraphics) and whether Word runs (NSRunningApplication);
+# double-click in Word: the global mouse monitor (NSEvent) and the program in front (NSWorkspace).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSApplication", "NSGraphics", "NSRunningApplication", "NSEvent", "NSWorkspace", "NSColor", "NSColorSampler", "NSColorSpace", "block2", "objc2-core-foundation"] }
 # Feedback's picture of the window (WKWebView's own snapshot). Already used by Tauri.
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "block2", "WKWebView", "WKSnapshotConfiguration"] }
 block2 = "0.6"

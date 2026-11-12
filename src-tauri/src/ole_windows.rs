@@ -21,7 +21,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -62,6 +62,7 @@ use windows::Win32::UI::WindowsAndMessaging::MSG;
 use windows_core::{implement, Error, IUnknown, IUnknownImpl, Interface, Ref, Result, BOOL, GUID, HRESULT, PCWSTR, PWSTR};
 
 use super::{Refused, CANNOT_OPEN};
+use crate::objects::{label, Session, Taken};
 
 pub const CLASS: GUID = GUID::from_values(super::CLSID_FIELDS.0, super::CLSID_FIELDS.1, super::CLSID_FIELDS.2, super::CLSID_FIELDS.3);
 
@@ -76,7 +77,6 @@ static WAITING: AtomicBool = AtomicBool::new(false);
 // https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-coreleaseserverprocess
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static LOCKS: AtomicUsize = AtomicUsize::new(0);
-static NEXT: AtomicU64 = AtomicU64::new(1);
 // The objects whose Word watch_site asks from a thread of its own.
 static WATCHED: std::sync::Mutex<std::collections::BTreeSet<u64>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
 // CLSID_StdGlobalInterfaceTable, which the windows crate does not name.
@@ -98,14 +98,6 @@ thread_local! {
 
 fn app() -> Option<&'static AppHandle> {
     APP.get()
-}
-
-pub fn label(id: u64) -> String {
-    format!("object-{id}")
-}
-
-pub fn id_of(label: &str) -> Option<u64> {
-    label.strip_prefix("object-")?.parse().ok()
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -662,23 +654,18 @@ fn waiting<T>(f: impl FnOnce() -> T) -> T {
 // Methods run on the main thread only (an STA, as the object is not agile), so plain Cells and RefCells are enough.
 #[implement(IOleObject, IDataObject, IPersistStorage, IPersistFile, Agile = false)]
 struct Drawing {
-    id: u64,
+    // The object window's session (objects.rs): its number, the document's name, the drawing Word has (empty for a
+    // new object nothing was drawn in), the window's newest drawing and picture not sent to Word yet, the number of
+    // the page's newest message, whether Word's Close is in progress, and whether Word went away while the window was
+    // open. Read as the object's own fields (Deref).
+    session: Session,
     site: RefCell<Option<IOleClientSite>>,
     advise: RefCell<Option<IOleAdviseHolder>>,
     data_advise: RefCell<Option<IDataAdviseHolder>>,
     // Held between Load or InitNew and HandsOffStorage, as IPersistStorage asks.
     storage: RefCell<Option<IStorage>>,
-    oct: RefCell<String>,         // the drawing as a .oct file; empty for a new object nothing was drawn in
     emf: RefCell<Option<Vec<u8>>>, // the picture from the last update; None until there is one
-    // The window's newest drawing and picture, not sent to Word yet. The page keeps it up to date while the user
-    // draws, so Close and Quit send it at once and never wait for the page.
-    latest: RefCell<Option<(String, Vec<u8>)>>,
-    // The number of the newest message from the page that Octet took: an older one that arrives late is dropped.
-    seq: Cell<u64>,
-    // Word's Close is in progress: the page's messages wait for nothing and change nothing.
-    closing: Cell<bool>,
     dirty: Cell<bool>,            // changed since Word last saved the storage
-    host: RefCell<String>,        // the document's name, for the window's title
     // The picture's size in HIMETRIC: from the storage at Load (or the drawing's own size), 1 in square for a new
     // object, and the EMF's frame from each picture the window sends. GetExtent gives it from Load on.
     extent: Cell<(i32, i32)>,
@@ -686,9 +673,15 @@ struct Drawing {
     asked: Cell<Option<(i32, i32)>>,
     shown: Cell<bool>,            // its window is open
     locked: Cell<bool>,           // CoLockObjectExternal held for the window
-    gone: Cell<bool>,             // Word went away while the window was open
     // Word's process (from the call that opened the window), to see that it ended without asking Word anything.
     container: Cell<Option<HANDLE>>,
+}
+
+impl std::ops::Deref for Drawing {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        &self.session
+    }
 }
 
 impl Drawing {
@@ -696,23 +689,17 @@ impl Drawing {
         LIVE.fetch_add(1, SeqCst);
         WAITING.store(false, SeqCst);
         Drawing {
-            id: NEXT.fetch_add(1, SeqCst),
+            session: Session::new("Document", String::new()),
             site: RefCell::new(None),
             advise: RefCell::new(None),
             data_advise: RefCell::new(None),
             storage: RefCell::new(None),
-            oct: RefCell::new(String::new()),
             emf: RefCell::new(None),
-            latest: RefCell::new(None),
-            seq: Cell::new(0),
-            closing: Cell::new(false),
             dirty: Cell::new(false),
-            host: RefCell::new("Document".into()),
             extent: Cell::new(super::BLANK_EXTENT),
             asked: Cell::new(None),
             shown: Cell::new(false),
             locked: Cell::new(false),
-            gone: Cell::new(false),
             container: Cell::new(None),
         }
     }
@@ -827,10 +814,6 @@ impl Drawing {
         *self.emf.borrow_mut() = Some(emf);
     }
 
-    fn title(&self) -> String {
-        super::title(&self.host.borrow(), self.gone.get())
-    }
-
     // Edit or Open: the window opens (from the async runtime, never in this call), or comes to the front.
     fn show(this: &windows_core::ComObject<Drawing>) {
         OPEN.with(|m| m.borrow_mut().insert(this.id, this.clone()));
@@ -847,7 +830,7 @@ impl Drawing {
             tauri::async_runtime::spawn(async move { let _ = crate::windows::window_show(app, label).await; });
             return;
         }
-        let start = serde_json::json!({ "object": this.id, "oct": this.oct.borrow().as_str(), "host": this.host.borrow().as_str(), "title": this.title() });
+        let start = serde_json::json!({ "object": this.id, "oct": this.oct.borrow().as_str(), "host": this.host.borrow().as_str(), "title": this.title(), "app": this.app.borrow().as_str() });
         let host = this.host.borrow().clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = crate::windows::open_object(app.clone(), label, start, host).await {
@@ -1009,18 +992,21 @@ impl IOleObject_Impl for Drawing_Impl {
     fn GetClientSite(&self) -> Result<IOleClientSite> {
         self.site.borrow().clone().ok_or_else(|| fail(E_FAIL))
     }
-    // The container's name and the document's: the window's title says the document.
+    // The container's name and the document's: the window's title says the document, and its Update button the
+    // container ("Microsoft Word" gives Update in Word).
     // https://learn.microsoft.com/windows/win32/api/oleidl/nf-oleidl-ioleobject-sethostnames
-    fn SetHostNames(&self, _app: &PCWSTR, doc: &PCWSTR) -> Result<()> {
+    fn SetHostNames(&self, program: &PCWSTR, doc: &PCWSTR) -> Result<()> {
         // SAFETY: the container's NUL-terminated strings, read during the call (null is allowed).
-        let doc = if doc.is_null() { String::new() } else { unsafe { doc.to_string() }.unwrap_or_default() };
-        let doc = super::host_name(&doc);
-        if *self.host.borrow() != doc {
+        let read = |s: &PCWSTR| if s.is_null() { String::new() } else { unsafe { s.to_string() }.unwrap_or_default() };
+        let program = super::program_name(&read(program));
+        let doc = super::host_name(&read(doc));
+        if *self.host.borrow() != doc || *self.app.borrow() != program {
             *self.host.borrow_mut() = doc.clone();
+            *self.app.borrow_mut() = program.clone();
             if self.shown.get() {
                 if let Some(a) = app().cloned() {
                     let l = label(self.id);
-                    let _ = a.emit_to(l.clone(), "ole-host", (doc.clone(), self.title()));
+                    let _ = a.emit_to(l.clone(), "ole-host", (doc.clone(), self.title(), program));
                     tauri::async_runtime::spawn(async move { crate::windows::object_host(&a, &l, &doc) });
                 }
             }
@@ -1382,7 +1368,7 @@ fn ping() {
 // The page's commands (decision 0023): Update and Close from the object window.
 
 // Runs `f` on the main thread and gives back its answer.
-async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> std::result::Result<T, String> {
+pub async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> std::result::Result<T, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(f());
@@ -1391,53 +1377,21 @@ async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Sen
     tauri::async_runtime::spawn_blocking(move || rx.recv()).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
 }
 
-// File > Update Document1 (Ctrl+S): the drawing as a .oct file, and its picture as an SVG with its CDXML, which
-// become the EMF here, as Copy makes it. send false: nothing goes to Word. The window sends its picture once the
-// drawing is open, so GetData and GetExtent have it, and then its newest drawing after each change, for Close and
-// Quit.
-#[tauri::command]
-pub async fn ole_update(app: AppHandle, window: tauri::Window, oct: String, svg: String, cdxml: String, send: Option<bool>, seq: Option<u64>) -> std::result::Result<(), String> {
-    let id = id_of(window.label()).ok_or("This window holds no object.")?;
-    if [oct.len(), svg.len(), cdxml.len()].iter().any(|n| *n as u64 > super::MAX_STREAM) {
-        return Err("This drawing is larger than 64 MB. Octet cannot update the document with it.".into());
-    }
-    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml));
+// File > Update Document1 (Ctrl+S), from objects::ole_update, which checked the sizes: the picture becomes the EMF
+// here, as Copy makes it. The window sends its picture once the drawing is open, so GetData and GetExtent have it,
+// and then its newest drawing after each change, for Close and Quit (Session::message).
+pub async fn update(app: AppHandle, id: u64, oct: String, svg: String, cdxml: String, send: Option<bool>, seq: Option<u64>) -> std::result::Result<(), String> {
+    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml), None);
     on_main(&app, move || {
         let o = OPEN.with(|m| m.borrow().get(&id).cloned()).filter(|o| !o.closing.get()).ok_or("The document is closed. Save a copy to keep this drawing.")?;
-        // Each call makes its picture on a thread of its own, so they can finish out of order: an older one is dropped.
-        if let Some(n) = seq {
-            if n <= o.seq.get() {
-                return Ok(());
-            }
-            o.seq.set(n);
+        match o.message(seq, send != Some(false), oct, emf) {
+            Taken::Same(emf) => o.picture(emf, false),
+            Taken::Send(oct, emf) => return Drawing::update(&o, oct, emf),
+            Taken::Old | Taken::Kept => {}
         }
-        if send == Some(false) {
-            // Not for Word yet. The same drawing (sent when the window opens) is only its picture; a changed one is
-            // kept for Close and Quit.
-            if oct.is_empty() || *o.oct.borrow() == oct {
-                o.latest.borrow_mut().take();
-                o.picture(emf, false);
-            } else {
-                *o.latest.borrow_mut() = Some((oct, emf));
-            }
-            return Ok(());
-        }
-        Drawing::update(&o, oct, emf)
+        Ok(())
     })
     .await?
-}
-
-// Close and Return to Document1: Word takes the shading off and gets the focus back, then the window closes. The
-// page sends its changes first (ole_update).
-#[tauri::command]
-pub async fn ole_close(app: AppHandle, window: tauri::Window) -> std::result::Result<(), String> {
-    let id = id_of(window.label()).ok_or("This window holds no object.")?;
-    on_main(&app, move || closed(id)).await?;
-    // The menu bar comes off first, as in close_window (windows.rs).
-    let _ = window.remove_menu();
-    window.destroy().map_err(|e| e.to_string())?;
-    let a = app.clone();
-    on_main(&app, move || maybe_exit(&a)).await
 }
 
 // The object's window is gone (closed by the page, or destroyed): Word hears so, once.
@@ -1686,7 +1640,7 @@ mod tests {
     fn the_object_gives_its_picture_and_storage() {
         ole(|| {
             let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
-            let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"));
+            let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"), None);
             let d = windows_core::ComObject::new(Drawing::new());
             d.picture(emf.clone(), true);
             *d.oct.borrow_mut() = OCT.into();

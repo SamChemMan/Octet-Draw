@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -100,7 +100,7 @@ import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
-import { casProblem, dictionaryCas, nameList } from "./dictionary";
+import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
 import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
 import { readSequence, toFasta, toHelm } from "./helm";
@@ -438,9 +438,9 @@ type OpenedFile = { name: string; path: string | null; text: string | null; pict
 type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
 // An Octet Drawing object in an Office document, opened from Word (decision 0023, src-tauri/src/ole_windows.rs): its
 // drawing as a .oct file (empty for a new object), the document's name and the window's title.
-type ObjectStart = { object: number; oct: string; host: string; title: string };
+type ObjectStart = { object: number; oct: string; host: string; title: string; app?: string };
 // The object window's state: its document, and whether the document is still open in Word.
-type OfficeObject = { host: string; title: string; gone: boolean };
+type OfficeObject = { host: string; title: string; gone: boolean; app?: string };
 // A picture for an object with nothing drawn: Word needs one (Insert > Object closed with nothing drawn).
 const BLANK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="72pt" viewBox="0 0 72 72"></svg>`;
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
@@ -828,7 +828,7 @@ export default function Editor() {
   }
   // A name from the user's own dictionary draws with the name under it, as ChemDraw's does.
   const withOwnCaption = (name: string, frag: Mol): Mol => {
-    const own = ownName(name);
+    const own = casNumber(name) ? undefined : ownName(name); // a CAS number draws with no caption, as one from Octet's dictionary does
     if (!own || !frag.atoms.length) return frag;
     const xs = frag.atoms.map((a) => a.location[0]), ys = frag.atoms.map((a) => a.location[1]);
     return addCaption(frag, { text: own.name, x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...ys) - 1, under: frag.atoms.map((_, i) => i) })[0];
@@ -1158,6 +1158,8 @@ export default function Editor() {
   const officeRef = useRef(office);
   officeRef.current = office;
   const officeSeq = useRef(0); // the number of the last message to Octet's side (ole_update)
+  // The Update button's words, and its tip's: the program that has the drawing, or the document where none is named.
+  const updateName = office && (office.app ? `Update in ${office.app.replace(/^Microsoft /, "")}` : `Update ${office.host}`);
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
   // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
   // a crash took from src-tauri/src/recovery.rs.
@@ -1599,9 +1601,11 @@ export default function Editor() {
   const leave = (then: () => Promise<unknown>) => keepWork(() => forget(then), () => { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); });
   // An object window (decision 0023). Update: the drawing, its picture and the picture's CDXML go to Word, which
   // changes the picture in the document at once. False if Word did not take it (the notice says why).
+  // While a template is open on the canvas, doc is the template: it never goes to the document.
   const officeUpdate = async (): Promise<boolean> => {
     const o = officeRef.current;
     if (!o) return false;
+    if (templateEdit) { setNotice("Save or cancel the template first.", "info"); return false; }
     if (o.gone) { setNotice(`${o.host} is closed. Save a copy to keep this drawing.`); return false; }
     try {
       const sent = doc, oct = writeOct({ ...sent, guides }, savedStyle(), cdxmlOptions());
@@ -1615,11 +1619,12 @@ export default function Editor() {
   };
   // Close and Return to Document1: changes not sent go to Word first, with no question (decision 0023). Once the
   // document is closed in Word, closing asks about unsaved changes as any drawing window does: Save writes a file.
+  // While a template is open on the canvas the window stays, as a drawing window does: the template comes first.
   const officeClose = async () => {
     const o = officeRef.current;
     if (!o) return;
     if (o.gone) return leave(() => invoke("ole_close"));
-    if (mainDirty && !(await officeUpdate())) { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); return; }
+    if ((mainDirty || templateEdit) && !(await officeUpdate())) { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); return; }
     forget(() => invoke("ole_close"));
   };
   // Save Copy As…: the drawing to a file of its own; the window stays the object's.
@@ -2326,7 +2331,7 @@ export default function Editor() {
       return true;
     }
     const frag = named;
-    if (!frag) return askPubChem(naming);
+    if (!frag) return askPubChem(naming) || offerPubChem(naming);
     settleFrom.current = doc.atoms.length;
     place(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)), doc, namingAt.current);
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), frag); } else if (suggestion) rememberName(suggestion, frag);
@@ -2378,14 +2383,25 @@ export default function Editor() {
     place(frag, doc, namingAt.current);
     rememberName(text, frag);
     setNaming(undefined);
-    setNotice("Drawn from PubChem.", "info");
+    // A CAS number PubChem gave a structure for goes into the user's dictionary (Settings > Dictionary), so it reads
+    // offline from then on. A CAS number in the dictionary never names a structure (names.ts setOwnNames).
+    const cas = casNumber(text), kept = cas && smiles ? withOwnName(settings.dictionary, { name: cas, smiles }) : settings.dictionary;
+    if (kept !== settings.dictionary) setSettings((st) => ({ ...st, dictionary: withOwnName(st.dictionary, { name: cas!, smiles: smiles! }) }));
+    setNotice(kept !== settings.dictionary ? "Drawn from PubChem. This CAS number is in your dictionary. Octet can now draw it offline." : "Drawn from PubChem.", "info");
   };
   function askPubChem(text: string): boolean {
     const s = text.trim();
     if (!TAURI || !settings.onlineSearch || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || PEPTIDE.test(s) || NUCLEIC.test(s) || looksLikeSmiles(s)) return false;
     setAsking(s);
-    invoke<string | null>("pubchem_structure", { text: s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
+    invoke<string | null>("pubchem_structure", { text: casNumber(s) ?? s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
     return true;
+  }
+  // A CAS number Octet does not have, with Online search off: a notice says so and its button opens Settings at Online
+  // search. The notice changes no setting and nothing goes online. The field shakes as for any text Octet cannot read.
+  function offerPubChem(text: string): boolean {
+    if (!TAURI || settings.onlineSearch || !namesLoaded || !casNumber(text)) return false;
+    setNotice("Octet does not have this CAS number offline. To ask PubChem, turn on Online search in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
+    return false;
   }
   // The name field shakes for text that is not a name.
   const shake = (el: HTMLElement) => {
@@ -2427,6 +2443,9 @@ export default function Editor() {
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
     insert_file: () => void insertFile(),
+    // File > Edit Picture from Word on the Mac (src-tauri/src/word.rs). The menu runs it there; this is for a key
+    // the page handles and for the command palette, which lists it on the Mac (MENU_NAMES).
+    edit_word: () => void invoke("word_edit").catch(() => {}),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
     save_as: () => (officeRef.current ? void saveCopy() : void save(true)),
@@ -3005,7 +3024,7 @@ export default function Editor() {
       else if ("object" in s) {
         // The object's drawing, read as a file from Open is: an empty one is a new object (Insert > Object).
         if (s.oct) load(undefined, s.oct);
-        const o = { host: s.host, title: s.title, gone: false };
+        const o = { host: s.host, title: s.title, gone: false, app: s.app };
         setOffice(o);
         setFile((f) => ({ ...f, name: s.title }));
         officePrime.current = !!s.oct;
@@ -3025,13 +3044,14 @@ export default function Editor() {
   }, [office, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Then, while the user draws, the newest drawing goes to Octet's side too (still not to Word), half a second after
   // each change and at once when the window loses focus. So when Word closes the document, Octet gives Word the
-  // drawing at once and never waits for this page. A drawing back as it was sends only its picture.
+  // drawing at once and never waits for this page. A drawing back as it was sends only its picture. A template open
+  // on the canvas is not the object's drawing, so nothing goes while it is edited.
   const officeKept = useRef<{ timer: number; doc?: unknown }>({ timer: 0 });
   const officeKeep = useRef(() => {});
   officeKeep.current = () => {
     clearTimeout(officeKept.current.timer);
     const o = officeRef.current;
-    if (!o || o.gone || officeKept.current.doc === doc) return;
+    if (!o || o.gone || templateEdit || officeKept.current.doc === doc) return;
     officeKept.current.doc = doc;
     const oct = mainDirty ? writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) : "";
     invoke("ole_update", { oct, svg: pictureOf(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
@@ -3041,7 +3061,7 @@ export default function Editor() {
   // document is closed, and keeps the drawing for Save Copy As.
   const officeClosed = useRef((_: [boolean, string]) => {});
   officeClosed.current = ([sent, title]) => {
-    if (sent && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close"));
+    if (sent && !templateEdit && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close"));
     setOffice((o) => o && { ...o, title, gone: true });
     setFile((f) => ({ ...f, name: title }));
     setNotice(`${officeRef.current?.host ?? "The document"} is closed. Save a copy to keep this drawing.`, "info");
@@ -3056,9 +3076,9 @@ export default function Editor() {
     const offs = [
       // Word closed the document and Octet gave it the drawing: the window closes with no question.
       listen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload)),
-      listen<[string, string]>("ole-host", (e) => {
-        const [host, title] = e.payload;
-        setOffice((o) => o && { ...o, host, title });
+      listen<[string, string, string?]>("ole-host", (e) => {
+        const [host, title, app] = e.payload;
+        setOffice((o) => o && { ...o, host, title, app: app || o.app });
         setFile((f) => ({ ...f, name: title }));
       }),
       listen<string>("ole-gone", (e) => {
@@ -3102,6 +3122,10 @@ export default function Editor() {
     if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke("set_more_formats", { formats: settings.moreFormats ? moreFormats.map(([id, name]) => [id, name]) : null }))
       .then(() => invoke<[string, string, string, string][]>("menu_items")).then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
   }, [settings.onlineSearch, settings.moreFormats]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Settings > General > Word (the Mac): while it is on, Octet watches for a double-click in Word (word.rs).
+  useEffect(() => {
+    if (TAURI && MAC) invoke("set_word_click", { on: settings.wordClick }).catch(() => {});
+  }, [settings.wordClick]);
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -7534,6 +7558,8 @@ export default function Editor() {
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />],
+    // File > Edit Picture from Word is on the Mac only (src-tauri/src/word.rs), so the palette has it there only.
+    ...(TAURI && MAC ? { edit_word: ["Edit picture from Word", "", <FileDoc size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
@@ -8801,7 +8827,7 @@ export default function Editor() {
       saw("copy");
       const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style });
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
-      // PDF, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
+      // PDF, with Office's own copy of it before it for Word, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
       // structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form. The CDXML goes in the picture too.
       if (NATIVE_CLIP) {
         const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);
@@ -10162,9 +10188,11 @@ export default function Editor() {
           adding={addingColour}
           updates={settings.updates === true}
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
+          wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
           mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
           onBundle={() => void invoke("mcp_bundle", { tools: TOOL_TABLE.map(({ name, description }) => ({ name, description })) }).catch((e) => setNotice(failure("Octet cannot make the Claude Desktop bundle.", e)))}
+          onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>
@@ -10654,7 +10682,16 @@ export default function Editor() {
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
-      <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
+      <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
+        lead={office && !office.gone && (
+        // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >
+        // Update do. It is there only in a window opened from a document, and lights up once there is a change. A long
+        // name is cut short in the button, so its tip has the same words in full. While a template is open on the
+        // canvas the button is off: Save keeps the template then.
+        <button className="export-button primary" disabled={!mainDirty || !!templateEdit} data-tip={updateName} data-key={hint("save")} onClick={() => void officeUpdate()}>
+          {updateName}
+        </button>
+      )} />
       <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView} page={pageColour(style)}
           chemistry={(part) => {

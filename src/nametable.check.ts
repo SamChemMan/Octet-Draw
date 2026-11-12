@@ -86,7 +86,7 @@ if (existsSync(file)) {
     now.push(performance.now() - t0);
   }
   // Read in slices, as the app reads it: every pause is a message, never a timer. WebKit holds a covered window's
-  // timers to about one a second, and an AI app's first draw by name waited 76 s for the dictionary (acceptance 21).
+  // timers to about one a second, and a window covered while it opened (an AI app's first draw by name, acceptance 21) waited 76 s for the dictionary.
   {
     const timer = globalThis.setTimeout, t0 = performance.now();
     let timers = 0;

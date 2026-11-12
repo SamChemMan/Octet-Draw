@@ -3144,6 +3144,9 @@ div.facts {
 .setting-control .page-button {
   width: 140px;
 }
+.setting-control .text-button {
+  white-space: nowrap;
+}
 
 /* The template library opens beside the Ring strip: categories and search down the side, templates in a grid. */
 .library {
@@ -5327,12 +5330,20 @@ div.facts {
   background: var(--canvas);
 }
 
-/* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. */
+/* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. In an
+   object window, Update in Word comes first: the brand's primary action once there is a change, a quiet pill before. */
 .export {
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
   z-index: var(--z-strip);
+  display: flex;
+  gap: var(--space-2);
+}
+.export-button.primary:not(:disabled) {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
 }
 .export-button {
   display: flex;
@@ -5349,12 +5360,25 @@ div.facts {
   font: 500 13px/18px var(--font-sans);
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
+/* Update's name comes from the other program, so it can be long: it stays on one line and is cut short with an
+   ellipsis (its tip has the whole name). A block, as an ellipsis does not show in a flex box. */
+.export-button.primary {
+  display: block;
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 @media (hover: hover) and (pointer: fine) {
-  .export-button:hover {
+  .export-button:hover:not(:disabled) {
     background: var(--surface-sunken);
   }
+  .export-button.primary:hover:not(:disabled) {
+    border-color: var(--brand-hover);
+    background: var(--brand-hover);
+  }
 }
-.export-button:active {
+.export-button:active:not(:disabled) {
   transform: scale(var(--press));
 }
 .export-button:focus-visible {

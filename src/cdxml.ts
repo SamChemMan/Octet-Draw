@@ -4,6 +4,7 @@
 // Units: Octet stores bond lengths with y up and its page centred on 0,0. CDXML stores points with y down from the
 // top left of the page's printable area. The style's bond length (pt) converts between them.
 // Octet-only data that CDXML cannot hold goes in an "Octet" attribute holding JSON, a name ChemDraw drops (spec 22).
+// CDX holds the same attribute under a tag of Octet's own (cdx.ts).
 // Objects written only so ChemDraw can show something Octet draws itself (a table's lines, a cycle's arrows) carry
 // Octet='{"d":1}', and Octet skips them when it reads its own file back.
 

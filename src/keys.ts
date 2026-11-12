@@ -200,7 +200,7 @@ export function toAccelerator(key: string): string {
 // and Close Window run everywhere: they ask about unsaved changes over any dialog (src-tauri/src/quit.rs). Cut, Copy and
 // Paste (Octet's own items on Linux) run everywhere too: they work on the text being typed, and the drawing takes them
 // only when nothing covers it.
-const HOME_COMMANDS = ["home", "new", "open", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates", "select_all"];
+const HOME_COMMANDS = ["home", "new", "open", "edit_word", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates", "select_all"];
 export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean }) {
   if (["quit", "close", "cut", "copy", "paste"].includes(id)) return true;
   if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Octet Draw reads the drawing that you select in Word and puts your changes back.</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Edit in Octet Draw</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>editInOctet</string>
+			<key>NSPortName</key>
+			<string>Octet Draw</string>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSApplicationIdentifier</key>
+				<array>
+					<string>com.microsoft.Word</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

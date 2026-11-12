@@ -303,5 +303,35 @@ assert.equal(wrong.length, 0);
   setOwnNames([]);
   assert.equal(nameToSmiles("catalyst 7"), undefined);
   assert.equal(abbreviationOf(catInchi), undefined);
-  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import) ok");
+  // A CAS number PubChem gave a structure for is kept in the dictionary as the number alone (Editor.tsx, the PubChem
+  // step). It then reads offline however it is typed, and never names a structure (it has no InChI).
+  const number = "999999-99-4"; // a right check digit, and in no list
+  assert.equal(nameToSmiles(number), undefined, "not known before");
+  const kept = withOwnName([], { name: number, smiles: "CC(C)CO" });
+  assert.deepEqual(kept, [{ name: number, smiles: "CC(C)CO" }]);
+  setOwnNames(kept);
+  for (const typed of [number, `CAS ${number}`, `[${number}]`, `cas no. ${number}`, ` ${number} `]) assert.equal(nameToSmiles(typed), "CC(C)CO", `kept and typed as "${typed}"`);
+  assert.equal(nameToSmiles("999999-99-5"), undefined, "a wrong check digit is no CAS number");
+  assert.equal(ownName(number)?.inchi, undefined);
+  // An exported and imported dictionary gives each entry an InChI. A CAS number still never names its structure.
+  setOwnNames([{ name: number, smiles: "CC(C)CO", inchi: "InChI=1S/kept" }, { name: "isobutanol mine", smiles: "CC(C)CO", inchi: "InChI=1S/mine" }]);
+  assert.equal(abbreviationOf("InChI=1S/kept"), undefined, "a CAS number is no name for its structure");
+  assert.equal(abbreviationOf("InChI=1S/mine"), "isobutanol mine");
+  // A name of the user's own written as a CAS number is typed reads as that entry first.
+  setOwnNames([{ name: number, smiles: "CC(C)CO" }, { name: `CAS ${number}`, smiles: "CCO" }]);
+  assert.equal(nameToSmiles(`CAS ${number}`), "CCO");
+  assert.equal(nameToSmiles(`[${number}]`), "CC(C)CO");
+  setOwnNames([]);
+  assert.equal(nameToSmiles(number), undefined);
+  {
+    const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+    assert.match(editor, /const cas = casNumber\(text\), kept = cas && smiles \? withOwnName\(settings\.dictionary, \{ name: cas, smiles \}\) : settings\.dictionary;/, "only a CAS number is kept, as the number alone");
+    assert.match(editor, /if \(!TAURI \|\| settings\.onlineSearch \|\| !namesLoaded \|\| !casNumber\(text\)\) return false;/, "the notice is for a CAS number with Online search off");
+    assert.match(editor, /turn on Online search in Settings\.", "info", \{ label: "Open Settings", run: \(\) => setSettingsOpen\("files"\) \}\);/, "the notice's button opens Settings and nothing else");
+    assert.equal(editor.match(/invoke\("set_online_search"/g)?.length, 1, "only the Settings switch turns Online search on");
+    assert.match(editor, /if \(!TAURI \|\| !settings\.onlineSearch \|\| !namesLoaded \|\|/, "nothing is asked with Online search off");
+    assert.match(editor, /invoke<string \| null>\("pubchem_structure", \{ text: casNumber\(s\) \?\? s \}\)/, "PubChem gets the number alone, which is the form it knows");
+    assert.match(editor, /const own = casNumber\(name\) \? undefined : ownName\(name\);/, "a CAS number draws with no caption");
+  }
+  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import, kept CAS numbers) ok");
 }

@@ -30,7 +30,8 @@ pub async fn write(app: &AppHandle, types: Vec<(&'static str, Vec<u8>)>) -> Resu
     if done { Ok(()) } else { Err("Octet cannot copy this.".into()) }
 }
 
-// The bytes of each named type on the clipboard (64 MB at most), read only if the clipboard has that type.
+// The bytes of each named type on the clipboard (64 MB at most), read only if the clipboard has that type and paste
+// uses it beside the other types there (clipboard.rs, asked): the owner makes each type when it is asked.
 // Also whether the clipboard holds any type at all, apart from the X11 ones every owner offers.
 pub async fn read(app: &AppHandle, names: Vec<&'static str>) -> Result<(Vec<(&'static str, Vec<u8>)>, bool), String> {
     on_gtk(app, move || {
@@ -39,7 +40,7 @@ pub async fn read(app: &AppHandle, names: Vec<&'static str>) -> Result<(Vec<(&'s
         let any = present.iter().any(|p| !["TARGETS", "TIMESTAMP", "MULTIPLE", "SAVE_TARGETS"].contains(&p.as_str()));
         let found: Vec<(&'static str, Vec<u8>)> = names
             .into_iter()
-            .filter(|n| present.iter().any(|p| p == n))
+            .filter(|n| super::asked(n, &present))
             .filter_map(|n| {
                 let bytes = clipboard.wait_for_contents(&gdk::Atom::intern(n))?.data();
                 (!bytes.is_empty() && bytes.len() <= MAX_TYPE).then_some((n, bytes))

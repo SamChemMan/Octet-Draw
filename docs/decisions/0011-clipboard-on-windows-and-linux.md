@@ -14,7 +14,7 @@ switches each one off, except Octet's JSON. Only the names and the picture chang
 
 | | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Picture | PDF (vector, CDXML in it) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB) | image/png (CDXML in an iTXt chunk) and image/svg+xml |
+| Picture | Office's own copy of the picture (a zip with an EMF in it) and a PDF (vector, CDXML in both) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB) | image/png (CDXML in an iTXt chunk) and image/svg+xml |
 | CDX | ChemDraw's PerkinElmer, Revvity and CambridgeSoft types | "ChemDraw Interchange Format" | chemical/x-cdx |
 | CDXML | com.perkinelmer.cdxml, com.revvity.cdxml and com.cambridgesoft.cdxml | "CDXML" | chemical/x-cdxml |
 | Molfile | com.mdli.molfile (length-prefixed lines) | "MDLCT" (length-prefixed lines) | chemical/x-mdl-molfile (text) |
@@ -39,8 +39,9 @@ CDXML is in the PDF. "CDXML" is ChemDraw JS's name.
   PDF, EMF or PNG file copied in Finder or the file manager. A PDF, EMF or PNG with CDXML in it also opens and drops
   as the drawing, and Export puts the CDXML in all three. The picture's CDXML comes before CDX. A paste from ChemDraw
   for Windows always takes CDX, because its EMF holds no CDXML.
-- The clipboard's CDX is the plain interchange form for other programs. It has none of Octet's own objects, such
-  as catalytic cycles: a cycle in it is only its arrows (issue 28). Octet's own JSON type is the lossless copy
+- The clipboard's CDX is the plain interchange form for other programs. They read none of Octet's own objects
+  from it, such as catalytic cycles: to them a cycle in it is only its arrows (issue 28). It holds Octet's data
+  under Octet's own tags, which ChemDraw reads past (decision 0009). Octet's own JSON type is the lossless copy
   from one Octet window to another. Paste reads it first, and Settings cannot switch it off.
 - Windows calls the clipboard through `windows-sys`; Linux through GTK (`gtk`), which the window already uses on
   X11 and Wayland. Both crates are in the build through Tauri already.
@@ -52,6 +53,59 @@ clipboard, so Word, PowerPoint and Excel paste an object that opens in Octet. It
 while Settings > Import and export > Copy > Office object is on (the default), and only when Octet's class is
 registered for the user. Every format in the table above stays, in its order, after the object. Paste reads Octet's
 own object after Octet's JSON. The Mac and Linux are not changed.
+
+## Office's copy of the picture on the Mac (12 November 2026, release 1.1.2)
+
+On the Mac, Copy puts Office's own clipboard type for a picture (com.microsoft.Art--GVML-ClipFormat) before the PDF.
+Word takes it before the PDF. It is a zip with five small XML parts (content types, two sets of relationships, a
+drawing that places one picture at the drawing's size, and a theme) and the picture's file,
+`clipboard/media/image1.emf`.
+
+Word for Mac stores a pasted PDF as an EMF of its own with three records: the header, an EMF+ comment that holds a
+bitmap of the picture at one pixel a point (72 dpi), and a GDI comment (EMR_COMMENT_MULTIFORMATS) that holds the
+PDF. Word for Mac draws the PDF. Word for Windows draws the bitmap, so a drawing pasted on a Mac was blurred in the
+same document on Windows.
+
+Octet's EMF in the zip holds the same PDF in the same kind of comment record, then the CDXML comment and the vector
+records of the Windows EMF. Word for Mac draws the PDF and keeps the file byte for byte (pasted on 12 November 2026,
+with the PDF beside it on the clipboard, and read back from Word). The vector records are for Word for Windows, which
+draws Octet's Windows EMF today.
+
+- The comment record is the first record after the header. Word for Mac does not use one that comes after the
+  drawing's records.
+- The comment names two formats: the PDF, then an EMF that draws nothing (the header and EMR_EOF, 128 bytes). Its
+  output rectangle is the picture's bounds. Windows GDI plays the first format it knows. With the PDF alone GDI drew
+  every other record, but it reported the comment as a record that failed (PlayEnhMetaFile gave 0), and a program
+  that stops at a failed record would show no picture. With the second format GDI plays every record. Word for Mac
+  draws the PDF from a comment with one format or with two (a document with each, opened in Word 16 on 12 November
+  2026).
+- A test plays the EMF with and without the comment through Windows GDI and through GDI+. It expects no error and the
+  same pixels from both (`vector.rs`, run by the Office objects job).
+- The PDF stays in the EMF because some versions of Word for Mac draw an EMF's records blurred (reported for 16.47
+  in 2021). Word 16 of November 2026 draws them sharp.
+- The PDF stays on the clipboard after Office's copy, for Keynote, Pages, ChemDraw and every other program.
+- Word's own copy of such a picture has the zip with Octet's EMF and the PDF from the comment. Paste reads the
+  drawing from the PDF, or from the EMF's CDXML comment when the zip is there alone.
+- The EMF on Windows (the clipboard, the Office object, Export as EMF) has no PDF. Its bytes are the same as before.
+- The theme part is Octet's own, the smallest the format allows. A picture uses nothing from it.
+- A drawing that holds a picture (a photo, a pasted screenshot) gets Office's copy too. Its EMF holds the picture as
+  raw pixels (300 dpi at most), the CDXML with the picture's file as hex, and the PDF: the pixels and about 4 times
+  the file. Over paste's limit for one type (64 MB, less 64 KB for the zip's other parts) the PDF goes alone.
+- Update in Word (decision 0023) gives Word the same two types as Copy (`clipboard::mac_picture`, packed by
+  `word::picture`), so an updated picture is Octet's EMF too.
+- Checked in Word for Windows on 12 November 2026: Sam opened a document that holds Octet's EMF, and the picture is
+  sharp on screen. Update in Word was run with Word 16 on the Mac the same day (`update_in_word_live` in `word.rs`).
+- Still to check before a release: the same document in PowerPoint for Windows, printed and saved as PDF from Word
+  for Windows, a paste into PowerPoint and Excel for Mac, and a paste by hand of a drawing that holds a photo (its
+  EMF is stored in the zip, not deflated).
+- The zip's parts are deflated at the fastest level, but a part over 1 MB (an EMF with a picture's pixels) is stored.
+  Copy reads the SVG once and makes the EMF's records on a thread beside the PDF.
+- Times on an M1 Pro (`mac_copy_time` in `clipboard.rs`), Copy against the PDF alone, which was Copy before. A
+  drawing of 60 bonds and 12 labels: 2.4 ms against 2.2 ms. A drawing with a photo waits for the EMF when the EMF
+  takes longer than the PDF. A 1,800 by 1,200 px JPEG: 36 ms against 30 ms. A phone's 12 megapixel JPEG drawn 6 in
+  wide: 178 ms against 166 ms. A 12 megapixel JPEG with a small file (0.5 MB) drawn 8 in wide: 226 ms against 65 ms,
+  because drawing its pixels takes far longer than its small PDF.
+  Sam accepted these times on 12 November 2026 (decision 0024), for a picture that is sharp in Word for Windows.
 
 ## The EMF (4 November 2026, release 1.1.1, issue 20)
 

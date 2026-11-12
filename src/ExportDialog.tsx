@@ -31,8 +31,8 @@ export function DpiField({ value, onChange }: { value: number; onChange: (dpi: n
 }
 
 // selected: something is selected, so Quick export saves the selection (as File > Print Selection… prints it), and its
-// item says so.
-export function ExportButton({ quick, selected, onQuick, onExport, hint }: { quick: ExportFormat; selected: boolean; onQuick: () => void; onExport: () => void; hint?: string }) {
+// item says so. lead: a button before Export (an object window's Update in Word).
+export function ExportButton({ quick, selected, onQuick, onExport, hint, lead }: { quick: ExportFormat; selected: boolean; onQuick: () => void; onExport: () => void; hint?: string; lead?: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -45,6 +45,7 @@ export function ExportButton({ quick, selected, onQuick, onExport, hint }: { qui
   }, [open]);
   return (
     <div className="export" ref={box}>
+      {lead}
       <button className="export-button" aria-haspopup="menu" aria-expanded={open} data-tip="Export" data-key={hint} onClick={() => setOpen(!open)}>
         <ExportIcon size={16} aria-hidden />
         Export

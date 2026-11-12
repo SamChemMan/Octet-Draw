@@ -37,6 +37,27 @@ the Insert Structure sheet reads SMILES, InChI, a CAS number or several names at
 8. SMILES and InChI, by their look (Indigo).
 9. Online, after Return only: PubChem.
 
+### CAS numbers (1.1.2)
+
+The dictionary has 115,294 CAS numbers offline, from Wikidata and the FDA's UNII list (`data/names/README.md` has the
+current figures; those under "The dictionary" below are from 27 October). No open source has every CAS number.
+PubChem lists CAS numbers among its synonyms, and its bulk files for all compounds are about 2.6 GB to download
+(synonyms 1.1 GB, SMILES 1.5 GB), so Octet does not ship them.
+
+- A CAS number the dictionary does not have goes to PubChem at step 9, as the number alone ("CAS 64-17-5" and
+  "[64-17-5]" go as 64-17-5, the form PubChem knows). When PubChem gives its structure, Octet adds the number to the
+  user's own dictionary (Settings > Dictionary) as the number alone. It then reads offline, however it is typed, and
+  the user can remove or export it there. The notice says "Drawn from PubChem. This CAS number is in your dictionary.
+  Octet can now draw it offline."
+- A CAS number in the user's dictionary draws with no caption and never names a structure, also after the dictionary
+  is exported and imported.
+- With Online search off, a CAS number the dictionary does not have shows a notice: "Octet does not have this CAS
+  number offline. To ask PubChem, turn on Online search in Settings." Its button, Open Settings, opens Settings at
+  Import and export. The notice changes no setting and nothing goes online.
+- Not done: a larger CAS list as a download for offline use. It needs a source whose terms allow a list of that size,
+  a place to host it, and a signed download. CAS may limit how many of its numbers a product can list, so its policy
+  must be read before any larger list. Sam decides.
+
 A name Octet cannot read gets a suggestion under the field, from OPSIN's names, Octet's tables and the dictionary
 (a trigram index): "acetaminophin" gives acetaminophen, "benzaldehide" benzaldehyde.
 
@@ -89,7 +110,5 @@ same compound as a salt or its parent, and 4 another tautomer. Details in `data/
 
 ## Open questions
 
-- The user's own dictionary (ChemDraw's Add Structure to Dictionary) is not built. Octet's names drawn before
-  come back by name, but Octet cannot add a name to a drawn structure.
 - One-letter peptide sequences ("AGS") are not read: they look like abbreviations.
 - A trade name for a salt (Prozac is fluoxetine hydrochloride in PubChem) gives the parent when Wikidata gives it.

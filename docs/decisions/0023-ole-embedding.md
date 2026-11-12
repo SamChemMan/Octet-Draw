@@ -116,11 +116,27 @@ Octet, as a ChemDraw drawing is. Double-click opens it. An edit goes back into W
 - Protected View and Office's own blocks for objects stay in force. Octet does nothing to get round them.
 - Octet registers only its own new class. It changes no class that another program owns.
 
-## Mac and the web
+## Mac, Linux and the web
 
-No change on the Mac or Linux. Word for Mac shows the picture of a Windows object and cannot edit it, as Office for
-Mac runs no OLE servers. The picture holds the CDXML, so copying it out of Mac Word into Octet gives the drawing. An
-Office add-in for Word for Mac and Word on the web is later work.
+Office for Mac runs no OLE servers, so Word for Mac shows the picture of a Windows object and cannot open it as an
+object. The picture holds the CDXML, so copying it out of Mac Word into Octet gives the drawing.
+
+From 1.1.2 the object window is on every system (`src-tauri/src/objects.rs`), and the Mac and Linux get to it in
+their own ways:
+
+- The Mac (`src-tauri/src/word.rs`): File > Edit Picture from Word asks Word, through Apple Events, for the picture
+  that is selected. If it is one inline picture whose PDF holds CDXML (Octet's or ChemDraw's), its drawing opens in an
+  object window. Update in Word puts the new picture in its place, as one Undo step in Word. With Word's cursor in
+  text and nothing selected, the command opens an empty object window, and the first Update puts a new picture at the
+  cursor. The Service "Edit in Octet Draw" in Word's Services menu runs the same command.
+- A double-click on such a picture in Word opens it too, but only after the user turns this on in Settings > General >
+  Word. It is off for a new user and for a user who updates. While it is off, Octet watches no mouse click, and sends
+  Word nothing until the user chooses a command.
+- Octet sends Apple Events only to Word. macOS asks the user to allow this at the first one.
+- Tried with Word 16.115 in a development build. Not tried: a signed and notarised build, and the Service.
+- Linux: LibreOffice Writer, Impress and Draw, through Octet's extension (decision 0025).
+
+An Office add-in for Word for Mac and Word on the web is later work.
 
 ## Accessibility
 
