@@ -120,7 +120,8 @@ function apart(s: string): [string, { sign: "+" | "-"; text: string }[]] {
 // ((1.2 equiv), (0.5), (5 mol%), (cat.)), which is a caption.
 const isNumber = (t: string) => t.length <= 14 && !/[\s,;%]/.test(t) && /[\dA-Z]/.test(t) && !/^\d*\.\d/.test(t);
 // An earlier compound by its number, which a SMILES or a name never is: 13, 4a, 4a′.
-const REFERENCE = /^\d{1,4}[a-z]{0,3}['′″]*$/;
+export const REFERENCE = /^\d{1,4}[a-z]{0,3}['′″]*$/;
+const LIST = "is a list, not a compound: ";
 
 // A compound as written: name, formula or SMILES ({R} for a label), an earlier one by its number, or one changed
 // ([...] after its number, or alone for the one before). Then its number in brackets and a caption.
@@ -153,8 +154,8 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
   // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
   const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
-  // (A comma with a space after it is a list: conditions on a line of their own, say.)
-  if (odd > 0) return /^\s/.test(commas[odd]) ? `"${t.slice(0, 40)}" is a list, not a compound: put conditions after the product on its arrow's line` : fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
+  // (A comma with a space after it is a list. Under an arrow's line it was its conditions, which fromLines says.)
+  if (odd > 0) return /^\s/.test(commas[odd]) ? `"${t.slice(0, 40)}" ${LIST}put each compound between | or on a line of its own` : fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
   // An earlier compound, changed: 3[...], or [...] for the one before. A name or SMILES changed (aspirin[OAc>OH]) is
@@ -381,7 +382,7 @@ const cored = (l: string) => l.includes("{") && /:(?:\s|$)|^core\b/i.test(l);
 /** A value that asks for nothing: null, empty text, '[]' or '{}', or an empty list or object. */
 export const blank = (v: unknown) => v === null || (typeof v === "string" ? /^\s*(?:\[\s*\]|\{\s*\})?\s*$/.test(v) : typeof v === "object" && !Object.keys(v as object).length);
 /** Lines given as a JSON array of lines, as a list or as text that reads as one (Haiku wrote them so), are those lines,
- * one under the other (one may hold several). Anything else is as given. */
+ * one under the other (one may hold several). Anything else is as given. Read where draw's and change's lines arrive. */
 export function linesOf(v: unknown): unknown {
   const t = typeof v === "string" ? v.trim() : "";
   let x = v;
@@ -392,8 +393,7 @@ export function linesOf(v: unknown): unknown {
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
  * line it is on; reads: Octet reads the text as a structure (Name to Structure's reading). */
-export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>, reads?: (t: string) => boolean): { op: string; args: any } | string {
-  const text = linesOf(given);
+export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>, reads?: (t: string) => boolean): { op: string; args: any } | string {
   if (typeof text !== "string") return "lines is text: one reaction a line";
   if (text.length > MOST) return `The lines are ${text.length} characters, over ${MOST}: draw them in parts`;
   // Characters no model means: control characters, and half a surrogate pair.
@@ -664,7 +664,7 @@ export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: stri
         if (typeof c !== "string") { c = { ...c, ...(own.number ? { number: own.number } : {}), ...(own.caption ? { caption: own.caption } : {}) }; where?.set(`=${written(c as { text: string })}`, at); }
       } else if (starts) { const made = compounds(t, [], at); if (typeof made === "string") return made; row.push(...made); continue; }
       else c = compound(t, known, () => (rows.length || row.length ? "previous" : undefined));
-      if (typeof c === "string") return wrong(at, c);
+      if (typeof c === "string") return wrong(at, arrowed >= 0 && arrowed === i - 1 && c.includes(LIST) ? `${c.slice(0, c.indexOf(LIST) + LIST.length)}put conditions after the product on its arrow's line` : c);
       row.push(c); add(c, at);
     }
     rows.push(row);

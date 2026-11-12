@@ -19,7 +19,7 @@ import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich
 import { stereoFacts, stereoLabels } from "./chem.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
-import { blank, fromLines, linesOf, NOTATION, written } from "./notation.ts";
+import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notation.ts";
 import { formulaTextRuns, isGeneric, labelSmiles } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
@@ -170,13 +170,13 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
     if (!v || typeof v !== "object" || Array.isArray(v)) return v;
     const o = v as Record<string, unknown>;
     for (const k of s.required ?? []) if (!(k in o)) { const p = s.properties[k]; if ("default" in p) { o[k] = p.default; note(notes, `${k} default`, `No "${k}" was given: read as ${p.default}.`); } }
-    // An argument by another of its names is that argument, when it is not given too. One it does not take, given empty
-    // ('', '[]', [] or {}), asks for nothing: it is left out.
+    // An argument by another of its names is that argument, when it is not given too, said with its value's reading in
+    // one line. One it does not take, given empty (null, white space, '[]', '{}', [] or {}), asks for nothing: it is
+    // left out.
     for (const k of Object.keys(o)) {
-      let at = k, p = s.properties[k];
-      const named = p ? undefined : Object.keys(s.properties).find((n) => (s.properties[n] as { names?: readonly string[] }).names?.includes(k) && !(n in o));
-      if (named) { o[named] = o[k]; delete o[k]; note(notes, `${k} name`, `Read ${k} as ${named}.`); p = s.properties[at = named]; }
-      if (p) o[at] = coerce(p, o[at], at, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); }
+      const p = s.properties[k], named = p ? undefined : Object.keys(s.properties).find((n) => (s.properties[n] as { names?: readonly string[] }).names?.includes(k) && !(n in o));
+      if (named) { const was = o[k], now = (o[named] = coerce(s.properties[named], was, named, new Map())), as = now === was ? "" : ` ${clean(String(was)).slice(0, 40)}`; delete o[k]; note(notes, `${k} name`, `Read ${k}${as} as ${named}${as && ` ${now}`}.`); }
+      else if (p) o[k] = coerce(p, o[k], k, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); }
     }
     const split = s.properties.caption && typeof o.number === "string" && o.caption === undefined ? /^(\S+) \(([^()]+)\)$/.exec(o.number.trim()) : null;
     if (split) { note(notes, "caption", `Read number ${clean(split[0])} as number ${split[1]} with the caption ${clean(split[2])}.`); [, o.number, o.caption] = split; }
@@ -759,6 +759,7 @@ const TOOLS: Tool[] = [
       const { operations, ...reply } = a, steps: { tool: string; args: any }[] = [], where = new Map<string, number>();
       for (const [k, { op, ...args }] of (operations as any[]).entries()) {
         // Lines of one drawing are its kind (lines that make several go in a draw call of their own).
+        if (op === "draw" && args.lines !== undefined) args.lines = linesOf(args.lines);
         const lined = op === "draw" && args.lines !== undefined ? fromLines(args, (k, l) => note(notes, k, l), where, reads) : undefined;
         if (typeof lined === "string") return `operations[${k}]: ${lined}`;
         if (lined && (lined.op === "batch" || lined.op === "route")) return `operations[${k}]: these lines make several drawings: draw them with draw, then change them`;
@@ -790,19 +791,24 @@ const TOOLS: Tool[] = [
     inputSchema: ADVANCED_IN,
     // As models call it (plan 19.10): a tool's own arguments beside tool are its args; {tool: 'set_brief'} is set_brief;
     // help's detail is left out, and what help is about is args.of, of, or the one other text ({command: 'help
-    // set_style'} with no tool is help of set_style).
+    // set_style'} with no tool is help of set_style). Anything else stays where it was given, to be refused.
     route: (a, notes) => {
-      const { tool, args, ...rest } = a, own = Object.keys(rest).filter((k) => !(k in ADVANCED_IN.properties)), text = own.filter((k) => typeof rest[k] === "string");
-      const asked = tool === undefined && text.length === 1 ? /^help\s+(\S+)$/i.exec(rest[text[0]].trim()) : null, help = tool === "help" || !!asked;
+      const { tool, args, ...rest } = a, name = typeof tool === "string" ? tool.trim().toLowerCase() : tool, own = Object.keys(rest).filter((k) => !(k in ADVANCED_IN.properties)), text = own.filter((k) => typeof rest[k] === "string");
+      const asked = tool === undefined && text.length === 1 ? /^help\s+(\S+)$/i.exec(rest[text[0]].trim()) : null, help = name === "help" || !!asked;
       let given = args;
       if (help) {
-        const k = asked ? text[0] : args?.of !== undefined ? undefined : "of" in rest ? "of" : text.length === 1 ? text[0] : undefined, of = asked ? asked[1] : k && rest[k];
-        if (k && k !== "of") note(notes, "help of", `Read ${k} as help of ${short(clean(String(of)), 40)}.`);
+        const k = asked ? text[0] : args?.of !== undefined ? undefined : "of" in rest ? "of" : text.length === 1 ? text[0] : undefined;
+        if (k) { given = { ...args, of: asked ? asked[1] : rest[k] }; note(notes, "help of", k === "of" ? "Read of as args.of." : `Read ${k} as help of ${short(clean(String(given.of)), 40)}.`); delete rest[k]; }
         if (rest.detail !== undefined) { note(notes, "detail", "Left out detail: help has none."); delete rest.detail; }
-        if (k) given = { ...args, of };
-      } else if (own.length) { given = { ...args, ...Object.fromEntries(own.map((k) => [k, rest[k]])) }; note(notes, "args", `Read ${own.join(", ")} as ${own.length > 1 ? "arguments" : "an argument"} of ${tool ?? "the tool"} in args.`); }
-      if (tool === "set_brief") { note(notes, "set_brief", "Called set_brief."); return TOOLS.find((t) => t.name === "set_brief")!.route(given ?? {}, notes); }
-      const b = { ...(help ? { tool: "help" } : tool !== undefined ? { tool } : {}), ...(given !== undefined ? { args: given } : {}), ...Object.fromEntries(Object.entries(rest).filter(([k]) => k in ADVANCED_IN.properties)) };
+      } else if (own.length) {
+        given = { ...args, ...Object.fromEntries(own.map((k) => [k, rest[k]])) };
+        for (const k of own) delete rest[k];
+        // (One the tool takes by another name, style for set_style's preset, is said where it is read as that name.)
+        const its = own.filter((k) => k in (BY_NAME.get(opName(String(name)))?.inputSchema.properties ?? {}));
+        if (its.length) note(notes, "args", `Read ${its.join(", ")} as ${its.length > 1 ? "arguments" : "an argument"} of ${tool} in args.`);
+      }
+      if (name === "set_brief") { note(notes, "set_brief", "Called set_brief."); return TOOLS.find((t) => t.name === "set_brief")!.route(given ?? {}, notes); }
+      const b = { ...(tool !== undefined ? { tool } : help ? { tool: "help" } : {}), ...(given !== undefined ? { args: given } : {}), ...rest };
       return wrongWith(ADVANCED_IN, b, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, opName(tool), tool) || { op: opName(tool), args: { ...args, ...reply }, at: "args" })(b);
     },
   },
@@ -891,21 +897,23 @@ function likeOf(host: Host, ref: Mol, mol: Mol): Mol {
 // Each compound read; the texts Octet cannot read (failed); and what is wrong with the rest (wrong: a molecule with a
 // bond to no atom, labels that do not fit the *s).
 // lost: the place in items of each that failed. where: the line each name or SMILES of the line notation is on, which
-// names it as the lines wrote it.
+// names it as the lines wrote it. notes: the call's, for a compound read other than as written.
 // why: what is wrong with it, said in place of "cannot read" (a scope's group Octet cannot join).
 type Failed = { text: string; line?: number; why?: string };
-async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
+async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.where, notes = ctx?.notes): Promise<{ ok: Read[]; failed: Failed[]; wrong: string[]; lost: number[] }> {
   await host.ready();
   const ok: Read[] = [], failed: Failed[] = [], wrong: string[] = [], lost: number[] = [];
   let last: Read | undefined; // the compound before this one, when Octet read it
   const add = (r: Read, it: CompoundIn) => { ok.push(r); if (!it.aside) last = r; };
   for (let [k, it] of items.entries()) {
     // A number that is no compound of this call or the drawing, with a name or SMILES in brackets after it (11a
-    // (Cc1ccc...), as Haiku wrote it, plan 19.10), is that compound with that number. (Else the bracket is its caption.)
-    const inner = it.from !== undefined && it.text === undefined && !it.changes && !it.molecule ? /^\((.+)\)$/s.exec(it.caption?.trim() ?? "")?.[1] : undefined;
+    // (Cc1ccc...), as Haiku wrote it, plan 19.10), is that compound with that number. (Else the bracket is its caption,
+    // or, short and no compound number itself, its number: 11a (CCO) reads as 11a renumbered CCO.)
+    const inner = it.from !== undefined && it.text === undefined && !it.changes && !it.molecule ? /^\((.+)\)$/s.exec(it.caption?.trim() ?? "")?.[1] ?? (it.from !== "previous" && it.number !== it.from && !REFERENCE.test(it.number ?? "1") ? it.number : undefined) : undefined;
     if (inner && !ok.some((r) => r.number === it.from) && !structureOf(host.doc(), it.from!) && host.structure(clean(inner))) {
-      const { from: _, caption: _c, ...rest } = it;
-      it = { ...rest, text: inner, number: it.number ?? it.from };
+      const { from, caption, ...rest } = it, own = caption?.trim() === `(${inner})`;
+      it = { ...rest, text: inner, number: own ? (it.number ?? from) : from, ...(own ? {} : caption ? { caption } : {}) };
+      if (notes) note(notes, "number first", `Read ${short(clean(`${from} (${inner})`), 40)} as compound ${from}.`);
     }
     if (ctx && items.length > 10 && k % 10 === 0) { await ctx.check(); ctx.progress(k, items.length, `Reading ${k + 1} of ${items.length}`); await host.settle(); }
     const number = it.number ? clean(it.number) : undefined, caption = it.caption ? clean(it.caption, true) : undefined, before = last;
@@ -1271,7 +1279,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     for (const l of [...lines[k].above, ...lines[k].below].filter(([t]) => structured(t))) { all.push({ ...(typeof l[0] === "string" ? { text: l[0].replace(/^structure:\s*/i, "") } : l[0]), aside: true }); at.push(l); }
     all.push(...s.products); at.push(...s.products.map(() => undefined));
   }
-  const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where);
+  const { ok, failed, wrong, lost } = await read(host, all, undefined, ctx.where, ctx.notes);
   // The first starting material and the products must be read. A '+' partner of lines (fromLines marks it in where)
   // Octet cannot read, and that is not a SMILES (a typo in one is refused), is a reagent's name: text over its arrow
   // (9-BBN–H), and the reply says so. One given in JSON, or as @name, is refused as before.
@@ -1481,7 +1489,7 @@ function stepAt(m: Mol, c: Cycle, k: number): string {
   return `${n(k)}→${n((k + 1) % c.nodes.length)}`;
 }
 async function drawCycle(host: Host, a: { intermediates: { text: string; labels?: string[]; number?: string }[]; centre?: string; steps?: { step: number; in?: string; out?: string; name?: string }[]; anticlockwise?: boolean } & Placement, ctx?: Ctx): Promise<Result> {
-  const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where);
+  const { ok, failed, wrong, lost } = await read(host, a.intermediates, undefined, ctx?.where, ctx?.notes);
   if (wrong.length) return { text: `Octet drew nothing.${failedNote(failed, wrong)}`, error: true };
   // An intermediate Octet cannot read as a structure (L2Pd(Ar)Br) is text, as the cycle tool writes one: with its labels
   // for its * and its number in bold under it, formulas with subscripts. Its box is a guess until Clean Up measures it.
@@ -1607,8 +1615,10 @@ async function replaceStructure(host: Host, a: { structure: string; text?: strin
   // sees the change is the one it meant. One from text is named only when Octet read its name another way.
   // One only turned is the same compound: a summary names none (each name of a taxol intermediate is 300 characters).
   if (own && turn && !changes?.length && !ctx?.full) return { text: `Turned ${a.structure} (now ${sid(host.doc(), r.atoms)}).${UNDO}` };
-  const now = a.text === undefined ? about(host, ok[0].mol) : undefined, made = now ? ` with ${now.name ?? now.formula ?? "a structure"}${ok[0].note ? ` [${ok[0].note}]` : ""}, now ${sid(host.doc(), r.atoms)}` : "";
-  return { text: `Replaced ${a.structure}${made}${number ? `, which keeps its number ${number.text}` : ""}${under.length > (number ? 1 : 0) ? `${number ? " and" : ", which keeps"} its caption` : ""}.${made ? "" : readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
+  // One from text gives its formula and stereo, as a draw's reply does (plan 19.10: Opus replaced structures to set E/Z).
+  const now = a.text === undefined ? about(host, ok[0].mol) : undefined, part = now ? undefined : pickPart(host.doc(), r.atoms), st = part && stereoOf(part);
+  const made = now ? ` with ${now.name ?? now.formula ?? "a structure"}${ok[0].note ? ` [${ok[0].note}]` : ""}, now ${sid(host.doc(), r.atoms)}` : "", got = part ? ` with ${host.formula(part) ?? "a structure"}${st ? ` ${st}` : ""}` : "";
+  return { text: `Replaced ${a.structure}${made || got}${number ? `, which keeps its number ${number.text}` : ""}${under.length > (number ? 1 : 0) ? `${number ? " and" : ", which keeps"} its caption` : ""}.${made ? "" : readAs(host, ok)}${UNDO}`, extra: () => ({ names: names(host, ok) }) };
 }
 
 async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
@@ -2510,6 +2520,8 @@ const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under |
 // A compound's stereo as a chemist writes it after the formula, as Show Stereochemistry works it out (chem.ts
 // stereoLabels: R, S, r, s on centres, E, Z on double bonds, M, P on axes, in atom order), and how many stereocentres
 // are drawn with no configuration (which Indigo reads for a structure with a wedge): (S,Z), (R; 1 undefined centre).
+// (A structure with no wedge is not read for them: that cost an Indigo call for each compound of every draw, 3.5% of
+// Octet's time on the corpus lines jobs, plan 19.10.)
 // Undefined for a compound with neither (plan 19.10: models ran RDKit, or read the InChI, to check their own SMILES).
 function stereoOf(part: Mol): string | undefined {
   const l = stereoLabels(part), unset = stereoFacts(part).unset.size, at = (i: number) => part.bonds[i].atoms[0] < part.bonds[i].atoms[1] ? part.bonds[i].atoms[0] : part.bonds[i].atoms[1];

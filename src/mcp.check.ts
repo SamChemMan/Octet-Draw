@@ -2084,7 +2084,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual([rows.structures.map((x) => [x.number, x.caption]), rows.text], [[["2", "from 3"], ["1", "paclitaxel"]], undefined]);
   // replace keeps the text under the structure, the caption too, and says so.
   o = await lenient("change", { operations: [{ op: "replace", structure: "1", text: "toluene" }] });
-  assert.match(text(o), /^Replaced 1, which keeps its number 1 and its caption\./);
+  // (It gives the new structure's formula, and its stereo when it has any, as a draw's reply does: plan 19.10.)
+  assert.match(text(o), /^Replaced 1 with C7H8, which keeps its number 1 and its caption\./);
   assert.deepEqual(under(), [["2", true], ["from 3", false], ["1", true], ["paclitaxel", false]]);
   assert.ok(m.captions!.filter((c) => c.text === "1" || c.text === "paclitaxel").every((c) => c.under!.every((i) => m.atoms[i].label === "C") && c.under!.length === 7), "under the new structure");
   // A number with spaces or a line break round it: the line is one line.
@@ -2513,6 +2514,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(await drawn({ lines: JSON.stringify(lines) }), plain);
   assert.deepEqual(await drawn({ lines }), plain);
   assert.deepEqual(await drawn({ lines: JSON.stringify([lines.join("\n")]) }), plain);
+  // (change's draw operation reads them the same way, where its lines arrive.)
+  const changed = async (l: unknown) => { fresh(); resetIds(); return (await call("change", { operations: [{ op: "draw", lines: l }] })).content.map((c: { text: string }) => c.text); };
+  assert.deepEqual(await changed(JSON.stringify(lines)), await changed(lines.join("\n")));
   // draw {operations: '[]', lines} was told "The lines make operations is not an argument of this tool". An empty
   // argument a tool does not take is left out and said; one with something in it is refused as the call's.
   assert.deepEqual(await drawn({ operations: "[]", lines: lines.join("\n") }), [...plain, "Left out operations, which is empty."]);
@@ -2526,14 +2530,21 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(await help({ command: "help set_style" }), ["set_style", "Read command as help of set_style."]);
   assert.deepEqual(await help({ tool: "help", command: "set_style" }), ["set_style", "Read command as help of set_style."]);
   assert.deepEqual(await help({ tool: "help", brief: "set_style" }), ["set_style", "Read brief as help of set_style."]);
-  assert.deepEqual(await help({ tool: "help", of: "set_style" }), ["set_style"]);
+  assert.deepEqual(await help({ tool: "help", of: "set_style" }), ["set_style", "Read of as args.of."]);
+  // (help in other letters is help; what help is not about is refused as before.)
+  assert.deepEqual(await help({ tool: "Help", of: "cycle" }), ["cycle", "Read of as args.of.\nRead tool Help as help."]);
+  const no = async (a: object, why: RegExp) => { const o = await call("advanced", a); assert.ok(o.isError && why.test(text(o)), `${JSON.stringify(a)}: ${text(o)}`); };
+  await no({ tool: "help", command: "set_style", foo: "x" }, /^Octet changed nothing\. arguments: command is not an argument of this tool\.$/);
+  await no({ tool: "help", of: "cycle", zz: 5 }, /^Octet changed nothing\. arguments: zz is not an argument of this tool\.$/);
+  await no({ tool: "help", args: { of: "cycle" }, command: "x" }, /^Octet changed nothing\. arguments: command is not an argument of this tool\.$/);
   // grid, scope, lines, scheme, route and notation are what draw's lines write: help of each is the notation.
   for (const x of ["grid", "scope", "lines", "scheme", "route", "notation"]) assert.equal(JSON.parse(text(await call("advanced", { tool: "help", args: { of: x } }))).description, NOTATION, x);
   // set_style's preset as the user names it, under style, name, value, preset or journal, beside tool or in change.
   const styled = async (name: string, a: object) => { fresh(); const o = await call(name, a); assert.ok(!o.isError && host.style().preset === "Wiley (Angewandte)", `${JSON.stringify(a)}: ${text(o)}`); return o.content.slice(1).map((c: { text: string }) => c.text).join(" "); };
-  assert.equal(await styled("advanced", { tool: "set_style", style: "Angewandte Chemie" }), "Read style as an argument of set_style in args.\nRead style as preset.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
+  assert.equal(await styled("advanced", { tool: "set_style", style: "Angewandte Chemie" }), "Read style Angewandte Chemie as preset Wiley (Angewandte).");
+  assert.equal(await styled("advanced", { tool: "set_style", preset: "Angewandte Chemie" }), "Read preset as an argument of set_style in args.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
   for (const k of ["name", "value", "preset", "journal"]) await styled("advanced", { tool: "set_style", [k]: "Angewandte Chemie" });
-  assert.equal(await styled("change", { operations: [{ op: "set_style", style: "Angewandte Chemie" }] }), "Read style as preset.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
+  assert.equal(await styled("change", { operations: [{ op: "set_style", style: "Angewandte Chemie" }] }), "Read style Angewandte Chemie as preset Wiley (Angewandte).");
   // set_brief through advanced is set_brief.
   const o = await call("advanced", { tool: "set_brief", destination: "a paper in Angewandte Chemie" }, "s-adv");
   assert.ok(!o.isError && JSON.parse(briefs.get("s-adv")!).destination.journal === "Wiley (Angewandte)", text(o));
@@ -2548,6 +2559,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const o = await call("draw", { lines: "C[C@H](O)CC (1) -> C/C=C/C(=O)O (2)\nC[C@H](O)CC(C)CC (3) -> c1ccccc1 (4)" });
   assert.deepEqual(o.structuredContent.compounds.map((x: string) => x.replace(/ s\d+/, "")), ["1 C4H10O (S)", "2 C4H6O2 (E)", "3 C7H16O (S; 1 undefined centre)", "4 C6H6"], text(o));
   assert.deepEqual((await call("read", {})).structuredContent.structures.map((x: { stereo?: string }) => x.stereo), ["(S)", "(E)", "(S; 1 undefined centre)", undefined]);
+  // replace's reply gives the new structure's formula and stereo, as a draw's does (Opus replaced two structures to
+  // set their E/Z and had to read again to see them).
+  fresh();
+  assert.ok(!(await call("draw", { lines: "CC(O)CC (70) -> CC(=O)CC (71)" })).isError);
+  assert.match(text(await call("change", { operations: [{ op: "replace", structure: "70", text: "C/C=C\\C" }] })), /^Replaced 70 with C4H8 \(Z\), which keeps its number 70\./);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

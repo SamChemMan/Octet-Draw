@@ -10,7 +10,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("notation.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
-const { callOf, fromLines, NOTATION } = await import("./notation.ts");
+const { callOf, fromLines, linesOf, NOTATION } = await import("./notation.ts");
 await load();
 
 const words = (t: string) => t.split(/[\s,;]+/).filter(Boolean);
@@ -354,11 +354,12 @@ const HARD: [string, object | RegExp][] = [
   ["P (A) -> Q (B), +X, @Y -> A, -Z", /^Line 1: @Y: a cycle's steps take text, not a structure\. Write: P \(A\) -> Q \(B\), \+X, Y -> A, -Z$/],
 ];
 // Lines as a JSON array of lines, in text or as a list (Haiku, plan 19.10), are those lines; one may hold several.
-assert.deepEqual(fromLines({ lines: '["A (1)", "-> B (2), X"]' }), fromLines({ lines: "A (1)\n-> B (2), X" }));
-assert.deepEqual(fromLines({ lines: '[ "A (1)\\n-> B (2), X" ]' }), fromLines({ lines: "A (1)\n-> B (2), X" }));
-assert.deepEqual(fromLines({ lines: ["A (1)", "-> B (2), X"] }), fromLines({ lines: "A (1)\n-> B (2), X" }));
-// (A SMILES in square brackets is no JSON: it is as written.)
-assert.deepEqual(fromLines({ lines: "[Pd]" }), { op: "structures", args: { structures: [{ text: "[Pd]" }] } });
+// (Read once where the lines arrive, in draw's and change's routes: src/mcp.check.ts draws them.)
+assert.equal(linesOf('["A (1)", "-> B (2), X"]'), "A (1)\n-> B (2), X");
+assert.equal(linesOf('[ "A (1)\\n-> B (2), X" ]'), "A (1)\n-> B (2), X");
+assert.equal(linesOf(["A (1)", "-> B (2), X"]), "A (1)\n-> B (2), X");
+// (A SMILES in square brackets is no JSON, and an empty list or one of other things is no lines: each is as given.)
+for (const v of ["[Pd]", "[]", "[1, 2]", [], [1]]) assert.equal(linesOf(v), v);
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
   if (want instanceof RegExp) assert.match(String(got), want, text);
@@ -492,6 +493,8 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   assert.deepEqual(one, R([{ text: "2-Methyl-2-(3-oxobutyl)cyclopentane-1,3-dione", number: "1" }], [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O", number: "2" }] }]));
   assert.equal(said, "Line 2: Octet read it as more conditions for the arrow on line 1.");
   for (const l of ["A -> B\n\nX (5 mol%), Y, rt", "A -> B\nX (5 mol%), Y, rt\n-> C", "A -> B (2)\n3, rt"]) assert.match(String(fromLines({ lines: l })), /is a list, not a compound: put conditions after the product on its arrow's line$/, l);
+  // (With no arrow line just before it, a list is compounds the model meant: it is told how to write them.)
+  for (const l of ["aspirin, caffeine", "benzene | aspirin, caffeine", "A -> B\nC\nX, Y"]) assert.match(String(fromLines({ lines: l })), /"(?:aspirin, caffeine|X, Y)" is a list, not a compound: put each compound between \| or on a line of its own$/, l);
 }
 // Plan 19.10 (real-r4-haiku-2 say-three-step): a number that is no compound yet, with a SMILES in brackets after it, is
 // that compound with that number. One that is a compound of the call already keeps the bracket as its caption.
@@ -501,6 +504,12 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   const want = await shown("draw", { lines: `piribedil + ${P["11a"]} (11a) -> ${P["12a"]} (12a)\n12a -> ${P["13a"]} (13a), 9-BBN–H` }) as { structures: string[] };
   assert.deepEqual(got.structures, want.structures);
   assert.deepEqual(got.structures.map((x) => x.split("=")[0]), ["11a", "12a", "13a", ""]);
+  // A short SMILES in the bracket reads as a compound number (11a (CCO) is 11a renumbered CCO): with no compound 11a,
+  // it is compound 11a, and the reply says so.
+  let note = "";
+  const short = await shown("draw", { lines: "11a (CCO) -> 12a (CC=O)" }, undefined, (r) => (note = r.content[1]?.text)) as { structures: string[] };
+  assert.deepEqual(short.structures, (await shown("draw", { lines: "CCO (11a) -> CC=O (12a)" }) as { structures: string[] }).structures);
+  assert.equal(note, "Read 11a (CCO) as compound 11a, and 1 more the same way.");
   const kept = await shown("draw", { lines: "CCO (5) -> CC=O (6), PCC\n5 (CCCCCCCCCCCCCCCC) -> CCOC (7), NaH, MeI" }) as { text: string[] };
   assert.ok(kept.text.includes("(CCCCCCCCCCCCCCCC)"), JSON.stringify(kept));
 }
