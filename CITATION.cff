@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use Octet Draw in work that you publish, please cite it as below."
+type: software
+title: "Octet Draw"
+abstract: "Free, open-source chemical drawing for Mac, Windows and Linux. It opens and saves ChemDraw files, and it works with no internet connection."
+authors:
+  - family-names: Ellis
+    given-names: Sam
+    orcid: "https://orcid.org/0009-0002-0256-1373"
+repository-code: "https://github.com/SamChemMan/Octet-Draw"
+url: "https://octet.software"
+license: Apache-2.0
+keywords:
+  - chemistry
+  - chemical drawing
+  - cheminformatics
+  - CDXML
