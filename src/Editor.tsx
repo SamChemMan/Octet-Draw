@@ -425,9 +425,9 @@ type OpenedFile = { name: string; path: string | null; text: string | null; pict
 type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
 // An Octet Drawing object in an Office document, opened from Word (decision 0023, src-tauri/src/ole_windows.rs): its
 // drawing as a .oct file (empty for a new object), the document's name and the window's title.
-type ObjectStart = { object: number; oct: string; host: string; title: string };
+type ObjectStart = { object: number; oct: string; host: string; title: string; app?: string };
 // The object window's state: its document, and whether the document is still open in Word.
-type OfficeObject = { host: string; title: string; gone: boolean };
+type OfficeObject = { host: string; title: string; gone: boolean; app?: string };
 // A picture for an object with nothing drawn: Word needs one (Insert > Object closed with nothing drawn).
 const BLANK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="72pt" viewBox="0 0 72 72"></svg>`;
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
@@ -2382,6 +2382,9 @@ export default function Editor() {
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
     insert_file: () => void insertFile(),
+    // File > Edit Picture from Word on the Mac (src-tauri/src/word.rs). The menu runs it there; this is for a key or
+    // the command palette.
+    edit_word: () => void invoke("word_edit").catch(() => {}),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
     save_as: () => (officeRef.current ? void saveCopy() : void save(true)),
@@ -2913,7 +2916,7 @@ export default function Editor() {
       else if ("object" in s) {
         // The object's drawing, read as a file from Open is: an empty one is a new object (Insert > Object).
         if (s.oct) load(undefined, s.oct);
-        const o = { host: s.host, title: s.title, gone: false };
+        const o = { host: s.host, title: s.title, gone: false, app: s.app };
         setOffice(o);
         setFile((f) => ({ ...f, name: s.title }));
         officePrime.current = !!s.oct;
@@ -2964,9 +2967,9 @@ export default function Editor() {
     const offs = [
       // Word closed the document and Octet gave it the drawing: the window closes with no question.
       listen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload)),
-      listen<[string, string]>("ole-host", (e) => {
-        const [host, title] = e.payload;
-        setOffice((o) => o && { ...o, host, title });
+      listen<[string, string, string?]>("ole-host", (e) => {
+        const [host, title, app] = e.payload;
+        setOffice((o) => o && { ...o, host, title, app: app || o.app });
         setFile((f) => ({ ...f, name: title }));
       }),
       listen<string>("ole-gone", (e) => {
@@ -3010,6 +3013,10 @@ export default function Editor() {
     if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke("set_more_formats", { formats: settings.moreFormats ? moreFormats.map(([id, name]) => [id, name]) : null }))
       .then(() => invoke<[string, string, string, string][]>("menu_items")).then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
   }, [settings.onlineSearch, settings.moreFormats]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Settings > General > Microsoft Word (the Mac): while it is on, Octet watches for a double-click in Word (word.rs).
+  useEffect(() => {
+    if (TAURI && MAC) invoke("set_word_click", { on: settings.wordClick }).catch(() => {});
+  }, [settings.wordClick]);
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -9985,6 +9992,7 @@ export default function Editor() {
           adding={addingColour}
           updates={settings.updates === true}
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
+          wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
@@ -10475,7 +10483,14 @@ export default function Editor() {
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
-      <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
+      <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
+        lead={office && !office.gone && (
+        // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >
+        // Update do. It is there only in a window opened from a document, and lights up once there is a change.
+        <button className="export-button primary" disabled={!mainDirty} data-tip={`Update ${office.host}`} data-key={hint("save")} onClick={() => void officeUpdate()}>
+          {office.app ? `Update in ${office.app.replace(/^Microsoft /, "")}` : `Update ${office.host}`}
+        </button>
+      )} />
       <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView} page={pageColour(style)}
           chemistry={(part) => {
