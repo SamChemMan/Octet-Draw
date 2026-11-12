@@ -12,7 +12,7 @@ g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { analyse, analyseCompound, expandLabels, mapReaction, parseStructure, ready, toMolfile, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
-const { DEFAULT_STYLE, QUICK_STYLE, pageSize } = await import("./docstyle.ts");
+const { DEFAULT_STYLE, pageSize } = await import("./docstyle.ts");
 const { EMPTY, fragments } = await import("./edit.ts");
 const { TRANSFORMATIONS } = await import("./compound.ts");
 const { findReaction } = await import("./reaction.ts");
@@ -214,15 +214,6 @@ assert.equal(JSON.parse(await handle(JSON.stringify({ id: 1, method: "ping" }), 
 assert.equal((await send("sampling/createMessage")).error.code, -32601);
 assert.equal((await send("tools/call", { name: "rm_rf", arguments: {} })).error.code, -32602);
 
-// The first draw in a new Quick start drawing (no page edges) lands where the drawing and its style alone put it, at
-// these numbers, whatever the window shows: on Windows the same calls in two runs drew 6 pt apart (12 November 2026),
-// as the view's middle moved with the window's height.
-for (const middle of [[0, 0], [3, 40]]) {
-  fresh(); m = { ...EMPTY, style: QUICK_STYLE };
-  Object.assign(host, { centre: () => middle });
-  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "benzene" }] })).isError);
-  assert.deepEqual(ink(m.atoms.map((_, i) => i))!.map((v) => +v.toFixed(3)), [-17.717, -1.282, -15.117, 1.05], `with the view's middle at ${middle}`);
-}
 // The brief (plan 3.1, test plan B1, B2, B5, B12). A new session has none: a scheme, a cycle, a figure, a grid, and a
 // change whose operations draw any of these (or more than one structure in all) are refused with the three
 // questions, word for word, and nothing changes.

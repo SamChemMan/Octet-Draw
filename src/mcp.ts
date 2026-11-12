@@ -860,8 +860,8 @@ function origin(host: Host, m: Mol): P {
   if (b) return [b[0], b[1] - PAD];
   // On an empty page: at its left and top margins (15 mm), so that a scheme has the whole page under it. Where the
   // page's edges do not show (Quick start), 2 bond lengths above the page's middle, where a new window's view has its
-  // middle. Never from the window: its size changes as it opens (a menu bar put on, a resize), and the same calls then
-  // drew a few points apart in two runs. The call's work comes into view when it ends.
+  // middle. From the drawing and its style alone, never from the window, so the same calls draw the same file in any
+  // window or run. The call's work comes into view when it ends.
   return [leftMargin(s), s.edges ? (h / 2 - 15) * k : 2];
 }
 const boxOf = (m: Mol): Box => {

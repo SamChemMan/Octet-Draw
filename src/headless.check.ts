@@ -735,7 +735,8 @@ try {
 }
 
 // The first draw in a new Quick start drawing, as Octet with no window opens it, lands at these numbers: from the
-// drawing and its style alone (on Windows the same calls in two runs drew 6 pt apart, 12 November 2026).
+// drawing and its style alone, never from the window (on Windows the same calls in two runs drew 6 pt apart, 12
+// November 2026, when this place came from the view's middle).
 {
   const q = drawing("quick", "First"), r = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { structures: [{ text: "benzene", number: "1", caption: "benzene" }] } } }), () => q.host, "1", session("Check", "first"))).result;
   assert.ok(!r.isError, r.content[0].text);

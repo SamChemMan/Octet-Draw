@@ -130,9 +130,9 @@ struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
 // The menu bar goes on the app. On the Mac, Help becomes the system's Help menu, which only works once it is on the app.
-// With no window there is no menu bar: the page still reads the commands (MenuList) and runs them itself. On Linux,
-// each menu bar taken off a window wrote a GTK warning for each shortcut to standard error (muda 0.20), and on Windows
-// a menu bar put on or taken off a hidden window changed the height of its page.
+// With no window there is no menu bar to show: the page still reads the commands (MenuList) and runs them itself. On
+// Linux, each menu bar taken off a window writes a GTK warning for each shortcut to standard error (muda 0.20), which
+// a script would pass through.
 fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
     if windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
@@ -1327,9 +1327,8 @@ fn main() {
                             }
                         },
                     };
-                    // Octet ends from its event loop, with the code, as File > Quit ends it: never from this thread
-                    // while the loop runs (on Windows that ended in tao's panic for a re-entered handler). The hidden
-                    // windows close first, so WebView2 has no window of its own left when it unloads.
+                    // Octet closes its hidden windows, then asks its event loop to end with the code, as File > Quit
+                    // ends it.
                     for w in app.webview_windows().into_values() {
                         let _ = w.destroy();
                     }
