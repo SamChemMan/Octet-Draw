@@ -119,14 +119,15 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // written or drawn over or under the arrow (benzene or acetone drawn in the equation is what reacts).
   // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
   // (every table Octet makes now) a solvent when it is a known one.
-  // carried: a step's reactant made by the step before, its moles from that step's Measured mass.
-  const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole; carried?: number }[] = [];
+  // carried: a step's reactant made by the step before, its moles from that step's Measured mass. atoms: a structure's,
+  // for its name, CAS number and hazards (riskassess.ts).
+  const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole; carried?: number; atoms?: number[] }[] = [];
   // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
   const add = (p: Part, product: boolean, conditions = false) => {
     const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
     if (p.kind === "structure") {
       const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
-      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: conditions && liquid?.solvent });
+      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, atoms: p.atoms, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: conditions && liquid?.solvent });
       return;
     }
     if (counted.has(p)) return;

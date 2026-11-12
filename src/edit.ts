@@ -1079,7 +1079,7 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
-  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}) }]));
+  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }]));
   const same = out.length === m.groups.length && out.every((g, k) => {
     const o = m.groups![k];
     return g.id === o.id && !!g.integral === !!o.integral && g.atoms.length === o.atoms.length && g.atoms.every((i, n) => i === o.atoms[n]) && g.items.length === o.items.length && g.items.every((id, n) => id === o.items[n]);

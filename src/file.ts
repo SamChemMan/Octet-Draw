@@ -10,6 +10,7 @@ import { ALL_ARROW_KINDS, HBOND, isBracket, ORBITAL_SHAPES, QUADRUPLE, PHASES, S
 import { readGrid } from "./stoich.ts";
 import { keyOf, readMeasured, writeMeasured } from "./measured.ts";
 import { readPart, readPlot, type PlotPart } from "./pageplot.ts";
+import { readRisk } from "./riskassess.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const FORMAT = "octet";
@@ -81,7 +82,7 @@ export function serialize(mol: Mol): string {
     for (const [kind, list] of [["c", captionList], ["a", arrowList], ["s", shapeList], ["y", cycleList]] as const) { const k = (list as { id: number }[]).findIndex((x) => x.id === id); if (k >= 0) return [kind, k]; }
     return undefined;
   };
-  const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}), ...(g.annotations?.length ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}) }));
+  const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}), ...(g.annotations?.length ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
   const grids = (mol.grids ?? []).map((g) => ({ ...g, arrow: arrowList.findIndex((a) => a.id === g.arrow) })).filter((g) => g.arrow >= 0);
   return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}) }, null, 1) + "\n";
@@ -377,8 +378,8 @@ export function parse(text: string): Mol {
       if (!Array.isArray(atoms) || !Array.isArray(items) || !atoms.every((i) => int(i, 0, out.atoms.length - 1)) || (g.integral !== undefined && g.integral !== true)
         || !items.every((r) => Array.isArray(r) && r.length === 2 && typeof r[0] === "string" && lists[r[0]] && int(r[1], 0, lists[r[0]].length - 1))) throw new Error("This drawing is damaged.");
       const annotations = g.annotations === undefined ? undefined : readAnnotations(g.annotations);
-      const plot = g.plot === undefined ? undefined : readPlot(g.plot);
-      return { id: next++, atoms: atoms as number[], items: (items as [string, number][]).map(([kind, k]) => lists[kind][k].id), ...(g.integral ? { integral: true as const } : {}), ...(annotations ? { annotations } : {}), ...(plot ? { plot } : {}) };
+      const plot = g.plot === undefined ? undefined : readPlot(g.plot), risk = g.risk === undefined ? undefined : readRisk(g.risk);
+      return { id: next++, atoms: atoms as number[], items: (items as [string, number][]).map(([kind, k]) => lists[kind][k].id), ...(g.integral ? { integral: true as const } : {}), ...(annotations ? { annotations } : {}), ...(plot ? { plot } : {}), ...(risk ? { risk } : {}) };
     });
   }
   if (d.annotations !== undefined) out.annotations = readAnnotations(d.annotations);
@@ -446,7 +447,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (typeof c.width === "number" && c.width >= 0.5 && c.width <= 1000) caption.width = c.width;
     if (c.chemical === false) caption.chemical = false;
     if (c.auto === true) caption.auto = true;
-    if (typeof c.field === "string" && /^[a-z]{1,20}$/.test(c.field)) caption.field = c.field;
+    if (typeof c.field === "string" && /^[a-z][a-z0-9:]{0,39}$/.test(c.field)) caption.field = c.field;
     const role = readPart(c.role);
     if (role) caption.role = role;
     if (under) caption.under = under as number[];

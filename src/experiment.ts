@@ -133,10 +133,11 @@ export function growScheme(m: Mol, bottom: number, pad = 1, heading?: RegExp): M
 // names and values, headings, a procedure to start from), its plain boxes and tables, and its plain lines (the rule
 // under the details). Structures, arrows and text tied to them stay with the drawing.
 export const templateOf = (m: Mol): Mol => {
-  const { date: _, ...kept } = detailsOf(m.annotations), annotations = withDetails(undefined, kept);
-  const captions = (m.captions ?? []).filter((c) => free(c) && c.field !== "date");
-  const shapes = (m.shapes ?? []).filter((x) => x.kind === "box" || x.kind === "rounded" || x.kind === "table");
-  const arrows = (m.arrows ?? []).filter((a) => a.kind === "line");
+  // A risk assessment stays with the drawing: its substances are this experiment's.
+  const { date: _, ...kept } = detailsOf(m.annotations), annotations = withDetails(undefined, kept), risk = new Set((m.groups ?? []).flatMap((g) => (g.risk ? g.items : [])));
+  const captions = (m.captions ?? []).filter((c) => free(c) && c.field !== "date" && !risk.has(c.id));
+  const shapes = (m.shapes ?? []).filter((x) => (x.kind === "box" || x.kind === "rounded" || x.kind === "table") && !risk.has(x.id));
+  const arrows = (m.arrows ?? []).filter((a) => a.kind === "line" && !risk.has(a.id));
   return { atoms: [], bonds: [], ...(captions.length ? { captions } : {}), ...(shapes.length ? { shapes } : {}), ...(arrows.length ? { arrows } : {}), ...(annotations ? { annotations } : {}), ...(m.fields ? { fields: true } : {}) };
 };
 
@@ -200,8 +201,9 @@ export function withHeader(m: Mol, s: Sheet, title = false): Mol {
 // right, top]), with the value's text when it has one (caption). A detail has a place after its name: values of names
 // that start at the same x start at the same x, and the box ends before the next name on the line, or at the right
 // margin. The title's place, with no name of its own, is above the top name. A value moved away from its name keeps a
-// box round its text. A detail with no name and no value has no place.
-export type Slot = { field: Field; at: [number, number]; box: [number, number, number, number]; caption?: number };
+// box round its text. A detail with no name and no value has no place. A risk assessment's places (riskassess.ts) are
+// slots too, each with the text a click there starts (text).
+export type Slot = { field: string; at: [number, number]; box: [number, number, number, number]; caption?: number; text?: Omit<Caption, "id"> };
 export function slotsOf(m: Mol, s: Sheet): Slot[] {
   const line = s.size / s.bond, pad = 0.3 * line, right = (s.page[0] / 2 - MARGIN) * perMm(s.bond), names = new Map<Field, Caption>();
   const span = (c: Caption): Slot["box"] => {
@@ -233,7 +235,7 @@ export function slotsOf(m: Mol, s: Sheet): Slot[] {
 // What a click in a detail's empty place starts: its value's text there (the title's larger and bold, where it has no
 // name before it).
 export const slotText = (m: Mol, slot: Slot, s: Sheet): Omit<Caption, "id"> =>
-  valueText(slot.field, slot.at, "", s, slot.field === "title" && !(m.captions ?? []).some((c) => nameOf(c) === "title"));
+  slot.text ?? valueText(slot.field as Field, slot.at, "", s, slot.field === "title" && !(m.captions ?? []).some((c) => nameOf(c) === "title"));
 // Each detail's value as rich text for Experiment details: its runs, each with the caption's own style folded in
 // (the title's bold and size too), so a style taken off one run stays off. A detail with no text on the page has its
 // annotation's text (the title bold).

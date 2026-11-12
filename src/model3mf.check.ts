@@ -94,7 +94,7 @@ const vol = (o: V, a: V, b: V, d: V) => { const [u, w, x] = [a, b, d].map((q) =>
   assert.match(editor, /async function quickExport\(format = filePrefs\.quick\) \{\n\s+const part = selectedPart\(\) \?\? doc,/);
   assert.match(editor, /const model = model3mf\(selectedPart\(\) \?\? doc\);[\s\S]{0,200}exportFile\(\{ name, format: "3mf", model \}\)/);
   assert.match(rust, /\("bmp", "Windows Bitmap \(BMP\)", &\["bmp"\]\),\n\s+\("3mf", "3D Manufacturing Format for Printing \(3MF\)", &\["3mf"\]\),/);
-  assert.match(rust, /"pdf" \| "svg" \| "png" \| "emf" \| "eps" \| "tif" \| "jpg" \| "gif" \| "bmp" => e\.svg\.is_some\(\),/);
+  assert.match(rust, /"svg" \| "png" \| "emf" \| "eps" \| "tif" \| "jpg" \| "gif" \| "bmp" => e\.svg\.is_some\(\),/);
   assert.match(rust, /"3mf" => e\.model\.is_some\(\),/);
   assert.match(rust, /"bmp" => make_bmp\(e\.svg\.as_deref\(\)\.unwrap_or_default\(\), e\.dpi\.unwrap_or\(300\.0\)\)\?,\n\s+"3mf" => make_3mf\(e\.model\.as_deref\(\)\.unwrap_or_default\(\)\)\?,/);
 }

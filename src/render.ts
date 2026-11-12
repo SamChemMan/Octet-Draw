@@ -17,6 +17,7 @@ import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 import type { Measured } from "./measured.ts";
 import type { Plot, PlotPart } from "./pageplot.ts";
+import type { Risk } from "./riskassess.ts";
 
 type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
@@ -494,8 +495,8 @@ export type Grid = {
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
 // is never split: a click on any part picks all of it.
-// plot: a page spectrum's record (pageplot.ts).
-export type Group = { id: number; atoms: number[]; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot };
+// plot: a page spectrum's record (pageplot.ts). risk: an experiment page's risk assessment's record (riskassess.ts).
+export type Group = { id: number; atoms: number[]; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot; risk?: Risk };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 // terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
 // labelPt: the document's label size in pt, which an atom's own label size is measured against.

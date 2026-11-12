@@ -27,6 +27,7 @@ import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
 import { readPart, readPlot, type Plot } from "./pageplot.ts";
+import { readRisk, type Risk } from "./riskassess.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -1135,7 +1136,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     if (!kids.length || !box) continue;
     for (const o of kids) o.group = -1;
     const parent = parentOf[k];
-    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined, Octet: g.plot ? priv({ plot: g.plot }) : undefined }, RANKED(kids).map((o) => o.xml).join("") + notes(g.annotations)), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
+    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined, Octet: g.plot || g.risk ? priv({ plot: g.plot, risk: g.risk }) : undefined }, RANKED(kids).map((o) => o.xml).join("") + notes(g.annotations)), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
   // A cycle's side arrows name their structures' atoms by node id; those are also saved as sides, for Octet 1.0.29.
@@ -1441,7 +1442,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   const mol: Mol = { atoms: [], bonds: [] };
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
-  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot; parent?: G };
+  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot; risk?: Risk; parent?: G };
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [], areas: Xml[] = [];
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
@@ -1517,8 +1518,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     list.push({ keyword, content });
   };
   const newGroup = (x: Xml, parent?: G): G => {
-    const plot = readPlot(priv(x)?.plot);
-    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}), ...(plot ? { plot } : {}), parent };
+    const plot = readPlot(priv(x)?.plot), risk = priv(x)?.risk === undefined ? undefined : readRisk(priv(x)?.risk);
+    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}), ...(plot ? { plot } : {}), ...(risk ? { risk } : {}), parent };
     groups.push(g);
     return g;
   };
@@ -2033,7 +2034,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Interpret Chemically off on this text: it is text only.
     if (t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically)) c.chemical = false;
     if (p?.auto === 1) c.auto = true;
-    if (typeof p?.field === "string" && /^[a-z]{1,20}$/.test(p.field)) c.field = p.field;
+    if (typeof p?.field === "string" && /^[a-z][a-z0-9:]{0,39}$/.test(p.field)) c.field = p.field;
     const role = readPart(p?.role);
     if (role) c.role = role;
     if (p?.under) unders.push({ c, nodes: p.under });
@@ -2640,7 +2641,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
-  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: [...new Set(g.items.filter((id) => ids.has(id)))].sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}) }));
+  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: [...new Set(g.items.filter((id) => ids.has(id)))].sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
   if (annotations.length) mol.annotations = annotations;
   if (kept.length) mol.groups = kept;
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));

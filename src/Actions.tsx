@@ -5,6 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  ListChecks, SealWarning, ShieldWarning,
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
@@ -59,11 +60,13 @@ export type LabelText = { bold: boolean; italic: boolean; underline: boolean; fo
 // Octet puts it, and its heads.
 export type CycleSide = { ends: "both" | "in" | "out"; inside?: boolean; moved: boolean; start: Head; end: Head; head: HeadShape; size: string };
 export type Context =
-  | { kind: "empty" }
-  | { kind: "drawing"; nameable: boolean; generic?: boolean }
+  // risk: an experiment page with no risk assessment yet, so it can have one (riskassess.ts).
+  | { kind: "empty"; risk?: boolean }
+  | { kind: "drawing"; nameable: boolean; generic?: boolean; risk?: boolean }
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
-  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures)
+  // risk: the lone group is the page's risk assessment.
+  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures)
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
@@ -369,17 +372,20 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     it(<BellSlash size={18} />, warned > 1 ? "Hide these warnings" : "Hide this warning", "hide_warnings", false, !rows)] : []),
     ...(hiddenWarnings ? [it(<WarningCircle size={18} />, "Show warnings", "show_warnings", false, !rows)] : [])];
 
+  // An experiment page's risk assessment, under the page (riskassess.ts).
+  const addRisk = (context.kind === "empty" || context.kind === "drawing") && context.risk ? [small(it(<ShieldWarning size={18} />, "Add risk assessment", "risk.add"))] : [];
   switch (context.kind) {
     case "empty":
       items.push(toStructure, it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
-        small(it(<FileArrowDown size={18} />, "Import a structure…", "import")));
+        small(it(<FileArrowDown size={18} />, "Import a structure…", "import")), ...addRisk);
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3,
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
-        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings());
+        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings(), ...addRisk);
       break;
     case "selection":
+      if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"));
       items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
       break;
     case "structure":
