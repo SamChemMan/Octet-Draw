@@ -153,7 +153,8 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
   // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
   const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
-  if (odd > 0) return fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
+  // (A comma with a space after it is a list: conditions on a line of their own, say.)
+  if (odd > 0) return /^\s/.test(commas[odd]) ? `"${t.slice(0, 40)}" is a list, not a compound: put conditions after the product on its arrow's line` : fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
   caption &&= caption.replace(/\\n/g, "\n");
   const own = { ...(number ? { number } : {}), ...(caption ? { caption } : {}) };
   // An earlier compound, changed: 3[...], or [...] for the one before. A name or SMILES changed (aspirin[OAc>OH]) is
@@ -428,6 +429,7 @@ export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: stri
   }
   for (const [, kind, line] of left.sort((a, b) => a[0] - b[0])) said?.(kind, line);
   const known = new Set<string>(), ops: Op[] = [];
+  let arrowed = -1; // the last line with an arrow
   let heads: string[] = [], defs: string[] = [], chain: Chain | undefined, grid: { heads: string[]; rows: Cell[][] }[] | undefined, core: { text: string; slots: string[]; given: RegExp; next: RegExp } | undefined, lone: Compound[] | undefined;
   const add = (c: Compound, at: number) => { if (c.number) known.add(c.number); if (c.text !== undefined && where && !where.has(written(c as { text: string }))) where.set(written(c as { text: string }), at); };
   // What is wrong with a line, with the line as Octet would have it when it can work that out (fixed).
@@ -565,6 +567,7 @@ export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: stri
     if (centre !== undefined && chain && cyclic(chain)) { chain.centre.push(centre); continue; }
     if (def) { const no = flush(); if (no) return no; defs.push(centre!); continue; }
     if (split.arrows.length) {
+      arrowed = i;
       const { parts, arrows } = split, begin = (start: Compound[], hs: string[]): Chain => { const c = { start, steps: [], heads: hs, asides: [], raw: [], defs, centre: [] }; defs = []; return c; };
       let reactants: Compound[], before = "", added: Compound[] = [];
       if (!parts[0]) {
@@ -617,6 +620,16 @@ export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: stri
         carry = ys.length ? items.filter((x) => !ys.includes(x)).map((x, j) => (j ? `${x.by} ` : "") + x.text.trim()).join("") : own;
         reactants = made;
       }
+      continue;
+    }
+    // A list with no arrow and no compound number on the line under an arrow's line can only be more conditions for
+    // that arrow (Haiku put them so, plan 19.10): not after a blank line, in a scope, or before a line that starts with
+    // an arrow (then it is a start), and not with | or + (a row, or starting materials).
+    const items = chain && arrowed === i - 1 && !all[i].gap && !core && !/\||\s\+\s/.test(line) && !arrowAt(all[i + 1]?.line ?? "", 0) ? cut(line, (j) => sepAt(line, j)) : [];
+    if (items.length > 1 && items.every((x) => ((c) => typeof c === "string" || !c.number)(compound(x.text, known)))) {
+      const s = chain!.steps[chain!.steps.length - 1];
+      s.conditions = [s.conditions, line].filter(Boolean).join(", ");
+      said?.("conditions", `Line ${at}: Octet read it as more conditions for the arrow on line ${all[i - 1].at}.`);
       continue;
     }
     // Compounds, one or more on a line between | (in a scope, ; too before the next R=).

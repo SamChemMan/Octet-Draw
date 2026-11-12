@@ -898,7 +898,14 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
   const ok: Read[] = [], failed: Failed[] = [], wrong: string[] = [], lost: number[] = [];
   let last: Read | undefined; // the compound before this one, when Octet read it
   const add = (r: Read, it: CompoundIn) => { ok.push(r); if (!it.aside) last = r; };
-  for (const [k, it] of items.entries()) {
+  for (let [k, it] of items.entries()) {
+    // A number that is no compound of this call or the drawing, with a name or SMILES in brackets after it (11a
+    // (Cc1ccc...), as Haiku wrote it, plan 19.10), is that compound with that number. (Else the bracket is its caption.)
+    const inner = it.from !== undefined && it.text === undefined && !it.changes && !it.molecule ? /^\((.+)\)$/s.exec(it.caption?.trim() ?? "")?.[1] : undefined;
+    if (inner && !ok.some((r) => r.number === it.from) && !structureOf(host.doc(), it.from!) && host.structure(clean(inner))) {
+      const { from: _, caption: _c, ...rest } = it;
+      it = { ...rest, text: inner, number: it.number ?? it.from };
+    }
     if (ctx && items.length > 10 && k % 10 === 0) { await ctx.check(); ctx.progress(k, items.length, `Reading ${k + 1} of ${items.length}`); await host.settle(); }
     const number = it.number ? clean(it.number) : undefined, caption = it.caption ? clean(it.caption, true) : undefined, before = last;
     if (!it.aside) last = undefined;

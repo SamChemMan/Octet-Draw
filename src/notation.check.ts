@@ -481,6 +481,28 @@ piribedil + but-3-en-1-yl tosylate (11a) -> C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1
   assert.deepEqual(cond("A (1) -> B (2), CH2Cl2 (16h)"), [1, { solvents: ["CH2Cl2 (16h)"], products: [{ text: "B", number: "2" }] }]);
   assert.deepEqual(cond("bromobenzene (1)\n-> biphenyl (2), PhB(OH)2, Pd2(dba)3 (2), K3PO4"), [1, { reagents: ["PhB(OH)2", "Pd2(dba)3 (2)", "K3PO4"], products: [{ text: "biphenyl", number: "2" }] }]);
 }
+// Plan 19.10 (real-r4-haiku-3 say-one-step): a list on a line of its own under an arrow's line, with no arrow and no
+// compound number, can only be more conditions for that arrow, and the reply says so. With any doubt (a blank line
+// before it, a line after it that starts with an arrow, a compound number) it is refused as a list, saying where
+// conditions go: it was told to put a space after a comma that had one.
+{
+  let said = "";
+  const one = fromLines({ lines: "2-Methyl-2-(3-oxobutyl)cyclopentane-1,3-dione (1) -> C[C@]12CCC(=O)C[C@@]1(O)CCC2=O (2), 99% ee\nL-proline (20 mol%), CHCl3, rt" }, (_, l) => (said = l));
+  assert.deepEqual(one, R([{ text: "2-Methyl-2-(3-oxobutyl)cyclopentane-1,3-dione", number: "1" }], [{ catalysts: ["L-proline (20 mol%)"], solvents: ["CHCl3"], temperature: "rt", yield: "99% ee", products: [{ text: "C[C@]12CCC(=O)C[C@@]1(O)CCC2=O", number: "2" }] }]));
+  assert.equal(said, "Line 2: Octet read it as more conditions for the arrow on line 1.");
+  for (const l of ["A -> B\n\nX (5 mol%), Y, rt", "A -> B\nX (5 mol%), Y, rt\n-> C", "A -> B (2)\n3, rt"]) assert.match(String(fromLines({ lines: l })), /is a list, not a compound: put conditions after the product on its arrow's line$/, l);
+}
+// Plan 19.10 (real-r4-haiku-2 say-three-step): a number that is no compound yet, with a SMILES in brackets after it, is
+// that compound with that number. One that is a compound of the call already keeps the bracket as its caption.
+{
+  const P = { "11a": "Cc1ccc(cc1)S(=O)(=O)OCCC=C", "12a": "C=CCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]", "13a": "C1CC2CCCC(C1)B2CCCC[N+]1(Cc2ccc3OCOc3c2)CCN(CC1)c1ncccn1.Cc1ccc(cc1)S(=O)(=O)[O-]" };
+  const got = await shown("draw", { lines: `piribedil + 11a (${P["11a"]}) -> 12a (${P["12a"]})\n12a -> 13a (${P["13a"]}), 9-BBN–H` }) as { structures: string[] };
+  const want = await shown("draw", { lines: `piribedil + ${P["11a"]} (11a) -> ${P["12a"]} (12a)\n12a -> ${P["13a"]} (13a), 9-BBN–H` }) as { structures: string[] };
+  assert.deepEqual(got.structures, want.structures);
+  assert.deepEqual(got.structures.map((x) => x.split("=")[0]), ["11a", "12a", "13a", ""]);
+  const kept = await shown("draw", { lines: "CCO (5) -> CC=O (6), PCC\n5 (CCCCCCCCCCCCCCCC) -> CCOC (7), NaH, MeI" }) as { text: string[] };
+  assert.ok(kept.text.includes("(CCCCCCCCCCCCCCCC)"), JSON.stringify(kept));
+}
 // The call's other arguments go with the lines; kind is refused when it is not what the lines draw.
 assert.deepEqual(fromLines({ lines: "A -> B", below: "s3", picture: true }), { op: "reaction", args: { start: A, steps: [{ products: [B] }], below: "s3", picture: true } });
 assert.match(String(fromLines({ lines: "A -> B", kind: "cycle" })), /kind does not go with lines, which draw a reaction/);

@@ -2069,3 +2069,16 @@ session can keep or drop each by what the lab says next.
   cycle is `[s1, s5, s3, s6]` and all four InChIKeys are the job's (2 OWBIRFRDSASUHN-OKHBPPCESA-N, 4
   LCJXXGHDFMYFGG-CRVSIBDBSA-N): the run would have passed. change's replace with the ids of one structure and no
   structure (real-r4-haiku-3 say-fix: "structure is missing") is that structure ("Read ids as structure.").
+- **Two lines forms Haiku wrote.** (a) Conditions on a line of their own under the arrow's line (real-r4-haiku-3
+  say-one-step: `... (2), 99% ee\nL-proline (20 mol%), CHCl3, rt`) were read as a compound and refused with "put a
+  space after the comma before  CHCl3", which had one: the check for a comma with no space took any comma. A list
+  (a comma or semicolon with a space) on the line right under an arrow's line, with no arrow, no `|` or ` + `, and no
+  compound number in it, can only be more conditions for that arrow, and is read so ("Line 2: Octet read it as more
+  conditions for the arrow on line 1."). Not after a blank line, in a scope, or before a line that starts with an arrow
+  (a start line, round 3c, or a lone compound): there, and anywhere else a list is read as a compound, it is refused
+  with "is a list, not a compound: put conditions after the product on its arrow's line". (b) The number before the
+  structure (real-r4-haiku-2 say-three-step: `piribedil + 11a (Cc1ccc(cc1)S(=O)(=O)OCCC=C) -> 12a (...)`) was "no
+  compound 11a earlier in this call or in the drawing". In `read` (`mcp.ts`), where every compound's number is matched
+  against the call and the drawing, a number that is neither, with a name or SMILES in brackets after it, is that
+  compound with that number; one that is a compound already keeps the bracket as its caption, as before. Not done: a
+  short SMILES in the brackets (14 characters or fewer, no space) is still read as a compound number there.
