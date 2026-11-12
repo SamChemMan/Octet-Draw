@@ -546,8 +546,10 @@ assert.equal(steps.length, 0);
   await no("advanced", { args: {} }, /arguments: tool is missing/);
   await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, draw_route, help\.$/);
   await no("advanced", { tool: "export", args: "pdf" }, /args: not an object/);
-  await no("advanced", { tool: "export", format: "pdf" }, /arguments: format is not an argument of this tool\.$/);
-  await no("advanced", { tool: "set_style", args: { journal: "Nature" } }, /^Octet changed nothing\. args: journal is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
+  // (A tool's own argument beside tool is taken into args, plan 19.10: one the tool does not take is refused there.)
+  await no("advanced", { tool: "export", format: "pdf", colour: "red" }, /^Octet changed nothing\. args: colour is not an argument of this tool\. advanced help of export gives its arguments\.$/);
+  // (journal is set_style's preset by another name now, plan 19.10.)
+  await no("advanced", { tool: "set_style", args: { font: "Arial" } }, /^Octet changed nothing\. args: font is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
   await no("drawings", { action: "close" }, /action: not one of list, use, new/);
   await no("drawings", { action: "use" }, /drawing is missing/);
   await no("drawings", { action: "list", drawing: "draw-1" }, /drawing is not an argument of this tool\.$/);
@@ -556,7 +558,8 @@ assert.equal(steps.length, 0);
   // for its other operations is refused as it is, not as "not an argument of this tool".
   await no("read", { format: "mol", smiles: true }, /^Octet changed nothing\. smiles does not go with format\.$/);
   await no("read", { format: "smiles", picture: true }, /^Octet changed nothing\. picture does not go with format\.$/);
-  await no("advanced", { tool: "help", args: { of: "move" }, detail: "full" }, /^Octet changed nothing\. detail does not go with help\.$/);
+  // (help's detail is left out, plan 19.10: five calls of the real runs gave it.)
+  await no("advanced", { tool: "help", args: { of: "move" }, picture: true }, /^Octet changed nothing\. picture does not go with help\.$/);
   await no("advanced", { tool: "export", args: { format: "pdf" }, picture: true }, /^Octet changed nothing\. picture does not go with export\.$/);
   assert.equal(m, EMPTY);
   assert.equal(steps.length, 0);
@@ -2502,6 +2505,27 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // argument a tool does not take is left out and said; one with something in it is refused as the call's.
   assert.deepEqual(await drawn({ operations: "[]", lines: lines.join("\n") }), [...plain, "Left out operations, which is empty."]);
   assert.deepEqual(await drawn({ operations: [{ op: "delete" }], lines: lines.join("\n") }), ["Octet changed nothing. arguments: operations is not an argument of this tool."]);
+}
+
+// advanced as the models called it (haiku-1 say-restyle: 11 refused calls in one job), each reading said in the notes.
+{
+  const help = async (a: object) => { const o = await call("advanced", a); assert.ok(!o.isError, `${JSON.stringify(a)}: ${text(o)}`); return [JSON.parse(text(o)).of, ...o.content.slice(1).map((c: { text: string }) => c.text)]; };
+  assert.deepEqual(await help({ tool: "help", args: { of: "cycle" }, detail: "full" }), ["cycle", "Left out detail: help has none."]);
+  assert.deepEqual(await help({ command: "help set_style" }), ["set_style", "Read command as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", command: "set_style" }), ["set_style", "Read command as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", brief: "set_style" }), ["set_style", "Read brief as help of set_style."]);
+  assert.deepEqual(await help({ tool: "help", of: "set_style" }), ["set_style"]);
+  // grid, scope, lines, scheme, route and notation are what draw's lines write: help of each is the notation.
+  for (const x of ["grid", "scope", "lines", "scheme", "route", "notation"]) assert.equal(JSON.parse(text(await call("advanced", { tool: "help", args: { of: x } }))).description, NOTATION, x);
+  // set_style's preset as the user names it, under style, name, value, preset or journal, beside tool or in change.
+  const styled = async (name: string, a: object) => { fresh(); const o = await call(name, a); assert.ok(!o.isError && host.style().preset === "Wiley (Angewandte)", `${JSON.stringify(a)}: ${text(o)}`); return o.content.slice(1).map((c: { text: string }) => c.text).join(" "); };
+  assert.equal(await styled("advanced", { tool: "set_style", style: "Angewandte Chemie" }), "Read style as an argument of set_style in args.\nRead style as preset.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
+  for (const k of ["name", "value", "preset", "journal"]) await styled("advanced", { tool: "set_style", [k]: "Angewandte Chemie" });
+  assert.equal(await styled("change", { operations: [{ op: "set_style", style: "Angewandte Chemie" }] }), "Read style as preset.\nRead preset Angewandte Chemie as Wiley (Angewandte).");
+  // set_brief through advanced is set_brief.
+  const o = await call("advanced", { tool: "set_brief", destination: "a paper in Angewandte Chemie" }, "s-adv");
+  assert.ok(!o.isError && JSON.parse(briefs.get("s-adv")!).destination.journal === "Wiley (Angewandte)", text(o));
+  fresh();
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

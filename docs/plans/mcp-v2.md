@@ -2049,3 +2049,15 @@ session can keep or drop each by what the lab says next.
   asks for nothing (null, `''`, `'[]'`, `'{}'`, `[]`, `{}`), with "Left out operations, which is empty." (plan 6: one
   meaning, said). One with something in it is refused as the call's own (`arguments: operations is not an argument of
   this tool`), not as the lines'. The existing check of `change {operations, steps: []}` gives `steps: [{}]` now.
+- **advanced and help as models call them.** Haiku's say-restyle had 11 refused calls in one job, and help with
+  `detail: 'full'` was refused 5 times. advanced's route now reads: `detail` with help is left out ("Left out detail:
+  help has none."); what help is about is `args.of`, `of`, or the one other text (`{tool: 'help', command:
+  'set_style'}`, `{tool: 'help', brief: 'set_style'}`), and `{command: 'help set_style'}` with no tool is help of
+  set_style ("Read command as help of set_style."); a tool's own arguments beside `tool` are its args ("Read style as an
+  argument of set_style in args."); `{tool: 'set_brief', ...}` goes through set_brief's own route. help of grid,
+  scope, lines, scheme, route or notation gives NOTATION (`call: 'draw with lines'`). set_style's `preset` takes a
+  preset as set_brief reads a journal (`Angewandte Chemie` is Wiley (Angewandte)), under `style`, `name`, `value` or
+  `journal` too: two options any argument can take in `coerce` (`reads`, a value in words; `names`, other names for
+  the argument), so change's set_style reads them the same way. tools/list is unchanged (neither is published).
+  Changed checks: `{tool: 'export', format: 'pdf'}` (refused before) gives an unknown argument (`colour`) beside it;
+  `set_style {journal: 'Nature'}` (refused before) gives `font`; help with `detail` (refused before) gives `picture`.

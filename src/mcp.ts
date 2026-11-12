@@ -99,10 +99,12 @@ type Schema = ObjSchema | { type: "array"; items: Schema | Prop; maxItems: numbe
 // unlisted: an argument a listed schema leaves out (picture and detail on an operation: the tool that runs it lists
 // them).
 // quiet: values an enum takes that tools/list leaves out, for room (advanced help names them).
-type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
+// reads: a value in words the enum's own names do not cover (set_style's preset as a journal's name, plan 19.10).
+// names: other names an AI app gives the argument by (set_style's style for preset).
+type Prop = { type: "string"; maxLength: number; enum?: readonly string[]; description?: string; numeral?: true; also?: Record<string, string>; reads?: (v: string) => string | undefined; names?: readonly string[]; default?: string; unlisted?: true; quiet?: readonly string[] } | { type: "number" | "integer"; minimum: number; maximum: number; description?: string; unlisted?: true } | { type: "boolean"; description?: string; unlisted?: true };
 const str = (maxLength: number, description?: string): Prop => ({ type: "string", maxLength, ...(description ? { description } : {}) });
 // own: what Octet keeps to itself (tools/list leaves it out): the lenient readings, and unlisted.
-const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; default?: string; unlisted?: true; quiet?: readonly string[] }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
+const pick = (values: readonly string[], description?: string, own?: { also?: Record<string, string>; reads?: (v: string) => string | undefined; names?: readonly string[]; default?: string; unlisted?: true; quiet?: readonly string[] }): Prop => ({ type: "string", maxLength: 40, enum: values, ...(description ? { description } : {}), ...own });
 const numeral = (maxLength: number): Prop => ({ type: "string", maxLength, numeral: true });
 const obj = (properties: Record<string, Schema | Prop>, required: string[] = []): ObjSchema => ({ type: "object", properties, required, additionalProperties: false });
 const list = (items: Schema | Prop, maxItems: number, minItems = 0): Schema => ({ type: "array", items, maxItems, minItems });
@@ -167,8 +169,14 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
     if (!v || typeof v !== "object" || Array.isArray(v)) return v;
     const o = v as Record<string, unknown>;
     for (const k of s.required ?? []) if (!(k in o)) { const p = s.properties[k]; if ("default" in p) { o[k] = p.default; note(notes, `${k} default`, `No "${k}" was given: read as ${p.default}.`); } }
-    // An argument it does not take, given empty ('', '[]', [] or {}), asks for nothing: it is left out.
-    for (const k of Object.keys(o)) { const p = s.properties[k]; if (p) o[k] = coerce(p, o[k], k, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); } }
+    // An argument by another of its names is that argument, when it is not given too. One it does not take, given empty
+    // ('', '[]', [] or {}), asks for nothing: it is left out.
+    for (const k of Object.keys(o)) {
+      let at = k, p = s.properties[k];
+      const named = p ? undefined : Object.keys(s.properties).find((n) => (s.properties[n] as { names?: readonly string[] }).names?.includes(k) && !(n in o));
+      if (named) { o[named] = o[k]; delete o[k]; note(notes, `${k} name`, `Read ${k} as ${named}.`); p = s.properties[at = named]; }
+      if (p) o[at] = coerce(p, o[at], at, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); }
+    }
     const split = s.properties.caption && typeof o.number === "string" && o.caption === undefined ? /^(\S+) \(([^()]+)\)$/.exec(o.number.trim()) : null;
     if (split) { note(notes, "caption", `Read number ${clean(split[0])} as number ${split[1]} with the caption ${clean(split[2])}.`); [, o.number, o.caption] = split; }
     return o;
@@ -178,7 +186,7 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
   // (A whole number from 0 up: 2.5, -3 and 1e21 are no compound number, and are refused.)
   if (s.numeral && typeof v === "number" && Number.isSafeInteger(v) && v >= 0) { note(notes, `${key} text`, `Read ${key} ${v} as text.`); return String(v); }
   if (s.enum && typeof v === "string" && !s.enum.includes(v)) {
-    const t = v.trim().replace(/^\./, "").toLowerCase(), value = s.enum.find((e) => e.toLowerCase() === t) ?? s.also?.[t];
+    const t = v.trim().replace(/^\./, "").toLowerCase(), value = s.enum.find((e) => e.toLowerCase() === t) ?? s.also?.[t] ?? s.reads?.(v);
     if (typeof value === "string") { note(notes, `${key} ${value}`, `Read ${key} ${clean(v).slice(0, 40)} as ${value}.`); return value; }
   }
   return v;
@@ -479,7 +487,9 @@ const OPS: Op[] = [
   {
     name: "set_style", title: "Document style", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed the document style",
     description: `Sets the style and page, as Document settings do: a preset (${Object.keys(PRESETS).join("; ")}; it keeps the page) and a page (ACS1: JACS one column, 3.25 in; ACS2: two columns, 7 in), or page_size in mm. Octet redraws everything in the new style.`,
-    inputSchema: obj({ preset: pick(Object.keys(PRESETS)), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2) }),
+    // (A preset as the user names it, Angewandte Chemie, is as set_brief reads a journal; style, name, value or journal
+    // for preset is how Haiku gave it, plan 19.10.)
+    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2) }),
     run: setStyle,
   },
   {
@@ -614,6 +624,8 @@ const OPS: Op[] = [
       const of = clean(a.of ?? "").toLowerCase(), t = HELP.includes(of) ? opOf(of === "set_brief" ? "brief" : opName(of)) : undefined;
       // The named transformations a compound's change takes as do (compound.ts), which draw names in one example.
       if (of === "transformations") { const data = { of, call: "a compound's changes: {do, at, with, to, config}", description: TRANSFORMATIONS }; return { text: JSON.stringify(data), data }; }
+      // What draw's lines write (Haiku asked for help of grid, plan 19.10): the notation, as draw lists it.
+      if (/^(?:grid|scope|lines|scheme|route|notation)$/.test(of)) { const data = { of, call: "draw with lines", description: NOTATION }; return { text: JSON.stringify(data), data }; }
       if (!t) return { text: `${of ? `Octet has nothing named ${short(of, 40)}. ` : ""}Give of: a kind of draw (${KINDS.join(", ")}), an operation of change (${CHANGE_OPS.join(", ")}), a tool of advanced (${ADVANCED.join(", ")}), set_brief, file (read with format), new (drawings new) or transformations (a compound's changes with do).`, ...(of ? { error: true as const } : {}) };
       // (draw lists lines and structures: the other kinds' JSON goes as an operation of change, which takes it open.)
       const call = of === "set_brief" ? of : of === "file" ? "read with format" : of === "new" ? "drawings with action: 'new'" : of === "structures" ? "draw with structures" : KINDS.includes(of as never) ? `change, as an operation with op: 'draw' and kind: '${of}'` : CHANGE_OPS.includes(of as never) ? `change, as an operation with op: '${of}'` : `advanced with tool: '${of}' and args`;
@@ -773,7 +785,23 @@ const TOOLS: Tool[] = [
     name: "advanced", title: "Other tools, and help", ops: [...ADVANCED.map(opName), "help"],
     description: `Octet's other tools, each with its args. run_command {command, ids}: any menu command or Actions panel action, on the ids or the selection: clean_up, clean_reaction, undo, scale.120 and the rest, which help lists. set_style {preset, page, landscape, page_size [w, h] in mm}: the style or page alone (set_brief sets both). export {format}: Octet's Export dialog (pdf, png, svg and more), for the user to save. place_template {name, set, on}: a library template (ATP, ferrocene, Round-bottom flask). add_file {text}: a drawing from file text (CDXML, MOL, SMILES and more). fill_experiment {details, amounts}: an experiment page's details and reagent table. draw_route {schemes, legend}: a route as JSON. help {of}: the description and schema of one of these, a kind of draw or an op of change.`,
     inputSchema: ADVANCED_IN,
-    route: (a, notes) => wrongWith(ADVANCED_IN, a, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, opName(tool), tool) || { op: opName(tool), args: { ...args, ...reply }, at: "args" })(a),
+    // As models call it (plan 19.10): a tool's own arguments beside tool are its args; {tool: 'set_brief'} is set_brief;
+    // help's detail is left out, and what help is about is args.of, of, or the one other text ({command: 'help
+    // set_style'} with no tool is help of set_style).
+    route: (a, notes) => {
+      const { tool, args, ...rest } = a, own = Object.keys(rest).filter((k) => !(k in ADVANCED_IN.properties)), text = own.filter((k) => typeof rest[k] === "string");
+      const asked = tool === undefined && text.length === 1 ? /^help\s+(\S+)$/i.exec(rest[text[0]].trim()) : null, help = tool === "help" || !!asked;
+      let given = args;
+      if (help) {
+        const k = asked ? text[0] : args?.of !== undefined ? undefined : "of" in rest ? "of" : text.length === 1 ? text[0] : undefined, of = asked ? asked[1] : k && rest[k];
+        if (k && k !== "of") note(notes, "help of", `Read ${k} as help of ${short(clean(String(of)), 40)}.`);
+        if (rest.detail !== undefined) { note(notes, "detail", "Left out detail: help has none."); delete rest.detail; }
+        if (k) given = { ...args, of };
+      } else if (own.length) { given = { ...args, ...Object.fromEntries(own.map((k) => [k, rest[k]])) }; note(notes, "args", `Read ${own.join(", ")} as ${own.length > 1 ? "arguments" : "an argument"} of ${tool ?? "the tool"} in args.`); }
+      if (tool === "set_brief") { note(notes, "set_brief", "Called set_brief."); return TOOLS.find((t) => t.name === "set_brief")!.route(given ?? {}, notes); }
+      const b = { ...(help ? { tool: "help" } : tool !== undefined ? { tool } : {}), ...(given !== undefined ? { args: given } : {}), ...Object.fromEntries(Object.entries(rest).filter(([k]) => k in ADVANCED_IN.properties)) };
+      return wrongWith(ADVANCED_IN, b, notes) ?? (({ tool, args, ...reply }) => stray(reply, ADVANCED_IN, opName(tool), tool) || { op: opName(tool), args: { ...args, ...reply }, at: "args" })(b);
+    },
   },
   {
     name: "set_brief", title: "Set the brief", ops: ["brief"],
@@ -3328,7 +3356,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
 // stay. The lenient readings (numeral, also, default) are Octet's own too: an AI app is told the one form each
 // argument takes. An unlisted argument is left out. An object inside is listed open, as JSON Schema has one that
 // says nothing: Octet's own check is what closes it.
-const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "default", "additionalProperties", "quiet"]);
+const UNPUBLISHED = new Set(["maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "numeral", "also", "reads", "names", "default", "additionalProperties", "quiet"]);
 function published(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(published);
   if (!x || typeof x !== "object") return x;
