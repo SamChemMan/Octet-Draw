@@ -130,7 +130,13 @@ struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
 // The menu bar goes on the app. On the Mac, Help becomes the system's Help menu, which only works once it is on the app.
+// With no window there is no menu bar to show: the page still reads the commands (MenuList) and runs them itself. On
+// Linux, each menu bar taken off a window writes a GTK warning for each shortcut to standard error (muda 0.20), which
+// a script would pass through.
 fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
+    if windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     app.set_menu(bar.clone())?;
     #[cfg(target_os = "macos")]
     if let Some(help) = bar.get("help").and_then(|h| h.as_submenu().cloned()) {
@@ -1321,7 +1327,12 @@ fn main() {
                             }
                         },
                     };
-                    std::process::exit(code)
+                    // Octet closes its hidden windows, then asks its event loop to end with the code, as File > Quit
+                    // ends it.
+                    for w in app.webview_windows().into_values() {
+                        let _ = w.destroy();
+                    }
+                    app.exit(code)
                 });
             }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
@@ -1388,8 +1399,8 @@ fn main() {
                 quit::closed(_app, &label);
                 mcp::closed(_app, &label);
             }
-            // With no window, Octet ends when its work is done (std::process::exit), not when --convert closes a file's window.
-            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() || windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed) => api.prevent_exit(),
+            // With no window, Octet ends when its work is done (app.exit, with a code), not when its last window closes.
+            tauri::RunEvent::ExitRequested { api, code, .. } if quit::ending() || (code.is_none() && windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed)) => api.prevent_exit(),
             // Each open object tells Word it closed, and the class object goes (decision 0023).
             #[cfg(windows)]
             tauri::RunEvent::Exit => ole::win::shutdown(),

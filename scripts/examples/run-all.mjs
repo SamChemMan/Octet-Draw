@@ -52,6 +52,9 @@ const examples = async (x, [exe, ...a]) => {
     const command = [exe, ...a, fileURLToPath(new URL(`${name}.${x}`, import.meta.url)), ...args];
     const r = await run(command[0], command.slice(1), { env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 300_000 }).then((r) => ({ ...r, code: 0 }), (e) => e);
     runs.push({ name, command: command.join(" "), code: r.code, stdout: r.stdout.replaceAll("\r\n", "\n"), stderr: r.stderr.replaceAll("\r\n", "\n") });
+    // The start of each run's error output, so a run on GitHub shows what Octet (or the system under it) wrote there.
+    const err = runs.at(-1).stderr.split("\n").filter(Boolean);
+    if (err.length) console.log(`${name}.${x}: ${err.length} lines of error output${err.length > 20 ? ", the first 20" : ""}\n${err.slice(0, 20).map((l) => `  ${l}`).join("\n")}`);
   }
   return runs;
 };
@@ -68,7 +71,13 @@ const s2 = basename(schemes[1]), expected = {
   table: '1.cdxml: benzene\n2.cdxml: 2,4-dinitrophenol\n3: Octet drew nothing. Octet cannot read "C1CC(": give a SMILES instead (with * for a generic group such as L or R, and its labels).\n4.cdxml: ethanol\nexit 1',
   check: `scheme1.cdxml: clean\n${s2}: clean\nfive.cdxml: 1 to look at\n  Compound number 5 is on more than one structure.\ntable.csv: Octet cannot read the structures in this file.\n2 to look at.\nexit 1`,
 };
-let failed = 0;
+// WebView2 (Chromium) itself can write a line as Octet ends on Windows, outside Octet's reach ("Failed to unregister
+// class Chrome_WidgetWin_0. Error = 1412", run 43125258175). Lines of exactly that form, with Chromium's start
+// [MMDD/HHMMSS.mmm:ERROR:file:line], are left out of the comparison and counted. Nothing else is.
+const CHROMIUM = /^\[\d{4}\/\d{6}\.\d{3}:ERROR:[^\]\s]+:\d+\] .*\n?/gm;
+let failed = 0, dropped = 0;
+for (const r of [...mjs, ...py]) r.stderr = r.stderr.replace(CHROMIUM, () => (dropped++, ""));
+if (dropped) console.log(`WebView2's own error lines left out: ${dropped}`);
 mjs.forEach((j, k) => {
   const p = py[k], as = (r) => `${r.stdout}${r.stderr}exit ${r.code}` === expected[j.name], right = as(j) && as(p);
   console.log(`${j.name}: ${right ? `as the page gives it in both (exit ${j.code})` : `different in ${[j, p].filter((r) => !as(r)).map((r) => r === j ? "JavaScript" : "Python").join(" and ")}`}`);

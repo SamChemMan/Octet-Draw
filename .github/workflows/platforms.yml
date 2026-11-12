@@ -179,16 +179,36 @@ jobs:
           Write-Output "Octet $((Get-Content package.json | ConvertFrom-Json).version): $octet, $((Get-Item $octet).Length) bytes"
 
       # As the drive job: a virtual screen for the hidden windows, a session bus of their own, and WebKit with no DMA-BUF.
+      # The session bus has no accessibility bus, so GTK's bridge to it is off (NO_AT_BRIDGE): it wrote a warning to
+      # standard error each time Octet started, which a user's desktop does not.
       - name: The examples (Linux, on a virtual screen)
         if: runner.os == 'Linux'
         timeout-minutes: 20
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          NO_AT_BRIDGE: "1"
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/run-all.mjs examples-out
       - name: The examples (Windows)
         if: runner.os == 'Windows'
         timeout-minutes: 20
         run: node scripts/examples/run-all.mjs examples-out
+      # A script that sends one request and closes its end of the pipe gets the answer, and Octet ends with code 0
+      # (scripts/examples/one-request.mjs starts Octet with pipes, as a script does). RUST_BACKTRACE: a panic prints
+      # where it happened.
+      - name: One request, then the end of input (Linux, on a virtual screen)
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        timeout-minutes: 5
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          NO_AT_BRIDGE: "1"
+          RUST_BACKTRACE: "1"
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/one-request.mjs
+      - name: One request, then the end of input (Windows)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        timeout-minutes: 5
+        env:
+          RUST_BACKTRACE: "1"
+        run: node scripts/examples/one-request.mjs
       - name: --convert to PDF and SVG (Linux, on a virtual screen)
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         timeout-minutes: 10
@@ -332,17 +352,19 @@ jobs:
       - name: The installed Octet is where the scripting page says, and answers a script
         shell: pwsh
         timeout-minutes: 5
+        env:
+          RUST_BACKTRACE: "1"
         run: |
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/S' -Wait
           $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
           if (-not (Test-Path $exe)) { throw "no $exe" }
-          $hello = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
-          $reply = $hello | & $exe --headless --mcp
-          Write-Output "$exe answered: $reply"
+          $env:OCTET = $exe
+          node scripts/examples/one-request.mjs
+          $answered = $LASTEXITCODE
           Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
           Start-Sleep -Seconds 5
-          if (-not ("$reply" -match '"serverInfo"')) { throw "no answer to initialize" }
+          if ($answered -ne 0) { throw "no answer to initialize, or not exit 0" }
       # Octet's crash log, where the server writes what it refused and why.
       - name: Octet's log
         if: always()

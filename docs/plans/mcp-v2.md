@@ -1749,6 +1749,35 @@ Tests are in `mcp-v2-tests.md`, section 15.
   office-objects job checks that the release installer puts `octet.exe` at the page's Windows path and that it answers
   initialize. Nothing installs a `.deb`, `.rpm` or AppImage, so the Linux paths
   are not checked. Not run yet when written: the job runs on push to main, or by hand.
+- As built (branch `mcp/ci2`), after run 43125258175 (12 November 2026) found three faults. (1) On Linux each
+  `--headless` run wrote about 5,000 GTK warnings ("no accelerator ... installed in accel group") to standard error:
+  muda 0.20 writes one for each shortcut each time a menu bar comes off a GTK window. With no window Octet now puts no
+  menu bar on any window (the page still reads the commands). The windowed app on Linux still writes these warnings
+  each time the menu is built again (a new list of keys, colours or fonts) and each time a drawing closes: a muda patch
+  or upgrade, or a Linux menu built once and changed in place, is Sam's call. (2) On Windows the installed Octet
+  panicked in tao ("event handler is re-entrant") when a script sent one initialize line and closed its end, and wrote
+  no reply. initialize is answered through the page, and its reply is written before the old exit could run, so the
+  panic came before any reply, while the page was starting. Two changes are candidates, and neither is proven: no menu
+  bar with no window (the page's lists no longer set a menu on the hidden window), and an end from the event loop
+  (the hidden windows close, then `app.exit` with the code, in place of `std::process::exit` on Octet's thread).
+  `say` still ends with `std::process::exit(1)` when standard output is closed. The Scripts job pipes one initialize
+  into the built Octet on both systems, with `RUST_BACKTRACE`, as does the Office objects job's installed-path step.
+  (3) On Windows the same draw calls put a drawing 6 pt lower in one process than in another. A first draw in an empty
+  Quick start drawing went level with the middle of the view. It now goes 2 bond lengths above the page's middle, from
+  the drawing and its style alone, in a shown window too (Host.centre is gone). Only the next GitHub run can show that
+  the warnings, the panic and the 6 pt are gone. run-all prints the first 20 lines of each run's error output, and
+  drops only lines in Chromium's own form (`[MMDD/HHMMSS.mmm:ERROR:file:line]`), which WebView2 wrote as Octet ended,
+  and says how many.
+- Run 43138809476 (12 November 2026, `mcp/ci` at 7741fa8) passed every job, so step 11 is done on the Mac, Windows
+  and Linux: the four examples in both languages print the page's lines and write identical files on both systems; one
+  request then the end of input is answered with exit code 0 on both and on the installed Windows program at the
+  page's path (`%LOCALAPPDATA%\Octet Draw\octet.exe`); `--convert` makes the PDF and the SVG on both. Linux wrote no
+  GTK warning with no window, and the Windows files no longer differ by 6 pt. The Windows fault of the first run was
+  the test's: PowerShell's own pipe into a window program does not wait for it or read its answer (run 43136709661
+  gave no exit code and no reply in 0.4 s, on the build whose examples passed). The test now starts Octet with pipes,
+  as a script does (`scripts/examples/one-request.mjs`). Whether a chemist's own PowerShell pipe into `octet.exe` can
+  be made to work is not looked at: the page's client is the way in. `/usr/bin/octet` and the AppImage path are still
+  not checked, as nothing installs a Linux package.
 - For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
   given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
   gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the

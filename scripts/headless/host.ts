@@ -290,7 +290,6 @@ export function drawing(purpose = "paper", title = "Untitled") {
     formula: (m) => { try { return analyseCompound(m)?.formula; } catch { return undefined; } },
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     picture: async () => undefined,
-    centre: () => [0, 0], // a new drawing opens with the page's middle in the window's middle
     restyle: (next) => { set({ ...scaleSizes(doc, next.scale / style().scale), style: next }); },
     experiment: expPage,
     said: (text) => { told.push(text); },

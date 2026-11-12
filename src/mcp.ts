@@ -71,7 +71,6 @@ export type Host = {
   // The drawing (or this state of it) as a PNG, base64: only `crop` (a box, bond lengths), its long side at most
   // `longest` px (1000 by default).
   picture: (m?: Mol, crop?: Box, longest?: number) => Promise<string | undefined>;
-  centre: () => P; // the middle of the view, drawing units
   restyle: (s: DocStyle) => void; // Document settings (one undo step)
   experiment: () => boolean; // the drawing is an experiment page
   said: (text: string) => void; // tells the user what an AI app did, with Undo
@@ -904,8 +903,10 @@ function origin(host: Host, m: Mol): P {
   const b = drawnBox(host, m);
   if (b) return [b[0], b[1] - PAD];
   // On an empty page: at its left and top margins (15 mm), so that a scheme has the whole page under it. Where the
-  // page's edges do not show (Quick start), level with the middle of the view.
-  return [leftMargin(s), s.edges ? (h / 2 - 15) * k : host.centre()[1] + 2];
+  // page's edges do not show (Quick start), 2 bond lengths above the page's middle, where a new window's view has its
+  // middle. From the drawing and its style alone, never from the window, so the same calls draw the same file in any
+  // window or run. The call's work comes into view when it ends.
+  return [leftMargin(s), s.edges ? (h / 2 - 15) * k : 2];
 }
 const boxOf = (m: Mol): Box => {
   const xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);

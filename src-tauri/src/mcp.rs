@@ -977,27 +977,26 @@ pub fn call(app: &AppHandle, window: &str, tool: &str, args: serde_json::Value) 
 pub fn stdio(app: &AppHandle) {
     let shared = app.state::<Mcp>().shared.clone();
     let out: Arc<Mutex<Out>> = Arc::new(Mutex::new(Box::new(std::io::stdout())));
-    let (mut sid, mut waiting) = (None::<String>, Vec::new());
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
+    let mut sid = None::<String>;
+    lines_then_end(std::io::stdin().lock(), |line| {
         let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
             say(&out, &error_reply(None, -32700, "The request is not JSON."));
-            continue;
+            return None;
         };
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let Some(id) = message.get("id").filter(|_| !method.is_empty()) else {
             cancel(&shared, &message, sid.as_deref());
             answered(&shared, &message, sid.as_deref());
-            continue;
+            return None;
         };
         let (client, session, window, lost, brief, unset, elicit) = match direct(app, &shared, id, method, &message, sid.as_deref(), false) {
             Routed::Answer(r) => {
                 say(&out, &r);
-                continue;
+                return None;
             }
             Routed::Unknown => {
                 say(&out, &error_reply(Some(id), -32001, "This session has ended. Send initialize again."));
-                continue;
+                return None;
             }
             Routed::Call { client, session, window, lost, brief, unset, elicit } => (client, session, window, lost, brief, unset, elicit),
         };
@@ -1012,7 +1011,7 @@ pub fn stdio(app: &AppHandle) {
         }
         let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, READY));
         let (app, shared, out, id) = (app.clone(), shared.clone(), out.clone(), id.clone());
-        waiting.push(std::thread::spawn(move || {
+        Some(std::thread::spawn(move || {
             let reply = match sent {
                 Some(Ok(sent)) => answer(&app, &shared, sent, &id, |p| { say(&out, p); true }),
                 Some(Err(r)) => r,
@@ -1020,7 +1019,18 @@ pub fn stdio(app: &AppHandle) {
             };
             finished(&shared, session.as_deref());
             say(&out, &reply);
-        }));
+        }))
+    });
+}
+
+// Each line of `input` to `take`, which answers it at once (None) or on a thread of its own. At the end of input,
+// every answer under way is written before this returns and Octet ends: a script that sends its requests and closes
+// its end gets every reply.
+fn lines_then_end(input: impl BufRead, mut take: impl FnMut(String) -> Option<std::thread::JoinHandle<()>>) {
+    let mut waiting = Vec::new();
+    for line in input.lines() {
+        let Ok(line) = line else { break };
+        waiting.extend(take(line));
         waiting.retain(|t| !t.is_finished());
     }
     waiting.into_iter().for_each(|t| drop(t.join()));
@@ -1281,6 +1291,25 @@ fn app_version() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A script that sends its requests in one write and closes its end (`printf ... | octet --headless --mcp`): each
+    // request read is answered, the slowest last, before Octet ends. One that is answered at once takes no thread.
+    #[test]
+    fn every_request_read_is_answered_before_the_end() {
+        let said = Arc::new(Mutex::new(Vec::new()));
+        lines_then_end(&b"slow\nnow\nquick"[..], |line| {
+            let said = said.clone();
+            if line == "now" {
+                said.lock().unwrap().push(line);
+                return None;
+            }
+            Some(std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(if line == "slow" { 300 } else { 10 }));
+                said.lock().unwrap().push(line);
+            }))
+        });
+        assert_eq!(*said.lock().unwrap(), ["now", "quick", "slow"]);
+    }
 
     // What the relay wrote, one message a line.
     #[derive(Clone, Default)]
