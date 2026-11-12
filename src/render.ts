@@ -17,6 +17,7 @@ import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 import type { Measured } from "./measured.ts";
 import type { Plot, PlotPart } from "./pageplot.ts";
+import type { Model3d } from "./model3d.ts";
 
 type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
@@ -120,6 +121,9 @@ export type Bond = {
   // At each end that is a label keeping its atoms (inner), the atom of that group the bond joins; -1 is none. A residue
   // label (Ala) bonds on both sides, to its N and to its C=O (ChemDraw's BeginExternalNum and EndExternalNum).
   ports?: [number, number];
+  // A bond Octet made from the distance between two atoms of a crystal file (crystal.ts), not drawn by a chemist: Check
+  // Structure leaves its structure out.
+  distance?: true;
 };
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
 // none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
@@ -432,7 +436,8 @@ export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
 // spectra: measured spectra (measured.ts), at most one for each key (¹H, ¹³C, IR and so on), shown in the Spectrum panel.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[] };
+// models: 3D models of structures (model3d.ts), drawn beside or in place of them.
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[]; models?: Model3d[] };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.
