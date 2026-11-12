@@ -7369,7 +7369,6 @@ export default function Editor() {
       const side = (k: string) => Number(new RegExp(` ${k}="([\\d.]+)pt"`).exec(head ?? "")?.[1] ?? 0), dpi = Math.min(crop ? 1200 : 150, (longest * 72) / Math.max(side("width"), side("height"), 1));
       return svgText && TAURI ? invoke<string>("mcp_png", { svg: svgText, dpi }) : undefined;
     },
-    centre: () => toDoc(innerWidth / 2, innerHeight / 2),
     restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
     experiment: () => expPage,
     said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },

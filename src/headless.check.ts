@@ -734,6 +734,14 @@ try {
   assert.ok(!(await draw()).isError && forms.length === 1, "the session keeps the brief");
 }
 
+// The first draw in a new Quick start drawing, as Octet with no window opens it, lands at these numbers: from the
+// drawing and its style alone (on Windows the same calls in two runs drew 6 pt apart, 12 November 2026).
+{
+  const q = drawing("quick", "First"), r = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "draw", arguments: { structures: [{ text: "benzene", number: "1", caption: "benzene" }] } } }), () => q.host, "1", session("Check", "first"))).result;
+  assert.ok(!r.isError, r.content[0].text);
+  assert.deepEqual(q.host.ink(q.host.doc().atoms.map((_, i) => i))!.map((v) => +v.toFixed(3)), [-17.408, -1.003, -15.36, 0.771]);
+}
+
 // The scripting page's examples (docs/scripting.md, plan 18.2) as they are, against Octet with no window on standard
 // input and output (scripts/headless/stdio.ts), so an argument of a tool that changes breaks this and not a user's
 // script. scripts/examples/run-all.mjs (which platforms.yml runs on Windows and Linux) makes two schemes, which are
