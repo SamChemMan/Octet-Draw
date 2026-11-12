@@ -4,6 +4,7 @@ import { AROMATIC, HBOND, hydrogens, labelInk, NONMETAL, orderOf, QUADRUPLE, sca
 import { arialInk } from "./cdxml.ts";
 import { fontStack } from "./docstyle.ts";
 import { chemicalText, labelSmiles, writtenOxidation } from "./labels.ts";
+import { onNicknamesChange } from "./nicknames.ts";
 import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn, perspectiveBonds, pickAtoms, renumberCentre, sandwich, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
@@ -990,13 +991,23 @@ function placeWedges(m: Mol, hands: Map<number, number>, stereo = stereoFacts(m)
   return { ...m, atoms, bonds };
 }
 
+// A label's group from its SMILES (labelSmiles), its first atom the one bonded to the drawing. Indigo marks a first
+// atom in brackets with a bond to spare a radical ([Si] of TMS, [Se] of SePh): that bond is the one to the drawing,
+// so the mark goes.
+export function labelFragment(smiles: string): Mol {
+  const m = parseStructure(smiles);
+  if (!m.atoms[0]?.radical) return m;
+  const { radical: _, ...first } = m.atoms[0];
+  return { ...m, atoms: [first, ...m.atoms.slice(1)] };
+}
 // Each label's group as Indigo reads it, kept by the label's text, so each label is read once. Not kept while Indigo
 // is loading. Cleared when it grows large.
 const labelGroups = new Map<string, Mol | undefined>();
+onNicknamesChange(() => labelGroups.clear());
 function labelGroup(text: string): Mol | undefined {
   if (labelGroups.has(text)) return labelGroups.get(text);
   let frag: Mol | undefined;
-  try { const smiles = labelSmiles(text); frag = smiles ? parseStructure(smiles) : undefined; } catch { frag = undefined; }
+  try { const smiles = labelSmiles(text); frag = smiles ? labelFragment(smiles) : undefined; } catch { frag = undefined; }
   if (!indigo) return frag;
   if (labelGroups.size >= 1000) labelGroups.clear();
   labelGroups.set(text, frag);
@@ -1701,6 +1712,8 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 // standard InChI (names.ts abbreviationOf), given as each structure's abbreviation (TREN).
 export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat; abbreviation?: string }[];
 const analysed = new Map<string, Analysis | undefined>(), inchis = new Map<string, string | undefined>();
+// A label of the user's own may mean another structure after their nicknames change: what was read is read again.
+onNicknamesChange(() => { analysed.clear(); inchis.clear(); labelled.clear(); factsKept.clear(); structured.clear(); });
 export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | undefined) => string | undefined): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
   const out: Analysis = [], parts = pieces(mol);
