@@ -43,10 +43,10 @@ async function shown(name: string, args: unknown, s?: string, said?: (r: any) =>
 assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
 // Round 4: the scope's example names an amine whole, and says where it joins: a model given "the products R2N–X from
 // these amines" had written every product out as SMILES.
-assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at its NH\)/);
-// Round 5: a step the user says in words is a change; the line shows both and a class (paper-five-step's models wrote
-// five SMILES by hand), and each of its changes reads.
-assert.match(NOTATION, /3\[\.\.\] changes 3: both OH>OBn, 2° OTBS>OH, /);
+assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at N\)/);
+// Round 5: a step the user says in words is a change; the line shows both, a class and a set at a map number
+// (paper-five-step's models wrote five SMILES by hand), and each of its changes reads.
+assert.match(NOTATION, /3\[\.\.\] changes 3: both OH>OBn, 2° OTBS>OH, 7:OTBS /);
 { const line = /3\[\.\.\] changes 3: (.*?)\. R=/.exec(NOTATION)![1]; assert.ok(typeof fromLines({ lines: `3[${line.replace(/ \(map \[C:7\]\)/, "").replaceAll(",", ";")}] (4)` }) !== "string", line); }
 // Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
@@ -101,6 +101,14 @@ assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATIO
 R=nortropinone (7g) 34% | R=3-methoxyazetidine (7h) 81% | R=N-ethylcyclohexylamine (7i) 69% | R=N-(2-methoxyethyl)methylamine (7j) 86% | R=dimethylamine (7k) 88% | benzyl (2S,4S)-2-tert-butyl-5-oxo-4-[2-(2,2,6,6-tetramethylpiperidin-1-yl)ethyl]-1,3-oxazolidine-3-carboxylate (7l) 61% (>20:1 d.r.)` })) as { structures: string[] };
   const loose = (x: string) => (x.startsWith("7f=") ? x.slice(0, 17) : x);
   assert.deepEqual(got.structures.map(loose), want.structures.map(loose));
+  // Only (cis) or (trans) goes with the group: other words in brackets before the number are dropped, as before, so
+  // R=Me (S) is methyl and X=Cl (racemic) chloro.
+  const kept = fromLines({ lines: "{R}c1ccc(cc1)C(C)=O: R=Me (S) (5b) | R=Cl (racemic) (5c) | R=3-azabicyclo[3.1.0]hexane (cis) (5d)" }) as { args: { structures: { labels: string[] }[] } };
+  assert.deepEqual(kept.args.structures.map((s) => s.labels[0]), ["Me", "Cl", "3-azabicyclo[3.1.0]hexane (cis)"]);
+  // labels take 7f's 47 characters for the scope to join, but a label that stays one is at most 40, as the CDXML reader
+  // keeps (it had drawn, and read back cut with "label text" lost).
+  const long = (await shown("draw", { structures: [{ text: "*c1ccccc1", labels: ["2,3,4,5-tetrahydro-1H-1,5-methano-3-benzazepinyl"] }] })) as { refused: string };
+  assert.match(long.refused, /^Octet drew nothing\. labels\[0\]: longer than 40 characters\.$/);
 }
 
 // ---- The paper corpus and the taxol route, as notation ----

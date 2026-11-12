@@ -1968,12 +1968,13 @@ SMILES, because the model worked out every SMILES itself.
   Claude Code before 2.1.296 cut them at 2,048 and lost the help line. The same instructions, in fewer words.
 - **A scope from the user's names.** paper-scope as one scope (the shared part once, R= each amine as the user named
   it, 7l whole in the grid, two rows of six) draws the twelve structures its check wants. For that: a group's name can
-  be past 40 characters (labels take 300, as text does); words in brackets before a scope compound's number stay with
-  its group (`R=3-azabicyclo[3.1.0]hexane (cis) (7e)`); a name with `(cis)` or `(trans)` after it reads as with it
+  be past 40 characters (labels take 300, as text does), but a label that stays a label is refused past 40, the most
+  the CDXML reader keeps; a `(cis)` or `(trans)` before a scope compound's number stays with its group
+  (`R=3-azabicyclo[3.1.0]hexane (cis) (7e)`), and other words in brackets there are dropped as before (`R=Me (S)`); a name with `(cis)` or `(trans)` after it reads as with it
   before (Name to Structure too); two N–H that are the same (piperazine) join at either. A group that cannot join (two
   N–H that differ, a word Octet cannot read) leaves out that compound only, with its line and "give it as a SMILES";
   the rest is drawn, as a name Octet cannot read is.
-- **NOTATION** shows `R=morpholine (5b)` and says "R= takes a label, SMILES or name (an amine joins at its NH)": 788
+- **NOTATION** shows `R=morpholine (5b)` and says "R= takes a label, SMILES or name (an amine joins at its NH)" (at N since round 5): 788
   characters from 765. tools/list 12,566 from 12,429 (111 of it the three `_meta`). The 36 replayed answers still score
   35.
 - **Names for whole compounds:** no words added. paper-three-step gives names and Opus kept them; paper-five-step
@@ -1989,14 +1990,14 @@ written only with `occurrence` (1st OTBS was the tertiary one, by atom order, wh
 numbers, and the acetonide 6 only with two map numbers.
 
 - **Which of a group, as the user says it.** A swap's group (and a label as `at` of set or remove) can start with
-  `both` or `all` (every one; `both` is for two, and the reply says `Changed 2 OH to OTBS.`) and a class for the carbon
+  `both` or `all` (every one; `both` is for two, and the reply says `Changed both OH to OTBS.`) and a class for the carbon
   that carries it: `1°`, `2°`, `3°`, also `prim`, `sec`, `tert` and `p-`, `s-`, `t-`. A name that is a label whole
   (`t-Bu`) is that label. One place in `compound.ts` (`each`) reads it for every caller: lines and JSON alike.
 - **Refused, never guessed:** a group there more than once with nothing to pick by is refused with its classes in words
-  (`OTBS is on a secondary and a tertiary carbon: write 2° OTBS or 3° OTBS for one, or both OTBS.`); a class that is not
+  (`OTBS is on a secondary carbon and a tertiary carbon: write 2° OTBS or 3° OTBS for one, or both OTBS.`); a class that is not
   there says the classes that are; places of one class keep the occurrence advice and add `both`.
 - **A kind of place for a named transformation:** `at` as a word names the places of that kind (`reduce lactone`,
-  `reduce ester`, `hydrolyse ester`, `deprotect acetonide`). A lactone is now called one in a refusal (it was "the ester").
+  `reduce ketone`, `reduce ester`, `hydrolyse ester`, `deprotect acetonide`). A lactone is now called one in a refusal (it was "the ester").
 - **The route in words:** `2[both OH>OTBS; CO2Et>CH2OH]`, `3[2° OTBS>OH; CH2OH>CH2OTBDPS; OH>OBn]`,
   `4[reduce lactone; OTBS>OH]` and `6[CH2OH>CHO]` from 2's SMILES with no numbers give the job's six InChIKeys
   (compound.check). The bench's taxol route with steps 3, 4, 5, 16 and 17 so written gives every compound too.
@@ -2005,6 +2006,17 @@ numbers, and the acetonide 6 only with two map numbers.
   6 is a SMILES, or `protect acetonide 4-20` with map numbers.
 - **The corpus:** none of the 88 reactant-to-product steps in `lines.json` is one such change (searched by trying
   each class, both and all swap among 30 labels, and reduce or hydrolyse by kind).
-- **Words:** instruction 3 says "with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps
-  stereocentres." (instructions 2,045 from 2,046). NOTATION's change line shows `both OH>OBn, 2° OTBS>OH` (786 from
-  788; tools/list 12,564 from 12,566). The 36 replayed answers still score 35.
+- **Words:** instruction 3 says "only with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps
+  stereocentres." (the given name or SMILES still comes first, round 3b), and "Colour only what is asked" stays:
+  instructions 2,044 from 2,046. NOTATION's change line shows `both OH>OBn, 2° OTBS>OH, 7:OTBS`: the plain swap
+  (`OBn>OTES`, the class form without a class), remove (`7:H`) and add (`7+OH`) left it for room. 784 characters from
+  788 (the scope line says "an amine joins at N"); tools/list 12,562 from 12,566. The 36 replayed answers still score
+  35.
+- **After review:** the classes are for an sp3 carbon only: a group on an aryl or other sp2 carbon has none (a phenol
+  is not 2°), and `p-`, `s-`, `t-` are classes only where the group is on an sp3 carbon (`p-OMe` on an arene is the
+  OMe). `primary`, `secondary` and `tertiary` in full are classes too. A refusal says each class once with how many
+  (`OH is on two secondary carbons and a tertiary carbon`), counts with a class in words (`there are two 2° OH`,
+  `Changed both 2° OH to OBn.`), and `both` or `all` with `occurrence` is refused. A kind of place is a site's own
+  field (aldehyde, ketone, acid, ester, lactone, acetonide, carbonate, acetal, epoxide; a CO2Et label is an ester), in
+  any letters, passed to the one place that picks a site; with none of that kind the refusal names the kinds there
+  (`reduce fits no aldehyde in this compound, only a ketone and an ester.`).

@@ -1547,9 +1547,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // later one is a change to it" read as a rule), could not, and said sorry to the user. The SMILES given come first.
   // Round 5: told each step in words (paper-five-step), models wrote five SMILES by editing the string in their heads,
   // so with neither, a step the user says is a change, shown with a class.
-  assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); with neither, write what a step does as a change \(3\[2° OTBS>OH\]\): it keeps stereocentres\./);
+  assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, write what a step does as a change \(3\[2° OTBS>OH\]\): it keeps stereocentres\./);
   // (A group is highlighted with highlight too: a shape is a frame or panel.)
   assert.match(ins, /To highlight an atom, bond, group or structure, use change's edit with highlight/);
+  // (Only what is asked takes colour: the line kept that when it was cut to fit 2,048 characters.)
+  assert.match(ins, / Colour only what is asked\./);
   // Claude Code before 2.1.296 cut a server's instructions at 2,048 characters: at 2,157 it lost the help line.
   assert.ok(ins.length <= 2048, `${ins.length}`);
   // No text an AI app is given names a v1 tool that is gone: the instructions, the tools, the prompts, and what

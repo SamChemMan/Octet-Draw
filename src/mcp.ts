@@ -767,11 +767,11 @@ const TOOLS: Tool[] = [
 const INSTRUCTIONS = `Octet Draw is the user's chemical drawing app. These tools draw in the user's open drawing and read it.
 - Before a scheme, route, figure, cycle or grid, ask the user these three questions unless answered: ${QUESTIONS} Give the answers as brief in the draw call ('quick' for no preference). One structure needs none.
 - Then make ONE draw call with lines: a reaction, a scheme, every scheme of a route (# titles), a grid or scope, or a catalytic cycle.
-- Write each compound as the name or SMILES you have (copy the user's); with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps stereocentres. A generic group or metal ligand is {R} ({L}[Pd]{L}).
+- Write each compound as the name or SMILES you have (copy the user's); only with neither, write what a step does as a change (3[2° OTBS>OH]): it keeps stereocentres. A generic group or metal ligand is {R} ({L}[Pd]{L}).
 - Do not sort conditions: list them after the product in any order. An amount goes in brackets after its compound or reagent ('PhB(OH)2 (1.5 equiv)'). An experiment page's reagent table takes amounts through advanced fill_experiment.
 - The reply lists each compound as Octet read it (number, id, formula or =id if drawn again; a name only if read as another), warnings and check. When check is "clean", tell the user it is drawn in a sentence or two, only what differs from their request; no read or picture unless asked how it looks. When it names ids, fix those in one change call. Ids: s structures, t text, a arrows, b shapes, c cycles, g5 a5's reagent table; a number and conditions move with what they belong to. detail: 'full' on any write call adds all it changed, with boxes.
-- To match a picture, give a compound hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
-- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only if asked.
+- To match a picture, give hints (up, down, left, right, rotate, flip) in draw's structures or change's replace.
+- To highlight an atom, bond, group or structure, use change's edit with highlight (ring_fill for a ring), not a shape. Colour only what is asked.
 - Each call is one undo step. Never delete the user's work unless asked.
 - advanced help gives the arguments of every draw kind, change op and tool.`;
 // The instructions for an AI app that takes elicitation (plan 3.1; mcp.rs reads that from its initialize): Octet asks
@@ -903,6 +903,10 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
       const no = joined.find(([, g]) => typeof g === "string");
       // (One that cannot join is left out, as a name Octet cannot read is, and the rest is drawn.)
       if (no) { failed.push({ text: short(at.get(no[0])!, 60), line, why: no[1] as string }); lost.push(k); continue; }
+      // labels take a scope's amine names (300 characters), but one that stays a label is at most 40, as the CDXML
+      // reader keeps, so the file reads back the same.
+      const long = [...at.keys()].findIndex((i) => at.get(i)!.length > 40 && !joined.some(([j]) => j === i));
+      if (long >= 0) { wrong.push(`labels[${long}]: longer than 40 characters.`); continue; }
       if (joined.length) mol = host.tidy(joined.reduce((x, [i, g]) => expandLabel(x, i, g as Mol), mol));
     }
     if (hinted(it)) {

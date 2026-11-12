@@ -31,7 +31,7 @@ Pd(0)L2 (1)
 -> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: both OH>OBn, 2° OTBS>OH, 7:H (map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at its NH). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: both OH>OBn, 2° OTBS>OH, 7:OTBS (map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at N). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;
@@ -200,7 +200,7 @@ function changesOf(block: string): Change[] | string {
     const t = words.join(" ").replace(/\s*(?:->|→)\s*/, ">"), c = (x: Change): Change => (config === undefined ? x : { ...x, config });
     let m: RegExpExecArray | null;
     if ((m = SWAP_AT.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, at: m[1] }));
-    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?((?:(?:both|all|[123]°|prim|sec|tert)\.?\s+)*[^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
+    else if ((m = /^(?:(\d+)(?:st|nd|rd|th)\s+)?((?:(?:both|all)\s+)?(?:(?:[123]°|prim(?:ary)?|sec(?:ondary)?|tert(?:iary)?)\.?\s+)?[^\s>:]+)\s*>\s*(\S+)$/.exec(t))) out.push(c({ swap: { [m[2]]: m[3] }, ...(m[1] ? { occurrence: Number(m[1]) } : {}) }));
     else if ((m = REMOVE.exec(t))) out.push(c({ at: m[1], remove: true }));
     else if ((m = SET.exec(t))) out.push(c({ at: m[1], set: m[2] }));
     else if ((m = ADD.exec(t))) out.push(c({ at: m[1], add: m[2] }));
@@ -607,9 +607,10 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
         t = t.replace(/^(.*=\s*\S+)\s+(\d{1,4}[a-z]{0,3}['′″]*)(?=\s|$)/, "$1 ($2)");
         const tail = /\s(?=[([]|\*\*|")|$/.exec(t)!, own = compound(`x${t.slice(tail.index)}`, known), values = new Map<string, string>();
         if (typeof own === "string") return wrong(at, own);
-        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=. Words in
-        // brackets before the number are the last group's (R=3-azabicyclo[3.1.0]hexane (cis) (7e)).
-        const given = (t.slice(0, tail.index) + (own.text?.slice(1) ?? "")).replace(/\s*=\s*/g, "=");
+        // The groups split as conditions are (2,4-Cl2C6H3 is one), and at a space before the next NAME=. A (cis) or
+        // (trans) before the number is the last group's (R=3-azabicyclo[3.1.0]hexane (cis) (7e)); other words there are
+        // dropped, as before ((S), (racemic)).
+        const given = (t.slice(0, tail.index) + (/^\s*\((?:cis|trans)\)$/i.test(own.text?.slice(1) ?? "") ? own.text!.slice(1) : "")).replace(/\s*=\s*/g, "=");
         for (const kv of cut(given, (i) => sepAt(given, i)).flatMap((x) => x.text.split(/\s+(?=[^\s=]+=)/)).map((x) => x.trim()).filter(Boolean)) {
           const m = /^([^=]+)=(.+)$/.exec(kv), k = m?.[1].trim();
           if (!m || !core.slots.includes(k!)) return `Line ${at}: "${kv.slice(0, 40)}" is not a group of the core (${core.slots.join(", ")}): write R=Me`;
