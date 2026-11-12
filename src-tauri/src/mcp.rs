@@ -1066,12 +1066,10 @@ fn lines_then_end(input: impl BufRead, mut take: impl FnMut(String) -> Option<st
 // so a cancel goes through while a call runs; a call's progress and the drawings' updates come through as lines too.
 // When Octet is not open (or AI apps are off), the relay answers initialize itself with empty lists, tries Octet again
 // every 2 s, and when it answers says the lists changed, so the tools appear with no restart of the AI app (D17).
+// At the end of standard input, each request read is answered before the relay ends (lines_then_end).
 pub fn relay(data_dir: Option<PathBuf>) {
     let relay = Relay::new(data_dir, Box::new(std::io::stdout()));
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        relay.take(line);
-    }
+    lines_then_end(std::io::stdin().lock(), |line| relay.take(line));
 }
 
 type Out = Box<dyn Write + Send>;
@@ -1112,14 +1110,14 @@ impl Relay {
     fn say(&self, line: &str) {
         say(&self.out, line)
     }
-    fn take(self: &Arc<Self>, line: String) {
-        let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else { return };
+    fn take(self: &Arc<Self>, line: String) -> Option<std::thread::JoinHandle<()>> {
+        let message = serde_json::from_str::<serde_json::Value>(&line).ok()?;
         if message.get("method").and_then(|m| m.as_str()) == Some("initialize") {
             let mut st = self.state.lock().unwrap();
             (st.hello, st.asks) = (Some(line.clone()), elicits(&message));
         }
         let me = self.clone();
-        std::thread::spawn(move || me.handle(&line, &message));
+        Some(std::thread::spawn(move || me.handle(&line, &message)))
     }
     fn handle(self: &Arc<Self>, line: &str, message: &serde_json::Value) {
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
@@ -1453,6 +1451,30 @@ mod tests {
         let all = out.all();
         assert_eq!(all[0]["method"], "notifications/progress");
         assert_eq!(all[1]["id"], 7);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // `printf '<initialize>\n<call>\n' | octet --mcp`: the relay ends at the end of its input only once Octet's slow
+    // reply to the call is written.
+    #[test]
+    fn the_relay_answers_every_request_before_it_ends() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-relay-end-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k3y","program":""}}"#)).unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut head = String::new();
+            let mut r = std::io::BufReader::new(s.try_clone().unwrap());
+            while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}");
+        });
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        lines_then_end(&br#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read"}}"#[..], |line| relay.take(line));
+        assert_eq!(out.all().first().map(|r| r["id"].clone()), Some(serde_json::json!(7)));
         let _ = std::fs::remove_dir_all(dir);
     }
 
