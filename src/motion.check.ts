@@ -119,9 +119,9 @@ assert.ok(!/transform|translate|transition|animation/.test(rule(".mcp-stage")), 
 // each call ends, while the pill still shows. So a notice sits above the pill for as long as the overlay is there: up
 // by the pill's height and a space. The rule needs the notice to come after the overlay in the editor.
 const space = (n: number) => parseFloat(new RegExp(`--space-${n}: ([\\d.]+)px;`).exec(tokensCss)![1]);
-const pill = rule(".mcp-pill"), lift = /translate: 0 calc\(-(\d+)px - var\(--space-2\) - var\(--dock, 0px\)\);/.exec(rule(".mcp-magic ~ .notice"));
+const pill = rule(".mcp-pill"), lift = /translate: 0 calc\(-(\d+)px - var\(--space-2\)\);/.exec(rule(".mcp-magic ~ .notice"));
 assert.match(pill, /bottom: calc\(var\(--space-6\) \+ var\(--dock, 0px\)\);[\s\S]*padding: var\(--space-1\) [\s\S]*border: 1px /);
-assert.match(rule(".notice"), /bottom: var\(--space-6\);/);
+assert.match(rule(".notice"), /bottom: calc\(var\(--space-6\) \+ var\(--dock, 0px\)\);/);
 assert.equal(Number(lift?.[1]), parseFloat(/min-height: (\d+)px;/.exec(pill)![1]) + 2 * space(1) + 2, "a notice is up by the pill's height, so the pill covers none of it");
 assert.match(read("./Editor.tsx"), /<Exit>\{magic && <McpMagic [^\n]*\n\s*<Exit>\{notice && <NoticeBar /);
 // A screen reader reads out who draws and the steps, as each changes. How far a call is changes many times in a call,

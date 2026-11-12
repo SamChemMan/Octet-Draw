@@ -6,7 +6,7 @@
 // atom (Atom.tag), never draws it and writes it to no file. A change with more than one reading is refused with the
 // places Octet found: it never guesses.
 import { bend, bondedTo, bondIndex, bondOrders, bondTo, deleteAtoms, deleteBond, flipBond, merge, nextDirection, pickAtoms, pos, reach, ringBonds, scaleAt, setBondSpec, setElement, setLabel, sprout, type P } from "./edit.ts";
-import { GROUPS, isElement, isGeneric, labelSmiles } from "./labels.ts";
+import { GROUPS, givenLabel, labelSmiles, unknownLabel } from "./labels.ts";
 import { classes, expandWithOrigins, labelHits, parseStructure, stereoFacts, stereoLabels, toInchiKey, toMolfile, toSmiles } from "./chem.ts";
 import { problems } from "./check.ts";
 import { NAMED, TO, WITH } from "./named.ts";
@@ -54,9 +54,15 @@ function groupOf(text: unknown): { order: number; label: string } | undefined {
   const x = typeof text === "string" && text.length <= 40 ? /^([=#]?)\s*([^\s\u0000-\u001f\u007f]+)$/.exec(text.trim()) : null;
   return x ? { order: x[1] === "=" ? 2 : x[1] === "#" ? 3 : 1, label: x[2] } : undefined;
 }
+// An atom with the label an AI app gives it, set as the editor sets a typed label, but kept from its attachment atom
+// (MeO as OMe: labels.ts givenLabel). Ar on an atom with a bond is an aryl group, as it is for a *: argon has no bonds.
+export function labelled(m: Mol, i: number, label: string): Mol {
+  const text = givenLabel(label);
+  return text === "Ar" && m.bonds.some((b) => b.atoms.includes(i)) ? { ...m, atoms: m.atoms.map((x, k) => (k === i ? { ...x, label: "*", text, runs: undefined } : x)) } : setLabel(m, i, text);
+}
 // The label written on an atom, as a chemist types one. A group's name that is also an element's symbol is the group
 // (Ac is acetyl here, not actinium), as it is in a compound's labels.
-const written = (m: Mol, i: number, label: string): Mol => (GROUPS[label] ? { ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, label: "C", text: label } : a)) } : setLabel(m, i, label));
+const written = (m: Mol, i: number, label: string): Mol => (GROUPS[label] ? { ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, label: "C", text: label } : a)) } : labelled(m, i, label));
 // A structure with a carbon-9 where the rest of the compound is, as an InChIKey: two groups with one key are the same
 // group joined the same way. None for a structure Indigo cannot read.
 const CAP = { label: "C", isotope: 9 };
@@ -218,15 +224,15 @@ export function change(from: Mol, changes: Change[], other?: (name: string) => M
   };
   // A new group, as text. Octet reads a label as it is on a single bond (labels.ts), which is wrong for some labels on
   // a double or triple bond (=CHCO2Et comes out with no C=O): such a label is taken only when it reads the same with
-  // the hydrogens a single bond gives its first atom (CH2CO2Et). A label Octet cannot read, and that is no element
-  // or generic group (R, X), is drawn as text with no structure, as a chemist's own label is: the reply says so, as it may be a
+  // the hydrogens a single bond gives its first atom (CH2CO2Et). A label Octet cannot read, and that stands in for no
+  // group (R, X, Ar), is drawn as text with no structure, as a chemist's own label is: the reply says so, as it may be a
   // slip (OTBDSP).
   const fresh = (text: unknown): { order: number; label: string } | string => {
     const g = groupOf(text);
     if (!g) return `${String(text).slice(0, 40)} is not a group: give a label (OTBS, CH2OH, =O)`;
     const x = g.order > 1 ? /^([A-Z][a-z]?)(?:H(\d*))?(.*)$/.exec(g.label) : null, h = x ? (x[2] === undefined ? 0 : Number(x[2] || 1)) + g.order - 1 : 0;
     if (x && labelKey(g.label).key !== labelKey(`${x[1]}H${h > 1 ? h : ""}${x[3]}`).key) return `Octet cannot read ${g.label} on a ${g.order === 2 ? "double" : "triple"} bond: give the compound as text`;
-    if (!isElement(g.label) && !labelKey(g.label).atoms && !isGeneric(g.label)) note(`Octet cannot read ${g.label} as a group: it is drawn as a label with no structure.`);
+    if (unknownLabel(g.label)) note(`Octet cannot read ${g.label} as a group: it is drawn as a label with no structure.`);
     return g;
   };
   // A group put in a part's place: the part's first atom becomes the group's label where it is, on the same bond (with

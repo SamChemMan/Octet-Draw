@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, analyseCompound, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -18,7 +18,7 @@ import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, s
 import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
 import { experimentPage, newExperiment, newGrids } from "../../src/experiment.ts";
-import { interpret, type Part } from "../../src/interpret.ts";
+import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
@@ -28,6 +28,9 @@ import { onTop } from "../../src/order.ts";
 import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
+import { toCt, toSln } from "../../src/textformats.ts";
+import { toFasta, toHelm } from "../../src/helm.ts";
+import { toChemfig } from "../../src/chemfig.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
@@ -183,13 +186,13 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const m = doc, d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
-      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), reagent,
-      bottom: (id) => d.captionBox(id)?.[1],
+      structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)), reagent,
+      captionBox: d.captionBox,
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
     }).map((v) => {
       const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
-      return { arrow: v.arrow, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
+      return { arrow: v.arrow, view: v, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
     });
   };
   // The reaction steps in a drawing or a part of it, for RXN files and reaction SMILES (the editor's stepsIn): each
@@ -214,11 +217,18 @@ export function drawing(purpose = "paper", title = "Untitled") {
     try {
       if (format === "cdxml") return cdxml();
       if (format === "cdx") return toBase64(xmlToCdx(parseXml(cdxml())));
+      if (format === "chemfig") { const d = drawn(m); return toChemfig(m, d.frame, d.measure) || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
       if (format === "inchi") return toInchi(chem) || undefined;
       if (format === "mol" || format === "mol2000") return toMolfile(chem, format === "mol2000");
       if (format === "sdf") return toSdf(chem);
+      // File > More Formats' text formats, as the editor's chemistryOf writes them.
+      if (format === "cml") return toCml(chem);
+      if (format === "ct") return toCt(chem, title);
+      if (format === "sln") return toSln(chem);
+      if (format === "helm") return toHelm(chem, toInchi, toSmiles);
+      if (format === "fasta") return toFasta(chem, toInchi);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
       // (No pictures and no .oct here: a picture needs the app's renderer.)
@@ -241,7 +251,14 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (!cleanReactions((r) => withStructure(r) && r.atoms.some((i) => touched.has(i)), m)) set(m);
       return true;
     },
-    clean_reaction: () => { const s = selected(); cleanReactions((r) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i))); return true; },
+    // As the editor's: laid out, then each product turned to lie as its starting material and laid out again, at once.
+    clean_reaction: () => {
+      const s = selected(), pick = (r: Reaction) => !s || r.arrows.some((id) => s.items.includes(id)) || r.atoms.some((i) => s.atoms.includes(i));
+      cleanReactions(pick);
+      const d = drawn(doc), m = turnScheme(doc, d.arrows, (id) => findReaction(doc, id, d.arrows, d.ink, d.captionBox), d.captionBox, pick, mapReaction, pickAtoms);
+      if (m !== doc) cleanReactions(pick, m);
+      return true;
+    },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };
@@ -293,6 +310,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     window: () => ({ id: "headless", name: title }),
     windows: async () => [],
     target: async (_session, id) => id === "headless",
+    close: async () => "theirs" as const,
   };
   return { host, told };
 }

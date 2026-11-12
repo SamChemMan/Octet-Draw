@@ -12,6 +12,7 @@ for file in sys.argv[1:]:
         found += 1
         continue
     warnings = o.call("read", {"detail": "full"})["warnings"]
+    o.call("drawings", {"action": "close"})
     print(f"{os.path.basename(file)}: " + (f"{len(warnings)} to look at" if warnings else "clean"))
     for w in warnings:
         label = w.get("atom") or w.get("structure") or " and ".join(w.get("ids", []))

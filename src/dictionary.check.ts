@@ -102,8 +102,10 @@ const CONDENSED: Record<string, string> = {
 };
 for (const [f, want] of Object.entries(CONDENSED)) { assert.equal(keyOf(condensedSmiles(f)), want, f); assert.equal(read(f), want, f); }
 // Each reading by hand: acetone (CO a ketone), DMSO (SO a sulfoxide), dimethyl sulfone, pentane ((CH2)3 a chain),
-// trifluoroacetic acid, nitrobenzene, acetonitrile (a triple bond left to fill), propan-2-ol (a bracket on CH).
+// trifluoroacetic acid, nitrobenzene, acetonitrile (a triple bond left to fill), propan-2-ol (a bracket on CH). An O
+// or S alone in a bracket is double-bonded, as chemists write a carbonyl, a sulfoxide and a sulfone (C(O), S(O)2).
 const BY_HAND: Record<string, string> = {
+  "CH3C(O)CH3": "CC(C)=O", "CH3C(O)OEt": "CCOC(C)=O", "CH3S(O)CH3": "CS(C)=O", "CH3S(O)2CH3": "CS(C)(=O)=O", "CH3C(S)NH2": "CC(N)=S",
   CH3COCH3: "CC(C)=O", CH3SOCH3: "CS(C)=O", CH3SO2CH3: "CS(C)(=O)=O", "CH3(CH2)3CH3": "CCCCC", CF3COOH: "OC(=O)C(F)(F)F",
   PhNO2: "[O-][N+](=O)c1ccccc1", CH3CN: "CC#N", "CH3CH(OH)CH3": "CC(C)O", "(CH3CO)2O": "CC(=O)OC(C)=O", HCOOH: "OC=O",
 };

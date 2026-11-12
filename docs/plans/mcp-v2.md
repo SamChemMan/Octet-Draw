@@ -1424,8 +1424,8 @@ in `docs/plans/mcp-v2-corpus-faults.md`. Grouped:
 
 | Group | Faults | Where |
 |---|---|---|
-| Labels not read, with no warning | `Bpin`, `BBN` (read as B-B-N), `F3B`, `D`, `Allyl`, `Vinyl`, `OtBu`, hyphenated `t-Bu`, `i-Pr`, `n-Bu`, `4-ClPh`. A nonsense label gets the same silent reply. | `src/labels.ts`; the reply in `read()` |
-| Labels read wrong | `Ar` drawn as phenyl (the tool description's own example); `NC` as an isocyanide; `P(O)(OEt)2`; `BF3K` warned though right; a radical marked on Si or N of an expanded label in `read_drawing`'s SMILES | `src/labels.ts`, `src/chem.ts` |
+| Labels not read, with no warning | `Bpin`, `BBN` (read as B-B-N), `F3B`, `D`, `Allyl`, `Vinyl`, `OtBu`, hyphenated `t-Bu`, `i-Pr`, `n-Bu`, `4-ClPh`. A nonsense label gets the same silent reply. **Done on `mcp/labels` (11 November):** each is read, and a result names every label Octet does not read. Still not read, and named in the result: ChemDraw's `i-C3H7`, `t-C4H9`, `t-Butyl`, `t-Boc`, `p-Tolyl`, `c-Hx` and its Am names; `CDCl3` and `CD3OD`; a phenyl with two different groups on it. Every path that takes a label from an AI app goes through `givenLabel` and `unknownLabel` (`src/labels.ts`): a * of a compound in JSON or lines (`{R}`, a scope's `R=`), an atom of a molecule, `edit`'s label and a change's new group (`compound.ts` `labelled`). A label given as runs (a molecule atom's `runs`, `edit`'s `runs`) is kept as written: its runs are the text and styles the AI app asked for. A nitrile written from its N (`MeCN`, `NCMe`) and a label written round a stand-in after its first atom (`OPG`, `HNu`, `MLn`, `CO2Alkyl`) were found after the merge: the first is named as not read (it had been read as an amine), the second is not named. | `src/labels.ts`; `readAs` and `unreadNote` in `src/mcp.ts` |
+| Labels read wrong | `Ar` drawn as phenyl (the tool description's own example); `NC` as an isocyanide; `P(O)(OEt)2`; `BF3K` warned though right; a radical marked on Si or N of an expanded label in `read_drawing`'s SMILES. **Done on `mcp/labels`:** all five. `NC` for a * in an AI app's call is the nitrile; `NC` typed in the editor stays an isocyanide until Sam has tried it in ChemDraw 22.2. **Open for Sam:** the editor's `NC` (an isocyanide) and the editor's `Ar` on a bonded atom (still argon, through `setLabel`), where every MCP path makes `NC` the nitrile and `Ar` an aryl *. | `src/labels.ts`, `src/chem.ts`, `src/mcp.ts` |
 | Salts | A salt given as one compound becomes two structures with the same number. No structure has the salt's InChIKey, and the scheme does not wrap. | `read()`, `place()` in `src/mcp.ts` |
 | Layout | `draw_structures` picks columns by count, not by the page or by label widths. A one-step reaction that is too wide is not fitted. A `structure:` line over an arrow gets no room. A wrapped second product drops out of the reaction as read. Side-arrow text on a cycle overlaps. | `src/mcp.ts`, `src/reaction.ts`, `src/cycle.ts` |
 | Tool gaps | A structure at an arrow takes no number or labels. `draw_structures` takes no caption. A number is at most 12 characters. A cycle takes no text node and no structure on a side arrow. A double bond with no geometry is drawn and keyed as E. | The compound object (section 4.1) fixes the first three |
@@ -1454,9 +1454,11 @@ every user sees, so each needs Sam's yes and the ChemDraw cross-check.
 
 `node scripts/mcp-acceptance.mjs`: 113 checks pass and 2 fail. Both failures are one fault, in cases 5 and 6 (the
 experiment page): the second line under the arrow ("90%") overlaps the top of the reagent table by 0.1 bond
-lengths. With no window the same overlap is there before wave A and after it, so it is the editor's placing of the
-reagent table (it clears the first line under the arrow, not the second), not tonight's work. It needs a fix in the
-editor's own code and Sam's yes. Case 18 (the relay and Claude Desktop's bundle against a dev build's
+lengths. With no window the same overlap was there before wave A and after it: the editor started the reagent table
+under the components, their numbers and the conditions that make a column, and left out text under the arrow that
+makes no column. Fixed on `mcp/int2` (1c3790f): `layGrid` in `src/gridview.ts` now starts the table 0.9 bond length
+(at the arrow's scale) under all the text under its arrow. The windowless acceptance run of the merged tree gives
+"Every check passed." (106 PASS; `--headless` leaves out cases 7, 9, 18 and 21). Case 18 (the relay and Claude Desktop's bundle against a dev build's
 `mcp-dev.json`) passes.
 
 Not seen by anyone yet, as no agent may drive the app's window: the overlay in WKWebView (light, dark, Reduce
@@ -1470,6 +1472,15 @@ to 48 bytes of its 64 KB stack for good, and then any call fails ("getWasmTableE
 AI app sends many texts Octet cannot read, so a long MCP session can reach it too (test plan P6 and R3). The fix is
 on the 1.1.2 side (`item/indigo-crash`) and comes here with the merge. Until then the runner draws each corpus job
 once.
+
+Merged on 11 November 2026 (branch `mcp/112`): the benchmark runs every case in one process, the lines cases too. It
+gives the event loop a turn before each call, as an AI app's calls come one at a time, so Octet's fresh Indigo (loaded
+after 500 failed calls) takes over: with no turn it never loaded, and the 1,038th failure (zu2025-table1) ran out of
+memory. Three runs in a row, 146 cases each, all clean. Each corpus job is still drawn once, for the run's time.
+The limit is still there inside one call: Octet (`src/chem.ts`) can change to a fresh Indigo only between turns of
+the event loop, so a single tool call that makes about 1,270 refused Indigo calls with no turn between them still
+runs out of Indigo's stack. No job in the benchmark comes near it (zu2025-table1, the most, makes about 1,040 over
+many calls). Open: chem.ts could give the event loop a turn inside a long batch.
 
 ### 17.3 Taking 1.1.2 into this branch (from the 1.1.2 session)
 
@@ -1485,6 +1496,22 @@ Clean Up Reaction now does both jobs and `clean_reaction_augmented` is gone):
   (`turnNext`, `turnProducts` in `Editor.tsx`), so a `run_command` call returns before the turn. The MCP path and
   `scripts/headless/host.ts` must turn the products at once (`turnProducts`, then one set), so the call returns the
   finished drawing. Add a check that the reply's drawing is the turned one.
+
+Done on 11 November 2026 (branch `mcp/112`): the merge, both points above, and `turnScheme` in `src/interpret.ts`,
+which the editor and the host with no window share.
+Then what else 1.1.2 added, for full parity (same branch): the spectrum, SDF and Insert commands, opacity, the later
+template sets in place_template, gels, plasmid maps, membrane lines, a bond's own widths, the drawing's properties,
+the reagent table's roles, measured amounts, concentration and conditions, and CML, CT, SLN, HELM and FASTA in read
+with a format.
+After review (same branch): an edit to a plasmid map changes only what it gives; a gel's range needs two sizes; a
+gel hides its lane names and scale (edit's gel hide, and shape.hide.names and shape.hide.scale); a gel's lanes come
+and go as the Lanes actions add and delete them, so the gel gets wider or narrower; a band past the lanes is named
+in the result; fill_experiment sets a role with the table's own setRole, gives each step a table (steps) and hides
+empty rows (hide_empty); read with a format gives chemfig and BMP; the editor turns the products at once only for
+the call's own Clean Up Reaction. Left out, for Sam: the Properties panel's CAS number and Find hazards. Hazards and
+the CAS numbers the dictionary lacks come from PubChem, which Octet asks only when the user presses the button
+(decision 0008): an AI app's call is not that press. The CAS numbers in Octet's own dictionary could go in read;
+that is not done yet.
 
 ### 17.4 Pushing these branches
 
@@ -1703,9 +1730,9 @@ Tests are in `mcp-v2-tests.md`, section 15.
 - `docs/scripting.md` is the page; `scripts/examples` holds the client (`octet.py`, `octet.mjs`) and the four
   examples in each language. mcp.check fails when the page's table of tools is not tools/list's, when its change and
   advanced rows leave out an operation or tool, or when a file it shows is not the file in `scripts/examples`.
-  headless.check runs the JavaScript examples (and the Python ones, where there is a `python3`) against the Node host
-  on standard input and output (`scripts/headless/stdio.ts`), which says what the window says for a file it cannot
-  read.
+  headless.check runs `scripts/examples/run-all.mjs` (both languages) against the Node host on standard input and
+  output (`scripts/headless/stdio.ts`), which says what the window says for a file it cannot read. It needs Python 3,
+  and fails without it.
 - The client is 35 lines in Python and 36 in JavaScript, not 20: a line each for the reply's error, the binary
   formats and closing. The longest example is 31 lines. Lines are at most 120 characters, so the page does not scroll
   sideways.
@@ -1714,6 +1741,14 @@ Tests are in `mcp-v2-tests.md`, section 15.
   the one platforms.yml installs to; `/usr/bin/octet` and the AppImage come from tauri.conf.json, not from an
   install. Before the page goes on the website, run the four examples in both languages on a Windows and a Linux
   install.
+- Windows and Linux (branch `mcp/ci`): platforms.yml's `examples` job builds a release with no installer, copies it
+  to a folder named `Octet Draw`, runs `scripts/examples/run-all.mjs` (the files made through the program, the four
+  examples in both languages, a failure when either prints other lines or ends with another code than the page's, or
+  the two write different files; the second scheme must save as `.oct`) and `--convert` to PDF and SVG. headless.check
+  runs the same script against `scripts/headless/stdio.ts`, where the second scheme is saved as `.cdxml`. The
+  office-objects job checks that the release installer puts `octet.exe` at the page's Windows path and that it answers
+  initialize. Nothing installs a `.deb`, `.rpm` or AppImage, so the Linux paths
+  are not checked. Not run yet when written: the job runs on push to main, or by hand.
 - For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
   given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
   gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the

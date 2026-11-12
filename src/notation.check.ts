@@ -88,6 +88,13 @@ assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATIO
   const two = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a)\nR=piperazine (9b) | R=2-methylpiperazine (9c) | R=cyclopropy (9d)" }, undefined, (r) => (said = r.content[0].text))) as { structures: string[] };
   assert.deepEqual(two.structures, ["9a=NTPLXRHDUXRPNE-UHFFFAOYSA-N", "9b=KPXVKKBJROCIJB-UHFFFAOYSA-N"]);
   assert.match(said, /^Drew 2 structures .* Line 2: 2-methylpiperazine has 2 N–H, so Octet cannot tell which joins: give it as a SMILES, its joining atom first\. Line 2: Octet cannot join cyclopropy: give it as a SMILES, its joining atom first\./);
+  // A stand-in (Alkyl, Het) stays a label as L does (labels.ts standsIn), and so does a label written round one
+  // (CO2Alkyl, OPG): each was refused as a word Octet cannot join. The reply names none of them.
+  said = "";
+  const four = (await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=Alkyl (9a) | R=Het (9b) | R=CO2Alkyl (9c) | R=OPG (9d)" }, undefined, (r) => { said = r.content[0].text; })) as { structures: string[] };
+  assert.deepEqual(four.structures, ["9a=undefined", "9b=undefined", "9c=undefined", "9d=undefined"]);
+  assert.deepEqual(d.host.doc().atoms.filter((a) => a.text).map((a) => a.text), ["Alkyl", "Het", "CO2Alkyl", "OPG"]);
+  assert.doesNotMatch(said, /does not know|cannot join/, said);
 }
 // Round 4: paper-scope (scripts/mcp-evals/speed.mjs) as one scope, the shared part once and R= each amine as the user
 // named it: both models had written the twelve products out as SMILES. Each is the structure the job's check wants (7f
@@ -109,6 +116,19 @@ R=nortropinone (7g) 34% | R=3-methoxyazetidine (7h) 81% | R=N-ethylcyclohexylami
   // keeps (it had drawn, and read back cut with "label text" lost).
   const long = (await shown("draw", { structures: [{ text: "*c1ccccc1", labels: ["2,3,4,5-tetrahydro-1H-1,5-methano-3-benzazepinyl"] }] })) as { refused: string };
   assert.match(long.refused, /^Octet drew nothing\. labels\[0\]: longer than 40 characters\.$/);
+}
+// A label Octet reads no group in is named once in the short reply of a draw by lines, in a scheme and in a scope, and
+// a label written from the left is kept from its attachment atom there too; a reply with none has no such line.
+{
+  let reply = "";
+  const said = (r: any) => { reply = r.content[0].text; };
+  await shown("draw", { lines: "{Xyz}c1ccccc1 (1) -> {MeO}c1ccc({Xyz})cc1 (2)" }, undefined, said);
+  assert.equal(reply.match(/ Octet does not know the label Xyz: it is drawn as text\./g)?.length, 1, reply);
+  assert.deepEqual(d.host.doc().atoms.filter((a) => a.text).map((a) => a.text), ["Xyz", "OMe", "Xyz"]);
+  await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=Xyz (9a) | R=MeO (9b)" }, undefined, said);
+  assert.match(reply, / Octet does not know the label Xyz: it is drawn as text\./);
+  await shown("draw", { lines: "{R}c1ccc(cc1)C(C)=O: R=OMe (9a) | R=Bpin (9b)" }, undefined, said);
+  assert.doesNotMatch(reply, /does not know/);
 }
 
 // ---- The paper corpus and the taxol route, as notation ----

@@ -125,6 +125,103 @@ jobs:
           path: drive-out/
           if-no-files-found: ignore
 
+  # The scripting page's examples (docs/scripting.md, plan 18.6), each in JavaScript and in Python, against Octet as a
+  # script starts it (OCTET, --headless --mcp), and --convert. A release build: on Windows it is a window program
+  # (main.rs), as a user's Octet is, which a debug build is not. No installer: the program is copied to a folder named
+  # "Octet Draw", so its path has a space as the page's paths do. scripts/examples/run-all.mjs makes the files through
+  # the program and fails on a difference between the languages. Its folder (each run's command, exit code and output,
+  # and every file written) is the run's artifact.
+  examples:
+    name: Scripts (${{ startsWith(matrix.platform, 'windows') && 'Windows' || 'Linux' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    env:
+      OCTET_FEEDBACK: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+      - name: Linux libraries for Tauri, and the virtual screen
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-liberation xvfb dbus-x11
+      - run: npm ci
+      - name: Build Octet (a release build, no installer)
+        run: npm run tauri build -- --no-bundle
+      - name: The program, in a folder named Octet Draw
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'Octet Draw'
+          $name = if ($IsWindows) { 'octet.exe' } else { 'octet' }
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item "src-tauri/target/release/$name" $dir
+          $octet = Join-Path $dir $name
+          if (-not $IsWindows) { chmod +x $octet }
+          "OCTET=$octet" >> $env:GITHUB_ENV
+          Write-Output "Octet $((Get-Content package.json | ConvertFrom-Json).version): $octet, $((Get-Item $octet).Length) bytes"
+
+      # As the drive job: a virtual screen for the hidden windows, a session bus of their own, and WebKit with no DMA-BUF.
+      - name: The examples (Linux, on a virtual screen)
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/run-all.mjs examples-out
+      - name: The examples (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        run: node scripts/examples/run-all.mjs examples-out
+      - name: --convert to PDF and SVG (Linux, on a virtual screen)
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        timeout-minutes: 10
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: |
+          for to in pdf svg; do
+            xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- "$OCTET" --convert examples-out/in/scheme1.cdxml --to $to --out examples-out/converted
+          done
+          ls -l examples-out/converted
+          test -s examples-out/converted/scheme1.pdf && test -s examples-out/converted/scheme1.svg
+      # A window program waits to end here only when its output is piped.
+      - name: --convert to PDF and SVG (Windows)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          foreach ($to in 'pdf', 'svg') {
+            & $env:OCTET --convert examples-out/in/scheme1.cdxml --to $to --out examples-out/converted | Write-Output
+            if ($LASTEXITCODE -ne 0) { throw "--convert --to ${to}: exit $LASTEXITCODE" }
+          }
+          foreach ($f in 'scheme1.pdf', 'scheme1.svg') {
+            $file = Get-Item "examples-out/converted/$f"
+            Write-Output "$f $($file.Length) bytes"
+            if ($file.Length -eq 0) { throw "$f is empty" }
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: examples-${{ runner.os }}
+          path: examples-out/
+          if-no-files-found: ignore
+
   # Octet Drawing objects in Office (decision 0023): Octet's COM server, driven from another process as Word drives it
   # (src-tauri/tests/ole_container.rs), and the installer's keys. Windows only. No Office on GitHub's machines: Word
   # itself is checked by hand (docs/testing/ole-manual.md).
@@ -230,6 +327,22 @@ jobs:
           name: octet-office-objects-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+      # The scripting page's path on Windows (docs/scripting.md): the release installer puts octet.exe there (the window
+      # program, as a user gets it), and it answers a script's initialize (--headless --mcp).
+      - name: The installed Octet is where the scripting page says, and answers a script
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
+          if (-not (Test-Path $exe)) { throw "no $exe" }
+          $hello = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          $reply = $hello | & $exe --headless --mcp
+          Write-Output "$exe answered: $reply"
+          Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (-not ("$reply" -match '"serverInfo"')) { throw "no answer to initialize" }
       # Octet's crash log, where the server writes what it refused and why.
       - name: Octet's log
         if: always()

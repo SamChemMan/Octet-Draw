@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window};
+use tauri::menu::{CheckMenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window, Wry};
 
 use crate::MAX_BYTES;
 
@@ -51,9 +52,11 @@ pub fn ours(label: &str) -> bool {
     label == "main" || label.starts_with("draw-") || label.starts_with("object-")
 }
 
-pub fn focused(label: &str) {
+// A window came to the front: the Window menu ticks it.
+pub fn focused(app: &AppHandle, label: &str) {
     if ours(label) {
         *LAST.lock().unwrap() = label.into();
+        menus(app);
     }
 }
 
@@ -75,6 +78,53 @@ pub fn front(app: &AppHandle) -> Option<String> {
 fn changed(app: &AppHandle) {
     let list = app.state::<Windows>().open.lock().unwrap().clone();
     let _ = app.emit("windows", list);
+    menus(app);
+}
+
+// Windows and Linux: the Window menu lists the open drawings (Home's list), the one in front ticked, after Minimize on
+// Windows (GTK has no Minimize). On the Mac the system lists the windows (set_bar in main.rs).
+pub fn list(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<()> {
+    let fixed = usize::from(cfg!(windows));
+    for _ in fixed..menu.items()?.len() {
+        menu.remove_at(fixed)?;
+    }
+    let front = front(app);
+    let items = entries(&app.state::<Windows>().open.lock().unwrap(), front.as_deref());
+    if fixed > 0 && !items.is_empty() {
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    // On Linux, with no drawing open, the menu is dimmed.
+    menu.set_enabled(fixed > 0 || !items.is_empty())?;
+    for (id, title, ticked) in items {
+        menu.append(&CheckMenuItem::with_id(app, id, title, true, ticked, None::<&str>)?)?;
+    }
+    Ok(())
+}
+
+// Each drawing's item: its id, its window's title (as the page sets it) and whether its window is in front. An & in a
+// name is doubled, because a single & makes the next letter an access key.
+fn entries(open: &[Info], front: Option<&str>) -> Vec<(String, String, bool)> {
+    open.iter()
+        .map(|i| {
+            let title = if i.edited { format!("{} (edited)", i.name) } else { i.name.clone() };
+            (format!("window_{}", i.label), title.replace('&', "&&"), front == Some(i.label.as_str()))
+        })
+        .collect()
+}
+
+// The Window menus listed again, in the menu bar and in each object window's (decision 0023). The lists are made on
+// the main thread, one at a time, as a window that comes to the front and one chosen from the menu can ask together.
+pub fn menus(app: &AppHandle) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let bars = handle.menu().into_iter().chain(object_hosts(&handle).into_iter().filter_map(|(l, _)| handle.get_webview_window(&l)?.menu()));
+        for menu in bars.filter_map(|b| b.get("window")?.as_submenu().cloned()) {
+            let _ = list(&handle, &menu);
+        }
+    });
 }
 
 // Octet with no window (`--headless` and `--convert`, main.rs): its drawing windows are made hidden and stay hidden.
@@ -117,11 +167,11 @@ pub fn open(app: &AppHandle, start: serde_json::Value, session: Option<&str>) ->
     }
     // The session's before the window exists (the system may put it in front while it is made): another session with
     // no drawing never takes it (mcp.rs route). If no window is made, the session has its drawing from before again.
-    let was = session.and_then(|s| crate::mcp::give(app, s, Some(label.clone())));
+    let was = session.and_then(|s| crate::mcp::give(app, s, Some(label.clone()), true));
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
         if let (Some(s), Some(was)) = (session, was) {
-            crate::mcp::give(app, s, was);
+            crate::mcp::give(app, s, was, false);
         }
         e.to_string()
     })?;
@@ -145,7 +195,7 @@ pub fn open(app: &AppHandle, start: serde_json::Value, session: Option<&str>) ->
         let _ = window.set_focus();
     }
     // In front from now, as far as Octet is concerned, even when another app has the focus (an AI app opened it).
-    focused(&label);
+    focused(app, &label);
     Ok(label)
 }
 
@@ -248,19 +298,19 @@ pub fn window_list(windows: State<'_, Windows>) -> Vec<Info> {
     windows.open.lock().unwrap().clone()
 }
 
-// A window from Home's list, in front. Home's window shows its drawing.
+// A window from Home's list or the Window menu, in front. Home's window shows its drawing.
 #[tauri::command]
 pub async fn window_show(app: AppHandle, label: String) -> Result<(), String> {
     let window = app.get_webview_window(&label).filter(|_| ours(&label)).ok_or("This window is closed.")?;
     // With no window, it stays hidden and is in front only as far as Octet is concerned.
     if HEADLESS.load(Ordering::Relaxed) {
-        focused(&label);
+        focused(&app, &label);
         return Ok(());
     }
     let _ = window.unminimize();
     let _ = window.show();
     window.set_focus().map_err(|e| e.to_string())?;
-    focused(&label);
+    focused(&app, &label);
     if label == "main" {
         let _ = app.emit_to("main", "show-drawing", ());
     }
@@ -299,6 +349,25 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
     window.set_focus()
 }
 
+// Whether a drawing window has unsaved changes, as its page last said (window_info).
+pub fn edited(app: &AppHandle, label: &str) -> bool {
+    app.state::<Windows>().open.lock().unwrap().iter().any(|i| i.label == label && i.edited)
+}
+
+// A window an AI app closes (mcp.rs mcp_close) is no longer the one in front, so no call goes to it while it closes.
+// gone: it closes for certain (no window), so it leaves the list now.
+pub fn leaving(app: &AppHandle, label: &str, gone: bool) {
+    {
+        let mut last = LAST.lock().unwrap();
+        if *last == label {
+            last.clear();
+        }
+    }
+    if gone {
+        unlist(app, label);
+    }
+}
+
 // Whether a window is the last of Octet's windows open.
 fn last<'a>(labels: impl Iterator<Item = &'a str>, label: &str) -> bool {
     !labels.into_iter().any(|l| ours(l) && l != label)
@@ -317,6 +386,10 @@ pub fn closed(app: &AppHandle, label: &str) {
         // An Octet that Windows started for Word ends when its last window closes and Word holds no object.
         crate::ole::win::maybe_exit(app);
     }
+    unlist(app, label);
+}
+fn unlist(app: &AppHandle, label: &str) {
+    let windows = app.state::<Windows>();
     let before = {
         let mut open = windows.open.lock().unwrap();
         let n = open.len();
@@ -336,6 +409,17 @@ mod tests {
     fn octets_windows_only() {
         assert!(ours("main") && ours("draw-3") && ours("object-2"));
         assert!(!ours("reaxys") && !ours("drawing"));
+    }
+
+    // The Window menu names each drawing as its window's title does, ticks the one in front, and shows an & in a name.
+    #[test]
+    fn the_window_menu_lists_the_drawings() {
+        let info = |label: &str, name: &str, edited| Info { label: label.into(), name: name.into(), path: None, edited, picture: None };
+        let open = [info("main", "Aspirin", false), info("draw-2", "R&D route", true)];
+        let item = |id: &str, title: &str, ticked| (id.to_string(), title.to_string(), ticked);
+        assert_eq!(entries(&open, Some("draw-2")), [item("window_main", "Aspirin", false), item("window_draw-2", "R&&D route (edited)", true)]);
+        assert!(entries(&open, Some("draw-5")).iter().all(|e| !e.2), "a window not on the list is not ticked");
+        assert!(entries(&[], Some("main")).is_empty());
     }
 
     // Closing the last drawing window opens Home; with Home or another drawing window open, nothing opens.

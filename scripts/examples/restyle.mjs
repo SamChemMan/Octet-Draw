@@ -12,6 +12,7 @@ for (const name of readdirSync(folder).filter((f) => /\.(cdxml|cdx|oct)$/i.test(
   await o.call("set_brief", { destination: { kind: "paper", journal, columns: Number(columns) } });
   const { style, check } = await o.call("read");
   await o.save(join(out, name));
+  await o.call("drawings", { action: "close" });
   console.log(`${name}: ${style}${check === "clean" ? "" : `, check ${JSON.stringify(check)}`}`);
 }
 await o.close();

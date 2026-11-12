@@ -313,14 +313,15 @@ pub fn make_eps(tree: &usvg::Tree) -> Vec<u8> {
 
 // ---- EMF ----
 
-// Logical units per pt (so 1/20 pt), and the reference device the metafile is recorded on: 720 dpi, so 10 device px
-// a pt and exactly 2 logical units a device px, 20 by 15 in (508 by 381 mm, 14,400 by 10,800 px, all whole numbers).
-// Issue 20: some programs draw a metafile into pixels at its reference resolution (GDI+'s DrawImage did at 96 dpi:
-// bonds grew fat and a hashed wedge's hashes ran together). ChemDraw's is about 261 dpi; 720 is finer still, yet a
-// whole A4 page at it stays under 50 million pixels.
+// Logical units per pt (so 1/20 pt), and the reference device the metafile is recorded on: 96 dpi, so 4 device px
+// every 3 pt and exactly 15 logical units a device px, 20 by 15 in (508 by 381 mm, 1,920 by 1,440 px, all whole
+// numbers). Issue 55: Word sizes a metafile with text in it by its bounds read at 96 dpi, and one with none by its
+// frame. At 720 dpi (1.1.1) a drawing with labels pasted at a 13% scale and was 7.5 times too large at 100%. The
+// drawing is still laid down in 1/20 pt: the reference only sets what the bounds count in. GDI+'s DrawImage draws a
+// 96 dpi metafile as it does a 720 dpi one (issue 55), so issue 20's fat bonds do not come back.
 const UNIT: f32 = 20.0;
-const PER_PX: i32 = 2;
-const DEVICE: (i32, i32) = (14_400, 10_800);
+const PER_PX: i32 = 15;
+const DEVICE: (i32, i32) = (1_920, 1_440);
 const DEVICE_MM: (i32, i32) = (508, 381);
 
 struct Emf {
@@ -439,7 +440,7 @@ const CDXML_TAG: &[u8] = b"Octet CDXML\0";
 // With `cdxml`, the drawing goes in an EMR_COMMENT after the header, which GDI and Office skip when they draw.
 pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>) -> Vec<u8> {
     let (w, h) = size(tree);
-    // The picture in device px (whole ones, the logical units two to each), and its frame in hundredths of a mm.
+    // The picture in device px (whole ones, the logical units fifteen to each), and its frame in hundredths of a mm.
     let px = |pt: f32| (((pt * UNIT).ceil().max(1.0) as i32).saturating_add(PER_PX - 1)) / PER_PX;
     let (dw, dh) = (px(w), px(h));
     let (lw, lh) = (dw * PER_PX, dh * PER_PX);
@@ -630,25 +631,53 @@ pub(crate) mod tests {
         i32::from_le_bytes(emf[at..at + 4].try_into().unwrap())
     }
 
-    // Issue 20: the metafile is recorded against a 720 dpi device (ChemDraw's about 261, Octet's was 96), the logical
-    // units exactly 2 device px, and every bounds record in device px.
+    // Issue 55: the metafile is recorded against a 96 dpi device (1.1.1's was 720), a device px exactly 15 logical
+    // units, and every bounds record in device px.
     #[test]
-    fn emf_reference_device_is_720_dpi() {
+    fn emf_reference_device_is_96_dpi() {
         let emf = make_emf(&tree(SVG), None);
         let v = |at: usize| i32_at(&emf, at);
-        assert_eq!((v(8), v(12), v(16), v(20)), (0, 0, 719, 359), "bounds: 72 by 36 pt is 720 by 360 px");
+        assert_eq!((v(8), v(12), v(16), v(20)), (0, 0, 95, 47), "bounds: 72 by 36 pt is 96 by 48 px");
         assert_eq!((v(24), v(28), v(32), v(36)), (0, 0, 2540, 1270), "the frame, in 0.01 mm, is the picture");
         assert_eq!(v(56), 4, "handles: none, a brush, a pen and a font");
-        assert_eq!((v(72), v(76), v(80), v(84)), (14_400, 10_800, 508, 381));
+        assert_eq!((v(72), v(76), v(80), v(84)), (1_920, 1_440, 508, 381));
         assert_eq!((v(100), v(104)), (508_000, 381_000));
-        assert_eq!((f64::from(v(72)) * 25.4 / f64::from(v(80)), f64::from(v(76)) * 25.4 / f64::from(v(84))), (720.0, 720.0));
+        assert_eq!((f64::from(v(72)) * 25.4 / f64::from(v(80)), f64::from(v(76)) * 25.4 / f64::from(v(84))), (96.0, 96.0));
         let all = records(&emf);
         let body = |kind: u32| all.iter().find(|r| r.0 == kind).map(|r| (i32_at(&emf, r.1 + 8), i32_at(&emf, r.1 + 12))).unwrap();
-        assert_eq!((body(9), body(11)), ((1440, 720), (720, 360)), "window 1/20 pt, viewport device px");
+        assert_eq!((body(9), body(11)), ((1440, 720), (96, 48)), "window 1/20 pt, viewport device px");
         for &(kind, at) in &all {
             if kind == 62 || kind == 64 {
-                assert_eq!((v(at + 8), v(at + 12), v(at + 16), v(at + 20)), (0, 0, 719, 359), "path bounds in device px");
+                assert_eq!((v(at + 8), v(at + 12), v(at + 16), v(at + 20)), (0, 0, 95, 47), "path bounds in device px");
             }
+        }
+    }
+
+    // Issue 55: Word sizes a metafile with text in it by its bounds read at 96 dpi, and one with none by its frame.
+    // Both are the picture's true size: the frame to the 0.01 mm it is written in, the bounds to the device px they
+    // round up to. The window and viewport extents take 1/20 pt to device px at the reference device's resolution.
+    #[test]
+    fn an_emf_is_its_true_size() {
+        let labelled = |w: f32, h: f32| format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}pt" height="{h}pt" viewBox="0 0 {w} {h}"><path d="M0 0L{w} {h}" stroke="#000"/><text x="1" y="7" font-family="Arial, Helvetica, sans-serif" font-size="6pt">OH</text></svg>"##);
+        let mut pictures: Vec<(f64, f64, String)> = [(72.0, 36.0), (86.1, 65.0), (56.55, 55.28), (13.3, 7.7), (595.0, 842.0)].map(|(w, h)| (w, h, labelled(w as f32, h as f32))).to_vec();
+        pictures.push((56.21, 36.55, PROLINE.to_string()));
+        for (w, h, svg) in pictures {
+            let emf = make_emf(&crate::export::tree(&svg).unwrap(), None);
+            assert!(!texts(&emf).is_empty(), "{w} by {h}: text, the case Word sizes by the bounds");
+            let v = |at: usize| f64::from(i32_at(&emf, at));
+            let dpi = v(72) * 25.4 / v(80);
+            assert_eq!(dpi, 96.0, "{w} by {h}: the reference device");
+            let pt = 72.0 / dpi; // a device px
+            let frame = ((v(32) - v(24)) * 72.0 / 2540.0, (v(36) - v(28)) * 72.0 / 2540.0);
+            assert!((frame.0 - w).abs() <= 0.015 && (frame.1 - h).abs() <= 0.015, "{w} by {h}: the frame is {frame:?} pt");
+            // Bounds are inclusive, so the size in device px is right minus left plus one.
+            let bounds = ((v(16) - v(8) + 1.0) * pt, (v(20) - v(12) + 1.0) * pt);
+            assert!(bounds.0 > w - 1e-3 && bounds.0 < w + pt && bounds.1 > h - 1e-3 && bounds.1 < h + pt, "{w} by {h}: the bounds are {bounds:?} pt");
+            let all = records(&emf);
+            let ext = |kind: u32| all.iter().find(|r| r.0 == kind).map(|r| (v(r.1 + 8), v(r.1 + 12))).unwrap();
+            let (window, viewport) = (ext(9), ext(11));
+            assert_eq!((window.0 / UNIT as f64, window.1 / UNIT as f64), (viewport.0 * pt, viewport.1 * pt), "{w} by {h}: window and viewport");
+            assert_eq!((viewport.0 * pt, viewport.1 * pt), bounds, "{w} by {h}: the viewport is the bounds");
         }
     }
 
@@ -712,7 +741,7 @@ pub(crate) mod tests {
         for (kind, at) in all {
             if kind == 84 {
                 let b = [8, 12, 16, 20].map(|k| i32_at(&emf, at + k));
-                assert!(b[0] >= 0 && b[1] >= 0 && b[2] <= 1199 && b[3] <= 719 && b[0] < b[2] && b[1] < b[3], "{b:?}");
+                assert!(b[0] >= 0 && b[1] >= 0 && b[2] <= 159 && b[3] <= 95 && b[0] < b[2] && b[1] < b[3], "{b:?}");
             }
         }
     }

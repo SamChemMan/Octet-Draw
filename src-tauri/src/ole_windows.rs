@@ -68,6 +68,8 @@ pub const CLASS: GUID = GUID::from_values(super::CLSID_FIELDS.0, super::CLSID_FI
 static APP: OnceLock<AppHandle> = OnceLock::new();
 // Started by COM (-Embedding): Octet ends when Word lets go of its last object and no window of Octet's is open.
 static EMBEDDING: AtomicBool = AtomicBool::new(false);
+// Started by COM, and Word's first object has not come yet: only the check after a minute (start) ends Octet then.
+static WAITING: AtomicBool = AtomicBool::new(false);
 // The objects alive, and IClassFactory::LockServer's locks: while either is above 0, an embedding Octet stays.
 // Octet keeps its own counts and does not use CoAddRefServerProcess: at 0, that suspends the class object, and an
 // Octet the user also works in would then make Word start a second Octet.
@@ -159,6 +161,7 @@ pub fn start(app: &AppHandle, embedding: bool) {
             return;
         }
     }
+    WAITING.store(embedding, SeqCst);
     let filter: IMessageFilter = Filter.into();
     // SAFETY: on the main thread, which is an STA; COM keeps the filter until it is replaced or OLE ends.
     // https://learn.microsoft.com/windows/win32/api/objidl/nn-objidl-imessagefilter
@@ -175,6 +178,7 @@ pub fn start(app: &AppHandle, embedding: bool) {
             let checked = app.run_on_main_thread(move || {
                 ping();
                 if first {
+                    WAITING.store(false, SeqCst);
                     maybe_exit(&a);
                 }
             });
@@ -214,9 +218,10 @@ fn revoke() {
 
 // An Octet that COM started ends when no object is alive and no window of Octet's shows: Home hidden, no drawing or
 // object window. The class object goes first, so a new activation starts a new Octet. One thread (the STA), so no
-// activation can come in between.
+// activation can come in between. Not before Word's first object (WAITING): Home's hidden page says it is empty as
+// soon as it loads, which can be before Word's first call, and Octet then ended while Word waited for it (issue 24).
 pub fn maybe_exit(app: &AppHandle) {
-    if !EMBEDDING.load(SeqCst) || LIVE.load(SeqCst) > 0 || LOCKS.load(SeqCst) > 0 || OPEN.with(|m| !m.borrow().is_empty()) {
+    if !EMBEDDING.load(SeqCst) || WAITING.load(SeqCst) || LIVE.load(SeqCst) > 0 || LOCKS.load(SeqCst) > 0 || OPEN.with(|m| !m.borrow().is_empty()) {
         return;
     }
     let shown = app.webview_windows().iter().any(|(l, w)| (l.starts_with("draw-") || l.starts_with("object-")) || (l == "main" && w.is_visible().unwrap_or(false)));
@@ -689,6 +694,7 @@ struct Drawing {
 impl Drawing {
     fn new() -> Self {
         LIVE.fetch_add(1, SeqCst);
+        WAITING.store(false, SeqCst);
         Drawing {
             id: NEXT.fetch_add(1, SeqCst),
             site: RefCell::new(None),

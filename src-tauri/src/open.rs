@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{recent, Picked, MAX_BYTES};
 
@@ -140,6 +141,27 @@ pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picke
         .collect())
 }
 
+// File > Insert… (ChemDraw's Edit > Insert File): a drawing or a picture to put into the drawing that is open, read as
+// one dropped on it is. It is not remembered for Save and does not go on Home's list.
+#[tauri::command]
+pub async fn insert_file(app: AppHandle) -> Result<Option<OpenedFile>, String> {
+    let Some(file) = app.dialog().file().add_filter("Drawings and pictures", &[&DRAWINGS[..], &PICTURES, &VECTORS].concat()).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let (text, picture, error) = if PICTURES.contains(&ext.as_str()) || VECTORS.contains(&ext.as_str()) {
+        opened_picture(&path, &name, &ext, false)
+    } else {
+        match read(&path, &name) {
+            Ok(t) => (Some(t), None, None),
+            Err(e) => (None, None, Some(e)),
+        }
+    };
+    Ok(Some(OpenedFile { name, path: None, text, picture, error, at: None }))
+}
+
 // A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8) or CDX only.
 pub fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
@@ -227,7 +249,7 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let tree = crate::export::tree(svg).unwrap();
         let x = "<CDXML><page><fragment/></page></CDXML>";
-        for (file, bytes) in [("e.pdf", crate::export::make_pdf(svg, Some(x)).unwrap()), ("f.png", crate::export::make_png(svg, 72.0, true, Some(x)).unwrap()), ("g.emf", crate::vector::make_emf(&tree, Some(x)))] {
+        for (file, bytes) in [("e.pdf", crate::export::make_pdf(svg, Some(x), None).unwrap()), ("f.png", crate::export::make_png(svg, 72.0, true, Some(x)).unwrap()), ("g.emf", crate::vector::make_emf(&tree, Some(x)))] {
             fs::write(dir.join(file), bytes).unwrap();
             let (text, picture, error) = opened_picture(&dir.join(file), file, &file[2..], false);
             assert!(text.is_some_and(|t| t.ends_with(x)) && picture.is_none() && error.is_none(), "{file}");
@@ -235,7 +257,7 @@ mod tests {
         // Dropped on a tile on Home, Octet's PNG is the thumbnail, a picture.
         let (text, picture, _) = opened_picture(&dir.join("f.png"), "f.png", "png", true);
         assert!(text.is_none() && picture.is_some());
-        fs::write(dir.join("h.pdf"), crate::export::make_pdf(svg, None).unwrap()).unwrap();
+        fs::write(dir.join("h.pdf"), crate::export::make_pdf(svg, None, None).unwrap()).unwrap();
         assert!(opened_picture(&dir.join("h.pdf"), "h.pdf", "pdf", false).2.unwrap().contains("no Octet or ChemDraw drawing"));
         assert!(opened_picture(&png, "b.png", "png", false).1.is_some());
         // --convert (drawing): a picture only for the drawing in it, as File > Open opens it; a picture with none, a

@@ -25,7 +25,7 @@ for (const file of files) {
     return { op: "number", structure: s.id, number: numbers.get(key) };
   });
   if (operations.length) await o.call("change", { operations });
-  await o.save(join(out, basename(file)));
+  await o.save(join(out, basename(file))); await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${numbered.map((s, k) => `${s.number} is ${operations[k].number}`).join(", ")}`);
 }
 await o.close();

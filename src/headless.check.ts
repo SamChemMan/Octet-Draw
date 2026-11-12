@@ -9,8 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
+import { createInterface } from "node:readline";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("headless.check: skipped (no OPSIN build)"); process.exit(0); }
+// The scripting page's examples run beside the rest of this check, in processes of their own, and are checked at the end.
+// A check that fails before then leaves them to end on their own, and their folder in tmpdir.
+const examplesIn = mkdtempSync(join(tmpdir(), "octet-examples-")), examplesRan = promisify(execFile)(process.execPath, [new URL("../scripts/examples/run-all.mjs", import.meta.url).pathname, examplesIn], { env: { ...process.env, OCTET: new URL("../scripts/headless/stdio.ts", import.meta.url).pathname } }).then((r) => ({ ...r, code: 0 }), (e) => e);
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { realFonts } = await import("../scripts/headless/browser.ts");
 const { handle } = await import("./mcp.ts");
@@ -20,6 +24,7 @@ const { parseStructure, toInchiKey, toSmiles } = await import("./chem.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 const { extractSelection, fragments } = await import("./edit.ts");
 const { pageSize } = await import("./docstyle.ts");
+const { emptyRows } = await import("./gridview.ts");
 await load();
 
 const SCHEME = {
@@ -192,6 +197,18 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   const table = d.host.tables()[0].box, under: Wrote = await call("draw", { kind: "structures", structures: [{ text: "toluene" }] });
   assert.ok(table[1] < scheme.structuredContent.boxes.s1[1] - 1, "the table reaches under the scheme's structures");
   assert.ok(span(under)[3] <= table[1] - 3 && span(under)[3] > table[1] - 4.5, `3 bond lengths under the table (and the grid's 1.25 round a structure): ${span(under)}, ${table}`);
+}
+{
+  // A reagent table starts under the compound numbers of its reaction, as the window lays it out (gridview.ts captionBox).
+  d = drawing("experiment", "Numbers");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol", number: "2" }] }] })).isError);
+  const m = d.host.doc(), table = d.host.tables()[0].box, numbers = m.captions!.filter((c) => c.bold && /^[12]$/.test(c.text)).map((c) => d.host.textBox(c.id)!);
+  assert.ok(numbers.length === 2 && numbers.every((b) => table[3] <= b[1]), `the table ${table} is under the numbers ${numbers.join(" ")}`);
+  // And under the text under its arrow that makes no column: conditions on two lines and a yield (acceptance case 5).
+  d = drawing("experiment", "Yield");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4"], below: ["reflux, 4 h", "90%"], products: [{ text: "ethyl acetate" }] }] })).isError);
+  const top = d.host.tables()[0].box[3], below = d.host.doc().captions!.filter((c) => c.on?.side === "below" || ["reflux, 4 h", "90%"].includes(c.text)).map((c) => d.host.textBox(c.id)!);
+  assert.ok(below.length === 2 && below.every((b) => top <= b[1] - 0.8), `the table's top ${top} is under the yield and conditions ${below.join(" ")}`);
 }
 {
   // Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A
@@ -429,6 +446,66 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.deepEqual([again.text.map((t: { text: string }) => t.text), titles.map((t) => again.captions.find((c: { text: string }) => c.text === t).box)], [titles, titles.map(box)]);
 }
 {
+  // Clean Up Reaction gives back the finished drawing (plan mcp-v2, 17.3): the reaction laid out and, at once, each
+  // product turned to lie as its starting material. A product turned a quarter round lies as it was drawn again.
+  d = drawing("paper", "Turn");
+  assert.ok(!(await call("draw", { lines: "acetophenone (1) -> 1-phenylethanol (2), NaBH4" })).isError);
+  const m = d.host.doc(), p = m.captions!.find((c) => c.bold && c.text === "2")!.under!.filter((i) => m.atoms[i].label !== "H");
+  const shape = (x: typeof m) => p.map((i) => [0, 1].map((k) => x.atoms[i].location[k] - x.atoms[p[0]].location[k]));
+  const c = [0, 1].map((k) => p.reduce((t, i) => t + m.atoms[i].location[k], 0) / p.length);
+  d.host.set({ ...m, atoms: m.atoms.map((a, i) => (p.includes(i) ? { ...a, location: [c[0] - (a.location[1] - c[1]), c[1] + (a.location[0] - c[0]), a.location[2] ?? 0] } : a)) });
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_reaction" } })).isError);
+  const was = shape(m), now = shape(d.host.doc());
+  assert.ok(now.every((v, k) => Math.hypot(v[0] - was[k][0], v[1] - was[k][1]) < 0.05), "the product lies as its starting material again");
+}
+{
+  // File > More Formats' text formats through read with a format (1.1.2): CML, a connection table, SLN, and a peptide
+  // as HELM and FASTA, as the editor writes them.
+  d = drawing("paper", "Formats");
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "peptide: GPG" }] })).isError);
+  const as = async (format: string) => (await call("read", { format })).structuredContent?.text;
+  assert.deepEqual([await as("helm"), await as("fasta")], ["PEPTIDE1{G.P.G}$$$$V2.0", "GPG"]);
+  assert.match(await as("cml"), /<cml>[\s\S]*<molecule>/);
+  assert.match(await as("ct"), /^Formats\n/);
+  assert.ok((await as("sln")).length > 5, "SLN");
+  // Export LaTeX (chemfig): the structures as chemfig code.
+  assert.match(await as("chemfig"), /^\\chemfig\{/);
+}
+{
+  // The reagent table through fill_experiment, as its own menus change it. A role on a table from an older Octet (no
+  // roles) first keeps each known solvent a reactant, as the Role menu does (gridview.ts setRole): only the column given
+  // changes.
+  d = drawing("experiment", "Roles");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4", "MeOH"], products: [{ text: "benzyl alcohol" }] }] })).isError);
+  const m = d.host.doc();
+  d.host.set({ ...m, grids: m.grids!.map(({ roles: _, ...g }) => g) });
+  const solvents = d.host.tables()[0].view.all.filter((c) => c.solvent).map((c) => c.key);
+  assert.deepEqual(solvents, ['r:"MeOH"'], "MeOH is a known solvent");
+  let out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "NaBH4", role: "catalyst" }] } });
+  assert.ok(!out.isError, out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].roles, { 'r:"MeOH"': "reactant", 'r:"NaBH4"': "catalyst" });
+  // Hide empty rows, and Show all rows and columns.
+  const empty = emptyRows(d.host.tables()[0].view);
+  assert.ok(empty.length > 0);
+  out = await call("advanced", { tool: "fill_experiment", args: { hide_empty: true } });
+  assert.ok(!out.isError && /hid the table's empty rows/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].hidden?.rows, empty);
+  await call("advanced", { tool: "fill_experiment", args: { hide_empty: false } });
+  assert.equal(d.host.doc().grids![0].hidden, undefined);
+  // One table for each step of a scheme, and one for the scheme again (gridview.ts stepGrids). A reaction of one
+  // step has none to give.
+  assert.match((await call("advanced", { tool: "fill_experiment", args: { steps: true } })).content[0].text, /cannot read steps: the reaction has one step/);
+  d = drawing("experiment", "Steps");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol" }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide" }] }] })).isError);
+  const arrows = (d.host.doc().arrows ?? []).filter((x) => d.host.reaction(x.id)).map((x) => x.id);
+  out = await call("advanced", { tool: "fill_experiment", args: { steps: true } });
+  assert.ok(!out.isError && /gave each step a table of its own/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), arrows.map((a) => [a, true]));
+  assert.equal(d.host.tables().length, 2);
+  await call("advanced", { tool: "fill_experiment", args: { steps: false } });
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), [[arrows[0], undefined]]);
+}
+{
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
   d = drawing("paper", "Rows");
   const rows: Wrote = await call("draw_route", { schemes: [{ ...route(7), start: [{ text: biphenyl(GROUPS[6]), number: "7" }] }] }), levels: number[] = [];
@@ -659,45 +736,42 @@ try {
 
 // The scripting page's examples (docs/scripting.md, plan 18.2) as they are, against Octet with no window on standard
 // input and output (scripts/headless/stdio.ts), so an argument of a tool that changes breaks this and not a user's
-// script: two schemes made here are renumbered across both, restyled for a journal and checked (with a file that is not
-// a drawing, and a drawing whose warning names no atom), and a table of SMILES gives a drawing a row (a row Octet cannot
-// read is named, and the rows after it are drawn). The Python examples, where there is a Python, run at the same time
-// and give the same lines and the same files.
+// script. scripts/examples/run-all.mjs (which platforms.yml runs on Windows and Linux) makes two schemes, which are
+// renumbered across both, restyled for a journal and checked (with a file that is not a drawing, and a drawing whose
+// warning names no atom), and a table of SMILES gives a drawing a row (a row Octet cannot read is named, and the rows
+// after it are drawn). It fails when an example in either language prints other lines or ends with another code than
+// the page's, or the Python examples write other files. Here: the numbers and the journal's bond length in the files.
 {
-  const tmp = mkdtempSync(join(tmpdir(), "octet-examples-")), at = (...p: string[]) => join(tmp, ...p), csv = at("table.csv");
-  const env = { ...process.env, OCTET: new URL("../scripts/headless/stdio.ts", import.meta.url).pathname }, run = promisify(execFile);
+  const at = (...p: string[]) => join(examplesIn, ...p);
   try {
-    mkdirSync(at("in"));
-    for (const [name, lines] of [["scheme1", "benzaldehyde (7)\n-> [O-][N+](=O)/C=C/c1ccccc1 (3), MeNO2, NH4OAc\n-> 2-phenylethylamine (9), LiAlH4, THF"], ["scheme2", "2-phenylethylamine (9)\n-> N-(2-phenylethyl)acetamide (4), Ac2O, Et3N"]]) {
-      d = drawing("paper", name);
-      assert.ok(!(await call("draw", { lines })).isError);
-      writeFileSync(at("in", `${name}.cdxml`), (await call("read", { format: "cdxml" })).structuredContent.text);
-    }
-    d = drawing("paper", "five");
-    assert.ok(!(await call("draw", { structures: [{ text: "benzene", number: "5" }, { text: "toluene", number: "5" }] })).isError);
-    writeFileSync(at("five.cdxml"), (await call("read", { format: "cdxml" })).structuredContent.text);
-    writeFileSync(csv, 'number,name,smiles\n1,benzene,c1ccccc1\n2,"2,4-dinitrophenol",Oc1ccc(cc1[N+](=O)[O-])[N+](=O)[O-]\n3,broken,C1CC(\n4,ethanol,CCO\n');
-    // Each example in turn, in one language: what it printed, and its exit code.
-    const examples = async (exe: string, x: string) => {
-      const out: string[] = [], ex = async (name: string, ...args: string[]) => { try { out.push((await run(exe, [new URL(`../scripts/examples/${name}.${x}`, import.meta.url).pathname, ...args], { env })).stdout); } catch (e: any) { out.push(`${e.stdout}${e.stderr}exit ${e.code}`); } };
-      await ex("renumber", at(x, "renumbered"), at("in", "scheme1.cdxml"), at("in", "scheme2.cdxml"));
-      await ex("restyle", "Angewandte", "1", at("in"), at(x, "restyled"));
-      await ex("table", csv, at(x, "table"), "cdxml");
-      await ex("check", at("in", "scheme1.cdxml"), at(x, "renumbered", "scheme2.cdxml"), at("five.cdxml"), csv);
-      return out;
-    };
-    const python = spawnSync("python3", ["--version"]).status === 0, [js, py] = await Promise.all([examples(process.execPath, "mjs"), python ? examples("python3", "py") : undefined]);
-    assert.deepEqual(js, [
-      "scheme1.cdxml: 7 is 1, 3 is 2, 9 is 3\nscheme2.cdxml: 9 is 3, 4 is 4\n", "scheme1.cdxml: Wiley (Angewandte)\nscheme2.cdxml: Wiley (Angewandte)\n", "1.cdxml: benzene\n2.cdxml: 2,4-dinitrophenol\n3: Octet drew nothing. Octet cannot read \"C1CC(\": give a SMILES instead (with * for a generic group such as L or R, and its labels).\n4.cdxml: ethanol\nexit 1",
-      "scheme1.cdxml: clean\nscheme2.cdxml: clean\nfive.cdxml: 1 to look at\n  Compound number 5 is on more than one structure.\ntable.csv: Octet cannot read the structures in this file.\n2 to look at.\nexit 1",
-    ]);
+    const all = await examplesRan;
+    assert.equal(all.code, 0, all.stdout + all.stderr);
     const numbers = (file: string) => (fromCdxml(readFileSync(at("mjs", ...file.split("/")), "utf8")).mol.captions ?? []).filter((c: { bold?: boolean }) => c.bold).map((c: { text: string }) => c.text);
     assert.deepEqual([numbers("renumbered/scheme1.cdxml"), numbers("renumbered/scheme2.cdxml"), numbers("table/2.cdxml"), numbers("table/4.cdxml")], [["1", "2", "3"], ["3", "4"], ["2"], ["4"]]);
     assert.ok(/<CDXML[^>]*BondLength="17"/.test(readFileSync(at("mjs", "restyled", "scheme1.cdxml"), "utf8")), "Angewandte's bonds");
-    if (py) {
-      assert.deepEqual(py, js);
-      for (const f of ["renumbered/scheme1.cdxml", "renumbered/scheme2.cdxml", "restyled/scheme1.cdxml", "table/1.cdxml", "table/2.cdxml", "table/4.cdxml"]) assert.equal(readFileSync(at("py", ...f.split("/")), "utf8"), readFileSync(at("mjs", ...f.split("/")), "utf8"), f);
-    }
-  } finally { rmSync(tmp, { recursive: true, force: true }); }
+  } finally { rmSync(examplesIn, { recursive: true, force: true }); }
+}
+
+// drawings close through scripts/headless/stdio.ts, as a script closes each drawing it opened once it has read it: 50
+// open, read and close cycles leave the one drawing Octet opened with, which the session did not open and cannot
+// close. After it closes the drawing it uses, the session has none (drawings list names none it uses).
+{
+  const p = spawn(process.execPath, [new URL("../scripts/headless/stdio.ts", import.meta.url).pathname], { stdio: ["pipe", "pipe", "inherit"] }), lines = createInterface({ input: p.stdout })[Symbol.asyncIterator]();
+  let k = 0;
+  const rpc = async (name: string, args: object) => { p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: ++k, method: "tools/call", params: { name, arguments: args } }) + "\n"); return JSON.parse((await lines.next()).value).result; };
+  let made = "";
+  for (let i = 0; i < 50; i++) {
+    made = (await rpc("drawings", { action: "new", text: "CCO" })).structuredContent.opened;
+    assert.match((await rpc("read", { format: "mol" })).structuredContent.text, /V2000|V3000/);
+    assert.deepEqual((await rpc("drawings", { action: "close" })).structuredContent, { closed: made });
+  }
+  const left = (await rpc("drawings", { action: "list" })).structuredContent;
+  assert.deepEqual(left, { drawings: [{ id: "headless", title: "Untitled", edited: false }] });
+  // With no drawing, a close names one: Octet never closes the drawing the call happens to run in. A closed one is gone.
+  assert.equal((await rpc("drawings", { action: "close" })).content[0].text, "Octet changed nothing. This session uses no drawing. Call drawings for the ids, then close with drawing.");
+  assert.equal((await rpc("drawings", { action: "close", drawing: made })).content[0].text, `There is no drawing ${made}. Call drawings for the ids.`);
+  const theirs = await rpc("drawings", { action: "close", drawing: "headless" });
+  assert.ok(theirs.isError && theirs.content[0].text === "Octet changed nothing. This session did not open headless with drawings new: the user closes it in Octet's window.", theirs.content[0].text);
+  p.stdin.end();
 }
 console.log("headless.check: ok");

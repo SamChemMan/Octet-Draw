@@ -19,6 +19,8 @@ const { findReaction } = await import("./reaction.ts");
 const { formulaWeight, parseAmount } = await import("./stoich.ts");
 const { handle, MAX_TEXT, resetIds, TOOL_NAMES, TOOL_TABLE, OP_TABLE } = await import("./mcp.ts");
 const { NOTATION } = await import("./notation.ts");
+const { bandSize } = await import("./render.ts");
+const { detailsOf, PROPERTIES } = await import("./experiment.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
@@ -60,7 +62,7 @@ const host: Host = {
   file: (t) => host.structure(t), export: () => true, dialog: (id) => id === "print" || id === "rotate_dialog", windowless: () => windowless,
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
-  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
+  window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => "theirs",
 };
 let n = 0;
 // Each session's brief (set_brief), as mcp.rs keeps it: a new session has none.
@@ -119,8 +121,8 @@ assert.match(tools.find((t: { name: string }) => t.name === "draw").description,
 {
   const page = readFileSync(new URL("../docs/scripting.md", import.meta.url), "utf8");
   assert.deepEqual([...page.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]), tools.map((t) => t.name), "the scripting page's table of tools");
-  // Its rows for change and advanced name each operation and tool those take.
-  const ops = { change: tools[1].inputSchema.properties.operations.items.properties.op.enum, advanced: tools[4].inputSchema.properties.tool.enum } as Record<string, string[]>;
+  // Its rows for change, drawings and advanced name each operation, action and tool those take.
+  const ops = { change: tools[1].inputSchema.properties.operations.items.properties.op.enum, drawings: tools[3].inputSchema.properties.action.enum, advanced: tools[4].inputSchema.properties.tool.enum } as Record<string, string[]>;
   for (const [name, list] of Object.entries(ops)) { const row = page.match(new RegExp(`^\\| \`${name}\` \\|.*$`, "m"))![0]; for (const op of list) assert.ok(row.includes(`\`${op}\``), `the scripting page's ${name} row names ${op}`); }
   const shown = [...page.matchAll(/^### (\S+)\n\n```\w+\n([\s\S]*?)```$/gm)];
   assert.equal(shown.length, 10, "the client and four examples, in Python and JavaScript");
@@ -170,7 +172,7 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
   // (draw lists its lines and brief, which it reads itself into an operation and set_brief's arguments, and the JSON
   // of structures: the other kinds' JSON is in help, and taken as change's draw.)
   assert.equal(listed("draw").properties.lines.description, NOTATION);
-  for (const [name, route, of] of [["draw", "", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new"]]] as [string, string, string[]][])
+  for (const [name, route, of] of [["draw", "", ["structures", "cycle", "figure"]], ["read", "", ["read", "file"]], ["drawings", "action", ["list", "use", "new", "close"]]] as [string, string, string[]][])
     for (const [k, p] of Object.entries(listed(name).properties) as [string, any][]) {
       if (k === route) { assert.deepEqual(p.enum, of, name); continue; }
       if (name === "draw" && (k === "lines" || k === "brief")) continue;
@@ -492,6 +494,8 @@ const refused: [string, unknown, RegExp][] = [
   ["draw", { kind: "structures", structures: Array(201).fill({ text: "water" }) }, /more than 200/],
   ["draw", { kind: "cycle", intermediates: [{ text: "benzene" }] }, /fewer than 2/],
   ["advanced", { tool: "run_command", args: { command: "quit" } }, /no command quit/],
+  // Clean Up Reaction does Augmented Clean Up Reaction's work too, since 1.1.2 (plan mcp-v2, 17.3).
+  ["advanced", { tool: "run_command", args: { command: "clean_reaction_augmented" } }, /no command clean_reaction_augmented/],
   ["advanced", { tool: "set_style", args: { preset: "Comic Sans" } }, /not one of/],
   ["read", [], /not an object/],
   // Through a piece a tool lists once (rich, place), a refusal names the place and the forms as before.
@@ -550,7 +554,7 @@ assert.equal(steps.length, 0);
   await no("advanced", { tool: "export", format: "pdf", colour: "red" }, /^Octet changed nothing\. args: colour is not an argument of this tool\. advanced help of export gives its arguments\.$/);
   // (journal is set_style's preset by another name now, plan 19.10.)
   await no("advanced", { tool: "set_style", args: { font: "Arial" } }, /^Octet changed nothing\. args: font is not an argument of this tool\. advanced help of set_style gives its arguments\.$/);
-  await no("drawings", { action: "close" }, /action: not one of list, use, new/);
+  await no("drawings", { action: "shut" }, /action: not one of list, use, new, close/);
   await no("drawings", { action: "use" }, /drawing is missing/);
   await no("drawings", { action: "list", drawing: "draw-1" }, /drawing is not an argument of this tool\.$/);
   await no("drawings", [], /arguments: not an object/);
@@ -1039,7 +1043,19 @@ assert.deepEqual(grid.typed["r:C2H6O"], { equiv: 3 });
 assert.deepEqual(grid.typed["p:C4H8O2"], { measured: parseAmount("7.9 g", "measured") });
 assert.deepEqual(grid.typed['r:"H2SO4"'], { volume: parseAmount("0.1 mL", "volume") });
 assert.equal(grid.limiting, "r:C2H4O2");
+assert.deepEqual(grid.roles, {}, "a table made here starts with known solvents as solvents, as Analyse Stoichiometry's");
 assert.deepEqual((await read()).experiment, { title: "Ethyl acetate", solvent: "none" });
+// 1.1.2's table: a column's role (a solvent is never limiting), the amount measured out, the concentration and the
+// table's conditions. A product takes no role and no measure.
+out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "ethanol", role: "solvent" }, { of: "acetic acid", role: "solvent", measure: "volume" }, { of: "1", role: "catalyst", measure: "mass" }], concentration: "0.5 M", conditions: { temperature: "reflux", time: "4 h" } } });
+assert.ok(!out.isError, text(out));
+assert.match(text(out), /cannot read a role for the product 1; measure for the product 1/);
+const g2 = m.grids![0];
+assert.deepEqual([g2.roles, g2.taken, g2.limiting, g2.conc, g2.conditions], [{ "r:C2H6O": "solvent", "r:C2H4O2": "solvent" }, { "r:C2H4O2": "volume" }, undefined, 0.5, { temperature: "reflux", time: "4 h" }]);
+assert.ok(!("limiting" in g2), "the limiting reagent made a solvent is limiting no more");
+await call("advanced", { tool: "fill_experiment", args: { concentration: "", conditions: { time: "" } } });
+assert.deepEqual([m.grids![0].conc, m.grids![0].conditions], [undefined, { temperature: "reflux" }]);
+assert.match(text(await call("advanced", { tool: "fill_experiment", args: { concentration: "fast" } })), /cannot read concentration "fast"/);
 
 // A text reagent Octet reads no formula from has no column in the table: fill_experiment says so and types nothing.
 fresh();
@@ -1096,6 +1112,9 @@ out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm:
 assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
 assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
 assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
+// BMP (File > More Formats > Export BMP) is a picture: the window makes it as Export does.
+assert.doesNotMatch(text(await call("read", { format: "bmp" })), /not one of/);
+assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /if \(!PICTURES\.includes\(format as ExportFormat\) && format !== "bmp"\) return formatOf\(/);
 assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as TIF\.$/);
 // A picture of an empty drawing: Export's own words.
 {
@@ -1168,6 +1187,42 @@ windowless = false;
   assert.ok(out.isError && commands.length === 0, text(out));
   assert.ok(!("text" in tools.find((t) => t.name === "drawings")!.inputSchema.properties));
   assert.match(((await call("advanced", { tool: "help", args: { of: "new" } })) as any).structuredContent.description, /text: a file's text/);
+}
+// drawings close: a drawing the session opened with drawings new closes (mcp.rs mcp_close), the one it uses when no
+// drawing is given. Octet refuses a drawing it did not open, and one with unsaved changes stays open: the reply says
+// why, and that the user closes it in Octet's window (with no window, only why). An id of no drawing is answered as
+// drawings use answers it.
+{
+  const asked: unknown[][] = [], close = host.close;
+  host.close = async (...a) => { asked.push(a); return a[1] === "draw-1" ? "closed" : a[1] === "draw-4" ? "unsaved" : a[1] === "draw-99" ? "none" : "theirs"; };
+  out = await call("drawings", { action: "close" });
+  assert.ok(!out.isError && text(out) === "Octet closed draw-1.", text(out));
+  assert.deepEqual(out.structuredContent, { closed: "draw-1" });
+  out = await call("drawings", { action: "close", drawing: "main" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. This session did not open main with drawings new: the user closes it in Octet's window.", text(out));
+  out = await call("drawings", { action: "close", drawing: "draw-4" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. draw-4 has changes that are not saved: the user closes it in Octet's window.", text(out));
+  out = await call("drawings", { action: "close", drawing: "draw-99" });
+  assert.ok(out.isError && text(out) === "There is no drawing draw-99. Call drawings for the ids.", text(out));
+  windowless = true;
+  out = await call("drawings", { action: "close", drawing: "main" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. This session did not open main with drawings new.", text(out));
+  windowless = false;
+  assert.deepEqual(asked, [["s-1", "draw-1"], ["s-1", "main"], ["s-1", "draw-4"], ["s-1", "draw-99"], ["s-1", "main"]]);
+  // A session whose drawing the user closed can still close another it opened.
+  assert.ok(!(await lost("drawings", { action: "close", drawing: "draw-1" })).isError);
+  // A session that uses no drawing (it closed its own, or the user closed it) names the one to close: the window its
+  // call runs in can be another drawing it opened, which Octet never closes for it.
+  asked.length = 0;
+  const unset = JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: 98, method: "tools/call", params: { name: "drawings", arguments: { action: "close" } } }), () => host, "1", { ...as("s-1"), unset: true })).result;
+  assert.ok(unset.isError && unset.content[0].text === "Octet changed nothing. This session uses no drawing. Call drawings for the ids, then close with drawing.", unset.content[0].text);
+  out = await lost("drawings", { action: "close" });
+  assert.ok(out.isError && text(out) === "Octet changed nothing. The drawing this session used (draw-7) is closed. Call drawings for the ids, then close with drawing.", text(out));
+  assert.deepEqual(asked, []);
+  host.close = close;
+  // The editor sends its own unsaved changes with a close of its own window: its window list hears of them only after
+  // it draws, which can be after a change call's reply.
+  assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /invoke<[^>]*>\("mcp_close", \{ session, drawing, edited: unsaved && drawing === getCurrentWindow\(\)\.label \}\)/);
 }
 // K11: an AI app (or a script) still reads and writes no file: no tool and no operation takes a path.
 {
@@ -1430,6 +1485,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(shown, undefined, "nothing made, nothing to show");
   // (The window cannot run here: the editor's host is checked by its text. It pans the view to that box, as a paste does.)
   assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /end: \(made\) => \{[^}]*if \(made\) panTo\(/, "the editor's host brings what a call made into view");
+  // Clean Up Reaction turns the products after its layout's glide (turnNext). In a call the settle turns them at once,
+  // so run_command clean_reaction gives back the finished drawing (plan mcp-v2, 17.3).
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
+  // Only the call's own Clean Up Reaction turns at once: one the user runs while a call runs turns as ever, and is not
+  // part of the call's Undo.
+  assert.match(editor, /const pick = turnNext\.current\?\.pick;\n\s+if \(!pick \|\| \(turnNext\.current!\.call && mcpCalling\.current\)\) return;/, "the turn waits for no timer in a call");
+  assert.match(editor, /mcpWait\.current = \{\};\n\s+if \(turnNext\.current\?\.call\) await mcpHost\.current!\.turnNow\(\);/, "the call's settle turns the products");
+  assert.match(editor, /command: \(id\) => \{ const run = commands\.current\[id\], was = turnNext\.current;[^\n]*run\(\); if \(turnNext\.current && turnNext\.current !== was\) turnNext\.current\.call = true;/, "the turn a call's command asks for is the call's");
   // Under a shape too (a box drawn round something). Not on an experiment page: its schemes go in its boxes.
   for (experiment of [false, true]) {
     m = EMPTY;
@@ -1561,6 +1624,111 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(!out.isError, text(out));
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), ["L", "Ar"]);
   assert.match(text(await call("draw", { kind: "structures", structures: [{ text: "*[Pd]*", labels: ["L"] }] })), /has 2 \* but 1 labels/);
+  // C6: a label Octet reads no group in, and that stands in for none, is named in the reply of every draw that takes
+  // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in
+  // (L, Ar, R1) and a label written round one (OR, NHPG, OPG, CO2Alkyl) are not named. Ar stays a generic group: it is no phenyl.
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
+  assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }, { text: "*C(*)(*)*", labels: ["OPG", "CO2Alkyl", "HNu", "MLn"] }] });
+  assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));
+  const drawn = (await read()).structures.map((x: { smiles: string; formula: string }) => [x.formula, x.smiles]);
+  assert.equal(drawn[0][0], "BrPd", "L and Ar count as no atoms");
+  assert.ok(drawn[1][0] === "C16H25BO2" && !drawn[1][1].includes("*"), `Bpin and t-Bu are read: ${drawn[1]}`);
+  // A nitrile ligand written from its N is no amine: Octet reads no group in it, and says so (it drew PhNHEt).
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["MeCN"] }] });
+  assert.match(text(out), / Octet does not know the label NCMe: it is drawn as text\./);
+  assert.equal((await read()).structures[0].formula, "C6H5");
+  for (const [tool, args] of [
+    ["draw", { kind: "structures", structures: [{ molecule: { atoms: [{ label: "Xyz", x: 0, y: 0 }, { label: "OTBS", x: 1, y: 0 }], bonds: [{ from: 0, to: 1 }] } }] }],
+    ["draw", { kind: "reaction", start: [{ text: "*c1ccccc1", labels: ["Xyz"] }], steps: [{ products: [{ text: "benzene" }] }] }],
+    ["draw", { kind: "cycle", intermediates: [{ text: "*c1ccccc1", labels: ["Xyz"] }, { text: "benzene" }, { text: "toluene" }] }],
+    ["draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["Xyz"] }]] }] }],
+    ["change", { operations: [{ op: "draw", kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["Xyz"] }] }] }],
+  ] as const) {
+    fresh();
+    out = await call(tool, args);
+    assert.match(text(out), / Octet does not know the label Xyz: it is drawn as text\./, `${tool} ${JSON.stringify(args).slice(0, 60)}`);
+  }
+  // A route of schemes names it once for all its schemes.
+  fresh();
+  out = await call("draw_route", { schemes: [{ start: [{ text: "*c1ccccc1", labels: ["Xyz"] }], steps: [{ products: [{ text: "benzene" }] }] }, { start: [{ text: "*c1ccccc1", labels: ["Xyz"] }], steps: [{ products: [{ text: "toluene" }] }] }] });
+  assert.equal(text(out).match(/does not know the label Xyz/g)?.length, 1, text(out));
+  // replace too, for a structure whose text the editor reads with such a label in it (a file's).
+  fresh();
+  await call("draw", { kind: "structures", structures: [{ text: "benzene" }] });
+  const structure = host.structure;
+  host.structure = () => ({ atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", text: "Xyz", location: [1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] });
+  out = await call("change", { operations: [{ op: "replace", structure: (await read()).structures[0].id, text: "a file with the label Xyz" }] });
+  host.structure = structure;
+  assert.match(text(out), /Replaced .* Octet does not know the label Xyz: it is drawn as text\./);
+  // edit says it too, for a label it sets on an atom. A label Octet reads gets no such sentence.
+  fresh();
+  await call("draw", { kind: "structures", structures: [{ text: "CCO" }] });
+  const atom = async (structure: number, n: number) => `${(await read()).structures[structure].id}.${n}`;
+  assert.match(text(await call("change", { operations: [{ op: "edit", ids: [await atom(0, 1)], label: "Xyz" }] })), /Changed s\d+\.1: label\. Octet does not know the label Xyz: it is drawn as text\./);
+  assert.doesNotMatch(text(await call("change", { operations: [{ op: "edit", ids: [await atom(0, 1)], label: "OTBS" }] })), /does not know/);
+  // Capitals that spell no group are named, and never read as deuterium or tritium (OTPS is in the test plan's C6).
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["OTPS"] }, { text: "*c1ccccc1", labels: ["BHT"] }, { text: "*c1ccccc1", labels: ["4-OPh"] }] });
+  assert.match(text(out), /Octet does not know the labels OTPS, BHT, 4-OPh: they are drawn as text\./);
+  assert.deepEqual((await read()).structures.map((x: { formula: string; inchiKey?: string }) => [x.formula, x.inchiKey]), [["C6H5", undefined], ["C6H5", undefined], ["C6H5", undefined]]);
+  // A label is kept from its attachment atom, whichever side an AI app wrote it for (the * of '*c1ccccc1' is on the
+  // left, that of 'c1ccccc1*' on the right), so Octet draws it towards its bond on both. NC for a * is the nitrile
+  // written from the left. A phenyl with its positions, and a label already from its attachment atom, stay as given.
+  const given = ["MeO", "pinB", "F3C", "t-BuO", "O2N", "H2N", "NC", "4-ClC6H4", "n-C8H17", "OMe", "CN"], kept = ["OMe", "Bpin", "CF3", "Ot-Bu", "NO2", "NH2", "CN", "4-ClC6H4", "n-C8H17", "OMe", "CN"];
+  for (const smiles of ["*c1ccccc1", "c1ccccc1*"]) {
+    fresh();
+    out = await call("draw", { kind: "structures", structures: given.map((l) => ({ text: smiles, labels: [l] })) });
+    assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));
+    assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), kept, smiles);
+    const got = (await read()).structures.map((x: { formula: string }) => x.formula);
+    assert.deepEqual([got[0], got[6], got[10]], ["C7H8O", "C7H5N", "C7H5N"], `MeO, NC and CN on ${smiles}`);
+    assert.ok(!toSmiles(expandLabels(m)).includes("[C-]"), "NC for a * is no isocyanide");
+  }
+  // A hint or a colour that names a label as the AI app gave it finds the label as Octet kept it.
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["MeO"], right: "MeO", colours: { MeO: "#C42B2B" } }] });
+  assert.ok(!out.isError, text(out));
+  assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
+  assert.ok(m.atoms.find((a) => a.text)!.location[0] > Math.max(...m.atoms.filter((a) => !a.text).map((a) => a.location[0])), "the label named by right is the atom furthest right");
+  fresh();
+  out = await call("draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["MeO"] }]] }], element_colours: { MeO: "#C42B2B" } });
+  assert.ok(!out.isError, text(out));
+  assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
+  // A label on an atom of a molecule, one set with edit and one a change puts on (swap, add) are kept the same way.
+  fresh();
+  await call("draw", { kind: "structures", structures: [{ molecule: { atoms: [{ label: "MeO", x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], bonds: [{ from: 0, to: 1 }, { from: 1, to: 2 }] } }] });
+  await call("change", { operations: [{ op: "edit", ids: [await atom(0, 3)], label: "HO2C" }] });
+  assert.deepEqual(m.atoms.map((a) => a.text), ["OMe", undefined, "CO2H"]);
+  fresh();
+  out = await call("draw", { kind: "structures", structures: [{ text: "Brc1ccccc1", changes: [{ swap: { Br: "MeO" } }] }, { text: "Brc1ccccc1", changes: [{ swap: { Br: "NC" } }] }, { text: "Brc1ccccc1", changes: [{ swap: { Br: "Ar" } }] }] });
+  assert.ok(!out.isError && !/does not know|cannot read/.test(text(out)), text(out));
+  assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), ["OMe", "CN", "Ar"]);
+  assert.deepEqual((await read()).structures.map((x: { formula: string }) => x.formula), ["C7H8O", "C7H5N", "C6H5"]);
+  // Ar on an atom with a bond is an aryl group in a molecule too, and with edit: argon has no bonds. Alone it is argon.
+  fresh();
+  await call("draw", { kind: "structures", structures: [{ molecule: { atoms: [{ label: "Ar", x: 0, y: 0 }, { label: "Br", x: 1, y: 0 }], bonds: [{ from: 0, to: 1 }] } }, { molecule: { atoms: [{ label: "Ar", x: 0, y: 0 }] } }, { text: "CBr" }] });
+  await call("change", { operations: [{ op: "edit", ids: [await atom(2, 1)], label: "Ar" }] });
+  assert.deepEqual((await read()).structures.map((x: { formula: string }) => x.formula), ["Br", "Ar", "Br"]);
+  assert.deepEqual(m.atoms.map((a) => a.text ?? a.label), ["Ar", "Br", "Ar", "Ar", "Br"]);
+  // A salt in a label is one compound with one formula, and no warning: BF3K is a borate and its potassium ion.
+  fresh();
+  await call("draw", { kind: "structures", structures: [{ text: "BrC*", labels: ["BF3K"] }, { text: "*c1ccccc1", labels: ["H"] }] });
+  assert.deepEqual((await read()).structures.map((x: { formula: string }) => x.formula), ["CH2BBrF3K", "C6H6"]);
+  assert.deepEqual(problems(m), []);
+  // Every example Octet gives an AI app of a SMILES with * and its labels (the instructions, each tool's description
+  // and its arguments') is drawn with no label Octet does not know.
+  const told = `${(await send("initialize", { protocolVersion: "2025-06-18" })).result.instructions} ${JSON.stringify((await send("tools/list")).result.tools)} ${JSON.stringify(TOOL_TABLE.map((t) => t.description))} ${JSON.stringify(OP_TABLE.map((t) => t.description))}`;
+  const examples = [...told.matchAll(/'([^' ]*\*[^' ]*)'[^'[\]]*\[((?:'[^']*'(?:, ?)?)+)\]/g)].map((x) => ({ text: x[1], labels: [...x[2].matchAll(/'([^']*)'/g)].map((l) => l[1]) }));
+  assert.ok(examples.length >= 2 && examples.some((e) => e.labels.includes("Ar")) && examples.some((e) => e.labels.includes("OSiPh3")), JSON.stringify(examples));
+  for (const e of examples) {
+    fresh();
+    out = await call("draw", { kind: "structures", structures: [e] });
+    assert.ok(!out.isError && !/does not know/.test(text(out)), `${JSON.stringify(e)}: ${text(out)}`);
+  }
 }
 
 // F4: figure. Panels, rows, numbers, captions, side text and brackets, as one undo step; the ids by place.
@@ -1981,6 +2149,78 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   r = await call("advanced", { tool: "place_template", args: { name: "Unobtainium flask" } });
   assert.ok(r.isError); assert.match(text(r), /no template Unobtainium flask/);
   assert.ok((await call("advanced", { tool: "place_template", args: { name: "ATP", set: "Nowhere" } })).isError);
+  // What 1.1.2 added (plan mcp-v2, 17.3; MCP full parity): its commands and actions, its later template sets, gels,
+  // plasmid maps, membranes, a bond's own widths and the drawing's properties.
+  commands.length = 0;
+  // (The stand-in runs none of the menu commands, so each goes on to the Actions panel's: it is asked for twice.)
+  const added = ["predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf", "insert_file", "opacity.40", "arrow.style.membrane"];
+  for (const c of added) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
+  assert.deepEqual([...new Set(commands)], added);
+  for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"]]) {
+    fresh();
+    r = await call("advanced", { tool: "place_template", args: { name } });
+    assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name} from ${set}\\.`));
+  }
+  fresh();
+  r = await call("change", { operations: [{ op: "shape", kind: "gel", box: [0, 0, 6, 6], gel: { unit: "bp", lanes: 3, names: ["L", "A"], range: [5000, 100], bands: [{ lane: 1, size: 500 }, { lane: 2, size: 2000 }, { lane: 7, size: 50 }] } }] });
+  assert.ok(!r.isError, text(r));
+  const gel = m.shapes!.find((x) => x.kind === "gel")!.tlc!;
+  assert.deepEqual([gel.unit, gel.lanes, gel.names, gel.range], ["bp", 3, ["L", "A", "2"], [100, 5000]]);
+  assert.deepEqual(gel.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gel, x.rf))]), [[1, 500], [2, 2000]], "bands at their sizes; none in a lane the gel has not");
+  assert.ok(gel.spots.some((x) => x.lane === 0), "the bp ladder in the first lane");
+  // A band in a lane the gel has not is left out, and the result says so. A range needs two sizes, as Set Range's: one
+  // size at both ends put every band at no place.
+  assert.match(text(r), /Not drawn: the band in lane 7 \(the gel has lanes 0 to 2\)\./);
+  const gelOne = () => m.shapes!.find((x) => x.kind === "gel")!, gelId = `b${gelOne().id}`;
+  assert.match(text(await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { range: [5, 5] } }] })), /gel: range needs two sizes/);
+  assert.deepEqual(gelOne().tlc!.range, [100, 5000]);
+  // Its lane names and scale hide as the Actions panel hides them (shape.hide.names and shape.hide.scale too); a TLC
+  // plate draws neither, so its tlc takes neither.
+  r = await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { hide: ["names", "scale"] } }] });
+  assert.ok(!r.isError, text(r)); assert.deepEqual(gelOne().tlc!.hide, ["names", "scale"]);
+  assert.ok((await call("change", { operations: [{ op: "shape", kind: "tlc", box: [0, 0, 4, 4], tlc: { hide: ["names"] } }] })).isError);
+  commands.length = 0;
+  for (const c of ["shape.hide.names", "shape.hide.scale"]) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
+  assert.deepEqual(commands, ["shape.hide.names", "shape.hide.scale"]);
+  // Lanes come and go at the gel's right as Add a lane and Delete the lane do: each lane keeps its width, so the gel
+  // gets wider or narrower, and the bands and names stay in their lanes.
+  const across = () => { const s = gelOne(); return Math.abs(s.to[0] - s.from[0]); }, lane = across() / 3;
+  r = await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 5 } }] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual([gelOne().tlc!.lanes, gelOne().tlc!.names, Math.round((across() / lane) * 1000) / 1000], [5, ["L", "A", "2", "3", "4"], 5]);
+  assert.deepEqual(gelOne().tlc!.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gelOne().tlc!, x.rf))]), [[1, 500], [2, 2000]]);
+  await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 2 } }] });
+  assert.deepEqual([gelOne().tlc!.lanes, gelOne().tlc!.names, Math.round((across() / lane) * 1000) / 1000, gelOne().tlc!.spots.filter((x) => x.lane).length], [2, ["L", "A"], 2, 1]);
+  r = await call("change", { operations: [{ op: "shape", kind: "plasmid", box: [10, 0, 20, 10], plasmid: { bp: 3000, name: "pUC", regions: [{ start: 100, end: 900, name: "AmpR", direction: "reverse" }, { start: 1000, end: 1200, direction: "forward" }], markers: [{ at: 50, name: "EcoRI" }] } }] });
+  assert.ok(!r.isError, text(r)); assert.match(text(r), /Drew a plasmid map b/);
+  assert.deepEqual(m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, { bp: 3000, name: "pUC", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
+  // An edit changes what it gives, over the map as it is: a new name keeps the regions and markers.
+  const map = () => m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, mapId = `b${m.shapes!.find((x) => x.kind === "plasmid")!.id}`;
+  r = await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { name: "pUC19" } }] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual(map(), { bp: 3000, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
+  await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { bp: 2686, markers: [] } }] });
+  assert.deepEqual(map(), { bp: 2686, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [] });
+  assert.match(text(await call("change", { operations: [{ op: "shape", kind: "plasmid", box: [0, 0, 5, 5], plasmid: { bp: 100, markers: [{ at: 500, name: "X" }] } }] })), /plasmid: each region and marker must lie in 1 to bp/);
+  assert.match(text(await call("change", { operations: [{ op: "shape", kind: "box", box: [0, 0, 5, 5], gel: { lanes: 2 } }] })), /gel goes on a gel/);
+  r = await call("change", { operations: [{ op: "arrow", kind: "line", from: [0, -5], to: [8, -5], style: "membrane" }] });
+  assert.ok(!r.isError, text(r)); assert.equal(m.arrows!.at(-1)!.style, "membrane");
+  assert.match(text(await call("change", { operations: [{ op: "arrow", kind: "reaction", from: [0, -8], to: [8, -8], style: "membrane" }] })), /style membrane goes on a line or arc/);
+  fresh();
+  r = await call("draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] });
+  const [w1, w2] = (r as any).structuredContent.made as string[];
+  r = await call("change", { operations: [{ op: "edit", ids: [`${w1}.1-2`], line_width: 1.2, bold_width: 3 }, { op: "edit", ids: [w2], line_width: 0.9 }] });
+  assert.ok(!r.isError, text(r));
+  const [gw1, gw2] = fragments(m), inG = (g: number[]) => m.bonds.filter((b) => g.includes(b.atoms[0]));
+  assert.deepEqual(inG(gw1).filter((b) => b.line || b.bold).map((b) => [b.line, b.bold]), [[1.2, 3]], "the one bond's own widths");
+  assert.ok(inG(gw2).every((b) => b.line === 0.9 && !b.bold), "every bond of the structure");
+  r = await call("advanced", { tool: "set_style", args: { properties: { title: "Route to X", author: "A. Chemist", keywords: "taxol, route" } } });
+  assert.ok(!r.isError, text(r)); assert.match(text(r), /^Octet set the drawing's title, author and keywords\./);
+  assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { title: "Route to X", author: "A. Chemist", keywords: "taxol, route" });
+  await call("advanced", { tool: "set_style", args: { properties: { keywords: "" } } });
+  assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { title: "Route to X", author: "A. Chemist" });
+  // With a style or page, the result names the properties too.
+  assert.match(text(await call("advanced", { tool: "set_style", args: { preset: "RSC", properties: { author: "B. Chemist" } } })), /^The drawing now uses RSC [^\n]*\. Octet set the drawing's author\./);
   // A structure over the arrow is the one given there, and the product the product (6 November 2026: they were read
   // products first and drawn structures first, so they swapped).
   fresh();

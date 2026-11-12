@@ -1,8 +1,8 @@
 // Checks a drawing the way a chemist would at a glance: ChemDraw 26.1's chemical warnings (Check Structure and the
 // marks on the drawing), and messy geometry. Messages follow the brief's style: what is wrong, the rule, then what to do.
 import { bondedTo, bondOrders, fragments, freePairs, LARGE, mayBeChairBond, neighbourSlots, neighbours, perspectiveBonds, pos, WIDE, type P } from "./edit.ts";
-import { chemicalText, labelSmiles, units } from "./labels.ts";
-import { HBOND, isBracket, orderOf, type Bond, type Mol } from "./render.ts";
+import { chemicalText, fromEnd, labelSmiles, units } from "./labels.ts";
+import { HBOND, isBracket, orderOf, turnPoint, type Bond, type Mol } from "./render.ts";
 
 // The kinds of warning, as ChemDraw 26.1's Settings > Warnings lists them, each with its switch's default (all on but
 // enhanced stereochemistry).
@@ -110,10 +110,13 @@ function firstAtom(text: string) {
 // The hydrogens a label writes on its attachment atom: CH3 3, NHBoc 1, H3C 3, OMe 0. Undefined when the attachment
 // atom is counted (C6H4): its hydrogens are shared out, so Octet cannot tell.
 function labelHydrogens(text: string): number | undefined {
-  const us = units(text), last = us[us.length - 1];
-  // A label that starts with a group and ends with one heavy atom is read from its end (Et3N), as labelSmiles reads it.
-  if (us.length > 1 && us[0].kind === "group" && last.kind === "element" && last.text !== "H" && !last.count) return us[us.length - 2].text === "H" ? Number(us[us.length - 2].count ?? 1) : 0;
+  const us = units(text);
+  // A label written from the left is read from its end (Et3N), as labelSmiles reads it: the hydrogens are written
+  // after its last atom (t-BuNH) or before it (BocHN).
+  if (fromEnd(us)) { const h = us[us.length - 1].text === "H" ? us[us.length - 1] : us[us.length - 2]; return h.text === "H" ? Number(h.count ?? 1) : 0; }
   const first = us.findIndex((u) => !(u.kind === "element" && u.text === "H"));
+  // A label that is only hydrogen has no other atom to write hydrogens on.
+  if (first < 0) return 0;
   if (us[first]?.count && us[first].count !== "1") return undefined;
   const h = us[first + 1]?.text === "H" ? us[first + 1] : first === 1 ? us[0] : undefined;
   return h ? Number(h.count ?? 1) : 0;
@@ -228,8 +231,10 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
   for (const sh of m.shapes ?? []) {
     if (!isBracket(sh) || sh.side || (sh.ignoreWarnings && !all)) continue;
     const [x0, x1] = [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])], [y0, y1] = [Math.min(sh.from[1], sh.to[1]), Math.max(sh.from[1], sh.to[1])];
+    // In the brackets' own (upright) frame, as enclosed() counts them (query.ts): brackets turn with a selection.
+    const mid: P = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], up = (i: number): P => (sh.angle ? turnPoint(pos(m, i), mid, -sh.angle) : pos(m, i));
     const crosses = (x: number) => m.bonds.filter((b) => {
-      const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
+      const [p, q] = [up(b.atoms[0]), up(b.atoms[1])];
       if ((p[0] - x) * (q[0] - x) >= 0) return false;
       const y = p[1] + ((x - p[0]) / (q[0] - p[0])) * (q[1] - p[1]);
       return y > y0 && y < y1;

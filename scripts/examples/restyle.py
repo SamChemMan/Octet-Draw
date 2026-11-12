@@ -12,6 +12,7 @@ for name in sorted(f for f in os.listdir(folder) if f.lower().endswith((".cdxml"
     o.call("set_brief", {"destination": {"kind": "paper", "journal": journal, "columns": int(columns)}})
     read = o.call("read")
     o.save(os.path.join(out, name))
+    o.call("drawings", {"action": "close"})
     check = "" if read["check"] == "clean" else f", check {json.dumps(read['check'], separators=(',', ':'))}"
     print(f"{name}: {read['style']}{check}")
 o.close()
