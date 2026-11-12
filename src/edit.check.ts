@@ -402,6 +402,9 @@ console.log("edit.check: align ok");
   assert.equal(withGrid.grids?.length, 2);
   assert.deepEqual(withGrid.grids![1], { arrow: withGrid.arrows![1].id, typed: { r0: { mass: 0.5 } }, limiting: "r0" });
   assert.deepEqual(extractSelection(gridded, new Set([0, 1, 2]), new Set()).grids, []);
+  // A table moved on its own keeps its place from its arrow (Grid.at), so it comes where its pasted arrow is.
+  const placed = { ...m, grids: [{ arrow: 10, typed: {}, at: [-1, -2] as [number, number] }] };
+  assert.deepEqual(insertMol(placed, extractSelection(placed, new Set([0, 1, 2]), new Set([10])), [1, -1]).mol.grids![1].at, [-1, -2]);
   // A caption tied to a structure or an arrow, picked on its own, copies as free text where it is drawn (Sam, 27 October
   // 2026: text tied to a molecule would not copy). Picked with its structure, it stays tied.
   const at = (c: { id: number }) => (c.id === 12 ? [5, -2] as [number, number] : c.id === 11 ? [4, 1] as [number, number] : undefined);

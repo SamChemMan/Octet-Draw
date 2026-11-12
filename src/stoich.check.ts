@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, GRID_ROW_IDS, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
-import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, keptGrid, movedAt, setRole, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -132,12 +132,12 @@ assert.equal(formulaWeight("THF"), undefined, "an abbreviation is not a formula"
 // the grid kept. They go through Octet's file and CDXML, and none is inside typed, where Octet 1.1.1 calls a grid
 // damaged for a field it does not know (1.1.1 reads the rest of the grid and leaves them out).
 {
-  const full = { typed: { "r:A": { mass: 1 } }, roles: { 'r:"THF"': "solvent" as const, "r:B": "catalyst" as const }, taken: { "r:A": "mass" as const }, conc: 0.1, conditions: { temperature: "0 °C", atmosphere: "N2" }, step: true as const };
+  const full = { typed: { "r:A": { mass: 1 } }, roles: { 'r:"THF"': "solvent" as const, "r:B": "catalyst" as const }, taken: { "r:A": "mass" as const }, conc: 0.1, conditions: { temperature: "0 °C", atmosphere: "N2" }, step: true as const, at: [1.5, -2.25] as [number, number] };
   assert.deepEqual(readGrid(full, 3), { arrow: 3, ...full });
   assert.deepEqual(readGrid({ typed: {}, roles: {} }, 3)?.roles, {}, "a new table's roles, empty, are kept");
   const many = Object.fromEntries(Array.from({ length: 61 }, (_, k) => [`r${k}`, "reactant"]));
   for (const [field, bad] of [["roles", { "p:C": "solvent" }], ["roles", { "r:A": "oxidant" }], ["roles", ["solvent"]], ["roles", many], ["roles", { __proto__: "solvent" }], ["taken", { "r:A": "moles" }], ["taken", { "p:C": "mass" }],
-    ["conc", 0], ["conc", -1], ["conc", 1001], ["conc", Infinity], ["conc", "0.1"], ["conditions", { colour: "red" }], ["conditions", { time: 5 }], ["conditions", "2 h"], ["step", 1], ["step", "true"]] as const) {
+    ["conc", 0], ["conc", -1], ["conc", 1001], ["conc", Infinity], ["conc", "0.1"], ["conditions", { colour: "red" }], ["conditions", { time: 5 }], ["conditions", "2 h"], ["step", 1], ["step", "true"], ["at", [1]], ["at", [1, "2"]], ["at", [Infinity, 0]], ["at", [1e5, 0]], ["at", "1,2"]] as const) {
     const g = readGrid({ typed: { "r:A": { mass: 1 } }, [field]: field === "roles" && "__proto__" in (bad as object) ? JSON.parse('{"__proto__":"solvent"}') : bad }, 3);
     assert.ok(g && !(field in g), `${field}: ${JSON.stringify(bad)} left out`);
     assert.deepEqual(g.typed, { "r:A": { mass: 1 } }, "and the grid kept");
@@ -418,6 +418,32 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   near(typedB[1].solved["r:S1"].moles, 2 / 110, "a mass typed in step 2 wins");
   const whole = views([{ arrow: 9, typed: { "r:S0": { mass: 1 } } }]);
   assert.deepEqual(whole.map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S2"]], "a grid without step covers the scheme");
+  // A table moved on its own (Grid.at): its corner from its arrow's tail. Without at it is where it always was.
+  const base = whole[0], d: [number, number] = [1, -2], at = movedAt({ arrows: [{ id: 9, kind: "reaction", from: [3, 0], to: [4, 0] }] } as Mol, base, [0, 0])!;
+  assert.deepEqual(views([{ arrow: 9, typed: { "r:S0": { mass: 1 } }, at }])[0], base, "at its own place, the table is drawn as before");
+  const moved = views([{ arrow: 9, typed: { "r:S0": { mass: 1 } }, at: movedAt({ arrows: [{ id: 9, kind: "reaction", from: [3, 0], to: [4, 0] }] } as Mol, base, d) }])[0];
+  near(moved.start, base.start + 1, "the table moves");
+  near(moved.top, base.top - 2);
+  moved.cells.forEach((c, k) => { near(c.x, base.cells[k].x + 1, "each cell with it"); near(c.y, base.cells[k].y - 2); });
+  assert.deepEqual(moved.solved, base.solved, "and what it says is the same");
+  assert.deepEqual(row.map((s) => s.box), [box(0), box(1), box(2), box(3), box(4)], "the reaction stays where it is");
+  // The reaction moved (its arrow with it) carries the table; a structure changed does not move it.
+  const carriedTo = gridViews({ atoms: [], bonds: [], arrows: [{ id: 9, kind: "reaction", from: [8, 5], to: [9, 5] }, { id: 10, kind: "reaction", from: [14, 5], to: [15, 5] }], grids: [{ arrow: 9, typed: {}, at: [0, -1] }] } as Mol, deps)[0];
+  const atFirst = gridViews({ atoms: [], bonds: [], arrows: [{ id: 9, kind: "reaction", from: [3, 0], to: [4, 0] }, { id: 10, kind: "reaction", from: [9, 0], to: [10, 0] }], grids: [{ arrow: 9, typed: {}, at: [0, -1] }] } as Mol, deps)[0];
+  near(carriedTo.start, atFirst.start + 5, "with its arrow");
+  near(carriedTo.top, atFirst.top + 5);
+  const lower = row.map((s) => ({ ...s, box: [s.box[0], s.box[1] - 3, s.box[2], s.box[3]] }));
+  const edited = { ...deps, reaction: () => ({ steps: lower, arrows: [9, 10], atoms: [], captions: [], carried: [], conditions: new Map() }) as never, steps: () => [{ arrow: 9, reactants: [lower[0]], products: [lower[2]], above: [], below: [] }, { arrow: 10, reactants: [lower[2]], products: [lower[4]], above: [], below: [] }] as never };
+  const at3 = { atoms: [], bonds: [], arrows: [{ id: 9, kind: "reaction", from: [3, 0], to: [4, 0] }, { id: 10, kind: "reaction", from: [9, 0], to: [10, 0] }] };
+  near(gridViews({ ...at3, grids: [{ arrow: 9, typed: {}, at: [0, -1] }] } as Mol, edited)[0].top, atFirst.top, "a taller structure leaves a placed table where it is");
+  assert.ok(gridViews({ ...at3, grids: [{ arrow: 9, typed: {} }] } as Mol, edited)[0].top < base.top - 2, "and moves one in its own place down");
+  // On an experiment page, a conditions block that would pass the Reaction scheme box's right edge goes under the table.
+  const withBlock = { ...at3, grids: [{ arrow: 9, typed: {}, conditions: { atmosphere: "N2", other: "stir" } }] } as Mol, beside = gridViews(withBlock, deps)[0];
+  assert.deepEqual(gridViews(withBlock, { ...deps, fit: beside.block!.right + 1 })[0], beside, "it fits: beside the table");
+  const under = gridViews(withBlock, { ...deps, fit: beside.block!.right - 1 })[0];
+  near(under.block!.at, beside.start, "past the edge: under the table, from its left");
+  assert.ok(under.block!.right < beside.block!.right && under.block!.lines[0].y < beside.top - beside.rows.length * beside.rh, "and under its last row");
+  assert.equal(under.bottom, under.block!.lines[1].y - under.rh, "the table's foot is under the block");
   // With step tables, a grid with no step on a step's arrow is that step's (an arrow drawn or added since: an experiment
   // page gives each new arrow a grid).
   assert.deepEqual(views([{ arrow: 9, typed: {} }, { arrow: 10, typed: {}, step: true }]).map((v) => v.all.map((c) => c.key)), [["r:S0", "p:S1"], ["r:S1", "p:S2"]]);

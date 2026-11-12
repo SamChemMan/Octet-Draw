@@ -483,13 +483,13 @@ export type Annotation = { keyword: string; content: string };
 // every column a reactant until the user sets one); taken, the amount measured out for a column, its mass or its
 // volume (drawn red and underlined); conc, the concentration typed (mol/L), which gives the volume of the solvent with
 // no amount typed; conditions, the lines of the block beside the table; step, the table covers its own arrow only (one
-// table for each step of a scheme).
+// table for each step of a scheme); at, the table moved on its own: its corner from its arrow's tail (gridview.ts).
 export type GridRole = "reactant" | "catalyst" | "solvent";
 export type GridConditions = Partial<Record<"temperature" | "time" | "atmosphere" | "other", string>>;
 export type Grid = {
   arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
   hidden?: { rows?: string[]; cols?: string[] }; colour?: string; layout?: "rows";
-  roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true;
+  roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true; at?: [number, number];
 };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group

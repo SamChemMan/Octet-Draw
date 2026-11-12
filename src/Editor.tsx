@@ -141,7 +141,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, setRole } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, movedAt, setRole, shiftView } from "./gridview";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -266,6 +266,8 @@ type Drag =
   | { kind: "mark"; atom: number; key: string; start: [number, number]; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
+  // A reagent table moved on its own with Select, by d (drawing units) from where it is drawn.
+  | { kind: "grid"; arrow: number; from: P; start: [number, number]; d: P; moved: boolean }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
@@ -982,7 +984,7 @@ export default function Editor() {
   // arrows for a resize or a table's edge, else the cursor the canvas showed at the press, as the rotation arrow for a
   // turn (not the Eraser's none, which would lose the pointer over a panel).
   const dragShows = drag?.kind === "handle" ? "grabbing" : drag?.kind === "resize" ? CURSORS[drag.side]
-    : drag?.kind === "move" ? "move" : drag?.kind === "tableedge" ? `${drag.axis}-resize` : undefined;
+    : drag?.kind === "move" || drag?.kind === "grid" ? "move" : drag?.kind === "tableedge" ? `${drag.axis}-resize` : undefined;
   useEffect(() => {
     const shows = drag && (dragShows ?? (svg.current && getComputedStyle(svg.current).cursor));
     if (!shows || shows === "none") return;
@@ -4789,6 +4791,13 @@ export default function Editor() {
       setPicked(gi);
       return startMove(p, screen, t, gi, ga, copy);
     }
+    // A press on a reagent table picks its cell and grabs the table, which moves on its own (Grid.at).
+    const gc = !shift && Object.values(t).every((v) => v === undefined) ? gridCellAt(p) : undefined;
+    if (gc) {
+      choose([], []);
+      setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
+      return setDrag({ kind: "grid", arrow: gc.arrow, from: p, start: screen, d: [0, 0], moved: false });
+    }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
     setPicked(picks);
@@ -5547,6 +5556,9 @@ export default function Editor() {
         for (const g of groupsOf(doc, new Set([...atoms, ...[...bonds].flatMap((i) => doc.bonds[i].atoms)]), captions)) if (g.integral) { g.atoms.forEach((i) => atoms.add(i)); g.items.forEach((id) => captions.add(id)); }
         return setDrag({ ...drag, trail: [...drag.trail, p], bonds, atoms, captions, moved: true });
       }
+      case "grid":
+        if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        return setDrag({ ...drag, d: [p[0] - drag.from[0], p[1] - drag.from[1]], moved: true });
       case "box": {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
@@ -6147,7 +6159,7 @@ export default function Editor() {
     reagent: (item) => reagentFormula(item, readName, labelSmiles, smilesWeight),
     captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
-    captionSize: style.captionSize, perPt: pt / L, experiment: expPage,
+    captionSize: style.captionSize, perPt: pt / L, experiment: expPage, fit: expPage ? (schemeSpan(m)?.[2] ?? Infinity) - 1 : undefined,
   }) : []; }, [loaded, namesLoaded, doc, drawing, placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
@@ -8300,6 +8312,10 @@ export default function Editor() {
       case "tlcline":
       case "tableedge":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
+      case "grid": {
+        const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.d);
+        return at && changeGrid(drag.arrow, () => ({ at }));
+      }
       case "pen":
         setPenAt(drag.at);
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
@@ -8860,9 +8876,10 @@ export default function Editor() {
   };
   // The grid cell picked, marked as a selection is.
   const gridPickMark = () => {
-    const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
+    const v = gridPick && drawnGrids.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
     // A unit square moved and sized by its transform, so it glides from cell to cell (editor.css).
-    return v && c ? <rect className="grid-pick" aria-hidden width={1} height={1} style={{ transform: `translate(${(c.x - c.w / 2) * L}px, ${-c.y * L}px) scale(${c.w * L}, ${v.rh * L})` }} /> : null;
+    // It goes with its table, not after it, while the table is dragged.
+    return v && c ? <rect className="grid-pick" aria-hidden width={1} height={1} style={{ transform: `translate(${(c.x - c.w / 2) * L}px, ${-c.y * L}px) scale(${c.w * L}, ${v.rh * L})`, ...(drag?.kind === "grid" || drag?.kind === "move" ? { transition: "none" } : {}) }} /> : null;
   };
   // A typed amount works the others out again: each value that changed settles in, so the eye sees what it moved.
   const gridTexts = useRef(new Map<string, string>());
@@ -9187,7 +9204,19 @@ export default function Editor() {
   );
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
   // when what it shows changes, so React passes over the rest of the drawing.
-  const gridKey = gridViews.length ? gridViews : undefined;
+  // The reagent tables as drawn: one dragged on its own goes with the pointer. While the selection is dragged, a table
+  // goes with its arrow when the drop will put it there: it was moved on its own (Grid.at), or its whole reaction moves.
+  const dragged = drag?.kind === "move" && drag.moved ? drag.atoms ?? selection : undefined;
+  const carried = useMemo(() => new Set(dragged ? gridViews.filter((v) => doc.grids?.some((g) => g.arrow === v.arrow && g.at) || reactionOf(v.arrow)?.atoms.every((i) => dragged.has(i))).map((v) => v.arrow) : []), [dragged, gridViews]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drawnGrids = useMemo(() => {
+    if (drag?.kind === "grid") return gridViews.map((v) => (v.arrow === drag.arrow ? shiftView(v, drag.d) : v));
+    if (drag?.kind !== "move" || !carried.size) return gridViews;
+    return gridViews.map((v) => {
+      const a = doc.arrows?.find((x) => x.id === v.arrow), b = drag.working.arrows?.find((x) => x.id === v.arrow);
+      return a && b && carried.has(v.arrow) ? shiftView(v, [b.from[0] - a.from[0], b.from[1] - a.from[1]]) : v;
+    });
+  }, [gridViews, drag, carried]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gridKey = drawnGrids.length ? drawnGrids : undefined;
   // The line under an amount measured out (a cell's text, centred on x, its baseline at y; px).
   const takenLine = (x: number, y: number, text: string, size: number, bold: boolean, f: number) => {
     const w = formulaWidth(text, size, bold, false, fontStack(style.captionFont)) / 2;
@@ -9250,7 +9279,7 @@ export default function Editor() {
       {(shown.shapes ?? []).filter(level).map(shapeFill)}
       {arrows.filter(level).map(curveFill)}
       {arrows.some((a) => level(a) && isOrbital(a)) && orbitalsInk(arrows.filter((a) => level(a) && isOrbital(a)))}
-      {gridViews.map((v) => {
+      {drawnGrids.map((v) => {
         // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
         // The amount measured out is red with a line under it, so it does not rest on colour alone (BRAND.md).
         const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
