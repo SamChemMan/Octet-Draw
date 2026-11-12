@@ -14,7 +14,7 @@ switches each one off, except Octet's JSON. Only the names and the picture chang
 
 | | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Picture | PDF (vector, CDXML in it) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB) | image/png (CDXML in an iTXt chunk) and image/svg+xml |
+| Picture | Office's own copy of the picture (a zip with an EMF in it) and a PDF (vector, CDXML in both) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB) | image/png (CDXML in an iTXt chunk) and image/svg+xml |
 | CDX | ChemDraw's PerkinElmer, Revvity and CambridgeSoft types | "ChemDraw Interchange Format" | chemical/x-cdx |
 | CDXML | com.perkinelmer.cdxml, com.revvity.cdxml and com.cambridgesoft.cdxml | "CDXML" | chemical/x-cdxml |
 | Molfile | com.mdli.molfile (length-prefixed lines) | "MDLCT" (length-prefixed lines) | chemical/x-mdl-molfile (text) |
@@ -53,6 +53,41 @@ clipboard, so Word, PowerPoint and Excel paste an object that opens in Octet. It
 while Settings > Import and export > Copy > Office object is on (the default), and only when Octet's class is
 registered for the user. Every format in the table above stays, in its order, after the object. Paste reads Octet's
 own object after Octet's JSON. The Mac and Linux are not changed.
+
+## Office's copy of the picture on the Mac (12 November 2026, release 1.1.2)
+
+On the Mac, Copy puts Office's own clipboard type for a picture (com.microsoft.Art--GVML-ClipFormat) before the PDF.
+Word takes it before the PDF. It is a zip with five small XML parts (content types, two sets of relationships, a
+drawing that places one picture at the drawing's size, and a theme) and the picture's file,
+`clipboard/media/image1.emf`.
+
+Word for Mac stores a pasted PDF as an EMF of its own with three records: the header, an EMF+ comment that holds a
+bitmap of the picture at one pixel a point (72 dpi), and a GDI comment (EMR_COMMENT_MULTIFORMATS) that holds the
+PDF. Word for Mac draws the PDF. Word for Windows draws the bitmap, so a drawing pasted on a Mac was blurred in the
+same document on Windows.
+
+Octet's EMF in the zip holds the same PDF in the same comment record, then the CDXML comment and the vector records
+of the Windows EMF. Word for Mac draws the PDF and keeps the file byte for byte (pasted on 12 November 2026, with the
+PDF beside it on the clipboard, and read back from Word). The vector records are for Word for Windows, which draws
+Octet's Windows EMF today. A test plays the EMF with and without the comment through Windows GDI and expects the same
+picture (`vector.rs`, run by the Office objects job).
+
+- The comment record is the first record after the header. Word for Mac does not use one that comes after the
+  drawing's records.
+- The PDF stays on the clipboard after Office's copy, for Keynote, Pages, ChemDraw and every other program.
+- Word's own copy of such a picture has the zip with Octet's EMF and the PDF from the comment. Paste reads the
+  drawing from the PDF, or from the EMF's CDXML comment when the zip is there alone.
+- The EMF on Windows (the clipboard, the Office object, Export as EMF) has no PDF. Its bytes are the same as before.
+- The theme part is Octet's own, the smallest the format allows. A picture uses nothing from it.
+- A drawing that holds a picture (a photo, a pasted screenshot) gets no Office copy: the EMF would hold the picture as
+  raw pixels, megabytes more on the clipboard and tens of milliseconds more for each Copy. It keeps the PDF alone, as
+  before.
+- Update in Word (decision 0025) still gives Word the PDF alone, so Word stores an updated picture in its own form.
+  Copy and Paste give Octet's.
+- To check before a release: a document pasted from Octet on a Mac, opened in Word and PowerPoint for Windows (on
+  screen, printed, saved as PDF), and a paste into PowerPoint and Excel for Mac.
+- The zip's parts are deflated at the fastest level. Copy reads the SVG once for the PDF and the EMF. For a drawing
+  of 60 bonds and 12 labels Office's copy adds about 0.3 ms to a copy of 2.2 ms (`mac_copy_time` in `clipboard.rs`).
 
 ## The EMF (4 November 2026, release 1.1.1, issue 20)
 

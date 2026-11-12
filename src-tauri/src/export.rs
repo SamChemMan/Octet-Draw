@@ -90,8 +90,12 @@ pub struct Info {
 // stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet). With `info`, the document
 // information gets the title, author and keywords that are set.
 pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    let tree = tree(svg)?;
-    let (chunk, picture) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default()).map_err(|e| e.to_string())?;
+    pdf_of(&tree(svg)?, cdxml, info)
+}
+
+// make_pdf for an SVG that is read already, so Copy on the Mac reads it once for the PDF and for Office's copy.
+pub fn pdf_of(tree: &usvg::Tree, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
+    let (chunk, picture) = svg2pdf::to_chunk(tree, svg2pdf::ConversionOptions::default()).map_err(|e| e.to_string())?;
     let mut alloc = Ref::new(1);
     let [catalog, pages, page, content, meta] = [(); 5].map(|_| alloc.bump());
     let mut map = HashMap::new();
@@ -296,9 +300,16 @@ pub fn make_3mf(model: &str) -> Result<Vec<u8>, String> {
 "#),
         ("3D/3dmodel.model", model.as_bytes()),
     ];
+    Ok(zip(&parts, 6))
+}
+
+// A zip file of `parts` (each a name and its bytes), each deflated at `level` (1 fastest, 9 smallest), with its CRC-32
+// and sizes, then the central directory and the end record. For a 3MF file and for Office's copy of a picture
+// (clipboard.rs). A part is under 4 GB and there are under 65,536 of them: the callers' limits are far below both.
+pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8) -> Vec<u8> {
     let (mut out, mut dir) = (Vec::new(), Vec::new());
     for (name, data) in parts {
-        let packed = miniz_oxide::deflate::compress_to_vec(data, 6);
+        let packed = miniz_oxide::deflate::compress_to_vec(data, level);
         // The fields the local header and the central directory share: version 2.0, no flags, deflated, 1 January 1980,
         // the CRC-32, both sizes, the name's length and no extra field.
         let mut common = Vec::new();
@@ -321,20 +332,20 @@ pub fn make_3mf(model: &str) -> Result<Vec<u8>, String> {
         out.extend(name.as_bytes());
         out.extend(packed);
     }
-    let (at, size) = (out.len() as u32, dir.len() as u32);
+    let (at, size, count) = (out.len() as u32, dir.len() as u32, parts.len() as u16);
     out.extend(dir);
     out.extend(0x0605_4b50u32.to_le_bytes());
-    for v in [0u16, 0, 3, 3] {
+    for v in [0u16, 0, count, count] {
         out.extend(v.to_le_bytes());
     }
     out.extend(size.to_le_bytes());
     out.extend(at.to_le_bytes());
     out.extend([0u8; 2]);
-    Ok(out)
+    out
 }
 
 // The CRC-32 a zip file keeps for each part (the reflected polynomial 0xEDB88320).
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     !data.iter().fold(!0u32, |c, &b| (0..8).fold(c ^ u32::from(b), |c, _| if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }))
 }
 
@@ -569,7 +580,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "bmp" => make_bmp(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
         "3mf" => make_3mf(e.model.as_deref().unwrap_or_default())?,
-        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref()),
+        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref(), None),
         "eps" => crate::vector::make_eps(&tree(e.svg.as_deref().unwrap_or_default())?),
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
@@ -1058,7 +1069,7 @@ mod tests {
         assert_eq!(pixels, 172 * 130);
         if let Ok(dir) = std::env::var("OCTET_EXPORT_SAMPLES") {
             for (name, bytes) in [("sample.tif", tiff), ("sample.jpg", jpeg), ("sample.gif", gif), ("sample-white.tif", make_tiff(SVG, 144.0, false).unwrap()),
-                ("sample.eps", crate::vector::make_eps(&tree(SVG).unwrap())), ("sample.emf", crate::vector::make_emf(&tree(SVG).unwrap(), None))] {
+                ("sample.eps", crate::vector::make_eps(&tree(SVG).unwrap())), ("sample.emf", crate::vector::make_emf(&tree(SVG).unwrap(), None, None))] {
                 std::fs::write(std::path::Path::new(&dir).join(name), bytes).unwrap();
             }
         }
@@ -1202,7 +1213,7 @@ mod tests {
             let k = ((info.height / 2) * info.width + info.width / 2) as usize * 4;
             assert!(buf[k] > 200 && buf[k + 1] < 60 && buf[k + 3] > 200, "{mime}: {:?}", &buf[k..k + 4]);
             assert!(String::from_utf8(crate::vector::make_eps(&tree(&svg).unwrap())).unwrap().contains(" image\n"), "{mime}");
-            assert!(find(&crate::vector::make_emf(&tree(&svg).unwrap(), None), &[81, 0, 0, 0]).is_some(), "{mime}");
+            assert!(find(&crate::vector::make_emf(&tree(&svg).unwrap(), None, None), &[81, 0, 0, 0]).is_some(), "{mime}");
         }
     }
 

@@ -4,7 +4,7 @@
 // - The picture selected in Word is copied to the clipboard, and paste's reader takes the CDXML from its PDF. The
 //   user's clipboard is saved first and put back after.
 // - A hidden bookmark marks the picture (or Word's cursor, for a new drawing). The object window opens on the drawing.
-// - Update puts the new picture (Copy's PDF, with the CDXML in it) in the bookmark's place, at its own size, with the
+// - Update puts the new picture (a PDF as Copy makes it, with the CDXML in it, and without Office's copy) in the bookmark's place, at its own size, with the
 //   old picture's alt text. Word pastes it into a document of its own first, then the picture goes into the user's
 //   document in one step, so one Undo in Word puts the old picture back.
 // - The bookmark stays in the document: making or removing one is an Undo step in Word of its own.
