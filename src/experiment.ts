@@ -8,6 +8,7 @@ import { straightArrow, type Annotation, type Caption, type Grid, type Mol, type
 import { addArrow, addCaption, deleteGraphics, updateCaption } from "./edit.ts";
 import { normalise, plainOf, runsOf, styled, styleOf, type RunStyle, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
+import { ELEMENTS } from "./metals.ts";
 
 // The details, each kept as an annotation whose keyword is its name here.
 export const FIELDS = [
@@ -83,13 +84,15 @@ export function newExperiment(s: Sheet, template?: Mol, date = today(), author?:
 // the heading's start. As [left, bottom, right, top] in drawing units; undefined with no such heading or box (any
 // other page, or a template without them).
 const spanOf = (x: Shape): [number, number, number, number] => [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])];
-function schemeShape(m: Mol): Shape | undefined {
-  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && /^reaction scheme$/i.test(c.text.trim()));
+function schemeShape(m: Mol, heading = /^reaction scheme$/i): Shape | undefined {
+  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && heading.test(c.text.trim()));
   if (!h) return undefined;
   const near = (m.shapes ?? []).filter((x) => (x.kind === "box" || x.kind === "rounded") && !x.angle).filter((x) => { const b = spanOf(x); return b[3] <= h.y + 1e-6 && b[0] <= h.x + 1e-6 && b[2] > h.x; });
   return near.sort((p, q) => spanOf(q)[3] - spanOf(p)[3])[0];
 }
 export const schemeSpan = (m: Mol) => { const x = schemeShape(m); return x && spanOf(x); };
+// The Procedure box, found as the Reaction scheme box is.
+export const procedureSpan = (m: Mol) => { const x = schemeShape(m, /^procedure$/i); return x && spanOf(x); };
 export const inSpan = (b: number[] | undefined, p: [number, number]) => !!b && p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3];
 // Where a structure or reaction inserted on an experiment page goes (issue 34): inside the Reaction scheme box, a bond
 // length (pad) under its top, or under whatever is in the box already (taken: its ink and tables), centred across the
@@ -105,8 +108,8 @@ export function schemeLanding(m: Mol, ink: number[], taken: number[][], pad = 1)
 // The Reaction scheme box grown down to hold what reaches `bottom` (a reagent table, a scheme), a bond length (pad)
 // clear. Free text and boxes under it (the Procedure heading and box) move down as far, so nothing overlaps. The same
 // drawing when it fits already, or with no box.
-export function growScheme(m: Mol, bottom: number, pad = 1): Mol {
-  const s = schemeShape(m), b = s && spanOf(s);
+export function growScheme(m: Mol, bottom: number, pad = 1, heading?: RegExp): Mol {
+  const s = schemeShape(m, heading), b = s && spanOf(s);
   if (!s || !b) return m;
   const d = b[1] - (bottom - pad);
   if (d <= 1e-6) return m;
@@ -126,6 +129,11 @@ export const templateOf = (m: Mol): Mol => {
   const arrows = (m.arrows ?? []).filter((a) => a.kind === "line");
   return { atoms: [], bonds: [], ...(captions.length ? { captions } : {}), ...(shapes.length ? { shapes } : {}), ...(arrows.length ? { arrows } : {}), ...(annotations ? { annotations } : {}), ...(m.fields ? { fields: true } : {}) };
 };
+
+// The Procedure box grown down to keep ROOM free under the text in it (bond lengths, about four lines of text), so
+// there is always space to write on; a long procedure goes on past the first page.
+export const ROOM = 3.5;
+export const growProcedure = (m: Mol, bottom: number) => growScheme(m, bottom, ROOM, /^procedure$/i);
 
 // The details as text at the top of the page (Octet 1.1.2; Octet 1.1.1 drew them itself, from the annotations): the
 // title in bold, larger, then the other details two to a row, each name in bold with its value after it, and a rule
@@ -271,7 +279,51 @@ type Ch = { ch: string; s: RunStyle };
 export function markupRuns(runs: TextRun[]): TextRun[] {
   const chars: Ch[] = runs.flatMap((r) => Array.from(r.text, (ch) => ({ ch, s: styleOf(r) })));
   if (chars.length > MAX_MARKUP) return runs;
-  return normalise(walk(chars, false, false, 0).map((c) => ({ ...c.s, text: c.ch })));
+  return normalise(formulaWords(walk(chars, false, false, 0)).map((c) => ({ ...c.s, text: c.ch })));
+}
+
+// A formula written plainly in the text, as a procedure has them: its counts go down (CO2, Na2SO4, (NH4)2S2O8, CDCl3,
+// NEt3), and a mass number before NMR goes up (1H NMR, 13C NMR). A word is a formula when it is element symbols (D and
+// common groups such as Me and Et too) with counts, two symbols at least (H2, O2, N2, Cl2 and the like alone), so F254,
+// A1, 14/23 and mL stay as they are. A character already raised or lowered stays as it is.
+const GROUPS = new Set(["Me", "Et", "Pr", "Bu", "Ph", "Ac", "Bn", "Ts", "Tf", "Ms", "Cy"]);
+const PAIRS = new Set(["H2", "D2", "N2", "O2", "O3", "F2", "Cl2", "Br2", "I2"]);
+const NUCLEI = new Set(["H", "D", "B", "C", "N", "O", "F", "Si", "P", "Se", "Sn", "Pt", "Li", "Na", "Al", "Cd", "Hg", "Rh", "W", "Y", "Xe"]);
+function formulaWords(cs: Ch[]): Ch[] {
+  const out = cs.map((c) => ({ ...c })), text = cs.map((c) => c.ch).join("");
+  for (const m of text.matchAll(/[A-Za-z0-9()[\]]+/g)) {
+    const w = m[0], at = m.index!, next = /^\s*NMR\b/.test(text.slice(at + w.length));
+    const free = (i: number) => !cs[at + i].s.script;
+    const iso = /^(\d{1,3})([A-Z][a-z]?)$/.exec(w);
+    if (iso && next && NUCLEI.has(iso[2])) { for (let i = 0; i < iso[1].length; i++) if (free(i)) out[at + i].s = { ...out[at + i].s, script: "super" }; continue; }
+    const parts = formulaParts(w);
+    if (!parts) continue;
+    for (const i of parts) if (free(i)) out[at + i].s = { ...out[at + i].s, script: "sub" };
+  }
+  return out;
+}
+// The places of a formula word's counts; undefined when the word is not a formula.
+function formulaParts(w: string): number[] | undefined {
+  if (!/\d/.test(w) || !/^[([]*[A-Z]/.test(w)) return undefined;
+  let depth = 0, symbols = 0, i = 0;
+  const counts: number[] = [];
+  while (i < w.length) {
+    const c = w[i];
+    if (c === "(" || c === "[") { depth++; i++; continue; }
+    if (c === ")" || c === "]") {
+      if (--depth < 0) return undefined;
+      i++;
+      while (/\d/.test(w[i] ?? "")) counts.push(i++);
+      continue;
+    }
+    const sym = /^[A-Z][a-z]?/.exec(w.slice(i))?.[0];
+    if (!sym || !(ELEMENTS.has(sym) || sym === "D" || GROUPS.has(sym))) return undefined;
+    symbols++;
+    i += sym.length;
+    while (/\d/.test(w[i] ?? "")) counts.push(i++);
+  }
+  if (depth !== 0 || !counts.length) return undefined;
+  return symbols >= 2 || PAIRS.has(w) ? counts : undefined;
 }
 const over = (cs: Ch[], s: RunStyle) => cs.map((c) => ({ ch: c.ch, s: { ...c.s, ...s } }));
 const word = (cs: Ch[], i: number) => /^[A-Za-z]+/.exec(cs.slice(i, i + 40).map((x) => x.ch).join(""))?.[0];

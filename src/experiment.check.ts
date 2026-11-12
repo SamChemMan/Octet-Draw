@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MAX_START, PURPOSES, outlines, pageSize, purposeStyle, readPurposes, styleFor } from "./docstyle.ts";
-import { FIELDS, MAX_MARKUP, detailsOf, experimentPage, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, today, withDetails, withHeader, type Sheet } from "./experiment.ts";
+import { FIELDS, MAX_MARKUP, detailsOf, experimentPage, growProcedure, growScheme, ROOM, procedureSpan, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, today, withDetails, withHeader, type Sheet } from "./experiment.ts";
 import { addCaption, deleteGraphics, updateCaption } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
@@ -234,6 +234,13 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   for (const text of ["rel-(1R*,2S*)-2-methylcyclohexanol", "the (R*,S*)-diol", "(R*)-x and (S*)-y", "a*b*c"]) assert.deepEqual(m(text), [{ text }], text);
   assert.deepEqual(m("*t*BuOK, 1*H*-indole, *p*TsOH"), [{ text: "t", italic: true }, { text: "BuOK, 1" }, { text: "H", italic: true }, { text: "-indole, " }, { text: "p", italic: true }, { text: "TsOH" }]);
   assert.deepEqual(m("*n*-BuLi, *N*,*N*-dimethyl"), [{ text: "n", italic: true }, { text: "-BuLi, " }, { text: "N", italic: true }, { text: "," }, { text: "N", italic: true }, { text: "-dimethyl" }]);
+  // A formula written plainly has its counts lowered, and a mass number before NMR is raised; F254, 14/23, d1, A1 and
+  // a lone S2 or C3 stay as typed.
+  const scripts = (text: string) => m(text).map((r) => (r.script === "sub" ? `_${r.text}` : r.script === "super" ? `^${r.text}` : r.text)).join("");
+  assert.equal(scripts("(NH4)2S2O8 and CO2, then Na2SO4 and NaHCO3"), "(NH_4)_2S_2O_8 and CO_2, then Na_2SO_4 and NaHCO_3");
+  assert.equal(scripts("CDCl3, 1H NMR, 13C NMR; NMe2, Et3N, H2O, O2"), "CDCl_3, ^1H NMR, ^13C NMR; NMe_2, Et_3N, H_2O, O_2");
+  assert.equal(scripts("Pd(PPh3)4, [Cu(MeCN)4]PF6"), "Pd(PPh_3)_4, [Cu(MeCN)_4]PF_6");
+  for (const text of ["silica F254", "RBF (14/23)", "d1 = 10 s", "SE-A1-001a", "SI p. S2", "the C3 position", "[M+H]+ 223.1077", "1H-indole", "(3H)"]) assert.equal(scripts(text), text, text);
   // Each character keeps its own style, with the markup's over it.
   const styled: TextRun[] = [{ text: "*sp", colour: "#213C99" }, { text: "3*" }];
   assert.deepEqual(markupRuns(styled), [{ text: "sp", colour: "#213C99", italic: true }, { text: "3", italic: true }]);
@@ -311,6 +318,14 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   // The next reaction goes under the first and its table.
   const next = schemeLanding(grown, ink, [landed, table])!;
   assert.ok(ink[3] + next[1] < table[1], "under the table");
+  // The Procedure box keeps ROOM under the text in it: text that reaches its bottom grows it down, and text with room
+  // to spare changes nothing.
+  const proc = procedureSpan(start)!;
+  const tall = growProcedure(start, proc[1] + 1), after2 = procedureSpan(tall)!;
+  assert.ok(Math.abs(after2[1] - (proc[1] + 1 - ROOM)) < 1e-9, "the box ends ROOM under the text");
+  assert.deepEqual([after2[0], after2[2], after2[3]], [proc[0], proc[2], proc[3]], "only its bottom moves");
+  assert.equal(growProcedure(start, proc[1] + ROOM + 1), start, "text with room under it changes nothing");
+  assert.deepEqual(schemeSpan(tall), schemeSpan(start), "the Reaction scheme box stays as it is");
   // Any other page: nothing.
   const plain: Mol = { atoms: [], bonds: [], shapes: [{ id: 1, kind: "box", from: [-10, 10], to: [10, -10] }], captions: [{ id: 2, text: "Notes", bold: true, x: -10, y: 11 }] };
   assert.equal(schemeLanding(plain, ink, []), undefined);
