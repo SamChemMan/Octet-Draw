@@ -243,7 +243,9 @@ export function forPurpose(s: DocStyle, p: DocStyle): DocStyle {
 // The purposes from saved settings (settings.ts). A default style saved before purposes (docStyle) becomes Paper's.
 // purpose: the one picked last (Quick start or a purpose), which ⌘N starts. purposeStyles: the user's style for Quick
 // start and each built-in purpose ("Use for new documents").
-export type Purposes = { purpose: string; purposeStyles: Partial<Record<PurposeKind | typeof QUICK, DocStyle>>; ownPurposes: OwnPurpose[] };
+// experimentStart: what a new Experiment page starts with ("Use for new documents" on an experiment page), as an own
+// template's start; unset, Octet's.
+export type Purposes = { purpose: string; purposeStyles: Partial<Record<PurposeKind | typeof QUICK, DocStyle>>; ownPurposes: OwnPurpose[]; experimentStart?: string };
 export function readPurposes(saved: Record<string, unknown>): Purposes {
   const styles = (typeof saved.purposeStyles === "object" && saved.purposeStyles ? saved.purposeStyles : {}) as Record<string, unknown>, purposeStyles: Purposes["purposeStyles"] = {};
   for (const kind of Object.keys(PURPOSES) as PurposeKind[]) if (styles[kind]) purposeStyles[kind] = { ...readStyle(styles[kind]), purpose: kind };
@@ -258,7 +260,7 @@ export function readPurposes(saved: Record<string, unknown>): Purposes {
       ? [{ id: o.id, name: o.name.trim().slice(0, 40), kind: o.kind, style: { ...readStyle(o.style), purpose: o.id }, ...(typeof o.start === "string" && o.start.length <= MAX_START ? { start: o.start } : {}) }] : [];
   }).slice(0, MAX_PURPOSES);
   const purpose = typeof saved.purpose === "string" && (saved.purpose === QUICK || isKind(saved.purpose) || ownPurposes.some((p) => p.id === saved.purpose)) ? saved.purpose : QUICK;
-  return { purpose, purposeStyles, ownPurposes };
+  return { purpose, purposeStyles, ownPurposes, ...(typeof saved.experimentStart === "string" && saved.experimentStart.length <= MAX_START ? { experimentStart: saved.experimentStart } : {}) };
 }
 export const MAX_PURPOSES = 12;
 // Two styles the same in every value, whatever their purpose and preset name.

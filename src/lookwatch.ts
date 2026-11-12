@@ -5,7 +5,7 @@
 // The height of each kind of control (tokens.json, size). ui.check.ts holds the stylesheet to the same list.
 export const SIZE_OF: Record<string, string[]> = {
   "size-action": [".close-x, .segmented button.close-x", ".variant-action", ".name-forget", ".problem-hide", ".home-remove", ".key-remove"],
-  "size-control-sm": [".actions-close", ".floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button", ".notes-tab"],
+  "size-control-sm": [".actions-close", ".floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button"],
   "size-control": [".text-button", ".dialog-button", ".spectrum-button", ".prop-add", ".home-open", ".page-button", ".select-field", ".unit-field", ".segmented", ".list-find", ".settings-search, .library-search"],
   "size-row": [".action", ".chip", ".module", ".library-category", ".strip.list .variant"],
   "size-tool": [".tool", ".tray-button", ".export-button", ".feedback-link", ".actions-reopen"],

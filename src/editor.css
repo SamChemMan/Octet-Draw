@@ -6706,7 +6706,8 @@ div.facts {
   .paste-offer { animation: paste-offer-fade var(--motion-fast) linear; }
   @keyframes paste-offer-fade { from { opacity: 0; } }
 }
-/* What's new (WhatsNew.tsx): the notes scroll inside the dialog; each section a short list. */
+/* What's new (WhatsNew.tsx): the notes scroll inside the dialog. The big changes come first, each a name and one line;
+   then each other section is one row, folded, with the number of its changes. */
 .notes {
   position: relative;
   max-height: min(64vh, 560px);
@@ -6721,74 +6722,38 @@ div.facts {
 .notes p {
   margin: 0 0 var(--space-2);
 }
-.notes h3 {
-  margin: var(--space-3) 0 var(--space-1);
-  font-size: 13px;
-  font-weight: 600;
-}
 .notes ul {
   margin: 0;
   padding-left: var(--space-4);
 }
 .notes li + li {
-  margin-top: 2px;
+  margin-top: var(--space-1);
 }
 .dialog:has(.notes) {
   width: min(520px, calc(100vw - 32px));
 }
-/* The section names: a row of small pills that stays at the top of the notes as they scroll. The name of the
-   section in view is marked in the brand's mist, as a pressed chip is. */
-.notes-nav {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
-  padding: 2px 2px var(--space-2);
-  background: var(--surface-raised);
-  box-shadow: 0 1px 0 var(--hairline);
-}
-.notes-tab {
-  padding: 0 var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink);
-  font: 11px/16px var(--font-sans);
-  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-  height: var(--size-control-sm);
-  box-sizing: border-box;
-}
-@media (hover: hover) and (pointer: fine) {
-  .notes-tab:hover:not([aria-current]) {
-    background: var(--surface-sunken);
-  }
-}
-.notes-tab[aria-current] {
-  border-color: transparent;
-  background: var(--brand-mist);
-  color: var(--link);
-}
-.notes-tab:active {
-  transform: scale(var(--press));
-}
-.notes-tab:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-/* The highlights: a tinted box at the top. Its lines come in one after another as the window opens. */
-.notes-highlights {
-  padding: var(--space-2) var(--space-3);
+/* The highlights: a tinted box, each change its name in bold and one line under it. They come in one after another
+   as the window opens. */
+.notes .notes-highlights {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
   border-radius: var(--radius-md);
   background: var(--brand-mist);
-}
-.notes-highlights h3 {
-  margin-top: 0;
+  list-style: none;
 }
 .notes-highlights li {
+  display: grid;
+  gap: 2px;
   animation: notes-in var(--motion-slow) var(--ease-out) both;
+}
+.notes-highlights li + li {
+  margin-top: var(--space-3);
+}
+.notes-highlights strong {
+  font-weight: 600;
+}
+.notes-highlights span {
+  color: var(--ink-muted);
 }
 .notes-highlights li:nth-child(2) { animation-delay: 40ms; }
 .notes-highlights li:nth-child(3) { animation-delay: 80ms; }
@@ -6798,8 +6763,33 @@ div.facts {
 @keyframes notes-in {
   from { opacity: 0; transform: translateY(4px); }
 }
+.notes-more {
+  margin: 0 0 var(--space-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Each other section: the Actions panel's fold (.fold-title, .fold-caret, .fold-body) at the notes' text size, one
+   row each with a hairline between. The number of changes sits at the right. */
+.notes-fold + .notes-fold {
+  border-top: 1px solid var(--hairline);
+}
+/* The right padding keeps the number clear of the scroll bar. */
+.notes-fold .fold-title {
+  height: 32px;
+  padding-right: var(--space-3);
+  color: var(--ink);
+  font: 500 13px/18px var(--font-sans);
+}
+.notes-count {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.notes-fold ul {
+  padding-bottom: var(--space-3);
+}
 .notes-thanks {
-  margin-top: var(--space-3) !important;
+  margin-top: var(--space-4) !important;
   color: var(--ink-muted);
 }
 /* Under the first line, above the highlights: Octet Draw is free, and a donation is only for those who want to help. */
@@ -6819,7 +6809,6 @@ div.facts {
 }
 @media (prefers-reduced-motion: reduce) {
   .notes-highlights li { animation: fade-in var(--motion-fast) var(--ease-out) both; }
-  .notes-tab { transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 }
 /* Text > Character Map (CharMap.tsx): a small window beside the toolbar that stays open while text is typed, clear of
    the Actions panel and Export. */
@@ -7046,4 +7035,17 @@ div.facts {
 }
 .pill-open:active {
   transform: scale(var(--press));
+}
+
+/* An experiment page's details (Editor.tsx): a box at each one's place, on screen only, and the empty title's name. */
+.fields {
+  pointer-events: none;
+}
+.fields rect {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 0.75;
+}
+.fields text {
+  fill: var(--ink-faint);
 }

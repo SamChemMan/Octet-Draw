@@ -1,9 +1,11 @@
 // Experiment pages (discussion #15): a page for one experiment in a lab notebook. Its details (title, date, notebook
 // reference and the rest) are the document's annotations, keyword and content pairs, as ChemDraw keeps File >
 // Document Annotations: ChemDraw shows and keeps them, and the CDXML and .oct readers already check them as hostile
-// input. The page draws them as a block at its top (detailsLayout), each reaction drawn on it gets its stoichiometry
+// input. The page has them as text at its top (withHeader): a name for each and its value, which the user clicks to
+// type, moves and deletes as any text (slotsOf, syncDetails). Each reaction drawn on the page gets its stoichiometry
 // grid at once (newGrids), and text typed on it turns its markup into rich text (markupRuns).
 import { straightArrow, type Annotation, type Caption, type Grid, type Mol, type Shape } from "./render.ts";
+import { addArrow, addCaption, deleteGraphics, updateCaption } from "./edit.ts";
 import { normalise, plainOf, runsOf, styled, styleOf, type RunStyle, type TextRun } from "./richtext.ts";
 import { ESCAPES } from "./escapes.ts";
 
@@ -55,19 +57,27 @@ export function dateKey(date: string): string {
 export const experimentPage = (kind: string | undefined, purpose: string | undefined, annotations?: Annotation[]) =>
   kind === "experiment" || (kind === undefined && !!purpose && Object.keys(detailsOf(annotations)).some((k) => !PROPERTIES.some(([p]) => p === k)));
 
-// A new experiment page: its details from the template (Date today), and the template's text and boxes (an own
-// template's, else HEADINGS: each a bold heading at the left margin with an outlined box under it, both ordinary text
-// and an ordinary box the user can edit, move or delete; issue 34). The reaction's table of reagents and products is
-// drawn under the reaction, so the scheme's box has room for both. page: the page in mm; bond: the bond length in pt.
+// A new experiment page: its details from the template (Date today, and the author when the template names none), as
+// text at the top of the page, and the template's text and boxes (an own template's, else HEADINGS: each a bold
+// heading at the left margin with an outlined box under it, both ordinary text and an ordinary box the user can edit,
+// move or delete; issue 34). A template from Octet 1.1.1 has no text for its details and gets Octet's. The reaction's
+// table of reagents and products is drawn under the reaction, so the scheme's box has room for both.
 export const MARGIN = 15; // mm
 // Each heading and how far down the page its box starts and ends, in mm.
 export const HEADINGS: [string, number, number][] = [["Reaction scheme", 60, 200], ["Procedure", 212, 282]];
 const perMm = (bond: number) => 72 / 25.4 / bond; // drawing units (bond lengths) in a mm
-export function newExperiment(page: [number, number], bond: number, template?: Mol, date = today()): Pick<Mol, "annotations" | "captions" | "shapes"> {
-  const k = perMm(bond), details = { ...detailsOf(template?.annotations), date }, left = (MARGIN - page[0] / 2) * k, right = (page[0] / 2 - MARGIN) * k, down = (mm: number) => (page[1] / 2 - mm) * k;
-  const captions = template ? template.captions : HEADINGS.map(([text, top], j) => ({ id: 2 * j, text, bold: true, align: "left" as const, x: left, y: down(top - 2) }));
-  const shapes: Shape[] | undefined = template ? template.shapes : HEADINGS.map(([, top, bottom], j) => ({ id: 2 * j + 1, kind: "box" as const, from: [left, down(top)], to: [right, down(bottom)] }));
-  return { annotations: withDetails(template?.annotations, details), ...(captions?.length ? { captions } : {}), ...(shapes?.length ? { shapes } : {}) };
+// The page a header is laid out on: its size in mm, its bond length and text size in pt, and a text's width in pt.
+export type Sheet = { page: [number, number]; bond: number; size: number; measure: (text: string, size: number, bold: boolean) => number };
+export function newExperiment(s: Sheet, template?: Mol, date = today(), author?: string): Pick<Mol, "annotations" | "captions" | "shapes" | "arrows" | "fields"> {
+  const k = perMm(s.bond), left = (MARGIN - s.page[0] / 2) * k, right = (s.page[0] / 2 - MARGIN) * k, down = (mm: number) => (s.page[1] / 2 - mm) * k;
+  const base: Mol = template ? { atoms: [], bonds: [], captions: template.captions, shapes: template.shapes, arrows: template.arrows, annotations: template.annotations, fields: template.fields } : {
+    atoms: [], bonds: [],
+    captions: HEADINGS.map(([text, top], j) => ({ id: 2 * j, text, bold: true, align: "left" as const, x: left, y: down(top - 2) })),
+    shapes: HEADINGS.map(([, top, bottom], j) => ({ id: 2 * j + 1, kind: "box" as const, from: [left, down(top)] as [number, number], to: [right, down(bottom)] as [number, number] })),
+  };
+  const had = detailsOf(base.annotations), dated = { ...base, annotations: withDetails(base.annotations, { ...had, date, ...(author && !had.author ? { author } : {}) }) };
+  const { annotations, captions, shapes, arrows, fields } = base.fields ? syncDetails(base, dated, s) : withHeader(dated, s, true);
+  return { annotations, ...(captions?.length ? { captions } : {}), ...(shapes?.length ? { shapes } : {}), ...(arrows?.length ? { arrows } : {}), ...(fields ? { fields } : {}) };
 }
 // The Reaction scheme box: the box (or rounded box) under the Reaction scheme heading, the nearest below it that spans
 // the heading's start. As [left, bottom, right, top] in drawing units; undefined with no such heading or box (any
@@ -106,42 +116,126 @@ export function growScheme(m: Mol, bottom: number, pad = 1): Mol {
   return { ...m, shapes, ...(captions ? { captions } : {}) };
 }
 
-// What an own template made from an experiment page keeps: its details but the date, its free text (headings, a
-// procedure to start from) and its plain boxes and tables. Structures, arrows and text tied to them stay with the drawing.
+// What an own template made from an experiment page keeps: its details but the date, its free text (the details'
+// names and values, headings, a procedure to start from), its plain boxes and tables, and its plain lines (the rule
+// under the details). Structures, arrows and text tied to them stay with the drawing.
 export const templateOf = (m: Mol): Mol => {
   const { date: _, ...kept } = detailsOf(m.annotations), annotations = withDetails(undefined, kept);
-  const captions = (m.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && !c.property);
+  const captions = (m.captions ?? []).filter((c) => free(c) && c.field !== "date");
   const shapes = (m.shapes ?? []).filter((x) => x.kind === "box" || x.kind === "rounded" || x.kind === "table");
-  return { atoms: [], bonds: [], ...(captions.length ? { captions } : {}), ...(shapes.length ? { shapes } : {}), ...(annotations ? { annotations } : {}) };
+  const arrows = (m.arrows ?? []).filter((a) => a.kind === "line");
+  return { atoms: [], bonds: [], ...(captions.length ? { captions } : {}), ...(shapes.length ? { shapes } : {}), ...(arrows.length ? { arrows } : {}), ...(annotations ? { annotations } : {}), ...(m.fields ? { fields: true } : {}) };
 };
 
-// The details block at the top of the page: the title in bold, larger, then the other details two to a row, each
-// name in bold with its value after it, and a rule under them. Positions in drawing units (y up), sizes in pt. A
-// value too wide for its column is cut short with an ellipsis. measure: a text's width in pt at a size, bold or not.
-export type BlockText = { text: string; x: number; y: number; size: number; bold?: true };
-export function detailsLayout(details: Details, page: [number, number], bond: number, size: number, measure: (text: string, size: number, bold: boolean) => number):
-  { texts: BlockText[]; rule: [number, number, number]; box: [number, number, number, number] } {
-  const k = perMm(bond), u = (pt: number) => pt / bond, left = (MARGIN - page[0] / 2) * k, right = (page[0] / 2 - MARGIN) * k, top = (page[1] / 2 - MARGIN) * k;
-  const texts: BlockText[] = [], big = 1.4 * size, cell = (right - left) / 2;
-  let y = top;
-  if (details.title) { y -= u(big); texts.push({ text: fit(details.title, (right - left) / u(1), big, true, measure), x: left, y, size: big, bold: true }); y -= u(0.5 * size); }
-  const rest = FIELDS.slice(1), label = Math.max(...rest.map(([, name]) => measure(name, size, true))) + 0.8 * size;
-  for (let r = 0; r < rest.length; r += 2) {
-    y -= u(1.5 * size);
-    rest.slice(r, r + 2).forEach(([key, name], c) => {
-      const x = left + c * cell, v = details[key];
-      texts.push({ text: name, x, y, size, bold: true });
-      if (v) texts.push({ text: fit(v, cell / u(1) - label - size, size, false, measure), x: x + u(label), y, size });
-    });
-  }
-  y -= u(0.8 * size);
-  return { texts, rule: [left, right, y], box: [left, y, right, top] };
+// The details as text at the top of the page (Octet 1.1.2; Octet 1.1.1 drew them itself, from the annotations): the
+// title in bold, larger, then the other details two to a row, each name in bold with its value after it, and a rule
+// under them. Every one is ordinary text, and the rule an ordinary line, so the user edits, moves, restyles and deletes
+// them as anything else on the page. A value's text is its detail (Caption.field), and a text that says a detail's
+// name (Date, Notebook:) is that detail's name: the place after it takes the value (slotsOf).
+const TITLE = 1.4, GAP = 0.8; // the title's size, and the space between a name and its value, in text sizes
+const titleSize = (s: Sheet) => Math.round(TITLE * s.size * 100) / 100;
+const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role;
+const NAMES = new Map<string, Field>(FIELDS.map(([key, name]) => [name.toLowerCase(), key]));
+const nameOf = (c: Caption) => (free(c) && !c.field ? NAMES.get(c.text.trim().replace(/:$/, "").toLowerCase()) : undefined);
+const valueOf = (m: Mol, key: Field) => m.captions?.find((c) => c.field === key && free(c));
+// A value's text in a place: left-aligned and never read as chemistry (a solvent, THF, is not an atom label).
+const valueText = (key: Field, at: [number, number], text: string, s: Sheet, big = key === "title"): Omit<Caption, "id"> =>
+  ({ text, x: at[0], y: at[1], align: "left", chemical: false, field: key, ...(big ? { bold: true, size: titleSize(s) } : {}) });
+// Where Octet puts each detail (drawing units, y up): the title's row only with title.
+function headerLayout(s: Sheet, title: boolean) {
+  const k = perMm(s.bond), u = (pt: number) => pt / s.bond, left = (MARGIN - s.page[0] / 2) * k, right = (s.page[0] / 2 - MARGIN) * k, cell = (right - left) / 2;
+  const rest = FIELDS.slice(1), name = Math.max(...rest.map(([, n]) => s.measure(n, s.size, true))) + GAP * s.size, at: Partial<Record<Field, { name?: [number, number]; value: [number, number] }>> = {};
+  let y = (s.page[1] / 2 - MARGIN) * k;
+  if (title) { y -= u(titleSize(s)); at.title = { value: [left, y] }; y -= u(0.5 * s.size); }
+  rest.forEach(([key], j) => {
+    if (j % 2 === 0) y -= u(1.5 * s.size);
+    const x = left + (j % 2) * cell;
+    at[key] = { name: [x, y], value: [x + u(name), y] };
+  });
+  return { at, rule: [left, right, y - u(GAP * s.size)] };
 }
-function fit(text: string, room: number, size: number, bold: boolean, measure: (text: string, size: number, bold: boolean) => number) {
-  if (measure(text, size, bold) <= room) return text;
-  let n = text.length;
-  while (n > 1 && measure(`${text.slice(0, n).trimEnd()}…`, size, bold) > room) n--;
-  return `${text.slice(0, n).trimEnd()}…`;
+// The page with its details as text. A page from Octet 1.1.1 gets them where 1.1.1 drew them (a row for the title only
+// when it has one); title: a new page keeps a row for the title.
+// A page that has a detail's name on it already was saved by Octet 1.1.1 (or ChemDraw) after 1.1.2 made it: they keep
+// the text and drop what says it is a detail. Nothing is added: each text that says a detail's value is that detail's
+// again.
+export function withHeader(m: Mol, s: Sheet, title = false): Mol {
+  const d = detailsOf(m.annotations), lay = headerLayout(s, title || !!d.title);
+  if (m.captions?.some(nameOf)) {
+    const value = new Map<number, Field>();
+    for (const [key] of FIELDS) {
+      const c = m.captions.find((x) => free(x) && !x.field && !nameOf(x) && !value.has(x.id) && oneLine(x.text) === d[key]);
+      if (c) value.set(c.id, key);
+    }
+    return { ...m, fields: true, captions: m.captions.map((c) => (value.has(c.id) ? { ...c, field: value.get(c.id) } : c)) };
+  }
+  let out: Mol = { ...m, fields: true };
+  for (const [key, name] of FIELDS) {
+    const p = lay.at[key];
+    if (p?.name) [out] = addCaption(out, { text: name, bold: true, align: "left", chemical: false, x: p.name[0], y: p.name[1] });
+    if (p && d[key]) [out] = addCaption(out, valueText(key, p.value, d[key]!, s));
+  }
+  return addArrow(out, { kind: "line", from: [lay.rule[0], lay.rule[2]], to: [lay.rule[1], lay.rule[2]] })[0];
+}
+// Each detail's place on the page: where its value's text starts (at) and the box a click types in ([left, bottom,
+// right, top]), with the value's text when it has one (caption). A detail has a place after its name: values of names
+// that start at the same x start at the same x, and the box ends before the next name on the line, or at the right
+// margin. The title's place, with no name of its own, is above the top name. A value moved away from its name keeps a
+// box round its text. A detail with no name and no value has no place.
+export type Slot = { field: Field; at: [number, number]; box: [number, number, number, number]; caption?: number };
+export function slotsOf(m: Mol, s: Sheet): Slot[] {
+  const line = s.size / s.bond, pad = 0.3 * line, right = (s.page[0] / 2 - MARGIN) * perMm(s.bond), names = new Map<Field, Caption>();
+  const span = (c: Caption): Slot["box"] => {
+    const size = (c.size ?? s.size) / s.bond, lines = c.text.split("\n"), w = Math.max(...lines.map((t) => s.measure(t, c.size ?? s.size, !!c.bold))) / s.bond, x = c.x - (c.align === "right" ? w : c.align === "centre" ? w / 2 : 0);
+    return [x, c.y - (lines.length - 0.75) * 1.2 * size, x + w, c.y + 0.75 * size];
+  };
+  for (const c of m.captions ?? []) { const key = nameOf(c); if (key && !names.has(key)) names.set(key, c); }
+  const spans = [...names.values()].map(span), out: Slot[] = [];
+  for (const [key] of FIELDS) {
+    const n = names.get(key), v = valueOf(m, key);
+    let at: Slot["at"] | undefined, box: Slot["box"] | undefined;
+    if (n) {
+      const b = span(n), x = Math.max(...spans.filter((o) => Math.abs(o[0] - b[0]) < line / 2).map((o) => o[2])) + GAP * line;
+      const end = Math.min(Math.max(right, x + 6 * line), ...spans.filter((o) => o[0] > b[2] && Math.abs(o[3] - b[3]) < line).map((o) => o[0] - GAP * line));
+      at = [x, n.y]; box = [x - pad, n.y - 0.45 * line, Math.max(end, x + 3 * line), n.y + line];
+    } else if (key === "title" && spans.length) {
+      const top = [...names.values()].sort((p, q) => q.y - p.y || p.x - q.x)[0], x = span(top)[0], big = titleSize(s) / s.bond;
+      at = [x, top.y + 2 * line]; box = [x - pad, at[1] - 0.45 * big, Math.max(right, x + 6 * line), at[1] + big];
+    }
+    if (v) {
+      const b = span(v), there = box && at && v.x >= box[0] - line && v.x <= box[2] && Math.abs(v.y - at[1]) < line;
+      box = there ? [Math.min(box![0], b[0] - pad), Math.min(box![1], b[1] - pad), Math.max(box![2], b[2] + pad), Math.max(box![3], b[3] + pad)] : [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+      at = [v.x, v.y];
+    }
+    if (at && box) out.push({ field: key, at, box, ...(v ? { caption: v.id } : {}) });
+  }
+  return out;
+}
+// What a click in a detail's empty place starts: its value's text there (the title's larger and bold, where it has no
+// name before it).
+export const slotText = (m: Mol, slot: Slot, s: Sheet): Omit<Caption, "id"> =>
+  valueText(slot.field, slot.at, "", s, slot.field === "title" && !(m.captions ?? []).some((c) => nameOf(c) === "title"));
+// After an edit of an experiment page, its details and their text agree. A value typed, changed or deleted on the page
+// sets or removes the document's annotation, which Home's Experiments list, a table's conditions and ChemDraw read. An
+// annotation the edit changed (Experiment details…, a table's conditions, the document's properties) changes its text,
+// deletes it when the detail is now empty, or adds it in the detail's place when the page has one. The same drawing
+// when they agree already.
+// ponytail: two texts for one detail (a copy of a value): the first counts. Clear the copy's field if it confuses.
+export function syncDetails(before: Mol, after: Mol, s: Sheet): Mol {
+  const was = detailsOf(before.annotations), now = detailsOf(after.annotations), details: Details = { ...now };
+  let out = after, slots: Slot[] | undefined;
+  for (const [key] of FIELDS) {
+    const v0 = valueOf(before, key), v = valueOf(after, key), text = v && oneLine(v.text);
+    if (text !== (v0 && oneLine(v0.text))) { if (text) details[key] = text; else delete details[key]; continue; }
+    if (now[key] === was[key] || now[key] === text) continue;
+    if (v) out = now[key] ? updateCaption(out, v.id, { text: now[key]!, runs: undefined }) : deleteGraphics(out, new Set([v.id]));
+    else {
+      const slot = (slots ??= slotsOf(after, s)).find((x) => x.field === key);
+      if (slot) [out] = addCaption(out, { ...slotText(after, slot, s), text: now[key]! });
+    }
+  }
+  const annotations = withDetails(out.annotations, details);
+  return JSON.stringify(annotations) === JSON.stringify(out.annotations) ? out : { ...out, annotations };
 }
 
 // Each new reaction arrow an edit draws (one whose id was not in the drawing before) gets a stoichiometry grid, as
