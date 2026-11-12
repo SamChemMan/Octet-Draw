@@ -382,13 +382,18 @@ const cored = (l: string) => l.includes("{") && /:(?:\s|$)|^core\b/i.test(l);
 /** A value that asks for nothing: null, empty text, '[]' or '{}', or an empty list or object. */
 export const blank = (v: unknown) => v === null || (typeof v === "string" ? /^\s*(?:\[\s*\]|\{\s*\})?\s*$/.test(v) : typeof v === "object" && !Object.keys(v as object).length);
 /** Lines given as a JSON array of lines, as a list or as text that reads as one (Haiku wrote them so), are those lines,
- * one under the other (one may hold several). Anything else is as given. Read where draw's and change's lines arrive. */
+ * one under the other (one may hold several). Anything else is as given, less what cannot begin a line before the
+ * first title or compound (STRAY). Read where draw's and change's lines arrive. */
 export function linesOf(v: unknown): unknown {
   const t = typeof v === "string" ? v.trim() : "";
   let x = v;
-  if (t[0] === "[" && t[t.length - 1] === "]") try { x = JSON.parse(t); } catch { return v; }
-  return Array.isArray(x) && x.length && x.every((l) => typeof l === "string") ? x.join("\n") : v;
+  if (t[0] === "[" && t[t.length - 1] === "]") try { x = JSON.parse(t); } catch { /* read as text */ }
+  return Array.isArray(x) && x.length && x.every((l) => typeof l === "string") ? x.join("\n") : typeof v === "string" ? v.replace(STRAY, "").replace(STRAY_END, "") : v;
 }
+// What no line begins with, which Haiku wrote before its first line in about one call in eight (plan 19.11): a quote
+// mark with no partner on its line ("x" as written keeps its own), */ or /*, a comma, a code fence, a bracket left
+// from an array that did not parse, and blank lines. At the very end, a lone closing quote, a fence, or a bracket on a line of its own.
+const STRAY = /^(?:\s+|\*\/|\/\*|,|```[\w-]*(?=\s|$)|[[\]](?=\s|["“”„]|$)|["“”„](?![^\n]*["“”„])|['‘’](?![^\n]*['‘’]))+/, STRAY_END = /(?:\s+|```|(?<=\n\s*)\]|(?<!["“”„][^\n]*)["“”„]|(?<!['‘’][^\n]*)['‘’])+$/;
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first

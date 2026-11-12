@@ -2151,3 +2151,17 @@ session can keep or drop each by what the lab says next.
   on tools/list alone. A session that drops a commit runs `node scripts/mcp-bench/run.ts --write` for the counts and
   keeps the times that results.json had: alwaysLoad moves tools/list (12,854), the notation's line moves it by one
   (12,853) and the instructions (2,040), and the stereo commit the rest.
+
+### 19.11 As built (round 6, 12 November 2026, branch `mcp/ai6`)
+
+What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns. Each point is its own commit.
+
+- **What no line begins with.** In about one call in eight Haiku wrote stray characters before its first line, and
+  three forms were still refused: a lone `"` before the `# ` title (and one after the last line: "Line 1: a \" has no
+  closing \"", haiku-2 paper-scope, haiku-3 say-two-schemes), `*/` before it (read as a structure, haiku-1 and haiku-2
+  say-three-step) and a comma on a line of its own (haiku-2 paper-five-step). `linesOf` in `notation.ts`, where draw's
+  and change's lines arrive, takes off what cannot begin a line before the first title or compound: a quote mark with
+  no partner on its line, `*/`, `/*`, a comma, a code fence, a bracket left from an array that did not parse, and blank
+  lines; and at the very end a lone closing quote, a fence or a bracket on a line of its own. The reply says nothing.
+  A line in quotes with its partner (`"x" as written`), a SMILES in brackets (`[Na+].[Cl-]`) and a `//` comment are as
+  given. The 36 replayed answers still score 35.
