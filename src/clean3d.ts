@@ -105,8 +105,9 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   // A stereocentre's hand as the page draws it: the centre and its neighbours in the page, and only the far ends of its
   // own wedges and hashes out of it (a wedge that starts at a neighbour is that neighbour's). The side of its first
   // three neighbours' plane that the centre is on (with four, the side the fourth is on).
+  // Also for a centre drawn flat on a structure that has depth elsewhere (a group drawn onto a cleaned-up structure).
   const drawnHand = (k: number) => {
-    if (!flat || hyb[k] !== 3 || nei[k].length < 3) return 0;
+    if (hyb[k] !== 3 || nei[k].length < 3 || (!flat && nei[k].some((j) => Math.abs(p2[j][2] - p2[k][2]) > 1e-6))) return 0;
     const own = new Map<number, number>();
     for (const b of bonds) if ((b.stereo === 1 || b.stereo === 6) && b.from === ids[k] && (b.a === k || b.b === k)) own.set(b.a === k ? b.b : b.a, b.stereo === 1 ? 0.8 : -0.8);
     if (!own.size) return 0;
@@ -177,17 +178,16 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   }
 
   // The hydrogens the drawing leaves out, each on the open side of its atom: one straight out; two either side in the
-  // plane (sp2) or above and below it (sp3); more round a cone. On an sp2 atom with one neighbour they go in the plane
-  // of that neighbour's other atoms, an O–H towards a C=O. A methyl group of a structure in 3D already goes staggered
-  // to them: the same three places it settled in, so a second clean-up starts where the first ended. (On a flat
-  // drawing a methyl starts with one hydrogen out of the page, and an O–H straight out: placed in the page, they kept
-  // crowded rings flat and made twist-boats of acylated sugars.)
+  // plane (sp2) or above and below it (sp3); more round a cone. In a structure that is in 3D already, those of a
+  // methyl group go staggered to its neighbour's other atoms, and those of an sp2 atom with one neighbour in their
+  // plane (an O–H towards a C=O): where they settled, so a second clean-up starts near where the first ended. Not on
+  // a flat drawing: hydrogens placed in the page kept crowded rings flat and cost chairs.
   for (const [k, count] of left) {
     const to = nei[k].slice(0, heavy[k]).map((j) => unitV(sub(p[k], p[j])));
     let out = unitV(to.reduce((s, v): V => [s[0] + v[0], s[1] + v[1], s[2] + v[2]], [0, 0, 0]));
     if (lenV(out) < 1e-6) out = to.length ? unitV(crossV(to[0], [0, 0, k % 2 ? -1 : 1])) : [1, 0, 0]; // a straight chain: to alternate sides
     const j = nei[k][0], syn = to.length === 1 && hyb[k] === 2 && count === 1 ? nei[j].find((q) => q !== k && double.has(key(j, q))) : undefined;
-    const far = to.length === 1 && (hyb[k] === 2 || (hyb[k] === 3 && count === 3 && !flat)) ? syn ?? nei[j].find((q) => q !== k && q < p.length) : undefined;
+    const far = !flat && to.length === 1 && (hyb[k] === 2 || (hyb[k] === 3 && count === 3)) ? syn ?? nei[j].find((q) => q !== k && q < p.length) : undefined;
     let up: V = far !== undefined ? sub(p[j], p[far]) : to.length > 1 ? unitV(crossV(to[0], to[1])) : [0, 0, 1], lone = far !== undefined;
     if (lenV(crossV(up, out)) < 1e-3) { up = Math.abs(out[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]; lone = false; }
     const side = unitV(crossV(up, out)), d = bl(k, nei[k][heavy[k]]);
@@ -239,7 +239,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     const amide = (q: number, c: number) => (el[q] === "N" || el[q] === "O") && !aromatic[q] && el[c] === "C" && !aromatic[c] && nei[c].some((o) => el[o] !== "C" && double.has(key(c, o)));
     const anilide = (q: number) => el[q] === "N" && nei[q].some((c) => amide(q, c));
     const weak = (aromatic[b.a] && aromatic[b.b]) || ((el[b.a] !== "C" || el[b.b] !== "C") && !anilide(b.a) && !anilide(b.b) && !amide(b.a, b.b) && !amide(b.b, b.a));
-    const firm = b.type === 2 || b.type === AROMATIC || (aromatic[b.a] && aromatic[b.b] && inRing.has(key(b.a, b.b))) || (el[b.a] === "N" && amide(b.a, b.b)) || (el[b.b] === "N" && amide(b.b, b.a));
+    const firm = b.type === 2 || b.type === AROMATIC || (aromatic[b.a] && aromatic[b.b] && inRing.has(key(b.a, b.b)));
     const page = (q: number): V => (flat ? [p[q][0], p[q][1], 0] : p[q]), line = sub(page(b.b), page(b.a)), off = (q: number, from: number) => crossV(line, sub(page(q), page(from)));
     const ring = cycles.find((r) => r.length < 8 && r.includes(b.a) && r.includes(b.b));
     for (const i of nei[b.a]) for (const l of nei[b.b]) {
