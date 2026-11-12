@@ -204,6 +204,11 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol", number: "2" }] }] })).isError);
   const m = d.host.doc(), table = d.host.tables()[0].box, numbers = m.captions!.filter((c) => c.bold && /^[12]$/.test(c.text)).map((c) => d.host.textBox(c.id)!);
   assert.ok(numbers.length === 2 && numbers.every((b) => table[3] <= b[1]), `the table ${table} is under the numbers ${numbers.join(" ")}`);
+  // And under all under its arrow, which makes no column: conditions on two lines and a yield (acceptance case 5).
+  d = drawing("experiment", "Yield");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4"], below: ["reflux, 4 h", "90%"], products: [{ text: "ethyl acetate" }] }] })).isError);
+  const top = d.host.tables()[0].box[3], below = d.host.doc().captions!.filter((c) => c.on?.side === "below" || ["reflux, 4 h", "90%"].includes(c.text)).map((c) => d.host.textBox(c.id)!);
+  assert.ok(below.length === 2 && below.every((b) => top <= b[1] - 0.8), `the table's top ${top} is under the yield and conditions ${below.join(" ")}`);
 }
 {
   // Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A
