@@ -2,7 +2,8 @@
 // dialog, in the format Settings > Import and export > Quick export picks, PNG at first, with the saved settings) and
 // Export…, which shows the settings first: what to export, the
 // format, a raster picture's resolution (or its size in pixels), background and JPEG quality, the margin, and a preview
-// with the size it will come out at.
+// with the size it will come out at. Print… prints what the dialog would export (the whole drawing or the selection)
+// as File > Print does, every page it covers at true size.
 import { useEffect, useRef, useState } from "react";
 import { CaretUpDown, DownloadSimple, Export as ExportIcon, ImageSquare } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
@@ -64,11 +65,11 @@ export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin" | "
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
 // selection (standaloneSvg, in pt, no margin). page: the drawing's page colour, when it has one. Changes are kept as
 // the next export's defaults.
-export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExport, onClose }: {
+export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExport, onPrint, onClose }: {
   prefs: ExportSettings; onPrefs: (p: Partial<ExportSettings>) => void; page?: string;
   pictures: { all?: string; selection?: string };
   chemistry: (part: "all" | "selection") => Partial<Record<ExportFormat, boolean>>;
-  onExport: (part: "all" | "selection") => void; onClose: () => void;
+  onExport: (part: "all" | "selection") => void; onPrint: (part: "all" | "selection") => void; onClose: () => void;
 }) {
   const [part, setPart] = useState<"all" | "selection">(pictures.selection ? "selection" : "all");
   const has = chemistry(part), picture = pictures[part], format = prefs.format;
@@ -85,7 +86,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExpo
   const ok = usable.some(([f]) => f === format);
   // The preview is white paper in both themes, so it and the text on it take the light theme's colours.
   return (
-    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok || big}>
+    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok || big} alt={{ label: "Print…", onClick: () => onPrint(part) }}>
       <div className={["export-preview", svg && clear && "transparent"].filter(Boolean).join(" ")} data-theme="light">
         {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
