@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, PlusSquare, ShuffleSimple, Triangle,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -22,7 +22,7 @@ import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, probl
 import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
-  addChair, addGroup, addLane, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addLane, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup,
 } from "./edit";
@@ -87,7 +87,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { HBOND, arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -106,10 +106,13 @@ import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
 import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
+import { stereoNames, stereoTexts } from "./stereonames";
+import { INVERT_DONE, INVERT_SELECT, invertAt, toFischer, toWedges } from "./projection";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, ownId, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, setTemplateAttach, templateKind, templateToEnd, templateToStart, toggleFavourite, updateTemplate } from "./templates";
+import { attachTemplate, type Attach, type Attached } from "./attach";
 import { formulaCaption, formulaRuns } from "./labels";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
@@ -204,6 +207,9 @@ type Drag =
   // onto: a caption that counts as chemistry the bond ends on; it becomes an atom when the bond is drawn.
   | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; onto?: number }
   | { kind: "click"; at: P; start: [number, number]; target: Hover; alt?: boolean }
+  // A template pressed on an atom or bond (the Template tool, or the Ring tool with a library or custom ring): a drag sets
+  // its side or direction (to), shown green before it is let go (attach.ts). meta: Command at the press.
+  | { kind: "template"; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; meta?: boolean }
   // A ring tool's press: a drag sets the ring's first bond (to). alt, meta, shift: Option, Command and Shift at the press.
   | { kind: "ring"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; meta?: boolean; shift?: boolean }
   // A chain: side, the side of the drag its first bond goes; path, its points when it snakes (Command held); alt,
@@ -557,8 +563,9 @@ export default function Editor() {
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
   const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
-    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
+    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen,
+    dlNames: settings.dlNames, steroidNames: settings.steroidNames, unsetMark: settings.unsetMark }),
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.dlNames, settings.steroidNames, settings.unsetMark]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -771,6 +778,26 @@ export default function Editor() {
   // The template in hand: a library one or the user's own.
   const templateMol = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.mol ?? libraryItem(kind)?.mol ?? namedOf(kind);
   const templateVariant = templateMol(settings.variants.template) ? settings.variants.template : "lib:Alanine";
+  // Where each template attaches and how it joins (attach.ts): the user's own templates keep it in the settings, the
+  // built-in ones for the session (out of the box they place as they always have).
+  const [attachSession, setAttachSession] = useState<Record<string, Attach>>({});
+  const attachOf = (kind: string): Attach => templates.find((x) => templateKind(x.id) === kind)?.attach ?? attachSession[kind] ?? {};
+  const setAttach = (kind: string, a: Attach) => { const id = ownId(kind); if (id) setSettings((s) => setTemplateAttach(s, id, a)); else setAttachSession((m) => ({ ...m, [kind]: a })); };
+  // The template the tool in hand puts down: the Template tool's, or the Ring tool's library or custom ring (none for a
+  // plain ring). Where a click or a drag (toward) on t would put it, or why it cannot go there.
+  const placingKind = () => (tool === "template" ? templateVariant : tool === "ring" && !(ringKind in RINGS) ? ringKind : undefined);
+  const placement = (kind: string, t: Hover, at: P, toward?: P): Attached | undefined => {
+    const mol = templateMol(kind);
+    return mol && attachTemplate(doc, mol, { ...attachOf(kind), ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at, ...(toward ? { toward } : {}) });
+  };
+  // A template put down (one Undo step). Stamped beside a catalytic cycle it joins it (⌘ keeps it free). Where it cannot
+  // join, nothing changes and the notice says why (the green preview said so before the click).
+  function putTemplate(kind: string, t: Hover, at: P, meta?: boolean, toward?: P) {
+    const r = placement(kind, t, at, toward);
+    if (!r) return;
+    if (r.refusal !== undefined) return setNotice(r.refusal, "info");
+    return set(r.mol, false, undefined, !meta && "placed");
+  }
   // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
@@ -1185,10 +1212,11 @@ export default function Editor() {
   // write them. Each is made when it is first asked for and kept with the part (the drawing itself, or the selection's
   // part from selectedPart), so Export and Copy make only what they use, once for each version of the drawing. They are
   // made again when the style, the name, Indigo or the arrows of a catalytic cycle (what cdxmlOptions gives) change.
-  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; formats: Partial<Record<PartFormat, string>> }>());
+  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; names: string; formats: Partial<Record<PartFormat, string>> }>());
   function formatOf(part: Mol, f: PartFormat): string | undefined {
     let kept = made.current.get(part);
-    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, formats: {} });
+    const names = `${settings.dlNames} ${settings.steroidNames} ${settings.unsetMark} ${settings.stereoParens}`;
+    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows || kept.names !== names) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, names, formats: {} });
     if (f in kept.formats) return kept.formats[f];
     const cdxml = f === "oct" || f === "cdx" ? formatOf(part, "cdxml") : undefined;
     let out: string | undefined;
@@ -1322,6 +1350,8 @@ export default function Editor() {
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
   const cdxmlOptions = (): CdxmlOptions => ({
     derived: cycleArrows, name,
+    // Show Stereochemistry's added names (D and L, steroid α and β, undefined marks) go as plain text (stereonames.ts).
+    stereoTexts: loaded && (settings.dlNames || settings.steroidNames || settings.unsetMark) ? (m) => stereoTexts(stereoLabels(m)?.atoms ?? [], stereoNames(m, { dl: settings.dlNames, steroid: settings.steroidNames, unset: settings.unsetMark }), (c) => (settings.stereoParens ? `(${c})` : c)) : undefined,
     expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
@@ -2175,6 +2205,18 @@ export default function Editor() {
       set({ ...doc, atoms: doc.atoms.map((a, i) => { if (!atoms.has(i)) return a; const { shade: _, ...rest } = a; return on ? rest : { ...rest, shade: true as const }; }) }, true);
     },
     flatten: () => set(flattenAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i))), true),
+    // Structure > Invert Configuration Here, Convert to Fischer Projection and Convert to Wedge Drawing (ReShiki's,
+    // projection.ts): each one Undo step, or a notice that says why nothing changed.
+    invert_here: () => {
+      const ids = [...selection].filter((i) => i < doc.atoms.length);
+      if (!loaded || ids.length !== 1) return setNotice(INVERT_SELECT, "info");
+      const r = invertAt(doc, ids[0]);
+      if (!r.mol) return setNotice(r.error, "info");
+      set(r.mol, true);
+      setNotice(INVERT_DONE, "done");
+    },
+    to_fischer: () => { if (!loaded) return; const r = toFischer(doc, selection); if (!r.mol) return setNotice(r.error, "info"); set(r.mol, true); },
+    to_wedges: () => { if (!loaded) return; const r = toWedges(doc, selection); if (!r.mol) return setNotice(r.error, "info"); set(r.mol, true); },
     // 3D Clean Up (⇧⌘D, Structure menu), as ChemDraw's: the selected structures (or every one) in 3D, with depth
     // shading on, up to 500 atoms each; again to improve it. Then, as ChemDraw does, Select is Structure Perspective, to turn them.
     clean_3d: () => {
@@ -4599,6 +4641,7 @@ export default function Editor() {
     if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t, alt });
     if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t, alt });
     if (tool === "ring" && ringKind in RINGS) return setDrag({ kind: "ring", from: t.atom ?? p, at: p, start: screen, target: t, alt, ...more });
+    if (placingKind() && (t.atom !== undefined || t.bond !== undefined)) return setDrag({ kind: "template", at: p, start: screen, target: t, alt, meta: more.meta });
     setDrag({ kind: "click", at: p, start: screen, target: t, alt });
   }
   // Every drawing tool: hold still for HOLD_MS and Select takes over until release. On the selection it moves it;
@@ -4670,6 +4713,10 @@ export default function Editor() {
       case "click":
         if (Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) >= 4) stopHold();
         return;
+      case "template":
+        if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        stopHold();
+        return setDrag({ ...drag, to: p });
       case "crosshair": {
         // On the page's grid, a lighter step at a time from its corner (⌘ frees it); Shift keeps it to one axis.
         const step = gridOf(style.grid, mm, corner).minor;
@@ -5753,7 +5800,9 @@ export default function Editor() {
       // Its structure's and and or groups, and the lowest new one of each, for the stereo flag buttons.
       const centre = stereocentres(doc).includes(ids[0]), structure = centre ? fragments(doc).find((g) => g.includes(ids[0])) ?? [] : [];
       const groups = (kind: "&" | "or") => [...new Set([...structure.flatMap((i) => { const g = /^(&|or)(\d+)$/.exec(doc.atoms[i].enhanced ?? ""); return g && g[1] === kind ? [Number(g[2])] : []; }), nextGroup(doc, structure, kind)])].sort((p, q) => p - q);
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current,
+        // Invert Configuration Here is offered on a centre drawn with a wedge from it, in depth, or kept from ChemDraw.
+        invertible: [3, 4].includes(neighbours(doc, ids[0]).length) && (centre || !!a.kept || neighbours(doc, ids[0]).some((j) => Math.abs((doc.atoms[j].location[2] ?? 0) - (a.location[2] ?? 0)) >= 0.2)) };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -5769,7 +5818,9 @@ export default function Editor() {
     // A 3D structure (Structure Perspective): depth shading on or off.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
-      ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
+      ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}),
+      // One acyclic structure with stereo bonds or depth: Convert to Fischer Projection is offered (projection.ts checks the rest).
+      acyclic: ((g) => g.length === 1 && doc.bonds.filter((b) => b.type !== HBOND && g[0].includes(b.atoms[0])).length + 1 === g[0].length && g[0].some((i) => doc.atoms[i].location[2] || doc.bonds.some((b) => b.stereo && b.atoms[0] === i)))(fragments(doc).filter((g) => g.some((i) => selection.has(i)))), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
       // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
@@ -6019,6 +6070,10 @@ export default function Editor() {
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
+  // Show Stereochemistry's added names (Settings > Drawing > Stereochemistry): D and L, steroid α and β, and the marks
+  // on undefined stereocentres (stereonames.ts).
+  const stereoNamed = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) && (settings.dlNames || settings.steroidNames || settings.unsetMark) ? stereoNames(m, { dl: settings.dlNames, steroid: settings.steroidNames, unset: settings.unsetMark }) : undefined; },
+    [loaded, doc, exporting, settings.dlNames, settings.steroidNames, settings.unsetMark]);
   const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? drawnRings(shown) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
@@ -6058,7 +6113,7 @@ export default function Editor() {
     for (const b of shown.bonds) if (bonded[b.atoms[0]] && bonded[b.atoms[1]]) { bonded[b.atoms[0]].push(b.atoms[1]); bonded[b.atoms[1]].push(b.atoms[0]); }
     // The marks already placed: atom numbers, (R) and (S), (E) and (Z), map numbers, electrons and charges, and text.
     const taken: Box[] = [
-      ...stereoMarks().map((m): Box => { const w = textWidth(m.text, m.size, false, !m.upright, family), x = m.anchor === "start" ? m.x : m.anchor === "end" ? m.x - w : m.x - w / 2; return [x, m.y - 0.4 * m.size, x + w, m.y + 0.4 * m.size]; }),
+      ...stereoMarks().map((m): Box => { const w = textWidth((m.prefix ?? "") + m.text, m.size, false, !m.upright, family), x = m.anchor === "start" ? m.x : m.anchor === "end" ? m.x - w : m.x - w / 2; return [x, m.y - 0.4 * m.size, x + w, m.y + 0.4 * m.size]; }),
       ...drawing.maps.map((n): Box => { const w = textWidth(n.text, n.size, false, false, family); return [n.at[0] - w / 2, n.at[1] - n.h / 2, n.at[0] + w / 2, n.at[1] + n.h / 2]; }),
       ...drawing.electrons.map((e): Box => [e.at[0] - 0.12 * L, e.at[1] - 0.12 * L, e.at[0] + 0.12 * L, e.at[1] + 0.12 * L]),
       ...placed.map((c) => c.frame ?? c.box),
@@ -6067,7 +6122,7 @@ export default function Editor() {
     const bondInk = drawing.parts.flatMap(({ drawing: d, at: [ax, ay], k, turn }) => { const c = Math.cos((turn * Math.PI) / 180) * k, s = Math.sin((turn * Math.PI) / 180) * k; return d.polygons.map((poly) => poly.map(([x, y]): P => [x * c - y * s + ax, x * s + y * c + ay])); });
     const items = [...texts].filter(([i]) => !has.has(i)).map(([i, text]) => { const px = sizeOf(i) * pt, [up, down] = textExtent(text, px, false, false, family); return { atom: i, w: textWidth(text, px, false, false, family), up, down, L: Ls[i] }; });
     return placeBeside(items, { at, bonded, rings: ringsOf, ink: bondInk, labels: drawing.label, taken }).map((s) => ({ ...s, text: texts.get(s.atom)!, size: sizeOf(s.atom) }));
-  }, [shiftKey, spectrum, shown, drawing, placed, ringsOf, stereo, style, pt, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shiftKey, spectrum, shown, drawing, placed, ringsOf, stereo, stereoNamed, style, pt, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   const shiftLabels = () => shiftSpots;
   // A label's place beside an atom (px): in a gap between its bonds, out of its rings (or away from the atoms within
   // two bonds), clear of the atom's own label and of the boxes in `taken` (the chosen box is added to it).
@@ -6099,14 +6154,15 @@ export default function Editor() {
     // Settings > Drawing > Parentheses round R and S (ChemDraw's Include Parentheses When Showing Stereochemistry).
     const paren = (c: string) => (settings.stereoParens ? `(${c})` : c);
     // Each in its atom's scale (its bond's mean for E and Z).
-    const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string; upright?: boolean; size: number }[] = [], taken: number[][] = [], base = style.captionSize * pt * 0.8;
+    const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; prefix?: string; colour?: string; upright?: boolean; muted?: boolean; size: number }[] = [], taken: number[][] = [], base = style.captionSize * pt * 0.8;
     shown.atoms.forEach((a, i) => { const size = base * scaleOf(a); if (a.number) out.push({ key: `n${i}`, ...besideAtom(i, a.number.length * size * 0.55, size, taken, 0.55 * scaleOf(a)), text: a.number, colour: a.colour, upright: true, size }); });
+    // D or L before R or S, a steroid face in place of it, a grey mark on an undefined centre (stereonames.ts).
+    for (const [i, t] of stereoTexts(stereo?.atoms ?? [], stereoNamed ?? { dl: new Map(), steroid: new Map(), unset: new Map() }, paren)) {
+      if (!shown.atoms[i]?.cip) continue;
+      const size = base * scaleOf(shown.atoms[i]), chars = (t.prefix ?? "").length + t.text.length;
+      out.push({ key: `a${i}`, ...besideAtom(i, chars * size * 0.55, size, taken, 0.55 * scaleOf(shown.atoms[i])), text: t.text, prefix: t.prefix, upright: t.upright, muted: t.muted, colour: shown.atoms[i].colour, size });
+    }
     if (!stereo) return out;
-    stereo.atoms.forEach((c, i) => {
-      if (!c || !shown.atoms[i]?.cip) return;
-      const text = paren(c), size = base * scaleOf(shown.atoms[i]);
-      out.push({ key: `a${i}`, ...besideAtom(i, text.length * size * 0.55, size, taken, 0.55 * scaleOf(shown.atoms[i])), text, colour: shown.atoms[i].colour, size });
-    });
     stereo.bonds.forEach((c, k) => {
       const b = shown.bonds[k];
       if (!c || !b || !shown.atoms[b.atoms[0]]?.cip) return;
@@ -6480,6 +6536,7 @@ export default function Editor() {
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
+    invert_here: ["Invert configuration here", "", <ShuffleSimple size={18} />], to_fischer: ["Convert to Fischer projection", "", <PlusSquare size={18} />], to_wedges: ["Convert to wedge drawing", "", <Triangle size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
@@ -7117,16 +7174,15 @@ export default function Editor() {
       return setPicked(new Set([id]));
     }
     if (tool === "template") {
-      const mol = templateMol(templateVariant);
       // The point goes too: a template with no bonds or no atoms (a lamp, a flask) goes where the click was.
       // Stamped beside a catalytic cycle, it joins it (⌘ keeps it free).
-      return mol ? set(addTemplate(doc, mol, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }), false, undefined, !more.meta && "placed") : undefined;
+      return putTemplate(templateVariant, t, at, more.meta);
     }
     if (tool === "ring") {
       const custom = templates.find((x) => templateKind(x.id) === ringKind)?.mol ?? libraryItem(ringKind)?.mol ?? namedOf(ringKind);
       // A ring stamped beside a catalytic cycle joins it. ⌘ keeps a chair or a library ring free, as with a template; on
       // a plain ring ⌘ draws it delocalised, so that one joins (only near an arc, never in the middle of the cycle).
-      if (custom) return set(addTemplate(doc, custom, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }), false, undefined, !more.meta && "placed");
+      if (custom) return putTemplate(ringKind, t, at, more.meta);
       const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }), false, undefined, !more.meta && "placed");
       // As in ChemDraw: a click on an atom makes a spiro ring, and Option-click sprouts the ring on a new bond (the
@@ -7305,6 +7361,8 @@ export default function Editor() {
         return chainClick(drag.from, !!drag.alt);
       case "click":
         return click(drag.target, drag.at, drag.alt);
+      case "template":
+        return drag.to ? putTemplate(placingKind() ?? templateVariant, drag.target, drag.at, drag.meta, drag.to) : click(drag.target, drag.at, drag.alt, { meta: drag.meta });
       case "ring":
         return drag.to ? set(ringDrop(drag), false, undefined, !chairFree(drag) && "placed") : click(drag.target, drag.at, drag.alt, { meta: drag.meta, shift: drag.shift });
       case "erase": {
@@ -7813,7 +7871,34 @@ export default function Editor() {
       </g>
     );
   };
-  const hovered = (hover: Hover) => { const mark = hoveredMark(hover), shown = settings.interpretation ? interpretationAt(hover) : null; return shown ? <g key="h">{shown}{mark}</g> : mark; };
+  const hovered = (hover: Hover) => {
+    const mark = hoveredMark(hover), shown = settings.interpretation ? interpretationAt(hover) : null, placed = placingGhost(hover);
+    return shown || placed ? <g key="h">{shown}{mark}{placed}</g> : mark;
+  };
+  // The template under the pointer where a click (or the drag under way) would put it, tinted green; or, where it
+  // cannot attach, the reason by the atom or bond (ReShiki's placement preview). Worked out once for each target.
+  const ghostKept = useRef<{ key: string; doc: Mol; at: P; drawn?: ReturnType<typeof render>; refusal?: string }>(undefined);
+  function placingGhost(hover: Hover) {
+    const kind = templatePick ? undefined : placingKind(), t = drag?.kind === "template" ? drag.target : drag ? undefined : hover;
+    if (!kind || !t || (t.atom === undefined && t.bond === undefined)) return null;
+    const toward = drag?.kind === "template" ? drag.to : undefined, key = JSON.stringify([kind, attachOf(kind), t.atom, t.bond, toward]);
+    let g = ghostKept.current;
+    if (!g || g.key !== key || g.doc !== doc) {
+      const ends = t.atom !== undefined ? [t.atom] : doc.bonds[t.bond!]?.atoms ?? [];
+      if (!ends.length || ends.some((i) => !doc.atoms[i])) return null;
+      const at: P = [0, 1].map((k) => ends.reduce((sum, i) => sum + pos(doc, i)[k], 0) / ends.length) as P, r = placement(kind, t, at, toward);
+      // Only what the template adds: its new atoms, and the atoms its new bonds join.
+      const added = r?.mol && new Set([...r.mol.atoms.keys()].filter((i) => i >= doc.atoms.length).concat(r.mol.bonds.slice(doc.bonds.length).flatMap((b) => b.atoms)));
+      g = ghostKept.current = { key, doc, at, drawn: r?.mol && added ? render(subset(r.mol, added), frame, measure, L) : undefined, refusal: r?.refusal };
+    }
+    if (g.refusal) return <text className="attach-refusal" x={g.at[0] * L} y={-g.at[1] * L - 0.7 * L} textAnchor="middle" style={{ fontSize: 12 / views.get().zoom }}>{g.refusal}</text>;
+    return g.drawn ? (
+      <g className="ghost placing" aria-hidden>
+        <path d={toPath(g.drawn.polygons)} />
+        {g.drawn.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} style={{ font: labelFont(l) }}>{l.text}</text>)}
+      </g>
+    ) : null;
+  }
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
   const hoveredMark = (hover: Hover, whole = drag ? undefined : integralAt(hover), pick = templatePick && !drag ? pickOf(hover) : undefined) => drag ? null
     : pick ? partMark(...pick)
@@ -8140,10 +8225,10 @@ export default function Editor() {
           </g>
         );
       })}
-      {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
+      {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? (m.muted ? "var(--ink-muted)" : "var(--ink)")} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.prefix && <tspan style={{ fontStyle: "normal" }}>{m.prefix}</tspan>}{m.text}</text>)}
       {problemMarks()}
     </>
-  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, stereoNamed, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
   const marks = (
     <>
@@ -8920,6 +9005,10 @@ export default function Editor() {
         librarySize={settings.librarySize}
         onLibrarySize={(librarySize) => setSettings((s) => ({ ...s, librarySize }))}
         onSaveSet={saveTemplateSet}
+        favourites={settings.favourites}
+        onFavourite={(kind) => setSettings((s) => ({ ...s, favourites: toggleFavourite(s.favourites, kind) }))}
+        attachOf={attachOf}
+        onAttach={setAttach}
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
