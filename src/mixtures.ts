@@ -8,7 +8,8 @@ import type { Mol } from "./render.ts";
 
 // The structures to name (each a list of atoms), with the ions of a salt together: charged pieces within 3.5 bond
 // lengths of each other whose charges cancel are named as one, as sodium acetate rather than two names. The nearest
-// go together first, and a salt whose charges cancel takes no more: two salts side by side are two.
+// go together first, and a salt whose charges cancel takes no more: two salts side by side are two. A plus sign drawn
+// between two ions keeps them apart (a carbocation + bromide, a step of a mechanism).
 export function withSalts(doc: Mol, all: number[][]): number[][] {
   const charge = (g: number[]) => g.reduce((q, i) => q + (doc.atoms[i].charge ?? 0), 0), at = (i: number) => doc.atoms[i].location;
   const ions = all.filter((g) => charge(g) !== 0), group = ions.map((_, k) => k), total = ions.map(charge);
@@ -16,10 +17,12 @@ export function withSalts(doc: Mol, all: number[][]): number[][] {
   // (Each ion's box first: most pairs are too far apart to look at their atoms.)
   const box = ions.map((g) => g.reduce((b, i) => [Math.min(b[0], at(i)[0]), Math.min(b[1], at(i)[1]), Math.max(b[2], at(i)[0]), Math.max(b[3], at(i)[1])], [Infinity, Infinity, -Infinity, -Infinity]));
   const gap = (g: number[], h: number[]) => { let d = Infinity; for (const i of g) for (const j of h) d = Math.min(d, Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1])); return d; };
-  const pairs: [number, number, number][] = [];
+  const pairs: [number, number, number][] = [], plus = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+");
+  const inside = (b: number[], x: number, y: number, e: number) => x > b[0] - e && x < b[2] + e && y > b[1] - e && y < b[3] + e;
+  const apart = (p: number[], q: number[]) => plus.some((c) => inside([Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[2], q[2]), Math.max(p[3], q[3])], c.x, c.y, 0.5) && !inside(p, c.x, c.y, 0.2) && !inside(q, c.x, c.y, 0.2));
   ions.forEach((g, k) => ions.forEach((h, j) => {
     const p = box[k], q = box[j];
-    if (j > k && Math.sign(total[k]) !== Math.sign(total[j]) && p[0] - q[2] < 3.5 && q[0] - p[2] < 3.5 && p[1] - q[3] < 3.5 && q[1] - p[3] < 3.5) { const d = gap(g, h); if (d < 3.5) pairs.push([d, k, j]); }
+    if (j > k && Math.sign(total[k]) !== Math.sign(total[j]) && p[0] - q[2] < 3.5 && q[0] - p[2] < 3.5 && p[1] - q[3] < 3.5 && q[1] - p[3] < 3.5 && !apart(p, q)) { const d = gap(g, h); if (d < 3.5) pairs.push([d, k, j]); }
   }));
   for (const [, k, j] of pairs.sort((p, q) => p[0] - q[0])) {
     const a = root(k), b = root(j);

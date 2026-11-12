@@ -725,6 +725,11 @@ for (const caption of ["85%", "single diastereomer, 85%, used crude"]) {
   assert.deepEqual(compounds(proton, fragments(proton)), [[0, 1], [2]], "a proton");
   const hydride: Mol = { atoms: [ion("Na", 1, 0), ion("H", -1, 1.2)], bonds: [] };
   assert.deepEqual(compounds(hydride, fragments(hydride)), [[0, 1]], "sodium hydride");
+  // A plus sign drawn between two ions keeps them apart (a carbocation + bromide); with no plus they are a salt.
+  const plus: Mol = { ...pair, captions: [{ id: 1, text: "+", x: 0.6, y: 0 }] };
+  assert.deepEqual(compounds(plus, fragments(plus)), [[0], [1], [2, 3]], "a plus between ions");
+  const { t, id } = row("ions"), split = addCaption(t, { text: "+", x: 1.3, y: 0, align: "centre" })[0], d = drawn(split);
+  assert.deepEqual(findReaction(split, id, d.arrows, d.ink, d.captionBox)!.steps.map((s) => (s.kind === "structure" ? s.atoms.length : s.kind)), [6, "plus", 5, "arrow", 6], "ions with a plus between them: two reactants");
 }
 // Products that do not fit their line go on the next, after a plus sign (Clean Up Reaction breaks a line before a
 // plus sign when it must). The reaction reads whole from its arrow: the product on the second line is a product, its

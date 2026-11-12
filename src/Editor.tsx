@@ -3059,7 +3059,7 @@ export default function Editor() {
       // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
       const ran = pageRan.current;
       if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
-      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.();
+      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.();
     });
     return () => { off.then((f) => f()); };
   }, []);
@@ -7452,7 +7452,8 @@ export default function Editor() {
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
     end: (made) => { joinNext.current = undefined; mcpCalling.current = false; if (made) panTo([made[0] * L, -made[3] * L, made[2] * L, -made[1] * L]); },
-    set: (m) => (mcpWait.current = { mol: set(m) }).mol!,
+    // The drawing set is the drawing from now on (doc), before React draws it: a tool reads it back at once.
+    set: (m) => (now.current = (mcpWait.current = { mol: set(m) }).mol!),
     // A message to itself is a task the browser runs at once, where a timer in a window behind others can wait a second.
     settle: async () => {
       // A call's changes do not glide (glideTo), so a settle waits only for the drawing to be drawn.
@@ -7502,7 +7503,7 @@ export default function Editor() {
       const side = (k: string) => Number(new RegExp(` ${k}="([\\d.]+)pt"`).exec(head ?? "")?.[1] ?? 0), dpi = Math.min(crop ? 1200 : 150, (longest * 72) / Math.max(side("width"), side("height"), 1));
       return svgText && TAURI ? invoke<string>("mcp_png", { svg: svgText, dpi }) : undefined;
     },
-    restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
+    restyle: (next) => { now.current = (mcpWait.current = { mol: set({ ...scaleSizes(now.current, next.scale / style.scale), style: next }, true) }).mol!; },
     experiment: () => expPage,
     said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
     // The window shows the AI app at work (McpMagic) while each call runs, and for some seconds after. How far the
@@ -8668,7 +8669,7 @@ export default function Editor() {
       if (TAURI && !e.defaultPrevented && (e.ctrlKey || e.metaKey) && (!MAC || shiftedSymbol(keyOf(e) ?? ""))) {
         const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
         if (id?.startsWith("menu.")) {
-          const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };
+          const cmd = id.slice(5), over = { home, modal: modal(), typing: typing(), calling: mcpCalling.current };
           // In a text box these are the box's own. A menu command that follows from the same key does not run again.
           if (over.typing && ["undo", "redo", "select_all", "cut", "copy", "paste"].includes(cmd)) { pageRan.current = { id: cmd, at: performance.now() }; return; }
           if (!menuRuns(cmd, over)) return;
@@ -8679,6 +8680,9 @@ export default function Editor() {
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
+      // While an AI app's call runs, the canvas takes no keys, as it takes no clicks (McpMagic): an edit would join the
+      // call's undo step, and go with it when the call is stopped.
+      if (mcpCalling.current) return;
       // Mass spec analysis (ChemDraw's): a key pressed while a line is dragged puts a corner in it where the pointer is.
       if (drag?.kind === "arrow" && tool === "massspec" && drag.to && e.key !== "Escape") {
         e.preventDefault();
@@ -8824,7 +8828,7 @@ export default function Editor() {
     const imageFile = (e: ClipboardEvent) => [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
-      if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
+      if (typing() || home || modal() || mcpCalling.current) return; // pasting into a label or caption, on Home or a dialog, or during an AI app's call
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its PDF on the Mac and Word keeps, then CDX (the whole drawing, and ChemDraw for Windows' only one),
       // then a molfile, then SMILES), then plain text that names a structure, and a picture last.
@@ -8958,7 +8962,7 @@ export default function Editor() {
     // Cut: copy, then delete what was copied (an arrow's conditions too), once the copy is on the clipboard and if the
     // drawing has not changed.
     const onCut = (e: ClipboardEvent) => {
-      if (typing() || home || modal() || (!selection.size && !picked.size)) return;
+      if (typing() || home || modal() || mcpCalling.current || (!selection.size && !picked.size)) return;
       if (partPick) return run("edit.delete");
       const taken = new Set([...picked, ...(selectedPart()?.captions ?? []).map((c) => c.id)]);
       const before = doc, gone = deleteGraphics(deleteAtoms(doc, selection), taken, drawnAt, drawnAlign);
