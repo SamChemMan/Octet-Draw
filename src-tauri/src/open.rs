@@ -144,8 +144,11 @@ pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picke
 // File > Insert… (ChemDraw's Edit > Insert File): a drawing or a picture to put into the drawing that is open, read as
 // one dropped on it is. It is not remembered for Save and does not go on Home's list.
 #[tauri::command]
-pub async fn insert_file(app: AppHandle) -> Result<Option<OpenedFile>, String> {
-    let Some(file) = app.dialog().file().add_filter("Drawings and pictures", &[&DRAWINGS[..], &PICTURES, &VECTORS].concat()).blocking_pick_file() else {
+pub async fn insert_file(app: AppHandle, pictures: Option<bool>) -> Result<Option<OpenedFile>, String> {
+    // Image to Structure (decision 0026) takes a picture only.
+    let picker = app.dialog().file();
+    let picker = if pictures == Some(true) { picker.add_filter("Pictures", &PICTURES) } else { picker.add_filter("Drawings and pictures", &[&DRAWINGS[..], &PICTURES, &VECTORS].concat()) };
+    let Some(file) = picker.blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;

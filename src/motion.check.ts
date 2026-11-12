@@ -126,7 +126,7 @@ assert.equal(Number(lift?.[1]), parseFloat(/min-height: (\d+)px;/.exec(pill)![1]
 assert.match(read("./Editor.tsx"), /<Exit>\{magic && <McpMagic [^\n]*\n\s*<Exit>\{notice && <NoticeBar /);
 // A screen reader reads out who draws and the steps, as each changes. How far a call is changes many times in a call,
 // so it is outside what is read out.
-assert.match(magic, /<span className="mcp-said" role="status">\s*<span className="mcp-text text-ui">\{text\}<\/span>\s*<span className="mcp-steps text-ui">[^\n]*<\/span>\s*<\/span>\s*\{far && /);
+assert.match(magic, /<span className="mcp-said" role="status">\s*<span className="mcp-text text-ui">\{text\}<\/span>\s*(\{magic\.steps !== undefined && )?<span className="mcp-steps text-ui">[^\n]*<\/span>\}?\s*<\/span>\s*\{far && /);
 assert.equal(magic.match(/role="status"/g)?.length, 1);
 // A bond draws out from its first atom. Both ends of mcp-draw list the same transforms: an engine that does not fill
 // the shorter list goes between the two as matrices, and scaleX(0) has none to go from, so the bond would jump in.

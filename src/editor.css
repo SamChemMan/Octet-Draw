@@ -1246,13 +1246,102 @@ button.variant.add {
   flex: none;
   font-weight: 500;
 }
+/* Image to Structure's first-use card (McpMagic.tsx PictureDemo): a picture, tilted as a photo on the desk, is read by
+   a line that sweeps down it, and the same molecule builds beside it with the overlay's motion (.mcp-mol). The build
+   waits for the sweep (--read). One turn of mcp-life is one molecule, in the picture too (a new element each turn).
+   Transforms and opacity only. */
+.pic-demo {
+  --read: calc(6 * var(--motion));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  justify-self: stretch;
+  height: 156px;
+  margin: 0 calc(-1 * var(--space-4)) var(--space-1);
+  background: var(--surface-sunken);
+  border-block: 1px solid var(--hairline);
+}
+.pic-photo {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  transform: rotate(-4deg);
+  animation: fade-in var(--motion-slow) var(--ease-out);
+}
+.pic-sketch {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: scale(0.6);
+}
+.pic-line {
+  position: absolute;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-muted);
+  transform-origin: 0 50%;
+  transform: rotate(var(--turn));
+  opacity: 0.8;
+}
+/* The read: a band in Octet's blue that sweeps down the picture once a turn, then is gone. */
+.pic-scan {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--size-control);
+  border-bottom: 2px solid var(--brand);
+  background: linear-gradient(transparent, color-mix(in oklab, var(--brand) 22%, transparent));
+  transform: translateY(-100%);
+  animation: pic-scan 7s ease-in-out infinite;
+}
+@keyframes pic-scan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 1;
+    animation-timing-function: var(--ease-out);
+  }
+  15% {
+    transform: translateY(108px);
+    opacity: 1;
+  }
+  17%,
+  100% {
+    transform: translateY(108px);
+    opacity: 0;
+  }
+}
+.pic-arrow {
+  flex: none;
+  color: var(--ink-faint);
+}
+.pic-built {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+.pic-built .mcp-mol {
+  scale: 0.8;
+}
+.pic-built .mcp-bond,
+.pic-built .mcp-atom {
+  animation-delay: calc(var(--i) * var(--motion) + var(--read));
+}
 @media (prefers-reduced-motion: reduce) {
   .mcp-mol,
   .mcp-parts,
   .mcp-bond,
   .mcp-atom,
-  .mcp-sparkle {
+  .mcp-sparkle,
+  .pic-photo {
     animation: none;
+  }
+  .pic-scan {
+    display: none;
   }
   .mcp-pill {
     animation: fade-in var(--motion-fast) var(--ease-out);

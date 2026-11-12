@@ -2158,7 +2158,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // plasmid maps, membranes, a bond's own widths and the drawing's properties.
   commands.length = 0;
   // (The stand-in runs none of the menu commands, so each goes on to the Actions panel's: it is asked for twice.)
-  const added = ["predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf", "insert_file", "opacity.40", "arrow.style.membrane"];
+  const added = ["predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf", "insert_file", "image_to_structure", "recognise_structures", "opacity.40", "arrow.style.membrane"];
   for (const c of added) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
   assert.deepEqual([...new Set(commands)], added);
   for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"]]) {

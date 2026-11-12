@@ -43,9 +43,10 @@ for (const [file, text] of tsx) {
   for (const m of text.matchAll(/className="actions-close"[^>]*aria-label="([^"]+)"/g)) assert.ok(/^(Close|Full screen|Leave full screen|Minimise)/.test(m[1]), `${file}: close button "${m[1]}"`);
 }
 // One icon for one action (BRAND.md Iconography): across the Actions panel, the menu commands and the palette's own
-// rows, an icon stands for one command. Three pairs share an icon but never show together: Copy (a mixed selection) and
-// Copy as SMILES (structures), Reverse (arrows) and Point the other way (bonds), and a plate's Rf values and a spot's Rf.
-const shared = [["copy", "copy_smiles"], ["arrow.reverse", "bond.flip"], ["shape.rf", "spot.rf"]];
+// rows, an icon stands for one command. Four pairs share an icon but never show together: Copy (a mixed selection) and
+// Copy as SMILES (structures), Reverse (arrows) and Point the other way (bonds), a plate's Rf values and a spot's Rf,
+// and Image to Structure from a file and on a picked picture.
+const shared = [["copy", "copy_smiles"], ["arrow.reverse", "bond.flip"], ["shape.rf", "spot.rf"], ["image_to_structure", "recognise_structures"]];
 const actionsTsx = read("Actions.tsx"), editorTsx = read("Editor.tsx");
 const uses: [string, string][] = [];
 // A glyph with a letter (SearchGlyph) is a different icon for each letter.

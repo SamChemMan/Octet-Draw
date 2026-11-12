@@ -185,7 +185,8 @@ for (const r of rules) {
 // 6. Motion that motion.check.ts does not cover. An overlay comes in from 0.97 and at most 4 px away, and goes out to
 // 0.98. A glyph that pops (the Select tool, a carried option, a tick, an atom of the molecule that builds while an AI
 // app works) starts at 0.85. A ring that spreads (halo), that molecule's sparkle, which loops (mcp-twinkle), and a
-// settle from larger are not entrances.
+// settle from larger are not entrances. Image to Structure's read line (pic-scan) sweeps the whole picture: it shows what
+// the feature does, as the molecule does.
 {
   const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
   for (const m of bare.matchAll(/@keyframes ([\w-]+) \{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)) {
@@ -197,7 +198,7 @@ for (const r of rules) {
         else assert.ok(value === 0.97 || (value === 0.85 && ["pop", "lift", "coach-tick", "mcp-pop"].includes(name)), `@keyframes ${name}: starts at ${value}, not 0.97`);
       }
       for (const d of step[2].matchAll(/translate[XY]?\(([^)]*)\)/g)) {
-        for (const px of d[1].matchAll(/(?<![\w.%-])-?(\d+)px/g)) assert.ok(Number(px[1]) <= 4 || ["ripple", "home-settle"].includes(name), `@keyframes ${name}: slides ${px[0]}; 4 px is the most`);
+        for (const px of d[1].matchAll(/(?<![\w.%-])-?(\d+)px/g)) assert.ok(Number(px[1]) <= 4 || ["ripple", "home-settle", "pic-scan"].includes(name), `@keyframes ${name}: slides ${px[0]}; 4 px is the most`);
       }
     }
   }

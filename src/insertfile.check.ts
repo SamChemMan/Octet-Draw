@@ -12,7 +12,7 @@ const editor = read("Editor.tsx"), main = read("../src-tauri/src/main.rs"), open
 const body = (text: string, start: string, end: string) => { const i = text.indexOf(start); assert.ok(i >= 0, `found ${start}; update this check`); return text.slice(i, text.indexOf(end, i)); };
 
 // File > Insert…, after Import a Structure…. Home has no drawing, so it does not run there.
-assert.match(main, /&item\("import", "Import a Structure…", ""\)\?,\n\s*&item\("insert_file", "Insert…", ""\)\?,/);
+assert.match(main, /&item\("import", "Import a Structure…", ""\)\?,\n(\s*\/\/.*\n)?\s*&item\("image_to_structure", "Image to Structure…", ""\)\?,\n\s*&item\("insert_file", "Insert…", ""\)\?,/);
 assert.match(main, /\bopen::insert_file,/, "insert_file is a command");
 assert.equal(menuRuns("insert_file", { home: true, modal: false, typing: false }), false);
 assert.equal(menuRuns("insert_file", { home: false, modal: false, typing: false }), true);

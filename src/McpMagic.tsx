@@ -8,12 +8,12 @@
 // changes at once, as decision 0024 asks, and nothing an AI app's tools wait for or measure waits for it.
 // Reduced motion: one molecule, still, and only fades.
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Sparkle } from "@phosphor-icons/react";
+import { ArrowRight, Sparkle } from "@phosphor-icons/react";
 import { HOLD, parts, SKETCHES } from "./magic";
 import { useLeaving } from "./motion";
 import type { Store } from "./store";
 
-export type Magic = { text: string; calling: boolean; steps: number; stop?: () => void };
+export type Magic = { text: string; calling: boolean; steps?: number; stop?: () => void };
 
 // progress: how far the call that runs is ("Step 9 of 17"), when it says. It is a store, so only the pill draws
 // again. page: the page's paper (Editor's paperOf). The soft window and the molecule lie on the page, so they take
@@ -52,10 +52,35 @@ export function McpMagic({ magic, progress, page }: { magic: Magic; progress: St
             in a call: it is there to read, and is not read out each time. */}
         <span className="mcp-said" role="status">
           <span className="mcp-text text-ui">{text}</span>
-          <span className="mcp-steps text-ui">{magic.steps === 1 ? "1 step" : `${magic.steps} steps`}</span>
+          {magic.steps !== undefined && <span className="mcp-steps text-ui">{magic.steps === 1 ? "1 step" : `${magic.steps} steps`}</span>}
         </span>
         {far && <span className="mcp-steps text-ui">{far}</span>}
         {magic.calling && magic.stop && <button className="text-button" onClick={() => magic.stop?.()}>Stop</button>}
+      </div>
+    </div>
+  );
+}
+
+// Image to Structure's first-use card (decision 0026): a picture of a molecule is read, and the same molecule builds
+// beside it, as it does while an AI app works. Each turn of the molecule's loop takes the next sketch, in the picture
+// too. Reduced motion: the picture and the molecule, still.
+export function PictureDemo() {
+  const [turn, setTurn] = useState(0), { lines, dots } = parts(SKETCHES[turn % SKETCHES.length]);
+  const line = (l: (typeof lines)[number], k: number, className: string) => <div key={k} className={className} style={{ left: l.x, top: l.y, width: l.length, "--turn": `${l.turn}deg`, "--i": l.at } as CSSProperties} />;
+  return (
+    <div className="pic-demo" aria-hidden>
+      <div key={turn} className="pic-photo">
+        <div className="pic-sketch">{lines.map((l, k) => line(l, k, "pic-line"))}</div>
+        <div className="pic-scan" />
+      </div>
+      <ArrowRight className="pic-arrow" size={16} />
+      <div className="pic-built">
+        <div key={turn} className="mcp-mol" onAnimationIteration={() => setTurn(turn + 1)}>
+          <div className="mcp-parts">
+            {lines.map((l, k) => line(l, k, "mcp-bond"))}
+            {dots.map((d, k) => <div key={`a${k}`} className="mcp-atom" style={{ left: d.x, top: d.y, "--i": d.at } as CSSProperties} />)}
+          </div>
+        </div>
       </div>
     </div>
   );

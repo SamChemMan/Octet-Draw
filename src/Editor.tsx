@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Scan, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
@@ -139,12 +139,13 @@ import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
+import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, setRole, stepGrids } from "./gridview";
 import { logError } from "./crashlog";
 import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
-import { McpMagic, type Magic } from "./McpMagic";
+import { McpMagic, PictureDemo, type Magic } from "./McpMagic";
 import "./editor.css";
 
 
@@ -566,6 +567,8 @@ export default function Editor() {
   // How far a long call is ("Step 9 of 17") is a store: it can change many times in a call, and only the pill draws
   // again.
   const [magic, setMagic] = useState<Magic>(), [mcpFar] = useState(() => store<string | undefined>(undefined));
+  // Image to Structure at work (readPictures): the same molecule, with Stop and how far it is.
+  const [reading, setReading] = useState<Magic>(), [readFar] = useState(() => store<string | undefined>(undefined));
   // A call ended: the window takes clicks again at once, and the magic goes if no call comes in the next 8 s (LINGER).
   const mcpRest = () => {
     clearTimeout(mcpWorking.current);
@@ -2222,6 +2225,109 @@ export default function Editor() {
     }
     return m;
   }
+  // Image to Structure (decision 0026): each structure in a picture as atoms and bonds, beside its picture in the same
+  // arrangement, at the document's bond length. Both reading models run on this computer; the first time, Octet shows
+  // what it does and asks to download them (or install them from files). While Octet reads, the window shows the
+  // molecule that builds while an AI app works (McpMagic), with Stop. Structures the two models read differently are
+  // selected, for the user to check against the picture.
+  async function haveModels() {
+    if (!TAURI) return !!import.meta.env.VITE_RECOGNISE_MODELS;
+    return (await invoke<string[]>("recognise_models").catch(() => [])).length >= 3;
+  }
+  // File > Image to Structure…: a picture from a file, put in as Insert puts one in, then read.
+  async function imageToStructure(installed = false) {
+    if (!installed && !(await haveModels())) return setDialog({ kind: "image", then: "file" });
+    try {
+      const f = await invoke<OpenedFile | null>("insert_file", { pictures: true });
+      if (!f) return;
+      if (f.error || !f.picture) return setNotice(f.error ?? `Octet cannot insert ${f.name}.`);
+      const pic = await pictureDrawing(fromBase64(f.picture), style.bond, MAX_PICTURE - pictureBytes(now.current), `Octet cannot insert ${f.name}.`);
+      if (!pic?.shapes?.length) return;
+      const r = insertMol(now.current, pic, landing(pic, undefined, extent(pic)!));
+      set(r.mol, true);
+      revealNext.current = true;
+      const sh = r.mol.shapes!.find((x) => x.id === r.ids.get(pic.shapes![0].id))!;
+      setPicked(new Set([sh.id]));
+      await readPictures([sh]);
+    } catch (e) {
+      setNotice(failure("Octet cannot insert this picture.", e));
+    }
+  }
+  // Image to structure on a selected picture (the Actions panel and the right-click menu).
+  async function recognisePictures(installed = false) {
+    const pics = (now.current.shapes ?? []).filter((sh) => sh.kind === "picture" && sh.picture && picked.has(sh.id));
+    if (!pics.length) return;
+    if (!installed && !(await haveModels())) return setDialog({ kind: "image", then: "selected" });
+    await readPictures(pics);
+  }
+  async function readPictures(pics: Shape[]) {
+    const stopped = { yes: false };
+    setReading({ text: "Reading the picture", calling: true, stop: () => { stopped.yes = true; stopReader(); } });
+    readFar.set(undefined);
+    try {
+      await startReader(readModel);
+      const found: { mol: Mol; unsure: number[]; count: number }[] = [];
+      for (const sh of pics) {
+        const url = pictureUrl(sh.picture!);
+        if (!url) continue;
+        const px = await decodePicture(url);
+        const read = await readStructures(px, (done, of) => readFar.set(of ? `${Math.min(done + 1, of)} of ${of}` : undefined));
+        const frame = { left: Math.min(sh.from[0], sh.to[0]), right: Math.max(sh.from[0], sh.to[0]), top: Math.max(sh.from[1], sh.to[1]), bottom: Math.min(sh.from[1], sh.to[1]), width: px.width, height: px.height };
+        const placed = placeReadings(read.structures, frame, read.arrows);
+        found.push({ mol: placed.mol, unsure: placed.unsure.flat(), count: placed.count });
+      }
+      // Into the drawing as it is now: the user can draw while Octet reads.
+      let m = now.current, added: number[] = [], unsure: number[] = [], count = 0, arrows = 0;
+      for (const f of found) {
+        const base = m.atoms.length;
+        m = insertMol(m, f.mol).mol;
+        count += f.count;
+        arrows += f.mol.arrows?.length ?? 0;
+        added = [...added, ...f.mol.atoms.map((_, i) => base + i)];
+        unsure = [...unsure, ...f.unsure.map((i) => base + i)];
+      }
+      if (!added.length && !arrows) return setNotice("Octet found no structure in the picture.", "info");
+      set(m, true);
+      revealNext.current = true;
+      setSelection(new Set(unsure.length ? unsure : added));
+      setPicked(new Set());
+      const groups = (count === 1 ? "1 structure" : `${count} structures`) + (arrows ? (arrows === 1 ? " and 1 arrow" : ` and ${arrows} arrows`) : "");
+      setNotice(unsure.length ? `Octet read ${groups}. Check the selected atoms against the picture: the two reading models differ there.` : `Octet read ${groups}. Both reading models agree.`, unsure.length ? "info" : "done");
+    } catch (err) {
+      if (!stopped.yes) setNotice(failure("Octet cannot read the picture.", err));
+    } finally {
+      setReading(undefined);
+      readFar.set(undefined);
+    }
+  }
+  // The reading models' files, from Octet's data folder (src-tauri/src/recognise.rs). In a browser (development),
+  // from the folder VITE_RECOGNISE_MODELS names, which the development server serves.
+  const readModel: ModelSource = async (name) => {
+    if (TAURI) return new Uint8Array(await invoke<ArrayBuffer>("recognise_model", { name }));
+    const base = import.meta.env.VITE_RECOGNISE_MODELS as string | undefined;
+    if (!base) throw new Error("The picture recognition models are not installed.");
+    const r = await fetch(`/@fs/${base.split("\\").join("/").replace(/^\//, "")}/${name}.octmodel`);
+    if (!r.ok) throw new Error("The picture recognition models are not installed.");
+    return new Uint8Array(await r.arrayBuffer());
+  };
+  // Image to Structure's first use: download the models (about 276 MB, once) or install them from files, then go on
+  // with what the user asked for.
+  async function getModels(how: "download" | "install", then: "file" | "selected") {
+    setDialog({ kind: "image", then, busy: how === "download" ? "Downloading… 0%" : "Installing…" });
+    const off = how === "download" ? await listen<[number, number]>("recognise-progress", (e) => setDialog({ kind: "image", then, busy: `Downloading… ${Math.floor((100 * e.payload[0]) / Math.max(1, e.payload[1]))}%` })) : undefined;
+    try {
+      if (how === "download") await invoke("recognise_download");
+      else if (!(await invoke<string[]>("recognise_install")).length) return setDialog({ kind: "image", then });
+      if (!(await haveModels())) return setDialog({ kind: "image", then });
+      setDialog(undefined);
+      void (then === "file" ? imageToStructure(true) : recognisePictures(true));
+    } catch (err) {
+      setDialog(undefined);
+      setNotice(failure(how === "download" ? "Octet cannot download the models." : "Octet cannot install the models.", err));
+    } finally {
+      off?.();
+    }
+  }
   // Name to structure (⇧⌘N), from what is in hand, as ChemDraw does: the caption or lone atom label being typed or
   // picked becomes its structure, in its place. Text that is not a name opens the name field with that text. With
   // nothing in hand the name field opens empty, or with the clipboard's text when that is a name or SMILES. In the
@@ -2783,6 +2889,9 @@ export default function Editor() {
     stereo_or: () => enhance("or"),
     stereo_and: () => enhance("&"),
     name_to_structure: () => nameToStructure(),
+    // Image to Structure (decision 0026): from a file (File menu), or the selected picture (Actions, right-click).
+    image_to_structure: () => void imageToStructure(),
+    recognise_structures: () => void recognisePictures(),
     // Structure > Insert Peptide… (issue 27): the name field, ready for one-letter codes after "peptide: " (peptide.ts).
     insert_peptide: () => insertSequence("peptide: "),
     // Structure > Insert RNA… and Insert DNA…: the same, for one-letter codes after "rna: " or "dna: " (nucleic.ts).
@@ -3380,7 +3489,7 @@ export default function Editor() {
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
-    | { kind: "dictionary"; name: string; smiles: string; inchi?: string }>();
+    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "image"; then: "file" | "selected"; busy?: string }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
@@ -7557,7 +7666,7 @@ export default function Editor() {
   // names what it shows next for the structures it acts on, worked out only while the palette is open.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
-    insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />],
+    insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />], image_to_structure: ["Image to structure…", "", <Scan size={18} />],
     // File > Edit Picture from Word is on the Mac only (src-tauri/src/word.rs), so the palette has it there only.
     ...(TAURI && MAC ? { edit_word: ["Edit picture from Word", "", <FileDoc size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
@@ -7585,7 +7694,7 @@ export default function Editor() {
     clean_up: ["Clean up structure", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}+`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}−`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />], centre_view: ["Centre in window", `⌥${MOD}/`, <Crosshair size={18} />], show_page: ["Show page", "", <PageIcon size={18} />],
-    name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />], insert_peptide: ["Insert peptide…", "", <Dna size={18} />], insert_rna: ["Insert RNA…", "", <span className="glyph-text">RNA</span>], insert_dna: ["Insert DNA…", "", <span className="glyph-text">DNA</span>], char_map: [charMap ? "Hide character map" : "Character map", `⇧${MOD}Space`, <span className="glyph-text">αβ</span>],
+    name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />], recognise_structures: ["Image to structure", "", <Scan size={18} />], insert_peptide: ["Insert peptide…", "", <Dna size={18} />], insert_rna: ["Insert RNA…", "", <span className="glyph-text">RNA</span>], insert_dna: ["Insert DNA…", "", <span className="glyph-text">DNA</span>], char_map: [charMap ? "Hide character map" : "Character map", `⇧${MOD}Space`, <span className="glyph-text">αβ</span>],
     check_structure: ["Check structure", "", <CheckCircle size={18} />], stereo_clear: ["Clear enhanced stereochemistry", "", <Prohibit size={18} />],
     stereo_abs: ["Mark as absolute", "", <span className="glyph-text">abs</span>], stereo_or: ["Create or group", "", <span className="glyph-text">or</span>], stereo_and: ["Create and group", "", <span className="glyph-text">&amp;</span>],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <MagnetStraight size={18} />],
@@ -10582,6 +10691,16 @@ export default function Editor() {
           </Dialog>
         );
       })()}</Exit>
+      <Exit>{dialog?.kind === "image" && (() => {
+        const then = dialog.then;
+        return (
+          <Dialog title="Image to Structure" action={dialog.busy ? undefined : "Download"} disabled={!!dialog.busy} onClose={() => { if (dialog.busy) void invoke("recognise_cancel").catch(() => {}); setDialog(undefined); }} onAction={() => void getModels("download", then)}
+            alt={dialog.busy ? undefined : { label: "Install From Files…", onClick: () => void getModels("install", then) }}>
+            <PictureDemo />
+            <p className="dialog-note">{dialog.busy ?? "Reads structures in a picture on this computer. One download of 276 MB. No picture leaves your computer."}</p>
+          </Dialog>
+        );
+      })()}</Exit>
       <Exit>{templateEdit && (
         // A template open on the canvas (Edit): its name, Cancel and Save. Save is also File > Save (⌘S).
         <div className={naming !== undefined ? "template-bar low" : "template-bar"} role="region" aria-label="Template">
@@ -10974,6 +11093,7 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
+      <Exit>{reading && !magic && <McpMagic magic={reading} progress={readFar} page={{ paper, dark: darkPaper, own }} />}</Exit>
       <Exit>{magic && <McpMagic magic={magic} progress={mcpFar} page={{ paper, dark: darkPaper, own }} />}</Exit>
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />

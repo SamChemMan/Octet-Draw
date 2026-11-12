@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
+  AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
@@ -292,7 +292,7 @@ const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: 
 const SET_KINDS: Partial<Record<SetId, string[]>> = { more: ["marks", "other", "library"], turn: ["turn", "arrange"], delete: ["view", "delete"] };
 const byKind = <T extends { command: string }>(s: SetId, list: readonly T[]): T[][] => SET_KINDS[s]?.map((k) => list.filter((i) => kindOf(i.command) === k)) ?? [[...list]];
 const KIND_OF: Record<string, string> = {
-  select_all: "view", zoom_fit: "view", centre_view: "view", import: "file", expand_generic_sdf: "file", select_structure: "view",
+  select_all: "view", zoom_fit: "view", centre_view: "view", import: "file", recognise_structures: "analysis", expand_generic_sdf: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.remove": "cycle",
   "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
@@ -511,6 +511,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       }
       if (isBracket({ kind: context.shape })) items.push(it(<BracketsRound size={18} />, "Bracket properties…", "bracket_properties"), it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
       if (context.rgroup) items.push(it(<TreeStructure size={18} />, "R-Logic…", "rlogic"));
+      // A picture: its structures as atoms and bonds (decision 0026). A small button, only while a picture is picked.
+      if (context.shape === "picture") items.push(small(it(<Scan size={18} />, "Image to structure", "recognise_structures")));
       items.push(...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "part":

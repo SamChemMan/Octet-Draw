@@ -75,7 +75,8 @@ Why Instrument Sans: it is a clean, precise grotesque with the polish of San Fra
   never touches the drawing. Reduced motion turns it off.
   A second exception, from Sam (11 November 2026): the molecule that builds in the window while an AI
   app works. Each atom pops in with a small overshoot. It gives the wait some character; it
-  never touches the drawing. Reduced motion turns it off.
+  never touches the drawing. Reduced motion turns it off. The same molecule shows while Octet reads a
+  picture with Image to Structure, and on its first-use card (Sam, 12 November 2026).
 
 ## Controls
 
