@@ -375,10 +375,10 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // notes: what the call's arguments were read as (coerce), for the reply.
 // brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session. unset: the session
 // has no drawing yet; lost: the drawing it used, now closed.
-// lean: the call was a draw by lines (their text), whose reply names each compound in its list (madeCompounds); where: the line each
-// name or SMILES of the lines is on (fromLines).
+// lean: the call was a draw by lines (their text); listed: it draws compounds (by lines or JSON), so its reply names each
+// in its list (madeCompounds); where: the line each name or SMILES of the lines is on (fromLines).
 // full: the call asked for detail: full. along: the brief is set by a draw that gives it.
-type Ctx = { lean?: string; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; lost?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+type Ctx = { lean?: string; listed?: boolean; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; lost?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -1217,9 +1217,10 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
 // result's sentence says of its compounds (R6): a SMILES or a file is drawn as given, so it has no name to check, and
 // naming it takes time.
 const plainName = (t: string) => t.toLowerCase().replace(/[\s\-,()[\]']/g, "");
-// (A draw by lines names each compound in its reply's compounds instead: ctx.lean.)
+// (A call that draws compounds names each in its reply's compounds instead: ctx.listed. A full reply of one in JSON
+// keeps them here, as a batch's full reply has no names of its own.)
 function readAs(host: Host, list: Read[], ctx?: Ctx): string {
-  const odd = ctx?.lean ? [] : list.flatMap((s) => {
+  const listed = ctx?.listed && (ctx.lean || !ctx.full), odd = listed ? [] : list.flatMap((s) => {
     if (!s.named) return [];
     const { name: own, formula } = about(host, s.mol);
     return own && plainName(own) !== plainName(s.text) ? [`${short(s.text, 80)} (${formula}; Octet's name: ${short(own, 120)})`] : [];
@@ -1227,7 +1228,7 @@ function readAs(host: Host, list: Read[], ctx?: Ctx): string {
   // What a compound's changes did, and what Octet read in a way the AI app may not mean (a numbered atom with no
   // hydrogens), each with how the compound was given and its number.
   // (A draw by lines leaves out a stereocentre that keeps its configuration, which needs nothing of the AI app.)
-  const notes = list.flatMap((s) => { const note = ctx?.lean ? s.note?.split(/(?<=\.) /).filter((x) => !/^Atom \S+ keeps its configuration \(\w+\)\.$/.test(x)).join(" ") : s.note; return note ? [`${short(s.text, 40)}${s.number ? ` (${s.number})` : ""} [${note}]`] : []; });
+  const notes = list.flatMap((s) => { const note = listed ? s.note?.split(/(?<=\.) /).filter((x) => !/^Atom \S+ keeps its configuration \(\w+\)\.$/.test(x)).join(" ") : s.note; return note ? [`${short(s.text, 40)}${s.number ? ` (${s.number})` : ""} [${note}]`] : []; });
   return `${odd.length ? ` Octet read the names as: ${odd.slice(0, 12).join(", ")}${odd.length > 12 ? `, and ${odd.length - 12} more (detail: full gives each)` : ""}.` : ""}${notes.length ? ` Octet notes: ${notes.join(", ")}.` : ""}${unreadNote(list.flatMap((s) => s.unread ?? []))}`;
 }
 // A sentence that names each label Octet reads no group in, once; none when there is none.
@@ -2991,6 +2992,8 @@ function clashes(gs: { id: string; atoms: number[] }[], box: (i: number) => Box 
   }
   return out;
 }
+// The calls that draw compounds: the reply lists each (madeCompounds), as a draw by lines does.
+const DRAWS = new Set(["structures", "reaction", "route", "cycle", "figure"]);
 // The calls that lay structures out themselves: what Octet's layout leaves for check to name there, Octet clears.
 const LAYS_OUT = new Set(["structures", "reaction", "route", "cycle", "figure", "replace", "edit", "batch"]);
 // Atom labels on each other in a structure this call made, by a new id (replace and edit's structure give one; one the
@@ -3413,6 +3416,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       if (reports) delete args.detail;
       ctx.watched = token !== undefined;
       ctx.lean = routed.lines;
+      ctx.listed = !!routed.lines || DRAWS.has(tool.name) || (tool.name === "batch" && args.steps?.some((x: { tool?: string }) => DRAWS.has(x?.tool ?? "")));
       ctx.full = wantFull;
       ctx.where = routed.where;
       if (changes) { h.begin(`mcp-${++steps}`); h.working(busy, stop); }
@@ -3460,18 +3464,21 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
           // What the call made comes into view when it ends: new work starts at the top of the page or under what
           // is drawn, which the window may not show.
           if (made.length) shown = boxOfIds(h, after, made);
-          // A draw by lines answers so the AI app can tell the user at once (plan 19.2): each structure in compounds, the
-          // other ids it may name later, and no boxes or plus signs.
-          const lean = routed.lines && !full, plus = new Set(lean ? (after.captions ?? []).filter((c) => c.text === "+").map((c) => `t${c.id}`) : []);
+          // A draw answers so the AI app can tell the user at once (plan 19.2): each structure in compounds, the other ids
+          // it may name later, and no boxes or plus signs. By lines or JSON alike (plan 19.11: Opus read a cycle drawn
+          // as JSON again for its stereo).
+          const lean = ctx.listed && !full, plus = new Set(lean ? (after.captions ?? []).filter((c) => c.text === "+").map((c) => `t${c.id}`) : []);
           const owned = ownedText(after), top = (full ? touched : made).filter((k) => !owned.has(k) && !(lean && (k[0] === "s" || plus.has(k)))), listed = top.slice(0, 200);
           const boxes = lean ? {} : Object.fromEntries(listed.flatMap((k) => { const b = boxOfIds(h, after, [k]); return b ? [[k, rounded(b)]] : []; }));
           const drawing = h.window(), check = cleared ?? layoutCheck(h, after), more = { ...(top.length > listed.length ? { made: top.length - listed.length } : {}), ...(fresh.length > MOST_WARNINGS ? { warnings: fresh.length - MOST_WARNINGS } : {}) };
           if (full) structured = { drawing: { id: drawing.id, title: drawing.name }, done: text, made, changed, deleted: [...was.keys()].filter((k) => !now.has(k)), ...(touched.length ? { boxes } : {}), ...out.data, ...out.extra?.(), warnings: fresh, check };
           else {
-            const data = { ...(lean ? { compounds: madeCompounds(h, after, made) } : {}), made: listed, ...(listed.length && !lean ? { boxes } : {}), ...out.data, warnings: fresh.slice(0, MOST_WARNINGS), check, ...(Object.keys(more).length ? { more } : {}) };
+            let data: Record<string, unknown> = { ...(lean ? { compounds: madeCompounds(h, after, made) } : {}), made: listed, ...(listed.length && !lean ? { boxes } : {}), ...out.data, warnings: fresh.slice(0, MOST_WARNINGS), check, ...(Object.keys(more).length ? { more } : {}) };
             // No default reply is over MOST_READ characters (P2): a sentence longer than the room the data leaves (a
             // batch of 40 steps, each with the names Octet read another way) is cut, and says how to read all of it.
             json = JSON.stringify(data);
+            // (Compounds as many as a batch of 40 draws makes are cut as a read's lists are.)
+            if (json.length > MOST_READ) json = JSON.stringify((data = fit(data)));
             const room = MOST_READ - json.length - coerced.join("\n").length - 1;
             if (text.length > room) text = `${short(text, room - CUT.length - 1)}${CUT}`;
             structured = { done: text, ...data };

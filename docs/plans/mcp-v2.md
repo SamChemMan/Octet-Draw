@@ -2165,3 +2165,23 @@ What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns
   lines; and at the very end a lone closing quote, a fence or a bracket on a line of its own. The reply says nothing.
   A line in quotes with its partner (`"x" as written`), a SMILES in brackets (`[Na+].[Cl-]`) and a `//` comment are as
   given. The 36 replayed answers still score 35.
+- **Every draw lists its compounds.** real-r5-opus-2 paper-cycle drew the cycle as JSON (change's draw, kind cycle)
+  and got made and boxes with no compounds, where the same cycle by lines lists `2 s2 C16H23NO4 (Z,S)`; Opus read the
+  drawing twice for its stereo and tried RDKit. Now a call whose tool draws compounds (`DRAWS`: structures, reaction,
+  route, cycle, figure; a batch with one of them; draw by lines as before) answers in the lines form from the one
+  function (`madeCompounds`): `compounds`, made without the structures or plus signs, and no boxes unless detail is
+  full (`ctx.listed`). Octet's name for a name it read another way is in its compounds line, not the sentence (a full
+  reply keeps the sentence's names, as a batch's full reply has no names of its own), and a centre that keeps its
+  configuration is not noted. A reply over 20,000 characters (a batch of 40 draws of 12 named compounds) has its
+  longest list cut, as a read's is (`fit`). replace is as round 5 left it: its sentence gives the new formula and stereo.
+  Read characters: 80 benchmark cases fall (the boxes go: size-200-structures 8,017 to 3,974, taxol-route 5,570 to
+  4,544, taxol-v1-job 176,867 to 175,895, the corpus jobs by 40 to 400 each) and 2 rise (grocott2025-fig3b 452 to 469,
+  trowbridge2018-fig4c-drugs 446 to 502: Octet's names for named compounds); all changed cases 521,779 to 494,241.
+  What a model saves is the read after the draw (paper-cycle: two reads, 826 and 767 characters, and an RDKit try). Octet's
+  time: `madeCompounds` costs about 13 ms on a taxol-size draw (stereo 3, formula 4.5, the rest finding repeats); the
+  boxes it no longer works out are saved. Turn about with the commit before, best of three: taxol-route 1,870 to
+  1,938, taxol-v1-job 3,717 to 3,802 (other runs went the other way: 1,983 to 1,954, 3,865 to 3,847), within the
+  machine's noise. Changed checks (each tests the reply this point changes): mcp.check's short replies (R6) and F2
+  read compounds, and boxes with detail: full; checks that placed against a JSON draw's boxes, or took its structure
+  ids from made, ask for detail: full or read the ids from compounds (also in headless.check, and the bench cases
+  size-change-40 and taxol-v1-job); compound.check's three "keeps its configuration" rows ask for detail: full.

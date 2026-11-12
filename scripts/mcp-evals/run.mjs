@@ -40,7 +40,7 @@ async function keysOf(o, texts) {
   const draw = async (batch) => {
     const r = await o.call("draw", { kind: "structures", structures: batch.map((text) => ({ text })) });
     if (r.isError) { if (batch.length > 1) for (const t of batch) await draw([t]); return; }
-    const d = await o.read(), made = r.structuredContent?.made ?? [];
+    const d = await o.read(), made = (r.structuredContent?.compounds ?? []).map((c) => /^(?:\S+ )?(s\d+) /.exec(c)?.[1]);
     batch.forEach((text, j) => { const s = d.structures.find((x) => x.id === made[j]); if (s?.inchiKey) keys[text] = s.inchiKey; });
     await o.call("change", { operations: [{ op: "delete", ids: d.structures.map((s) => s.id) }] });
   };

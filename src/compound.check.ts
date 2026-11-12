@@ -124,7 +124,9 @@ const TABLE: Row[] = [
 assert.ok(TABLE.length >= 25);
 for (const row of TABLE) {
   d = drawing();
-  const r = await call("draw", { kind: "structures", structures: [{ text: row.from, ...(row.labels ? { labels: row.labels } : {}), number: "1" }, { from: "1", changes: row.changes, number: "2" }] });
+  // (A short reply leaves out that a centre keeps its configuration, which its compounds line says: plan 19.11. A full
+  // one says it.)
+  const r = await call("draw", { kind: "structures", structures: [{ text: row.from, ...(row.labels ? { labels: row.labels } : {}), number: "1" }, { from: "1", changes: row.changes, number: "2" }], ...(row.says && /keeps its configuration/.test(row.says.source) ? { detail: "full" } : {}) });
   assert.ok(!r.isError, `${row.what}: ${said(r)}`);
   const got = (await reading()).structures.find((s: { number: string }) => s.number === "2");
   assert.equal(got.inchiKey, row.open ? `${keyOf(row.want).slice(0, 14)}-UHFFFAOYSA-N` : keyOf(row.want), `${row.what}: drew ${got.smiles}, not ${row.want}`);
