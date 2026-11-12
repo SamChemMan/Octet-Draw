@@ -116,7 +116,11 @@ The policy is also at [octet.software/code-signing](https://octet.software/code-
 ## Licence
 
 Octet is free and open-source software under the
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE). Every copy or changed version of Octet must keep the credit in
+[NOTICE](NOTICE).
+
+If you use Octet Draw in work that you publish, please cite it. On GitHub, click Cite this repository, or see
+[CITATION.cff](CITATION.cff).
 
 Copyright © 2026 Sam Ellis. Made in Manchester and Cambridge.
 
