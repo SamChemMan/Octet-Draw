@@ -237,6 +237,28 @@ function fromPoints(ids: number[], p: V3[], least = 1e-3): number[] | undefined 
   return Math.abs(vol) < least ? undefined : vol < 0 ? ids : [ids[0], ids[2], ids[1], ids[3]];
 }
 
+// The wedges and hashes of each centre that is drawn in 3D (arrangement reads such a centre from its atoms' places),
+// set to draw in the page the hand its atoms have, as Indigo reads a flat drawing (pyramid): where they draw the other
+// hand, its wedges become hashes and its hashes wedges. So the picture reads as the structure is, to Indigo (chem.ts
+// pictured) and when the structure loses its depth (Flatten). A flat drawing turned in 3D keeps its wedges.
+export function depthWedges(m: Mol): Mol {
+  const wedge = (b: Mol["bonds"][number]) => b.stereo === 1 || b.stereo === 6;
+  if (!m.atoms.some((a) => a.location[2]) || !m.bonds.some(wedge)) return m;
+  const level: Mol = { ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1], 0] as [number, number, number] })) };
+  const near: number[][] = m.atoms.map(() => []), turned = new Set<number>(), z = (j: number) => m.atoms[j].location[2] ?? 0;
+  for (const b of m.bonds) if (b.type !== HBOND) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
+  for (const i of new Set(m.bonds.filter(wedge).map((b) => b.atoms[0]))) {
+    const n = near[i], el = symbol(m.atoms[i].label);
+    if (n.length < 3 || n.length > 4 || !n.some((j) => Math.abs(z(j) - z(i)) >= 0.2)) continue;
+    const lone = !!CENTRES.find(([e, q, bonds]) => e === el && q === (m.atoms[i].charge ?? 0) && bonds === n.length)?.[4];
+    if (lone && el === "N") continue; // an amine: not read from its atoms' places
+    const real = fromPoints([...n, -1].slice(0, 4), n.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
+    const drawn = pyramid(level, i, n, (j) => { const b = m.bonds.find((x) => x.atoms[0] === i && x.atoms[1] === j); return b?.stereo === 1 ? 1 : b?.stereo === 6 ? -1 : 0; }, lone);
+    if (real && drawn && parity(real, drawn)) turned.add(i);
+  }
+  return turned.size ? { ...m, bonds: m.bonds.map((b) => (wedge(b) && turned.has(b.atoms[0]) ? { ...b, stereo: b.stereo === 1 ? 6 : 1 } : b)) } : m;
+}
+
 // The stereo bonds at atom i, towards each of the atoms given (h for a hydrogen or lone pair): what a kept
 // configuration was read with.
 export function stereoMarks(m: Mol, i: number, atoms: number[]): string {

@@ -7,6 +7,7 @@ import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
+import { depthWedges } from "./cip.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -2749,9 +2750,10 @@ export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number
     }),
   };
 }
-// Object > Flatten: atoms keep where they are drawn and lose their depth. As in ChemDraw, depth shading stays set (it
-// shows again if the structure is turned again); an opacity set by hand goes.
-export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
+// Object > Flatten: atoms keep where they are drawn and lose their depth, and a centre drawn in 3D gets the wedges
+// that draw it (depthWedges). As in ChemDraw, depth shading stays set (it shows again if the structure is turned
+// again); an opacity set by hand goes.
+export const flattenAtoms = (drawn: Mol, ids: Set<number>, m = depthWedges(drawn)): Mol =>
   ({ ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const location: [number, number, number] = [a.location[0], a.location[1], 0];
