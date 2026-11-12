@@ -87,6 +87,10 @@ export type Host = {
   window: () => { id: string; name: string }; // the drawing (its window) this call acts on
   windows: () => Promise<{ id: string; name: string; edited: boolean }[]>; // Octet's drawings, Home's first
   target: (session: string | undefined, drawing: string) => Promise<boolean>; // the session's calls go to that drawing
+  // Closes a drawing the session opened with drawings new, after this call's reply: closed; unsaved: it has changes
+  // that are not saved, so it stays open (with no window it closes all the same); theirs: the session did not open it;
+  // none: there is no such drawing.
+  close: (session: string | undefined, drawing: string) => Promise<"closed" | "unsaved" | "theirs" | "none">;
 };
 
 // ---- Arguments: a small JSON Schema the tools list, and the check every call goes through ----
@@ -357,11 +361,11 @@ type Result = { text: string; picture?: boolean; error?: true; data?: Record<str
 // watched: the AI app asked for progress, so a long call shows each part as it goes.
 // notes: what the call's arguments were read as (coerce), for the reply.
 // brief: the session's brief (set_brief), as Octet kept it; keep: keeps a new one for the session. unset: the session
-// has no drawing yet.
+// has no drawing yet; lost: the drawing it used, now closed.
 // lean: the call was a draw by lines (their text), whose reply names each compound in its list (madeCompounds); where: the line each
 // name or SMILES of the lines is on (fromLines).
 // full: the call asked for detail: full. along: the brief is set by a draw that gives it.
-type Ctx = { lean?: string; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
+type Ctx = { lean?: string; full?: boolean; along?: true; where?: Map<string, number>; session?: string; unset?: boolean; lost?: string; client: string; progress: (done: number, total?: number, message?: string) => void; check: () => Promise<void>; watched?: boolean; notes: Notes; brief?: string; keep?: From["keep"] };
 class Cancelled extends Error {}
 const READ: Hints = { readOnly: true, destructive: false, idempotent: true }, ADD: Hints = { readOnly: false, destructive: false, idempotent: false };
 // move is not destructive: it loses nothing and Undo puts it back (plan, section 8, decision 2).
@@ -375,9 +379,11 @@ const CHANGE = { type: "object", required: ["done", "made", "warnings", "check"]
 // detail on a read, and on every operation whose result is a change: short unless full is asked for (R6).
 const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also: { short: "summary", brief: "summary" }, ...(unlisted && { unlisted }) });
 const PICTURE_SIZE = Object.keys(SIZES), PURPOSES = ["paper", "thesis", "slides", "poster", "experiment", "quick"];
+// drawings use and close: an id that names no open drawing.
+const noDrawing = (id: string) => `There is no drawing ${id}. Call drawings for the ids.`;
 // drawings new and use: the drawing the session's calls go to now. Nothing is drawn, so no change is reported: they are
 // answered outside the page's queue (plan 17.5), while another call may be changing the page's drawing.
-const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
+const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, CLOSED = { type: "object", required: ["closed"], properties: { closed: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
 const DRAWINGS = { type: "object", required: ["drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
 const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
@@ -536,7 +542,23 @@ const OPS: Op[] = [
   {
     name: "use", hints: READ, outputSchema: USES,
     inputSchema: obj({ drawing: str(40) }, ["drawing"]),
-    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.`, data: { using: a.drawing } } : { text: `There is no drawing ${a.drawing}. Call drawings for the ids.`, error: true }),
+    run: async (host, a, ctx) => ((await host.target(ctx.session, a.drawing)) ? { text: `This session's calls now go to ${a.drawing}.`, data: { using: a.drawing } } : { text: noDrawing(a.drawing), error: true }),
+  },
+  {
+    // The drawing the session uses when none is given. A session that uses none (it closed its own, or the user closed
+    // it) names the drawing: the window its call runs in can be another drawing it opened. A session's next call that
+    // needs a drawing after it closed its own is answered as any session with no drawing is (mcp.rs route).
+    name: "close", hints: ADD, outputSchema: CLOSED, done: "closed a drawing",
+    inputSchema: obj({ drawing: str(40) }),
+    run: async (host, a, ctx) => {
+      const none = a.drawing === undefined && (ctx.lost ? `The drawing this session used (${ctx.lost}) is closed` : ctx.unset && "This session uses no drawing");
+      if (none) return { text: `Octet changed nothing. ${none}. Call drawings for the ids, then close with drawing.`, error: true };
+      const id = a.drawing ?? host.window().id, got = await host.close(ctx.session, id);
+      if (got === "closed") return { text: `Octet closed ${id}.`, data: { closed: id } };
+      if (got === "none") return { text: noDrawing(id), error: true };
+      // With no window there is no user to close it.
+      return { text: `Octet changed nothing. ${got === "unsaved" ? `${id} has changes that are not saved` : `This session did not open ${id} with drawings new`}${host.windowless() ? "." : ": the user closes it in Octet's window."}`, error: true };
+    },
   },
   {
     name: "move", title: "Move", hints: ADD, outputSchema: CHANGE, done: "moved part of the drawing",
@@ -684,7 +706,7 @@ select: ids, for advanced run_command.
 draw: lines of one drawing, or kind (structures, cycle, figure, reaction) and its JSON (advanced help of the kind).` }, brief: str(2000, "As draw's"), ...REPLY }, ["operations"]);
 const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
-const DRAWINGS_IN = obj({ action: pick(["list", "use", "new"], undefined, { default: "list" }), drawing: str(40, "use: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
+const DRAWINGS_IN = obj({ action: pick(["list", "use", "new", "close"], undefined, { default: "list" }), drawing: str(40, "use, close: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
 // The brief as draw takes it (plan 3.1, 19.2): the user's answers in one line, read into set_brief's arguments; or
 // set_brief's own object. Words that are no destination, column, size or emphasis are the journal, which set_brief
 // refuses with the nearest when Octet has nothing for it.
@@ -767,8 +789,8 @@ const TOOLS: Tool[] = [
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
   {
-    name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new"],
-    description: "Octet's open drawings. list: each one's id, title and unsaved changes, and the one this session uses. use: this session's calls go to drawing. new: a new drawing for a purpose (experiment: a page with a reagent table), in a new window when this one has work in it; later calls go to it.",
+    name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new", "close"],
+    description: "Octet's open drawings. list: each one's id, title and unsaved changes, and the one this session uses. use: this session's calls go to drawing. new: a new drawing for a purpose (experiment: a page with a reagent table), in a new window when this one has work in it; later calls go to it. close: a drawing this session opened with new (drawing, else the one it uses); in a window, one with unsaved changes stays open.",
     inputSchema: DRAWINGS_IN,
     route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args }))(a),
   },
@@ -3194,7 +3216,7 @@ function index(m: Mol): Map<string, string> {
   return out;
 }
 const highest = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id));
-const ANYWHERE = new Set(["list", "use", "new"]);
+const ANYWHERE = new Set(["list", "use", "new", "close"]);
 const CUT = " (cut: detail: full gives all of it)";
 
 // free: answered outside the queue, so it neither waits for the drawing to settle nor touches it. take: a tools/call
@@ -3296,7 +3318,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       // The session keeps a new brief only when the call that gives it does what it asks.
       let kept: string | undefined;
       const ctx: Ctx = {
-        session: from.session, unset: from.unset, client: from.client ?? "An AI app", notes, brief: from.brief ?? undefined, keep: (b) => { kept = b; },
+        session: from.session, unset: from.unset, lost: from.lost ?? undefined, client: from.client ?? "An AI app", notes, brief: from.brief ?? undefined, keep: (b) => { kept = b; },
         // A call that changes the drawing also tells the window how far it is, for the user (McpMagic's pill): the
         // tool's own words, which say what it counts ("Step 2 of 3", "Drew 3 of 5 rows"). What follows a colon is for
         // the AI app (a tool's name).

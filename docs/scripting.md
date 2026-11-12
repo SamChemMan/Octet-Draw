@@ -152,7 +152,7 @@ export function octet(program = process.env.OCTET) {
 | `draw` | Draws new work in one call: structures, a reaction, a scheme, a route, a grid or a catalytic cycle, written as lines |
 | `change` | Changes the drawing with a list of operations: `draw`, `edit`, `replace`, `number`, `delete`, `move`, `arrange`, `text`, `arrow`, `shape`, `select`, `set_style`, `place_template`, `add_file` and `fill_experiment` |
 | `read` | Reads the drawing: its structures, numbers, reactions, warnings and layout check. With `format`, it gives the drawing as a file |
-| `drawings` | Lists the open drawings, uses one, or opens a new one. With `text`, the new drawing opens a file's text |
+| `drawings` | Lists the open drawings (`list`), uses one (`use`), opens a new one (`new`) or closes one that the script opened (`close`). With `text`, the new drawing opens a file's text |
 | `advanced` | Gives Octet's other tools: `run_command`, `set_style`, `place_template`, `add_file`, `fill_experiment`, `draw_route` and `help`. `export` opens Octet's Export dialog, so Octet refuses it with no window: use `read` with `format` |
 | `set_brief` | Sets the style and page: a journal and its column, a page size, or the style of a drawing |
 
@@ -172,6 +172,9 @@ Octet's tools take no path. The script reads and writes each file.
 - To save a file, call `read` with `format`. Octet gives every format that Export writes. It gives CDX, PDF, PNG,
   EMF, EPS, TIFF, JPEG and GIF in base64, and the other formats as text.
 - A picture takes Export's options: `width_mm`, `dpi` and `transparent`.
+- To close a drawing, call `drawings` with `action: "close"`. With no window, Octet closes it at once and does not
+  ask about changes that are not saved, so save it first. In Octet's window, a drawing with changes that are not saved
+  stays open. When you close each drawing after you save or read it, a folder of any size keeps few drawings open.
 
 A scheme, route, figure, cycle or grid needs the brief before Octet draws it. A script sets the brief itself, with
 `set_brief` or with `brief` in `draw`. Octet does not ask a script questions.
@@ -223,7 +226,7 @@ for file in files:
         numbers.setdefault(key, str(len(numbers) + 1))
         operations.append({"op": "number", "structure": s["id"], "number": numbers[key]})
     if operations: o.call("change", {"operations": operations})
-    o.save(os.path.join(out, os.path.basename(file)))
+    o.save(os.path.join(out, os.path.basename(file))); o.call("drawings", {"action": "close"})
     renumbered = ", ".join(f"{s['number']} is {op['number']}" for s, op in zip(numbered, operations))
     print(f"{os.path.basename(file)}: {renumbered}")
 o.close()
@@ -259,7 +262,7 @@ for (const file of files) {
     return { op: "number", structure: s.id, number: numbers.get(key) };
   });
   if (operations.length) await o.call("change", { operations });
-  await o.save(join(out, basename(file)));
+  await o.save(join(out, basename(file))); await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${numbered.map((s, k) => `${s.number} is ${operations[k].number}`).join(", ")}`);
 }
 await o.close();
@@ -291,6 +294,7 @@ for name in sorted(f for f in os.listdir(folder) if f.lower().endswith((".cdxml"
     o.call("set_brief", {"destination": {"kind": "paper", "journal": journal, "columns": int(columns)}})
     read = o.call("read")
     o.save(os.path.join(out, name))
+    o.call("drawings", {"action": "close"})
     check = "" if read["check"] == "clean" else f", check {json.dumps(read['check'], separators=(',', ':'))}"
     print(f"{name}: {read['style']}{check}")
 o.close()
@@ -313,6 +317,7 @@ for (const name of readdirSync(folder).filter((f) => /\.(cdxml|cdx|oct)$/i.test(
   await o.call("set_brief", { destination: { kind: "paper", journal, columns: Number(columns) } });
   const { style, check } = await o.call("read");
   await o.save(join(out, name));
+  await o.call("drawings", { action: "close" });
   console.log(`${name}: ${style}${check === "clean" ? "" : `, check ${JSON.stringify(check)}`}`);
 }
 await o.close();
@@ -428,6 +433,7 @@ for file in sys.argv[1:]:
         found += 1
         continue
     warnings = o.call("read", {"detail": "full"})["warnings"]
+    o.call("drawings", {"action": "close"})
     print(f"{os.path.basename(file)}: " + (f"{len(warnings)} to look at" if warnings else "clean"))
     for w in warnings:
         label = w.get("atom") or w.get("structure") or " and ".join(w.get("ids", []))
@@ -452,6 +458,7 @@ let found = 0;
 for (const file of process.argv.slice(2)) {
   try { await o.open(file); } catch (e) { console.log(`${basename(file)}: ${e.message}`); found++; continue; }
   const { warnings } = await o.call("read", { detail: "full" });
+  await o.call("drawings", { action: "close" });
   console.log(`${basename(file)}: ${warnings.length ? `${warnings.length} to look at` : "clean"}`);
   for (const w of warnings) {
     const label = w.atom ?? w.structure ?? w.ids?.join(" and ");
@@ -490,8 +497,7 @@ Converted 2 of 2 files.
 ## What a script cannot do
 
 - A script cannot give Octet a path. Octet does not read or write files for a script.
-- A script cannot close a drawing. Each file that a script opens stays open until the script stops Octet. For a
-  very large folder, stop Octet and start it again after each part of the folder, or use `--convert`.
+- A script cannot close a drawing that it did not open with `drawings` and `action: "new"`.
 - A script cannot use a dialog. Octet refuses Export, Document Settings and the other commands that open a dialog.
   Use `read` with `format`, and `set_brief` or `advanced` with `set_style`.
 - A script cannot open a file of more than 1,000,000 characters. Use `--convert` for a larger file.

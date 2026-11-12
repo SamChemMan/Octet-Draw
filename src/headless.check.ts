@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
+import { createInterface } from "node:readline";
 
 if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("headless.check: skipped (no OPSIN build)"); process.exit(0); }
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
@@ -767,5 +768,28 @@ try {
       for (const f of ["renumbered/scheme1.cdxml", "renumbered/scheme2.cdxml", "restyled/scheme1.cdxml", "table/1.cdxml", "table/2.cdxml", "table/4.cdxml"]) assert.equal(readFileSync(at("py", ...f.split("/")), "utf8"), readFileSync(at("mjs", ...f.split("/")), "utf8"), f);
     }
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+
+// drawings close through scripts/headless/stdio.ts, as a script closes each drawing it opened once it has read it: 50
+// open, read and close cycles leave the one drawing Octet opened with, which the session did not open and cannot
+// close. After it closes the drawing it uses, the session has none (drawings list names none it uses).
+{
+  const p = spawn(process.execPath, [new URL("../scripts/headless/stdio.ts", import.meta.url).pathname], { stdio: ["pipe", "pipe", "inherit"] }), lines = createInterface({ input: p.stdout })[Symbol.asyncIterator]();
+  let k = 0;
+  const rpc = async (name: string, args: object) => { p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: ++k, method: "tools/call", params: { name, arguments: args } }) + "\n"); return JSON.parse((await lines.next()).value).result; };
+  let made = "";
+  for (let i = 0; i < 50; i++) {
+    made = (await rpc("drawings", { action: "new", text: "CCO" })).structuredContent.opened;
+    assert.match((await rpc("read", { format: "mol" })).structuredContent.text, /V2000|V3000/);
+    assert.deepEqual((await rpc("drawings", { action: "close" })).structuredContent, { closed: made });
+  }
+  const left = (await rpc("drawings", { action: "list" })).structuredContent;
+  assert.deepEqual(left, { drawings: [{ id: "headless", title: "Untitled", edited: false }] });
+  // With no drawing, a close names one: Octet never closes the drawing the call happens to run in. A closed one is gone.
+  assert.equal((await rpc("drawings", { action: "close" })).content[0].text, "Octet changed nothing. This session uses no drawing. Call drawings for the ids, then close with drawing.");
+  assert.equal((await rpc("drawings", { action: "close", drawing: made })).content[0].text, `There is no drawing ${made}. Call drawings for the ids.`);
+  const theirs = await rpc("drawings", { action: "close", drawing: "headless" });
+  assert.ok(theirs.isError && theirs.content[0].text === "Octet changed nothing. This session did not open headless with drawings new: the user closes it in Octet's window.", theirs.content[0].text);
+  p.stdin.end();
 }
 console.log("headless.check: ok");
