@@ -1,11 +1,11 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { createElement, Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
-  EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
+  EyeSlash, Crosshair, Repeat, CubeTransparent, Gauge, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
   TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook,
 } from "@phosphor-icons/react";
@@ -28,6 +28,8 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
+import { applyConformer, geometryOf, geometryRequest, plainError, SEED, type GeometryResponse } from "./geometry";
+import { describeModel, drawnGeometry, frameOf, isStale, liveAtoms, modelAt, modelOf, modelPrimitives, newModel, openingRotation, pointsOf, primitiveNodes, scaleModels, setDisplay, shownAs3d, turn as turnModel, type Geometry, type Model3d, type SvgNode, type V3 } from "./model3d";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
@@ -243,7 +245,7 @@ type Drag =
   | { kind: "mark"; atom: number; key: string; start: [number, number]; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
-  | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
+  | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol; model?: true }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
   // Turning the selection by its rotation handle: about its centre, from the angle the drag started at.
@@ -499,6 +501,20 @@ export function keepNow() {
   keeper.write();
 }
 let crashOffered = false; // the log of a crash is offered once, at start
+
+// A 3D model's SVG (model3d.ts primitiveNodes) as React elements. Its attribute names are SVG's (stop-color); React
+// takes them in camel case.
+const camel = (k: string) => k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+function svgElements(nodes: (SvgNode | string)[], key = ""): React.ReactNode[] {
+  return nodes.map((n, i) => (typeof n === "string" ? n : createElement(n.tag, { key: `${key}${i}`, ...Object.fromEntries(Object.entries(n.attrs).map(([k, v]) => [camel(k), v])) }, ...(n.children ? svgElements(n.children, `${key}${i}.`) : []))));
+}
+const MORPH_MS = 200; // a new model grows from the drawing into 3D (brand motion: --motion-slow)
+// A model's opening view, from its shape and where its atoms are drawn.
+function openingView(m: Mol, x: Model3d) {
+  const pts = pointsOf(x).filter((q) => q.symbol !== "H"), use = pts.length ? pts : pointsOf(x), n = use.length || 1;
+  const c = use.reduce<V3>((s, q) => [s[0] + q.xyz[0] / n, s[1] + q.xyz[1] / n, s[2] + q.xyz[2] / n], [0, 0, 0]);
+  return openingRotation(x.xyz.map((q): V3 => [q[0] - c[0], q[1] - c[1], q[2] - c[2]]), x.sources.map((i) => (i === null || i >= m.atoms.length ? undefined : [m.atoms[i].location[0], m.atoms[i].location[1]] as P)));
+}
 
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
@@ -845,6 +861,17 @@ export default function Editor() {
   const lastLabel = useRef<string>(undefined);
   // The bond tool's last click on an atom, and the drawing it made: a second click there soon after is a double-click.
   const lastClick = useRef<{ atom: number; time: number; after: Mol }>(undefined);
+  const modelPress = useRef<{ model: number; time: number }>(undefined); // the last press inside a 3D model, for a double-click
+  // New models growing from their drawing (MORPH_MS), and a frame counter that draws them again while they grow.
+  const [growing, setGrowing] = useState<{ models: Set<Model3d>; start: number }>();
+  const [, setGrowTick] = useState(0);
+  useEffect(() => {
+    if (!growing) return;
+    let id = 0;
+    const step = () => { if (performance.now() - growing.start >= MORPH_MS) return setGrowing(undefined); setGrowTick((t) => t + 1); id = requestAnimationFrame(step); };
+    id = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(id);
+  }, [growing]);
   // The Cycle tool's last click on an arc (a break, or a step made reversible): the step, when, and the drawing it made.
   const lastArc = useRef<{ cycle: number; step: number; time: number; after: Mol }>(undefined);
   // Select's last click on an atom or bond: a second click on it soon after is a double-click. The browser sends no
@@ -2187,6 +2214,10 @@ export default function Editor() {
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
+    // 3D Optimise (Structure menu, beside 3D Clean Up, which stays): a force-field shape (MMFF94s, or UFF where MMFF
+    // has no parameters) for the selected structures (or every one), worked out in a separate process by the app.
+    // Each keeps its place and faces as drawn; depth shading goes on and Select becomes Structure Perspective.
+    optimize_3d: () => void optimise3d(),
     // Align (⇧⌥⌘ L, C, R, T, M, B) and Distribute (⇧⌥⌘ H, V), as ChemDraw's Object menu: every selected structure,
     // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
     // two at the ends.
@@ -3075,7 +3106,9 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Structures shown as 3D models are drawn as their models only (model3d.ts).
+  const as3d = useMemo(() => shownAs3d(shown), [shown]);
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]]) && !as3d.has(ids[0])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing, as3d]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure that settles into ink (FEEL-43): its atoms from this one on.
   const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
@@ -3957,6 +3990,8 @@ export default function Editor() {
     let moved = transformParts(m, atoms, rest, f, size, middles, text);
     if (text !== 1) moved = scaleSettings(moved, atoms, rest, k, style.captionSize);
     for (const g of plots) moved = rescale(moved, g.id, f, size, text, plotEnv());
+    // A 3D model grows with its structure when it is scaled in proportion.
+    if (size[0] === size[1]) moved = scaleModels(moved, atoms, size[0]);
     return moved;
   };
   // What a page spectrum's build takes from the document style: its caption size and font, and its bond length.
@@ -4149,6 +4184,27 @@ export default function Editor() {
     startMove(p, screen, t, picks, atoms, copy);
   }
 
+  // A 3D model (Show as 3D Model) under a press with Select: the model in index k3, or none.
+  const modelPressAt = (p: P, t: Hover) => {
+    const k3 = selectKind !== "perspective" && !itemsOf(t).length ? modelAt(doc, p) : undefined;
+    return k3 !== undefined && atomsOf(doc, t).every((i) => liveAtoms(doc.models![k3]).includes(i)) ? k3 : undefined;
+  };
+  // A drag inside a model's frame turns it (Shift rolls it), a double-click turns it back to its first view, and a drag
+  // that starts on the frame's edge (8 px) moves it with its structure.
+  function pressModel(k3: number, p: P, screen: [number, number], copy: boolean) {
+    const model = doc.models![k3], atoms3 = new Set(fragments(doc).filter((g) => g.some((i) => liveAtoms(model).includes(i))).flat()), f = frameOf(doc, model)!, edge = 8 / (L * views.get().zoom);
+    const inner = p[0] > f[0][0] + edge && p[0] < f[1][0] - edge && p[1] > f[0][1] + edge && p[1] < f[1][1] - edge;
+    setSelection(atoms3);
+    setPicked(new Set());
+    if (!inner) return startMove(p, screen, { atom: liveAtoms(model)[0] }, new Set(), atoms3, copy);
+    const now = performance.now(), last = modelPress.current;
+    modelPress.current = { model: k3, time: now };
+    if (last && last.model === k3 && now - last.time < DOUBLE_MS) {
+      modelPress.current = undefined;
+      return set({ ...doc, models: doc.models!.map((x, j) => (j === k3 ? { ...x, rotation: openingView(doc, x) } : x)) }, true);
+    }
+    return setDrag({ kind: "tilt", base: doc, ids: atoms3, centre: [0, 0, 0], start: screen, working: doc, model: true });
+  }
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t), its = itemsOf(t);
     // Sam (28 October 2026): a press on any part of a group picks the whole (outermost) group (Shift adds it) and
@@ -4378,7 +4434,7 @@ export default function Editor() {
     e.preventDefault();
     if (noMenu.current || drag || writing) { noMenu.current = false; return; }
     // On a warning's red mark, its atom, bond or brackets, as ChemDraw's right-click on the red box.
-    const p = toDoc(e.clientX, e.clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
+    const p = toDoc(e.clientX, e.clientY), k3 = modelAt(doc, p), on3 = hit(p), under: Hover = k3 !== undefined && Object.values(on3).every((v) => v === undefined) ? { atom: liveAtoms(doc.models![k3])[0] } : on3, mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
     const t: Hover = mark ? (mark.shape !== undefined ? { arrow: mark.shape } : { atom: mark.atom, bond: mark.bond }) : under, free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
     const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "tlc")) ? plateAt(p) : undefined;
     if (plate) {
@@ -4449,6 +4505,10 @@ export default function Editor() {
     if (hovers.get().key) setHover(t); // a press takes over from the keyboard hotspot
     // The crosshair's middle drags it, whatever tool is in hand (a structure or object there comes first).
     if (onCrosshair(p, t)) return setDrag({ kind: "crosshair", from: cross!, at: cross! });
+    // A 3D model under the press turns (or moves) as a whole, with every tool but the Eraser: its structure is not drawn
+    // there to draw on. The selection frame's resize handles and turn handle still come first.
+    const k3 = tool !== "erase" && !e.altKey && !resizeAt(p) && !onTurnHandle(p) ? modelPressAt(p, t) : undefined;
+    if (k3 !== undefined) return pressModel(k3, p, screen, copyDrag(e));
     // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
     const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
     if (join) { setSelection(new Set()); setPicked(new Set()); overs.set({ ...overs.get(), join: undefined }); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
@@ -4777,6 +4837,12 @@ export default function Editor() {
         return setDrag({ ...drag, working: updateShape(drag.base, drag.plate, { tlc: { ...sh.tlc, ...change } }) });
       }
       case "tilt": {
+        // A 3D model turns as ReShiki's: 0.01 radian a screen px, across about the vertical axis and down about the
+        // horizontal one; Shift rolls it about the line of sight.
+        if (drag.model) {
+          const dx = e.clientX - drag.start[0], dy = e.clientY - drag.start[1], held = new Set(drag.ids);
+          return setDrag({ ...drag, working: { ...drag.base, models: drag.base.models?.map((x) => (x.display !== "2d" && liveAtoms(x).some((i) => held.has(i)) ? { ...x, rotation: turnModel(x.rotation, dx, dy, e.shiftKey) } : x)) } });
+        }
         // As ChemDraw's: 1.146° (0.02 radian) for each point the pointer moves on the page, so a turn is finer when
         // zoomed in. Across turns about the vertical axis, up and down about the horizontal one, the front going with
         // the pointer; Shift keeps to one axis. Part of a structure joined by one bond turns about that bond (and,
@@ -5768,7 +5834,9 @@ export default function Editor() {
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
     // A 3D structure (Structure Perspective): depth shading on or off.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
+    const k3 = modelOf(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), x3 = k3 === undefined ? undefined : doc.models![k3];
+    const model = x3 && { display: x3.display, style: x3.style ?? "ballStick", hydrogens: x3.hydrogensShown ?? "all", labels: x3.labels ?? "none", look: x3.look ?? "flat", scheme: x3.scheme ?? "octet", stale: isStale(doc, x3), optimise: TAURI };
+    return { kind: "structure", model, optimise: TAURI, text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
       ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
@@ -6479,7 +6547,7 @@ export default function Editor() {
     map_reaction: ["Map atoms", "", <FlowArrow size={18} />], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
+    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />], optimize_3d: ["3D optimise", "", <Gauge size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
@@ -6585,6 +6653,101 @@ export default function Editor() {
     const own = [...settings.palette, ...(style.palette ?? []).filter((c) => !settings.palette.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
     return own.length ? { ...style, palette: own } : style;
   };
+  // The force-field solver (src-tauri/geometry, run by the app in a worker process): MMFF94s, then UFF when MMFF has
+  // no parameters for the structure (it says so).
+  const solveShape = async (m: Mol, g: number[], seed = SEED): Promise<{ res: GeometryResponse; note?: string }> => {
+    const request = geometryRequest(m, g, "MMFF94s", seed);
+    if (typeof request === "string") throw new Error(request);
+    try {
+      return { res: await invoke<GeometryResponse>("geometry_generate", { request }) };
+    } catch (e) {
+      if (!/MMFF parameters are unavailable/.test(String(e))) throw e;
+      return { res: await invoke<GeometryResponse>("geometry_generate", { request: { ...request, field: "UFF" } }), note: "MMFF94s has no parameters for this structure, so Octet used UFF." };
+    }
+  };
+  async function optimise3d() {
+    if (!TAURI) return setNotice("3D Optimise needs the Octet app.", "info");
+    const before = doc, all = fragments(doc).filter((g) => !selection.size || g.some((i) => selection.has(i))).filter((g) => g.length > 1);
+    if (!all.length) return;
+    setNotice("Octet is calculating the 3D shape.", "info");
+    let m = before;
+    const notes = new Set<string>();
+    for (const g of all) {
+      try {
+        const { res, note } = await solveShape(before, g);
+        if (note) notes.add(note);
+        m = applyConformer(m, g, res);
+      } catch (e) {
+        return setNotice(plainError(e));
+      }
+    }
+    if (now.current !== before) return setNotice("The drawing changed during the calculation. Do 3D Optimise again.", "info");
+    setNotice(notes.size ? [...notes][0] : undefined, "info");
+    sayAfter("Optimised in 3D.");
+    set(m, true);
+    setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
+    setTool("select");
+  }
+  // A model's 3D shape: the force field's in the app (with its hydrogens), else (the browser, or a structure the
+  // force fields cannot take) Octet's 3D Clean Up.
+  const modelShape = async (m: Mol, g: number[], seed = SEED): Promise<Geometry> => {
+    if (!TAURI) return drawnGeometry(m, g);
+    try {
+      const { res, note } = await solveShape(m, g, seed);
+      if (note) setNotice(note, "info");
+      return geometryOf(res, seed);
+    } catch (e) {
+      setNotice(`${plainError(e)} Octet made the model with 3D Clean Up.`, "info");
+      return drawnGeometry(m, g);
+    }
+  };
+  // 3D models (model3d.ts) of the selected structures: Show as 3D model, Show 2D and 3D and Show as 2D (a model is
+  // made the first time, and grows from the drawing into 3D), Update 3D model, and how a model looks.
+  async function modelAction(what: string) {
+    const parts = fragments(doc).filter((g) => g.some((i) => selection.has(i)));
+    if (!parts.length) return setNotice("Select a structure first.", "info");
+    const [verb, arg] = what.split(".");
+    // The shapes to make first (in the app, the force field's, in its own process), then the change all at once.
+    const before = doc, shapes = new Map<number[], Geometry>();
+    const needs = parts.filter((g) => g.length <= MOST_3D && (verb === "show" ? arg !== "2d" && modelOf(before, g) === undefined : (verb === "update" || verb === "regenerate") && modelOf(before, g) !== undefined));
+    if (needs.length && TAURI) setNotice("Octet is calculating the 3D shape.", "info");
+    for (const g of needs) {
+      const old = modelOf(before, g), seed = verb === "regenerate" ? ((before.models![old!].seed ?? SEED) + 8) % 2_000_000_000 : SEED;
+      shapes.set(g, await modelShape(before, g, seed));
+    }
+    if (needs.length && now.current !== before) return setNotice("The drawing changed during the calculation. Try again.", "info");
+    let m = before;
+    const fresh = new Set<Model3d>();
+    const make = (g: number[], display: Model3d["display"], keep?: Partial<Model3d>) => {
+      if (g.length > MOST_3D) { setNotice(`Octet cannot make a 3D model of a structure of more than ${MOST_3D} atoms.`); return; }
+      const x = newModel(m, g, shapes.get(g) ?? drawnGeometry(m, g), display, keep);
+      fresh.add(x);
+      return x;
+    };
+    for (const g of parts) {
+      const k = modelOf(m, g), x = k === undefined ? undefined : m.models![k];
+      const change = (y: Partial<Model3d>) => { m = { ...m, models: m.models!.map((z, j) => (j === k ? Object.fromEntries(Object.entries({ ...z, ...y }).filter(([, v]) => v !== undefined)) as Model3d : z)) }; };
+      if (verb === "show") {
+        const display = arg as Model3d["display"];
+        if (x) m = setDisplay(m, k!, display);
+        else if (display !== "2d") { const y = make(g, display); if (y) m = { ...m, models: [...(m.models ?? []), y] }; }
+      } else if (!x) continue;
+      else if (verb === "update" || verb === "regenerate") {
+        const y = make(g, x.display, { style: x.style, look: x.look, hydrogensShown: x.hydrogensShown, labels: x.labels, scheme: x.scheme, size: x.size, offset: x.offset });
+        if (y) m = { ...m, models: m.models!.map((z, j) => (j === k ? y : z)) };
+      } else if (verb === "style") change({ style: arg === "ballStick" ? undefined : (arg as Model3d["style"]) });
+      // Hydrogens, labels, look and colours: each press steps on to the next.
+      else if (verb === "hydrogens") change({ hydrogensShown: x.hydrogensShown === undefined ? "polar" : x.hydrogensShown === "polar" ? "none" : undefined });
+      else if (verb === "labels") change({ labels: x.labels === undefined ? "heteroatoms" : x.labels === "heteroatoms" ? "all" : undefined });
+      else if (verb === "look") change({ look: x.look ? undefined : "glossy" });
+      else if (verb === "scheme") change({ scheme: x.scheme === undefined ? "vesta" : x.scheme === "vesta" ? "jmol" : undefined });
+      else if (verb === "reset") change({ rotation: openingView(m, x) });
+    }
+    if (m === doc) return;
+    set(m, true);
+    if (fresh.size) setGrowing({ models: fresh, start: performance.now() });
+    sayAfter(verb === "show" ? (arg === "2d" ? "Shown as 2D." : arg === "both" ? "Shown in 2D and 3D." : "Shown as a 3D model.") : verb === "update" ? "3D model updated." : "3D model changed.");
+  }
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
@@ -6697,6 +6860,7 @@ export default function Editor() {
       return mapped ? set(mapped, true) : setNotice("Octet cannot map these atoms.");
     }
     if (command.startsWith("cycle.")) return cycleAction(command.slice(6));
+    if (command.startsWith("model.")) return void modelAction(command.slice(6));
 
     // Enhanced stereo: one stereocentre's flag (again to take it off), or every stereocentre in the selection at once.
     if (command.startsWith("stereo.")) {
@@ -7755,8 +7919,13 @@ export default function Editor() {
   ) : null;
   const selected = drag?.kind === "erase" ? [] : [
     // Hidden H atoms (Toggle Hydrogen Display) and their bonds are selected with their structure but not marked.
-    ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) && !shown.atoms[b.atoms[0]].hidden && !shown.atoms[b.atoms[1]].hidden ? [bondMark(i, `sb${i}`, "")] : [])),
-    ...[...selection].filter((i) => i < shown.atoms.length && !shown.atoms[i].hidden).map((i) => atomMark(i, `sa${i}`, "")),
+    ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) && !shown.atoms[b.atoms[0]].hidden && !shown.atoms[b.atoms[1]].hidden && !as3d.has(b.atoms[0]) ? [bondMark(i, `sb${i}`, "")] : [])),
+    ...[...selection].filter((i) => i < shown.atoms.length && !shown.atoms[i].hidden && !as3d.has(i)).map((i) => atomMark(i, `sa${i}`, "")),
+    // A selected structure's 3D model: its frame tinted.
+    ...(shown.models ?? []).flatMap((x, k) => {
+      const f = x.display !== "2d" && liveAtoms(x).some((i) => selection.has(i)) ? frameOf(shown, x) : undefined;
+      return f ? [<rect key={`sm${k}`} className="model-pick" x={f[0][0] * L} y={-f[1][1] * L} width={(f[1][0] - f[0][0]) * L} height={(f[1][1] - f[0][1]) * L} rx={0.2 * L} />] : [];
+    }),
     ...[...picked].map((id) => captionMark(id, `sc${id}`, "") ?? arrowMark(id, `sr${id}`, "")),
     // A picked cycle's arrows; of a picked step or side arrow, its own alone.
     ...cycleArrows.filter((a) => picked.has(a.cycle) && (branchPick?.cycle !== a.cycle || a.branch === branchPick.branch) && (stepPick?.cycle !== a.cycle || (a.branch === undefined && a.step === stepPick.step))).map((a) => <polyline key={`sy${a.id}`} className="arrow-mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />),
@@ -8151,6 +8320,11 @@ export default function Editor() {
       <g key={copied?.page === false ? `copied${copied.n}` : undefined} className={copied?.page === false ? "selection-marks copied" : "selection-marks"}>{selected}</g>
       {gridPickMark()}
       {groupFrames}
+      {/* A 3D model whose structure changed since it was made: a note under its frame (Update 3D model in Actions). */}
+      {(shown.models ?? []).map((x, k) => {
+        const f = x.display !== "2d" && isStale(shown, x) ? frameOf(shown, x) : undefined;
+        return f && <text key={`stale${k}`} className="model-stale" x={((f[0][0] + f[1][0]) / 2) * L} y={-f[0][1] * L + 14} textAnchor="middle">Structure changed · Update 3D model</text>;
+      })}
       {msPoint && msAtoms && <g className="nmr-marks">{msPoint.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ms${i}`, ""))}</g>}
       {nmrBondMarks.size > 0 && <g className="nmr-marks">{[...nmrBondMarks].filter((k) => k < shown.bonds.length).map((k) => bondMark(k, `nmrb${k}`, ""))}</g>}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
@@ -8160,6 +8334,22 @@ export default function Editor() {
       <Live store={hovers}>{hovered}</Live>
     </>
   );
+  // 3D models (Show as 3D Model), drawn as vectors over the structures, each once for each look of it. Further atoms
+  // fade towards the paper (not on dark paper); outlines are in the ink, so exports draw them as on white paper.
+  const morphAt = growing ? Math.min(1, (performance.now() - growing.start) / MORPH_MS) : 1;
+  const modelInk = useMemo(() => {
+    const models = (shown.models ?? []).map((x, k) => [x, k] as const).filter(([x]) => x.display !== "2d");
+    if (!models.length) return null;
+    return (
+      <g key="models" className="models" transform={`scale(${L})`} fontFamily={fontStack(style.labelFont)}>
+        {models.map(([x, k]) => (
+          <g key={`m${k}`} aria-label={describeModel(x)}>
+            {svgElements(primitiveNodes(modelPrimitives(shown, x, { paper: darkPaper ? undefined : (own ?? "#ffffff"), dark: darkPaper, ink: "var(--ink)", morph: growing?.models.has(x) ? morphAt : undefined }), `m3d${k}-`), `m${k}.`)}
+          </g>
+        ))}
+      </g>
+    );
+  }, [shown.models, shown.atoms, darkPaper, own, style.labelFont, growing, morphAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const ink = useMemo(() => (
     <>
       {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
@@ -8176,8 +8366,9 @@ export default function Editor() {
         </>
       )}
       {arrowInk.map(([colour, d]) => <path key={`a${colour}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
+      {modelInk}
     </>
-  ), [drawing.beads, structureInk, arrowInk, darkPaper, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [drawing.beads, structureInk, arrowInk, darkPaper, style, pt, settling, modelInk]); // eslint-disable-line react-hooks/exhaustive-deps
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
@@ -8192,7 +8383,7 @@ export default function Editor() {
         // Atom map numbers: in brand blue, in the label's face, where render puts them (clear of the label and bonds).
         <text key={`map${n.atom}`} className="atom-map" textAnchor="middle" x={n.at[0]} y={n.at[1] + n.h / 2} style={{ font: labelFont({ ...shown.atoms[n.atom], size: n.size }) }}>{n.text}</text>
       ))}
-      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
+      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]) && !as3d.has(drawing.parts[k].ids[0]))}
       {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />
       ))}
@@ -8203,7 +8394,7 @@ export default function Editor() {
     const things: [number, React.ReactNode][] = [];
     drawing.parts.forEach(({ ids, drawing: d, at, k: grown, turn }, k) => {
       const o = shown.atoms[ids[0]]?.order;
-      if (o) things.push([o, (
+      if (o && !as3d.has(ids[0])) things.push([o, (
         <g key={`os${ids[0]}`}>
           {structurePaths(d).map(([key, path]) => { const [colour, alpha] = key.split("|"); return <path key={key} d={path} transform={moveBy(at, grown, turn)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
           {labelTexts[k]}
