@@ -3160,8 +3160,8 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       return reply(id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(summary(h, h.doc())) }] });
     }
     // Claude Code defers every MCP tool until the model searches for it, a turn before the first call, unless the tool
-    // asks to load at once (ALWAYS_LOADED, plan 19).
-    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false }, ...(ALWAYS_LOADED.includes(t.name) ? { _meta: { "anthropic/alwaysLoad": true } } : {}) })) });
+    // asks to load at once: every tool does (plan 19.10), as a restyle or a help call cost a search too.
+    case "tools/list": return reply(id, { tools: TOOL_TABLE.map(({ hints, takes: _, ...t }) => ({ ...t, annotations: { readOnlyHint: hints.readOnly, destructiveHint: hints.destructive, idempotentHint: hints.idempotent, openWorldHint: false }, _meta: { "anthropic/alwaysLoad": true } })) });
     case "tools/call": {
       const named = TOOLS.find((t) => t.name === msg.params?.name), given = msg.params?.arguments ?? {};
       if (!named) return reply(id, undefined, { code: -32602, message: `There is no tool ${String(msg.params?.name).slice(0, 40)}. tools/list gives the tools.` });
@@ -3338,8 +3338,6 @@ function whole(s: ObjSchema, pieces: Record<string, Schema> = DEFS) {
 const reply = (id: Message["id"], result?: unknown, error?: { code: number; message: string }) => JSON.stringify({ jsonrpc: "2.0", id, ...(error ? { error } : { result }) });
 
 export const TOOL_NAMES = TOOLS.filter((t) => !t.hidden).map((t) => t.name);
-// The tools tools/list asks an AI app to load at once (Claude Code's alwaysLoad): not drawings, advanced or set_brief.
-const ALWAYS_LOADED = ["draw", "change", "read"];
 // The tools as tools/list gives them (D11). A tool's hints and outputSchema are made from its operations': it is
 // read-only when all are, destructive when one is, idempotent when all are, and its result is a change when all are.
 // (All four hints are said outright. openWorldHint is false for every tool: Octet reaches nothing outside itself.)

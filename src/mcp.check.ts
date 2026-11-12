@@ -103,9 +103,9 @@ assert.deepEqual((await send("ping")).result, {});
 const tools = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: { type: string; additionalProperties: boolean; properties: Record<string, any> }; annotations: { readOnlyHint: boolean } }[];
 assert.deepEqual(tools.map((t) => t.name), ["draw", "change", "read", "drawings", "advanced", "set_brief"]);
 assert.deepEqual(tools.map((t) => t.name), TOOL_NAMES);
-// Claude Code loads draw, change and read at once (alwaysLoad), as nearly every job calls them; the others wait for a
-// tool search, which cost a turn before the first call (plan 19).
-assert.deepEqual(tools.map((t) => (t as { _meta?: unknown })._meta), [...Array(3).fill({ "anthropic/alwaysLoad": true }), undefined, undefined, undefined]);
+// Claude Code loads every tool at once (alwaysLoad): one that waits for a tool search costs a turn before its first
+// call, which a restyle or a help call paid (plan 19.10).
+assert.deepEqual(tools.map((t) => (t as { _meta?: unknown })._meta), Array(6).fill({ "anthropic/alwaysLoad": true }));
 for (const t of tools) assert.ok(t.inputSchema.type === "object" && t.inputSchema.additionalProperties === false, t.name);
 // A v1 name is no tool (Sam, 11 November 2026: no compatibility layer).
 for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_command", "structures", "help"]) assert.equal((await send("tools/call", { name, arguments: {} })).error.code, -32602, name);

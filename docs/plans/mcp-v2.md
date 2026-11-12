@@ -2022,3 +2022,12 @@ numbers, and the acetonide 6 only with two map numbers.
   field (aldehyde, ketone, acid, ester, lactone, acetonide, carbonate, acetal, epoxide; a CO2Et label is an ester), in
   any letters, passed to the one place that picks a site; with none of that kind the refusal names the kinds there
   (`reduce fits no aldehyde in this compound, only a ketone and an ester.`).
+
+### 19.10 As built (what the real Claude Code runs showed, 12 November 2026, branch `mcp/ai4`)
+
+The lab ran the 14 speed jobs through the Claude Code command line on 6da8b80, three runs each on Opus and Haiku.
+Loading draw, change and read at once saved a turn a job and stays. Each point below is its own commit, so the main
+session can keep or drop each by what the lab says next.
+
+- **Every tool loads at once.** A restyle or a help call still cost a tool search (say-restyle: 5 turns on Opus, where
+  a job that draws is 2). All six tools have `_meta: {"anthropic/alwaysLoad": true}`: tools/list 12,854 from 12,740.
