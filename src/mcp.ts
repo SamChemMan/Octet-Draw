@@ -14,7 +14,7 @@ import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
-import { withDetails, detailsOf, oneLine, FIELDS, PROPERTIES, type Details, type Properties } from "./experiment.ts";
+import { withDetails, detailsOf, markupCaption, oneLine, FIELDS, PROPERTIES, type Details, type Properties } from "./experiment.ts";
 import { readPlasmid } from "./cdxml.ts";
 import { emptyRows, setRole, stepGrids, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, type Field } from "./stoich.ts";
@@ -715,7 +715,7 @@ number: structure, number ('' takes it away). To renumber several, name each by 
 delete: ids.
 move: ids, and dx, dy, or to [x, y] with anchor, or right_of, left_of, below or above ids with gap and align.
 arrange: ids, how (left, top, across, page and more).
-text: text, with bold, italic, size, colour. Place it as move does (below: 's3'), or give arrow (a7) with side (above, below) to make it that arrow's conditions. id replaces a caption's text.
+text: text, with bold, italic, size, colour (on an experiment page **x** is bold, and formulas get their subscripts). Place it as move does (below: 's3'), or give arrow (a7) with side (above, below) to make it that arrow's conditions. id replaces a caption's text.
 arrow: kind (reaction, equilibrium, curved, fishhook, line and more), from and to (each an id or [x, y]). help of arrow says how to add a step to a scheme.
 shape: kind (${values("shape", "kind")}), around (ids) or box [x0, y0, x1, y1].
 select: ids, for advanced run_command.
@@ -1705,7 +1705,7 @@ async function addText(host: Host, a: TextIn): Promise<Result> {
   if (a.id) {
     const n = Number(/^t(\d+)$/.exec(a.id)?.[1]);
     if (!m.captions?.some((c) => c.id === n)) return { text: `There is no text ${a.id}.`, error: true };
-    m = { ...m, captions: m.captions.map((c) => (c.id === n ? { ...c, text, runs: r, ...textStyle(a) } : c)) };
+    m = { ...m, captions: m.captions.map((c) => (c.id === n ? marked(host, { ...c, text, runs: r, ...textStyle(a) }) : c)) };
     m = host.set(m);
     return { text: `Changed ${a.id} to "${text}".${UNDO}` };
   }
@@ -1728,10 +1728,13 @@ async function addText(host: Host, a: TextIn): Promise<Result> {
   const [x, y] = heading ? [heading.x, below! - 1.4 * (s.captionSize / s.bond)] : (([ox, oy]) => [ox, oy - ASCENT * ((a.size ?? s.captionSize) / s.bond)])(origin(host, m));
   const width = text.length > 60 ? (page[0] - 30) * k : undefined;
   const [mol, id] = addCaption(m, { text, ...runs, x, y, align: a.text_align ?? "left", ...(width ? { width } : {}), ...textStyle(a) });
-  host.set(mol);
+  host.set({ ...mol, captions: mol.captions!.map((c) => (c.id === id ? marked(host, c) : c)) });
   await host.settle();
   return { text: `Added the text t${id}.${UNDO}` };
 }
+// On an experiment page, an AI app's text takes the page's markup as typed text does: **a heading** in bold, and a
+// formula written plainly ((NH4)2S2O8, CO2) with its subscripts (experiment.ts markupCaption).
+const marked = (host: Host, c: Caption): Caption => (host.experiment() ? markupCaption(c) ?? c : c);
 
 // A list as said: "title", "title and author", "title, author and keywords".
 const andList = (l: (string | number)[]) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} and ${l[l.length - 1]}` : `${l[0] ?? ""}`);
