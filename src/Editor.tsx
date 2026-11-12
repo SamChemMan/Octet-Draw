@@ -87,7 +87,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type ArrowTarget, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT, GAP_ARROW_PT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -127,6 +127,8 @@ import { between, MOST_GLIDE, moving } from "./glide";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
+import { PAIR_KEY, aimHead, hasLinks, linkEnds, linkFor, linkable, reconcileLinks, reverseLinks, type LinkStyle } from "./arrowlinks";
+import { movedText, setGap } from "./arrowlabels";
 import { logError } from "./crashlog";
 import "./editor.css";
 
@@ -220,7 +222,8 @@ type Drag =
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
-  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" } }
+  // on, onTo: what a curved arrow's start and end snapped to, which they link to (arrowlinks.ts) unless free (Alt held).
+  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" }; on?: ArrowTarget; onTo?: ArrowTarget; free?: boolean }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
   // The Cycle tool: a circle drawn out from its centre, or a click on a circle. pull: a side arrow pulled out of a step's
@@ -814,6 +817,11 @@ export default function Editor() {
     const head = pickHead(arrowPick);
     return { kind: arrowKind, from, to, ...(curved({ kind: arrowKind }) ? { bend: side * sweepBend(arrowPick.sweep ?? 120) } : {}), ...(head ? { headSize: head } : {}), ...(arrowPick.ratio ? { ratio: arrowPick.ratio } : {}) };
   };
+  // A new arrow from a drag of the Arrow tool, its curved ends linked to what they snapped to (unless Alt was held).
+  const dragArrow = (d: Extract<Drag, { kind: "arrow" }>, to: P) => {
+    const a = newArrow(d.from, to, d.side, d.make);
+    return d.make || d.free ? a : linkEnds(doc, a, d.on && { on: d.on, at: d.from }, d.onTo && d.to ? { on: d.onTo, at: d.to } : undefined);
+  };
   // The offered sweep nearest an arc's.
   const nearestSweep = (bend: number) => SWEEPS.reduce((best, s) => (Math.abs(s - sweepOf(bend)) < Math.abs(best - sweepOf(bend)) ? s : best));
   const bondSpec: BondSpec = BONDS[bondKind].spec;
@@ -976,7 +984,9 @@ export default function Editor() {
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once, and
     // the compound numbers follow the compounds' order (numbering.ts).
-    const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), next = expPage && mol.style === doc.style ? renumber(newGrids(doc, ordered)) : ordered;
+    const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), numbered = expPage && mol.style === doc.style ? renumber(newGrids(doc, ordered)) : ordered;
+    // Linked curved-arrow ends follow what they point at, and are written back, so Undo, files and exports have them.
+    const next = hasLinks(numbered) ? reconcileLinks(doc, numbered, partCache.current ? renderParts(numbered, frame, measure, L, partCache.current.cache) : render(numbered, frame, measure, L), linkStyle) : numbered;
     lastSet.current = next;
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
@@ -2694,7 +2704,7 @@ export default function Editor() {
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLeaders(doc, drag.working) : drag.working, drag.kind === "move" && drag.skip));
     if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
-    if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
+    if (drag?.kind === "arrow" && drag.to) return addArrow(doc, dragArrow(drag, drag.to))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (drag?.kind === "cycle" && drag.to) return addCycle(doc, newCycle(drag.from, drag.to))[0];
     if (drag?.kind === "cycle" && drag.pull?.made) return drag.pull.made.m;
@@ -2739,6 +2749,7 @@ export default function Editor() {
   const frame = useMemo(() => frameStyle(style, L), [style]);
   const measure = useMemo(() => measurer(fontStack(style.labelFont), frame.size), [style.labelFont, frame.size]);
   const pt = (4 / 3) * frame.k; // frame px per point
+  const linkStyle: LinkStyle = useMemo(() => ({ ...frame, pt: (4 / 3) * frame.k }), [frame]);
   // The document's style with an object's own line width (points), one for each width, so ink is kept with it.
   const lineStyles = useMemo(() => new Map<number, typeof frame>(), [frame]);
   const lined = (width?: number) => {
@@ -3029,6 +3040,8 @@ export default function Editor() {
     if (writing?.id !== undefined) m = updateCaption(m, writing.id, { text: writing.value || " ", ...writing.style, runs });
     else if (writing) m = labelEnd({ ...m, captions: [...(m.captions ?? []), { id: DRAFT, text: writing.value || " ", x: writing.at?.[0] ?? 0, y: writing.at?.[1] ?? 0, under: writing.under, on: writing.on, cycle: writing.cycle, ...writing.style, runs }] }, DRAFT);
     const width = captionWidth, measure = runWidth, extent = runExtent;
+    // Linked curved-arrow ends follow their targets as a drag moves them (a glide shows its own frames as they are).
+    if (hasLinks(m)) m = reconcileLinks(glide && shown === glide.mol ? undefined : doc, m, drawing, linkStyle);
     const fitted = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((t, j) => width(t, c, j))), pt);
     // Catalytic cycles: their arcs, side arrows and labels follow wherever their intermediates are, text ones included.
     const nodeText = (m.captions ?? []).filter((c) => c.cycle?.side === "node");
@@ -3039,7 +3052,7 @@ export default function Editor() {
     if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
     if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
     return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles, cycleLayout: cycles as CycleLayout };
-  }, [shown, drawing, writing, style, pt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, drawing, writing, style, pt, doc, glide]); // eslint-disable-line react-hooks/exhaustive-deps
   // A caption as a lone atom labelled with its text, in the caption's size, font, style and colour. The label's first
   // glyph goes where the caption's was, as an atom label sits on its atom.
   const placedAtom = (c: Caption, p: Placed) => {
@@ -3414,7 +3427,7 @@ export default function Editor() {
     // With Select, a charge, radical or lone pair beside an atom comes first: a drag moves it round the atom. On a
     // selected atom a press moves the selection (Shift-drag still moves the mark).
     const mark = tool === "select" && selectKind !== "perspective" ? markNear(drawing.electrons, doc, p, L) : undefined;
-    // A curved arrow that starts or ends on those electrons (electronAt puts its end there) comes before them.
+    // A curved arrow that starts or ends on those electrons (snapEnd puts its end there) comes before them.
     const end = mark && arrowEndAt(p);
     if (end !== undefined) return { arrow: end };
     if (mark && !selection.has(mark.atom)) return mark;
@@ -3440,14 +3453,18 @@ export default function Editor() {
     const inside = t.bond === undefined ? (tool === "select" ? highlightAt(p) ?? plateAt(p)?.id : undefined) ?? (tool === "select" || tool === "orbital" ? orbitalAt(p) : undefined) : undefined;
     return inside !== undefined ? { arrow: inside } : t;
   };
-  // Curved arrows start and end on atoms and bond middles, where electrons are.
-  const electronAt = (p: P, t: Hover): P => {
+  // Curved arrows start and end on atoms and bond middles, where electrons are. on: what the end snapped to, which a
+  // curved or fishhook arrow's end links to (arrowlinks.ts).
+  const snapEnd = (p: P, t: Hover): { at: P; on?: ArrowTarget } => {
     // A lone pair or radical dot near the pointer comes first: the arrow starts at the electrons themselves.
     const near = drawing.electrons.filter((e) => e.key !== "charge" && e.key !== "partial").map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
-    if (near) return [near.e.at[0] / L, -near.e.at[1] / L];
-    if (t.atom !== undefined) return pos(doc, t.atom);
-    if (t.bond !== undefined) { const [a, b] = doc.bonds[t.bond].atoms.map((i) => pos(doc, i)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
-    return p;
+    if (near) return { at: [near.e.at[0] / L, -near.e.at[1] / L], on: near.e.key && PAIR_KEY.test(near.e.key) && near.e.atom < doc.atoms.length ? { atom: near.e.atom, pair: near.e.key } : undefined };
+    if (t.atom !== undefined) return { at: pos(doc, t.atom), on: { atom: t.atom } };
+    if (t.bond !== undefined) {
+      const [i, j] = doc.bonds[t.bond].atoms, [a, b] = [pos(doc, i), pos(doc, j)];
+      return { at: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], on: i !== j ? { bond: [Math.min(i, j), Math.max(i, j)], t: 0.5 } : undefined };
+    }
+    return { at: p };
   };
   // The arrow whose conditions a caption at this point would be: just above or below the middle of a straight arrow.
   const arrowBeside = (p: P): Caption["on"] => {
@@ -3651,8 +3668,10 @@ export default function Editor() {
     set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? restyled(c) : c)) }, true);
   }
   // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
-  // away from it and stays where it is dragged.
-  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>(), atoms = selection): Mol {
+  // away from it and stays where it is dragged. Conditions text whose arrow stays keeps to its arrow, at the gap it is
+  // dragged to, until it is dragged past the arrow's end; free text moved on its own beside a straight arrow becomes
+  // its conditions, unless keepFree (⌘ or Ctrl held, as for catalytic cycles) (arrowlabels.ts).
+  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>(), atoms = selection, keepFree = false): Mol {
     let m = atoms.size ? moveAtoms(base, atoms, d) : base;
     if (cycleIds.size) m = { ...m, cycles: m.cycles?.map((c) => (cycleIds.has(c.id) ? { ...c, centre: [c.centre[0] + d[0], c.centre[1] + d[1]] } : c)) };
     const shift = <T extends { id: number; from: [number, number]; to: [number, number] }>(a: T): T => (arrowIds.has(a.id) ? { ...a, from: [a.from[0] + d[0], a.from[1] + d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] } : a);
@@ -3664,11 +3683,16 @@ export default function Editor() {
       const t = m.captions?.find((x) => x.id === id)?.cycle, sb = t && branchOf(m, t);
       if (sb) m = dragEnd(m, cycleLayout, sb.c.id, sb.b.id, t!.side as "in" | "out", [(from[0] + d[0]) * L, -(from[1] + d[1]) * L], L).m;
     }
+    // Each moving caption's box as drawn at the press (px, y down), moved by d; the arrows staying, as drawn.
+    const boxes = moveBoxes.current, attach = !atoms.size && !arrowIds.size && !cycleIds.size && !keepFree, onOf = new Map((m.captions ?? []).map((c) => [c.id, c.on]));
+    const staying = arrows.filter((a) => !arrowIds.has(a.id)), others = placed.filter((p) => !captions.has(p.id)).map((p) => ({ box: p.box, on: onOf.get(p.id) }));
     return {
       ...m,
       captions: m.captions?.map((c) => {
-        const from = captions.get(c.id);
+        const from = captions.get(c.id), box = boxes.get(c.id);
         if (!from) return c;
+        const text = box && !c.cycle ? movedText(c, [from[0] + d[0], from[1] + d[1]], box, d, staying, others, L, pt, attach, c.on ? drawnAlign(c) : undefined) : undefined;
+        if (text) return text;
         // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged. A
         // step's name goes along its step the same way; an intermediate written as text stays one.
         if (isSide(c.cycle)) return { ...c, x: from[0] + d[0], y: from[1] + d[1] };
@@ -4027,7 +4051,7 @@ export default function Editor() {
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
   function flip(axis: "horizontal" | "vertical", mirror = false) {
     const c = selectionMiddle(), k = axis === "horizontal" ? 0 : 1, { atoms, items } = chosen();
-    glideTo(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"));
+    glideTo(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across", atoms));
   }
   function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
@@ -4059,8 +4083,10 @@ export default function Editor() {
   // What moves with some atoms and picked objects: the picked arrows, shapes and cycles, and each picked caption that
   // does not simply follow its structure, arrow or cycle (it comes away and moves alone, from where it is drawn).
   // original: each copy's original, for copies not yet drawn.
+  // The moving captions' boxes as drawn at the press (px), for conditions text kept to its arrow (moveAll).
+  const moveBoxes = useRef(new Map<number, Box>());
   const movers = (base: Mol, atoms: Set<number>, picks: Set<number>, original = new Map<number, number>()) => {
-    const captions = new Map<number, P>(), arrowIds = new Set([...(base.arrows ?? []), ...(base.shapes ?? [])].filter((a) => picks.has(a.id)).map((a) => a.id));
+    const captions = new Map<number, P>(), boxes = new Map<number, Box>(), arrowIds = new Set([...(base.arrows ?? []), ...(base.shapes ?? [])].filter((a) => picks.has(a.id)).map((a) => a.id));
     const cycleIds = new Set((base.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
     for (const caption of base.captions ?? []) {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
@@ -4069,8 +4095,9 @@ export default function Editor() {
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
       // (A reagent's text is at its arrow's start, a product's at its end.)
       const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
-      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, start ? start.from : end ? end.to : anchorOf(c));
+      if (c && picks.has(caption.id) && !follows) { captions.set(caption.id, start ? start.from : end ? end.to : anchorOf(c)); boxes.set(caption.id, c.box); }
     }
+    moveBoxes.current = boxes;
     return { captions, arrowIds, cycleIds };
   };
   // alone: the atoms move without becoming the selection (a bond tool's Shift-drag).
@@ -4582,7 +4609,7 @@ export default function Editor() {
   }
   // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
   function pressTool(p: P, t: Hover, screen: [number, number], alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
-    if (tool === "arrow") return setDrag({ kind: "arrow", from: curved({ kind: arrowKind }) ? electronAt(p, t) : p, start: screen, target: t });
+    if (tool === "arrow") { const snap = curved({ kind: arrowKind }) ? snapEnd(p, t) : { at: p }; return setDrag({ kind: "arrow", from: snap.at, on: snap.on, free: alt, start: screen, target: t }); }
     if (tool === "shape" && "line" in shapePick) {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
@@ -4702,12 +4729,12 @@ export default function Editor() {
         // A curved arrow ends on an atom or bond; a straight one snaps to 15° steps (⌥/Alt frees it).
         if (curved({ kind: drag.make?.kind ?? arrowKind })) {
           // The arc bulges the way the drag went: the sign of the area between the pointer's path and the line.
-          const to = drag.make ? p : electronAt(p, hitAt(p)), trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
+          const snap: { at: P; on?: ArrowTarget } = drag.make ? { at: p } : snapEnd(p, hitAt(p)), to = snap.at, trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
           let area = 0;
           for (let i = 0; i < ring.length; i++) { const [a, b] = [ring[i], ring[(i + 1) % ring.length]]; area += a[0] * b[1] - b[0] * a[1]; }
           const chord = Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]);
           const side = Math.abs(area / 2) > 0.05 * chord * chord ? (area < 0 ? 1 : -1) : (drag.side ?? 1);
-          return setDrag({ ...drag, to, trail, side });
+          return setDrag({ ...drag, to, trail, side, onTo: snap.on, free: drag.free || e.altKey });
         }
         // A line with corners steps from its last corner.
         const o = drag.corners?.[drag.corners.length - 1] ?? drag.from, far = Math.hypot(p[0] - o[0], p[1] - o[1]), raw = Math.atan2(p[1] - o[1], p[0] - o[0]);
@@ -4901,13 +4928,15 @@ export default function Editor() {
           const off = (p[0] - (a.from[0] + a.to[0]) / 2) * n[0] + (p[1] - (a.from[1] + a.to[1]) / 2) * n[1];
           return setDrag({ ...drag, working: updateArrow(doc, a.id, { bend: Math.max(-1.5, Math.min(1.5, off / len)) }) });
         }
-        const other = drag.which === "from" ? a.to : a.from;
-        let q: P = curved(a) ? electronAt(p, hitAt(p)) : p;
+        const other = drag.which === "from" ? a.to : a.from, snap: { at: P; on?: ArrowTarget } = curved(a) ? snapEnd(p, hitAt(p)) : { at: p };
+        let q: P = snap.at;
         if (!curved(a) && !e.altKey && settings.fixedAngles) {
           const far = Math.hypot(q[0] - other[0], q[1] - other[1]), ang = Math.round(Math.atan2(q[1] - other[1], q[0] - other[0]) / SNAP) * SNAP;
           q = [other[0] + far * Math.cos(ang), other[1] + far * Math.sin(ang)];
         }
-        return setDrag({ ...drag, working: updateArrow(doc, a.id, { [drag.which as "from" | "to"]: q }) });
+        // A dragged end lets go of what it was linked to; let go on an atom, bond or lone pair, it links to that (Alt: free).
+        const which = drag.which as "from" | "to", moved = { ...a, [which]: q }, link = linkable(a) && snap.on && !e.altKey ? linkFor(doc, snap.on, q, moved, which) : undefined;
+        return setDrag({ ...drag, working: updateArrow(doc, a.id, { [which]: q, ...(linkable(a) ? { [which === "from" ? "fromLink" : "toLink"]: link } : {}) }) });
       }
       case "chain": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -4973,7 +5002,7 @@ export default function Editor() {
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current) });
+        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving, skipsCycle(e, pressCtrlCopy.current)), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current) });
       }
     }
   }
@@ -5737,6 +5766,8 @@ export default function Editor() {
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
+          // Conditions text on an arrow: its gap from the arrow (pt; the first one's), and whether any has a gap set.
+          ...(cs.every((x) => x.on && !x.cycle) ? { arrowGap: { gap: c.on!.gap ?? GAP_ARROW_PT, custom: cs.some((x) => x.on!.gap !== undefined) } } : {}),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
@@ -6820,7 +6851,7 @@ export default function Editor() {
         if (first) setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: `${first.kind}-${arg}` } }));
         return each((a) => (curved(a) ? { bend: (Math.sign(a.bend ?? 1) || 1) * sweepBend(Number(arg)) } : {}));
       }
-      if (what === "reverse") return each((a) => ({ from: a.to, to: a.from, ...(a.bend ? { bend: -a.bend } : {}), ...(a.curve ? { curve: { ...a.curve, points: [...a.curve.points].reverse().map((q) => ({ at: q.at, ...(q.c2 ? { c1: q.c2 } : {}), ...(q.c1 ? { c2: q.c1 } : {}) })) } } : {}), ...(a.start || a.end ? { start: a.end, end: a.start } : {}) }));
+      if (what === "reverse") return each((a) => ({ ...reverseLinks(a), from: a.to, to: a.from, ...(a.bend ? { bend: -a.bend } : {}), ...(a.curve ? { curve: { ...a.curve, points: [...a.curve.points].reverse().map((q) => ({ at: q.at, ...(q.c2 ? { c1: q.c2 } : {}), ...(q.c1 ? { c2: q.c1 } : {}) })) } } : {}), ...(a.start || a.end ? { start: a.end, end: a.start } : {}) }));
       // The Curves model: a head at the start or end (again with the same head takes it off), the heads' shape,
       // a pen curve closed or opened, and a closed curve's fill (again takes it off).
       if (what === "start" || what === "end") {
@@ -6925,14 +6956,18 @@ export default function Editor() {
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
+      // The gap between conditions text and its arrow (pt; auto: Automatic), one Undo step while the slider moves.
+      if (what === "gap") return set(setGap(doc, picked, arg === "auto" ? undefined : Number(arg) / 10), true, arg === "auto" ? undefined : `caption-gap-${[...picked].join()}`);
       if (what === "detach" || what === "attach") {
-        // Detach leaves the caption where it is, as free text. Attach centres it under the structure above it.
+        // Detach leaves the caption where it is, as free text (from its structure or its arrow, lined up as it is
+        // drawn). Attach centres it under the structure above it.
         const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, anchorOf(c)]));
         return set({
           ...doc,
           captions: doc.captions?.map((c) => {
             const at = moves.get(c.id);
             if (!at) return c;
+            if (what === "detach" && c.on && !c.cycle) { const { on: _o, placed: _p, ...free } = c, lined = drawnAlign(c); return { ...free, x: at[0], y: at[1], ...(lined ? { align: lined } : {}) }; }
             if (what === "detach") { const { under: _, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
             const under = structureAbove(at, 4);
             return under ? { ...c, under, align: undefined } : c;
@@ -7218,7 +7253,8 @@ export default function Editor() {
         const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : !drag.make && arrowPick.ellipse ? [drag.from[0] + (arrowPick.ellipse === "cw" ? 0.6 : -0.6), drag.from[1] + 1.2]
           : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
-        const [mol, id] = addArrow(doc, newArrow(drag.from, to, drag.side, drag.make));
+        // A linked head that would sit on a bond goes round its atom to where it is clear (aimHead).
+        const [mol, id] = addArrow(doc, aimHead(doc, dragArrow(drag, to), drawing, linkStyle));
         set(mol);
         return setPicked(new Set([id]));
       }

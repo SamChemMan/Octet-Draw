@@ -227,10 +227,11 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   for (const [id, f] of frames) { const o = row.some((r) => inside(r.step.box, f)) ? undefined : owner(item({ kind: "text", id, box: f })); if (o) { carry(o).shapes.push(id); carry(o).boxes.push(f); } }
   // Curved arrows.
   const on = (q: P) => row.find((r) => r.step.kind === "structure" && near(q, r.step.box))?.step as Part | undefined;
+  // An end linked to what it points at (arrowlinks.ts) follows it by itself, so only the free ends are carried.
   for (const x of arrows) {
-    if (!curved(x)) continue;
+    if (!curved(x) || (x.fromLink && x.toLink)) continue;
     const s0 = on(x.from), s1 = on(x.to);
-    if (s0 && s1 && s0 !== s1) { carry(s0).ends.push([x.id, "from"]); carry(s1).ends.push([x.id, "to"]); continue; }
+    if (s0 && s1 && s0 !== s1) { if (!x.fromLink) carry(s0).ends.push([x.id, "from"]); if (!x.toLink) carry(s1).ends.push([x.id, "to"]); continue; }
     const s = s0 ?? s1;
     if (!s) continue;
     const k = carry(s), other = s0 ? x.to : x.from;
@@ -356,7 +357,8 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
   }
   const kept = (id: number, side: "above" | "below") => (out.captions ?? []).filter((c) => c.on?.arrow === id && c.on.side === side);
   // How far text kept on an arrow reaches from it, as the renderer stacks it (render.ts placeCaptions).
-  const block = (cs: Caption[]) => (cs.length ? (GAP_ARROW_PT + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
+  // (A gap set on the text, arrowlabels.ts, counts as the largest one on the side.)
+  const block = (cs: Caption[]) => (cs.length ? (Math.max(...cs.map((c) => c.on?.gap ?? GAP_ARROW_PT)) + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
   // The widest text kept on an arrow across the page (beside an arrow down the page, text does not set its length).
   const textWidth = (cs: Caption[]) => (flat ? Math.max(0, ...cs.map((c) => { const b = o.captionBox(c.id); return b ? b[2] - b[0] : 0; })) : 0);
 
