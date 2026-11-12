@@ -285,16 +285,16 @@ console.log("chem.check: attachment points ok");
 
 // ---- Time: a structure's SMILES asked for again is kept ----
 // A draw's reply compares each compound drawn again with its first by SMILES (mcp.ts madeCompounds), and a job asks
-// again for the same structures call after call: taxol's SMILES is worked out once. Each round moves it a little, so
-// the first ask of a round is new. The best of three rounds.
+// again for the same structures call after call: the MCP host's SMILES for taxol (keptSmiles) is worked out once.
+// Each round moves it a little, so the first ask of a round is new. The best of three rounds.
 {
-  const { parseStructure } = await import("./chem.ts");
+  const { keptSmiles, parseStructure } = await import("./chem.ts");
   const taxol = parseStructure(JSON.parse(readFileSync(new URL("../scripts/mcp-bench/taxol/structures.json", import.meta.url), "utf8"))["1"]);
   let first = Infinity, again = Infinity;
   for (let round = 1; round <= 3; round++) {
     const m: Mol = { ...taxol, atoms: taxol.atoms.map((a) => ({ ...a, location: [a.location[0] + round, a.location[1], 0] as [number, number, number] })) };
-    const t0 = performance.now(), s = toSmiles(m), t1 = performance.now();
-    assert.equal(toSmiles(m), s);
+    const t0 = performance.now(), s = keptSmiles(m), t1 = performance.now();
+    assert.equal(keptSmiles(m), s);
     first = Math.min(first, t1 - t0); again = Math.min(again, performance.now() - t1);
   }
   assert.ok(again * 3 < first, `first ${first.toFixed(2)} ms, again ${again.toFixed(2)} ms`);

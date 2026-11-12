@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, analyseCompound, keptInchi, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -286,7 +286,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
       try { stereo = STEREO ? stereoFacts(doc, warnOn("enhanced")) : undefined; } catch { stereo = undefined; }
       return onCaptions(problems(chem.mol, stereo, true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
     },
-    smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
+    smiles: (m) => { try { return keptSmiles(expandLabels(m)); } catch { return undefined; } },
     formula: (m) => { try { return analyseCompound(m)?.formula; } catch { return undefined; } },
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     picture: async () => undefined,

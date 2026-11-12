@@ -1265,10 +1265,12 @@ function convert(input: string, format: string, options: Record<string, string> 
     opts.delete();
   }
 }
-// Kept by the KET Indigo reads, as analyses are kept: a draw's reply compares each compound drawn again with its first
-// by SMILES (mcp.ts madeCompounds), so a job's later calls asked Indigo again for the same structures.
+export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
+// The MCP host's SMILES (Editor.tsx and scripts/headless/host.ts), kept by the KET Indigo reads, as analyses are kept:
+// a draw's reply compares each compound drawn again with its first by SMILES (mcp.ts madeCompounds), call after call.
+// The keys are compounds, not whole drawings: copy as SMILES and the dictionary use toSmiles and keep nothing.
 const smiled = new Map<string, string>();
-export const toSmiles = (drawn: Mol): string => { const ket = ketOf(drawn); return remembered(smiled, ket, () => convert(ket, "smiles")); };
+export const keptSmiles = (drawn: Mol): string => { const ket = ketOf(drawn); return remembered(smiled, ket, () => convert(ket, "smiles")); };
 // The drawing's molecules as CML (issue 78), as Indigo writes it: each atom's element, place, charge, isotope and
 // radical, each bond's order and wedge. Import reads it back.
 export const toCml = (drawn: Mol): string => convert(ketOf(drawn), "cml");
