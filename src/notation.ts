@@ -391,9 +391,11 @@ export function linesOf(v: unknown): unknown {
   return Array.isArray(x) && x.length && x.every((l) => typeof l === "string") ? x.join("\n") : typeof v === "string" ? v.replace(STRAY, "").replace(STRAY_END, "") : v;
 }
 // What no line begins with, which Haiku wrote before its first line in about one call in eight (plan 19.11): a quote
-// mark with no partner on its line ("x" as written keeps its own), */ or /*, a comma, a code fence, a bracket left
-// from an array that did not parse, and blank lines. At the very end, a lone closing quote, a fence, or a bracket on a line of its own.
-const STRAY = /^(?:\s+|\*\/|\/\*|,|```[\w-]*(?=\s|$)|[[\]](?=\s|["“”„]|$)|["“”„](?![^\n]*["“”„])|['‘’](?![^\n]*['‘’]))+/, STRAY_END = /(?:\s+|```|(?<=\n\s*)\]|(?<!["“”„][^\n]*)["“”„]|(?<!['‘’][^\n]*)['‘’])+$/;
+// mark with no partner on its line ("x" as written keeps its own), */ or /* with a space, # or the end after it (*/C=C
+// is a SMILES), a comma, a code fence, a bracket left from an array that did not parse, and blank lines. At the very
+// end, a lone closing quote, a fence, or a bracket on a line of its own. Only double quotes: a single one at the end is
+// a prime (3') or an apostrophe, and the logs had none.
+const STRAY = /^(?:\s+|(?:\*\/|\/\*)(?=\s|#|$)|,|```[\w-]*(?=\s|$)|[[\]](?=\s|["“”„]|$)|["“”„](?![^\n]*["“”„]))+/, STRAY_END = /(?:\s+|```|(?<=\n\s*)\]|(?<!["“”„][^\n]*)["“”„])+$/;
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first

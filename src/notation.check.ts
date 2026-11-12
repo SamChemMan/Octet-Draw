@@ -391,7 +391,9 @@ for (const v of ["[Pd]", "[]", "[1, 2]", [], [1]]) assert.equal(linesOf(v), v);
   "\"# Scheme 1. The C2 alcohol 15\nCC1=C2[C@H](C(O)[C@@]3([C@H](C=C[C@]([C@H]3[C@@H]([C@@](C2(C)C)(CC1)O%13)OC%13=O)(CO%10)OC%10(C)C)OCc%20ccccc%20)C)O (13)\n-> CC1=C2[C@H](C(=O)[C@@]3([C@H](C=C[C@]([C@H]3[C@@H]([C@@](C2(C)C)(CC1)O%13)OC%13=O)(CO%10)OC%10(C)C)OCc%20ccccc%20)C)OC(C)=O (14), (a) Ac2O, DMAP, 95%; (b) TPAP, NMO, 93%\n-> CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@H](O)[C@]([C@H]3[C@@H]([C@@](C2(C)C)(CC1)O%13)OC%13=O)(CO)O)OCc%20ccccc%20)C)OC(C)=O (15), (c) BH3·THF, then H2O2, 55%; (d) HCl, MeOH, 80%\n\n# Scheme 2. The TES ether 17\n15 -> CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@H](O)[C@]([C@H]3[C@@H]([C@@](C2(C)C)(CC1)O%13)OC%13=O)(COC(C)=O)O)OCc%20ccccc%20)C)OC(C)=O (16), Ac2O, DMAP, CH2Cl2, 95%\n16 -> CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@H](O)[C@]([C@H]3[C@@H]([C@@](C2(C)C)(CC1)O%13)OC%13=O)(CO)O)O[Si](CC)(CC)CC)C)OC(C)=O (17), (f) H2, Pd(OH)2/C, 97%; (g) TESCl, pyridine, 85%; (h) K2CO3, MeOH, 95%\"",
 ];
   for (const s of LOGGED) { const t = linesOf(s) as string; assert.ok(t.startsWith("# ") && !t.endsWith('"'), t.slice(0, 40)); assert.ok(typeof fromLines({ lines: t }) !== "string", String(fromLines({ lines: t }))); }
-  for (const [s, want] of [["/*\n\n```\n[\n'# T\nCCO (1)\n]\n```", "# T\nCCO (1)"], ['"aspirin" as written\nCCO (1)', '"aspirin" as written\nCCO (1)'], ["[Na+].[Cl-] (1)", "[Na+].[Cl-] (1)"], ["// T\nCCO", "// T\nCCO"]]) assert.equal(linesOf(s), want);
+  for (const [s, want] of [["/*\n\n```\n[\n\"# T\nCCO (1)\n]\n```", "# T\nCCO (1)"], ['"aspirin" as written\nCCO (1)', '"aspirin" as written\nCCO (1)'], ["[Na+].[Cl-] (1)", "[Na+].[Cl-] (1)"], ["// T\nCCO", "// T\nCCO"]]) assert.equal(linesOf(s), want);
+  // (*/ that a SMILES begins with, a prime at the end and an apostrophe at the end are the line's own.)
+  for (const s of ["*/C=C/C(=O)OC (1)", "CC(=O)O (3')\nCCO (4)\n4 -> CC=O (5), 3'", "> text: in the authors'"]) assert.equal(linesOf(s), s);
 }
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
