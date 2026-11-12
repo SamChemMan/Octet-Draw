@@ -95,7 +95,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -405,20 +405,15 @@ function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [st
 const moveBy = ([x, y]: P, k = 1, turn = 0) => (turn ? `translate(${x} ${y}) rotate(${turn})${k !== 1 ? ` scale(${k})` : ""}` : k !== 1 ? `translate(${x} ${y}) scale(${k})` : x || y ? `translate(${x} ${y})` : undefined);
 // A structure's ink as one path per colour and, in 3D structures, per how strongly it is drawn (Structure
 // Perspective): [colour|alpha, path]. Made once for each drawing of the structure.
-// apart: one path for each bond, ring circle and symbol ([colour|alpha|owner, path]), for a picture that leaves Octet
-// (Copy, Export): ChemDraw's PDF draws each bond on its own, and Inkscape and Illustrator make each path an object
-// the user can move. The canvas keeps one path per colour, so drawing is no slower.
+// apart: one path for each line of a bond (each line of a double bond, each hash), each ring circle and each symbol
+// ([colour|alpha|owner|n, path]), for a picture that leaves Octet (Copy, Export): ChemDraw's PDF draws each line on
+// its own, and Inkscape makes each path an object the user can move. A shape inside another of the same owner (the
+// hole of a ring circle) stays in that one's path, so it is still a hole. The canvas keeps one path per colour, so
+// drawing is no slower.
 const inkPaths = new WeakMap<Drawing, [string, string][]>();
 function structurePaths(d: Drawing, apart = false): [string, string][] {
   if (apart && d.owners) {
-    const owned = new Map<string, P[][]>();
-    d.polygons.forEach((poly, i) => {
-      const key = `${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}|${d.owners![i]}`;
-      const list = owned.get(key);
-      if (list) list.push(poly);
-      else owned.set(key, [poly]);
-    });
-    return [...owned].map(([key, polys]) => [key, toPath(polys)]);
+    return apartShapes(d).map(([key, polys]) => [key, toPath(polys)]);
   }
   let paths = inkPaths.get(d);
   if (!paths) {

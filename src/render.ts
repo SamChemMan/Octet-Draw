@@ -1807,6 +1807,28 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   cache.last = last;
   return out;
 }
+// A structure's ink for a picture that leaves Octet (Copy, Export; structurePaths in Editor.tsx): one list of shapes
+// for each line of a bond (each line of a double bond, each hash), ring circle and symbol, as [colour|alpha|owner|n,
+// shapes]. ChemDraw's PDF draws each line on its own, and Inkscape makes each path an object the user can move. A
+// shape inside a larger one of the same owner (the hole of a ring circle) goes with that one, in any order, so it is
+// still a hole. Without owners: none.
+export function apartShapes(d: Drawing): [string, P[][]][] {
+  if (!d.owners) return [];
+  const shapes = d.polygons.map((poly, i) => {
+    const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
+    return { key: `${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}|${d.owners![i]}`, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as Box, poly };
+  });
+  const inside = (a: Box, b: Box) => b[0] <= a[0] && b[1] <= a[1] && b[2] >= a[2] && b[3] >= a[3];
+  const area = (b: Box) => (b[2] - b[0]) * (b[3] - b[1]);
+  const out = new Map<number, P[][]>();
+  shapes.forEach((sh, i) => {
+    // The largest shape of the same owner that holds this one; of two with the same box, the first.
+    let at = i;
+    shapes.forEach((o, j) => { if (j !== i && o.key === sh.key && inside(sh.box, o.box) && (area(o.box) > area(shapes[at].box) || (area(o.box) === area(shapes[at].box) && j < at))) at = j; });
+    out.set(at, [...(out.get(at) ?? []), sh.poly]);
+  });
+  return [...out].sort((a, b) => a[0] - b[0]).map(([i, polys]) => [`${shapes[i].key}|${i}`, polys]);
+}
 // A drawing moved by x, y (px).
 function shifted(d: Drawing, [x, y]: P): Drawing {
   const box = (b: Box): Box => [b[0] + x, b[1] + y, b[2] + x, b[3] + y];
