@@ -153,7 +153,7 @@ function compound(s: string, known: Set<string>, previous?: () => string | undef
   // **3** alone is compound 3.
   if (!t) return number ? { from: number, number, ...(caption ? { caption } : {}) } : `"${s.trim().slice(0, 40)}" has no name or SMILES`;
   // A comma with no space after it is part of a name, before a locant (2,6-lutidine, N,N-dimethyl, 1,1'-).
-  const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((_, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(commas.slice(k).join(",")));
+  const commas = cut(t, (i) => (t[i] === "," ? 1 : 0)).map((x) => x.text), odd = commas.findIndex((x, k) => k && !/^(?:\d+|\p{L}\d*)[a-z]?['′″]*(?=[,\-([])/u.test(k < commas.length - 1 ? `${x},` : x));
   // (A comma with a space after it is a list. Under an arrow's line it was its conditions, which fromLines says.)
   if (odd > 0) return /^\s/.test(commas[odd]) ? `"${t.slice(0, 40)}" ${LIST}put each compound between | or on a line of its own` : fixed(`"${t.slice(0, 40)}": put a space after the comma before ${commas[odd].slice(0, 20)} (a comma with no space is part of a name, as in 2,6-lutidine)`, t, `${commas.slice(0, odd).join(",")}, ${commas.slice(odd).join(",")}`);
   caption &&= caption.replace(/\\n/g, "\n");

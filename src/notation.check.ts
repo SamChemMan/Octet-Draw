@@ -588,8 +588,14 @@ for (const [what, text, want] of [
   ["many asides", `${"A +B -C ".repeat(12_000)}-> D`, /./],
   ["many colons", `{R}C${": R=Me;".repeat(14_000)}`, /./],
   ["many lone lines", "X (1)\n".repeat(14_000) + "-> Y", /./],
+  ["many commas", "1,".repeat(49_999) + "1", /put a space after the comma before 1/],
 ] as [string, string, RegExp][]) {
   const t = performance.now(), got = fromLines({ lines: text }), ms = performance.now() - t;
   assert.match(typeof got === "string" ? got : JSON.stringify(got).slice(0, 100), want, what);
   assert.ok(ms < 1000, `${what}: ${Math.round(ms)} ms`);
+}
+// 50,000 commas with no space are read in one pass: about 20 ms (9.6 s when each comma joined the rest again).
+{
+  const ms = Math.min(...[0, 1, 2].map(() => { const t = performance.now(); fromLines({ lines: "1,".repeat(49_999) + "1" }); return performance.now() - t; }));
+  assert.ok(ms < 100, `many commas: ${Math.round(ms)} ms`);
 }
