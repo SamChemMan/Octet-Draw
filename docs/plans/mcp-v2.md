@@ -1728,9 +1728,9 @@ Tests are in `mcp-v2-tests.md`, section 15.
 - `docs/scripting.md` is the page; `scripts/examples` holds the client (`octet.py`, `octet.mjs`) and the four
   examples in each language. mcp.check fails when the page's table of tools is not tools/list's, when its change and
   advanced rows leave out an operation or tool, or when a file it shows is not the file in `scripts/examples`.
-  headless.check runs the JavaScript examples (and the Python ones, where there is a `python3`) against the Node host
-  on standard input and output (`scripts/headless/stdio.ts`), which says what the window says for a file it cannot
-  read.
+  headless.check runs `scripts/examples/run-all.mjs` (both languages) against the Node host on standard input and
+  output (`scripts/headless/stdio.ts`), which says what the window says for a file it cannot read. It needs Python 3,
+  and fails without it.
 - The client is 35 lines in Python and 36 in JavaScript, not 20: a line each for the reply's error, the binary
   formats and closing. The longest example is 31 lines. Lines are at most 120 characters, so the page does not scroll
   sideways.
@@ -1739,6 +1739,14 @@ Tests are in `mcp-v2-tests.md`, section 15.
   the one platforms.yml installs to; `/usr/bin/octet` and the AppImage come from tauri.conf.json, not from an
   install. Before the page goes on the website, run the four examples in both languages on a Windows and a Linux
   install.
+- Windows and Linux (branch `mcp/ci`): platforms.yml's `examples` job builds a release with no installer, copies it
+  to a folder named `Octet Draw`, runs `scripts/examples/run-all.mjs` (the files made through the program, the four
+  examples in both languages, a failure when either prints other lines or ends with another code than the page's, or
+  the two write different files; the second scheme must save as `.oct`) and `--convert` to PDF and SVG. headless.check
+  runs the same script against `scripts/headless/stdio.ts`, where the second scheme is saved as `.cdxml`. The
+  office-objects job checks that the release installer puts `octet.exe` at the page's Windows path and that it answers
+  initialize. Nothing installs a `.deb`, `.rpm` or AppImage, so the Linux paths
+  are not checked. Not run yet when written: the job runs on push to main, or by hand.
 - For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
   given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
   gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the
