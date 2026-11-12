@@ -67,11 +67,16 @@ Prof. Schramm compared Octet 1.1.0's EMF with ChemDraw 25.5's for Windows on the
   glyph, or right-to-left text. The faces: those every Windows 10 and 11 has (Arial, Times New Roman, Courier New,
   Calibri, Segoe UI and the other core fonts), and Helvetica, Liberation, Arimo, Tinos and Cousine written as the
   Windows font with the same widths (Arial, Times New Roman or Courier New). The EPS keeps all text as outlines.
-- The metafile's reference device is 720 dpi (20 by 15 in). It was a 96 dpi screen. Programs that draw a metafile
-  into pixels at its reference resolution (GDI+'s DrawImage) made bonds fat and ran a hashed wedge's hashes together
-  at 96 dpi. ChemDraw's is about 261 dpi. At 720 dpi a device pixel is exactly 2 logical units (1/20 pt each) and
-  every size in the header is a whole number; a whole A4 page stays under 50 million pixels. Bounds records are in
-  device pixels.
+- The metafile's reference device is 96 dpi (20 by 15 in, 1,920 by 1,440 px). A device pixel is exactly 15 logical
+  units (1/20 pt each), every size in the header is a whole number, and bounds records are in device pixels.
+  Release 1.1.1 made it 720 dpi, because programs that draw a metafile into pixels at its reference resolution
+  (GDI+'s DrawImage) were said to make bonds fat at 96 dpi. ChemDraw's is about 261 dpi.
+
+  Changed back to 96 dpi in release 1.1.2 (issue 55). Word sizes a metafile with text in it by its bounds, read at
+  96 dpi, and one with no text by its frame. At 720 dpi a drawing with labels pasted at its true size with a 13%
+  scale, and was 7.5 times too large at 100%. At 96 dpi the two sizes agree to under a device pixel (0.75 pt).
+  Prof. Schramm checked on Windows 11 (Word 365 16.0.17932): GDI+'s DrawImage draws the 96 and 720 dpi metafiles
+  the same, with a hashed wedge's hashes apart. The frame stays the ink's size: Word places the pasted picture by it.
 - Every picture's frame fits its ink (Copy and Export, every format alike): a label counts by its glyphs' ink (canvas
   measureText), a stroke by half its width, and the edges are rounded outward to 0.01 pt. Before, labels counted by
   their line boxes and the edges went out to whole points. L-proline went from 58 by 41 pt to 56.21 by 36.55 pt, its ink within 0.01 pt of each edge (ChemDraw:
@@ -102,8 +107,7 @@ CF_METAFILEPICT, "Embed Source", "Native", "OwnerLink", "Object Descriptor", "Ol
 
 ## Not done
 
-- Not checked on Windows: how Word, PowerPoint and LibreOffice draw the text records and the 720 dpi device, and
-  whether GDI+'s DrawImage now keeps the hashes apart.
+- Not checked on Windows: how PowerPoint and LibreOffice size and draw the 96 dpi metafile and its text records.
 
 ## Risks to check
 

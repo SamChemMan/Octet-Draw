@@ -156,9 +156,6 @@ Rules for the checks themselves:
 
 ## Open
 
-- Issue #55: 1.1.1 pastes into Word 7.5 times too large on Windows (the EMF's 720 dpi reference). That is another
-  step backwards from 1.1.0. Its check belongs in `src-tauri/src/vector.rs`: the frame and the bounds of the
-  clipboard's EMF give the same size.
 - Other motions made with `element.animate()` (the camera, the shake) use the same timeline. They start from the
   pointer, not after long work, so they were not lost. Move them to the same clock if one is.
 - The checks cannot see the Mac, Windows and Linux web views. `scripts/drive/drive.mjs` could add one glide step on

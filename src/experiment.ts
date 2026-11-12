@@ -14,24 +14,30 @@ export const FIELDS = [
 ] as const;
 export type Field = (typeof FIELDS)[number][0];
 export type Details = Partial<Record<Field, string>>;
+// The document's properties (Settings > Document > Properties), kept as annotations in the same way, so its Title and
+// Author are an experiment page's. A PDF export writes them in its document information too.
+export const PROPERTIES = [["title", "Title"], ["author", "Author"], ["keywords", "Keywords"]] as const;
+export type Properties = Partial<Record<(typeof PROPERTIES)[number][0], string>>;
+type Fields = readonly (readonly [string, string])[];
 export const MAX_VALUE = 200;
-// A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most.
-const clean = (v: string) => v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_VALUE).trim();
+// A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most. A grid's conditions too.
+export const oneLine = (v: string) => v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_VALUE).trim();
 
-// The details in a document's annotations (the first annotation with each keyword).
-export function detailsOf(annotations?: Annotation[]): Details {
-  const out: Details = {};
-  for (const [k, name] of FIELDS) {
-    const a = annotations?.find((x) => x.keyword === name), v = a && clean(a.content);
+// The details in a document's annotations (the first annotation with each keyword). fields: the keywords read
+// (PROPERTIES for the document's properties).
+export function detailsOf<F extends Fields = typeof FIELDS>(annotations?: Annotation[], fields: F = FIELDS as Fields as F): Partial<Record<F[number][0], string>> {
+  const out: Record<string, string> = {};
+  for (const [k, name] of fields) {
+    const a = annotations?.find((x) => x.keyword === name), v = a && oneLine(a.content);
     if (v) out[k] = v;
   }
-  return out;
+  return out as Partial<Record<F[number][0], string>>;
 }
 // The annotations with these details: every annotation with a detail's keyword is replaced, the others stay first in
 // their order. An empty value leaves its keyword out. Undefined when there are none.
-export function withDetails(annotations: Annotation[] | undefined, details: Details): Annotation[] | undefined {
-  const names = new Set<string>(FIELDS.map(([, name]) => name));
-  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...FIELDS.flatMap(([k, keyword]) => { const v = clean(details[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
+export function withDetails<F extends Fields = typeof FIELDS>(annotations: Annotation[] | undefined, details: Partial<Record<F[number][0], string>>, fields: F = FIELDS as Fields as F): Annotation[] | undefined {
+  const names = new Set<string>(fields.map(([, name]) => name)), values: Record<string, string | undefined> = details;
+  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...fields.flatMap(([k, keyword]) => { const v = oneLine(values[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
   return out.length ? out : undefined;
 }
 // Today as the Date field takes it: 4 November 2026.
@@ -44,9 +50,10 @@ export function dateKey(date: string): string {
 }
 
 // Whether a drawing is an experiment page: its purpose is Experiment or a template made from it, or it names a
-// template this computer does not have (a colleague's) and has experiment details.
+// template this computer does not have (a colleague's) and has experiment details. Title and Author do not count: any
+// drawing can have them (PROPERTIES), and a new drawing has an Author.
 export const experimentPage = (kind: string | undefined, purpose: string | undefined, annotations?: Annotation[]) =>
-  kind === "experiment" || (kind === undefined && !!purpose && Object.keys(detailsOf(annotations)).length > 0);
+  kind === "experiment" || (kind === undefined && !!purpose && Object.keys(detailsOf(annotations)).some((k) => !PROPERTIES.some(([p]) => p === k)));
 
 // A new experiment page: its details from the template (Date today), and the template's text and boxes (an own
 // template's, else HEADINGS: each a bold heading at the left margin with an outlined box under it, both ordinary text
@@ -144,7 +151,7 @@ export const MAX_GRIDS = 100; // file.ts
 export function newGrids(before: Mol, after: Mol): Mol {
   const had = new Set((before.arrows ?? []).map((a) => a.id)), gridded = new Set((after.grids ?? []).map((g) => g.arrow));
   const live = (after.arrows ?? []).filter((a) => gridded.has(a.id)).length;
-  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {} }));
+  const add: Grid[] = (after.arrows ?? []).filter((a) => straightArrow(a) && !had.has(a.id) && !gridded.has(a.id)).slice(0, Math.max(0, MAX_GRIDS - live)).map((a) => ({ arrow: a.id, typed: {}, roles: {} }));
   return add.length ? { ...after, grids: [...(after.grids ?? []), ...add] } : after;
 }
 
@@ -295,12 +302,14 @@ export function experimentRows(list: ExperimentEntry[], search: string, sort: Ex
   const order = (a: ExperimentEntry, b: ExperimentEntry) => key(a).localeCompare(key(b), "en-GB", { numeric: true, sensitivity: "base" }) || a.at - b.at;
   return list.filter((e) => words.every((w) => text(e).includes(w))).sort((a, b) => (sort.down ? order(b, a) : order(a, b)));
 }
-// The list as CSV: a row of names, then a row for each experiment (its details, Yield in %, and the file). A value a
-// spreadsheet would run as a formula starts with an apostrophe, as these come from files anyone can make; a minus with
-// a number ("-78 °C") stays as it is.
+// A value a spreadsheet would run as a formula, with an apostrophe in front; a minus with a number ("-78 °C") stays as
+// it is. For text from files anyone can make, pasted or saved into a spreadsheet (the CSV below, Copy table).
+export const sheetSafe = (v: string) => (/^[=+@\t\r]/.test(v) || (v.startsWith("-") && !/^-[\d.]+[\s°%A-Za-zµ]*$/.test(v)) ? `'${v}` : v);
+// The list as CSV: a row of names, then a row for each experiment (its details, Yield in %, and the file), each value
+// sheetSafe.
 export function experimentsCsv(list: ExperimentEntry[]): string {
   const cell = (v: string) => {
-    const s = /^[=+@\t\r]/.test(v) || (v.startsWith("-") && !/^-[\d.]+[\s°%A-Za-zµ]*$/.test(v)) ? `'${v}` : v;
+    const s = sheetSafe(v);
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = [[...FIELDS.map(([, name]) => name), "Yield (%)", "File"], ...list.map((e) => [...FIELDS.map(([k]) => e.details[k] ?? ""), e.yield == null ? "" : (e.yield * 100).toFixed(1), e.path])];

@@ -20,6 +20,7 @@ const { parseStructure, toInchiKey, toSmiles } = await import("./chem.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 const { extractSelection, fragments } = await import("./edit.ts");
 const { pageSize } = await import("./docstyle.ts");
+const { emptyRows } = await import("./gridview.ts");
 await load();
 
 const SCHEME = {
@@ -192,6 +193,13 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   const table = d.host.tables()[0].box, under: Wrote = await call("draw", { kind: "structures", structures: [{ text: "toluene" }] });
   assert.ok(table[1] < scheme.structuredContent.boxes.s1[1] - 1, "the table reaches under the scheme's structures");
   assert.ok(span(under)[3] <= table[1] - 3 && span(under)[3] > table[1] - 4.5, `3 bond lengths under the table (and the grid's 1.25 round a structure): ${span(under)}, ${table}`);
+}
+{
+  // A reagent table starts under the compound numbers of its reaction, as the window lays it out (gridview.ts captionBox).
+  d = drawing("experiment", "Numbers");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol", number: "2" }] }] })).isError);
+  const m = d.host.doc(), table = d.host.tables()[0].box, numbers = m.captions!.filter((c) => c.bold && /^[12]$/.test(c.text)).map((c) => d.host.textBox(c.id)!);
+  assert.ok(numbers.length === 2 && numbers.every((b) => table[3] <= b[1]), `the table ${table} is under the numbers ${numbers.join(" ")}`);
 }
 {
   // Clean Up Structure on one reactant (run_command clean_up) lays its reaction out again, as in the window. A
@@ -427,6 +435,66 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_reaction" } })).isError);
   const again = (await call("read", { detail: "full" })).structuredContent;
   assert.deepEqual([again.text.map((t: { text: string }) => t.text), titles.map((t) => again.captions.find((c: { text: string }) => c.text === t).box)], [titles, titles.map(box)]);
+}
+{
+  // Clean Up Reaction gives back the finished drawing (plan mcp-v2, 17.3): the reaction laid out and, at once, each
+  // product turned to lie as its starting material. A product turned a quarter round lies as it was drawn again.
+  d = drawing("paper", "Turn");
+  assert.ok(!(await call("draw", { lines: "acetophenone (1) -> 1-phenylethanol (2), NaBH4" })).isError);
+  const m = d.host.doc(), p = m.captions!.find((c) => c.bold && c.text === "2")!.under!.filter((i) => m.atoms[i].label !== "H");
+  const shape = (x: typeof m) => p.map((i) => [0, 1].map((k) => x.atoms[i].location[k] - x.atoms[p[0]].location[k]));
+  const c = [0, 1].map((k) => p.reduce((t, i) => t + m.atoms[i].location[k], 0) / p.length);
+  d.host.set({ ...m, atoms: m.atoms.map((a, i) => (p.includes(i) ? { ...a, location: [c[0] - (a.location[1] - c[1]), c[1] + (a.location[0] - c[0]), a.location[2] ?? 0] } : a)) });
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_reaction" } })).isError);
+  const was = shape(m), now = shape(d.host.doc());
+  assert.ok(now.every((v, k) => Math.hypot(v[0] - was[k][0], v[1] - was[k][1]) < 0.05), "the product lies as its starting material again");
+}
+{
+  // File > More Formats' text formats through read with a format (1.1.2): CML, a connection table, SLN, and a peptide
+  // as HELM and FASTA, as the editor writes them.
+  d = drawing("paper", "Formats");
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "peptide: GPG" }] })).isError);
+  const as = async (format: string) => (await call("read", { format })).structuredContent?.text;
+  assert.deepEqual([await as("helm"), await as("fasta")], ["PEPTIDE1{G.P.G}$$$$V2.0", "GPG"]);
+  assert.match(await as("cml"), /<cml>[\s\S]*<molecule>/);
+  assert.match(await as("ct"), /^Formats\n/);
+  assert.ok((await as("sln")).length > 5, "SLN");
+  // Export LaTeX (chemfig): the structures as chemfig code.
+  assert.match(await as("chemfig"), /^\\chemfig\{/);
+}
+{
+  // The reagent table through fill_experiment, as its own menus change it. A role on a table from an older Octet (no
+  // roles) first keeps each known solvent a reactant, as the Role menu does (gridview.ts setRole): only the column given
+  // changes.
+  d = drawing("experiment", "Roles");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4", "MeOH"], products: [{ text: "benzyl alcohol" }] }] })).isError);
+  const m = d.host.doc();
+  d.host.set({ ...m, grids: m.grids!.map(({ roles: _, ...g }) => g) });
+  const solvents = d.host.tables()[0].view.all.filter((c) => c.solvent).map((c) => c.key);
+  assert.deepEqual(solvents, ['r:"MeOH"'], "MeOH is a known solvent");
+  let out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "NaBH4", role: "catalyst" }] } });
+  assert.ok(!out.isError, out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].roles, { 'r:"MeOH"': "reactant", 'r:"NaBH4"': "catalyst" });
+  // Hide empty rows, and Show all rows and columns.
+  const empty = emptyRows(d.host.tables()[0].view);
+  assert.ok(empty.length > 0);
+  out = await call("advanced", { tool: "fill_experiment", args: { hide_empty: true } });
+  assert.ok(!out.isError && /hid the table's empty rows/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].hidden?.rows, empty);
+  await call("advanced", { tool: "fill_experiment", args: { hide_empty: false } });
+  assert.equal(d.host.doc().grids![0].hidden, undefined);
+  // One table for each step of a scheme, and one for the scheme again (gridview.ts stepGrids). A reaction of one
+  // step has none to give.
+  assert.match((await call("advanced", { tool: "fill_experiment", args: { steps: true } })).content[0].text, /cannot read steps: the reaction has one step/);
+  d = drawing("experiment", "Steps");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol" }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide" }] }] })).isError);
+  const arrows = (d.host.doc().arrows ?? []).filter((x) => d.host.reaction(x.id)).map((x) => x.id);
+  out = await call("advanced", { tool: "fill_experiment", args: { steps: true } });
+  assert.ok(!out.isError && /gave each step a table of its own/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), arrows.map((a) => [a, true]));
+  assert.equal(d.host.tables().length, 2);
+  await call("advanced", { tool: "fill_experiment", args: { steps: false } });
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), [[arrows[0], undefined]]);
 }
 {
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.

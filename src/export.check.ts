@@ -116,6 +116,14 @@ assert.deepEqual(frameOf([0, 0, 100, 40], 0.75), [0, 0, 75, 30], "an exact size 
 assert.deepEqual(frameOf([5, 5, 5, 5], 0.75), [3.75, 3.75, 0.01, 0.01], "at least a hundredth across");
 assert.match(editor, /const t = el instanceof SVGTextElement \? inkOfText\(el, glyphInk\) : undefined;/, "Copy and Export measure labels by their ink");
 {
+  // Issue 55: Word reads the bounds of an EMF with text in it at 96 dpi, so the EMF's reference device is 96 dpi and
+  // a device px is a whole number of its 1/20 pt logical units (src-tauri/src/vector.rs; its tests read the header).
+  const vector = readFileSync(new URL("../src-tauri/src/vector.rs", import.meta.url), "utf8");
+  const emf = Object.fromEntries([...vector.matchAll(/^const (UNIT|PER_PX|DEVICE|DEVICE_MM): [^=]+= \(?([^)]+?)\)?;$/gm)].map((m) => [m[1], m[2].split(", ").map((v) => Number(v.replaceAll("_", "")))]));
+  assert.deepEqual(emf.DEVICE.map((px, i) => (px * 254) / (emf.DEVICE_MM[i] * 10)), [96, 96], "the reference device is 96 dpi");
+  assert.equal(emf.PER_PX[0] * 96, emf.UNIT[0] * 72, "a device px is 15 logical units");
+}
+{
   // A text as the browser lays it out: characters in text nodes (some in a tspan), each at a start position.
   type Fake = { nodeType: number; nodeValue?: string; childNodes: Fake[] };
   const node = (kids: (string | Fake)[]): Fake => ({ nodeType: 1, childNodes: kids.map((k) => (typeof k === "string" ? { nodeType: 3, nodeValue: k, childNodes: [] } : k)) });

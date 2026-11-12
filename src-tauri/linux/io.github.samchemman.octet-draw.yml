@@ -1,0 +1,37 @@
+# Octet Draw as a Flatpak, for testers on Linux (issue 37): the .deb that release.yml builds, run on the GNOME runtime,
+# so the web view is the runtime's WebKitGTK and not the system's. release.yml puts the .deb in deb/ beside this file
+# and builds it with flatpak-builder. x86_64 only.
+id: io.github.samchemman.octet-draw
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: octet
+finish-args:
+  # The window: Wayland, or X11 where there is no Wayland.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # The graphics card.
+  - --device=dri
+  # Online search, Feedback and the update check.
+  - --share=network
+  # No file access: Open, Save, Export and a file opened from the file manager all come through the system's portal.
+modules:
+  - name: octet
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: deb
+    build-commands:
+      - ar x *.deb && tar xf data.tar.*
+      - install -Dm755 usr/bin/octet /app/bin/octet
+      # The licence notices (About > Licences), where Tauri looks for them: lib/<product name> beside bin.
+      - mkdir -p /app/lib && cp -r "usr/lib/Octet Draw" /app/lib/
+      # Flatpak shows only the files named for the app: the menu entry, its icons and the file types. The .deb's
+      # 256x256@2 icon is 256 pixels.
+      - install -Dm644 "usr/share/applications/Octet Draw.desktop" /app/share/applications/$FLATPAK_ID.desktop
+      - sed -i "s/^Icon=.*/Icon=$FLATPAK_ID/" /app/share/applications/$FLATPAK_ID.desktop
+      - for s in 32x32 128x128 256x256@2; do install -Dm644 usr/share/icons/hicolor/$s/apps/octet.png /app/share/icons/hicolor/${s%@2}/apps/$FLATPAK_ID.png; done
+      - install -Dm644 usr/share/mime/packages/octet.xml /app/share/mime/packages/$FLATPAK_ID.xml
+      # The build stops if the runtime lacks a library Octet needs (WebKitGTK 4.1 and GTK 3 above all).
+      - "! ldd /app/bin/octet | grep 'not found'"

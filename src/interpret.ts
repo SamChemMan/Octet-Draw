@@ -3,8 +3,8 @@
 // reactants), what stands after it (its products), and its conditions: the text kept on it, and the structures and text
 // drawn above and below it. A structure between two arrows is the product of one step and a reactant of the next.
 import { flipAtoms, rotateAtoms } from "./edit.ts";
-import type { Box, Mol } from "./render.ts";
-import type { Reaction, Step } from "./reaction.ts";
+import { straightArrow, type Arrow, type Box, type Mol } from "./render.ts";
+import { withStructure, type Reaction, type Step } from "./reaction.ts";
 
 type P = [number, number];
 export type Part = Extract<Step, { kind: "structure" | "text" }>;
@@ -134,6 +134,26 @@ export function alignByMap(m: Mol, steps: { reactants: number[][]; products: num
       const after = box(out, g);
       out = { ...out, atoms: out.atoms.map((a, i) => (set.has(i) ? { ...a, location: [a.location[0] + before[0] - after[0], a.location[1] + before[1] - after[1], a.location[2] ?? 0] } : a)) };
     }
+  }
+  return out;
+}
+// Clean Up Reaction's turn, for the editor (Editor.tsx turnProducts) and the host with no window: each product of the
+// reactions `pick` takes, turned to lie as the starting material it came from, by the atom map (alignByMap). A reaction
+// with no map is mapped for this and the map taken off again. reactionOf and captionBox: as drawn now. Gives m itself
+// when nothing is turned.
+export function turnScheme(m: Mol, arrows: Arrow[], reactionOf: (arrow: number) => Reaction | undefined, captionBox: (id: number) => Box | undefined, pick: (r: Reaction) => boolean, map: Mapper, part: (m: Mol, atoms: number[]) => Mol): Mol {
+  const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : [])), seen = new Set<number>();
+  let out = m;
+  for (const a of arrows) {
+    if (!straightArrow(a) || seen.has(a.id)) continue;
+    const r = reactionOf(a.id);
+    r?.arrows.forEach((id) => seen.add(id));
+    if (!r || !withStructure(r) || !pick(r)) continue;
+    const steps = interpret(m, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+    const had = r.atoms.some((i) => m.atoms[i].map), was = out, mapped = had ? out : mapScheme(out, steps, map, (g) => part(was, g));
+    if (!mapped) continue;
+    const turned = alignByMap(mapped, steps);
+    out = had ? turned : { ...clearScheme(turned, new Set(r.atoms)), bonds: turned.bonds.map((b, k) => ({ ...b, rxn: was.bonds[k].rxn })) };
   }
   return out;
 }

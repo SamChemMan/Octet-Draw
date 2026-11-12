@@ -49,10 +49,36 @@ To check a build: `spctl -a -vv /Applications/Octet.app` must say `source=Notari
 ### Windows: code signing (REL-6)
 
 Since June 2023 a code signing certificate's private key must stay in hardware or in a cloud signing service,
-so most new certificates do not come as a .pfx file. The workflow takes either of these:
+so most new certificates do not come as a .pfx file.
 
-- **A cloud signing service** (recommended). Azure Trusted Signing is the simplest with Tauri; check that it
-  accepts an individual in the UK. Add:
+Octet's certificate is Certum's Open Source Code Signing in the Cloud. Its key stays in Certum's cloud
+(SimplySign). You log in with your email and a one-time code from the SimplySign app. The workflow needs one
+secret:
+
+1. Activate the certificate. Certum shows a QR code for the SimplySign app.
+2. Before you scan it, take a screenshot of the QR code.
+3. Read the screenshot on the Mac: `brew install zbar`, then `zbarimg -q --raw qr.png`. It gives a link that
+   starts with `otpauth://totp/`.
+4. Scan the QR code with the SimplySign app, as Certum tells you.
+5. Add the secret `WINDOWS_CERTUM`: the email of the SimplySign account, a space, then the link. For example
+   `sam@example.com otpauth://totp/...?secret=...`.
+6. Put the link in a password manager, and delete the screenshot.
+
+If the app has the QR code already, get a new QR code from Certum and use that one.
+
+Then every build of the workflow signs the app, its uninstaller and the Windows installers. While `WINDOWS_CERTUM`
+is not set, the build log says "No Windows signing secret is set", and the installers are not signed.
+
+The workflow signs with `ssign` 0.1.11 (MIT, github.com/Le-Syl21/ssign), a small program that talks to Certum's
+cloud. It needs no SimplySign Desktop. Certum does not make or support it, so a change at Certum can stop it. It
+signs .exe and .dll files but not .msi files. The Windows build makes no .msi.
+
+The link holds the secret of the one-time codes. With your email, it can sign as you until you get a new QR
+code. If it leaks, get a new QR code, change the secret, and check your signing history at Certum.
+
+Other ways, if Octet ever has a different certificate:
+
+- **Another cloud signing service**, for example Azure Trusted Signing. Add:
   - `WINDOWS_SIGN_COMMAND`: for example
     `trusted-signing-cli -e https://weu.codesigning.azure.net -a <account> -c <profile> -d Octet %1`.
     The workflow installs `trusted-signing-cli` when the command starts with it. Another service needs its
@@ -102,12 +128,19 @@ Open Anyway.
 On the Mac: `npm run tauri dev` and `npm run tauri build` have Feedback, so a build made there for testers has it.
 `OCTET_FEEDBACK=0 npm run tauri build` makes one with no Feedback, as the public release is.
 
+Each run also makes a Flatpak for testers on Linux (issue 37): the artifact `Octet-Draw-x86_64.flatpak`, a zip file
+with `Octet-Draw.flatpak` in it. It is the run's .deb on the GNOME runtime and its WebKitGTK
+(`src-tauri/linux/io.github.samchemman.octet-draw.yml`), and it is not put in the release. A tester installs it with
+`flatpak install --user Octet-Draw.flatpak` and starts it with `flatpak run io.github.samchemman.octet-draw`. Close
+every other Octet first: if one runs, the Flatpak gives its files to that Octet and ends. Check for Updates cannot
+install an update in the Flatpak.
+
 ## What each release has
 
 | Platform | Files |
 | -------- | ----- |
 | macOS 12 or later | `Octet_<version>_universal.dmg`: one app for Apple silicon and Intel |
-| Windows 10 and 11 (64-bit) | `Octet_<version>_x64-setup.exe` and `Octet_<version>_x64_en-US.msi`; `Octet_<version>_x64-offline-setup.exe` |
+| Windows 10 and 11 (64-bit) | `Octet_<version>_x64-setup.exe` and `Octet_<version>_x64-offline-setup.exe` |
 | Linux (64-bit) | `.deb`, `.rpm` and `.AppImage` |
 
 Windows has two setup programs (REL-21). Octet needs the WebView2 runtime. Windows 11 has it, and Windows Update
