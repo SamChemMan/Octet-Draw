@@ -78,7 +78,7 @@ import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
-import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type Details, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
+import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type Details, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -4153,7 +4153,10 @@ export default function Editor() {
     // On an experiment page, the markup typed becomes rich text as a step of its own, so Undo gives the text as typed.
     const marked = (m: Mol, id: number) => {
       const c = expPage ? m.captions?.find((x) => x.id === id) : undefined, next = c && markupCaption(c);
-      if (next) dispatch({ type: "set", mol: { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) } });
+      if (!next) return;
+      // An edit like any other, so the Procedure box grows for it (growProcedure).
+      lastSet.current = { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) };
+      dispatch({ type: "set", mol: lastSet.current });
     };
     if (w.id !== undefined) {
       const old = doc.captions?.find((c) => c.id === w.id);
@@ -6181,6 +6184,14 @@ export default function Editor() {
     const grown = low.length ? growScheme(doc, Math.min(...low)) : doc;
     if (grown !== doc) { lastSet.current = grown; dispatch({ type: "amend", mol: grown }); }
   }, [gridViews]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The same for the Procedure box and the text in it (growProcedure): it keeps room under its text to write on.
+  useEffect(() => {
+    const b = expPage && doc === lastSet.current ? procedureSpan(doc) : undefined;
+    if (!b) return;
+    const low = placed.filter((c) => c.id !== DRAFT).map((c) => [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]).filter((t) => t[3] < b[3] && t[3] > b[1] && t[0] < b[2] && t[2] > b[0]).map((t) => t[1]);
+    const grown = low.length ? growProcedure(doc, Math.min(...low)) : doc;
+    if (grown !== doc) { lastSet.current = grown; dispatch({ type: "amend", mol: grown }); }
+  }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
   tableSpans.current = gridViews.map(tableSpan);
   // Opened or saved: an experiment page's details, with its first product's yield, go to Home's Experiments list, and
   // a drawing that is no longer one leaves it. The yield follows when the chemistry has loaded.
