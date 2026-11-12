@@ -1768,6 +1768,16 @@ Tests are in `mcp-v2-tests.md`, section 15.
   the warnings, the panic and the 6 pt are gone. run-all prints the first 20 lines of each run's error output, and
   drops only lines in Chromium's own form (`[MMDD/HHMMSS.mmm:ERROR:file:line]`), which WebView2 wrote as Octet ended,
   and says how many.
+- Run 43138809476 (12 November 2026, `mcp/ci` at 7741fa8) passed every job, so step 11 is done on the Mac, Windows
+  and Linux: the four examples in both languages print the page's lines and write identical files on both systems; one
+  request then the end of input is answered with exit code 0 on both and on the installed Windows program at the
+  page's path (`%LOCALAPPDATA%\Octet Draw\octet.exe`); `--convert` makes the PDF and the SVG on both. Linux wrote no
+  GTK warning with no window, and the Windows files no longer differ by 6 pt. The Windows fault of the first run was
+  the test's: PowerShell's own pipe into a window program does not wait for it or read its answer (run 43136709661
+  gave no exit code and no reply in 0.4 s, on the build whose examples passed). The test now starts Octet with pipes,
+  as a script does (`scripts/examples/one-request.mjs`). Whether a chemist's own PowerShell pipe into `octet.exe` can
+  be made to work is not looked at: the page's client is the way in. `/usr/bin/octet` and the AppImage path are still
+  not checked, as nothing installs a Linux package.
 - For an AI app that takes elicitation, the prompts say to call and give the brief only for answers the user has
   given; the prompt's own answers count (fill_experiment's notebook, journal_figure's journal). journal_figure then
   gives no column unless the user said one, and Octet's form does not ask (it asks only with no destination). If the
