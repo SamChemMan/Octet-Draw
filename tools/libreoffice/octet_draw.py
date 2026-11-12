@@ -37,6 +37,7 @@ MAX_BYTES = 64 << 20
 PASS = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "LANG")
 # The documents the extension works in, and each program's name for Octet's Update button (Update in Writer).
 DOCUMENTS = (("com.sun.star.text.TextDocument", "Writer"), ("com.sun.star.presentation.PresentationDocument", "Impress"), ("com.sun.star.drawing.DrawingDocument", "Draw"))
+NOT_FOUND = "LibreOffice cannot find Octet Draw. Open Octet Draw once, then try again."
 
 SESSIONS = []  # the pictures open in Octet
 ATTACHED = []  # the views with the double-click and the context menu item
@@ -79,17 +80,18 @@ def pdf_of(ctx, graphic):
 
 # Whether a PDF holds a drawing: a stream marked /Type /Metadata /Subtype /XML (Octet's and ChemDraw's catalog
 # /Metadata) whose text starts as CDXML. Octet reads the PDF again with its own limits; this only decides whether a
-# double-click is Octet's. At most 1,000 streams, and the first 4 KB of each.
+# double-click is Octet's. At most 2,000 places with the word `stream` (a stream has two: `stream` and `endstream`),
+# and the first 4 KB of each stream.
 def has_drawing(pdf):
     at, seen = 0, 0
-    while seen < 1000:
+    while seen < 2000:
         at = pdf.find(b"stream", at)
         if at < 0:
             return False
         start, at = at, at + 6
+        seen += 1
         if pdf[start - 3:start] == b"end":
             continue
-        seen += 1
         head = pdf[max(0, start - 2048):start]
         if b"obj" not in head:
             continue
@@ -240,11 +242,12 @@ class Session:
         self.seen = None  # the file as the extension last read it
         self.gone = False
 
-    # Octet opens the file, or brings its window to the front. False if Octet is not there.
+    # Octet opens the file, or brings its window to the front. False if Octet is not there or does not start: the
+    # user hears it. Octet notes its place each time it starts, so an Octet that was moved is found after it opens once.
     def launch(self):
         command = octet()
         if command is None:
-            message(self.ctx, self.controller, "Octet Draw is not installed. Install Octet Draw, then try again.")
+            message(self.ctx, self.controller, NOT_FOUND)
             return False
         # The program's name for Octet's Update button (Update in Writer), and the document's.
         args = command + ["--object", self.path]
@@ -253,21 +256,29 @@ class Session:
             title = self.doc.getTitle()
         except Exception:
             title = "Document"
-        args += ["--host", title]
+        # The first 260 characters of the name, which is all Octet keeps of it.
+        args += ["--host", title[:260]]
         # Through the user's service manager, as the desktop starts programs, not as LibreOffice's child: Ubuntu
         # confines LibreOffice with AppArmor, and a Flatpak cannot start under it ("bwrap: setting up uid map:
         # Permission denied"). The window's environment goes with it. systemd reads $ in a command as a variable: $$
-        # is a $. With no user service manager, Octet starts as LibreOffice's child.
+        # is a $. With no user service manager, Octet starts as LibreOffice's child. KillMode=process: when that Octet
+        # ends, the service manager leaves the programs it started (the Octet that starts after an update, a browser
+        # for a link).
         manager = shutil.which("systemd-run")
         if manager:
             setenv = ["--setenv=%s=%s" % (k, os.environ[k]) for k in PASS if k in os.environ]
             try:
-                if subprocess.run([manager, "--user", "--quiet", "--collect"] + setenv + ["--"] + [a.replace("$", "$$") for a in args], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode == 0:
+                if subprocess.run([manager, "--user", "--quiet", "--collect", "--property=KillMode=process"] + setenv + ["--"] + [a.replace("$", "$$") for a in args], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode == 0:
                     return True
-            except (OSError, subprocess.TimeoutExpired):
+            except (OSError, ValueError, subprocess.TimeoutExpired):
                 pass
         env = {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
-        child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True, env=env)
+        # A start that fails (the program is gone, or the system cannot pass the document's name): the user hears it.
+        try:
+            child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True, env=env)
+        except (OSError, ValueError):
+            message(self.ctx, self.controller, NOT_FOUND)
+            return False
         threading.Thread(target=child.wait, daemon=True).start()
         return True
 

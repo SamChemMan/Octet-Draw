@@ -31,9 +31,9 @@ use crate::clipboard::mac as clip;
 static BUSY: Mutex<()> = Mutex::new(());
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
-// Edit Picture from Word: the selection's kind and the document's name, one a line. A picture is copied to the
-// clipboard. "busy": Word's scripting gives missing values. Seen when a script started Word, which then stays hidden
-// until it comes to the front once; a click in Word ends it.
+// Edit Picture from Word: the selection's kind, where it starts and the document's name, one a line. A picture is
+// copied to the clipboard. "busy": Word's scripting gives missing values. Seen when a script started Word, which then
+// stays hidden until it comes to the front once; a click in Word ends it.
 const EDIT: &str = r#"on run argv
 	if not (application id "com.microsoft.Word" is running) then return "none"
 	tell application id "com.microsoft.Word"
@@ -45,23 +45,31 @@ const EDIT: &str = r#"on run argv
 			set k to selection type of s
 			if k is selection inline shape then
 				if (count of inline shapes of s) is not 1 then return "none"
+				set startAt to selection start of s
 				copy object (text object of inline shape 1 of s)
-				return "picture" & linefeed & n
+				return "picture" & linefeed & startAt & linefeed & n
 			end if
-			if k is selection ip then return "new" & linefeed & n
+			if k is selection ip then
+				set startAt to selection start of s
+				return "new" & linefeed & startAt & linefeed & n
+			end if
 		end timeout
 	end tell
 	return "none"
 end run"#;
 
 // The hidden bookmark (argument 1) on the selected picture, or at the cursor (argument 2: "picture" or "new"), if the
-// selection is still that.
+// selection is still that and still starts where EDIT read it (argument 3). EDIT and MARK are two runs, and the user
+// can select another picture between them: that picture gets no bookmark, so Update never replaces it.
 const MARK: &str = r#"on run argv
 	set b to item 1 of argv
 	set k to item 2 of argv
+	set startAt to item 3 of argv
 	tell application id "com.microsoft.Word"
 		with timeout of 10 seconds
 			set s to selection
+			set startNow to selection start of s
+			if (startNow as text) is not startAt then return "none"
 			if k is "picture" and (selection type of s is selection inline shape) then
 				set r to text object of inline shape 1 of s
 			else if k is "new" and (selection type of s is selection ip) then
@@ -77,13 +85,16 @@ end run"#;
 
 // Update: the PDF on the clipboard replaces the picture at the bookmark (argument 1), in the document that has it.
 // Argument 2 "1": the picture is in the document. A new drawing's bookmark stays empty at the cursor, and its picture
-// is the character after it. No picture there (deleted, or text typed in its place): "gone", so no text is replaced.
-// Only the picture is replaced, so text typed into the bookmark next to it stays. Returns the document's name, "gone"
-// or "busy". The picture stays selected if it was. Each command waits 10 s for Word at most (a dialog open in Word),
-// so the clipboard is never borrowed for long.
+// is the character after it. No picture there (deleted, or text typed in its place): "lost", so no text is replaced.
+// Only the picture is replaced, so text typed into the bookmark next to it stays. Argument 3: the document's name as
+// Word gave it last, or empty. No open document has the bookmark: "lost" if a document of that name is open (the
+// picture was deleted, or an Undo in Word took the bookmark away), else "gone" (the document is closed). Returns the
+// document's name, "gone", "lost" or "busy". The picture stays selected if it was. Each command waits 10 s for Word
+// at most (a dialog open in Word), so the clipboard is never borrowed for long.
 const UPDATE: &str = r#"on run argv
 	set b to item 1 of argv
 	set placed to (item 2 of argv) is "1"
+	set h to item 3 of argv
 	if not (application id "com.microsoft.Word" is running) then return "gone"
 	tell application id "com.microsoft.Word"
 		with timeout of 10 seconds
@@ -96,7 +107,10 @@ const UPDATE: &str = r#"on run argv
 					exit repeat
 				end if
 			end repeat
-			if n is missing value then return "gone"
+			if n is missing value then
+				if h is not "" and (exists document h) then return "lost"
+				return "gone"
+			end if
 			set d to document n
 			set m to bookmark b of d
 			if m is missing value then return "busy"
@@ -108,7 +122,7 @@ const UPDATE: &str = r#"on run argv
 				set alt to alternative text of inline shape 1 of r
 				if placed then set r to text object of inline shape 1 of r
 			on error
-				if placed then return "gone"
+				if placed then return "lost"
 			end try
 			set s to selection
 			set picked to (name of document of s is n) and (selection start of s is start of content of r) and (selection end of s is end of content of r)
@@ -143,7 +157,8 @@ const BACK: &str = r#"if application id "com.microsoft.Word" is running then tel
 #[derive(Debug, PartialEq, Eq)]
 pub enum Fail {
     Denied, // the user did not allow Octet to control Word (System Settings > Privacy & Security > Automation)
-    Gone,   // the document is closed, Word quit, or the picture is no longer there
+    Gone,   // the document is closed, or Word quit
+    Lost,   // the document is open, and the picture or its bookmark is no longer in it
     Busy,   // Word did not answer
     Failed,
 }
@@ -203,13 +218,53 @@ fn running() -> bool {
 }
 
 // Edit Picture from Word, on a thread of its own: the selected picture's drawing (None: nothing Octet can edit).
-fn find() -> Result<Option<Found>, Fail> {
+// marks: the bookmarks of the pictures open in object windows.
+fn find(marks: &[String]) -> Result<Option<Pick>, Fail> {
     // Word closed or not installed: a beep, with no Apple Event and no clipboard borrowed.
     if !running() {
         return Ok(None);
     }
     let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
-    read(true)
+    // A picture that is open in an object window already: that window, as a double-click in Word gives it, and never a
+    // second window on one picture. Word is asked only when such a window is open. If Word does not answer this, the
+    // read below says why.
+    if !marks.is_empty() {
+        let marks: Vec<&str> = marks.iter().map(String::as_str).collect();
+        if let Ok(answer) = run(PICKED, &marks) {
+            if let Some(("open", mark)) = answer.split_once('\n') {
+                return Ok(Some(Pick::Front(mark.to_string())));
+            }
+        }
+    }
+    Ok(read(true)?.map(Pick::Open))
+}
+
+// EDIT's answer for a picture or a cursor, in its three lines: the kind, where the selection starts, and the
+// document's name. None for any other answer. The start goes back to Word as MARK's argument, so only digits pass,
+// nine at most.
+fn parts(answer: &str) -> Option<(&str, &str, &str)> {
+    let mut lines = answer.splitn(3, '\n');
+    let (kind, at, host) = (lines.next()?, lines.next()?, lines.next().unwrap_or(""));
+    (!at.is_empty() && at.len() <= 9 && at.bytes().all(|b| b.is_ascii_digit())).then_some((kind, at, host))
+}
+
+// The name Word gave last for the document that has each bookmark. Update gives it to Word, which tells a closed
+// document from a picture that is no longer in an open one by it. The newest 64 bookmarks: an older one's document
+// counts as closed.
+static DOCS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+const DOCS_MOST: usize = 64;
+
+fn remember(mark: &str, name: &str) {
+    let mut docs = DOCS.lock().unwrap_or_else(|e| e.into_inner());
+    docs.retain(|(m, _)| m != mark);
+    if docs.len() >= DOCS_MOST {
+        docs.remove(0);
+    }
+    docs.push((mark.to_string(), name.to_string()));
+}
+
+fn document(mark: &str) -> String {
+    DOCS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(m, _)| m == mark).map(|(_, name)| name.clone()).unwrap_or_default()
 }
 
 // The selected picture's drawing, with BUSY held. new: Word's cursor with nothing selected gives a new drawing.
@@ -225,21 +280,25 @@ fn read(new: bool) -> Result<Option<Found>, Fail> {
         clip::restore(&pb, &saved);
     }
     let answer = answer?;
-    let (kind, host) = answer.split_once('\n').unwrap_or((answer.as_str(), ""));
+    if answer == "busy" {
+        return Err(Fail::Busy);
+    }
+    let Some((kind, at, host)) = parts(&answer) else { return Ok(None) };
     let (oct, placed) = match kind {
         "picture" => match oct {
             Some(o) => (o, true),
             None => return Ok(None),
         },
         "new" if new => (String::new(), false),
-        "busy" => return Err(Fail::Busy),
         _ => return Ok(None),
     };
     let mark = new_mark();
-    if run(MARK, &[&mark, kind])? != "ok" {
+    if run(MARK, &[&mark, kind, at])? != "ok" {
         return Ok(None);
     }
-    Ok(Some(Found { host: crate::ole::host_name(host), oct, placed, mark }))
+    let host = crate::ole::host_name(host);
+    remember(&mark, &host);
+    Ok(Some(Found { host, oct, placed, mark }))
 }
 
 // Update: `pdf` replaces the picture at the bookmark `mark`. The document's name (it changes with Save As), else why
@@ -254,12 +313,20 @@ pub fn put(mark: &str, placed: bool, pdf: &[u8]) -> Result<String, Fail> {
         return Err(Fail::Failed);
     }
     let ours = pb.changeCount();
-    let answer = run(UPDATE, &[mark, if placed { "1" } else { "0" }]);
+    let answer = run(UPDATE, &[mark, if placed { "1" } else { "0" }, &document(mark)]);
     if pb.changeCount() == ours {
         clip::restore(&pb, &saved);
     }
-    match answer?.as_str() {
+    let name = placed_in(&answer?)?;
+    remember(mark, &name);
+    Ok(name)
+}
+
+// UPDATE's answer: the document's name, or why the picture is not in it.
+fn placed_in(answer: &str) -> Result<String, Fail> {
+    match answer {
         "gone" => Err(Fail::Gone),
+        "lost" => Err(Fail::Lost),
         "busy" => Err(Fail::Busy),
         name => Ok(crate::ole::host_name(name)),
     }
@@ -271,12 +338,15 @@ pub fn back() {
 }
 
 // File > Edit Picture from Word and the Service: an object window for the picture selected in Word, or for a new
-// drawing at Word's cursor. A selection that is neither, or a picture with no drawing in it, gives a beep.
+// drawing at Word's cursor. A picture that is open in an object window already brings that window to the front. A
+// selection that is neither, or a picture with no drawing in it, gives a beep.
 pub fn edit(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match tauri::async_runtime::spawn_blocking(find).await.unwrap_or(Err(Fail::Failed)) {
-            Ok(Some(found)) => crate::objects::open_word(&app, found).await,
+        let marks = crate::objects::word_marks(&app);
+        match tauri::async_runtime::spawn_blocking(move || find(&marks)).await.unwrap_or(Err(Fail::Failed)) {
+            Ok(Some(Pick::Open(found))) => crate::objects::open_word(&app, found).await,
+            Ok(Some(Pick::Front(mark))) => crate::objects::front_word(&app, &mark).await,
             Ok(None) => beep(&app),
             Err(f) => tell(&app, &f, None),
         }
@@ -298,6 +368,7 @@ pub fn message(f: &Fail, host: Option<&str>) -> String {
         (Fail::Denied, _) => "Octet Draw is not allowed to control Microsoft Word.".into(),
         (Fail::Busy, _) => "Microsoft Word does not answer. Click in the Word document, then try again.".into(),
         (Fail::Gone, Some(h)) => format!("{h} is closed. Save a copy to keep this drawing."),
+        (Fail::Lost, Some(h)) => format!("Octet cannot find this picture in {h}. Save a copy to keep this drawing."),
         (_, Some(h)) => format!("Octet cannot update {h}. Try again."),
         (_, None) => "Octet cannot open this picture from Word.".into(),
     }
@@ -349,11 +420,11 @@ pub fn install(app: &AppHandle) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Double-click in Word (Settings > General > Microsoft Word, on unless the user turns it off). Word for Mac tells no other program
-// about a double-click, so while the setting is on, Octet watches the mouse: a global monitor of left mouse-downs,
-// which macOS gives with no permission (Apple asks for Accessibility only to monitor keys; tried on macOS 27.2). The
-// monitor reads the click count and the bundle id of the program in front. It never reads where a click was, or a
-// key, and sends nothing anywhere.
+// Double-click in Word (Settings > General > Word, off until the user turns it on: before then Octet watches no mouse
+// and sends Word nothing for a click). Word for Mac tells no other program about a double-click, so while the setting
+// is on, Octet watches the mouse: a global monitor of left mouse-downs, which macOS gives with no permission (Apple
+// asks for Accessibility only to monitor keys; tried on macOS 27.2). The monitor reads the click count and the bundle
+// id of the program in front. It never reads where a click was, or a key, and sends nothing anywhere.
 // - No Apple Event goes out unless Word is in front and the click is a double-click's second, once a second at most:
 //   a triple-click or a burst of clicks asks Word once.
 // - Octet asks Word whether one inline picture is selected (PICKED, no clipboard). Only then is it read, as Edit
@@ -362,6 +433,8 @@ pub fn install(app: &AppHandle) {
 //   already brings that window to the front.
 // - Anything else does nothing: no beep, and the clipboard as it was. Word's own double-click (its Picture Format
 //   tab) goes ahead.
+// - A user who did not allow Octet to control Word gets no alert here: a double-click in Word is not a command to
+//   Octet. File > Edit Picture from Word and Update show the alert.
 
 // One inline picture selected: "picture", or "open" and the bookmark (an argument: those of the object windows whose
 // picture is in the document) that holds it. An empty bookmark holds the character after it, as in UPDATE.
@@ -381,7 +454,7 @@ const PICKED: &str = r#"on run argv
 					set b0 to start of bookmark of m
 					set b1 to end of bookmark of m
 					if empty of m then set b1 to b0 + 1
-					if b0 ≤ (selection start of s) and b1 ≥ (selection end of s) then return "open" & linefeed & b
+					if b0 <= (selection start of s) and b1 >= (selection end of s) then return "open" & linefeed & b
 				end if
 			end repeat
 		end timeout
@@ -443,7 +516,8 @@ fn watch(on: bool) {
     });
 }
 
-// What a double-click in Word found: a picture's drawing, or the bookmark of the object window it is open in.
+// What a double-click in Word or Edit Picture from Word found: a picture's drawing, or the bookmark of the object
+// window it is open in.
 enum Pick {
     Open(Found),
     Front(String),
@@ -466,7 +540,6 @@ fn picked(marks: &[String]) -> Result<Option<Pick>, Fail> {
     })
 }
 
-static TOLD: AtomicBool = AtomicBool::new(false);
 // A double-click is in hand until its window is open: one that comes before then is dropped, so it never opens the
 // same picture in a second window.
 static PENDING: AtomicBool = AtomicBool::new(false);
@@ -481,8 +554,7 @@ fn double_click(app: &AppHandle) {
         match tauri::async_runtime::spawn_blocking(move || picked(&marks)).await.unwrap_or(Err(Fail::Failed)) {
             Ok(Some(Pick::Open(found))) => crate::objects::open_word(&app, found).await,
             Ok(Some(Pick::Front(mark))) => crate::objects::front_word(&app, &mark).await,
-            // Octet may not control Word: the alert once while Octet runs, as every double-click in Word comes here.
-            Err(f @ Fail::Denied) if !TOLD.swap(true, Ordering::Relaxed) => tell(&app, &f, None),
+            // Nothing to open, or Word did not answer or is not allowed: nothing shows.
             _ => {}
         }
         PENDING.store(false, Ordering::Release);
@@ -509,10 +581,12 @@ mod tests {
         assert!(m.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
     }
 
-    // Apple Events go to Word only, by its bundle id.
+    // Apple Events go to Word only, by its bundle id. The scripts are ASCII, so they do not depend on how osascript
+    // reads its input.
     #[test]
     fn scripts_name_only_word() {
         for s in [EDIT, MARK, UPDATE, BACK, PICKED] {
+            assert!(s.is_ascii(), "ASCII only");
             assert!(!s.contains("tell application \""), "by bundle id only");
             let apps: Vec<&str> = s.match_indices("application id \"").map(|(k, _)| &s[k + 16..k + 16 + s[k + 16..].find('"').unwrap()]).collect();
             assert!(apps.iter().all(|a| *a == WORD), "{apps:?}");
@@ -538,9 +612,49 @@ mod tests {
         assert!(wanted(2, Some(WORD), at(2000), &last));
     }
 
+    // EDIT's answer: the kind, where the selection starts and the document's name. The start is MARK's argument, and
+    // MARK makes no bookmark unless the selection still starts there.
+    #[test]
+    fn edit_answers() {
+        assert_eq!(parts("picture\n120\nReport.docx"), Some(("picture", "120", "Report.docx")));
+        assert_eq!(parts("new\n0\nA\nB.docx"), Some(("new", "0", "A\nB.docx")), "the name is the rest");
+        assert_eq!(parts("picture\n120"), Some(("picture", "120", "")), "no name");
+        for a in ["none", "busy", "picture", "picture\nReport.docx", "picture\n\nReport.docx", "picture\n12a\nR", "picture\n-1\nR", "picture\n1234567890\nR", "picture\n, missing value, \nR"] {
+            assert_eq!(parts(a), None, "{a:?}");
+        }
+        assert_eq!(EDIT.matches("& linefeed & startAt & linefeed & n").count(), 2, "a picture and a cursor both give the start");
+        assert!(MARK.contains("set startAt to item 3 of argv") && MARK.contains("if (startNow as text) is not startAt then return \"none\""));
+    }
+
+    // UPDATE's answer: a closed document and a picture that is gone from an open one are not the same.
+    #[test]
+    fn update_answers() {
+        assert_eq!(placed_in("gone"), Err(Fail::Gone));
+        assert_eq!(placed_in("lost"), Err(Fail::Lost));
+        assert_eq!(placed_in("busy"), Err(Fail::Busy));
+        assert_eq!(placed_in("Report.docx"), Ok("Report.docx".to_string()));
+        assert_eq!(UPDATE.matches("return \"lost\"").count(), 2, "no bookmark in the open document, and no picture at the bookmark");
+        assert_eq!(UPDATE.matches("return \"gone\"").count(), 2, "Word not running, and no document of that name open");
+    }
+
+    // The document's name that Update gives Word: the newest for each bookmark, for 64 bookmarks at most.
+    #[test]
+    fn document_names() {
+        remember("_Octet_a", "Document1");
+        remember("_Octet_a", "Report.docx");
+        assert_eq!(document("_Octet_a"), "Report.docx");
+        assert_eq!(document("_Octet_none"), "");
+        for k in 0..DOCS_MOST {
+            remember(&format!("_Octet_{k}"), "Other.docx");
+        }
+        assert_eq!(document("_Octet_a"), "", "the oldest goes");
+        assert_eq!(DOCS.lock().unwrap().len(), DOCS_MOST);
+    }
+
     #[test]
     fn messages() {
         assert_eq!(message(&Fail::Gone, Some("Report.docx")), "Report.docx is closed. Save a copy to keep this drawing.");
+        assert_eq!(message(&Fail::Lost, Some("Report.docx")), "Octet cannot find this picture in Report.docx. Save a copy to keep this drawing.");
         assert_eq!(message(&Fail::Failed, Some("Report.docx")), "Octet cannot update Report.docx. Try again.");
         assert_eq!(message(&Fail::Denied, None), "Octet Draw is not allowed to control Microsoft Word.");
     }

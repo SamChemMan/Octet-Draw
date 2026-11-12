@@ -229,4 +229,13 @@ for (const r of rules) {
 for (const s of [".select-field", ".unit-field", ".segmented", ".list-find", ".page-button"]) assert.ok(rules.some((r) => r.selector === s && r.props.get("background") === "var(--canvas)"), `${s} is a well`);
 for (const s of [".spectrum-button", ".chip", ".prop-add", ".dialog-button", ".home-open", ".notes-tab", ".export-button", ".feedback-link", ".actions-reopen"]) assert.ok(rules.some((r) => r.selector === s && r.props.get("background") === "var(--surface-raised)"), `${s} has the raised fill`);
 
+// 8. A name from another program. The Update button's name (the program, or the document: up to 260 characters) stays
+// on one line in a pill at most 240 px wide, cut short with an ellipsis. The pill is a block, as an ellipsis does not
+// show in a flex box.
+{
+  const update = rules.find((r) => r.selector === ".export-button.primary");
+  assert.ok(update, ".export-button.primary has a rule of its own");
+  for (const [name, value] of [["display", "block"], ["max-width", "240px"], ["overflow", "hidden"], ["white-space", "nowrap"], ["text-overflow", "ellipsis"]]) assert.equal(update.props.get(name), value, `.export-button.primary: ${name}`);
+}
+
 console.log("ui.check: ok");

@@ -5150,6 +5150,15 @@ div.facts {
   font: 500 13px/18px var(--font-sans);
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
+/* Update's name comes from the other program, so it can be long: it stays on one line and is cut short with an
+   ellipsis (its tip has the whole name). A block, as an ellipsis does not show in a flex box. */
+.export-button.primary {
+  display: block;
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 @media (hover: hover) and (pointer: fine) {
   .export-button:hover:not(:disabled) {
     background: var(--surface-sunken);

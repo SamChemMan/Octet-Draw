@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Octet Draw reads the structure that you select and puts your changes back.</string>
+	<string>Octet Draw reads the drawing that you select in Word and puts your changes back.</string>
 	<key>NSServices</key>
 	<array>
 		<dict>

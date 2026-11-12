@@ -44,7 +44,10 @@ assert.ok(main.includes('linux::spawn(std::process::Command::new("unopkg").arg("
 assert.ok(/#\[cfg\(target_os = "linux"\)\]\npub fn open_external[\s\S]*?for mut opener in ::open::commands\(target\) \{\n\s*result = linux::spawn\(&mut opener\);/.test(main), "the openers start through linux::spawn");
 assert.ok(main.includes('linux::spawn(std::process::Command::new("xdg-open")'), "the folder of a file starts through linux::spawn");
 assert.ok(/if let Some\(\(_, mount\)\) = appimage\(\) \{\n\s*for \(key, value\) in session_env\(std::env::vars_os\(\), &mount\)/.test(linuxRs), "spawn gives the session's environment");
-assert.ok(settings.includes('invoke("add_to_libreoffice")') && settings.includes(">Add to LibreOffice<"));
+// The button says so when it cannot open the extension (no LibreOffice, or nothing that opens an .oxt): the page runs
+// the command and shows the failure as a notice, as it does for every other command.
+assert.ok(settings.includes("onClick={p.onAddToLibreOffice}>Add to LibreOffice<"), "Settings has the button");
+assert.ok(read("./Editor.tsx").includes('onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}'), "a failure shows a notice");
 
 // The manifest registers the Python component and the configuration, and each file it names is there.
 const entries = [...manifest.matchAll(/manifest:media-type="([^"]+)" manifest:full-path="([^"]+)"/g)].map((m) => [m[2], m[1]]);
@@ -65,13 +68,16 @@ assert.equal(py.match(/^APP_ID = "([^"]+)"$/m)?.[1], conf.identifier, "the folde
 const runs = [...py.matchAll(/\b(subprocess\.\w+|os\.(system|popen|exec\w*|spawn\w*|posix_spawn\w*)|eval|exec)\s*\(/g)].map((m) => m[1]);
 assert.deepEqual(runs, ["subprocess.run", "subprocess.Popen"]);
 // The program's name (Update in Writer, Impress, Draw) from the document's service, then the document's.
-assert.ok(py.includes('args = command + ["--object", self.path]') && py.includes('args += next((["--app", name] for service_name, name in DOCUMENTS if self.doc.supportsService(service_name)), [])') && py.includes('args += ["--host", title]') && !/shell\s*=/.test(py));
+assert.ok(py.includes('args = command + ["--object", self.path]') && py.includes('args += next((["--app", name] for service_name, name in DOCUMENTS if self.doc.supportsService(service_name)), [])') && py.includes('args += ["--host", title[:260]]') && !/shell\s*=/.test(py));
 assert.ok(py.includes('DOCUMENTS = (("com.sun.star.text.TextDocument", "Writer"), ("com.sun.star.presentation.PresentationDocument", "Impress"), ("com.sun.star.drawing.DrawingDocument", "Draw"))'), "Impress before Draw");
-assert.ok(py.includes('subprocess.run([manager, "--user", "--quiet", "--collect"] + setenv + ["--"] + [a.replace("$", "$$") for a in args], ') && py.includes('manager = shutil.which("systemd-run")'));
+// KillMode=process: when that Octet ends, the service manager leaves what it started (the next Octet after an update).
+assert.ok(py.includes('subprocess.run([manager, "--user", "--quiet", "--collect", "--property=KillMode=process"] + setenv + ["--"] + [a.replace("$", "$$") for a in args], ') && py.includes('manager = shutil.which("systemd-run")'));
 assert.ok(py.includes("subprocess.Popen(args, "));
 const octet = py.match(/\ndef octet\(\):\n([\s\S]*?)\n\n/)?.[1] ?? "";
 assert.deepEqual([...octet.matchAll(/return (.+)$/gm)].map((m) => m[1]), ["[noted]", '["/usr/bin/octet"]', '[flatpak, "run", APP_ID]', "[found] if found else None"], "the programs it runs: Octet, or Flatpak's Octet");
 assert.ok(['Some("--object")', 'Some("--host")', 'Some("--app")'].every((f) => objects.includes(f)), "Octet reads those arguments");
+// Quit in Octet with an object window open: the extension still hears `closed`, as Quit destroys no window.
+assert.ok(/tauri::RunEvent::Exit => \{[^}]*objects::shutdown\(/.test(main) && /pub fn shutdown\(files: &Files\) \{[\s\S]*?close\(files, id, false\);/.test(objects), "Quit closes the objects in files");
 // Octet's own path (an AppImage's) in the file the extension reads first: Octet's config folder, written when Octet
 // starts and at Add to LibreOffice.
 assert.ok(linuxRs.includes('app.path().app_config_dir()') && linuxRs.includes('dir.join("octet-path")') && linuxRs.includes(".mode(0o600)"));
@@ -91,6 +97,9 @@ const cases: [Buffer, boolean][] = [
   [pdf(`/Type /Metadata /Subtype /XML`, Buffer.from(cdxml)), true],
   [pdf(`/Type /Metadata /Subtype /XML`, Buffer.from("<x:xmpmeta/>")), false],
   [pdf(`/Filter /FlateDecode`, deflateSync(cdxml)), false],
+  // A PDF filled with the word endstream: each one counts to the 2,000 places looked at, so a click stays fast.
+  [Buffer.concat([Buffer.from("endstream ".repeat(1999)), pdf(`/Type /Metadata /Subtype /XML`, Buffer.from(cdxml))]), true],
+  [Buffer.concat([Buffer.from("endstream ".repeat(2000)), pdf(`/Type /Metadata /Subtype /XML`, Buffer.from(cdxml))]), false],
 ];
 const stubs = `import sys, types
 class Any:
@@ -124,15 +133,37 @@ def note(target, mode=0o755, linked=False, path_mode=0o600):
     found = octet_draw.noted_octet()
     shutil.rmtree(home)
     return found == app
-print(" ".join(str(x) for x in [note("app"), note("link"), note("app", 0o757), note("app", 0o644), note("app", linked=True), note("app", path_mode=0o620), note("missing")]))`;
+print(" ".join(str(x) for x in [note("app"), note("link"), note("app", 0o757), note("app", 0o644), note("app", linked=True), note("app", path_mode=0o620), note("missing")]))
+# A start that fails (the service manager first, then Octet itself): the user hears it and the session's folder goes.
+# The service manager gets KillMode=process, and the document's name goes as its first 260 characters.
+import json, subprocess
+calls, said = [], []
+def fail(args, **options):
+    calls.append(args)
+    raise (ValueError if len(calls) == 1 else OSError)()
+subprocess.run = subprocess.Popen = fail
+shutil.which = lambda name: "/usr/bin/systemd-run"
+octet_draw.octet = lambda: ["/gone/octet"]
+octet_draw.message = lambda ctx, controller, text: said.append(text)
+class Document:
+    def supportsService(self, name): return name == "com.sun.star.text.TextDocument"
+    def getTitle(self): return "T" * 300
+session = octet_draw.Session.__new__(octet_draw.Session)
+session.ctx = session.controller = None
+session.doc, session.folder = Document(), tempfile.mkdtemp()
+session.path = os.path.join(session.folder, "drawing.pdf")
+octet_draw.start(session)
+print(json.dumps([os.path.exists(session.folder), said, calls[0][:5], [len(c[-1]) for c in calls]]))`;
 const python = spawnSync("python3", ["-I", "-B", "-c", stubs, path(dir), ...cases.map(([b]) => b.toString("hex"))], { encoding: "utf8" });
 if (python.error) {
   console.log("libreoffice: python3 is not here; the Python is not run");
 } else {
   assert.equal(python.status, 0, python.stderr);
-  const [drawings, noted] = python.stdout.trim().split("\n");
+  const [drawings, noted, started] = python.stdout.trim().split("\n");
   assert.equal(drawings, cases.map(([, d]) => (d ? "True" : "False")).join(" "));
   assert.equal(noted, "True False False False False False False", "the noted path: a real program, and nothing else");
+  const notFound = "LibreOffice cannot find Octet Draw. Open Octet Draw once, then try again.";
+  assert.deepEqual(JSON.parse(started), [false, [notFound], ["/usr/bin/systemd-run", "--user", "--quiet", "--collect", "--property=KillMode=process"], [260, 260]], "a start that fails says so and leaves no folder");
 }
 
 // The .oxt that build.rs made, when there is one: a stored zip of those files, with Octet's version.

@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 11 November 2026.
+Updated 12 November 2026.
 
 This page lists the releases, the work that is built for the next releases, and the work that is not started.
 The notes for each release are in `docs/release-notes/`. The decisions are in `docs/decisions/`.
@@ -31,6 +31,11 @@ Main changes:
 - The stoichiometry table reads reagents over the arrow, ions and coefficients (issues 131 to 136).
 - Settings > Pro and File > More Formats: CML, BMP, 3MF, connection tables, SLN, chemfig, CIF and mmCIF.
 - Paste into Word for Windows as an object that opens in Octet (issue 24, decision 0023).
+- Word for Mac: File > Edit Picture from Word opens the picture that is selected in Word, and Update in Word puts the
+  changed picture back (decision 0023, "Mac, Linux and the web"). A double-click in Word does the same only after the
+  user turns it on in Settings > General > Word. It is off until then.
+- LibreOffice on Linux (issue 48, decision 0025): Settings > General > Add to LibreOffice adds Octet's extension. A
+  double-click on a structure in Writer, Impress or Draw then opens it in Octet, and Update puts it back.
 - The fix for the 1.1.1 crash with a large drawing.
 - A Flatpak test build in CI, for slow drawing on Linux with NVIDIA (issue 37).
 - Windows code signing is ready in CI. It needs one secret (issue 17).
@@ -45,8 +50,12 @@ To do for the release:
 
 Merged on 11 November: dashed and bold orbitals (issue 139), the Photochemistry set (43), gels and plasmid maps (96),
 membranes (95), six more laboratory templates (98), the polyhedra frames and C70 (97), and the seven bug fixes and the
-code clean-up from the code review. Built on a branch and not merged: the Office work for the Mac and LibreOffice
-(`item/office`), and charts (`item/charts`).
+code clean-up from the code review. Added on 12 November: the Office work for the Mac and LibreOffice. Built on a
+branch and not merged: charts (`item/charts`).
+
+Not tried in the Office work: the Mac part in a signed build, and the Service "Edit in Octet Draw" in Word's Services
+menu (tried with Word 16.115 in a development build only); LibreOffice with a real AppImage and on x86_64 (decision
+0025, "Not done").
 
 ## 1.2: Octet for AI apps (MCP)
 
@@ -71,11 +80,6 @@ Not built:
 
 - Questions to the user through MCP elicitation (step 7).
 - Background jobs, with progress in the overlay (step 8).
-
-Started, not complete, and no release is set:
-
-- Word for Mac: Edit Picture opens the drawing in Octet (`item/office-mac`).
-- LibreOffice (issue 48, `item/libreoffice`).
 
 To do before the release:
 

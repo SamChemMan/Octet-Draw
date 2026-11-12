@@ -2,7 +2,6 @@
 // modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Toolbox, Warning, X } from "@phosphor-icons/react";
 import { ColourPick, ColourPicker, ColourPop } from "./ColourPicker";
 import { OWN_MOST } from "./colours";
@@ -113,6 +112,7 @@ type Props = {
   wordClick: boolean; // the Mac: a double-click on a structure in Word opens it in Octet (src-tauri/src/word.rs)
   onWordClick: (on: boolean) => void;
   onCheckUpdates: () => void;
+  onAddToLibreOffice: () => void; // Linux: opens Octet's extension for LibreOffice, and says so when it cannot
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
   dictionary: { name: string; smiles: string }[];
@@ -610,15 +610,16 @@ export function SettingsWindow(p: Props) {
       d("general", "Selection", "Colour", "selection selected highlight colour color tint marquee lasso handles frame blue custom default", (
         <SelectionColour value={p.selectColour} onChange={p.onSelectColour} />
       )),
-      // Word for Mac has no OLE for other programs, so Octet watches for the double-click itself (word.rs). On for a
-      // new user.
-      ...(MAC ? [d("general", "Microsoft Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
+      // Word for Mac has no OLE for other programs, so Octet watches for the double-click itself (word.rs). Off until
+      // the user turns it on: Octet watches no mouse and asks Word nothing before then. The group is named Word, as
+      // File > Edit Picture from Word and Update in Word name the program.
+      ...(MAC ? [d("general", "Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
         <Switch on={p.wordClick} label="Double-click opens a structure in Octet" onChange={p.onWordClick} />
       ))] : []),
       // Opens Octet's extension, which LibreOffice's Extension Manager adds: a double-click on a structure in Writer,
       // Impress or Draw then opens it in Octet.
       ...(LINUX ? [d("general", "LibreOffice", "Edit structures in LibreOffice", "libreoffice writer impress draw extension oxt add install double click edit office document", (
-        <button className="text-button" onClick={() => void invoke("add_to_libreoffice").catch(() => undefined)}>Add to LibreOffice</button>
+        <button className="text-button" onClick={p.onAddToLibreOffice}>Add to LibreOffice</button>
       ))] : []),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (

@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -1126,6 +1126,8 @@ export default function Editor() {
   const officeRef = useRef(office);
   officeRef.current = office;
   const officeSeq = useRef(0); // the number of the last message to Octet's side (ole_update)
+  // The Update button's words, and its tip's: the program that has the drawing, or the document where none is named.
+  const updateName = office && (office.app ? `Update in ${office.app.replace(/^Microsoft /, "")}` : `Update ${office.host}`);
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
   // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
   // a crash took from src-tauri/src/recovery.rs.
@@ -1557,9 +1559,11 @@ export default function Editor() {
   const leave = (then: () => Promise<unknown>) => keepWork(() => forget(then), () => { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); });
   // An object window (decision 0023). Update: the drawing, its picture and the picture's CDXML go to Word, which
   // changes the picture in the document at once. False if Word did not take it (the notice says why).
+  // While a template is open on the canvas, doc is the template: it never goes to the document.
   const officeUpdate = async (): Promise<boolean> => {
     const o = officeRef.current;
     if (!o) return false;
+    if (templateEdit) { setNotice("Save or cancel the template first.", "info"); return false; }
     if (o.gone) { setNotice(`${o.host} is closed. Save a copy to keep this drawing.`); return false; }
     try {
       const sent = doc, oct = writeOct({ ...sent, guides }, savedStyle(), cdxmlOptions());
@@ -1573,11 +1577,12 @@ export default function Editor() {
   };
   // Close and Return to Document1: changes not sent go to Word first, with no question (decision 0023). Once the
   // document is closed in Word, closing asks about unsaved changes as any drawing window does: Save writes a file.
+  // While a template is open on the canvas the window stays, as a drawing window does: the template comes first.
   const officeClose = async () => {
     const o = officeRef.current;
     if (!o) return;
     if (o.gone) return leave(() => invoke("ole_close"));
-    if (mainDirty && !(await officeUpdate())) { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); return; }
+    if ((mainDirty || templateEdit) && !(await officeUpdate())) { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); return; }
     forget(() => invoke("ole_close"));
   };
   // Save Copy As…: the drawing to a file of its own; the window stays the object's.
@@ -2382,8 +2387,8 @@ export default function Editor() {
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
     insert_file: () => void insertFile(),
-    // File > Edit Picture from Word on the Mac (src-tauri/src/word.rs). The menu runs it there; this is for a key or
-    // the command palette.
+    // File > Edit Picture from Word on the Mac (src-tauri/src/word.rs). The menu runs it there; this is for a key
+    // the page handles and for the command palette, which lists it on the Mac (MENU_NAMES).
     edit_word: () => void invoke("word_edit").catch(() => {}),
     // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
     save: () => (templateEdit ? saveTemplateEdit() : officeRef.current ? void officeUpdate() : void save(false)),
@@ -2936,13 +2941,14 @@ export default function Editor() {
   }, [office, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Then, while the user draws, the newest drawing goes to Octet's side too (still not to Word), half a second after
   // each change and at once when the window loses focus. So when Word closes the document, Octet gives Word the
-  // drawing at once and never waits for this page. A drawing back as it was sends only its picture.
+  // drawing at once and never waits for this page. A drawing back as it was sends only its picture. A template open
+  // on the canvas is not the object's drawing, so nothing goes while it is edited.
   const officeKept = useRef<{ timer: number; doc?: unknown }>({ timer: 0 });
   const officeKeep = useRef(() => {});
   officeKeep.current = () => {
     clearTimeout(officeKept.current.timer);
     const o = officeRef.current;
-    if (!o || o.gone || officeKept.current.doc === doc) return;
+    if (!o || o.gone || templateEdit || officeKept.current.doc === doc) return;
     officeKept.current.doc = doc;
     const oct = mainDirty ? writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) : "";
     invoke("ole_update", { oct, svg: pictureOf(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
@@ -2952,7 +2958,7 @@ export default function Editor() {
   // document is closed, and keeps the drawing for Save Copy As.
   const officeClosed = useRef((_: [boolean, string]) => {});
   officeClosed.current = ([sent, title]) => {
-    if (sent && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close"));
+    if (sent && !templateEdit && (!mainDirty || officeKept.current.doc === doc)) return forget(() => invoke("ole_close"));
     setOffice((o) => o && { ...o, title, gone: true });
     setFile((f) => ({ ...f, name: title }));
     setNotice(`${officeRef.current?.host ?? "The document"} is closed. Save a copy to keep this drawing.`, "info");
@@ -3013,7 +3019,7 @@ export default function Editor() {
     if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke("set_more_formats", { formats: settings.moreFormats ? moreFormats.map(([id, name]) => [id, name]) : null }))
       .then(() => invoke<[string, string, string, string][]>("menu_items")).then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
   }, [settings.onlineSearch, settings.moreFormats]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Settings > General > Microsoft Word (the Mac): while it is on, Octet watches for a double-click in Word (word.rs).
+  // Settings > General > Word (the Mac): while it is on, Octet watches for a double-click in Word (word.rs).
   useEffect(() => {
     if (TAURI && MAC) invoke("set_word_click", { on: settings.wordClick }).catch(() => {});
   }, [settings.wordClick]);
@@ -7350,6 +7356,8 @@ export default function Editor() {
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />],
+    // File > Edit Picture from Word is on the Mac only (src-tauri/src/word.rs), so the palette has it there only.
+    ...(TAURI && MAC ? { edit_word: ["Edit picture from Word", "", <FileDoc size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
@@ -9994,6 +10002,7 @@ export default function Editor() {
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
           wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
+          onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>
@@ -10486,9 +10495,11 @@ export default function Editor() {
       <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
         lead={office && !office.gone && (
         // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >
-        // Update do. It is there only in a window opened from a document, and lights up once there is a change.
-        <button className="export-button primary" disabled={!mainDirty} data-tip={`Update ${office.host}`} data-key={hint("save")} onClick={() => void officeUpdate()}>
-          {office.app ? `Update in ${office.app.replace(/^Microsoft /, "")}` : `Update ${office.host}`}
+        // Update do. It is there only in a window opened from a document, and lights up once there is a change. A long
+        // name is cut short in the button, so its tip has the same words in full. While a template is open on the
+        // canvas the button is off: Save keeps the template then.
+        <button className="export-button primary" disabled={!mainDirty || !!templateEdit} data-tip={updateName} data-key={hint("save")} onClick={() => void officeUpdate()}>
+          {updateName}
         </button>
       )} />
       <Exit>{exportView && (

@@ -226,8 +226,8 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
                 put(Kind::Bitmap, b);
             }
         } else {
-            // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.2. A PDF
-            // Octet cannot make (a font it cannot embed) leaves the PNG and the SVG, as in 1.1.2.
+            // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.1. A PDF
+            // Octet cannot make (a font it cannot embed) leaves the PNG and the SVG, as in 1.1.1.
             let (png, pdf) = std::thread::scope(|t| {
                 let pdf = t.spawn(|| crate::export::make_pdf(svg, cdxml, None));
                 (crate::export::clipboard_pictures(svg, false, dpi, cdxml), pdf.join().ok().and_then(Result::ok))
@@ -405,6 +405,16 @@ fn copied_drawing(url: &str) -> Option<String> {
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
     [Octet, Object, Cdxml, Cdx, Molfile, Smiles, Pdf, Svxb, Emf, Office, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+}
+
+// Whether paste on Linux asks the clipboard's owner for the type `name`, from the names the owner offers. The owner
+// makes a type when it is asked, and that can take long (Inkscape runs its PDF export). The PDF and LibreOffice's own
+// copy are read only for the drawing in them: not when Octet's JSON or CDXML is there, and Inkscape's PDF holds none.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn asked(name: &str, present: &[String]) -> bool {
+    let has = |n: &str| present.iter().any(|p| p == n);
+    let drawing = has("application/x-octet+json") || has("chemical/x-cdxml");
+    has(name) && !(drawing && (name == "application/pdf" || name == SVXB)) && !(name == "application/pdf" && has("image/x-inkscape-svg"))
 }
 
 // What paste can use from the types the system found. any: the clipboard holds something, even if paste reads none
@@ -902,10 +912,12 @@ mod tests {
         assert_eq!(cdxml_from_office(b"PK\x05\x06\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\0\0"), None);
     }
 
-    // No step back (decision 0024): Copy on Linux makes the PDF while it draws the PNG, so it takes no longer than 1.1.2's
+    // No step back (decision 0024): Copy on Linux makes the PDF while it draws the PNG, so it takes no longer than 1.1.1's
     // PNG and SVG. A drawing the size of aspirin with its labels; the middle of 9 runs of each, taken in turn, so
     // other tests running at the same time slow both alike.
+    // A clock on a busy computer can fail it, so it runs only when asked: cargo test linux_copy_takes_no_longer -- --ignored
     #[test]
+    #[ignore]
     fn linux_copy_takes_no_longer() {
         let mut svg = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="160pt" height="120pt" viewBox="0 0 160 120">"#);
         for k in 0..13 {
@@ -935,8 +947,22 @@ mod tests {
         before.sort();
         now.sort();
         let (before, now) = (before[4], now[4]);
-        eprintln!("Copy on Linux: {now:?}, 1.1.2's pictures: {before:?}");
-        assert!(now <= before + before / 10 + std::time::Duration::from_millis(2), "Copy takes {now:?}, 1.1.2 took {before:?}");
+        eprintln!("Copy on Linux: {now:?}, 1.1.1's pictures: {before:?}");
+        assert!(now <= before + before / 10 + std::time::Duration::from_millis(2), "Copy takes {now:?}, 1.1.1 took {before:?}");
+    }
+
+    // Paste on Linux asks the clipboard's owner only for what it uses: no PDF from Inkscape, and no PDF or LibreOffice
+    // copy beside Octet's own JSON or CDXML. A picture copied in LibreOffice still gives both.
+    #[test]
+    fn linux_paste_asks_for_what_it_uses() {
+        let asks = |offered: &[&str]| {
+            let present: Vec<String> = offered.iter().map(|n| n.to_string()).collect();
+            readable(System::Linux).into_iter().filter(|n| asked(n, &present)).collect::<Vec<_>>()
+        };
+        assert_eq!(asks(&["TARGETS", "image/x-inkscape-svg", "image/svg+xml", "application/pdf", "image/png"]), ["image/png"]);
+        assert_eq!(asks(&["image/png", "application/pdf", "image/svg+xml", "chemical/x-cdxml", "application/x-octet+json"]), ["application/x-octet+json", "chemical/x-cdxml", "image/png"]);
+        assert_eq!(asks(&["chemical/x-cdxml", "application/pdf", SVXB]), ["chemical/x-cdxml"]);
+        assert_eq!(asks(&[SVXB, "application/pdf", "image/png", "text/plain"]), ["application/pdf", SVXB, "text/plain", "image/png"]);
     }
 
     // CH-7: Copy As puts the text alone, under each system's names for text (on Windows UTF-16 with a NUL).

@@ -1,9 +1,9 @@
 # 0025: Octet drawings in LibreOffice on Linux
 
-Status: built 11 November 2026 on the branch item/libreoffice, plan steps L1 to L4. Tested in an Ubuntu 24.04 VM
-(arm64) with LibreOffice 24.2, with Octet built there and as a Flatpak on GNOME 50. The branch item/office adds Update
-in Writer, Impress and Draw, and Octet from an AppImage (tested with a stand-in, see Not done). Not released. Sam has
-not tried it.
+Status: in release 1.1.2. Built 11 November 2026, plan steps L1 to L4, with Update in Writer, Impress and Draw, and
+Octet from an AppImage. Tried only in an Ubuntu 24.04 VM (arm64) with LibreOffice 24.2: with Octet built there, as a
+Flatpak on GNOME 50, and from a stand-in for the AppImage. Not tried: a real AppImage, x86_64, Wayland, Fedora,
+LibreOffice from libreoffice.org, and ChemDraw's own PDF in LibreOffice (see Not done).
 
 Adds to decisions 0011 (the clipboard) and 0023 (the object window). There is no Word for Linux, so LibreOffice
 Writer, Impress and Draw get what Word gets on Windows: double-click a structure, edit it in Octet's object window,
@@ -13,9 +13,9 @@ and Update puts it back.
 
 - Copy on Linux puts, in this order: the PNG (with the CDXML in a chunk), `application/pdf` (the Mac's PDF, with the
   CDXML in its `/Metadata`), the SVG, then the chemistry as before. Octet makes the PDF on a second thread while it
-  draws the PNG, so Copy takes no longer than in 1.1.2 (`linux_copy_takes_no_longer`; 7.3 ms against 7.3 ms in the
+  draws the PNG, so Copy takes no longer than in 1.1.1 (`linux_copy_takes_no_longer`; 7.3 ms against 7.3 ms in the
   VM's release build). If Octet cannot make the PDF (a font it cannot embed), Copy puts the PNG and the SVG, as in
-  1.1.2.
+  1.1.1.
 - Writer, Impress and Draw paste the PDF, and keep it in `.odt`, `.odp` and `.odg`. LibreOffice saves a PDF newer
   than 1.6 again at 1.6 through pdfium, which takes the `/Filter` off the `/Metadata` stream and leaves it deflated.
   Octet now reads zlib data with no filter as well (`export.rs`, `cdxml_of`).

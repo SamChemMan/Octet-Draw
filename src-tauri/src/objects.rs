@@ -99,6 +99,16 @@ impl Session {
             Taken::Kept
         }
     }
+
+    // The document took the drawing sent with message `seq`. A drawing the page kept after that message stays for
+    // Close, unless it is the drawing just sent: the page's message to keep it can arrive while the document takes
+    // the Update, and Close must not send the same drawing a second time.
+    fn sent(&self, seq: Option<u64>, oct: String) {
+        if seq.is_none_or(|n| n == self.seq.get()) || self.latest.borrow().as_ref().is_some_and(|(o, _)| *o == oct) {
+            self.latest.take();
+        }
+        *self.oct.borrow_mut() = oct;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -139,7 +149,9 @@ pub async fn ole_update(app: AppHandle, window: Window, oct: String, svg: String
                         Ok(name) => Ok(Some(name)),
                         Err(f) => {
                             match f {
-                                Fail::Gone => gone(&app, id),
+                                // A picture that is no longer in the document ends the session as a closed document does,
+                                // so the window can close with the question about a copy.
+                                Fail::Gone | Fail::Lost => gone(&app, id),
                                 Fail::Denied => crate::word::tell(&app, &f, Some(&host)),
                                 _ => {}
                             }
@@ -252,18 +264,14 @@ fn write(path: &Path, picture: &[u8], host: &str) -> Result<(), String> {
     crate::write_atomic(path, picture).map_err(|_| format!("Octet cannot update {host}. Try again."))
 }
 
-// The document took the drawing sent with message `seq`. A drawing the page kept after it stays for Close. A Word
-// picture is in its document now, and the document's name can be new (Save As in Word): the window's title and File
-// menu say it.
+// The document took the drawing sent with message `seq` (Session::sent). A Word picture is in its document now, and
+// the document's name can be new (Save As in Word): the window's title and File menu say it.
 fn took(app: &AppHandle, id: u64, oct: String, seq: Option<u64>, name: Option<String>) {
     let renamed = {
         let files = app.state::<Files>();
         let mut files = files.0.lock().unwrap();
         let Some(f) = files.get_mut(&id) else { return };
-        if seq.is_none_or(|n| n == f.session.seq.get()) {
-            f.session.latest.take();
-        }
-        *f.session.oct.borrow_mut() = oct;
+        f.session.sent(seq, oct);
         #[cfg(target_os = "macos")]
         if let To::Word { placed, .. } = &mut f.to {
             *placed = true;
@@ -311,6 +319,12 @@ pub fn object_arg(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Optio
     Some((cwd.join(file?), text(host), text(program)))
 }
 
+// What the user hears when a file does not open. Nothing for a file that is gone: after an update Octet starts again
+// with the arguments it had, and the extension removed that object's folder when its window closed.
+fn refused(path: &Path, why: &'static str) -> Option<&'static str> {
+    path.exists().then_some(why)
+}
+
 // An object window for the drawing in a file. A file Octet cannot read opens nothing, and the user hears why. A file
 // that is open already brings its window to the front, as a second double-click does in Word.
 pub fn open_file(app: &AppHandle, path: PathBuf, host: String, program: String) {
@@ -329,8 +343,10 @@ pub fn open_file(app: &AppHandle, path: PathBuf, host: String, program: String) 
             }
             Err(e) => {
                 mark(&path, "closed");
-                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-                app.dialog().message(e).title(crate::ole::APP).kind(MessageDialogKind::Warning).show(|_| {});
+                if let Some(e) = refused(&path, e) {
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    app.dialog().message(e).title(crate::ole::APP).kind(MessageDialogKind::Warning).show(|_| {});
+                }
             }
         }
     });
@@ -390,9 +406,29 @@ async fn open(app: &AppHandle, f: File) {
 // An object window closed: its newest drawing, if the page kept one it did not send, goes to the document, as
 // Windows' objects send theirs to Word with no question (decision 0023). back: Close and Return, which brings Word to
 // the front on the Mac.
-#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 pub fn closed(app: &AppHandle, id: u64, back: bool) {
-    let Some(f) = app.state::<Files>().0.lock().unwrap().remove(&id) else { return };
+    close(&app.state::<Files>(), id, back);
+}
+
+// Octet ends (RunEvent::Exit) with object windows open. Quit destroys no window, so `closed` did not run for them.
+// Each object in a file closes here as its window does: the file has its newest drawing, and the extension hears
+// `closed`. A Word picture on the Mac stays as it is: Word can take a second, and Octet ends now.
+pub fn shutdown(files: &Files) {
+    let in_file = |to: &To| match to {
+        To::Path(_) => true,
+        #[cfg(target_os = "macos")]
+        To::Word { .. } => false,
+    };
+    let ids: Vec<u64> = files.0.lock().unwrap().iter().filter(|(_, f)| in_file(&f.to)).map(|(id, _)| *id).collect();
+    for id in ids {
+        close(files, id, false);
+    }
+}
+
+// The close step of object `id`, for `closed` and `shutdown`.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn close(files: &Files, id: u64, back: bool) {
+    let Some(f) = files.0.lock().unwrap().remove(&id) else { return };
     let latest = f.session.latest.take().filter(|_| !f.session.gone.get());
     match f.to {
         To::Path(path) => {
@@ -447,6 +483,44 @@ mod tests {
         assert_eq!(s.message(None, false, "E".into(), b"p6".to_vec()), Taken::Kept, "a message with no number");
         s.gone.set(true);
         assert_eq!(s.title(), "Octet Drawing (Report.docx is closed)");
+    }
+
+    // The page's message to keep a drawing arrives while the document takes an Update of that drawing: nothing stays
+    // for Close, which would send it a second time. A newer drawing kept in that time stays.
+    #[test]
+    fn a_drawing_just_sent_is_not_kept_for_close() {
+        let s = Session::new("Report.docx", "A".into());
+        assert_eq!(s.message(Some(1), true, "B".into(), b"p1".to_vec()), Taken::Send("B".into(), b"p1".to_vec()));
+        assert_eq!(s.message(Some(2), false, "B".into(), b"p2".to_vec()), Taken::Kept);
+        s.sent(Some(1), "B".into());
+        assert_eq!(*s.latest.borrow(), None, "the same drawing");
+        assert_eq!(*s.oct.borrow(), "B");
+        assert_eq!(s.message(Some(3), true, "C".into(), b"p3".to_vec()), Taken::Send("C".into(), b"p3".to_vec()));
+        assert_eq!(s.message(Some(4), false, "D".into(), b"p4".to_vec()), Taken::Kept);
+        s.sent(Some(3), "C".into());
+        assert_eq!(*s.latest.borrow(), Some(("D".into(), b"p4".to_vec())), "a newer drawing");
+    }
+
+    // Quit with an object window open: the file gets the drawing the page kept, and `closed` beside it. A Word
+    // picture on the Mac is left as it is.
+    #[test]
+    fn quit_closes_the_objects_in_files() {
+        let dir = std::env::temp_dir().join(format!("octet-quit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("drawing.cdxml");
+        std::fs::write(&path, "<CDXML/>").unwrap();
+        let f = File::open(path.clone(), "Report.odt", "Writer").unwrap();
+        let id = f.session.id;
+        assert_eq!(f.session.message(Some(1), false, "<CDXML><page/></CDXML>".into(), b"new".to_vec()), Taken::Kept);
+        let files = Files::default();
+        files.0.lock().unwrap().insert(id, f);
+        #[cfg(target_os = "macos")]
+        files.0.lock().unwrap().insert(0, File { session: Session::new("Report.docx", String::new()), kind: Kind::Pdf, to: To::Word { mark: "m".into(), placed: true } });
+        shutdown(&files);
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert!(dir.join("closed").exists());
+        assert_eq!(files.0.lock().unwrap().keys().copied().collect::<Vec<_>>(), if cfg!(target_os = "macos") { vec![0] } else { vec![] });
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -524,6 +598,9 @@ mod tests {
         assert_eq!(File::open(big, "R", "").err(), Some(CANNOT_OPEN), "larger than 64 MB");
         assert_eq!(File::open(dir.join("g.png"), "R", "").err(), Some(CANNOT_OPEN), "not a PDF or CDXML file");
         assert_eq!(File::open(dir.join("missing.pdf"), "R", "").err(), Some(CANNOT_OPEN));
+        // The user hears why a file does not open, but nothing for a file that is gone.
+        assert_eq!(refused(&dir.join("d.pdf"), CANNOT_OPEN), Some(CANNOT_OPEN));
+        assert_eq!(refused(&dir.join("missing.pdf"), CANNOT_OPEN), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

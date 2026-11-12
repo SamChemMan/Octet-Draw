@@ -619,6 +619,13 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
+// An object window's File > Update <document> and Close and Return to <document>. In menu text & marks the next
+// letter as an access key, so an & in the document's name is written &&.
+fn object_texts(host: &str) -> (String, String) {
+    let h = host.replace('&', "&&");
+    (format!("Update {h}"), format!("Close and Return to {h}"))
+}
+
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native on the Mac and Windows so the page gets ordinary clipboard events. Select All selects the drawing, not
 // the page. Each menu in the bar has its own access key (the letter after &): Alt and the letter open it on Windows
@@ -702,7 +709,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("import", "Import a Structure…", "")?,
         &item("insert_file", "Insert…", "")?,
         &sep()?,
-        &item("save", &object.map_or("Save".into(), |h| format!("Update {h}")), "CmdOrCtrl+S")?,
+        &item("save", &object.map_or("Save".into(), |h| object_texts(h).0), "CmdOrCtrl+S")?,
         &item("save_as", if object.is_some() { "Save Copy As…" } else { "Save As…" }, "CmdOrCtrl+Shift+S")?,
         &revert,
         // ChemDraw's key: ⌃⌘E.
@@ -732,7 +739,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if more_list.is_none() {
         file.remove(&more)?;
     }
-    let close_text = object.map(|h| format!("Close and Return to {h}"));
+    let close_text = object.map(|h| object_texts(h).1);
     #[cfg(not(target_os = "linux"))]
     file.append(&match close_text.as_deref() {
         None => PredefinedMenuItem::close_window(app, None)?,
@@ -1311,9 +1318,13 @@ fn main() {
                 quit::closed(_app, &label);
             }
             tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
-            // Each open object tells Word it closed, and the class object goes (decision 0023).
-            #[cfg(windows)]
-            tauri::RunEvent::Exit => ole::win::shutdown(),
+            // Each open object tells Word it closed, and the class object goes (decision 0023). Each object in a file
+            // left open closes too (objects.rs): Quit destroys no window.
+            tauri::RunEvent::Exit => {
+                #[cfg(windows)]
+                ole::win::shutdown();
+                objects::shutdown(&_app.state::<objects::Files>());
+            }
             _ => {}
         });
 }
@@ -1321,6 +1332,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // An & in the document's name shows in an object window's File menu: && in menu text is an &.
+    #[test]
+    fn a_documents_name_in_the_file_menu_keeps_its_ampersand() {
+        assert_eq!(object_texts("R&D report.odt"), ("Update R&&D report.odt".into(), "Close and Return to R&&D report.odt".into()));
+        assert_eq!(object_texts("Report.docx"), ("Update Report.docx".into(), "Close and Return to Report.docx".into()));
+    }
 
     // Another app writes the drawing after Octet read it: changed, until Octet reads or writes it again. A file that
     // is gone, or one Octet never read, is not changed.
