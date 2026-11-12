@@ -1,3 +1,11 @@
+Octet Draw
+Copyright 2026 Sam Ellis
+
+This product includes software made by Sam Ellis (https://octet.software).
+
+If you use Octet Draw in work that you publish, please cite it. The citation
+is in CITATION.cff at https://github.com/SamChemMan/Octet-Draw.
+
 Octet includes the software and data below. Each part keeps its own licence.
 Octet itself is under the Apache License 2.0.
 The source code of each Rust crate is on crates.io, and of each npm package on npmjs.com.
