@@ -30,6 +30,7 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
+import { depthWedges } from "./cip";
 import { model3mf } from "./model3mf";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
@@ -2494,7 +2495,8 @@ export default function Editor() {
       if (!ok.length) return;
       sayAfter("Cleaned up in 3D.");
       // Each structure on its own, so the time grows with the structures and not with all their atoms squared.
-      set(ok.reduce((m, g) => clean3d(m, g), doc), true);
+      // Its wedges then draw what its depth gives (depthWedges): a wedged group that ends up further away gets a hash.
+      set(depthWedges(ok.reduce((m, g) => clean3d(m, g), doc)), true);
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
