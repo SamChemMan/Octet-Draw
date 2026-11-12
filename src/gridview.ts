@@ -139,7 +139,8 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   };
   // A step's table: what stands before its arrow, its conditions and what stands after it.
   (step ? step.own : steps[0]).reactants.forEach((p) => add(p, false));
-  for (const st of step ? [step.own] : steps) for (const p of [...st.above, ...st.below]) add(p, false, true);
+  const own = step ? [step.own] : steps;
+  for (const st of own) for (const p of [...st.above, ...st.below]) add(p, false, true);
   (step ? step.own : steps[steps.length - 1]).products.forEach((p) => add(p, true));
   if (!parts.length) return undefined;
   // Once a coefficient is written, each part of the equation has one.
@@ -164,9 +165,9 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const roled = (r: GridRole) => cols.some((c) => !c.product && c.role === r);
   const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.id === "role" ? roled("catalyst") || roled("solvent") : row.id === "conc" ? roled("solvent")
     : row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
-  // Below the components and the numbers under them, and below all under the arrow (a yield, "reflux, 4 h"), which
-  // makes no column.
-  const under = [...(m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]), ...(step ? [step.own] : steps).flatMap((st) => st.below.map((p) => p.box[1]))].filter((y): y is number => y !== undefined);
+  // Below the components, the numbers under them, and the text under the arrow that makes no column (a yield,
+  // "reflux, 4 h").
+  const under = [...(m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]), ...own.flatMap((st) => st.below.map((p) => p.box[1]))].filter((y): y is number => y !== undefined);
   // A step's table goes under the one before it.
   const rh = d.captionSize * d.perPt * 0.9 * 1.6 * f, top = Math.min(...cols.map((c) => c.low), ...under, made ? made.bottom - 0.5 * rh + 0.9 * f : Infinity) - 0.9 * f;
   // The row names end a little before the first column; the rules start at the longest name.

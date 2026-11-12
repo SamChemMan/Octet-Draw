@@ -1454,9 +1454,11 @@ every user sees, so each needs Sam's yes and the ChemDraw cross-check.
 
 `node scripts/mcp-acceptance.mjs`: 113 checks pass and 2 fail. Both failures are one fault, in cases 5 and 6 (the
 experiment page): the second line under the arrow ("90%") overlaps the top of the reagent table by 0.1 bond
-lengths. With no window the same overlap is there before wave A and after it, so it is the editor's placing of the
-reagent table (it clears the first line under the arrow, not the second), not tonight's work. It needs a fix in the
-editor's own code and Sam's yes. Case 18 (the relay and Claude Desktop's bundle against a dev build's
+lengths. With no window the same overlap was there before wave A and after it: the editor started the reagent table
+under the components, their numbers and the conditions that make a column, and left out text under the arrow that
+makes no column. Fixed on `mcp/int2` (1c3790f): `layGrid` in `src/gridview.ts` now starts the table 0.9 bond length
+(at the arrow's scale) under all the text under its arrow. The windowless acceptance run of the merged tree gives
+"Every check passed." (106 PASS; `--headless` leaves out cases 7, 9, 18 and 21). Case 18 (the relay and Claude Desktop's bundle against a dev build's
 `mcp-dev.json`) passes.
 
 Not seen by anyone yet, as no agent may drive the app's window: the overlay in WKWebView (light, dark, Reduce
