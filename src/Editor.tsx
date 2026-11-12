@@ -8130,12 +8130,13 @@ export default function Editor() {
     // Sequence: the name field opens with the codes' prefix, and the structure lands where the click was,
     // also over a structure.
     if (tool === "sequence") return insertSequence(SEQUENCES[sequenceChoice].prefix);
-    // An experiment's detail: a click on its text or in its box with Select opens Experiment details at that detail;
-    // with the Text tool (and every other tool but the Eraser) it types it on the page. Shift and Option keep their own
-    // clicks (Select adds to and takes from the selection).
+    // An experiment's detail: a click on its text or in its box with the Text tool types it on the page; with every
+    // other tool but the Eraser it opens Experiment details at that detail (Sam, 12 Nov 2026). A risk assessment's field
+    // is typed on the page with any of them. Shift and Option keep their own clicks (Select adds to and takes from the
+    // selection).
     const slot = tool !== "erase" && !alt && !mods?.shift && !mods?.alt ? slotAt(at, t) : undefined;
     const detail = slot && DETAILS.find(([k]) => k === slot.field)?.[0];
-    if (detail && tool === "select") { setSelection(new Set()); setPicked(new Set()); return setDialog({ kind: "details", focus: detail }); }
+    if (detail && tool !== "text") { setSelection(new Set()); setPicked(new Set()); return setDialog({ kind: "details", focus: detail }); }
     if (slot) return typeField(slot);
     // A risk assessment's box ticks or unticks, the same way.
     const box = tool !== "erase" && !alt && !mods?.shift && !mods?.alt ? riskTickAt(at) : undefined;
