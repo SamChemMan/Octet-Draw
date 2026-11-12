@@ -701,6 +701,21 @@ mod tests {
         assert!(picture("<svg", x).is_err(), "a picture Octet cannot make is Update's error, as before");
     }
 
+    // Update in Word with Word itself, on this Mac. Word must be open with its cursor in text and nothing selected. A
+    // new picture goes in at the cursor, then a second picture takes its place, as two Updates from an object window
+    // do. Save the document and look in it: its one picture is Octet's EMF. It uses the real clipboard and puts the
+    // user's back, so it runs only when asked: cargo test --bin octet update_in_word_live -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn update_in_word_live() {
+        let cdxml = |id: u32| format!("<CDXML><page><fragment><n id=\"{id}\"/></fragment></page></CDXML>");
+        let found = read(true).unwrap().expect("Word's cursor is in text, with nothing selected");
+        assert!(!found.placed && found.oct.is_empty());
+        let first = put(&found.mark, false, &picture(crate::vector::tests::PROLINE, &cdxml(1)).unwrap()).unwrap();
+        let second = put(&found.mark, true, &picture(&crate::vector::tests::picture_svg(), &cdxml(2)).unwrap()).unwrap();
+        eprintln!("Placed in {first}, then replaced in {second}.");
+    }
+
     // The script pastes with Word's own Paste, which chooses the type, and names no type itself. It reads the pasted
     // picture as the first inline picture of its own document, and copies it to the user's document as formatted text.
     #[test]
