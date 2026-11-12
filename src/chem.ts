@@ -1723,7 +1723,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
     const pieceOf = (from: Mol["atoms"]): Mol => ({ atoms: frag.map((i) => ({ ...from[i], location: [from[i].location[0] / own, from[i].location[1] / own, 0], scale: scaleOf(from[i]) / own })), bonds });
     // A few carbons on a bond or in line that Clean Up left and the structure as drawn had not, in a structure Name to
     // Structure would lay out again (as it nudges a few: there is no room among many, as on a carbon with 50 phenyls).
-    const piece = pieceOf(atoms), hits = inkHits(piece, inkBoxes(piece)), near = (x: Mol) => crowded(x, 0.15, 0, true), n = hits.length || frag.length > MOST_TIDIED ? 0 : near(piece);
+    const piece = pieceOf(atoms), hits = inkHits(piece, inkBoxes(piece)), near = (x: Mol) => crowded(x, 0.15, 0, true);
+    const n = !hits.length && frag.length <= MOST_TIDIED ? near(piece) : 0;
     if (!hits.length && !(n && n <= MOST_NUDGED && n > near(pieceOf(mol.atoms)))) continue;
     const moved = nudged(piece), was = toInchi(piece);
     if (was && moved !== piece && toInchi(moved) === was) frag.forEach((i, k) => { atoms[i] = { ...atoms[i], location: [moved.atoms[k].location[0] * own, moved.atoms[k].location[1] * own, 0] }; });

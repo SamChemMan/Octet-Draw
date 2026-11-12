@@ -1217,17 +1217,18 @@ function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Captio
 // result's sentence says of its compounds (R6): a SMILES or a file is drawn as given, so it has no name to check, and
 // naming it takes time.
 const plainName = (t: string) => t.toLowerCase().replace(/[\s\-,()[\]']/g, "");
-// (A call that draws compounds names each in its reply's compounds instead: ctx.listed. A full reply of one in JSON
-// keeps them here, as a batch's full reply has no names of its own.)
+// (A call that draws compounds names each in its reply's compounds instead: ctx.listed. A full reply, by lines or JSON,
+// has no compounds and keeps them here, as a batch's full reply has no names of its own.)
 function readAs(host: Host, list: Read[], ctx?: Ctx): string {
-  const listed = ctx?.listed && (ctx.lean || !ctx.full), odd = listed ? [] : list.flatMap((s) => {
+  const listed = ctx?.listed && !ctx.full, odd = listed ? [] : list.flatMap((s) => {
     if (!s.named) return [];
     const { name: own, formula } = about(host, s.mol);
     return own && plainName(own) !== plainName(s.text) ? [`${short(s.text, 80)} (${formula}; Octet's name: ${short(own, 120)})`] : [];
   });
   // What a compound's changes did, and what Octet read in a way the AI app may not mean (a numbered atom with no
   // hydrogens), each with how the compound was given and its number.
-  // (A draw by lines leaves out a stereocentre that keeps its configuration, which needs nothing of the AI app.)
+  // (A short reply that lists compounds leaves out a stereocentre that keeps its configuration, which needs nothing of
+  // the AI app.)
   const notes = list.flatMap((s) => { const note = listed ? s.note?.split(/(?<=\.) /).filter((x) => !/^Atom \S+ keeps its configuration \(\w+\)\.$/.test(x)).join(" ") : s.note; return note ? [`${short(s.text, 40)}${s.number ? ` (${s.number})` : ""} [${note}]`] : []; });
   return `${odd.length ? ` Octet read the names as: ${odd.slice(0, 12).join(", ")}${odd.length > 12 ? `, and ${odd.length - 12} more (detail: full gives each)` : ""}.` : ""}${notes.length ? ` Octet notes: ${notes.join(", ")}.` : ""}${unreadNote(list.flatMap((s) => s.unread ?? []))}`;
 }
@@ -3029,10 +3030,10 @@ async function clearLabels(h: Host, before: Mol, check: Check): Promise<Check> {
 }
 // The straight arrows of the reactions these atoms are in.
 const arrowsWith = (h: Host, m: Mol, atoms: Set<number>) => new Set((m.arrows ?? []).filter((a) => straightArrow(a) && h.reaction(a.id)?.atoms.some((i) => atoms.has(i))).map((a) => a.id));
-// A structure that replace put in, wider or narrower than the one before, can sit on its number or its arrow (real-r5
-// paper-three-step: s6 on t9 and a8), which an AI app then fixes with run_command clean_up. Its reaction is laid out
-// again with Clean Up Reaction, as a draw's is, and kept only when check is then clean and each structure in it keeps
-// its InChIKey; else the drawing goes back. One in no reaction (alone, or in a cycle) stays where it is.
+// A structure that replace put in can sit on its number or its arrow (real-r5 paper-three-step: s6 on t9 and a8),
+// which an AI app then fixes with run_command clean_up. Any overlap that check names with it, whatever its size, has
+// its reaction laid out again with Clean Up Reaction, as a draw's is, kept only when check is then clean and each
+// structure in it keeps its InChIKey; else the drawing goes back. One in no reaction (alone, or in a cycle) stays.
 async function clearOverlaps(h: Host, before: Mol, check: Check): Promise<Check> {
   if (check === "clean" || !check.overlaps) return check;
   const was = new Set(structuresOf(before).map((g) => g.id)), m = h.doc(), ours = new Set(check.overlaps.flat().filter((x) => x[0] === "s" && !was.has(x)));

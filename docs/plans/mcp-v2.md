@@ -2178,6 +2178,9 @@ What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns
   the replay of the job's draw then clean_up reads with no warning. Clean Up's time is as before on the cleanup.check
   structures (taxol 14.1 and 14.0 ms, a 166-phenyl carbon 131 and 130 ms, a 1,000-atom chain 112 and 112 ms, best of
   15, turn about); a 2-butyne drawn with its ends on one point is still left as drawn.
+  ChemDraw's Clean Up Structure has no option for this: it lays bridges out by a rule of its own, with no atom on a
+  bond. This is a repair of Octet's own layout, so it adds no option. Not yet run side by side with ChemDraw on these
+  three structures (that needs Sam's Mac session).
 - **What no line begins with.** In about one call in eight Haiku wrote stray characters before its first line, and
   three forms were still refused: a lone `"` before the `# ` title (and one after the last line: "Line 1: a \" has no
   closing \"", haiku-2 paper-scope, haiku-3 say-two-schemes), `*/` before it (read as a structure, haiku-1 and haiku-2
@@ -2193,9 +2196,12 @@ What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns
   route, cycle, figure; a batch with one of them; draw by lines as before) answers in the lines form from the one
   function (`madeCompounds`): `compounds`, made without the structures or plus signs, and no boxes unless detail is
   full (`ctx.listed`). Octet's name for a name it read another way is in its compounds line, not the sentence (a full
-  reply keeps the sentence's names, as a batch's full reply has no names of its own), and a centre that keeps its
-  configuration is not noted. A reply over 20,000 characters (a batch of 40 draws of 12 named compounds) has its
-  longest list cut, as a read's is (`fit`). replace is as round 5 left it: its sentence gives the new formula and stereo.
+  reply, by lines or JSON, has no compounds and keeps the sentence's names, as a batch's full reply has no names of its
+  own; before, a full reply by lines had none), and a centre that keeps its configuration is not noted. A batch with a
+  draw in it answers as the same lines would, a text step's box included: no boxes unless detail is full. A client
+  that took a JSON draw's structure ids from made reads them from compounds (`/^(?:\S+ )?(s\d+) /`), as for lines.
+  A reply over 20,000 characters (a batch of 40 draws of 12 named compounds) has its longest list cut, as a read's is
+  (`fit`); a sentence longer than the room the data leaves is still cut (mcp.check: 40 draws of 3 or 4 names). replace is as round 5 left it: its sentence gives the new formula and stereo.
   Read characters: 80 benchmark cases fall (the boxes go: size-200-structures 8,017 to 3,974, taxol-route 5,570 to
   4,544, taxol-v1-job 176,867 to 175,895, the corpus jobs by 40 to 400 each) and 2 rise (grocott2025-fig3b 452 to 469,
   trowbridge2018-fig4c-drugs 446 to 502: Octet's names for named compounds); all changed cases 521,779 to 494,241.

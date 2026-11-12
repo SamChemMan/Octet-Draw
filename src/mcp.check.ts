@@ -2513,6 +2513,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(namings, 2, "the two names, not the SMILES");
   o = await ask("draw", { kind: "structures", structures: [{ text: "aspirin" }], detail: "full" });
   assert.match(o.structuredContent.done, /^Drew 1 structure in 1 row of 1\. Octet read the names as: aspirin \(C9H8O4; Octet's name: 2-acetyloxybenzoic acid\)\./);
+  // (By lines the same: a full reply has no compounds, so its sentence names them.)
+  o = await ask("draw", { lines: "aspirin", detail: "full" });
+  assert.match(o.structuredContent.done, /^Drew 1 structure in 1 row of 1\. Octet read the names as: aspirin \(C9H8O4; Octet's name: 2-acetyloxybenzoic acid\)\./);
   const named = namings;
   o = await ask("draw", { kind: "structures", structures: [{ text: "OC(=O)c1ccccc1O" }], detail: "full" });
   assert.deepEqual([namings - named, o.structuredContent.names], [1, [{ given: "OC(=O)c1ccccc1O", octet: "2-hydroxybenzoic acid", formula: "C7H6O3" }]]);
@@ -2521,8 +2524,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const many = { operations: Array.from({ length: 40 }, () => ({ op: "draw", kind: "structures", structures: Array.from({ length: 12 }, (_, k) => ({ text: `alkane ${k}` })) })) };
   o = await ask("change", many);
   const size = o.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
-  assert.ok(size <= MOST && size > MOST / 2, `a batch of 40 steps: ${size} characters`);
+  // (The list is halved until it fits, as a read's is: 480 to 240 to 120, and the reply is then over 17,000.)
+  assert.ok(size <= MOST && size > 17_000 && o.structuredContent.compounds.length === 120, `a batch of 40 steps: ${size} characters`);
   assert.ok(/^Did 40 steps as one undo step:\n1\. Drew 12 structures in 3 rows of 5\.\n/.test(o.structuredContent.done) && /^s\d+ C11H24 a{120}…$/.test(o.structuredContent.compounds[0]) && o.structuredContent.compounds.length + o.structuredContent.more.compounds === 480, JSON.stringify(o.structuredContent.more));
+  // Each list fits and the sentence does not: the sentence is cut, the list kept whole (18 steps of 4 names, 22 of 3).
+  noPage();
+  o = await ask("change", { operations: Array.from({ length: 40 }, (_, j) => ({ op: "draw", kind: "structures", structures: Array.from({ length: j < 18 ? 4 : 3 }, (_, k) => ({ text: `alkane ${k}` })) })) });
+  const cut = o.content.reduce((k, c) => k + (c.text?.length ?? 0), 0);
+  assert.ok(cut <= MOST && cut > MOST - 100 && o.structuredContent.done.endsWith("(cut: detail: full gives all of it)") && o.structuredContent.compounds.length === 138 && !o.structuredContent.more, `a batch whose sentence is cut: ${cut} characters`);
   noPage();
   o = await ask("change", { operations: many.operations.map((st) => ({ ...st, detail: "full" })) });
   assert.ok(/^40\. Drew 12 structures .*alkane 11 \(C22H46; Octet's name: a{120}…\)\./.test(o.structuredContent.done.split("\n")[40]) && !o.structuredContent.done.includes("(cut:"), "detail: full gives every step");
