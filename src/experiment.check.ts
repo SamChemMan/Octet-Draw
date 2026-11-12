@@ -310,7 +310,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   // 2026), and types it with the Text tool and every other tool but the Eraser; a press in an empty box is that
   // click; the details agree with their text after each edit; a page from Octet 1.1.1 gets the text when it opens; and
   // the boxes are on screen only.
-  assert.match(editor, /const slot = tool !== "erase" && !alt && !mods\?\.shift && !mods\?\.alt \? slotAt\(at, t\) : undefined;\n    if \(slot && tool === "select"\) \{ setSelection\(new Set\(\)\); setPicked\(new Set\(\)\); return setDialog\(\{ kind: "details", focus: slot\.field \}\); \}\n    if \(slot\) return typeField\(slot\);/);
+  assert.match(editor, /const slot = tool !== "erase" && !alt && !mods\?\.shift && !mods\?\.alt \? slotAt\(at, t\) : undefined;\n    const detail = slot && DETAILS\.find\(\(\[k\]\) => k === slot\.field\)\?\.\[0\];\n    if \(detail && tool === "select"\) \{ setSelection\(new Set\(\)\); setPicked\(new Set\(\)\); return setDialog\(\{ kind: "details", focus: detail \}\); \}\n    if \(slot\) return typeField\(slot\);/);
   assert.match(editor, /if \(tool !== "erase" && !e\.shiftKey && !e\.altKey && t\.caption === undefined && slotAt\(p, t\)\) return setDrag\(\{ kind: "click", /);
   assert.match(editor, /next = expPage && mol\.style === doc\.style \? syncDetails\(doc, renumber\(newGrids\(doc, ordered\)\), sheetOf\(style\)\) : ordered;/);
   assert.match(editor, /const mol = withFields\(wholeGroups\(asOpened\(/);
