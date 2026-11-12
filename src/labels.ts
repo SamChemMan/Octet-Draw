@@ -73,6 +73,9 @@ export const standsIn = (label: string) => isGeneric(label) || STAND_IN.test(lab
 // A phenyl written with what is on it and where (4-ClC6H4, p-MeOC6H4, 4-ClPh, 3,5-(CF3)2C6H3), and n- before a
 // formula, which says that its chain is straight (n-C8H17).
 const RING = /^(\d(?:,\d)*|[omp])-(.+?)-?(?:Ph|C6H([2-4]))$/, STRAIGHT = /^n-C\d/;
+// Groups written as formulas that have a name (labelSmiles), and the straight chains that have one.
+const WRITTEN: Record<string, string> = { C6H5: "Ph", C6H11: "Cy", "i-C3H7": "iPr", "i-C4H9": "iBu", "s-C4H9": "sBu", "t-C4H9": "tBu" };
+const CHAINS: Record<number, string> = { 2: "Et", 3: "Pr", 4: "Bu", 8: "Oct" };
 
 // A bracket is a part in brackets, or a label that is kept whole (4-ClC6H4): pieces draws its counts as subscripts.
 export type Unit = { text: string; count?: string; kind: "element" | "group" | "bracket" | "other" };
@@ -282,6 +285,16 @@ export function labelSmiles(label: string): string | undefined {
     }
     if (STRAIGHT.test(label)) label = label.slice(2);
   }
+  // Groups written as formulas, read as chemists write them: phenyl, cyclohexyl, a straight chain CnH2n+1 (OC2H5,
+  // C2H5O, NHC6H5, N(C2H5)2) and i-, s- and t- before C3H7 or C4H9. Any other carbon counted before its hydrogens
+  // (C6H4 with no position, C2H3, C10H7) has more than one structure and is not read.
+  const named = label.replace(/(?:([inst])-)?C(\d+)H(\d+)(?!\d)/g, (m, p: string | undefined, c: string, h: string, at: number) => {
+    const n = Number(c), g = WRITTEN[(p ? `${p}-` : "") + `C${c}H${h}`];
+    if (g || (p && p !== "n") || Number(h) !== 2 * n + 1 || n < 2) return g ?? m;
+    return CHAINS[n] ?? (at === 0 && label.length > m.length ? "CH3" + "CH2".repeat(n - 1) : "CH2".repeat(n - 1) + "CH3");
+  });
+  if (/C\d+H/.test(named)) return undefined;
+  if (named !== label) return labelSmiles(named);
   // An element with its oxidation state, Os(II): the element alone ((II) is not two iodine atoms, and no charge).
   const ox = writtenOxidation(label);
   if (ox) return `[${ox.el}]`;
@@ -301,7 +314,9 @@ export function labelSmiles(label: string): string | undefined {
   // where an O or S comes after its atom (MeO2S, Ph2(O)P, EtOC), but for the ester the reading below gets right (MeO2C).
   const valence = left ? us.some((u, k) => k > 0 && (u.text === "O" || u.text === "S" || u.text === "(O)" || u.text === "(S)")) && !(us[0].text === "C" && us[1].text === "O" && us[1].count === "2")
     : us[0].kind === "element" && us[0].text !== "H" && us.length > 1;
-  const whole = valence ? condensedLabel(left || us.some(small) ? plain(us) : label) : undefined;
+  // A first atom its hydrogens fill (CH3CO, CH3O, CH3CH2) takes no bond: the label is written from the left and the
+  // bond is on its last atom (acetyl, methoxy, ethyl).
+  const whole = valence ? condensedLabel(left || us.some(small) ? plain(us) : label) ?? (!left && us[1].text === "H" ? condensedLabel(label, true) : undefined) : undefined;
   if (whole && !crowded(whole)) return whole;
   let smiles = "";
   const atom = (sym: string) => (ORGANIC.has(sym) ? sym : sym === "D" ? "[2H]" : sym === "T" ? "[3H]" : `[${sym}]`);

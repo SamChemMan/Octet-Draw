@@ -39,19 +39,21 @@ export function condensedSmiles(text: string): string | undefined {
 // CH2CO2Me), its first atom first, or undefined when it is not one Octet can read in one way. The label is read as a
 // whole formula with the bond to the drawing as one more substituent of its first atom, so every valence is used:
 // N3 and NO2 are azide and nitro, SO2 a sulfone, a short bond along the chain a double or triple bond.
-export function condensedLabel(text: string): string | undefined {
+// last: the bond is on the label's last atom, for a label written from the left (CH3CO is acetyl, CH3O methoxy).
+export function condensedLabel(text: string, last = false): string | undefined {
   if (text.length > 40 || !/^[A-Z][A-Za-z0-9()]*$/.test(text)) return undefined;
-  const tokens = tokenise(text);
+  const tokens = tokenise(text), star: Token = { t: "group", smiles: "[*]" };
   if (!tokens?.length || tokens[0].t !== "atom") return undefined;
-  const g = assemble([{ t: "group", smiles: "[*]" }, ...tokens], 0);
+  const g = assemble(last ? [...tokens, star] : [star, ...tokens], 0);
   // A label leaves out what a chemist takes as read (SiOMe, SCMe, CCO2H): a double or triple bond only where the group
   // written always has one, C=O, N=O, P=O, S=O, C=S and P=S, and C≡N, C≡C or C=N along the chain, and never O–O.
   // Others are read left to right instead (labelSmiles).
   const el = (i: number) => g!.nodes[i].el ?? "", pair = (a: number, b: number) => el(a) + el(b);
   const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
   if (!g?.bonds.every(fine)) return undefined;
-  const smiles = smilesOf(g);
-  if (!smiles?.startsWith(`[${tokens[0].el}`)) return undefined;
+  const at = g.bonds.find((b) => g.nodes[b.a].smiles === "[*]" || g.nodes[b.b].smiles === "[*]"), root = at && (g.nodes[at.a].el ? at.a : at.b);
+  const smiles = root === undefined ? undefined : smilesOf(g, root);
+  if (!smiles?.startsWith(`[${g.nodes[root!].el}`)) return undefined;
   // The bond to the drawing goes; hydrogens are left to valence, as the rest of Octet's label SMILES has them.
   const out = smiles.replace(/\(\[\*\]\)|\[\*\]/, "").replace(/\[(Cl|Br|[BCNOPSFI])(?:H\d*)?\]/g, "$1");
   return out.includes("*") ? undefined : out;
@@ -210,14 +212,15 @@ function assembleBracket(tokens: Token[]): { state: State; ends: number[] } | un
 // The reading as SMILES: each atom in brackets with its hydrogens, groups as branches. Two groups alone: the first as
 // a branch on the second's first atom.
 const FIRST_ATOM = /^(?:\[[^\]]+\]|Cl|Br|[BCNOPSFIbcnops])/;
-function smilesOf(st: State): string | undefined {
+function smilesOf(st: State, root = st.nodes.findIndex((n) => n.el)): string | undefined {
   if (st.nodes.every((n) => n.smiles)) {
     const [a, b] = st.nodes.map((n) => n.smiles!), head = st.nodes.length === 2 ? FIRST_ATOM.exec(b)?.[0] : undefined;
     return head && `${head}(${a})${b.slice(head.length)}`;
   }
-  const root = st.nodes.findIndex((n) => n.el);
   const near = st.nodes.map(() => [] as { to: number; order: number }[]);
   for (const b of st.bonds) { near[b.a].push({ to: b.b, order: b.order }); near[b.b].push({ to: b.a, order: b.order }); }
+  // The bond to the drawing first, so a label's SMILES starts at its attachment atom.
+  near[root]?.sort((x, y) => Number(st.nodes[y.to].smiles === "[*]") - Number(st.nodes[x.to].smiles === "[*]"));
   const seen = new Set<number>();
   const write = (i: number): string => {
     seen.add(i);
