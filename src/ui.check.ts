@@ -183,7 +183,8 @@ for (const r of rules) {
 }
 
 // 6. Motion that motion.check.ts does not cover. An overlay comes in from 0.97 and at most 4 px away, and goes out to
-// 0.98. A glyph that pops (the Select tool, a carried option, a tick) starts at 0.85. A ring that spreads (halo) and a
+// 0.98. A glyph that pops (the Select tool, a carried option, a tick, an atom of the molecule that builds while an AI
+// app works) starts at 0.85. A ring that spreads (halo), that molecule's sparkle, which loops (mcp-twinkle), and a
 // settle from larger are not entrances.
 {
   const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -191,9 +192,9 @@ for (const r of rules) {
     const [, name, body] = m;
     for (const step of body.matchAll(/(from|to|\d+%)[^{]*\{([^{}]*)\}/g)) {
       const scale = /scale\(([\d.]+)\)|scale: ([\d.]+)/.exec(step[2]), value = scale && Number(scale[1] ?? scale[2]);
-      if (value !== null && value < 1 && /opacity: 0[;.]?/.test(step[2]) && !["halo"].includes(name)) {
+      if (value !== null && value < 1 && /opacity: 0[;.]?/.test(step[2]) && !["halo", "mcp-twinkle"].includes(name)) {
         if (step[1] === "to") assert.equal(value, 0.98, `@keyframes ${name}: an overlay goes out to 0.98`);
-        else assert.ok(value === 0.97 || (value === 0.85 && ["pop", "lift", "coach-tick"].includes(name)), `@keyframes ${name}: starts at ${value}, not 0.97`);
+        else assert.ok(value === 0.97 || (value === 0.85 && ["pop", "lift", "coach-tick", "mcp-pop"].includes(name)), `@keyframes ${name}: starts at ${value}, not 0.97`);
       }
       for (const d of step[2].matchAll(/translate[XY]?\(([^)]*)\)/g)) {
         for (const px of d[1].matchAll(/(?<![\w.%-])-?(\d+)px/g)) assert.ok(Number(px[1]) <= 4 || ["ripple", "home-settle"].includes(name), `@keyframes ${name}: slides ${px[0]}; 4 px is the most`);

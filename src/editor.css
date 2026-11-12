@@ -1099,7 +1099,7 @@ button.variant.add {
   cursor: progress;
 }
 /* The molecule's ground, in the middle of the window: the canvas colour with a soft edge, so the molecule reads over a
-   drawing. */
+   drawing. The edge is a fade in the ground itself, not a shadow: Octet has one elevation (ui.check.ts). */
 .mcp-stage {
   position: absolute;
   top: 50%;
@@ -1108,8 +1108,7 @@ button.variant.add {
   height: 200px;
   margin: -100px 0 0 -100px;
   border-radius: var(--radius-pill);
-  background: color-mix(in oklab, var(--canvas) 82%, transparent);
-  box-shadow: 0 0 var(--space-6) var(--space-4) color-mix(in oklab, var(--canvas) 82%, transparent);
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--canvas) 82%, transparent) 76%, transparent);
 }
 /* The molecule, about the middle of its ground. One turn of mcp-life is one molecule: as the turn ends, McpMagic puts
    the next molecule in, in a new element. */
@@ -1181,7 +1180,7 @@ button.variant.add {
 @keyframes mcp-pop {
   from {
     opacity: 0;
-    transform: scale(0.2);
+    transform: scale(0.85);
   }
 }
 .mcp-pill {
