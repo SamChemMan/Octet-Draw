@@ -30,6 +30,7 @@ import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type 
 import { reagentFormula } from "../../src/stoich.ts";
 import { toCt, toSln } from "../../src/textformats.ts";
 import { toFasta, toHelm } from "../../src/helm.ts";
+import { toChemfig } from "../../src/chemfig.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
@@ -191,7 +192,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
     }).map((v) => {
       const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
-      return { arrow: v.arrow, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
+      return { arrow: v.arrow, view: v, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
     });
   };
   // The reaction steps in a drawing or a part of it, for RXN files and reaction SMILES (the editor's stepsIn): each
@@ -216,6 +217,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     try {
       if (format === "cdxml") return cdxml();
       if (format === "cdx") return toBase64(xmlToCdx(parseXml(cdxml())));
+      if (format === "chemfig") { const d = drawn(m); return toChemfig(m, d.frame, d.measure) || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
       if (format === "inchi") return toInchi(chem) || undefined;

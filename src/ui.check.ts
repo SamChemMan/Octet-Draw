@@ -120,8 +120,7 @@ for (const r of rules) {
   }
   // One elevation (--shadow-float); a knob has --shadow-knob. Rings (no blur) are edges, not shadows.
   const shadow = r.props.get("box-shadow");
-  // the 3D tool's glow while it turns, and the soft edge of the ground under an AI app's molecule (plan mcp-v2, section 9)
-  if (!shadow || has(r, ".tool::after", ".tool.turn-3d::after", ".mcp-stage")) continue;
+  if (!shadow || has(r, ".tool::after", ".tool.turn-3d::after")) continue; // the 3D tool's glow while it turns
   let flat = shadow;
   while (/\([^()]*\)/.test(flat)) flat = flat.replace(/(var\(--shadow-(?:float|focus|knob)\))|\([^()]*\)/g, (all, token) => (token ? "TOKEN" : ""));
   for (const layer of flat.split(",").map((l) => l.trim().replace(/^inset /, ""))) {
@@ -185,15 +184,14 @@ for (const r of rules) {
 
 // 6. Motion that motion.check.ts does not cover. An overlay comes in from 0.97 and at most 4 px away, and goes out to
 // 0.98. A glyph that pops (the Select tool, a carried option, a tick) starts at 0.85. A ring that spreads (halo) and a
-// settle from larger are not entrances, nor is the overlay an AI app's work shows (plan mcp-v2, section 9): its atoms pop
-// in from small (brand/BRAND.md, Motion) and its sparkle twinkles.
+// settle from larger are not entrances.
 {
   const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
   for (const m of bare.matchAll(/@keyframes ([\w-]+) \{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)) {
     const [, name, body] = m;
     for (const step of body.matchAll(/(from|to|\d+%)[^{]*\{([^{}]*)\}/g)) {
       const scale = /scale\(([\d.]+)\)|scale: ([\d.]+)/.exec(step[2]), value = scale && Number(scale[1] ?? scale[2]);
-      if (value !== null && value < 1 && /opacity: 0[;.]?/.test(step[2]) && !["halo", "mcp-pop", "mcp-twinkle"].includes(name)) {
+      if (value !== null && value < 1 && /opacity: 0[;.]?/.test(step[2]) && !["halo"].includes(name)) {
         if (step[1] === "to") assert.equal(value, 0.98, `@keyframes ${name}: an overlay goes out to 0.98`);
         else assert.ok(value === 0.97 || (value === 0.85 && ["pop", "lift", "coach-tick"].includes(name)), `@keyframes ${name}: starts at ${value}, not 0.97`);
       }

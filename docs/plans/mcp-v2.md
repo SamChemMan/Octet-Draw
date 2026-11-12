@@ -1473,6 +1473,10 @@ Merged on 11 November 2026 (branch `mcp/112`): the benchmark runs every case in 
 gives the event loop a turn before each call, as an AI app's calls come one at a time, so Octet's fresh Indigo (loaded
 after 500 failed calls) takes over: with no turn it never loaded, and the 1,038th failure (zu2025-table1) ran out of
 memory. Three runs in a row, 146 cases each, all clean. Each corpus job is still drawn once, for the run's time.
+The limit is still there inside one call: Octet (`src/chem.ts`) can change to a fresh Indigo only between turns of
+the event loop, so a single tool call that makes about 1,270 refused Indigo calls with no turn between them still
+runs out of Indigo's stack. No job in the benchmark comes near it (zu2025-table1, the most, makes about 1,040 over
+many calls). Open: chem.ts could give the event loop a turn inside a long batch.
 
 ### 17.3 Taking 1.1.2 into this branch (from the 1.1.2 session)
 
@@ -1495,6 +1499,15 @@ Then what else 1.1.2 added, for full parity (same branch): the spectrum, SDF and
 template sets in place_template, gels, plasmid maps, membrane lines, a bond's own widths, the drawing's properties,
 the reagent table's roles, measured amounts, concentration and conditions, and CML, CT, SLN, HELM and FASTA in read
 with a format.
+After review (same branch): an edit to a plasmid map changes only what it gives; a gel's range needs two sizes; a
+gel hides its lane names and scale (edit's gel hide, and shape.hide.names and shape.hide.scale); a gel's lanes come
+and go as the Lanes actions add and delete them, so the gel gets wider or narrower; a band past the lanes is named
+in the result; fill_experiment sets a role with the table's own setRole, gives each step a table (steps) and hides
+empty rows (hide_empty); read with a format gives chemfig and BMP; the editor turns the products at once only for
+the call's own Clean Up Reaction. Left out, for Sam: the Properties panel's CAS number and Find hazards. Hazards and
+the CAS numbers the dictionary lacks come from PubChem, which Octet asks only when the user presses the button
+(decision 0008): an AI app's call is not that press. The CAS numbers in Octet's own dictionary could go in read;
+that is not done yet.
 
 ### 17.4 Pushing these branches
 

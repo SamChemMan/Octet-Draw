@@ -217,9 +217,27 @@ export type GridView = NonNullable<ReturnType<typeof layGrid>>;
 export const ROLE_NAMES: Record<GridRole, string> = { reactant: "Reactant", catalyst: "Catalyst", solvent: "Solvent" };
 // A column's role set: kept by its key. A table from an older Octet (no roles) first keeps each known solvent as a
 // reactant, so only the column the user changed changes.
-export function setRole(g: Grid, v: GridView, key: string, role: GridRole): Partial<Grid> {
+export function setRole(g: Grid, v: Pick<GridView, "all" | "limiting">, key: string, role: GridRole): Partial<Grid> {
   const roles: Record<string, GridRole> = g.roles ?? Object.fromEntries(v.all.filter((c) => !c.product && c.solvent).map((c) => [c.key, "reactant" as const]));
   return { roles: { ...roles, [key]: role }, ...(role === "solvent" && v.limiting === key ? { limiting: undefined } : {}) };
+}
+// One table for each step of a scheme (all: its arrows), or one for the scheme again (Analyse Stoichiometry's One table
+// for each step and One table for the scheme), with the other grids as they are. For each step: every arrow gets its
+// own, the scheme's table giving its reactants' values to the first step and its products' to the last. For the
+// scheme: the first step's table covers the whole scheme again, with the first step's reactants' values and the last
+// step's products'.
+export function stepGrids(grids: Grid[], all: number[]): Grid[] {
+  const own = grids.filter((g) => all.includes(g.arrow)), rest = grids.filter((g) => !all.includes(g.arrow));
+  const side = (g: Grid | undefined, s: string) => Object.fromEntries(Object.entries(g?.typed ?? {}).filter(([k]) => k[0] === s));
+  // A step's grid: its own, or the one an arrow added to the scheme since was given (gridViews).
+  const gridOf = (a: number) => own.find((g) => g.arrow === a && g.step) ?? own.find((g) => g.arrow === a);
+  if (own.some((g) => g.step)) {
+    const { step: _, ...first } = gridOf(all[0]) ?? ({ arrow: all[0], typed: {} } as Grid);
+    return [...rest, { ...first, typed: { ...side(first, "r"), ...side(gridOf(all[all.length - 1]), "p") } }];
+  }
+  // The scheme's table is its first grid, as drawn.
+  const whole = own[0];
+  return [...rest, ...all.map((a, k): Grid => ({ ...(k === 0 && whole ? whole : { roles: {} }), arrow: a, typed: { ...(k === 0 ? side(whole, "r") : {}), ...(k === all.length - 1 ? side(whole, "p") : {}) }, step: true }))];
 }
 // A grid as the editor changes it: what was typed, the roles and the marks, each by the keys of the columns it has now
 // (keyColumns), so values matched by order are kept by key and nothing grows past what readGrid reads.

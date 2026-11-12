@@ -140,7 +140,7 @@ import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, setRole } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, setRole, stepGrids } from "./gridview";
 import { logError } from "./crashlog";
 import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
@@ -2599,7 +2599,7 @@ export default function Editor() {
         return; // nothing to undo when it was clean already
       }
       say();
-      turnNext.current = pick;
+      turnNext.current = { pick };
       glideTo(laid.mol);
     },
     // Show Reaction Interpretation (View menu): pointing at a reaction shows what each part of it is.
@@ -3966,11 +3966,12 @@ export default function Editor() {
   // Clean Up Reaction's turn, once the layout's glide is over: Indigo's atom map takes about 8 ms a reaction, so the
   // canvas answers the key as quickly as before, and the turn glides as a step of its own (decision 0024). It waits
   // while a glide runs, as the other work after an edit does. A change before then (an Undo) drops it. For an AI app
-  // the call's settle makes it at once (mcpHost turnNow), so the call gives back the finished drawing.
-  const turnNext = useRef<(r: Reaction) => boolean>(undefined);
+  // the call's settle makes it at once (mcpHost turnNow), so the call gives back the finished drawing. call: the AI
+  // app's call ran the command (mcpHost command); the user's own Clean Up Reaction, while a call runs, turns as ever.
+  const turnNext = useRef<{ pick: (r: Reaction) => boolean; call?: true }>(undefined);
   useEffect(() => {
-    const pick = turnNext.current;
-    if (!pick || mcpCalling.current) return;
+    const pick = turnNext.current?.pick;
+    if (!pick || (turnNext.current!.call && mcpCalling.current)) return;
     turnNext.current = undefined;
     let t = 0;
     const go = () => { if (glidingNow.current) { t = window.setTimeout(go, 30); return; } const to = turnProducts(pick); if (to) glideTo(to); };
@@ -7325,13 +7326,13 @@ export default function Editor() {
       const end = Date.now() + 3000, w = mcpWait.current, done = () => (w.mol ? mcpHost.current!.rendered === w.mol : w.after === undefined || mcpRenders.current > w.after);
       while (!done() && Date.now() < end) await tick();
       mcpWait.current = {};
-      if (turnNext.current) await mcpHost.current!.turnNow();
+      if (turnNext.current?.call) await mcpHost.current!.turnNow();
     },
     // Clean Up Reaction's turn, on its layout as drawn now (turnNext).
-    turnNow: async () => { const pick = turnNext.current!, to = turnProducts(pick); turnNext.current = undefined; if (to) { mcpWait.current = { after: mcpRenders.current }; glideTo(to); await mcpHost.current!.settle(); } },
+    turnNow: async () => { const { pick } = turnNext.current!, to = turnProducts(pick); turnNext.current = undefined; if (to) { mcpWait.current = { after: mcpRenders.current }; glideTo(to); await mcpHost.current!.settle(); } },
     cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) { mcpWait.current = { after: mcpRenders.current }; glideTo(spread(doc, c)); } },
-    command: (id) => { const run = commands.current[id]; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); return true; },
+    command: (id) => { const run = commands.current[id], was = turnNext.current; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); if (turnNext.current && turnNext.current !== was) turnNext.current.call = true; return true; },
     // Any menu command or Actions panel action by its id, on the selection (run_command): mcp.ts checks the id
     // against its catalogue first.
     act: (id) => { if (modal()) return false; mcpWait.current = { after: mcpRenders.current }; runAction(id); return true; },
@@ -7344,7 +7345,8 @@ export default function Editor() {
     // with its settings and the options given (in base64; an SVG as text). Nothing is saved.
     fileText: async (format, part, o = {}) => {
       const mol = part ?? now.current;
-      if (!PICTURES.includes(format as ExportFormat)) return formatOf(mol, format as PartFormat);
+      if (format === "chemfig") return toChemfig(mol, frame, measure) || undefined;
+      if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return formatOf(mol, format as PartFormat);
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
       const file = svg && (await invoke<string>("export_bytes", { export: exportRequest(mol, svg, f) }));
       return file && format === "svg" ? new TextDecoder().decode(fromBase64(file)) : file;
@@ -7353,7 +7355,7 @@ export default function Editor() {
     reagent: (text) => reagentFormula(text, (t) => (namesLoaded ? nameToSmiles(t) : undefined), labelSmiles, smilesWeight),
     tables: () => gridViews.map((v) => {
       const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
-      return { arrow: v.arrow, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
+      return { arrow: v.arrow, view: v, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
     }),
     problems: () => (loaded ? allProblems() : []),
     smiles: (m) => { try { return toSmiles(expandLabels(m)); } catch { return undefined; } },
@@ -7684,22 +7686,8 @@ export default function Editor() {
       const role = ROLES.find((r) => what === `role.${r}`);
       if (role) return changeGrid(arrow, (g, v) => setRole(g, v, key, role));
       if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
-      // One table for each step: every arrow of the scheme gets its own; the scheme's table gives its reactants' values
-      // to the first step and its products' to the last. One table for the scheme: the first step's table covers the
-      // whole scheme again, with the first step's reactants' values and the last step's products'.
-      if (what === "steps") {
-        const all = reactionOf(arrow)?.arrows ?? [arrow], own = doc.grids?.filter((g) => all.includes(g.arrow)) ?? [], rest = doc.grids?.filter((g) => !all.includes(g.arrow)) ?? [];
-        const side = (g: Grid | undefined, s: string) => Object.fromEntries(Object.entries(g?.typed ?? {}).filter(([k]) => k[0] === s));
-        // A step's grid: its own, or the one an arrow added to the scheme since was given (gridview.ts gridViews).
-        const gridOf = (a: number) => own.find((g) => g.arrow === a && g.step) ?? own.find((g) => g.arrow === a);
-        if (own.some((g) => g.step)) {
-          const { step: _, ...first } = gridOf(all[0]) ?? ({ arrow: all[0], typed: {} } as Grid);
-          return set({ ...doc, grids: [...rest, { ...first, typed: { ...side(first, "r"), ...side(gridOf(all[all.length - 1]), "p") } }] }, true);
-        }
-        // The scheme's table is its first grid, as drawn.
-        const whole = own[0];
-        return set({ ...doc, grids: [...rest, ...all.map((a, k): Grid => ({ ...(k === 0 && whole ? whole : { roles: {} }), arrow: a, typed: { ...(k === 0 ? side(whole, "r") : {}), ...(k === all.length - 1 ? side(whole, "p") : {}) }, step: true }))] }, true);
-      }
+      // One table for each step, or One table for the scheme (gridview.ts stepGrids).
+      if (what === "steps") return set({ ...doc, grids: stepGrids(doc.grids ?? [], reactionOf(arrow)?.arrows ?? [arrow]) }, true);
       // Copy table: the table as shown, as tab-separated text.
       if (what === "copy") { const v = gridViews.find((x) => x.arrow === arrow), c = v && conditionsOf(v); return v && copyPlain(gridTsv(v, CONDITIONS.filter(([k]) => c![k]).map(([k, name]) => [name, c![k]!]))); }
       // Conditions…: Temperature, Time, Atmosphere and Other, in a dialog.

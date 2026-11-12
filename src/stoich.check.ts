@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, GRID_ROW_IDS, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
-import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, keptGrid, setRole, stepGrids, type GridDeps } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -426,6 +426,12 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.match(editor, /const made: Grid\[\] = all\.length > 1 \? all\.map\(\(a\) => \(\{ arrow: a, typed: \{\}, roles: \{\}, step: true \}\)\)/, "Analyse stoichiometry gives a scheme of several arrows a table for each step");
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.steps === "split" \? "One table for each step" : "One table for the scheme", "grid\.steps"/);
   assert.match(editor, /steps: doc\.grids\?\.some\(\(g\) => g\.step && all\.includes\(g\.arrow\)\) \? "join" : "split"/, "a scheme with any step table offers One table for the scheme");
+  // One table for each step: the scheme's table gives its reactants' values to the first step and its products' to the
+  // last; One table for the scheme takes them back. Other reactions' grids stay. The editor and fill_experiment share it.
+  const other = { arrow: 3, typed: {} }, split = stepGrids([other, { arrow: 9, typed: { "r:S0": { mass: 1 }, "p:S2": { measured: 0.5 } }, roles: { "r:S0": "reactant" as const } }], [9, 10]);
+  assert.deepEqual(split, [other, { arrow: 9, typed: { "r:S0": { mass: 1 } }, roles: { "r:S0": "reactant" }, step: true }, { arrow: 10, typed: { "p:S2": { measured: 0.5 } }, roles: {}, step: true }]);
+  assert.deepEqual(stepGrids(split, [9, 10]), [other, { arrow: 9, typed: { "r:S0": { mass: 1 }, "p:S2": { measured: 0.5 } }, roles: { "r:S0": "reactant" } }]);
+  assert.match(editor, /if \(what === "steps"\) return set\(\{ \.\.\.doc, grids: stepGrids\(doc\.grids \?\? \[\], reactionOf\(arrow\)\?\.arrows \?\? \[arrow\]\) \}, true\);/);
   // Only a reactant is set as limiting; a catalyst's 5 or 5% is 5 mol%; a solvent's density leaves the concentration.
   assert.match(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /context\.role === "reactant" && !context\.limiting \? \[it\(<Target size=\{18\} \/>, "Set as limiting"/);
   assert.match(editor, /if \(gc\.row === "limiting" && gcol\.role === "reactant"\)/);

@@ -1048,6 +1048,9 @@ out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm:
 assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
 assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
 assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
+// BMP (File > More Formats > Export BMP) is a picture: the window makes it as Export does.
+assert.doesNotMatch(text(await call("read", { format: "bmp" })), /not one of/);
+assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /if \(!PICTURES\.includes\(format as ExportFormat\) && format !== "bmp"\) return formatOf\(/);
 assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as TIF\.$/);
 // A picture of an empty drawing: Export's own words.
 {
@@ -1385,8 +1388,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // Clean Up Reaction turns the products after its layout's glide (turnNext). In a call the settle turns them at once,
   // so run_command clean_reaction gives back the finished drawing (plan mcp-v2, 17.3).
   const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /const pick = turnNext\.current;\n\s+if \(!pick \|\| mcpCalling\.current\) return;/, "the turn waits for no timer in a call");
-  assert.match(editor, /mcpWait\.current = \{\};\n\s+if \(turnNext\.current\) await mcpHost\.current!\.turnNow\(\);/, "the call's settle turns the products");
+  // Only the call's own Clean Up Reaction turns at once: one the user runs while a call runs turns as ever, and is not
+  // part of the call's Undo.
+  assert.match(editor, /const pick = turnNext\.current\?\.pick;\n\s+if \(!pick \|\| \(turnNext\.current!\.call && mcpCalling\.current\)\) return;/, "the turn waits for no timer in a call");
+  assert.match(editor, /mcpWait\.current = \{\};\n\s+if \(turnNext\.current\?\.call\) await mcpHost\.current!\.turnNow\(\);/, "the call's settle turns the products");
+  assert.match(editor, /command: \(id\) => \{ const run = commands\.current\[id\], was = turnNext\.current;[^\n]*run\(\); if \(turnNext\.current && turnNext\.current !== was\) turnNext\.current\.call = true;/, "the turn a call's command asks for is the call's");
   // Under a shape too (a box drawn round something). Not on an experiment page: its schemes go in its boxes.
   for (experiment of [false, true]) {
     m = EMPTY;
@@ -1952,9 +1958,39 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual([gel.unit, gel.lanes, gel.names, gel.range], ["bp", 3, ["L", "A", "2"], [100, 5000]]);
   assert.deepEqual(gel.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gel, x.rf))]), [[1, 500], [2, 2000]], "bands at their sizes; none in a lane the gel has not");
   assert.ok(gel.spots.some((x) => x.lane === 0), "the bp ladder in the first lane");
+  // A band in a lane the gel has not is left out, and the result says so. A range needs two sizes, as Set Range's: one
+  // size at both ends put every band at no place.
+  assert.match(text(r), /Not drawn: the band in lane 7 \(the gel has lanes 0 to 2\)\./);
+  const gelOne = () => m.shapes!.find((x) => x.kind === "gel")!, gelId = `b${gelOne().id}`;
+  assert.match(text(await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { range: [5, 5] } }] })), /gel: range needs two sizes/);
+  assert.deepEqual(gelOne().tlc!.range, [100, 5000]);
+  // Its lane names and scale hide as the Actions panel hides them (shape.hide.names and shape.hide.scale too); a TLC
+  // plate draws neither, so its tlc takes neither.
+  r = await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { hide: ["names", "scale"] } }] });
+  assert.ok(!r.isError, text(r)); assert.deepEqual(gelOne().tlc!.hide, ["names", "scale"]);
+  assert.ok((await call("change", { operations: [{ op: "shape", kind: "tlc", box: [0, 0, 4, 4], tlc: { hide: ["names"] } }] })).isError);
+  commands.length = 0;
+  for (const c of ["shape.hide.names", "shape.hide.scale"]) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
+  assert.deepEqual(commands, ["shape.hide.names", "shape.hide.scale"]);
+  // Lanes come and go at the gel's right as Add a lane and Delete the lane do: each lane keeps its width, so the gel
+  // gets wider or narrower, and the bands and names stay in their lanes.
+  const across = () => { const s = gelOne(); return Math.abs(s.to[0] - s.from[0]); }, lane = across() / 3;
+  r = await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 5 } }] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual([gelOne().tlc!.lanes, gelOne().tlc!.names, Math.round((across() / lane) * 1000) / 1000], [5, ["L", "A", "2", "3", "4"], 5]);
+  assert.deepEqual(gelOne().tlc!.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gelOne().tlc!, x.rf))]), [[1, 500], [2, 2000]]);
+  await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 2 } }] });
+  assert.deepEqual([gelOne().tlc!.lanes, gelOne().tlc!.names, Math.round((across() / lane) * 1000) / 1000, gelOne().tlc!.spots.filter((x) => x.lane).length], [2, ["L", "A"], 2, 1]);
   r = await call("change", { operations: [{ op: "shape", kind: "plasmid", box: [10, 0, 20, 10], plasmid: { bp: 3000, name: "pUC", regions: [{ start: 100, end: 900, name: "AmpR", direction: "reverse" }, { start: 1000, end: 1200, direction: "forward" }], markers: [{ at: 50, name: "EcoRI" }] } }] });
   assert.ok(!r.isError, text(r)); assert.match(text(r), /Drew a plasmid map b/);
   assert.deepEqual(m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, { bp: 3000, name: "pUC", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
+  // An edit changes what it gives, over the map as it is: a new name keeps the regions and markers.
+  const map = () => m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, mapId = `b${m.shapes!.find((x) => x.kind === "plasmid")!.id}`;
+  r = await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { name: "pUC19" } }] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual(map(), { bp: 3000, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
+  await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { bp: 2686, markers: [] } }] });
+  assert.deepEqual(map(), { bp: 2686, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [] });
   assert.match(text(await call("change", { operations: [{ op: "shape", kind: "plasmid", box: [0, 0, 5, 5], plasmid: { bp: 100, markers: [{ at: 500, name: "X" }] } }] })), /plasmid: each region and marker must lie in 1 to bp/);
   assert.match(text(await call("change", { operations: [{ op: "shape", kind: "box", box: [0, 0, 5, 5], gel: { lanes: 2 } }] })), /gel goes on a gel/);
   r = await call("change", { operations: [{ op: "arrow", kind: "line", from: [0, -5], to: [8, -5], style: "membrane" }] });
@@ -1969,10 +2005,12 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(inG(gw1).filter((b) => b.line || b.bold).map((b) => [b.line, b.bold]), [[1.2, 3]], "the one bond's own widths");
   assert.ok(inG(gw2).every((b) => b.line === 0.9 && !b.bold), "every bond of the structure");
   r = await call("advanced", { tool: "set_style", args: { properties: { title: "Route to X", author: "A. Chemist", keywords: "taxol, route" } } });
-  assert.ok(!r.isError, text(r)); assert.match(text(r), /Octet set the drawing's title, author, keywords\./);
+  assert.ok(!r.isError, text(r)); assert.match(text(r), /^Octet set the drawing's title, author and keywords\./);
   assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { title: "Route to X", author: "A. Chemist", keywords: "taxol, route" });
   await call("advanced", { tool: "set_style", args: { properties: { keywords: "" } } });
   assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { title: "Route to X", author: "A. Chemist" });
+  // With a style or page, the result names the properties too.
+  assert.match(text(await call("advanced", { tool: "set_style", args: { preset: "RSC", properties: { author: "B. Chemist" } } })), /^The drawing now uses RSC [^\n]*\. Octet set the drawing's author\./);
   // A structure over the arrow is the one given there, and the product the product (6 November 2026: they were read
   // products first and drawn structures first, so they swapped).
   fresh();

@@ -20,6 +20,7 @@ const { parseStructure, toInchiKey, toSmiles } = await import("./chem.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 const { extractSelection, fragments } = await import("./edit.ts");
 const { pageSize } = await import("./docstyle.ts");
+const { emptyRows } = await import("./gridview.ts");
 await load();
 
 const SCHEME = {
@@ -458,6 +459,42 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.match(await as("cml"), /<cml>[\s\S]*<molecule>/);
   assert.match(await as("ct"), /^Formats\n/);
   assert.ok((await as("sln")).length > 5, "SLN");
+  // Export LaTeX (chemfig): the structures as chemfig code.
+  assert.match(await as("chemfig"), /^\\chemfig\{/);
+}
+{
+  // The reagent table through fill_experiment, as its own menus change it. A role on a table from an older Octet (no
+  // roles) first keeps each known solvent a reactant, as the Role menu does (gridview.ts setRole): only the column given
+  // changes.
+  d = drawing("experiment", "Roles");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4", "MeOH"], products: [{ text: "benzyl alcohol" }] }] })).isError);
+  const m = d.host.doc();
+  d.host.set({ ...m, grids: m.grids!.map(({ roles: _, ...g }) => g) });
+  const solvents = d.host.tables()[0].view.all.filter((c) => c.solvent).map((c) => c.key);
+  assert.deepEqual(solvents, ['r:"MeOH"'], "MeOH is a known solvent");
+  let out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "NaBH4", role: "catalyst" }] } });
+  assert.ok(!out.isError, out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].roles, { 'r:"MeOH"': "reactant", 'r:"NaBH4"': "catalyst" });
+  // Hide empty rows, and Show all rows and columns.
+  const empty = emptyRows(d.host.tables()[0].view);
+  assert.ok(empty.length > 0);
+  out = await call("advanced", { tool: "fill_experiment", args: { hide_empty: true } });
+  assert.ok(!out.isError && /hid the table's empty rows/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids![0].hidden?.rows, empty);
+  await call("advanced", { tool: "fill_experiment", args: { hide_empty: false } });
+  assert.equal(d.host.doc().grids![0].hidden, undefined);
+  // One table for each step of a scheme, and one for the scheme again (gridview.ts stepGrids). A reaction of one
+  // step has none to give.
+  assert.match((await call("advanced", { tool: "fill_experiment", args: { steps: true } })).content[0].text, /cannot read steps: the reaction has one step/);
+  d = drawing("experiment", "Steps");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol" }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide" }] }] })).isError);
+  const arrows = (d.host.doc().arrows ?? []).filter((x) => d.host.reaction(x.id)).map((x) => x.id);
+  out = await call("advanced", { tool: "fill_experiment", args: { steps: true } });
+  assert.ok(!out.isError && /gave each step a table of its own/.test(out.content[0].text), out.content[0].text);
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), arrows.map((a) => [a, true]));
+  assert.equal(d.host.tables().length, 2);
+  await call("advanced", { tool: "fill_experiment", args: { steps: false } });
+  assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), [[arrows[0], undefined]]);
 }
 {
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
