@@ -116,14 +116,15 @@ fn reason(e: &std::io::Error) -> String {
 }
 
 // Where a file's new file goes: in --out or beside it, with the format's extension. One that is there already is kept,
-// and the new one gets a number (figure3 2.pdf), unless --overwrite. One this run wrote (a.cdxml and a.smi, both to
-// a.pdf) is never written over: --overwrite is for the files that were there before.
-fn target(input: &Path, out: Option<&Path>, ext: &str, overwrite: bool, written: &HashSet<PathBuf>) -> PathBuf {
+// and the new one gets a number (figure3 2.pdf), unless --overwrite. Kept even with --overwrite: one this run wrote
+// (a.cdxml and a.smi, both to a.pdf), and one still to convert (a.cdx and a.cdxml, --to cdxml): `kept` holds them as
+// the system names them (fs::canonicalize), so --out spelled another way is the same folder.
+fn target(input: &Path, out: Option<&Path>, ext: &str, overwrite: bool, kept: &HashSet<PathBuf>) -> PathBuf {
     let dir = out.or(input.parent()).unwrap_or(Path::new("."));
     let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled".into());
     let mut path = dir.join(format!("{stem}.{ext}"));
     let mut n = 2;
-    while written.contains(&path) || (!overwrite && fs::symlink_metadata(&path).is_ok()) {
+    while fs::canonicalize(&path).is_ok_and(|p| kept.contains(&p)) || (!overwrite && fs::symlink_metadata(&path).is_ok()) {
         path = dir.join(format!("{stem} {n}.{ext}"));
         n += 1;
     }
@@ -173,11 +174,16 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
         }
     }
     let ext = FORMATS.iter().find(|f| f.0 == job.to).map_or(job.to.as_str(), |f| f.2[0]);
-    let (mut done, mut written) = (0, HashSet::new());
+    // Every file to convert is kept until it is read. Then --overwrite may write over it (a.cdxml --to cdxml).
+    let mut kept: HashSet<PathBuf> = found.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
+    let mut done = 0;
     for p in &found {
+        if let Ok(read) = fs::canonicalize(p) {
+            kept.remove(&read);
+        }
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         match convert(app, job, p, &name, style_text.as_deref()).and_then(|(bytes, lost)| {
-            let to = target(p, job.out.as_deref(), ext, job.overwrite, &written);
+            let to = target(p, job.out.as_deref(), ext, job.overwrite, &kept);
             crate::write_atomic(&to, &bytes).map(|_| (to, lost)).map_err(|e| e.to_string())
         }) {
             Ok((to, lost)) => {
@@ -185,7 +191,7 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
                 // What File > Open says it could not keep, said here too.
                 let lost = lost.map(|l| format!(" (Octet left out {l}.)")).unwrap_or_default();
                 say!(stdout, "{name} -> {}{lost}", to.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
-                written.insert(to);
+                kept.extend(fs::canonicalize(to));
             }
             Err(why) => say!(stderr, "{name}: {why}"),
         }
@@ -308,8 +314,17 @@ mod tests {
         assert_eq!(target(&input, None, "pdf", false, &none), dir.join("figure3 3.pdf"));
         assert_eq!(target(&input, None, "pdf", true, &none), dir.join("figure3.pdf"));
         // With --overwrite, a file this run wrote is still kept (figure3.cdxml and figure3.smi, both to figure3.pdf).
-        let written = HashSet::from([dir.join("figure3.pdf"), dir.join("figure3 2.pdf")]);
+        let real = |f: &str| fs::canonicalize(dir.join(f)).unwrap();
+        let written = HashSet::from([real("figure3.pdf"), real("figure3 2.pdf")]);
         assert_eq!(target(&dir.join("figure3.smi"), None, "pdf", true, &written), dir.join("figure3 3.pdf"));
+        // With --overwrite, a file still to convert is kept too (a.cdx and a.cdxml, --to cdxml), wherever --out
+        // names the folder. Once it is read, it may be written over.
+        fs::write(dir.join("a.cdx"), "x").unwrap();
+        fs::write(dir.join("a.cdxml"), "x").unwrap();
+        let to_read = HashSet::from([real("a.cdxml")]);
+        assert_eq!(target(&dir.join("a.cdx"), None, "cdxml", true, &to_read), dir.join("a 2.cdxml"));
+        assert_eq!(target(&dir.join("a.cdx"), Some(&dir.join(".")), "cdxml", true, &to_read), dir.join("./a 2.cdxml"));
+        assert_eq!(target(&dir.join("a.cdxml"), None, "cdxml", true, &none), dir.join("a.cdxml"));
         // --out: there, not beside the input.
         assert_eq!(target(&input, Some(&dir.join("out")), "pdf", false, &none), dir.join("out/figure3.pdf"));
         fs::remove_dir_all(&dir).unwrap();
