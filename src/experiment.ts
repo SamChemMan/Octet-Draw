@@ -346,6 +346,9 @@ export function markupRuns(runs: TextRun[]): TextRun[] {
 const GROUPS = new Set(["Me", "Et", "Pr", "Bu", "Ph", "Ac", "Bn", "Ts", "Tf", "Ms", "Cy"]);
 const PAIRS = new Set(["H2", "D2", "N2", "O2", "O3", "F2", "Cl2", "Br2", "I2"]);
 const NUCLEI = new Set(["H", "D", "B", "C", "N", "O", "F", "Si", "P", "Se", "Sn", "Pt", "Li", "Na", "Al", "Cd", "Hg", "Rh", "W", "Y", "Xe"]);
+// Plain text with its formula words' subscripts (Et3N, CH2Cl2) and nothing else of the markup: a substance's name.
+export const formulaRuns = (runs: TextRun[]): TextRun[] =>
+  normalise(formulaWords(runs.flatMap((r) => Array.from(r.text, (ch) => ({ ch, s: styleOf(r) })))).map((c) => ({ ...c.s, text: c.ch })));
 function formulaWords(cs: Ch[]): Ch[] {
   const out = cs.map((c) => ({ ...c })), text = cs.map((c) => c.ch).join("");
   for (const m of text.matchAll(/[A-Za-z0-9()[\]]+/g)) {

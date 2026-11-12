@@ -5097,6 +5097,13 @@ div.facts {
   .print-root {
     display: block;
   }
+  /* A page is never taller or wider than what the printer prints on: macOS prints inside the printer's own margins, and
+     a picture one sheet tall spilled its foot onto a second, blank sheet. Where the margins allow, it is at true size. */
+  .print-root img {
+    max-width: 100vw;
+    max-height: 100vh;
+    object-fit: contain;
+  }
 }
 /* Print's preview on Linux: the pages in their rows and columns on a grey ground, at most 260 px tall. */
 .print-preview {

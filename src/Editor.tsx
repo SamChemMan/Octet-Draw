@@ -875,8 +875,9 @@ export default function Editor() {
   // join: where Shift with the Arrow tool would start an arrow joined to another (an end, or a middle point).
   // cycle: the cycle the Cycle tool is over, whose handles show. grab: the Cycle tool is over a structure or text, which
   // a press moves. details: Select is over an experiment's details, which a double-click edits (a text cursor, issue 34).
-  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side; join?: P; cross?: boolean; cycle?: number; grab?: boolean; details?: boolean }>({ selection: false, turn: false },
-    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize && a.join?.[0] === b.join?.[0] && a.join?.[1] === b.join?.[1] && a.cross === b.cross && a.cycle === b.cycle && a.grab === b.grab && a.details === b.details));
+  // field: the detail or risk assessment field under the pointer, whose box shows (only that one: Sam, 12 November 2026).
+  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side; join?: P; cross?: boolean; cycle?: number; grab?: boolean; details?: boolean; field?: string }>({ selection: false, turn: false },
+    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize && a.join?.[0] === b.join?.[0] && a.join?.[1] === b.join?.[1] && a.cross === b.cross && a.cycle === b.cycle && a.grab === b.grab && a.details === b.details && a.field === b.field));
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand. It follows the pointer, so
   // it lives in a store too.
   const [brushes] = useState(() => store<P | undefined>(undefined));
@@ -5306,6 +5307,7 @@ export default function Editor() {
         cycle: tool === "cycle" ? t.cycle ?? circleAt(p)?.id ?? (h?.id === overs.get().cycle ? overs.get().cycle : undefined) : undefined,
         grab: tool === "cycle" && (t.atom !== undefined || t.bond !== undefined || t.caption !== undefined),
         details: tool !== "erase" && (!!slotAt(p, t) || !!riskTickAt(p)),
+        field: tool !== "erase" ? slotAt(p, t)?.field : undefined,
       });
       // While the keyboard's focus is on the canvas (CanvasAccess), the pointer does not take the keys: VoiceOver can move
       // it to follow its cursor, and the keys act on the hotspot or the selection. A click gives the keys back to it.
@@ -9516,7 +9518,7 @@ export default function Editor() {
     <div className={guides.rulers && !home ? "editor with-rulers" : "editor"} data-select={ownSelect ? "own" : undefined} style={selectStyle}>
       {/* The canvas draws again as the view, or what the pointer is over, changes. The drawing's layers in it are made
           by the editor (under, marks, ink and over), so React passes over them. */}
-      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize, join: overJoin, cross: overCross, grab: overGrab, details: overDetails }) => (
+      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize, join: overJoin, cross: overCross, grab: overGrab, details: overDetails, field: overField }) => (
       <svg
         ref={svg}
         className={`canvas paper-${paper}${view.pinch ? " pinch" : ""}`}
@@ -9635,10 +9637,11 @@ export default function Editor() {
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world" className={fast ? (fast.dom ? "gliding" : "gliding-structures") : undefined}>
-          {/* An experiment's details: a box at each one's place, on screen only. The empty title's says Title. */}
+          {/* An experiment's details and a risk assessment's fields: a box at the place of the one under the pointer, on
+              screen only, so the page stays as clean as it prints. The empty title says Title. */}
           {!exporting && slots.length > 0 && (
             <g className="fields">
-              {slots.map((x) => <rect key={x.field} x={x.box[0] * L} y={-x.box[3] * L} width={(x.box[2] - x.box[0]) * L} height={(x.box[3] - x.box[1]) * L} rx={3 / view.zoom} vectorEffect="non-scaling-stroke" />)}
+              {slots.filter((x) => x.field === overField).map((x) => <rect key={x.field} x={x.box[0] * L} y={-x.box[3] * L} width={(x.box[2] - x.box[0]) * L} height={(x.box[3] - x.box[1]) * L} rx={3 / view.zoom} vectorEffect="non-scaling-stroke" />)}
               {slots.filter((x) => x.field === "title" && x.caption === undefined && writing?.style.field !== "title").map((x) => <text key="title" x={x.at[0] * L} y={-x.at[1] * L} style={{ font: `bold ${slotText(doc, x, sheetOf(style)).size! * pt}px ${fontStack(style.captionFont)}` }}>Title</text>)}
             </g>
           )}

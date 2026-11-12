@@ -11,7 +11,7 @@
 import type { Arrow, Caption, CurvePoint, Group, Mol, Shape } from "./render.ts";
 import { plainOf, runsOf, wrap, type TextRun } from "./richtext.ts";
 import { PICTOGRAMS, type Ghs } from "./ghs.ts";
-import { MARGIN, oneLine, type Sheet, type Slot } from "./experiment.ts";
+import { formulaRuns, MARGIN, oneLine, type Sheet, type Slot } from "./experiment.ts";
 
 type P = [number, number];
 export type Role = "reactant" | "catalyst" | "solvent" | "product";
@@ -181,7 +181,7 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
   rule(y);
   const PIC = 2.4 * em; // a pictogram's frame
   for (const sub of r.substances) {
-    const base = y - em - pad, name = text(lines([{ text: sub.name }], cw(0)), at[0], base);
+    const base = y - em - pad, name = text(lines(formulaRuns([{ text: sub.name }]), cw(0)), at[0], base);
     if (sub.formula) text((sub.formula.match(/\d+|[^\d]+/g) ?? []).map((t) => (/^\d+$/.test(t) ? { text: t, script: "sub" as const } : { text: t })), at[1], base);
     const cas = field(`cas${sub.id}`, at[2], base, cw(2)), exp = field(`exp${sub.id}`, at[4], base, cw(4));
     const pics = sub.pictograms ?? [], across = Math.max(1, Math.floor((cw(3) + 0.05 * PIC) / (1.05 * PIC))), down = Math.ceil(pics.length / across);
@@ -209,7 +209,7 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
   y -= lh;
   y -= lh * text(lines([{ text: "Category 1 or 2 carcinogen, mutagen or reproductive toxin, or respiratory or skin sensitiser (H317, H334, H340, H341, H350, H351, H360, H361, H362)" }], W), x0, y);
   const from = significantOf(r);
-  if (from.length) y -= lh * text(lines([{ text: "Found: ", bold: true }, { text: from.map((x) => `${x.name} (${x.codes.join(", ")})`).join("; ") }], W), x0, y);
+  if (from.length) y -= lh * text(lines([{ text: "Found: ", bold: true }, ...from.flatMap((x, k) => [...formulaRuns([{ text: (k ? "; " : "") + x.name }]), { text: ` (${x.codes.join(", ")})` }])], W), x0, y);
 
   y = section("Safety and risk", y + 0.2 * lh);
   const mid = x0 + 0.45 * W;
