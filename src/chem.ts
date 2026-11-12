@@ -1159,6 +1159,7 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
   });
   // Labels whose bonds say which of their kept atoms each one joins (a residue label): their kept atoms are the group.
   const ported = new Set<number>();
+  let joined: Uint8Array | undefined;
   for (const b of mol.bonds) if (b.ports) for (let e = 0; e < 2; e++) { const k = b.atoms[e]; if (b.ports[e] >= 0 && mol.atoms[k]?.inner?.atoms.length) ported.add(k); }
   mol.atoms.forEach((a, i) => {
     // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
@@ -1188,6 +1189,12 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
       ],
     };
     out.atoms[base] = { ...out.atoms[base], charge: (out.atoms[base].charge ?? 0) + (a.charge ?? 0) || undefined };
+    // The open valence that Indigo reads as a radical on a group's first atom (Si in TMS, N in NO2) is the label's bond:
+    // a label with a bond has no radical there. Which atoms have a bond is worked out when the first such label asks.
+    if (out.atoms[base].radical && !own) {
+      if (!joined) { joined = new Uint8Array(mol.atoms.length); for (const b of mol.bonds) { joined[b.atoms[0]] = 1; joined[b.atoms[1]] = 1; } }
+      if (joined[i]) out.atoms[base].radical = undefined;
+    }
     // A label of one element and its hydrogens (NH3, H2O) bonded to a metal keeps the hydrogens it shows: counted by
     // valence, the bond to the metal would leave NH2 and OH, where the drawing shows ammine and aqua ligands.
     const hx = /^(?:([A-Z][a-z]?)H(\d*)|H(\d*)([A-Z][a-z]?))$/.exec(text);
@@ -1848,8 +1855,9 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
     if (polymer) { out.push(polymer); continue; }
     const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
     const abbreviation = cite && entries.length === 1 && named(part) ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
-    // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
-    if (entries.length > 1 && part.atoms.some((a) => a.centre)) out.push(added(entries));
+    // A structure held together by multi-centre attachments (ferrocene), or with a label that is a salt (BF3K, a
+    // borate and its potassium ion), is one compound: its pieces are added together.
+    if (entries.length > 1) out.push(added(entries));
     else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
   }
   return out.length ? out.slice(0, limit) : undefined;

@@ -1,7 +1,7 @@
 {
  "tools": 6,
  "toolsList": 12481,
- "instructions": 2160,
+ "instructions": 2157,
  "cases": {
   "corpus-chained": {
    "calls": 4,
@@ -89,7 +89,7 @@
    "read": 650,
    "ms": 90,
    "slowest": 90,
-   "right": 2,
+   "right": 3,
    "of": 3,
    "warnings": 0,
    "summary": 425
@@ -180,7 +180,7 @@
    "read": 1354,
    "ms": 111,
    "slowest": 111,
-   "right": 18,
+   "right": 20,
    "of": 20,
    "warnings": 20,
    "summary": 1232
@@ -422,13 +422,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 516,
-   "read": 663,
+   "read": 585,
    "ms": 40,
    "slowest": 40,
    "right": 4,
    "of": 4,
-   "warnings": 1,
-   "summary": 604
+   "warnings": 0,
+   "summary": 502
   },
   "robinson2026-fig3a": {
    "calls": 2,
@@ -464,10 +464,10 @@
    "read": 664,
    "ms": 354,
    "slowest": 354,
-   "right": 1,
+   "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 488
+   "summary": 493
   },
   "robinson2026-fig4a-2x": {
    "calls": 2,
@@ -500,26 +500,26 @@
    "failed": 0,
    "coerced": 0,
    "sent": 557,
-   "read": 766,
+   "read": 768,
    "ms": 329,
    "slowest": 329,
-   "right": 3,
+   "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 521
+   "summary": 520
   },
   "robinson2026-fig5b": {
    "calls": 2,
    "failed": 0,
    "coerced": 0,
    "sent": 381,
-   "read": 486,
+   "read": 488,
    "ms": 6,
    "slowest": 6,
-   "right": 3,
+   "right": 5,
    "of": 5,
    "warnings": 0,
-   "summary": 391
+   "summary": 393
   },
   "robinson2026-fig5d": {
    "calls": 2,
@@ -617,13 +617,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 539,
-   "read": 721,
+   "read": 643,
    "ms": 33,
    "slowest": 33,
    "right": 4,
    "of": 4,
-   "warnings": 1,
-   "summary": 651
+   "warnings": 0,
+   "summary": 549
   },
   "route-robinson2026-fig3a": {
    "calls": 2,
@@ -643,13 +643,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 571,
-   "read": 821,
+   "read": 823,
    "ms": 336,
    "slowest": 335,
-   "right": 3,
+   "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 560
+   "summary": 559
   },
   "route-robinson2026-fig5d": {
    "calls": 2,
@@ -747,7 +747,7 @@
    "failed": 0,
    "coerced": 5,
    "sent": 16042,
-   "read": 170273,
+   "read": 170521,
    "ms": 3713,
    "slowest": 1545,
    "right": 19,
@@ -773,7 +773,7 @@
    "failed": 0,
    "coerced": 0,
    "sent": 185,
-   "read": 656,
+   "read": 658,
    "ms": 38,
    "slowest": 38,
    "right": 2,
@@ -998,7 +998,7 @@
    "ms": 5,
    "slowest": 5,
    "warnings": 0,
-   "summary": 903
+   "summary": 893
   },
   "zu2025-table1": {
    "calls": 2,
@@ -1147,7 +1147,7 @@
    "read": 210,
    "ms": 106,
    "slowest": 106,
-   "right": 2,
+   "right": 3,
    "of": 3,
    "warnings": 0,
    "summary": 425
@@ -1238,7 +1238,7 @@
    "read": 764,
    "ms": 139,
    "slowest": 139,
-   "right": 18,
+   "right": 20,
    "of": 20,
    "warnings": 20,
    "summary": 1232
@@ -1480,13 +1480,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 252,
-   "read": 277,
+   "read": 199,
    "ms": 45,
    "slowest": 45,
    "right": 4,
    "of": 4,
-   "warnings": 1,
-   "summary": 604
+   "warnings": 0,
+   "summary": 502
   },
   "lines-robinson2026-fig3a": {
    "calls": 1,
@@ -1519,13 +1519,13 @@
    "failed": 0,
    "coerced": 0,
    "sent": 319,
-   "read": 316,
+   "read": 321,
    "ms": 374,
    "slowest": 374,
-   "right": 1,
+   "right": 2,
    "of": 2,
    "warnings": 2,
-   "summary": 488
+   "summary": 493
   },
   "lines-robinson2026-fig4a-2x": {
    "calls": 1,
@@ -1558,26 +1558,26 @@
    "failed": 0,
    "coerced": 0,
    "sent": 303,
-   "read": 296,
+   "read": 295,
    "ms": 347,
    "slowest": 347,
-   "right": 3,
+   "right": 4,
    "of": 4,
    "warnings": 0,
-   "summary": 521
+   "summary": 520
   },
   "lines-robinson2026-fig5b": {
    "calls": 1,
    "failed": 0,
    "coerced": 0,
    "sent": 175,
-   "read": 219,
+   "read": 221,
    "ms": 15,
    "slowest": 15,
-   "right": 3,
+   "right": 5,
    "of": 5,
    "warnings": 0,
-   "summary": 391
+   "summary": 393
   },
   "lines-robinson2026-fig5d": {
    "calls": 1,
@@ -1831,11 +1831,11 @@
    "failed": 0,
    "coerced": 0,
    "sent": 283,
-   "read": 319,
+   "read": 309,
    "ms": 15,
    "slowest": 15,
    "warnings": 0,
-   "summary": 903
+   "summary": 893
   },
   "lines-zu2025-table1": {
    "calls": 1,

@@ -532,6 +532,11 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   const back = fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol;
   assert.deepEqual(back.atoms.map((a) => [a.label, a.isotope, a.radical, a.circle, a.charge]),
     m.atoms.map((a) => [a.label, a.isotope, a.radical, a.circle, a.charge]), "isotope, singlet radical and ring circles");
+  // The label Ar (an aryl group Octet reads no atoms in) comes back as the label, in CDXML and in CDX. Argon the
+  // element comes back as argon.
+  const aryl: Mol = { atoms: [A("C", 0, 0), A("*", 1, 0, { text: "Ar" }), A("Ar", 5, 0)], bonds: [b(0, 1)] };
+  for (const read of [fromCdxml(toCdxml(aryl, DEFAULT_STYLE)).mol, fromCdxml(cdxToXml(xmlToCdx(parseXml(toCdxml(aryl, DEFAULT_STYLE))))).mol])
+    assert.deepEqual(read.atoms.map((a) => [a.label, a.text]), [["C", undefined], ["C", "Ar"], ["Ar", undefined]], "Ar the label and argon the element");
   assert.equal(back.atoms[7].pairs, undefined, "a singlet's pair is its radical, not a lone pair");
   assert.deepEqual(back.grids, [{ arrow: back.arrows![0].id, typed: m.grids![0].typed, limiting: "r0" }], "stoichiometry grid");
   // ChemDraw's form of an isotope: Isotope on the node and the mass number in the label's text.

@@ -153,13 +153,14 @@ for (const row of TABLE) {
   assert.match(said(await call("change", { operations: [{ op: "replace", structure: "s1", changes: [{ at: "7", set: "OH" }] }] })), /^Replaced s1 with \(2S\)-butan-2-ol \[Atom 7 keeps its configuration \(S\)\.\], now s2, which keeps its number 1\./);
 }
 // A new group Octet cannot read is drawn as a label with no structure, as a chemist's own label is, and the reply says
-// so: it may be a slip (C12). A generic group (R) is one on purpose, and a group Octet reads needs no word.
+// so: it may be a slip (C12). A generic group (R), and another stand-in written alone or round one (Alkyl, OAr), is one
+// on purpose (labels.ts unknownLabel), and a group Octet reads needs no word.
 {
   d = drawing();
-  const r = await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "1" }, { from: "1", changes: [{ swap: { OH: "OTBDSP" } }], number: "2" }, { from: "1", changes: [{ swap: { OH: "R" } }], number: "3" }, { from: "1", changes: [{ swap: { OH: "OTBDPS" } }], number: "4" }] });
+  const r = await call("draw", { kind: "structures", structures: [{ text: "CCO", number: "1" }, { from: "1", changes: [{ swap: { OH: "OTBDSP" } }], number: "2" }, { from: "1", changes: [{ swap: { OH: "R" } }], number: "3" }, { from: "1", changes: [{ swap: { OH: "OTBDPS" } }], number: "4" }, { from: "1", changes: [{ swap: { OH: "Alkyl" } }], number: "5" }, { from: "1", changes: [{ swap: { OH: "OAr" } }], number: "6" }] });
   assert.ok(!r.isError, said(r));
   assert.match(said(r), /\(2\) \[Octet cannot read OTBDSP as a group: it is drawn as a label with no structure\.\]/);
-  assert.ok(!/\((3|4)\) \[/.test(said(r)), said(r));
+  assert.ok(!/\(([3-6])\) \[/.test(said(r)), said(r));
 }
 // A numbered atom written with no hydrogens ([C:7]) is a radical in SMILES: the reply says so. One with its hydrogens,
 // or with all its bonds, is as it was meant.
@@ -481,6 +482,7 @@ const MADE: Made[] = [
   ["an acid to its methyl ester", "OC(=O)[C@@H](C)c1ccccc1", [{ do: "esterify", with: "Me" }], "COC(=O)[C@@H](C)c1ccccc1"],
   ["the acid of a hydroxy acid, with no at", "OCC[C@H](C)CC(=O)O", [{ do: "esterify", with: "Et" }], "OCC[C@H](C)CC(=O)OCC"],
   ["an acid to its benzyl ester", "OC(=O)CCC", [{ do: "esterify", with: "Bn" }], "O=C(CCC)OCc1ccccc1"],
+  ["an acid to its tert-butyl ester (OtBu is a label Octet reads)", "OC(=O)CCC", [{ do: "esterify", with: "tBu" }], "CCCC(=O)OC(C)(C)C"],
   ["an acid written as a label", "*c1ccccc1", [{ do: "esterify", with: "Me" }], "COC(=O)c1ccccc1", { labels: ["CO2H"] }],
   ["an alcohol, by its atom, with an acyl group", "O[CH2:1]CC", [{ do: "esterify", with: "Ac", at: "1" }], "CC(=O)OCCC"],
   // hydrolyse.
@@ -701,7 +703,7 @@ const MADE: Made[] = [
   await refuse("CCO", [{ do: "protect", with: "Tr" }], /protect takes with: TBS, TBDPS, TES, TMS, TIPS, Bn, PMB, MOM, Ac, Bz, Boc, Cbz, Fmoc, acetonide, carbonate/);
   await refuse("CCO", [{ do: "oxidise", to: "double" }], /to does not go with oxidise/);
   await refuse("CCO", [{ do: "oxidise", with: "PCC" }], /with does not go with oxidise/);
-  await refuse("CCC(=O)O", [{ do: "esterify", with: "tBu" }], /Octet cannot read OtBu as a group/);
+  await refuse("CCC(=O)O", [{ do: "esterify", with: "4-ClC6H4" }], /Octet cannot read O4-ClC6H4 as a group/);
   await refuse("C=CC", [{ do: "hydroborate" }], /hydroborate takes at: the carbon of the C=C that takes the OH/);
   await refuse("C[CH:1]1O[CH:2]1C", [{ do: "open_epoxide" }], /open_epoxide takes at: the carbon that loses the oxygen/);
   await refuse("OC(=O)CCCO", [{ do: "lactonise" }], /lactonise takes at: an acid's or ester's carbon and the atom that carries the O-H/);

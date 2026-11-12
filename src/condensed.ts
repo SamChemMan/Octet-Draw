@@ -74,8 +74,8 @@ function tokenise(text: string, depth = 0): Token[] | undefined {
       const body = text.slice(i + 1, j);
       i = j + 1;
       const n = count();
-      if (body.startsWith("=")) { // (=O): a double-bonded branch
-        const inner = tokenise(body.slice(1), depth + 1);
+      if (/^=|^[OS]$/.test(body)) { // (=O), and (O) or (S) as chemists write it (C(O)OMe, P(O)Ph2): a double-bonded branch
+        const inner = tokenise(body.replace("=", ""), depth + 1);
         if (!inner || inner.length !== 1 || inner[0].t !== "atom") return undefined;
         for (let k = 0; k < n; k++) out.push({ t: "branch" }, structuredClone(inner[0]));
         continue;
@@ -94,7 +94,7 @@ function tokenise(text: string, depth = 0): Token[] | undefined {
     i += u.text.length + (u.count?.length ?? 0);
     const n = Number(u.count ?? 1);
     if (u.kind === "group") {
-      if (u.text === "Ar" || !GROUPS[u.text]) return undefined;
+      if (!GROUPS[u.text]) return undefined;
       push({ t: "group", smiles: GROUPS[u.text] }, n);
     } else if (u.kind === "element" && u.text === "H") {
       const last = out[out.length - 1];
