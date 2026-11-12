@@ -1193,7 +1193,12 @@ fn data_dir() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     return std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join(id));
     #[cfg(target_os = "linux")]
-    return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
+    return absolute(std::env::var_os("XDG_DATA_HOME")).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
+}
+// $XDG_DATA_HOME as Tauri reads it: an empty or relative value is not one.
+#[cfg(any(test, target_os = "linux"))]
+fn absolute(dir: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    dir.map(std::path::PathBuf::from).filter(|d| d.is_absolute())
 }
 
 // How Octet was started. --headless and --convert count wherever they are, so `--mcp --headless` is never the relay
@@ -1536,6 +1541,14 @@ mod tests {
         assert_eq!(start("--object /tmp/o/drawing.pdf --app Writer --host Report.odt"), Ok(Start::App));
         for line in ["--object a.pdf --host --convert", "--object a.pdf --host --headless", "--object a.pdf --host --mcp", "--object --colour"] {
             assert_eq!(start(line), Ok(Start::App), "{line}");
+        }
+    }
+
+    #[test]
+    fn xdg_data_home_is_an_absolute_path_or_none() {
+        assert_eq!(absolute(Some("/home/a/data".into())), Some("/home/a/data".into()));
+        for wrong in [None, Some(""), Some("data"), Some("./data")] {
+            assert_eq!(absolute(wrong.map(Into::into)), None, "{wrong:?}");
         }
     }
 

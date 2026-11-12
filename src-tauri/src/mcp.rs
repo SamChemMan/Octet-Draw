@@ -1456,6 +1456,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    // The bundle's server on Linux finds mcp.json where Octet keeps it when XDG_DATA_HOME is empty or relative, and
+    // starts the program it names (here echo, which says --mcp).
+    #[cfg(unix)]
+    #[test]
+    fn the_bundle_server_ignores_a_relative_xdg_data_home() {
+        let home = std::env::temp_dir().join(format!("octet-mcpb-home-{}", std::process::id()));
+        let dir = home.join(".local/share/io.github.samchemman.octet-draw");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mcp.json"), r#"{"program":"/bin/echo"}"#).unwrap();
+        let server = home.join("server.cjs");
+        std::fs::write(&server, include_str!("mcpb.cjs")).unwrap();
+        for xdg in ["", "relative"] {
+            let run = std::process::Command::new("node")
+                .args(["-e", "Object.defineProperty(process, 'platform', { value: 'linux' }); require(process.argv[1])"])
+                .arg(&server)
+                .env("HOME", &home)
+                .env("XDG_DATA_HOME", xdg)
+                .stdin(std::process::Stdio::null())
+                .output();
+            if let Ok(o) = run {
+                assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "--mcp", "XDG_DATA_HOME={xdg:?} {}", String::from_utf8_lossy(&o.stderr));
+            }
+        }
+        let _ = std::fs::remove_dir_all(home);
+    }
+
     // `printf '<initialize>\n<call>\n' | octet --mcp`: the relay ends at the end of its input only once Octet's slow
     // reply to the call is written.
     #[test]
