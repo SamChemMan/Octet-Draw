@@ -264,20 +264,33 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 // short: the name in a menu's cell, where the full name does not fit (the panel's rows show the full name).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean; short?: string };
-// The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
-// the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys, PubChem and SciFinder, when Online
-// search is on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the
-// rest, the clipboard and library); Arrange, Group (Group, Ungroup and Pick as one, as ChemDraw's right-click Group menu), Add frame,
-// File and View when they apply. Delete is the last small button in every panel, with no title.
-const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "group", "frame", "file", "view", "delete"] as const;
+// The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026; this
+// order and these names, 12 November 2026): the object's own edits (a table's, a plate's, a cycle's); Analyse;
+// Molecule and copy (what is shown on the structure, the rest, the clipboard and library; Display and copy on a panel
+// that is not a structure's); Turn, flip and arrange (every turn, rotation and flip, then the order, alignment and
+// place on the page); Add frame; 3D tools (3D clean up, depth shading, Flatten); Group (Group, Ungroup and Pick as
+// one, as ChemDraw's right-click Group menu); Search literature (Reaxys, PubChem and SciFinder, when Online search is
+// on); and File when it applies. The last small buttons in every panel have no title: what the view does (Select
+// all, Fit to window, Centre in window, Select structure), then Delete.
+const SETS = ["table", "plate", "cycle", "analysis", "more", "turn", "frame", "depth", "group", "search", "file", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", search: "Search", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", group: "Group", frame: "Add frame", file: "File", view: "View", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "Display and copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", file: "File", delete: "Delete" };
+// A structure's panels call Display and copy by what it acts on. A section with no turn or flip in it is Arrange, and
+// the last, untitled one is named for a screen reader by what it holds.
+const titleOf = (s: SetId, c: Context, list: readonly { command: string }[]) => {
+  if (s === "more" && (c.kind === "drawing" || c.kind === "structure" || c.kind === "atom" || c.kind === "bond" || c.kind === "reaction" || (c.kind === "selection" && c.atoms))) return "Molecule and copy";
+  if (s === "turn" && !list.some((i) => kindOf(i.command) === "turn" && i.command !== "scale_dialog")) return "Arrange";
+  if (s === "delete" && list.some((i) => i.command !== "delete")) return list.some((i) => i.command === "delete") ? "View and delete" : "View";
+  return SET_TITLES[s];
+};
 // Each set's icon, for its row when the sets show as menus.
 const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  arrange: <AlignCenterHorizontal size={18} />, group: <BoundingBox size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, view: <CornersOut size={18} />, delete: <Trash size={18} /> };
-// Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "arrange", group: "group", frame: "frame", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
-const MORE_GROUPS = ["marks", "other", "library"];
+  depth: <CubeTransparent size={18} />, group: <BoundingBox size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, delete: <Trash size={18} /> };
+// Each action's kind. Kinds make up the sets; a set of more than one kind keeps its kinds in this order (and shows
+// them apart in a menu).
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "turn", group: "group", frame: "frame", file: "file", view: "delete", turn: "turn", depth: "depth", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_KINDS: Partial<Record<SetId, string[]>> = { more: ["marks", "other", "library"], turn: ["turn", "arrange"], delete: ["view", "delete"] };
+const byKind = <T extends { command: string }>(s: SetId, list: readonly T[]): T[][] => SET_KINDS[s]?.map((k) => list.filter((i) => kindOf(i.command) === k)) ?? [[...list]];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", centre_view: "view", import: "file", expand_generic_sdf: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
@@ -285,7 +298,7 @@ const KIND_OF: Record<string, string> = {
   "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
   structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
-  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", clean_3d: "turn", rotate_dialog: "turn", scale_dialog: "turn",
+  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
@@ -313,6 +326,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // The compound numbers in roman or arabic numerals (issue 34), when the drawing has some.
   const numerals = (roman?: boolean) => (roman === undefined ? [] : [small(it(<span className="glyph-text">{roman ? "1" : "I"}</span>, roman ? "Use arabic numbers" : "Use roman numerals", "numbers.roman"))]);
   const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
+  // 3D clean up, wherever there is a structure to clean: it takes the whole structure of what is selected, or every one.
+  const clean3 = small(it(<CubeTransparent size={18} />, "3D clean up", "clean_3d"));
   const nameIt = { ...it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name"), short: "Structure to name" };
   const toStructure = { ...it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), short: "Name to structure" };
   // A generic (Markush) structure: every structure it stands for, in a new drawing or in an SD file.
@@ -360,12 +375,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<FileArrowDown size={18} />, "Import a structure…", "import")));
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips,
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3,
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings());
       break;
     case "selection":
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...warnings(), ...turnsAndFlips, ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -380,7 +395,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Turn depth shading off" : "Turn depth shading on", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
-      items.push(small(it(<CubeTransparent size={18} />, "3D clean up", "clean_3d")));
+      items.push(clean3);
       // Query and Markush structures (ChemDraw's Structure menu): attachments on the selected atoms, and an R-group
       // definition round the selected structures.
       if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
@@ -390,12 +405,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, del);
+        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, del);
       break;
     case "bond":
       if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -412,7 +427,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "reaction":
       items.push(it(<Broom size={18} />, "Clean up reaction", "clean_reaction", !context.clean),
         { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, ...numerals(context.roman), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")),
-        it(<FlowArrow size={18} />, "Map atoms", "map_reaction"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "clear_reaction_map"))] : []), ...warnings(), ...turnsAndFlips, ...objects, ...order, ...frames, keep, del);
+        it(<FlowArrow size={18} />, "Map atoms", "map_reaction"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "clear_reaction_map"))] : []), ...warnings(), ...turnsAndFlips, clean3, ...objects, ...order, ...frames, keep, del);
       break;
     case "grid":
       // ChemDraw's grid menu: Set Limiting, Hide Row, Hide Column, Show All (and Colors, the colour row).
@@ -539,24 +554,22 @@ export function arrangedActions(context: Context, messy: boolean, hiddenWarnings
   if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <Unite size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
   // The user's order first (actions it does not know keep their place after it), then their split into rows.
   const mine = layout[context.kind];
-  if (mine) items.sort((a, b) => {
-    const [i, j] = [mine.order.indexOf(a.command), mine.order.indexOf(b.command)];
-    return i < 0 || j < 0 ? 0 : i - j;
-  });
+  const placeIn = (order: string[], c: string) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
+  if (mine) items.sort((a, b) => placeIn(mine.order, a.command) - placeIn(mine.order, b.command));
   // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
   if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
   const split = Math.min(items.length, mine ? mine.rows : items.length - items.filter((i) => i.small).length);
   const rows = items.slice(0, split), tray = items.slice(split);
   // The small actions set by set, whatever order they were arranged in.
-  const all = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)
-    .sort((a, b) => (s === "more" ? MORE_GROUPS.indexOf(kindOf(a.command)) - MORE_GROUPS.indexOf(kindOf(b.command)) : 0))] as const).filter(([, list]) => list.length);
+  const all = SETS.map((s) => [s, byKind(s, tray.filter((i) => setOf(i.command) === s)).flat()] as const).filter(([, list]) => list.length);
   // One rule for the whole panel (Sam, 4 November 2026): an action that stands alone is a row with its name, as one
   // icon on its own does not say what it does, and a set of two or more is a titled section of small buttons. So by
-  // default a set of one joins the rows. Delete is the only exception: it stays the panel's last small button, with no
-  // title, always on show. A panel the user has arranged keeps their split, and a set of one there still has its title.
-  const alone = mine ? [] : all.filter(([s, list]) => list.length === 1 && s !== "delete").map(([, list]) => list[0]);
+  // default a set of one joins the rows. Two exceptions. The last set (the view's actions, then Delete) keeps its small
+  // buttons, with no title, always on show. 3D tools is a section also with 3D clean up alone in it, so that the action
+  // is in one place before and after it gives the structure its depth. A panel the user has arranged keeps their split, and a set of one there still has its title.
+  const alone = mine ? [] : all.filter(([s, list]) => list.length === 1 && s !== "delete" && s !== "depth").map(([, list]) => list[0]);
   const sets = all.filter(([, list]) => !alone.includes(list[0]));
-  return { items: [...rows, ...alone, ...tray.filter((i) => !alone.includes(i))], rows: [...rows, ...alone], sets };
+  return { items: [...rows, ...alone, ...sets.flatMap(([, list]) => list)], rows: [...rows, ...alone], sets };
 }
 
 function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode; name: string; command: string; hint?: string; run: (c: string) => void; accent?: boolean }) {
@@ -1106,14 +1119,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               {k === rows.length - 1 && carry?.to?.rows && carry.to.index >= rows.filter((r) => r.command !== carry.command).length && <span className="drop-line end" aria-hidden />}
             </div>
           ))}
-          {menus && sets.map(([s, list]) => s === "delete" ? <Row key={s} icon={list[0].icon} name={list[0].name} command={list[0].command} hint={hint(list[0].command)} run={run} /> : (
+          {menus && sets.map(([s, list]) => s === "delete" ? list.map((i) => <Row key={i.command} icon={i.icon} name={i.name} command={i.command} hint={hint(i.command)} run={run} />) : (
             <button key={s} className="action submenu-row" aria-haspopup="menu" aria-expanded={sub?.set === s}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect(), p = panel.current!.getBoundingClientRect();
                 setSub(sub?.set === s ? undefined : { set: s, top: r.top - 5, right: innerWidth - p.left + 8 });
               }}>
               {SET_ICONS[s]}
-              <span className="action-name">{SET_TITLES[s]}</span>
+              <span className="action-name">{titleOf(s, context, list)}</span>
               <CaretRight size={12} className="submenu-caret" aria-hidden />
             </button>
           ))}
@@ -1122,10 +1135,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       <Exit>{menus && sub && (() => {
         const list = sets.find(([s]) => s === sub.set)?.[1];
         if (!list) return null;
-        const groups = sub.set === "more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k)) : [list];
+        const groups = byKind(sub.set, list);
         return (
           <div ref={subBox}>
-            <Menu label={SET_TITLES[sub.set]} className="panel-submenu" columns={1} style={{ position: "fixed", top: sub.top, right: sub.right, left: "auto" }}
+            <Menu label={titleOf(sub.set, context, list)} className="panel-submenu" columns={1} style={{ position: "fixed", top: sub.top, right: sub.right, left: "auto" }}
               groups={groups.map((g) => g.map((i) => ({ key: i.command, name: i.short ?? i.name, icon: i.icon })))}
               onChoose={(command) => { setSub(undefined); run(command); }} />
           </div>
@@ -1156,10 +1169,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             {set.map((i, k) => paired(k - 1) ? null : paired(k) ? <span key={i.command} className="tray-pair">{button(i)}{button(set[k + 1])}</span> : button(i))}
             </div>
             );
-            // Every section of small buttons has its title and folds, however many buttons it has. Delete is the one
-            // exception (Sam, 4 November 2026): the panel's last small button, with no title, always on show.
-            return s === "delete" ? <div key={s} className="tray-set delete-set" role="group" aria-label={SET_TITLES[s]}>{buttons}</div>
-              : <Fold key={s} id={s} title={SET_TITLES[s]} className="tray-set" folded={folded.includes(s)} onFold={onFold} folds={folds}>{buttons}</Fold>;
+            // Every section of small buttons has its title and folds, however many buttons it has. The last set is the one
+            // exception (Sam, 4 November 2026): the view's actions and Delete, with no title, always on show.
+            return s === "delete" ? <div key={s} className="tray-set delete-set" role="group" aria-label={titleOf(s, context, set)}>{buttons}</div>
+              : <Fold key={s} id={s} title={titleOf(s, context, set)} className="tray-set" folded={folded.includes(s)} onFold={onFold} folds={folds}>{buttons}</Fold>;
           })}
         </div>
       )}
@@ -1201,7 +1214,7 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
   const kind = arrowKind(context), picks = arrowPicks(context).flatMap((g) => g.picks), kinds = kind ? kindChoices(context) : [];
   const pickRows: MenuItem[] = [...(kind ? [{ key: "pick:arrow.kind", name: "Kind", icon: kinds.find((o) => o.id === kind)?.glyph, more: true }] : []),
     ...picks.map((p) => ({ key: `pick:${p.command}`, name: p.label, icon: choices(p, context).find((o) => o.id === p.value)?.glyph, more: true }))];
-  const groups: MenuItem[][] = [keep(rows).map(item), sets.filter(([s, list]) => s !== "delete" && keep(list).length).map(([s]) => ({ key: `set:${s}`, name: SET_TITLES[s], icon: SET_ICONS[s], more: true })), pickRows,
+  const groups: MenuItem[][] = [keep(rows).map(item), sets.filter(([s, list]) => s !== "delete" && keep(list).length).map(([s, list]) => ({ key: `set:${s}`, name: titleOf(s, context, list), icon: SET_ICONS[s], more: true })), pickRows,
     [...(kept ? [{ key: "templates", name: kept.name, icon: kept.icon, more: true }] : []), ...(dict ? [item(dict)] : []), ...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []),
     ...(aligned ? [{ key: "set:align", name: "Alignment", icon: <TextAlignLeft size={18} />, more: true }] : []), ...del.map(item)]];
   // The open set's actions (Display and copy in its kinds' groups), the sets a template can go in, or the colours.
@@ -1215,7 +1228,7 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
     // button here for the picker to open by.
     if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, [...colours.own, ...colours.drawing], colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
     const list = keep(sets.find(([s]) => `set:${s}` === key)?.[1] ?? []);
-    return { label: SET_TITLES[key.slice(4) as SetId], groups: key === "set:more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k).map(item)) : [list.map(item)] };
+    return { label: titleOf(key.slice(4) as SetId, context, list), groups: byKind(key.slice(4) as SetId, list).map((g) => g.map(item)) };
   };
   return <ContextMenu label="Actions" at={at} keyboard={keyboard} groups={groups} sub={sub} onChoose={run} onClose={onClose} />;
 }
