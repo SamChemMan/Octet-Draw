@@ -352,6 +352,12 @@ const HARD: [string, object | RegExp][] = [
   ["A -> B,X, 90%", /: put a space after the comma before X \(a comma with no space is part of a name, as in 2,6-lutidine\)\. Write: A -> B, X, 90%$/],
   ["P (A) -> Q (B), +X, @Y -> A, -Z", /^Line 1: @Y: a cycle's steps take text, not a structure\. Write: P \(A\) -> Q \(B\), \+X, Y -> A, -Z$/],
 ];
+// Lines as a JSON array of lines, in text or as a list (Haiku, plan 19.10), are those lines; one may hold several.
+assert.deepEqual(fromLines({ lines: '["A (1)", "-> B (2), X"]' }), fromLines({ lines: "A (1)\n-> B (2), X" }));
+assert.deepEqual(fromLines({ lines: '[ "A (1)\\n-> B (2), X" ]' }), fromLines({ lines: "A (1)\n-> B (2), X" }));
+assert.deepEqual(fromLines({ lines: ["A (1)", "-> B (2), X"] }), fromLines({ lines: "A (1)\n-> B (2), X" }));
+// (A SMILES in square brackets is no JSON: it is as written.)
+assert.deepEqual(fromLines({ lines: "[Pd]" }), { op: "structures", args: { structures: [{ text: "[Pd]" }] } });
 for (const [text, want] of HARD) {
   const got = fromLines({ lines: text });
   if (want instanceof RegExp) assert.match(String(got), want, text);

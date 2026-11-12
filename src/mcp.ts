@@ -18,7 +18,7 @@ import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
-import { fromLines, NOTATION, written } from "./notation.ts";
+import { blank, fromLines, linesOf, NOTATION, written } from "./notation.ts";
 import { formulaTextRuns, isGeneric, labelSmiles } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
@@ -154,7 +154,8 @@ function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
 // Lenient arguments (R5): before the check, a form that has one meaning is read as the form the tool takes, and the
 // reply says so in a line, so the AI app learns it. A whole number for a compound number is its text. An enum's value in
 // other letters, after a dot or by another of its names is that value. A required argument left out takes its default.
-// "1 (taxol)" as a compound number is number 1 with the caption taxol. Everything else is left for the check to refuse.
+// "1 (taxol)" as a compound number is number 1 with the caption taxol. An argument the object does not take, given
+// empty, is left out (plan 19.10). Everything else is left for the check to refuse.
 // notes: the readings of one call, each kind once: its first line, and how many there were.
 type Notes = Map<string, [string, number]>;
 const note = (notes: Notes, kind: string, line: string) => { const had = notes.get(kind); if (had) had[1]++; else notes.set(kind, [line, 1]); };
@@ -166,7 +167,8 @@ function coerce(s: Schema | Prop, v: unknown, key: string, notes: Notes): unknow
     if (!v || typeof v !== "object" || Array.isArray(v)) return v;
     const o = v as Record<string, unknown>;
     for (const k of s.required ?? []) if (!(k in o)) { const p = s.properties[k]; if ("default" in p) { o[k] = p.default; note(notes, `${k} default`, `No "${k}" was given: read as ${p.default}.`); } }
-    for (const k of Object.keys(o)) { const p = s.properties[k]; if (p) o[k] = coerce(p, o[k], k, notes); }
+    // An argument it does not take, given empty ('', '[]', [] or {}), asks for nothing: it is left out.
+    for (const k of Object.keys(o)) { const p = s.properties[k]; if (p) o[k] = coerce(p, o[k], k, notes); else if (!s.additionalProperties && blank(o[k])) { delete o[k]; note(notes, "empty", `Left out ${clean(k).slice(0, 40)}, which is empty.`); } }
     const split = s.properties.caption && typeof o.number === "string" && o.caption === undefined ? /^(\S+) \(([^()]+)\)$/.exec(o.number.trim()) : null;
     if (split) { note(notes, "caption", `Read number ${clean(split[0])} as number ${split[1]} with the caption ${clean(split[2])}.`); [, o.number, o.caption] = split; }
     return o;
@@ -190,6 +192,8 @@ function onLines(wrong: string, args: unknown, text: string): string {
   const [, path, why] = /^([\w.[\]]+): (.+)$/.exec(wrong) ?? [];
   if (!path) return wrong;
   const v = path.split(/[.[\]]+/).filter(Boolean).reduce((o: any, k) => o?.[k], args), first = [v].flat(3).find((x) => typeof x === "string") as string | undefined;
+  // (Of the call's own arguments, as an argument it does not take: no line made it.)
+  if (v === undefined) return wrong;
   const at = first ? text.split("\n").findIndex((l) => l.replace(/\s+/g, " ").includes(first.slice(0, 40))) + 1 : 0;
   if (typeof v === "string") return `${at ? `Line ${at}` : "The lines"}: "${short(v, 40)}" is ${why}${/^longer/.test(why) ? ": make it shorter" : ""}`;
   return `${at ? `Line ${at} has` : "The lines make"} ${why.replace(/\bitems?\b/, /(\w+)(?:\[\d+\])*$/.exec(path)![1])}${/^more/.test(why) ? ": draw them in parts" : ""}`;
@@ -723,7 +727,10 @@ const TOOLS: Tool[] = [
     // (The lines are read here, so the call is checked as the operation they make. kind, and its JSON, is still
     // taken: help of a kind gives it, and change's draw.)
     route: (a, notes, reads) => {
-      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>(), r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
+      const { brief, ...rest } = a, given = brief === undefined ? undefined : briefOf(brief), where = new Map<string, number>();
+      // (Lines given as a JSON array are their text from here, so a refusal counts the array's lines.)
+      if (rest.lines !== undefined) rest.lines = linesOf(rest.lines);
+      const r = rest.lines !== undefined ? (rest.structures !== undefined ? "give lines or structures, not both" : fromLines(rest, (k, l) => note(notes, k, l), where, reads)) : rest.kind === undefined ? (rest.structures !== undefined ? { op: "structures", args: rest } : "give lines, or structures") : wrongWith(KIND, rest, notes) ?? (({ kind, ...args }) => ({ op: kind, args }))(rest);
       return typeof r === "string" ? r : typeof given === "string" ? given : { ...r, ...(given !== undefined ? { brief: given } : {}), ...(rest.lines !== undefined ? { lines: rest.lines as string, where } : {}) };
     },
   },

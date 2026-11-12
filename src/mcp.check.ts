@@ -540,7 +540,7 @@ assert.equal(steps.length, 0);
   await no("change", { operations: [{ op: "run_command", command: "undo" }] }, /operations\[0\]\.op: not one of draw, edit, /);
   await no("change", { operations: [{ op: "draw", structures: [{ text: "water" }] }] }, /operations\[0\]: kind is missing/);
   await no("change", { operations: [{ op: "delete", ids: ["s1"] }, { op: "draw", kind: "table" }] }, /operations\[1\]\.kind: not one of structures, reaction, cycle, figure/);
-  await no("change", { operations: [{ op: "delete", ids: ["s1"] }], steps: [] }, /arguments: steps is not an argument of this tool\.$/);
+  await no("change", { operations: [{ op: "delete", ids: ["s1"] }], steps: [{}] }, /arguments: steps is not an argument of this tool\.$/);
   await no("change", { operations: [{ op: "move", ids: ["s1"], by: [1, 0] }] }, /^Octet changed nothing\. operations\[0\]: by is not an argument of this tool\. advanced help of move gives its arguments\.$/);
   await no("change", { operations: [{ op: "number", structure: "s1" }] }, /^Octet changed nothing\. operations\[0\]: number is missing\. advanced help of number gives its arguments\.$/);
   await no("advanced", { args: {} }, /arguments: tool is missing/);
@@ -2486,6 +2486,22 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(o), /^Did 3 steps as one undo step:\n1–2\. Turned 4, 5 \(now s\d+, s\d+\)\.\n3\. /);
   o = await call("change", { operations: [{ op: "replace", structure: "4", flip: "vertical" }], detail: "full" });
   assert.match(text(o), /^Replaced 4 with [^,]+, now s\d+/);
+}
+
+// Plan 19.10: what the real Claude Code runs on 6da8b80 showed.
+{
+  // Haiku wrote draw's lines as a JSON array of lines in the text (about 12 calls in three runs), and was told line 1
+  // was longer than 300 characters. A list of lines, or text that reads as one, is those lines, and the reply is the
+  // reply to them.
+  const lines = ["OC(=O)c1ccccc1 (1) + CO", "-> COC(=O)c1ccccc1 (2), H2SO4, reflux, 88%"], drawn = async (a: object) => { fresh(); resetIds(); return (await call("draw", a)).content.map((c: { text: string }) => c.text); };
+  const plain = await drawn({ lines: lines.join("\n") });
+  assert.deepEqual(await drawn({ lines: JSON.stringify(lines) }), plain);
+  assert.deepEqual(await drawn({ lines }), plain);
+  assert.deepEqual(await drawn({ lines: JSON.stringify([lines.join("\n")]) }), plain);
+  // draw {operations: '[]', lines} was told "The lines make operations is not an argument of this tool". An empty
+  // argument a tool does not take is left out and said; one with something in it is refused as the call's.
+  assert.deepEqual(await drawn({ operations: "[]", lines: lines.join("\n") }), [...plain, "Left out operations, which is empty."]);
+  assert.deepEqual(await drawn({ operations: [{ op: "delete" }], lines: lines.join("\n") }), ["Octet changed nothing. arguments: operations is not an argument of this tool."]);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

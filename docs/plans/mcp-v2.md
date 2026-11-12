@@ -2038,3 +2038,14 @@ session can keep or drop each by what the lab says next.
   earlier one (3[OBn>OTES])`; `OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9`). The reader stays (both,
   all, the classes, the kinds and their refusals): a model or a script that writes them is read. Instructions 2,040
   from 2,044; NOTATION 783 from 784.
+- **Lines as a JSON array.** Haiku wrote draw's lines as an array of lines inside the text, about 12 calls in three
+  runs and never before (`'["# Substrate scope 7", "CCCC(...) (7a) 51% | ..."]'`), and was told line 1 was longer than
+  300 characters or could not be read as a structure. Lines that are a JSON array of strings, as a list or as text that
+  parses as one, are those lines one under the other (`linesOf` in `notation.ts`, called by `fromLines`, which draw and
+  change's draw both go through; draw calls it first so a refusal counts the array's lines). The reply says nothing:
+  it is the same drawing. The schema stays text: a model that gives a list is read, and none is told to.
+- **An empty argument a tool does not take is left out.** draw `{operations: '[]', lines}` was told "The lines make
+  operations is not an argument of this tool". `coerce` now leaves out an argument an object does not take whose value
+  asks for nothing (null, `''`, `'[]'`, `'{}'`, `[]`, `{}`), with "Left out operations, which is empty." (plan 6: one
+  meaning, said). One with something in it is refused as the call's own (`arguments: operations is not an argument of
+  this tool`), not as the lines'. The existing check of `change {operations, steps: []}` gives `steps: [{}]` now.

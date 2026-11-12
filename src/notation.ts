@@ -377,11 +377,22 @@ const head = (l: string) => /^(#+)\s*(.*)$/.exec(l)!;
 
 // A scope's core: a SMILES with {R} groups, then a colon (or after "core:").
 const cored = (l: string) => l.includes("{") && /:(?:\s|$)|^core\b/i.test(l);
+/** A value that asks for nothing: null, empty text, '[]' or '{}', or an empty list or object. */
+export const blank = (v: unknown) => v === null || (typeof v === "string" ? /^\s*(?:\[\s*\]|\{\s*\})?\s*$/.test(v) : typeof v === "object" && !Object.keys(v as object).length);
+/** Lines given as a JSON array of lines, as a list or as text that reads as one (Haiku wrote them so), are those lines,
+ * one under the other (one may hold several). Anything else is as given. */
+export function linesOf(v: unknown): unknown {
+  const t = typeof v === "string" ? v.trim() : "";
+  let x = v;
+  if (t[0] === "[" && t[t.length - 1] === "]") try { x = JSON.parse(t); } catch { return v; }
+  return Array.isArray(x) && x.length && x.every((l) => typeof l === "string") ? x.join("\n") : v;
+}
 /** The arguments the drawing code takes for text in the line notation (NOTATION): the operation a draw is (a kind,
  * or a batch of several) with its arguments, the rest of the call's arguments beside them; or what is wrong. said: what
  * Octet read in a way the model may not have meant, for the reply; where: each name or SMILES (written) to the first
  * line it is on; reads: Octet reads the text as a structure (Name to Structure's reading). */
-export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>, reads?: (t: string) => boolean): { op: string; args: any } | string {
+export function fromLines({ lines: given, ...rest }: { lines?: unknown; [k: string]: unknown }, said?: (kind: string, line: string) => void, where?: Map<string, number>, reads?: (t: string) => boolean): { op: string; args: any } | string {
+  const text = linesOf(given);
   if (typeof text !== "string") return "lines is text: one reaction a line";
   if (text.length > MOST) return `The lines are ${text.length} characters, over ${MOST}: draw them in parts`;
   // Characters no model means: control characters, and half a surrogate pair.
@@ -658,8 +669,9 @@ export function fromLines({ lines: text, ...rest }: { lines?: unknown; [k: strin
   // note under each scheme.
   const lettered = ops.some((o) => o.tool === "reaction" && (o.args.steps as Step[]).some((st) => st.label));
   const route = (lettered || ops.length > 1) && ops.every((o) => o.tool === "text" || o.tool === "reaction") && ops[ops.length - 1].tool === "reaction";
-  // Several drawings, and a route, take only what the reply is to have: Octet places them below what is drawn.
-  const one = (route || ops.length > 1) && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k));
+  // Several drawings, and a route, take only what the reply is to have: Octet places them below what is drawn. (An
+  // empty one asks for nothing: the check leaves it out.)
+  const one = (route || ops.length > 1) && Object.keys(rest).find((k) => !["picture", "picture_size", "detail"].includes(k) && !blank(rest[k]));
   if (one) return route ? `${one} does not go with a route (lines with a # title, a step label or more than one scheme): Octet places it below what is drawn. Leave ${one} out` : `${one} goes with one drawing, and these lines make ${ops.length}: draw them in separate calls, or leave ${one} out`;
   if (route) {
     const schemes: object[] = [];
