@@ -333,3 +333,41 @@ assert.equal(wrong.length, 0);
   }
   console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import, kept CAS numbers) ok");
 }
+
+// ——— [n] families neither OPSIN nor the dictionary reads (familySmiles), against what already reads ———
+{
+  const { familySmiles, suggestName } = await import("./names.ts");
+  const { attachDictionary } = await import("./dictionary.ts");
+  const { gunzipSync } = await import("node:zlib");
+  const table = new URL("../data/names/dictionary.tsv.gz", import.meta.url);
+  if (existsSync(table)) await attachDictionary(gunzipSync(readFileSync(table)).toString("utf8"));
+  const same = (a: string | undefined, b: string | undefined, what: string) => { assert.ok(a && b); assert.equal(keyOf(a), keyOf(b), what); };
+  // [n]helicene, C(4n+2)H(2n+4): [6] as "[6]helicene" (dictionary) and hexahelicene, [4] and [5] as their fusion names.
+  for (const n of [7, 12]) assert.deepEqual(counts(`[${n}]helicene`), { C: 4 * n + 2, H: 2 * n + 4 }, `[${n}]helicene`);
+  same(familySmiles("[6]helicene"), opsin.parseToSmiles("hexahelicene"), "[6]helicene");
+  if (existsSync(table)) same(familySmiles("[6]helicene"), nameToSmiles("[6]helicene"), "[6]helicene as the dictionary has it");
+  same(familySmiles("[4]helicene"), opsin.parseToSmiles("benzo[c]phenanthrene"), "[4]helicene");
+  same(familySmiles("[5]helicene"), opsin.parseToSmiles("dibenzo[c,g]phenanthrene"), "[5]helicene");
+  // [n]circulene, C(4n)H(2n): [5] is corannulene, [6] coronene.
+  for (const n of [7, 12]) assert.deepEqual(counts(`[${n}]circulene`), { C: 4 * n, H: 2 * n }, `[${n}]circulene`);
+  same(familySmiles("[6]circulene"), nameToSmiles("coronene"), "[6]circulene");
+  if (existsSync(table)) same(familySmiles("[5]circulene"), nameToSmiles("corannulene"), "[5]circulene");
+  // [n]radialene, C(2n)H(2n), as its substitutive name; [6] has PubChem's key for "radialene".
+  for (const n of [3, 6]) assert.deepEqual(counts(`[${n}]radialene`), { C: 2 * n, H: 2 * n }, `[${n}]radialene`);
+  same(familySmiles("[3]radialene"), opsin.parseToSmiles("1,2,3-trimethylidenecyclopropane"), "[3]radialene");
+  assert.equal(keyOf(nameToSmiles("[6]radialene") ?? ""), "PXLYGWXKAVCTPX-UHFFFAOYSA-N");
+  // [n]cyclacene and [n]cyclophenacene (n rings, even n), C(4n)H(2n).
+  for (const n of [6, 12]) assert.deepEqual(counts(`[${n}]cyclacene`), { C: 4 * n, H: 2 * n }, `[${n}]cyclacene`);
+  for (const n of [10, 12]) assert.deepEqual(counts(`[${n}]cyclophenacene`), { C: 4 * n, H: 2 * n }, `[${n}]cyclophenacene`);
+  assert.equal(familySmiles("[9]cyclophenacene"), undefined, "an odd belt does not close");
+  // Cyclophanes, against PubChem's keys. [2.2]paracyclophane still reads as the dictionary has it.
+  for (const [k, n] of [["[6]paracyclophane", 6], ["[8]metacyclophane", 8]] as const) assert.deepEqual(counts(k), { C: n + 6, H: 2 * n + 4 }, k);
+  assert.equal(keyOf(nameToSmiles("[2.2]metacyclophane") ?? ""), "COTONUHLIMVDNV-UHFFFAOYSA-N");
+  assert.equal(keyOf(nameToSmiles("[2.2.2]paracyclophane") ?? ""), "FDUPXAHIOFBIAE-UHFFFAOYSA-N");
+  assert.equal(keyOf(nameToSmiles("[2.2]metaparacyclophane") ?? ""), "ALDQBAILWKRGEG-UHFFFAOYSA-N");
+  if (existsSync(table)) same(familySmiles("[2.2]paracyclophane"), nameToSmiles("[2.2]paracyclophane"), "[2.2]paracyclophane");
+  // The spellings a chemist types, and no suggestion of another [n] compound for a name that reads.
+  for (const typed of ["[7]helicene", "[7] helicene", "[7]-Helicene", "7-helicene", "7 HELICENE"]) assert.deepEqual(counts(typed), { C: 30, H: 18 }, typed);
+  for (const typed of ["[7]helicene", "[3]radialene", "[6]cyclacene", "[10]cyclophenacene", "[2.2]metacyclophane", "[7]circulene"]) assert.equal(suggestName(typed, false), undefined, typed);
+  console.log("names.check: [n]helicene, circulene, radialene, cyclacene, cyclophenacene and cyclophanes ok");
+}

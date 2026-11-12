@@ -237,26 +237,23 @@ function fromPoints(ids: number[], p: V3[], least = 1e-3): number[] | undefined 
   return Math.abs(vol) < least ? undefined : vol < 0 ? ids : [ids[0], ids[2], ids[1], ids[3]];
 }
 
-// The wedges and hashes of each centre that is drawn in 3D (arrangement reads such a centre from its atoms' places),
-// set to draw in the page the hand its atoms have, as Indigo reads a flat drawing (pyramid): where they draw the other
-// hand, its wedges become hashes and its hashes wedges. So the picture reads as the structure is, to Indigo (chem.ts
-// pictured) and when the structure loses its depth (Flatten). A flat drawing turned in 3D keeps its wedges.
-export function depthWedges(m: Mol): Mol {
-  const wedge = (b: Mol["bonds"][number]) => b.stereo === 1 || b.stereo === 6;
-  if (!m.atoms.some((a) => a.location[2]) || !m.bonds.some(wedge)) return m;
-  const level: Mol = { ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1], 0] as [number, number, number] })) };
-  const near: number[][] = m.atoms.map(() => []), turned = new Set<number>(), z = (j: number) => m.atoms[j].location[2] ?? 0;
-  for (const b of m.bonds) if (b.type !== HBOND) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
-  for (const i of new Set(m.bonds.filter(wedge).map((b) => b.atoms[0]))) {
-    const n = near[i], el = symbol(m.atoms[i].label);
-    if (n.length < 3 || n.length > 4 || !n.some((j) => Math.abs(z(j) - z(i)) >= 0.2)) continue;
-    const lone = !!CENTRES.find(([e, q, bonds]) => e === el && q === (m.atoms[i].charge ?? 0) && bonds === n.length)?.[4];
-    if (lone && el === "N") continue; // an amine: not read from its atoms' places
-    const real = fromPoints([...n, -1].slice(0, 4), n.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
-    const drawn = pyramid(level, i, n, (j) => { const b = m.bonds.find((x) => x.atoms[0] === i && x.atoms[1] === j); return b?.stereo === 1 ? 1 : b?.stereo === 6 ? -1 : 0; }, lone);
-    if (real && drawn && parity(real, drawn)) turned.add(i);
+// The wedges and hashes of the centres among ids, after a command that moves atoms and keeps what the structure is
+// (3D Clean Up, Flatten): each centre reads in `after` as it read in `before`, as Indigo reads a drawing (pyramid, with
+// the depth the atoms have). Where the same wedges now draw the other hand, the centre's wedges become hashes and its
+// hashes wedges. A centre that read no hand before, or reads none now (a bond seen end-on), keeps its wedges.
+export function keepHands(before: Mol, after: Mol, ids: Iterable<number>): Mol {
+  const wedge = (b: Mol["bonds"][number]) => b.stereo === 1 || b.stereo === 6, chosen = new Set(ids), turned = new Set<number>();
+  const near: number[][] = after.atoms.map(() => []);
+  for (const b of after.bonds) if (b.type !== HBOND) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
+  for (const i of new Set(after.bonds.filter(wedge).map((b) => b.atoms[0]))) {
+    const n = near[i], el = symbol(after.atoms[i].label);
+    if (!chosen.has(i) || n.length < 3 || n.length > 4) continue;
+    const lone = !!CENTRES.find(([e, q, bonds]) => e === el && q === (after.atoms[i].charge ?? 0) && bonds === n.length)?.[4];
+    const mark = (j: number) => { const b = after.bonds.find((x) => x.atoms[0] === i && x.atoms[1] === j); return b?.stereo === 1 ? 1 : b?.stereo === 6 ? -1 : 0; };
+    const was = pyramid(before, i, n, mark, lone), now = pyramid(after, i, n, mark, lone);
+    if (was && now && parity(was, now)) turned.add(i);
   }
-  return turned.size ? { ...m, bonds: m.bonds.map((b) => (wedge(b) && turned.has(b.atoms[0]) ? { ...b, stereo: b.stereo === 1 ? 6 : 1 } : b)) } : m;
+  return turned.size ? { ...after, bonds: after.bonds.map((b) => (wedge(b) && turned.has(b.atoms[0]) ? { ...b, stereo: b.stereo === 1 ? 6 : 1 } : b)) } : after;
 }
 
 // The stereo bonds at atom i, towards each of the atoms given (h for a hydrogen or lone pair): what a kept

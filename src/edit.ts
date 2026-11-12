@@ -7,7 +7,7 @@ import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
-import { depthWedges } from "./cip.ts";
+import { keepHands } from "./cip.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -2750,15 +2750,15 @@ export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number
     }),
   };
 }
-// Object > Flatten: atoms keep where they are drawn and lose their depth, and a centre drawn in 3D gets the wedges
-// that draw it (depthWedges). As in ChemDraw, depth shading stays set (it shows again if the structure is turned
-// again); an opacity set by hand goes.
-export const flattenAtoms = (drawn: Mol, ids: Set<number>, m = depthWedges(drawn)): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => {
+// Object > Flatten: atoms keep where they are drawn and lose their depth, and each of their wedged centres still reads
+// as it did with its depth (keepHands). As in ChemDraw, depth shading stays set (it shows again if the structure is
+// turned again); an opacity set by hand goes.
+export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
+  keepHands(m, { ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const location: [number, number, number] = [a.location[0], a.location[1], 0];
     return typeof a.shade === "number" ? { ...a, shade: true, location } : { ...a, location };
-  }) });
+  }) }, ids);
 // The axis part of a structure turns about in 3D, as [atom, atom]: the one bond joining the part to the rest of its
 // structure ([inside atom, outside atom]), or, when its bonds to the rest all go to the same two atoms (a
 // carboxylate bridging a metal–metal bond, a ring fused on a bond), the line through those two. Else none.

@@ -30,7 +30,7 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
-import { depthWedges } from "./cip";
+import { keepHands } from "./cip";
 import { model3mf } from "./model3mf";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
@@ -2495,8 +2495,8 @@ export default function Editor() {
       if (!ok.length) return;
       sayAfter("Cleaned up in 3D.");
       // Each structure on its own, so the time grows with the structures and not with all their atoms squared.
-      // Its wedges then draw what its depth gives (depthWedges): a wedged group that ends up further away gets a hash.
-      set(depthWedges(ok.reduce((m, g) => clean3d(m, g), doc)), true);
+      // Each wedged centre then reads as it did before (keepHands): a wedged group that ends up further away gets a hash.
+      set(ok.reduce((m, g) => keepHands(m, clean3d(m, g), g), doc), true);
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
@@ -5339,7 +5339,8 @@ export default function Editor() {
         if (e.shiftKey && !drag.hinge) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
         const axis = drag.hinge && [0, 1].map((k) => drag.base.atoms[drag.hinge![0]].location[k] - drag.base.atoms[drag.hinge![1]].location[k]), along = axis ? Math.hypot(axis[0], axis[1]) || 1 : 1;
         const about = axis ? ((dx * axis[1] + dy * axis[0]) / along) * rate : 0, step = e.shiftKey ? Math.round(about / 15) * 15 : about;
-        const working = drag.hinge ? turnAboutBond(drag.base, drag.ids, drag.hinge[1], drag.hinge[0], step) : tiltAtoms(drag.base, drag.ids, drag.centre, dx * rate, dy * rate);
+        // Each wedged centre still reads as it did before the turn (keepHands): seen from behind, a wedge is a hash.
+        const working = keepHands(drag.base, drag.hinge ? turnAboutBond(drag.base, drag.ids, drag.hinge[1], drag.hinge[0], step) : tiltAtoms(drag.base, drag.ids, drag.centre, dx * rate, dy * rate), drag.ids);
         return setDrag({ ...drag, working });
       }
       case "pen":
@@ -5706,7 +5707,7 @@ export default function Editor() {
     if (kind === "tilt" && selection.size) {
       const ps = [...selection].filter((i) => i < doc.atoms.length).map((i) => doc.atoms[i].location);
       const centre = [0, 1, 2].map((k) => (Math.min(...ps.map((q) => q[k] ?? 0)) + Math.max(...ps.map((q) => q[k] ?? 0))) / 2) as [number, number, number];
-      return set(tiltAtoms(doc, selection, centre, arg === "left" ? -12 : arg === "right" ? 12 : 0, arg === "up" ? -12 : arg === "down" ? 12 : 0), true);
+      return set(keepHands(doc, tiltAtoms(doc, selection, centre, arg === "left" ? -12 : arg === "right" ? 12 : 0, arg === "up" ? -12 : arg === "down" ? 12 : 0), selection), true);
     }
     if (id === "edit.delete") {
       // A cycle's side arrow picked goes with its text (its structures stay); a step picked loses its arc.

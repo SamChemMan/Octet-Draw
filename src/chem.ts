@@ -16,7 +16,7 @@ import { isQueryMolfile, readV3000, RXCTR, writeV3000 } from "./molv3.ts";
 import { isCif, readCif } from "./cif.ts";
 import { axialLabels } from "./axial.ts";
 import { sandwichIons } from "./metals.ts";
-import { cipLabels, depthWedges } from "./cip.ts";
+import { cipLabels } from "./cip.ts";
 import type { StereoFacts } from "./check.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
@@ -1223,57 +1223,13 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
 // stereochemistry (slowly, see watched), so it goes flat. keep: each atom's map number and enhanced
 // stereo flag, and each bond's Rxn mark, go too, for MDL and reaction files. mol: the molecule with its labels
 // expanded already.
-// depth: a structure with wedges keeps its depth too (a file keeps where its atoms are); else it goes as pictured.
-type KetOptions = { wedges?: boolean; keep?: boolean; hbonds?: boolean; depth?: boolean; mol?: Mol };
+type KetOptions = { wedges?: boolean; keep?: boolean; hbonds?: boolean; mol?: Mol };
 const flat = (p: number[]): [number, number, number] => [p[0], p[1], 0];
-// A structure with wedges and depth, as the flat picture Indigo reads as the structure is. Indigo reads a wedge in a
-// structure with depth from the bonds' directions in the page, after it shortens each bond by its depth: it reads some
-// centres the other way round, and a bond seen end-on has no direction. So such a structure goes flat, seen from the
-// first of a few directions that show at an angle every bond at a wedged centre and every double bond's plane, and
-// no two bonds of a centre one on the other, with each centre's wedges set to draw the hand its atoms have
-// (depthWedges).
-const VIEWS = [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5], [0.5, 0.5], [-0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]];
-function pictured(mol: Mol): Mol {
-  const wedge = (b: Mol["bonds"][number]) => b.stereo === 1 || b.stereo === 6;
-  if (!mol.atoms.some((a) => a.location[2]) || !mol.bonds.some(wedge)) return mol;
-  const atoms = [...mol.atoms], at = bondedTo(mol), level = new Set<number>();
-  for (const g of fragments(mol, false)) {
-    const own = new Set(g), centres = [...new Set(mol.bonds.filter((b) => wedge(b) && own.has(b.atoms[0])).map((b) => b.atoms[0]))];
-    if (!centres.length || !g.some((i) => mol.atoms[i].location[2])) continue;
-    const doubles = mol.bonds.filter((b) => b.type === 2 && own.has(b.atoms[0]));
-    let best: Map<number, number[]> | undefined, most = -1;
-    for (const [a, b] of VIEWS) {
-      // Turned by a about the page's x axis, then by b about its y axis.
-      const p = new Map(g.map((i) => { const [x, y, z = 0] = mol.atoms[i].location, y1 = y * Math.cos(a) - z * Math.sin(a), z1 = y * Math.sin(a) + z * Math.cos(a); return [i, [x * Math.cos(b) + z1 * Math.sin(b), y1, z1 * Math.cos(b) - x * Math.sin(b)]]; }));
-      const to = (i: number, j: number) => p.get(j)!.map((v, k) => v - p.get(i)![k]);
-      // How far from end-on the view shows the least of them (1: in the page).
-      let shown = 1;
-      for (const c of centres) at[c].forEach((j, n) => {
-        const d = to(c, j);
-        shown = Math.min(shown, Math.hypot(d[0], d[1]) / (Math.hypot(...d) || 1));
-        // Two of its bonds drawn one on the other: Indigo reads no centre from those.
-        for (const k of at[c].slice(n + 1)) { const e = to(c, k), size = Math.hypot(d[0], d[1]) * Math.hypot(e[0], e[1]) || 1; if (d[0] * e[0] + d[1] * e[1] > 0) shown = Math.min(shown, Math.abs(d[0] * e[1] - d[1] * e[0]) / size); }
-      });
-      for (const d of doubles) for (const [i, j] of [d.atoms, [d.atoms[1], d.atoms[0]]]) for (const k of at[i]) {
-        if (k === j) continue;
-        const u = to(i, j), v = to(i, k), n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], size = Math.hypot(...n);
-        if (size > 1e-6) shown = Math.min(shown, Math.abs(n[2]) / size);
-      }
-      if (shown > most) { best = p; most = shown; }
-      if (shown >= 0.35) break;
-    }
-    for (const i of g) { atoms[i] = { ...atoms[i], location: best!.get(i) as [number, number, number] }; level.add(i); }
-  }
-  if (!level.size) return mol;
-  const set = depthWedges({ ...mol, atoms });
-  return { ...set, atoms: set.atoms.map((a, i) => (level.has(i) ? { ...a, location: flat(a.location) } : a)) };
-}
-function ketOf(drawn: Mol, { wedges = true, keep = false, hbonds = false, depth = false, mol }: KetOptions = {}): string {
+function ketOf(drawn: Mol, { wedges = true, keep = false, hbonds = false, mol }: KetOptions = {}): string {
   const expanded = mol ?? expandLabels(hbonds || !drawn.bonds.some((b) => b.type === HBOND) ? drawn : { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) });
-  return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: ketMol(expanded, wedges, keep, depth) });
+  return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: ketMol(expanded, wedges, keep) });
 }
-function ketMol(drawn: Mol, wedges: boolean, keep: boolean, depth = false) {
-  const mol = wedges && !depth ? pictured(drawn) : drawn;
+function ketMol(mol: Mol, wedges: boolean, keep: boolean) {
   // A crossed double bond (E or Z not given) goes as KET's stereo 3, so its InChI, SMILES and molfile leave it open too.
   const bonds = mol.bonds.map(({ type, atoms, stereo, rxn, display }) => ({ type: type === QUADRUPLE ? 1 : type, atoms, ...(stereo && wedges ? { stereo } : type === 2 && display === "either" ? { stereo: 3 } : {}), ...(keep && rxn && RXCTR[rxn] !== undefined ? { center: RXCTR[rxn] } : {}) }));
   // An atom bonded to a metal keeps the hydrogens Octet draws on it (as render.ts counts them): Indigo would count the P
@@ -1303,7 +1259,7 @@ function convert(input: string, format: string, options: Record<string, string> 
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as CML (issue 78), as Indigo writes it: each atom's element, place, charge, isotope and
 // radical, each bond's order and wedge. Import reads it back.
-export const toCml = (drawn: Mol): string => convert(ketOf(drawn, { depth: true }), "cml");
+export const toCml = (drawn: Mol): string => convert(ketOf(drawn), "cml");
 // The drawing's molecules as a molfile: V3000, as ChemDraw 26.1 saves it and Edit > Copy As MOL Text gives it, or
 // V2000 (as ChemDraw puts it on the clipboard). A hydrogen bond is bond type 10 and a quadruple bond single, as
 // ChemDraw writes them. Map numbers and enhanced stereo go too; V2000 has no enhanced stereo. A query or Markush structure is
@@ -1311,7 +1267,7 @@ export const toCml = (drawn: Mol): string => convert(ketOf(drawn, { depth: true 
 // Indigo's, read from that.
 export function toMolfile(drawn: Mol, v2000 = false): string {
   const mode = { "molfile-saving-mode": v2000 ? "2000" : "3000" };
-  if (!hasQuery(drawn)) return convert(ketOf(drawn, { keep: true, hbonds: true, depth: true }), "molfile", mode);
+  if (!hasQuery(drawn)) return convert(ketOf(drawn, { keep: true, hbonds: true }), "molfile", mode);
   const v3 = writeV3000(drawn, labelGroup);
   return v2000 ? convert(v3, "molfile", mode) : v3;
 }

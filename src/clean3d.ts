@@ -27,16 +27,42 @@ const CC = 1.52;
 // How stiff each term is, against a bond's 1, in about a force field's proportions (DREIDING's: Mayo, Olafson and
 // Goddard, J. Phys. Chem. 94, 8897). The proportions matter: an sp2 atom must bend out of its plane more easily than
 // in it, or a ring of benzene rings stays flat. The shapes these give are held by clean3d.check.ts.
-const ANGLE = 0.3, SIDE = 0.15, PLANE = 0.04, SP2 = 0.005, CONJUGATED = 0.006, LINK = 0.02, HAND = 0.3, CONTACT = 0.03, HARD = 0.09;
+const ANGLE = 0.3, SIDE = 0.15, PLANE = 0.04, SP2 = 0.005, CONJUGATED = 0.006, LINK = 0.012, HAND = 0.3, CONTACT = 0.03;
 // The least distance between two atoms: three bonds apart, then further; by how many of the two are hydrogens.
 const LEAST = [[1.7, 1.6, 1.5], [2.2, 1.9, 1.58]];
 const REACH = 3.2; // contacts are looked for this near, every few steps
+
+// A flat drawing that was turned in 3D (Structure Perspective) is still a flat drawing: its atoms lie in one plane that
+// is not the page. It is cleaned up as that drawing seen from its front (the side towards the viewer), and the result
+// is turned back the same way. Undefined for a drawing in the page, or one with real depth.
+function levelled(m: Mol, ids: number[]): { mol: Mol; back: (r: Mol) => Mol } | undefined {
+  const P = ids.map((g): V => [m.atoms[g].location[0], m.atoms[g].location[1], m.atoms[g].location[2] ?? 0]);
+  if (P.length < 3 || P.every((q) => Math.abs(q[2]) < 1e-6)) return undefined;
+  const c = [0, 1, 2].map((e) => P.reduce((t, q) => t + q[e], 0) / P.length) as V, most = (f: (q: V) => number) => P.reduce((b, q) => (f(q) > f(b) ? q : b));
+  const a = sub(most((q) => lenV(sub(q, c))), c), b = sub(most((q) => lenV(crossV(a, sub(q, c)))), c), size = lenV(a);
+  let up = crossV(a, b);
+  if (lenV(up) < 1e-6 * size * size) return undefined; // every atom on one line
+  up = unitV(up);
+  if (up[2] < 0) up = [-up[0], -up[1], -up[2]];
+  if (P.some((q) => Math.abs(dotV(sub(q, c), up)) > 1e-4 * size)) return undefined;
+  // Rodrigues' rotation about the line the plane and the page share, by the angle between them: way 1 into the page,
+  // -1 back.
+  const axis = unitV(crossV(up, [0, 0, 1])), cos = up[2], sin = Math.sqrt(Math.max(0, 1 - cos * cos));
+  const turn = (v: V, way: number): V => { const side = crossV(axis, v), along = dotV(axis, v); return [0, 1, 2].map((e) => v[e] * cos + side[e] * sin * way + axis[e] * along * (1 - cos)) as V; };
+  const chosen = new Set(ids), put = (f: (v: V) => V) => (x: Mol): Mol => ({ ...x, atoms: x.atoms.map((q, i) => (chosen.has(i) ? { ...q, location: f([q.location[0], q.location[1], q.location[2] ?? 0]) } : q)) });
+  return {
+    mol: put((v) => { const r = turn(sub(v, c), 1); return [c[0] + r[0], c[1] + r[1], 0]; })(m),
+    back: put((v) => { const r = turn([v[0] - c[0], v[1] - c[1], v[2]], -1); return [c[0] + r[0], c[1] + r[1], c[2] + r[2]]; }),
+  };
+}
 
 // ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on
 // (as ChemDraw turns it on after 3D Clean Up). An atom keeps an opacity set by hand.
 export function clean3d(m: Mol, ids: number[]): Mol {
   const n = ids.length, local = new Map(ids.map((g, k) => [g, k]));
   if (n < 2) return m;
+  const turned = levelled(m, ids);
+  if (turned) return turned.back(clean3d(turned.mol, ids));
   const bonds = m.bonds.filter((b) => b.type !== HBOND && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ a: local.get(b.atoms[0])!, b: local.get(b.atoms[1])!, type: b.type, stereo: b.stereo, from: b.atoms[0] }));
   const nei: number[][] = ids.map(() => []);
   for (const b of bonds) { nei[b.a].push(b.b); nei[b.b].push(b.a); }
@@ -51,6 +77,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   for (const b of bonds) { const o = b.type === AROMATIC ? 1.5 : b.type === 2 || b.type === 3 ? b.type : 1; used[b.a] += o; used[b.b] += o; }
   const graph = { atoms: ids.map((g, k) => ({ el: el[k], charge: m.atoms[g].charge ?? 0, h: m.atoms[g].implicitHCount ?? hydrogens(el[k], m.atoms[g].charge ?? 0, used[k]) })), bonds: bonds.map((b) => ({ a: b.a, b: b.b, order: (b.type === 2 || b.type === 3 ? b.type : 1) as 1 | 2 | 3 })) };
   const aromatic = aromaticAtoms(graph), cycles = rings(graph).filter((r) => r.length <= 8); // not a ring of rings
+  for (const b of bonds) if (b.type === AROMATIC) aromatic[b.a] = aromatic[b.b] = true; // rings drawn with delocalised bonds
   const hyb = ids.map((_, k) => {
     const mine = bonds.filter((b) => b.a === k || b.b === k);
     if (!aromatic[k] && !"C N O B".split(" ").includes(el[k])) return 3;
@@ -68,7 +95,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   // ratio. So the structure comes out the size it went in, however many times it is cleaned up (a drawing of mostly
   // aromatic rings keeps the rings' size, and its single bonds come out a little longer than drawn).
   const ratio = (b: (typeof bonds)[number]) => {
-    const ring = aromatic[b.a] && aromatic[b.b] && (b.type === 1 || b.type === 2) && inRing.has(key(b.a, b.b)), f = b.type === AROMATIC || ring ? 0.91 : b.type === 3 ? 0.78 : b.type === 2 ? 0.87 : 1;
+    const ring = aromatic[b.a] && aromatic[b.b] && (b.type === 1 || b.type === 2) && inRing.has(key(b.a, b.b)), f = b.type === AROMATIC || ring ? 0.91 : b.type === 3 ? 0.78 : b.type === 2 ? 0.87 : hyb[b.a] === 2 && hyb[b.b] === 2 ? 0.97 : 1;
     return (((RADIUS[el[b.a]] ?? 0.76) + (RADIUS[el[b.b]] ?? 0.76)) * f) / CC;
   };
   const flat = p2.every((q) => Math.abs(q[2]) < 1e-6);
@@ -150,15 +177,17 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   }
 
   // The hydrogens the drawing leaves out, each on the open side of its atom: one straight out; two either side in the
-  // plane (sp2) or above and below it (sp3); more round a cone. On an atom with one neighbour they go by that
-  // neighbour's other atoms: staggered to them (sp3), or in their plane (sp2), and an O–H towards a C=O. So a structure
-  // cleaned up again starts with its hydrogens where they settled, and keeps its shape.
+  // plane (sp2) or above and below it (sp3); more round a cone. On an sp2 atom with one neighbour they go in the plane
+  // of that neighbour's other atoms, an O–H towards a C=O. A methyl group of a structure in 3D already goes staggered
+  // to them: the same three places it settled in, so a second clean-up starts where the first ended. (On a flat
+  // drawing a methyl starts with one hydrogen out of the page, and an O–H straight out: placed in the page, they kept
+  // crowded rings flat and made twist-boats of acylated sugars.)
   for (const [k, count] of left) {
     const to = nei[k].slice(0, heavy[k]).map((j) => unitV(sub(p[k], p[j])));
     let out = unitV(to.reduce((s, v): V => [s[0] + v[0], s[1] + v[1], s[2] + v[2]], [0, 0, 0]));
     if (lenV(out) < 1e-6) out = to.length ? unitV(crossV(to[0], [0, 0, k % 2 ? -1 : 1])) : [1, 0, 0]; // a straight chain: to alternate sides
     const j = nei[k][0], syn = to.length === 1 && hyb[k] === 2 && count === 1 ? nei[j].find((q) => q !== k && double.has(key(j, q))) : undefined;
-    const far = to.length === 1 && hyb[k] !== 1 ? syn ?? nei[j].find((q) => q !== k && q < p.length) : undefined;
+    const far = to.length === 1 && (hyb[k] === 2 || (hyb[k] === 3 && count === 3 && !flat)) ? syn ?? nei[j].find((q) => q !== k && q < p.length) : undefined;
     let up: V = far !== undefined ? sub(p[j], p[far]) : to.length > 1 ? unitV(crossV(to[0], to[1])) : [0, 0, 1], lone = far !== undefined;
     if (lenV(crossV(up, out)) < 1e-3) { up = Math.abs(out[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]; lone = false; }
     const side = unitV(crossV(up, out)), d = bl(k, nei[k][heavy[k]]);
@@ -202,16 +231,20 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   }
   for (const b of bonds) {
     const both = hyb[b.a] === 2 && hyb[b.b] === 2, d = bl(b.a, b.b);
-    // Flat for good: a double bond, a bond of an aromatic ring, and the bond from an N or O to a C=O, C=N or C=S
-    // (an amide's, an ester's, an acid's). A weak pull to flat: the bond between two aromatic rings (biphenyl's). A
-    // pull between the two: any other bond between two sp2 atoms (styrene's, butadiene's, an anilide's N to its ring).
+    // Flat for good: a double bond, a bond of an aromatic ring, and an amide's bond (from an N to a C=O, C=N or C=S).
+    // A weak pull to flat: the bond between two aromatic rings (biphenyl's), and a bond to an O or N (an aryl ether's,
+    // a nitro group's: they turn when they are crowded). A pull between the two: a bond between two carbon atoms
+    // (styrene's, butadiene's, a ketone's to its ring), an ester's or an acid's bond from its O to its C=O (firmer, it
+    // made twist-boats of acetylated sugars), and an amide N's other bond (an anilide's).
     const amide = (q: number, c: number) => (el[q] === "N" || el[q] === "O") && !aromatic[q] && el[c] === "C" && !aromatic[c] && nei[c].some((o) => el[o] !== "C" && double.has(key(c, o)));
-    const firm = b.type === 2 || b.type === AROMATIC || (aromatic[b.a] && aromatic[b.b] && inRing.has(key(b.a, b.b))) || amide(b.a, b.b) || amide(b.b, b.a);
+    const anilide = (q: number) => el[q] === "N" && nei[q].some((c) => amide(q, c));
+    const weak = (aromatic[b.a] && aromatic[b.b]) || ((el[b.a] !== "C" || el[b.b] !== "C") && !anilide(b.a) && !anilide(b.b) && !amide(b.a, b.b) && !amide(b.b, b.a));
+    const firm = b.type === 2 || b.type === AROMATIC || (aromatic[b.a] && aromatic[b.b] && inRing.has(key(b.a, b.b))) || (el[b.a] === "N" && amide(b.a, b.b)) || (el[b.b] === "N" && amide(b.b, b.a));
     const page = (q: number): V => (flat ? [p[q][0], p[q][1], 0] : p[q]), line = sub(page(b.b), page(b.a)), off = (q: number, from: number) => crossV(line, sub(page(q), page(from)));
     const ring = cycles.find((r) => r.length < 8 && r.includes(b.a) && r.includes(b.b));
     for (const i of nei[b.a]) for (const l of nei[b.b]) {
       if (i === b.b || l === b.a || i === l) continue;
-      if (both) quad.push(i, b.a, b.b, l, firm ? PLANE : aromatic[b.a] && aromatic[b.b] ? CONJUGATED : LINK, 0);
+      if (both) quad.push(i, b.a, b.b, l, firm ? PLANE : weak ? CONJUGATED : LINK, 0);
       if (b.type === 2) {
         // Across a double bond, each pair of substituents stays cis or trans, in the plane, at the angles wanted at
         // its two atoms (so past an sp atom, as in an allene, the far atom is in line). In a ring of up to seven: cis
@@ -254,9 +287,8 @@ export function clean3d(m: Mol, ids: number[]): Mol {
       // Two of N and O, or one and a hydrogen on another, may come as near as a hydrogen bond brings them (so
       // salicylic acid and 2-nitrophenol stay flat), and two hydrogens on N or O to 2.0 Å (the two N–H inside a
       // porphyrin). Any other hydrogen may come to 2.4 Å of an N or O (so nitrobenzene and benzoic acid stay flat).
-      // Two heavy atoms push apart harder than a hydrogen does (so a nitro group between two methyls turns).
       const hs = (light[i] ? 1 : 0) + (light[j] ? 1 : 0), far = !third.has(kk), bonding = polar[i] && polar[j];
-      contact.push(i, j, hs ? CONTACT : HARD, !far ? LEAST[0][hs] : bonding ? [1.7, 1.2, 1.3][hs] : hs === 1 && (polar[i] || polar[j]) && (light[i] ? !polar[i] : !polar[j]) ? 1.55 : LEAST[1][hs]);
+      contact.push(i, j, !far ? LEAST[0][hs] : bonding ? [1.7, 1.2, 1.3][hs] : hs === 1 && (polar[i] || polar[j]) && (light[i] ? !polar[i] : !polar[j]) ? 1.55 : LEAST[1][hs]);
     }
   };
   const spring = (i: number, j: number, d: number, w: number, least: boolean) => {
@@ -272,7 +304,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     g.fill(0);
     energy = 0;
     for (let t = 0; t < pair.length; t += 4) spring(pair[t], pair[t + 1], pair[t + 2], pair[t + 3], false);
-    for (let t = 0; t < contact.length; t += 4) spring(contact[t], contact[t + 1], contact[t + 3], contact[t + 2], true);
+    for (let t = 0; t < contact.length; t += 3) spring(contact[t], contact[t + 1], contact[t + 2], CONTACT, true);
     for (let t = 0; t < quad.length; t += 6) {
       // Flat: the volume goes to zero. A hand: only a volume under 0.5 of its own sign is pushed (a tetrahedral centre
       // has 0.77). In plain numbers: this runs for every term at every step.
@@ -289,13 +321,14 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   };
   // Downhill with momentum (FIRE: Bitzek et al., Phys. Rev. Lett. 97, 170201): the step grows while the atoms keep
   // moving downhill, and they stop and the step halves when they overshoot. It ends when no atom is pushed any more,
-  // or after a number of steps that keeps the largest structure within its time.
-  const steps = Math.max(400, Math.min(4000, Math.round(3e7 / (pair.length / 4 + quad.length / 6 + all * 12))));
-  const settle = (limit = steps) => {
+  // after 4,000 steps, or (past 400 steps) after 20 million terms worked out: that keeps the largest structure within
+  // its time, however many contacts it has (a chain of cages has five times a chain's). share: the part of that to use.
+  const settle = (share = 1) => {
     v.fill(0);
-    let dt = 0.05, mix = 0.1, good = 0;
-    for (let step = 0, moved = Infinity; step < limit; step++) {
+    let dt = 0.05, mix = 0.1, good = 0, work = 0;
+    for (let step = 0, moved = Infinity; step < 4000 * share && (work < 2e7 * share || step < 400 * share); step++) {
       if (moved > 0.25) look();
+      work += pair.length / 4 + quad.length / 6 + contact.length / 3;
       slope();
       let power = 0, gg = 0, vv = 0, most = 0;
       for (let k = 0; k < g.length; k++) { power -= g[k] * v[k]; gg += g[k] * g[k]; vv += v[k] * v[k]; most = Math.max(most, Math.abs(g[k])); }
@@ -313,9 +346,9 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     }
   };
   // One clean-up from a start. Returns the energy it ends at.
-  const run = (from: V[], limit = steps) => {
+  const run = (from: V[], share = 1) => {
   from.forEach((q, k) => x.set(q, k * 3));
-  settle(limit);
+  settle(share);
   // A saturated atom with three drawn neighbours (and its one hydrogen, if it has one) that settled flat among them (a bridgehead, when the
   // rings folded onto the side its hydrogen started on) goes out of their plane, away from the atoms round it, with
   // its hydrogen beyond it. Then the shape settles again.
@@ -331,7 +364,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     for (let e = 0; e < 3; e++) { x[k * 3 + e] += up[e] * (side * 0.35 - off); if (h !== undefined) x[h * 3 + e] = x[k * 3 + e] + up[e] * side * bl(k, h); }
     pressed = true;
   }
-  if (pressed) settle(limit);
+  if (pressed) settle(share / 2);
   slope();
   return energy;
   };
@@ -339,14 +372,22 @@ export function clean3d(m: Mol, ids: number[]): Mol {
   // A flat drawing with saturated six-membered rings that ends strained (a bond or an angle's far side a fifth of a
   // bond off: sparteine, whose bridge the chairs put on the wrong side; quinuclidine, whose rings are boats) is cleaned
   // up again from each ring's other chair, and from no chairs: for a quarter of the steps, and to the end only when
-  // that is clearly better already. The shape with the least energy stays.
+  // that is clearly better already. The shape with the least energy stays, unless it turns a stereocentre over. Only
+  // for a structure of up to 200 atoms with its hydrogens: a larger one would take up to three times as long.
   const strained = () => { for (let t = 0; t < pair.length; t += 4) if (pair[t + 3] >= SIDE && Math.abs(lenV(sub(at(pair[t]), at(pair[t + 1]))) - pair[t + 2]) > 0.2) return true; return false; };
-  if (flat && chairs.length && strained()) for (const chair of [-1, 0]) {
-    const kept = x.slice();
-    if (run(start(chair), steps >> 2) > 0.95 * lowest) { x.set(kept); continue; }
+  // The stereocentres with the wrong hand: by the side of its first three neighbours' plane the fourth is on, where a
+  // centre has four (the centre itself can be on the right side of a shape that is turned over), else the centre.
+  const wrong = () => {
+    let c = 0;
+    for (let t = 0; t < quad.length; t += 6) { const k = quad[t + 1]; if (quad[t + 5] && quad[t + 5] * volume(at(quad[t]), at(heavy[k] > 3 ? nei[k][3] : k), at(quad[t + 2]), at(quad[t + 3])) <= 0) c++; }
+    return c;
+  };
+  if (flat && chairs.length && all <= 200 && strained()) for (const chair of [-1, 0]) {
+    const kept = x.slice(), hands = wrong();
+    if (run(start(chair), 0.25) > 0.95 * lowest) { x.set(kept); continue; }
     settle();
     slope();
-    lowest = energy;
+    if (wrong() > hands) x.set(kept); else lowest = energy;
   }
 
   // A flat drawing that comes out flat (benzene, naphthalene) lies in the page exactly, as it was drawn: when its atoms
