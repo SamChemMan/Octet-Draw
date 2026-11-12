@@ -186,15 +186,21 @@ fn save(app: &AppHandle, info: &Info) -> Result<(), String> {
 }
 
 // Turns the server on (with the saved key, or a new one) or off. new_key: a new key, so AI apps given the old one
-// cannot connect. Returns the address and key, for Settings to show and copy.
+// cannot connect. Returns the address and key, for Settings to show and copy. On while it is on (Home asks each time
+// it opens) changes nothing: the sessions and the port stay.
 #[tauri::command]
 pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bool>) -> Result<Option<Info>, String> {
     let mut running = mcp.running.lock().unwrap();
+    if let Some(info) = unchanged(running.as_ref().map(|r| &r.0), on, new_key) {
+        return Ok(Some(info));
+    }
+    let mut stopped = None;
     if let Some((was, stop)) = running.take() {
         stop.store(u64::MAX, Ordering::SeqCst);
         let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, was.port)); // wakes the accept loop
         mcp.shared.sessions.lock().unwrap().clear();
         *mcp.shared.loose.lock().unwrap() = None;
+        stopped = Some(was.port);
     }
     if !on {
         return Ok(None);
@@ -207,7 +213,7 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
     let appimage = std::env::var("APPIMAGE").ok().filter(|p| cfg!(target_os = "linux") && !p.is_empty());
     info.program = appimage.unwrap_or_else(|| std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
     // The port Octet keeps, else any free one (the address in the AI app must then change).
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, info.port))
+    let listener = listen(info.port, stopped == Some(info.port))
         .or_else(|_| TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))
         .map_err(|e| format!("Octet cannot listen for AI apps. {e}"))?;
     info.port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -227,6 +233,24 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
         }
     });
     Ok(Some(info))
+}
+
+// The server as it runs, when mcp_set is to leave it so: on, asked on again, with no new key.
+fn unchanged(running: Option<&Info>, on: bool, new_key: Option<bool>) -> Option<Info> {
+    running.filter(|_| on && new_key != Some(true)).cloned()
+}
+
+// The listener on `port`. again: the server on it has just stopped, and its listener may take a moment to close, so
+// Octet tries for a second before it takes another port.
+fn listen(port: u16, again: bool) -> std::io::Result<TcpListener> {
+    let mut tries = if again { 20 } else { 1 };
+    loop {
+        tries -= 1;
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+            Err(_) if tries > 0 => std::thread::sleep(Duration::from_millis(50)),
+            got => return got,
+        }
+    }
 }
 
 // Whether AI apps are on now: a drawing window opened while they are runs at full speed when it is behind others.
@@ -1009,7 +1033,9 @@ pub fn stdio(app: &AppHandle) {
             std::thread::spawn(move || rx.iter().for_each(|note| say(&out, &note)));
             sid = session.clone();
         }
-        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, READY));
+        // The program waits for nothing else: its first request waits for the first drawing's page as long as for an
+        // answer (WAIT, as call does for --convert), so a slow start is not refused.
+        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, WAIT));
         let (app, shared, out, id) = (app.clone(), shared.clone(), out.clone(), id.clone());
         Some(std::thread::spawn(move || {
             let reply = match sent {
@@ -1042,12 +1068,10 @@ fn lines_then_end(input: impl BufRead, mut take: impl FnMut(String) -> Option<st
 // so a cancel goes through while a call runs; a call's progress and the drawings' updates come through as lines too.
 // When Octet is not open (or AI apps are off), the relay answers initialize itself with empty lists, tries Octet again
 // every 2 s, and when it answers says the lists changed, so the tools appear with no restart of the AI app (D17).
+// At the end of standard input, each request read is answered before the relay ends (lines_then_end).
 pub fn relay(data_dir: Option<PathBuf>) {
     let relay = Relay::new(data_dir, Box::new(std::io::stdout()));
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        relay.take(line);
-    }
+    lines_then_end(std::io::stdin().lock(), |line| relay.take(line));
 }
 
 type Out = Box<dyn Write + Send>;
@@ -1088,14 +1112,14 @@ impl Relay {
     fn say(&self, line: &str) {
         say(&self.out, line)
     }
-    fn take(self: &Arc<Self>, line: String) {
-        let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else { return };
+    fn take(self: &Arc<Self>, line: String) -> Option<std::thread::JoinHandle<()>> {
+        let message = serde_json::from_str::<serde_json::Value>(&line).ok()?;
         if message.get("method").and_then(|m| m.as_str()) == Some("initialize") {
             let mut st = self.state.lock().unwrap();
             (st.hello, st.asks) = (Some(line.clone()), elicits(&message));
         }
         let me = self.clone();
-        std::thread::spawn(move || me.handle(&line, &message));
+        Some(std::thread::spawn(move || me.handle(&line, &message)))
     }
     fn handle(self: &Arc<Self>, line: &str, message: &serde_json::Value) {
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
@@ -1355,6 +1379,32 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    // Home asks for the server each time it opens: the one that runs stays, with its sessions and port. A new key, or
+    // off, is a change.
+    #[test]
+    fn on_again_changes_nothing() {
+        let info = Info { port: 47681, token: "k".into(), program: String::new() };
+        assert!(unchanged(Some(&info), true, None) == Some(info.clone()));
+        assert!(unchanged(Some(&info), true, Some(false)).is_some());
+        assert!(unchanged(Some(&info), true, Some(true)).is_none());
+        assert!(unchanged(Some(&info), false, None).is_none());
+        assert!(unchanged(None, true, None).is_none());
+    }
+
+    // A server that stops gives its port back a moment later: the new one takes the same port, not another.
+    #[test]
+    fn a_restart_keeps_its_port() {
+        let old = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = old.local_addr().unwrap().port();
+        assert!(listen(port, false).is_err());
+        let closing = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(old);
+        });
+        assert_eq!(listen(port, true).unwrap().local_addr().unwrap().port(), port);
+        closing.join().unwrap();
+    }
+
     #[test]
     fn events_are_read_whole() {
         let mut got = vec![];
@@ -1403,6 +1453,56 @@ mod tests {
         let all = out.all();
         assert_eq!(all[0]["method"], "notifications/progress");
         assert_eq!(all[1]["id"], 7);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // The bundle's server on Linux finds mcp.json where Octet keeps it when XDG_DATA_HOME is empty or relative, and
+    // starts the program it names (here echo, which says --mcp).
+    #[cfg(unix)]
+    #[test]
+    fn the_bundle_server_ignores_a_relative_xdg_data_home() {
+        let home = std::env::temp_dir().join(format!("octet-mcpb-home-{}", std::process::id()));
+        let dir = home.join(".local/share/io.github.samchemman.octet-draw");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mcp.json"), r#"{"program":"/bin/echo"}"#).unwrap();
+        let server = home.join("server.cjs");
+        std::fs::write(&server, include_str!("mcpb.cjs")).unwrap();
+        for xdg in ["", "relative"] {
+            let run = std::process::Command::new("node")
+                .args(["-e", "Object.defineProperty(process, 'platform', { value: 'linux' }); require(process.argv[1])"])
+                .arg(&server)
+                .env("HOME", &home)
+                .env("XDG_DATA_HOME", xdg)
+                .stdin(std::process::Stdio::null())
+                .output();
+            if let Ok(o) = run {
+                assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "--mcp", "XDG_DATA_HOME={xdg:?} {}", String::from_utf8_lossy(&o.stderr));
+            }
+        }
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    // `printf '<initialize>\n<call>\n' | octet --mcp`: the relay ends at the end of its input only once Octet's slow
+    // reply to the call is written.
+    #[test]
+    fn the_relay_answers_every_request_before_it_ends() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-relay-end-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k3y","program":""}}"#)).unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut head = String::new();
+            let mut r = std::io::BufReader::new(s.try_clone().unwrap());
+            while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}");
+        });
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        lines_then_end(&br#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read"}}"#[..], |line| relay.take(line));
+        assert_eq!(out.all().first().map(|r| r["id"].clone()), Some(serde_json::json!(7)));
         let _ = std::fs::remove_dir_all(dir);
     }
 

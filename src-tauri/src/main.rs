@@ -1196,12 +1196,19 @@ fn data_dir() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     return std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join(id));
     #[cfg(target_os = "linux")]
-    return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
+    return absolute(std::env::var_os("XDG_DATA_HOME")).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
+}
+// $XDG_DATA_HOME as Tauri reads it: an empty or relative value is not one.
+#[cfg(any(test, target_os = "linux"))]
+fn absolute(dir: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    dir.map(std::path::PathBuf::from).filter(|d| d.is_absolute())
 }
 
 // How Octet was started. --headless and --convert count wherever they are, so `--mcp --headless` is never the relay
-// into the user's own Octet, and headless takes no other argument. --mcp anywhere is the relay. Any other option
-// (--x) is refused: only file paths (from Explorer and file managers) open in the app.
+// into the user's own Octet, and headless takes no other argument. --mcp anywhere is the relay. --object, --host and
+// --app open an object in a file (the LibreOffice extension, objects.rs): the word after each is its value, never an
+// option (a document named --convert is only a name). Any other option (--x) is refused: only file paths (from
+// Explorer and file managers) open in the app.
 #[derive(Debug, PartialEq)]
 enum Start {
     App,
@@ -1210,7 +1217,15 @@ enum Start {
     Convert(convert::Job),
 }
 fn start(args: &[String]) -> Result<Start, String> {
-    let has = |a: &str| args.iter().any(|x| x == a);
+    let mut options = vec![];
+    let mut words = args.iter();
+    while let Some(x) = words.next() {
+        if matches!(x.as_str(), "--object" | "--host" | "--app") {
+            words.next();
+        }
+        options.push(x.as_str());
+    }
+    let has = |a: &str| options.contains(&a);
     if has("--convert") {
         return convert::parse(&args.iter().filter(|x| *x != "--convert").cloned().collect::<Vec<_>>()).map(Start::Convert);
     }
@@ -1220,7 +1235,7 @@ fn start(args: &[String]) -> Result<Start, String> {
             None => Ok(Start::Headless),
         };
     }
-    if let Some(x) = args.iter().find(|x| x.starts_with("--") && !matches!(x.as_str(), "--mcp" | "--register-ole" | "--unregister-ole")) {
+    if let Some(x) = options.iter().find(|x| x.starts_with("--") && !matches!(**x, "--mcp" | "--register-ole" | "--unregister-ole" | "--object" | "--host" | "--app")) {
         return Err(format!("Octet does not know {x}. Use: Octet Draw [FILE...], Octet Draw --mcp, Octet Draw --headless --mcp, or Octet Draw --convert INPUT... --to FORMAT"));
     }
     Ok(if has("--mcp") { Start::Relay } else { Start::App })
@@ -1525,6 +1540,19 @@ mod tests {
         assert!(start("--headless --convert a.cdxml --to pdf").is_err(), "convert does not take --headless");
         assert!(matches!(start("a.cdxml --convert --to pdf"), Ok(Start::Convert(_))));
         assert!(start("--convert a.cdxml").is_err());
+        // The LibreOffice extension's object: its values are names, whatever they say.
+        assert_eq!(start("--object /tmp/o/drawing.pdf --app Writer --host Report.odt"), Ok(Start::App));
+        for line in ["--object a.pdf --host --convert", "--object a.pdf --host --headless", "--object a.pdf --host --mcp", "--object --colour"] {
+            assert_eq!(start(line), Ok(Start::App), "{line}");
+        }
+    }
+
+    #[test]
+    fn xdg_data_home_is_an_absolute_path_or_none() {
+        assert_eq!(absolute(Some("/home/a/data".into())), Some("/home/a/data".into()));
+        for wrong in [None, Some(""), Some("data"), Some("./data")] {
+            assert_eq!(absolute(wrong.map(Into::into)), None, "{wrong:?}");
+        }
     }
 
     // A file read for the page is 64 MB at most, whatever its size said: one that grew after it was measured is refused.

@@ -4,12 +4,14 @@
 const { spawn } = require("node:child_process");
 const { existsSync, readFileSync } = require("node:fs");
 const { homedir } = require("node:os");
-const { join } = require("node:path");
+const { isAbsolute, join } = require("node:path");
 
+// Octet's data folder, as Octet finds it (an empty or relative XDG_DATA_HOME is not one).
 const id = "io.github.samchemman.octet-draw";
+const xdg = process.env.XDG_DATA_HOME;
 const dir = process.platform === "darwin" ? join(homedir(), "Library", "Application Support", id)
   : process.platform === "win32" ? join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), id)
-  : join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), id);
+  : join(xdg && isAbsolute(xdg) ? xdg : join(homedir(), ".local", "share"), id);
 let program;
 try { program = JSON.parse(readFileSync(join(dir, "mcp.json"), "utf8")).program; } catch {}
 

@@ -48,6 +48,8 @@ Set-Alias octet "$env:LOCALAPPDATA\Octet Draw\octet.exe"
 - To stop Octet, close its standard input. Octet completes the calls in progress, then stops.
 - Octet Draw does not have to be open. Settings > General > AI apps > Let AI apps use Octet can be off.
 - Each call that changes the drawing is one step that Undo can take away (`advanced` with `run_command` and `undo`).
+- On Linux, Octet needs a display, also with no window. On a computer with no display (a server, or CI), start it
+  with `xvfb-run -a`, for example `xvfb-run -a "$OCTET" --headless --mcp`. This is also true for `--convert`.
 
 To work in the drawing that is open in Octet, start the program with `--mcp` and no `--headless`. Octet must be open,
 with Let AI apps use Octet on.
@@ -493,6 +495,21 @@ Converted 2 of 2 files.
   file, before Octet converts.
 - Octet does not write over a file. It adds a number to the new name. Add `--overwrite` to write over files.
 - If Octet cannot read a file, it gives the reason, converts the other files, and the exit code is 1.
+
+On Windows, `octet.exe` is a window program. PowerShell and the Command Prompt do not wait for a window program to
+stop, so you do not get the exit code. Send the output to another command. Then the shell waits.
+
+```
+& $env:OCTET --convert figures --to pdf --out pdfs | Write-Output
+$LASTEXITCODE
+```
+
+In the Command Prompt, use `start /wait`:
+
+```
+start "" /wait "%OCTET%" --convert figures --to pdf --out pdfs
+echo %ERRORLEVEL%
+```
 
 ## What a script cannot do
 
