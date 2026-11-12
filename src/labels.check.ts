@@ -36,6 +36,18 @@ const reversed: Record<string, string> = {
 };
 for (const [label, smiles] of Object.entries(reversed)) assert.equal(labelSmiles(label), smiles, label);
 for (const label of ["H2O2", "Me3Si", "(CH2)3", "Ph2", "H2(Boc)2", "HN(Me)2"]) assert.ok(!labelSmiles(label)?.startsWith("("), label);
+// Groups written as formulas read as chemists write them: C2H5 is ethyl and C6H5 phenyl wherever they are in a label
+// (OC2H5 was O(C)(C), C6H5 a hexyl chain). A label whose first atom its hydrogens fill is written from the left and
+// bonds at its end (CH3CO is acetyl). A carbon counted before its hydrogens with no one structure is not read.
+const formulas: Record<string, string> = {
+  OC2H5: "OCC", C6H5: "c1ccccc1", COOC2H5: "C(=O)OCC", CH3CO: "C(C)=O", C6H11: "C1CCCCC1", C2H5: "CC", "n-C3H7": "CCC", C3H7: "CCC",
+  "i-C3H7": "C(C)C", "t-C4H9": "C(C)(C)C", "s-C4H9": "C(C)CC", "i-C4H9": "CC(C)C", "n-C4H9": "CCCC", C6H13: "CCCCCC", OC5H11: "OCCCCC",
+  CH2CH3: "CC", CH3CH2: "CC", CO2C2H5: "C(=O)OCC", OCOCH3: "OC(=O)C", CH3CO2: "OC(C)=O", NHC6H5: "Nc1ccccc1", OC6H5: "Oc1ccccc1",
+  CH2C6H5: "Cc1ccccc1", C6H5CH2: "C(c1ccccc1)", "N(C2H5)2": "N(CC)CC", C2H5O: "O(CC)", CH3O: "OC", C2H5OOC: "C(=O)OCC",
+  CH2CO2C2H5: "CC(=O)OCC", OCOC6H5: "OC(=O)c1ccccc1", "P(C6H11)2": "P(C1CCCCC1)C1CCCCC1", "4-BrC6H4": "c3ccc(Br)cc3",
+};
+for (const [label, smiles] of Object.entries(formulas)) assert.equal(labelSmiles(label), smiles, label);
+for (const label of ["C6H4", "CH2C6H4Br", "C6H4CH3", "C2H3", "C3H5", "C10H7", "C6H6"]) assert.equal(labelSmiles(label), undefined, label);
 assert.equal(labelSmiles("C999"), undefined);
 // Labels Indigo cannot lay out in good time are not read: an atom with more than eight neighbours or more than four
 // groups with a ring on it, a ring atom with more than four neighbours, or more than 120 atoms. Others are read.
