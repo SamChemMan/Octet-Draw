@@ -187,6 +187,17 @@ for (const id of ["quit", "close"]) assert.equal(menuRuns(id, { home: false, mod
 for (const id of ["cut", "copy", "paste"]) for (const over of [onHome, { home: false, modal: true, typing: true }, { home: false, modal: false, typing: false }]) assert.equal(menuRuns(id, over), true, id);
 assert.equal(menuRuns("select_all", { ...onHome, typing: true }), true);
 assert.equal(menuRuns("flip_h", { ...onHome, typing: true }), false);
+// While an AI app's call runs, the drawing takes no menu command, key, cut or paste of the user's (they would join the
+// call's undo step): Quit, Close Window and Copy still run.
+const calling = { home: false, modal: false, typing: false, calling: true };
+for (const id of ["undo", "redo", "delete", "clean_up", "flip_h", "select_all", "save"]) assert.equal(menuRuns(id, calling), false, id);
+for (const id of ["quit", "close", "copy"]) assert.equal(menuRuns(id, calling), true, id);
+{
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /if \(home \|\| modal\(\)\) return; \/\/ Home and dialogs have their own keys\n(?:\s*\/\/.*\n)*\s*if \(mcpCalling\.current\) return;/, "the canvas takes no keys during a call");
+  assert.equal(editor.match(/calling: mcpCalling\.current/g)?.length, 2, "both menu paths say a call runs");
+  assert.equal(editor.match(/modal\(\) \|\| mcpCalling\.current/g)?.length, 2, "cut and paste wait for the call");
+}
 // A dialog blocks every command but the text ones; with no dialog and no Home, every command runs.
 assert.equal(menuRuns("new", { home: false, modal: true, typing: false }), false);
 assert.equal(menuRuns("undo", { home: false, modal: true, typing: true }), true);

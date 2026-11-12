@@ -201,10 +201,12 @@ export function toAccelerator(key: string): string {
 // Paste (Octet's own items on Linux) run everywhere too: they work on the text being typed, and the drawing takes them
 // only when nothing covers it.
 const HOME_COMMANDS = ["home", "new", "open", "edit_word", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates", "select_all"];
-export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean }) {
+// While an AI app's call runs (calling), the menu works on the drawing as over a dialog: what the user did would join
+// the call's undo step.
+export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean; calling?: boolean }) {
   if (["quit", "close", "cut", "copy", "paste"].includes(id)) return true;
   if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;
-  if (over.modal) return false;
+  if (over.modal || over.calling) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_");
 }
 // The menu commands that open a dialog: their names end in "…", as the Mac's menus have it (Octet with no window

@@ -2950,7 +2950,7 @@ export default function Editor() {
       // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
       const ran = pageRan.current;
       if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
-      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.();
+      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.();
     });
     return () => { off.then((f) => f()); };
   }, []);
@@ -8560,7 +8560,7 @@ export default function Editor() {
       if (TAURI && !e.defaultPrevented && (e.ctrlKey || e.metaKey) && (!MAC || shiftedSymbol(keyOf(e) ?? ""))) {
         const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
         if (id?.startsWith("menu.")) {
-          const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };
+          const cmd = id.slice(5), over = { home, modal: modal(), typing: typing(), calling: mcpCalling.current };
           // In a text box these are the box's own. A menu command that follows from the same key does not run again.
           if (over.typing && ["undo", "redo", "select_all", "cut", "copy", "paste"].includes(cmd)) { pageRan.current = { id: cmd, at: performance.now() }; return; }
           if (!menuRuns(cmd, over)) return;
@@ -8571,6 +8571,9 @@ export default function Editor() {
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
+      // While an AI app's call runs, the canvas takes no keys, as it takes no clicks (McpMagic): an edit would join the
+      // call's undo step, and go with it when the call is stopped.
+      if (mcpCalling.current) return;
       // Mass spec analysis (ChemDraw's): a key pressed while a line is dragged puts a corner in it where the pointer is.
       if (drag?.kind === "arrow" && tool === "massspec" && drag.to && e.key !== "Escape") {
         e.preventDefault();
@@ -8716,7 +8719,7 @@ export default function Editor() {
     const imageFile = (e: ClipboardEvent) => [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
-      if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
+      if (typing() || home || modal() || mcpCalling.current) return; // pasting into a label or caption, on Home or a dialog, or during an AI app's call
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its PDF on the Mac and Word keeps, then CDX (the whole drawing, and ChemDraw for Windows' only one),
       // then a molfile, then SMILES), then plain text that names a structure, and a picture last.
@@ -8850,7 +8853,7 @@ export default function Editor() {
     // Cut: copy, then delete what was copied (an arrow's conditions too), once the copy is on the clipboard and if the
     // drawing has not changed.
     const onCut = (e: ClipboardEvent) => {
-      if (typing() || home || modal() || (!selection.size && !picked.size)) return;
+      if (typing() || home || modal() || mcpCalling.current || (!selection.size && !picked.size)) return;
       if (partPick) return run("edit.delete");
       const taken = new Set([...picked, ...(selectedPart()?.captions ?? []).map((c) => c.id)]);
       const before = doc, gone = deleteGraphics(deleteAtoms(doc, selection), taken, drawnAt, drawnAlign);
