@@ -767,6 +767,41 @@ try {
 // warning names no atom), and a table of SMILES gives a drawing a row (a row Octet cannot read is named, and the rows
 // after it are drawn). It fails when an example in either language prints other lines or ends with another code than
 // the page's, or the Python examples write other files. Here: the numbers and the journal's bond length in the files.
+// The window's host (Editor.tsx): doc() is the drawing set, at once, and else the one React drew last; style() is the
+// one drawn last until the call settles; restyle builds on the drawing set. An edit's number, a structure changed with
+// a colour, a style's properties and an edit refused part way come out as they do with no window.
+{
+  const { scaleSizes } = await import("./edit.ts");
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /set: \(m\) => \(now\.current = \(mcpWait\.current = \{ mol: set\(m\) \}\)\.mol!\)/, "the window's set is its doc at once");
+  assert.match(editor, /restyle: \(next\) => \{ now\.current = \(mcpWait\.current = \{ mol: set\(\{ \.\.\.scaleSizes\(now\.current,/, "restyle builds on the drawing set");
+  const real = drawing("paper").host;
+  let now = real.doc(), drawn = real.style();
+  const host = new Proxy(real, { get: (t, k: keyof typeof real) => {
+    if (k === "doc") return () => now;
+    if (k === "style") return () => drawn;
+    if (k === "set") return (x: Parameters<typeof real.set>[0]) => (now = t.set(x));
+    if (k === "settle") return async () => { await t.settle(); now = t.doc(); drawn = t.style(); };
+    if (k === "restyle") return (next: ReturnType<typeof real.style>) => { now = t.set({ ...scaleSizes(now, next.scale / drawn.scale), style: next }); };
+    return t[k];
+  } });
+  let id = 0;
+  const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: args } }), () => host, "1", session("Check", "window"))).result;
+  const numbers = () => (real.doc().captions ?? []).filter((c) => c.bold).map((c) => c.text);
+  await call("set_brief", { destination: { kind: "quick" } });
+  await call("draw", { lines: "CCO" });
+  assert.ok(!(await call("change", { operations: [{ op: "edit", ids: ["s1"], number: "5" }] })).isError);
+  assert.deepEqual(numbers(), ["5"], "an edit's number stays");
+  assert.ok((await call("change", { operations: [{ op: "edit", ids: ["s1", "zz"], number: "6" }] })).isError);
+  assert.deepEqual(numbers(), ["5"], "an edit refused part way leaves nothing");
+  assert.ok(!(await call("change", { operations: [{ op: "edit", ids: ["s1"], colour: "#ff0000", changes: [{ swap: { OH: "OAc" } }] }] })).isError);
+  assert.equal(toInchiKey(real.doc()), toInchiKey(parseStructure("CCOC(C)=O", false)), "the structure changed");
+  assert.equal(real.doc().atoms.filter((a) => a.colour === "#ff0000").length, 2, "and its carbons kept their colour");
+  assert.ok(!(await call("advanced", { tool: "set_style", args: { preset: "RSC", properties: { title: "My scheme" } } })).isError);
+  assert.equal(real.style().preset, "RSC");
+  assert.match(JSON.stringify(real.doc().annotations ?? null), /My scheme/, "set_style keeps its properties");
+}
+
 {
   const at = (...p: string[]) => join(examplesIn, ...p);
   try {

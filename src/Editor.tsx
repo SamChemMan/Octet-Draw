@@ -7343,7 +7343,8 @@ export default function Editor() {
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
     end: (made) => { joinNext.current = undefined; mcpCalling.current = false; if (made) panTo([made[0] * L, -made[3] * L, made[2] * L, -made[1] * L]); },
-    set: (m) => (mcpWait.current = { mol: set(m) }).mol!,
+    // The drawing set is the drawing from now on (doc), before React draws it: a tool reads it back at once.
+    set: (m) => (now.current = (mcpWait.current = { mol: set(m) }).mol!),
     // A message to itself is a task the browser runs at once, where a timer in a window behind others can wait a second.
     settle: async () => {
       // A call's changes do not glide (glideTo), so a settle waits only for the drawing to be drawn.
@@ -7393,7 +7394,7 @@ export default function Editor() {
       const side = (k: string) => Number(new RegExp(` ${k}="([\\d.]+)pt"`).exec(head ?? "")?.[1] ?? 0), dpi = Math.min(crop ? 1200 : 150, (longest * 72) / Math.max(side("width"), side("height"), 1));
       return svgText && TAURI ? invoke<string>("mcp_png", { svg: svgText, dpi }) : undefined;
     },
-    restyle: (next) => { mcpWait.current = { mol: set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true) }; },
+    restyle: (next) => { now.current = (mcpWait.current = { mol: set({ ...scaleSizes(now.current, next.scale / style.scale), style: next }, true) }).mol!; },
     experiment: () => expPage,
     said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
     // The window shows the AI app at work (McpMagic) while each call runs, and for some seconds after. How far the
