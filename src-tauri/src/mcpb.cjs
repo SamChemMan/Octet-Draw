@@ -12,11 +12,12 @@ const xdg = process.env.XDG_DATA_HOME;
 const dir = process.platform === "darwin" ? join(homedir(), "Library", "Application Support", id)
   : process.platform === "win32" ? join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), id)
   : join(xdg && isAbsolute(xdg) ? xdg : join(homedir(), ".local", "share"), id);
-let program;
-try { program = JSON.parse(readFileSync(join(dir, "mcp.json"), "utf8")).program; } catch {}
+// args: what goes before --mcp (a Flatpak's flatpak run, whose program is found on the PATH).
+let program, args = [];
+try { ({ program, args = [] } = JSON.parse(readFileSync(join(dir, "mcp.json"), "utf8"))); } catch {}
 
-if (program && existsSync(program)) {
-  const relay = spawn(program, ["--mcp"], { stdio: "inherit", windowsHide: true });
+if (program && (args.length || existsSync(program))) {
+  const relay = spawn(program, [...args, "--mcp"], { stdio: "inherit", windowsHide: true });
   relay.on("exit", (code) => process.exit(code ?? 0));
   relay.on("error", () => process.exit(1));
 } else {

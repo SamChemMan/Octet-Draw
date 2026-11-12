@@ -26,6 +26,10 @@ const fn own(dev: bool) -> (&'static str, u16) {
     if dev { ("mcp-dev.json", 47682) } else { ("mcp.json", 47681) }
 }
 const INFO: &str = own(cfg!(debug_assertions)).0;
+// Octet's last answers to initialize and tools/list, which the relay gives while Octet is closed (kept beside INFO).
+const KEPT: &str = if cfg!(debug_assertions) { "mcp-tools-dev.json" } else { "mcp-tools.json" };
+// How long a call waits for an Octet the relay has started to answer.
+const WAKE: Duration = Duration::from_secs(25);
 pub const PORT: u16 = own(cfg!(debug_assertions)).1;
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024; // a request from the AI app
@@ -41,6 +45,8 @@ pub struct Info {
     token: String,
     #[serde(default)]
     program: String, // this Octet's own program, which AI apps start with --mcp (the relay)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    args: Vec<String>, // what goes before --mcp: a Flatpak's program is flatpak, with run --command=octet and its id
 }
 
 #[derive(Default)]
@@ -207,11 +213,9 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
     }
     let mut info = match saved(&app) {
         Some(i) if new_key != Some(true) => i,
-        _ => Info { port: PORT, token: random_hex(32)?, program: String::new() },
+        _ => Info { port: PORT, token: random_hex(32)?, program: String::new(), args: Vec::new() },
     };
-    // An AppImage (Linux) runs from a new folder each time: the AI app starts the AppImage itself.
-    let appimage = std::env::var("APPIMAGE").ok().filter(|p| cfg!(target_os = "linux") && !p.is_empty());
-    info.program = appimage.unwrap_or_else(|| std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
+    (info.program, info.args) = own_program();
     // The port Octet keeps, else any free one (the address in the AI app must then change).
     let listener = listen(info.port, stopped == Some(info.port))
         .or_else(|_| TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))
@@ -1066,8 +1070,10 @@ fn lines_then_end(input: impl BufRead, mut take: impl FnMut(String) -> Option<st
 // the server of the Octet that runs. Nothing else goes to standard output (P4). It reads the port and key from
 // INFO for each request, so a new key or port changes nothing in the AI app. Each request has a thread of its own,
 // so a cancel goes through while a call runs; a call's progress and the drawings' updates come through as lines too.
-// When Octet is not open (or AI apps are off), the relay answers initialize itself with empty lists, tries Octet again
-// every 2 s, and when it answers says the lists changed, so the tools appear with no restart of the AI app (D17).
+// When Octet is not open (or AI apps are off), the relay answers initialize and the lists itself, with Octet's tools as
+// it last gave them (KEPT; empty lists before Octet has ever answered), so an AI app started before Octet still has the
+// tools. A tool call starts Octet and goes on once it answers (WAKE). The relay tries Octet every 2 s, and when it
+// answers says the lists changed, so the tools are current with no restart of the AI app (D17).
 // At the end of standard input, each request read is answered before the relay ends (lines_then_end).
 pub fn relay(data_dir: Option<PathBuf>) {
     let relay = Relay::new(data_dir, Box::new(std::io::stdout()));
@@ -1099,6 +1105,7 @@ struct RelayState {
     watching: bool,
     listening: bool,
     asks: bool,
+    woken: bool, // Octet was started once already: a second call while it is still closed does not start it again
 }
 const CLOSED: &str = "Octet Draw is not open, or its AI apps are off. Open Octet Draw and turn on Settings > General > AI apps > Let AI apps use Octet, then try again.";
 
@@ -1153,16 +1160,55 @@ impl Relay {
                     self.listen();
                 }
                 if let Some(r) = got.reply.filter(|r| !r.trim().is_empty()) {
+                    if matches!(method, "initialize" | "tools/list") {
+                        self.keep(method, &r);
+                    }
                     self.say(&r);
                 }
             }
             None => {
-                self.say(&closed_answer(method, id, message));
+                // A tool call with Octet closed: Octet is started, and the call goes on once it answers.
+                if method == "tools/call" && self.wake() {
+                    let session = self.state.lock().unwrap().session.clone();
+                    let got = self.info().and_then(|i| self.post(&i, line, session.as_deref(), |m| self.say(m)).ok()).filter(|g| g.status == 200);
+                    if let Some(r) = got.and_then(|g| g.reply).filter(|r| !r.trim().is_empty()) {
+                        self.listen();
+                        return self.say(&r);
+                    }
+                }
+                self.say(&closed_answer(method, id, message, self.kept()));
                 if self.state.lock().unwrap().hello.is_some() {
                     self.watch();
                 }
             }
         }
+    }
+    // Octet's answer to initialize or tools/list, kept for when it is closed.
+    fn keep(&self, method: &str, reply: &str) {
+        let (Some(dir), Some(result)) = (self.dir.as_ref(), serde_json::from_str::<serde_json::Value>(reply).ok().and_then(|v| v.get("result").cloned())) else { return };
+        let mut kept = self.kept().unwrap_or_else(|| serde_json::json!({}));
+        if kept.get(method) == Some(&result) {
+            return;
+        }
+        kept[method] = result;
+        let _ = crate::write_atomic(&dir.join(KEPT), kept.to_string().as_bytes());
+    }
+    fn kept(&self) -> Option<serde_json::Value> {
+        self.dir.as_ref().and_then(|d| std::fs::read(d.join(KEPT)).ok()).and_then(|b| serde_json::from_slice(&b).ok())
+    }
+    // Starts Octet (once for the relay) and waits for it to answer, with a session for this AI app.
+    fn wake(&self) -> bool {
+        if std::mem::replace(&mut self.state.lock().unwrap().woken, true) || !launch() {
+            return false;
+        }
+        let end = std::time::Instant::now() + WAKE;
+        while std::time::Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(500));
+            if self.info().is_some_and(|i| self.start(&i)) {
+                return true;
+            }
+        }
+        false
     }
     // A new session with the AI app's own initialize. Octet's answer to it is not passed on: the AI app has one.
     fn start(&self, info: &Info) -> bool {
@@ -1286,25 +1332,74 @@ fn events(reader: &mut impl BufRead, mut each: impl FnMut(&str)) {
 
 // The relay's own answer while Octet is not there: initialize with empty lists that will change, and the fix for the
 // rest.
-fn closed_answer(method: &str, id: &serde_json::Value, message: &serde_json::Value) -> String {
+fn closed_answer(method: &str, id: &serde_json::Value, message: &serde_json::Value, kept: Option<serde_json::Value>) -> String {
+    let kept = |m: &str| kept.as_ref().and_then(|k| k.get(m)).cloned();
     let result = match method {
         "initialize" => {
             let want = message.pointer("/params/protocolVersion").and_then(|v| v.as_str()).filter(|v| VERSIONS.contains(v)).unwrap_or(VERSIONS[0]);
+            let instructions = kept("initialize").and_then(|k| k.get("instructions").cloned()).unwrap_or_else(|| format!("{CLOSED} Octet's tools appear here once it is open.").into());
             serde_json::json!({
                 "protocolVersion": want,
                 "capabilities": { "tools": { "listChanged": true }, "prompts": { "listChanged": true }, "resources": { "subscribe": true, "listChanged": true } },
                 "serverInfo": { "name": "octet-draw", "title": "Octet Draw", "version": app_version() },
-                "instructions": format!("{CLOSED} Octet's tools appear here once it is open."),
+                "instructions": instructions,
             })
         }
         "ping" => serde_json::json!({}),
-        "tools/list" => serde_json::json!({ "tools": [] }),
+        "tools/list" => kept("tools/list").unwrap_or_else(|| serde_json::json!({ "tools": [] })),
         "prompts/list" => serde_json::json!({ "prompts": [] }),
         "resources/list" => serde_json::json!({ "resources": [] }),
         "resources/templates/list" => serde_json::json!({ "resourceTemplates": [] }),
         _ => return error_reply(Some(id), -32603, CLOSED),
     };
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string()
+}
+
+// The program an AI app starts, with what goes before --mcp. An AppImage (Linux) runs from a new folder each time: the
+// AI app starts the AppImage itself. A Flatpak's own program is only there inside its sandbox: the AI app starts it
+// through flatpak.
+fn own_program() -> (String, Vec<String>) {
+    let var = |k: &str| std::env::var(k).ok().filter(|v| cfg!(target_os = "linux") && !v.is_empty());
+    program_for(var("FLATPAK_ID"), var("APPIMAGE"), std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default())
+}
+fn program_for(flatpak: Option<String>, appimage: Option<String>, exe: String) -> (String, Vec<String>) {
+    match flatpak {
+        Some(id) => ("flatpak".into(), vec!["run".into(), "--command=octet".into(), id]),
+        None => (appimage.unwrap_or(exe), Vec::new()),
+    }
+}
+
+// Starts Octet with its window, for a tool call while it is closed. A dev build's page comes from its dev server, which
+// only tauri dev starts, so a dev build is not started. In a Flatpak this runs inside its sandbox, where Octet's own
+// program is.
+fn launch() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    let Ok(exe) = std::env::current_exe() else { return false };
+    #[cfg(target_os = "macos")]
+    {
+        // The app, as Finder opens it (its program alone would be a second Octet with no Dock icon of its own).
+        let Some(app) = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")) else { return false };
+        std::process::Command::new("open").arg("-a").arg(app).status().is_ok_and(|s| s.success())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use std::process::{Command, Stdio};
+        let program = std::env::var_os("APPIMAGE").filter(|p| cfg!(target_os = "linux") && !p.is_empty()).map(PathBuf::from).unwrap_or(exe);
+        let mut command = Command::new(program);
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // Windows: Octet outlives the AI app's job (DETACHED_PROCESS, CREATE_BREAKAWAY_FROM_JOB), where the job allows it.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            if command.creation_flags(0x0100_0008).spawn().is_ok() {
+                return true;
+            }
+            command.creation_flags(0x0000_0008);
+        }
+        command.spawn().is_ok()
+    }
 }
 
 // Octet's one version, from package.json (REL-9).
@@ -1383,7 +1478,7 @@ mod tests {
     // off, is a change.
     #[test]
     fn on_again_changes_nothing() {
-        let info = Info { port: 47681, token: "k".into(), program: String::new() };
+        let info = Info { port: 47681, token: "k".into(), program: String::new(), args: Vec::new() };
         assert!(unchanged(Some(&info), true, None) == Some(info.clone()));
         assert!(unchanged(Some(&info), true, Some(false)).is_some());
         assert!(unchanged(Some(&info), true, Some(true)).is_none());
@@ -1428,6 +1523,59 @@ mod tests {
         assert_eq!(all[1]["result"]["tools"], serde_json::json!([]));
         assert_eq!(all[2]["id"], "x");
         assert!(all[2]["error"]["message"].as_str().unwrap().contains("Open Octet Draw"));
+    }
+
+    // An AI app started before Octet still has Octet's tools: the relay gives them as Octet last did.
+    #[test]
+    fn the_relay_gives_the_kept_tools_while_octet_is_closed() {
+        let dir = std::env::temp_dir().join(format!("octet-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(KEPT), r#"{"initialize":{"instructions":"Draw with Octet."},"tools/list":{"tools":[{"name":"draw"}]}}"#).unwrap();
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        relay.state.lock().unwrap().watching = true;
+        run(&relay, r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+        run(&relay, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        let all = out.all();
+        assert_eq!(all[0]["result"]["instructions"], "Draw with Octet.");
+        assert_eq!(all[0]["result"]["capabilities"]["tools"]["listChanged"], true, "the list can still change when Octet opens");
+        assert_eq!(all[1]["result"]["tools"][0]["name"], "draw");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // What Octet answers to tools/list is kept, and kept again only when it changes.
+    #[test]
+    fn the_relay_keeps_octets_tools() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-keep-test-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k","program":""}}"#)).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut head = String::new();
+            let mut r = std::io::BufReader::new(s.try_clone().unwrap());
+            while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            let body = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"draw"},{"name":"read"}]}}"#;
+            write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        run(&relay, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        server.join().unwrap();
+        let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join(KEPT)).unwrap()).unwrap();
+        assert_eq!(kept["tools/list"]["tools"][1]["name"], "read");
+        assert_eq!(out.all()[0]["result"]["tools"][0]["name"], "draw");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // A Flatpak's AI apps start Octet through flatpak; an AppImage's, the AppImage; else Octet's own program.
+    #[test]
+    fn an_ai_app_starts_octet_as_it_was_installed() {
+        let exe = || "/opt/octet/octet".to_string();
+        assert_eq!(program_for(Some("io.github.samchemman.octet-draw".into()), None, exe()), ("flatpak".into(), vec!["run".into(), "--command=octet".into(), "io.github.samchemman.octet-draw".into()]));
+        assert_eq!(program_for(None, Some("/home/a/Octet.AppImage".into()), exe()), ("/home/a/Octet.AppImage".into(), vec![]));
+        assert_eq!(program_for(None, None, exe()), (exe(), vec![]));
     }
 
     #[test]
@@ -1478,6 +1626,18 @@ mod tests {
             if let Ok(o) = run {
                 assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "--mcp", "XDG_DATA_HOME={xdg:?} {}", String::from_utf8_lossy(&o.stderr));
             }
+        }
+        // A Flatpak's program comes with what goes before --mcp, and is found on the PATH.
+        std::fs::write(dir.join("mcp.json"), r#"{"program":"echo","args":["run","--command=octet","io.x"]}"#).unwrap();
+        let run = std::process::Command::new("node")
+            .args(["-e", "Object.defineProperty(process, 'platform', { value: 'linux' }); require(process.argv[1])"])
+            .arg(&server)
+            .env("HOME", &home)
+            .env_remove("XDG_DATA_HOME")
+            .stdin(std::process::Stdio::null())
+            .output();
+        if let Ok(o) = run {
+            assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "run --command=octet io.x --mcp", "{}", String::from_utf8_lossy(&o.stderr));
         }
         let _ = std::fs::remove_dir_all(home);
     }

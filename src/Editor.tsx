@@ -5,7 +5,7 @@ import {
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
-  EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
+  EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
   BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc,
@@ -163,7 +163,7 @@ const HELM_KEYS = MAC ? "⌥⌘E" : "";
 const TAURI = "__TAURI_INTERNALS__" in window;
 // Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has
 // a window. ?window marks a drawing window; ?editor (tests) is the editor with no Home.
-type McpInfo = { port: number; token: string; program: string };
+type McpInfo = { port: number; token: string; program: string; args?: string[] };
 // This page's own id, so the app can tell a reloaded page (whose requests are lost) from this one saying it listens again.
 const MCP_PAGE = Math.random().toString(36).slice(2);
 // Each listener this page puts up for the app's MCP requests has a number, so the app knows which one went.
@@ -2544,6 +2544,8 @@ export default function Editor() {
     close: () => (officeRef.current ? void officeClose() : closeDrawing()),
     tutorial: () => startTutorial(),
     shortcuts: () => setSettingsOpen("keys"),
+    // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
+    connect_ai: () => setSettingsOpen("general"),
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
@@ -7667,7 +7669,7 @@ export default function Editor() {
   // names what it shows next for the structures it acts on, worked out only while the palette is open.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
-    insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />], image_to_structure: ["Image to structure…", "", <Scan size={18} />],
+    insert_file: ["Insert a drawing or picture…", "", <FileImage size={18} />], connect_ai: ["Connect an AI app…", "", <PlugsConnected size={18} />], image_to_structure: ["Image to structure…", "", <Scan size={18} />],
     // File > Edit Picture from Word is on the Mac only (src-tauri/src/word.rs), so the palette has it there only.
     ...(TAURI && MAC ? { edit_word: ["Edit picture from Word", "", <FileDoc size={18} />] } as Record<string, [string, string, React.ReactNode]> : {}),
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
@@ -7723,7 +7725,7 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };

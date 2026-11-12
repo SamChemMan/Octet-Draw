@@ -112,7 +112,7 @@ type Props = {
   onWordClick: (on: boolean) => void;
   onCheckUpdates: () => void;
   // AI apps (decision 0021): the server's address and key while it is on, and the switch.
-  mcp: { port: number; token: string; program: string } | null; onMcp: (on: boolean, newKey?: boolean) => void; onBundle: () => void;
+  mcp: { port: number; token: string; program: string; args?: string[] } | null; onMcp: (on: boolean, newKey?: boolean) => void; onBundle: () => void;
   onAddToLibreOffice: () => void; // Linux: opens Octet's extension for LibreOffice, and says so when it cannot
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
@@ -627,10 +627,10 @@ export function SettingsWindow(p: Props) {
       d("general", "AI apps", "Let AI apps use Octet", "ai apps mcp claude chatgpt assistant model context protocol connect draw", <Switch on={!!p.mcp} label="Let AI apps use Octet" onChange={(on) => p.onMcp(on)} />),
       ...(p.mcp ? [
         // Each AI app starts Octet's relay (Octet Draw --mcp), which reads the port and key itself (decision 0021).
-        d("general", "AI apps", "Claude Code", "claude code command mcp add terminal", <button className="text-button" onClick={() => void copyToClipboard({ text: `claude mcp add --scope user octet-draw -- "${p.mcp!.program}" --mcp` })}>Copy command</button>),
+        d("general", "AI apps", "Claude Code", "claude code command mcp add terminal", <button className="text-button" onClick={() => void copyToClipboard({ text: `claude mcp add --scope user octet-draw -- "${p.mcp!.program}" ${[...(p.mcp!.args ?? []), "--mcp"].join(" ")}` })}>Copy command</button>),
         ...(LINUX ? [] : [d("general", "AI apps", "Claude Desktop", "claude desktop install bundle extension mcpb", <button className="text-button" onClick={p.onBundle}>Install</button>)]),
         d("general", "AI apps", "VS Code", "vs code visual studio copilot json settings", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ servers: { "octet-draw": { type: "stdio", command: p.mcp!.program, args: ["--mcp"] } } }, null, 2) })}>Copy settings</button>),
-        d("general", "AI apps", "Other AI apps", "cursor windsurf chatgpt config json other apps stdio", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: ["--mcp"] } } }, null, 2) })}>Copy settings</button>),
+        d("general", "AI apps", "Other AI apps", "cursor windsurf chatgpt config json other apps stdio", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: [...(p.mcp!.args ?? []), "--mcp"] } } }, null, 2) })}>Copy settings</button>),
         d("general", "AI apps", "Key", "key token new disconnect revoke", <button className="text-button" onClick={() => p.onMcp(true, true)}>New key</button>),
       ] : []),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
