@@ -1033,7 +1033,9 @@ pub fn stdio(app: &AppHandle) {
             std::thread::spawn(move || rx.iter().for_each(|note| say(&out, &note)));
             sid = session.clone();
         }
-        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, READY));
+        // The program waits for nothing else: its first request waits for the first drawing's page as long as for an
+        // answer (WAIT, as call does for --convert), so a slow start is not refused.
+        let sent = window.as_deref().map(|w| send(app, &shared, w, id, method, line.as_bytes(), &client, session.as_deref(), lost, brief, unset, elicit, WAIT));
         let (app, shared, out, id) = (app.clone(), shared.clone(), out.clone(), id.clone());
         Some(std::thread::spawn(move || {
             let reply = match sent {
