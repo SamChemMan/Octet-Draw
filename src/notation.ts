@@ -31,7 +31,7 @@ Pd(0)L2 (1)
 -> 1, RE, -Ar–Ar'
 L = PPh3
 
-3[..] changes 3: both OH>OBn, 2° OTBS>OH, 7:OTBS (map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at N). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
+3[..] changes 3: OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9. R= takes a label, SMILES or name (an amine joins at N). | splits a row; a new line is a new row. (a), (b) and then: kept as written; (a) alone first: letters. Marks: ^x over, _x under, "x" as written, @x drawn. Arrows -> <=> => <-> -/->.`;
 
 type Compound = { text?: string; labels?: string[]; from?: string; changes?: Change[]; number?: string; caption?: string };
 type Change = Record<string, unknown>;

@@ -2031,3 +2031,10 @@ session can keep or drop each by what the lab says next.
 
 - **Every tool loads at once.** A restyle or a help call still cost a tool search (say-restyle: 5 turns on Opus, where
   a job that draws is 2). All six tools have `_meta: {"anthropic/alwaysLoad": true}`: tools/list 12,854 from 12,740.
+- **Round 5's words go back.** Told to write a step the user describes as a change (`3[2° OTBS>OH]`), Opus did so in
+  paper-five-step, was refused in two runs of three (`reduce 3`, `5[acetonide 9-13]: acetonide is not a
+  transformation`), and its clean run cost more than SMILES had (31.1 s and 3,382 tokens against 26.9 s and 2,915).
+  Instruction 3 and NOTATION's change line are as on `release-1.2-mcp` again (`only with neither, as a change to an
+  earlier one (3[OBn>OTES])`; `OBn>OTES, 7:OTBS, 7:H, 7+OH (7: map [C:7]), 5=6, reduce 9`). The reader stays (both,
+  all, the classes, the kinds and their refusals): a model or a script that writes them is read. Instructions 2,040
+  from 2,044; NOTATION 783 from 784.

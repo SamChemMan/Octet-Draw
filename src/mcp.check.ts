@@ -1589,9 +1589,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(ins, /^Octet Draw is .* These tools draw in the user's open drawing and read it\.\n[^]*The reply lists each compound as Octet read it \(number, id, formula or =id if drawn again; a name only if read as another\)/);
   // Round 3b: given every compound's SMILES, Haiku tried to write them as changes ("write each compound once ... a
   // later one is a change to it" read as a rule), could not, and said sorry to the user. The SMILES given come first.
-  // Round 5: told each step in words (paper-five-step), models wrote five SMILES by editing the string in their heads,
-  // so with neither, a step the user says is a change, shown with a class.
-  assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, write what a step does as a change \(3\[2° OTBS>OH\]\): it keeps stereocentres\./);
+  // Round 5 told the model to write a step the user says as a change (3[2° OTBS>OH]); in the real Claude Code runs Opus
+  // then did, was refused in two runs of three, and spent more than SMILES had (plan 19.10). The words of before stay.
+  assert.match(ins, /Write each compound as the name or SMILES you have \(copy the user's\); only with neither, as a change to an earlier one \(3\[OBn>OTES\]\), which keeps stereocentres\./);
   // (A group is highlighted with highlight too: a shape is a frame or panel.)
   assert.match(ins, /To highlight an atom, bond, group or structure, use change's edit with highlight/);
   // (Only what is asked takes colour: the line kept that when it was cut to fit 2,048 characters.)

@@ -44,10 +44,10 @@ assert.ok(NOTATION.length <= 820, `${NOTATION.length}`);
 // Round 4: the scope's example names an amine whole, and says where it joins: a model given "the products R2N–X from
 // these amines" had written every product out as SMILES.
 assert.match(NOTATION, /R=morpholine \(5b\)[^]*R= takes a label, SMILES or name \(an amine joins at N\)/);
-// Round 5: a step the user says in words is a change; the line shows both, a class and a set at a map number
-// (paper-five-step's models wrote five SMILES by hand), and each of its changes reads.
-assert.match(NOTATION, /3\[\.\.\] changes 3: both OH>OBn, 2° OTBS>OH, 7:OTBS /);
-{ const line = /3\[\.\.\] changes 3: (.*?)\. R=/.exec(NOTATION)![1]; assert.ok(typeof fromLines({ lines: `3[${line.replace(/ \(map \[C:7\]\)/, "").replaceAll(",", ";")}] (4)` }) !== "string", line); }
+// The change line shows the plain forms: the class forms (both OH, 2° OTBS) it showed in round 5 made Opus write a
+// step in words as changes it could not get right, at more cost than SMILES (plan 19.10). Each of its changes reads.
+assert.match(NOTATION, /3\[\.\.\] changes 3: OBn>OTES, 7:OTBS, 7:H, 7\+OH \(7: map \[C:7\]\), 5=6, reduce 9\. /);
+{ const line = /3\[\.\.\] changes 3: (.*?)\. R=/.exec(NOTATION)![1]; assert.ok(typeof fromLines({ lines: `3[${line.replace(/ \(7: map \[C:7\]\)/, "").replaceAll(",", ";")}] (4)` }) !== "string", line); }
 // Examples, not prose: a few short lines each, one line of marks, and no "Scheme" a model would copy into a title (12
 // lines before round 3b wrote the cycle a step a line and added a lone start and a grid).
 assert.ok(NOTATION.split("\n").length <= 18 && !/Scheme/.test(NOTATION), NOTATION);
