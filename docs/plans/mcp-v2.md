@@ -2082,3 +2082,21 @@ session can keep or drop each by what the lab says next.
   against the call and the drawing, a number that is neither, with a name or SMILES in brackets after it, is that
   compound with that number; one that is a compound already keeps the bracket as its caption, as before. Not done: a
   short SMILES in the brackets (14 characters or fewer, no space) is still read as a compound number there.
+- **The reply says each compound's stereo.** In both rounds both models tried RDKit in the shell on their own SMILES
+  (Opus: "Check CIP labels with RDKit"), and round 4's sentence moved Opus to read `{ids, detail: 'full'}`, work the E/Z
+  out of the InChI and replace two structures (paper-cycle: 3 and 2 calls where base had 1). Now a draw's and a
+  change's compounds, and read's summary (`stereo`, also in a full read), give each compound's descriptors after the
+  formula, as Show Stereochemistry works them out (`stereoLabels`: R, S, r, s, E, Z, M, P in atom order) and with how
+  many centres a wedged structure leaves undefined (`stereoFacts`, which Indigo reads only for a structure with a
+  wedge): `2 s2 C15H21NO4 (Z,S)`, `3 C7H16O (S; 1 undefined centre)`. No locants: Octet has none cheaply. Nothing for a
+  compound with neither. One function, `stereoOf`, beside the formula in `madeCompounds` and `summary`; both chem.ts
+  functions keep what they work out by structure, and the layout check has already read the drawing's stereo.
+  draw's description: "the reply gives each formula and stereo (R, S, E, Z): do not test a name or SMILES with other
+  tools first"; read's: "structures (id, number, caption, formula, stereo)". tools/list 12,885 from 12,853.
+- **Measured** (benchmark turn about with the commit before, two runs each, best of each): Octet ms over all 147 cases
+  27,133 then 27,331 (+0.7%, noise); taxol-lines 1,908 then 1,903, taxol-route 1,913 then 1,891, taxol-v1-job 3,826
+  then 3,824. Read characters rise only for compounds with stereo: taxol-lines 950 to 1,254, taxol-route 4,989 to
+  5,570, paper-cycle 293 to 330, say-two-schemes 302 to 408, and 37 corpus lines jobs by 4 to 110; summaries likewise
+  (taxol-route 2,443 to 3,024, under 5,000). results.json holds the new counts, tools/list and instructions; its times
+  are the ones it had. notation.check's longest reply of a job in one call goes to under 1,300 characters from 1,200
+  (the taxol route is 1,254). The 36 replayed answers still score 35.

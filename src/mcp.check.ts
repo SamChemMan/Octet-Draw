@@ -113,7 +113,7 @@ for (const name of ["draw_reaction", "read_drawing", "edit", "batch", "run_comma
 // 26 tools of v1 were 59,900.
 assert.ok(JSON.stringify(tools).length < 14_000, `tools/list: ${JSON.stringify(tools).length} characters`);
 // Real Claude Code runs (plan 19.10): the models tried RDKit in the shell on their own SMILES before they drew. draw says not to.
-assert.match(tools.find((t: { name: string }) => t.name === "draw").description, /do not test a name or SMILES with other tools first/);
+assert.match(tools.find((t: { name: string }) => t.name === "draw").description, /the reply gives each formula and stereo \(R, S, E, Z\): do not test a name or SMILES with other tools first/);
 // The scripting page (docs/scripting.md, plan 18.2) cannot drift: its table of tools is the tools tools/list gives, and
 // each file it shows (### name, then its code) is the file in scripts/examples as it is.
 {
@@ -2229,7 +2229,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const described = (name: string) => OP_TABLE.find((t) => t.name === name)!.description!;
   assert.ok(/detail: full lists what changed\.$/.test(described("run_command")) && !/The result lists/.test(described("run_command")));
   assert.ok(/caption \(text under the number\)/.test(described("structures")) && /number, caption and the hints/.test(described("reaction")));
-  assert.ok(/caption under the number/.test(JSON.stringify(tools[0].inputSchema)) && /\(id, number, caption, formula\)/.test(tools[2].description));
+  assert.ok(/caption under the number/.test(JSON.stringify(tools[0].inputSchema)) && /\(id, number, caption, formula, stereo\)/.test(tools[2].description));
   // A reaction's plus signs are made, with their boxes: each has its own place, so a move of what a call made takes
   // all of the reaction (a plus sign left out of made would stay behind).
   fresh();
@@ -2538,6 +2538,16 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const o = await call("advanced", { tool: "set_brief", destination: "a paper in Angewandte Chemie" }, "s-adv");
   assert.ok(!o.isError && JSON.parse(briefs.get("s-adv")!).destination.journal === "Wiley (Angewandte)", text(o));
   fresh();
+}
+
+// Each compound's stereo after its formula, as Show Stereochemistry has it (the real runs ran RDKit, or read the InChI
+// and drew again, to check their own SMILES), and how many centres a wedged structure leaves undefined; read's summary
+// gives the same. A compound with neither has nothing added.
+{
+  fresh();
+  const o = await call("draw", { lines: "C[C@H](O)CC (1) -> C/C=C/C(=O)O (2)\nC[C@H](O)CC(C)CC (3) -> c1ccccc1 (4)" });
+  assert.deepEqual(o.structuredContent.compounds.map((x: string) => x.replace(/ s\d+/, "")), ["1 C4H10O (S)", "2 C4H6O2 (E)", "3 C7H16O (S; 1 undefined centre)", "4 C6H6"], text(o));
+  assert.deepEqual((await call("read", {})).structuredContent.structures.map((x: { stereo?: string }) => x.stereo), ["(S)", "(E)", "(S; 1 undefined centre)", undefined]);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

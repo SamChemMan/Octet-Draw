@@ -16,6 +16,7 @@ import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { withDetails, detailsOf, FIELDS, type Details } from "./experiment.ts";
 import { conditionItems, conditionKind, parseAmount, type Field } from "./stoich.ts";
+import { stereoFacts, stereoLabels } from "./chem.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import { blank, fromLines, linesOf, NOTATION, written } from "./notation.ts";
@@ -730,7 +731,7 @@ function briefOf(b: unknown): unknown {
 const TOOLS: Tool[] = [
   {
     name: "draw", title: "Draw", ops: KINDS, defs: { compound: LISTED_COMPOUND, side: SIDE },
-    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text. Octet reads and checks every structure and the reply gives each formula: do not test a name or SMILES with other tools first.",
+    description: "Draws new work in one call and one undo step, laid out by Octet: below what is drawn, or placed with at and anchor, or beside ids with gap and align. Write it as lines: one reaction, a scheme, schemes as one route, a grid or scope, or a catalytic cycle. structures is the JSON form, for the hints that turn a compound as a picture shows it. advanced help of structures, cycle, figure or draw_route gives the rest: a molecule atom by atom, MOL or CDXML text, figure panels with frames, rich text. Octet reads and checks every structure and the reply gives each formula and stereo (R, S, E, Z): do not test a name or SMILES with other tools first.",
     inputSchema: obj({
       lines: str(100_000, NOTATION), brief: str(2000, BRIEF_NOTE),
       structures: COMPOUNDS, columns: int(1, 20),
@@ -773,7 +774,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
-    description: "Reads the drawing as a summary: structures (id, number, caption, formula), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
+    description: "Reads the drawing as a summary: structures (id, number, caption, formula, stereo), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
     inputSchema: READ_IN,
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
@@ -2506,6 +2507,15 @@ const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under |
 // Octet's name follows where a name was given and Octet's name for it is another (as readAs says them), so the AI app
 // can see it is the compound it meant.
 // A compound drawn again under its number (a later scheme's start) says which it repeats, with no formula: 15 s4 =s3.
+// A compound's stereo as a chemist writes it after the formula, as Show Stereochemistry works it out (chem.ts
+// stereoLabels: R, S, r, s on centres, E, Z on double bonds, M, P on axes, in atom order), and how many stereocentres
+// are drawn with no configuration (which Indigo reads for a structure with a wedge): (S,Z), (R; 1 undefined centre).
+// Undefined for a compound with neither (plan 19.10: models ran RDKit, or read the InChI, to check their own SMILES).
+function stereoOf(part: Mol): string | undefined {
+  const l = stereoLabels(part), unset = stereoFacts(part).unset.size, at = (i: number) => part.bonds[i].atoms[0] < part.bonds[i].atoms[1] ? part.bonds[i].atoms[0] : part.bonds[i].atoms[1];
+  const marks = l ? [...l.atoms.flatMap((x, i) => (x ? [[i, x] as const] : [])), ...l.bonds.flatMap((x, k) => (x ? [[at(k), x] as const] : []))].sort((p, q) => p[0] - q[0]).map(([, x]) => x).join(",") : "";
+  return marks || unset ? `(${[marks, unset ? `${unset} undefined centre${unset > 1 ? "s" : ""}` : ""].filter(Boolean).join("; ")})` : undefined;
+}
 function madeCompounds(host: Host, m: Mol, made: string[]): string[] {
   const ids = new Set(made), number = new Map<number, string>(), first = new Map<string, { atoms: number[]; id: string }>(), all = structuresOf(m);
   for (const c of m.captions ?? []) if (c.bold) for (const i of c.under ?? []) if (!number.has(i)) number.set(i, c.text);
@@ -2513,8 +2523,8 @@ function madeCompounds(host: Host, m: Mol, made: string[]): string[] {
   return all.filter((x) => ids.has(x.id)).map((x) => {
     const n = number.get(x.atoms[0]), part = pickPart(m, x.atoms), was = n ? first.get(n) : undefined;
     if (was && was !== x && host.smiles(pickPart(m, was.atoms)) === host.smiles(part)) return `${n} ${x.id} =${was.id}`;
-    const src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined;
-    return `${n ? `${n} ` : ""}${x.id} ${it?.formula ?? host.formula(part)}${it?.name && plainName(it.name) !== plainName(src!.given) ? ` ${short(it.name, 120)}` : ""}`;
+    const src = sources.get(m.atoms[x.atoms[0]].key ?? -1), it = src?.named ? about(host, part) : undefined, st = stereoOf(part);
+    return `${n ? `${n} ` : ""}${x.id} ${it?.formula ?? host.formula(part)}${st ? ` ${st}` : ""}${it?.name && plainName(it.name) !== plainName(src!.given) ? ` ${short(it.name, 120)}` : ""}`;
   });
 }
 // "$2.s[0]": the first structure step 2 made; "$2.s" or "$2.made" in a list, all of them.
@@ -2963,9 +2973,10 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
       atoms: g.map((i, k) => { const x = m.atoms[i]; return { id: `${id}.${k + 1}`, label: x.text ?? x.label, ...(x.charge ? { charge: x.charge } : {}), ...(x.isotope ? { isotope: x.isotope } : {}), ...(x.radical ? { radical: RADICALS[x.radical] } : {}), ...(x.pairs ? { lone_pairs: x.pairs } : {}), ...(x.enhanced ? { enhanced: x.enhanced } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.halo ? { highlight: x.halo } : {}), ...(x.number ? { atom_number: x.number } : {}) }; }),
       bonds: m.bonds.flatMap((b) => { const [p, q] = b.atoms.map((i) => g.indexOf(i)); return p < 0 || q < 0 ? [] : [{ id: `${id}.${Math.min(p, q) + 1}-${Math.max(p, q) + 1}`, kind: bondKind(b), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { highlight: b.halo } : {}) }]; }),
     } : {};
-    if (!full) return { id, number: numberOf(g), caption: captionOf(g), formula: host.formula(partOf(g)), ...(smiles ? { smiles: host.smiles(partOf(g)) } : {}), ...parts };
+    const stereo = stereoOf(partOf(g));
+    if (!full) return { id, number: numberOf(g), caption: captionOf(g), formula: host.formula(partOf(g)), ...(stereo ? { stereo } : {}), ...(smiles ? { smiles: host.smiles(partOf(g)) } : {}), ...parts };
     const it = factsOf(g), src = sources.get(m.atoms[g[0]].key ?? -1), b = host.ink(g);
-    return { id, smiles: it.smiles, inchi: it.inchi, inchiKey: it.key, formula: it.formula, name: it.name, ...(src ? { source: src } : {}), number: numberOf(g), atoms: g.length, box: b?.map((v) => Math.round(v * 10) / 10) , ...parts };
+    return { id, smiles: it.smiles, inchi: it.inchi, inchiKey: it.key, formula: it.formula, ...(stereo ? { stereo } : {}), name: it.name, ...(src ? { source: src } : {}), number: numberOf(g), atoms: g.length, box: b?.map((v) => Math.round(v * 10) / 10) , ...parts };
   });
   const text = (id: number) => m.captions?.find((c) => c.id === id)?.text;
   // (inReactions: the text of the reactions read, kept as each is read: reading a reaction again from each of its

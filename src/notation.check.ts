@@ -159,7 +159,8 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
 
 // Each job is one draw call with its lines and the brief, in a session with no brief: drawn as its JSON draws it, and
 // answered so the AI app can tell the user at once, with no read: every structure drawn in compounds, each with its
-// formula, and the check, in under 1,200 characters (the longest is printed).
+// formula and stereo, and the check, in under 1,300 characters (the longest is printed; 1,200 before each compound
+// said its stereo, plan 19.10, which put the taxol route at 1,254).
 {
   let k = 0, most = [0, ""] as [number, string];
   // (The taxol route on a paper page runs past it: its reply then names each of the 20 ids past the page and says
@@ -172,7 +173,7 @@ assert.ok(lines < 0.6 * json, `${lines} of ${json}`);
     else assert.deepEqual(got, want, id);
     if (!r) continue;
     const said = r.content.map((c: { text: string }) => c.text).join("\n"), sc = r.structuredContent;
-    assert.ok(said.length < 1200, `${id}: ${said.length} characters\n${said}`);
+    assert.ok(said.length < 1300, `${id}: ${said.length} characters\n${said}`);
     assert.equal(sc.compounds.length, (await call("read", {}, `one-${k}`)).structuredContent.structures.length, `${id}: ${said}`);
     assert.ok(sc.compounds.every((c: string) => /^(?:\S+ )?s\d+ (?:[A-Z]|=s\d+$)/.test(c)) && sc.check !== undefined && !("boxes" in sc), `${id}: ${said}`);
     if (said.length > most[0]) most = [said.length, id];
