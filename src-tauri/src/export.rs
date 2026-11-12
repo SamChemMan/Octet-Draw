@@ -300,20 +300,26 @@ pub fn make_3mf(model: &str) -> Result<Vec<u8>, String> {
 "#),
         ("3D/3dmodel.model", model.as_bytes()),
     ];
-    Ok(zip(&parts, 6))
+    Ok(zip(&parts, 6, usize::MAX))
 }
 
 // A zip file of `parts` (each a name and its bytes), each deflated at `level` (1 fastest, 9 smallest), with its CRC-32
-// and sizes, then the central directory and the end record. For a 3MF file and for Office's copy of a picture
-// (clipboard.rs). A part is under 4 GB and there are under 65,536 of them: the callers' limits are far below both.
-pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8) -> Vec<u8> {
+// and sizes, then the central directory and the end record. A part larger than `stored_over` bytes goes in as it is
+// (stored, method 0), with nothing to wait for. For a 3MF file, which stores no part, and for Office's copy of a
+// picture (clipboard.rs). A part is under 4 GB and there are under 65,536 of them: the callers' limits are far below
+// both.
+pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8, stored_over: usize) -> Vec<u8> {
     let (mut out, mut dir) = (Vec::new(), Vec::new());
     for (name, data) in parts {
-        let packed = miniz_oxide::deflate::compress_to_vec(data, level);
-        // The fields the local header and the central directory share: version 2.0, no flags, deflated, 1 January 1980,
-        // the CRC-32, both sizes, the name's length and no extra field.
+        let deflated = (data.len() <= stored_over).then(|| miniz_oxide::deflate::compress_to_vec(data, level));
+        let (method, packed): (u16, &[u8]) = match &deflated {
+            Some(d) => (8, d),
+            None => (0, data),
+        };
+        // The fields the local header and the central directory share: version 2.0, no flags, the method, 1 January
+        // 1980, the CRC-32, both sizes, the name's length and no extra field.
         let mut common = Vec::new();
-        for v in [20u16, 0, 8, 0, 0x21] {
+        for v in [20u16, 0, method, 0, 0x21] {
             common.extend(v.to_le_bytes());
         }
         for v in [crc32(data), packed.len() as u32, data.len() as u32] {
@@ -344,9 +350,43 @@ pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8) -> Vec<u8> {
     out
 }
 
-// The CRC-32 a zip file keeps for each part (the reflected polynomial 0xEDB88320).
+// The CRC-32 a zip file keeps for each part (the reflected polynomial 0xEDB88320), from tables, eight bytes a step.
+// CRC[0][b] is the CRC of the byte b; CRC[k][b] is that byte's with k zero bytes after it.
+static CRC: [[u32; 256]; 8] = {
+    let mut t = [[0u32; 256]; 8];
+    let mut b = 0;
+    while b < 256 {
+        let (mut c, mut bit) = (b as u32, 0);
+        while bit < 8 {
+            c = if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+            bit += 1;
+        }
+        t[0][b] = c;
+        b += 1;
+    }
+    let mut k = 1;
+    while k < 8 {
+        let mut b = 0;
+        while b < 256 {
+            t[k][b] = (t[k - 1][b] >> 8) ^ t[0][(t[k - 1][b] & 0xff) as usize];
+            b += 1;
+        }
+        k += 1;
+    }
+    t
+};
 pub(crate) fn crc32(data: &[u8]) -> u32 {
-    !data.iter().fold(!0u32, |c, &b| (0..8).fold(c ^ u32::from(b), |c, _| if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }))
+    let mut c = !0u32;
+    let mut eights = data.chunks_exact(8);
+    for b in &mut eights {
+        let lo = (c ^ u32::from_le_bytes([b[0], b[1], b[2], b[3]])).to_le_bytes();
+        c = CRC[7][lo[0] as usize] ^ CRC[6][lo[1] as usize] ^ CRC[5][lo[2] as usize] ^ CRC[4][lo[3] as usize]
+            ^ CRC[3][b[4] as usize] ^ CRC[2][b[5] as usize] ^ CRC[1][b[6] as usize] ^ CRC[0][b[7] as usize];
+    }
+    for &b in eights.remainder() {
+        c = (c >> 8) ^ CRC[0][((c ^ u32::from(b)) & 0xff) as usize];
+    }
+    !c
 }
 
 // A JPEG of the SVG at `dpi`, on white (JPEG has no transparency), at `quality` (1 to 100), with its resolution.
@@ -1293,10 +1333,49 @@ mod tests {
         assert_eq!(bmp.len(), 54 + 1080 * 271, "each row padded to 4 bytes");
     }
 
+    // The CRC-32 as Octet worked it out before the tables: a bit at a time.
+    fn bitwise_crc32(data: &[u8]) -> u32 {
+        !data.iter().fold(!0u32, |c, &b| (0..8).fold(c ^ u32::from(b), |c, _| if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }))
+    }
+
+    // The tables give the CRC-32 the bits gave: the standard check value, every length from 0 to 40 bytes (the eights
+    // and what is left over), and 100,000 bytes that follow no pattern.
+    #[test]
+    fn crc32_from_tables_is_the_same() {
+        assert_eq!((crc32(b"123456789"), crc32(b"")), (0xCBF4_3926, 0));
+        let mut x = 0x2545_F491u32;
+        let noise: Vec<u8> = (0..100_000).map(|_| { x ^= x << 13; x ^= x >> 17; x ^= x << 5; (x >> 24) as u8 }).collect();
+        for n in (0..=40).chain([255, 256, 257, 4_095, 65_537, 100_000]) {
+            assert_eq!(crc32(&noise[..n]), bitwise_crc32(&noise[..n]), "{n} bytes");
+            assert_eq!(crc32(&noise[noise.len() - n..]), bitwise_crc32(&noise[noise.len() - n..]), "the last {n} bytes");
+        }
+        assert_eq!(crc32(&[0xff; 1000]), bitwise_crc32(&[0xff; 1000]));
+    }
+
+    // A part over the limit is stored, and a part at or under it deflated. The stored part's bytes are in the file as
+    // they are, and both sizes are its own.
+    #[test]
+    fn zip_stores_large_parts() {
+        let (small, large) = (vec![7u8; 100], (0..=255u8).cycle().take(101).collect::<Vec<u8>>());
+        let file = zip(&[("small", &small), ("large", &large)], 1, 100);
+        let (u16_at, u32_at) = (|k: usize| u16::from_le_bytes([file[k], file[k + 1]]) as usize, |k: usize| u32::from_le_bytes(file[k..k + 4].try_into().unwrap()) as usize);
+        assert_eq!((u16_at(8), u32_at(22)), (8, 100), "the small part is deflated");
+        assert!(u32_at(18) < 100);
+        let second = 30 + 5 + u32_at(18);
+        assert_eq!((u32_at(second), u16_at(second + 8), u32_at(second + 14), u32_at(second + 18), u32_at(second + 22)), (0x0403_4b50, 0, crc32(&large) as usize, 101, 101), "the large part is stored");
+        assert_eq!(&file[second + 35..second + 35 + 101], &large[..]);
+        assert_eq!(u16::from_le_bytes(zip(&[("large", &large)], 1, 101)[8..10].try_into().unwrap()), 8, "at the limit: deflated");
+    }
+
     // A 3MF file is a zip of three parts, each deflated with its CRC-32, and the model reads back as it went in.
     #[test]
     fn three_mf_is_a_zip_with_the_model() {
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+        // The file's bytes are what they were when zip stored no part and the CRC-32 went a bit at a time (the same
+        // miniz_oxide deflates them).
+        let tetrahedron = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"><resources><object id=\"1\" type=\"model\"><mesh><vertices><vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/><vertex x=\"0\" y=\"1\" z=\"0\"/><vertex x=\"0\" y=\"0\" z=\"1\"/></vertices><triangles><triangle v1=\"0\" v2=\"2\" v3=\"1\"/><triangle v1=\"0\" v2=\"1\" v3=\"3\"/><triangle v1=\"0\" v2=\"3\" v3=\"2\"/><triangle v1=\"1\" v2=\"2\" v3=\"3\"/></triangles></mesh></object></resources><build><item objectid=\"1\"/></build></model>\n";
+        let file = make_3mf(tetrahedron).unwrap();
+        assert_eq!((file.len(), bitwise_crc32(&file)), (926, 0x2F1C_8E8F), "the 3MF file has changed");
         let model = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"/>\n";
         let zip = make_3mf(model).unwrap();
         let (u16_at, u32_at) = (|k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize, |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize);

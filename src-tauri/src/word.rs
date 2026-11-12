@@ -4,8 +4,9 @@
 // - The picture selected in Word is copied to the clipboard, and paste's reader takes the CDXML from its PDF. The
 //   user's clipboard is saved first and put back after.
 // - A hidden bookmark marks the picture (or Word's cursor, for a new drawing). The object window opens on the drawing.
-// - Update puts the new picture (a PDF as Copy makes it, with the CDXML in it, and without Office's copy) in the bookmark's place, at its own size, with the
-//   old picture's alt text. Word pastes it into a document of its own first, then the picture goes into the user's
+// - Update puts the new picture in the bookmark's place, at its own size, with the old picture's alt text. Word gets
+//   the picture as Copy gives it: Office's own copy when Octet can make it, then the PDF, both with the CDXML in them
+//   (clipboard::mac_picture). Word pastes it into a document of its own first, then the picture goes into the user's
 //   document in one step, so one Undo in Word puts the old picture back.
 // - The bookmark stays in the document: making or removing one is an Undo step in Word of its own.
 //
@@ -83,7 +84,9 @@ const MARK: &str = r#"on run argv
 	return "ok"
 end run"#;
 
-// Update: the PDF on the clipboard replaces the picture at the bookmark (argument 1), in the document that has it.
+// Update: the picture on the clipboard replaces the picture at the bookmark (argument 1), in the document that has it.
+// Word's own Paste takes the first type it reads (Office's copy, else the PDF): the script names no type, and reads
+// the pasted picture as the document's first inline picture, whatever file Word keeps for it.
 // Argument 2 "1": the picture is in the document. A new drawing's bookmark stays empty at the cursor, and its picture
 // is the character after it. No picture there (deleted, or text typed in its place): "lost", so no text is replaced.
 // Only the picture is replaced, so text typed into the bookmark next to it stays. Argument 3: the document's name as
@@ -301,14 +304,48 @@ fn read(new: bool) -> Result<Option<Found>, Fail> {
     Ok(Some(Found { host, oct, placed, mark }))
 }
 
-// Update: `pdf` replaces the picture at the bookmark `mark`. The document's name (it changes with Save As), else why
-// not. The PDF goes on the clipboard alone, marked transient so clipboard managers skip it
-// (http://nspasteboard.org), and the user's clipboard goes back after.
-pub fn put(mark: &str, placed: bool, pdf: &[u8]) -> Result<String, Fail> {
+// The picture Update gives Word, for a drawing's SVG and CDXML: the Mac's picture types as Copy puts them on
+// (clipboard::mac_picture: Office's own copy when Octet can make it, then the PDF). An object window's session keeps
+// a picture as one run of bytes (objects.rs), so each type goes in as its name's length, its name, its bytes' length
+// and its bytes (lengths as 8 bytes).
+pub fn picture(svg: &str, cdxml: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    for (name, bytes) in crate::clipboard::mac_picture(svg, Some(cdxml))? {
+        for part in [name.as_bytes(), &bytes] {
+            out.extend((part.len() as u64).to_le_bytes());
+            out.extend(part);
+        }
+    }
+    Ok(out)
+}
+
+// Clipboard managers skip a copy that has this type (http://nspasteboard.org).
+const TRANSIENT: &str = "org.nspasteboard.TransientType";
+
+// The types in `picture` (word::picture's bytes) in their order, then the transient mark. None for other bytes.
+fn types(picture: &[u8]) -> Option<Vec<(&str, &[u8])>> {
+    fn part<'a>(rest: &mut &'a [u8]) -> Option<&'a [u8]> {
+        let n = usize::try_from(u64::from_le_bytes(rest.get(..8)?.try_into().ok()?)).ok()?;
+        let (part, after) = rest[8..].split_at_checked(n)?;
+        *rest = after;
+        Some(part)
+    }
+    let (mut rest, mut out) = (picture, Vec::new());
+    while !rest.is_empty() {
+        out.push((std::str::from_utf8(part(&mut rest)?).ok()?, part(&mut rest)?));
+    }
+    out.push((TRANSIENT, &[][..]));
+    Some(out)
+}
+
+// Update: `picture` (word::picture's bytes) replaces the picture at the bookmark `mark`. The document's name (it
+// changes with Save As), else why not. The picture's types go on the clipboard with nothing else, marked transient,
+// and the user's clipboard goes back after.
+pub fn put(mark: &str, placed: bool, picture: &[u8]) -> Result<String, Fail> {
     let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
     let pb = clip::general();
     let saved = clip::save(&pb);
-    if clip::write(&pb, &[(crate::clipboard::PDF, pdf.to_vec()), ("org.nspasteboard.TransientType", Vec::new())]).is_err() {
+    if !types(picture).is_some_and(|t| clip::write(&pb, &t).is_ok()) {
         clip::restore(&pb, &saved);
         return Err(Fail::Failed);
     }
@@ -624,6 +661,54 @@ mod tests {
         }
         assert_eq!(EDIT.matches("& linefeed & startAt & linefeed & n").count(), 2, "a picture and a cursor both give the start");
         assert!(MARK.contains("set startAt to item 3 of argv") && MARK.contains("if (startNow as text) is not startAt then return \"none\""));
+    }
+
+    // Update gives Word the two pictures Copy gives it, in Copy's order, then the transient mark: Office's own copy
+    // and the PDF for a drawing, with or without a picture in it. On a private pasteboard, so the user's clipboard is
+    // untouched: the types Word reads are those, in that order, with those bytes.
+    #[test]
+    fn update_gives_word_copys_pictures() {
+        use objc2_foundation::NSString;
+        const OFFICE: &str = "com.microsoft.Art--GVML-ClipFormat";
+        const PDF: &str = crate::clipboard::PDF;
+        let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
+        for svg in [crate::vector::tests::PROLINE.to_string(), crate::vector::tests::picture_svg()] {
+            let (packed, copy) = (picture(&svg, x).unwrap(), crate::clipboard::mac_picture(&svg, Some(x)).unwrap());
+            let t = types(&packed).unwrap();
+            assert_eq!(t.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [OFFICE, PDF, TRANSIENT]);
+            assert!(t[0].1 == &copy[0].1[..] && t[1].1 == &copy[1].1[..] && t[2].1.is_empty(), "Copy's bytes");
+            assert_eq!(t[1].1, &crate::export::make_pdf(&svg, Some(x), None).unwrap()[..], "the PDF Update gave before");
+            let pb = objc2_app_kit::NSPasteboard::pasteboardWithUniqueName();
+            clip::write(&pb, &t).unwrap();
+            let on: Vec<String> = pb.types().unwrap().iter().map(|s| s.to_string()).collect();
+            assert_eq!(on.iter().map(String::as_str).filter(|n| [OFFICE, PDF, TRANSIENT].contains(n)).collect::<Vec<_>>(), [OFFICE, PDF, TRANSIENT], "{on:?}");
+            for (name, bytes) in &t[..2] {
+                assert!(pb.dataForType(&NSString::from_str(name)).unwrap().to_vec() == *bytes, "{name}");
+            }
+            // Edit Picture from Word reads the drawing from such a copy.
+            assert!(clip::drawing(&pb).is_some_and(|d| d.contains("<fragment>")));
+            pb.clearContents();
+        }
+        // The PDF alone when Octet can make no Office copy: one type, then the mark.
+        let pdf = crate::export::make_pdf(crate::vector::tests::PROLINE, Some(x), None).unwrap();
+        let alone = [&(PDF.len() as u64).to_le_bytes()[..], PDF.as_bytes(), &(pdf.len() as u64).to_le_bytes(), &pdf].concat();
+        assert_eq!(types(&alone).unwrap(), [(PDF, &pdf[..]), (TRANSIENT, &[][..])]);
+        // Bytes that are not word::picture's put nothing on the clipboard: a PDF as it is, a type cut short, a length
+        // past the end.
+        assert_eq!(types(&pdf), None);
+        assert_eq!(types(&alone[..alone.len() - 1]), None);
+        assert_eq!(types(&[&u64::MAX.to_le_bytes()[..], b"x"].concat()), None);
+        assert!(picture("<svg", x).is_err(), "a picture Octet cannot make is Update's error, as before");
+    }
+
+    // The script pastes with Word's own Paste, which chooses the type, and names no type itself. It reads the pasted
+    // picture as the first inline picture of its own document, and copies it to the user's document as formatted text.
+    #[test]
+    fn update_pastes_whatever_word_takes() {
+        assert_eq!(UPDATE.matches("paste object (text object of t)").count(), 1);
+        assert!(!UPDATE.contains("paste special") && !UPDATE.contains("data type") && !UPDATE.to_ascii_lowercase().contains("pdf"));
+        assert!(UPDATE.contains("set p to inline shape 1 of t") && UPDATE.contains("set alternative text of p to alt"));
+        assert!(UPDATE.contains("set formatted text of r to formatted text of (text object of bookmark b of t)"));
     }
 
     // UPDATE's answer: a closed document and a picture that is gone from an open one are not the same.

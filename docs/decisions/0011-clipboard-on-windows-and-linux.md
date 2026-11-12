@@ -66,28 +66,43 @@ bitmap of the picture at one pixel a point (72 dpi), and a GDI comment (EMR_COMM
 PDF. Word for Mac draws the PDF. Word for Windows draws the bitmap, so a drawing pasted on a Mac was blurred in the
 same document on Windows.
 
-Octet's EMF in the zip holds the same PDF in the same comment record, then the CDXML comment and the vector records
-of the Windows EMF. Word for Mac draws the PDF and keeps the file byte for byte (pasted on 12 November 2026, with the
-PDF beside it on the clipboard, and read back from Word). The vector records are for Word for Windows, which draws
-Octet's Windows EMF today. A test plays the EMF with and without the comment through Windows GDI and expects the same
-picture (`vector.rs`, run by the Office objects job).
+Octet's EMF in the zip holds the same PDF in the same kind of comment record, then the CDXML comment and the vector
+records of the Windows EMF. Word for Mac draws the PDF and keeps the file byte for byte (pasted on 12 November 2026,
+with the PDF beside it on the clipboard, and read back from Word). The vector records are for Word for Windows, which
+draws Octet's Windows EMF today.
 
 - The comment record is the first record after the header. Word for Mac does not use one that comes after the
   drawing's records.
+- The comment names two formats: the PDF, then an EMF that draws nothing (the header and EMR_EOF, 128 bytes). Its
+  output rectangle is the picture's bounds. Windows GDI plays the first format it knows. With the PDF alone GDI drew
+  every other record, but it reported the comment as a record that failed (PlayEnhMetaFile gave 0), and a program
+  that stops at a failed record would show no picture. With the second format GDI plays every record. Word for Mac
+  draws the PDF from a comment with one format or with two (a document with each, opened in Word 16 on 12 November
+  2026).
+- A test plays the EMF with and without the comment through Windows GDI and through GDI+. It expects no error and the
+  same pixels from both (`vector.rs`, run by the Office objects job).
+- The PDF stays in the EMF because some versions of Word for Mac draw an EMF's records blurred (reported for 16.47
+  in 2021). Word 16 of November 2026 draws them sharp.
 - The PDF stays on the clipboard after Office's copy, for Keynote, Pages, ChemDraw and every other program.
 - Word's own copy of such a picture has the zip with Octet's EMF and the PDF from the comment. Paste reads the
   drawing from the PDF, or from the EMF's CDXML comment when the zip is there alone.
 - The EMF on Windows (the clipboard, the Office object, Export as EMF) has no PDF. Its bytes are the same as before.
 - The theme part is Octet's own, the smallest the format allows. A picture uses nothing from it.
-- A drawing that holds a picture (a photo, a pasted screenshot) gets no Office copy: the EMF would hold the picture as
-  raw pixels, megabytes more on the clipboard and tens of milliseconds more for each Copy. It keeps the PDF alone, as
-  before.
-- Update in Word (decision 0025) still gives Word the PDF alone, so Word stores an updated picture in its own form.
-  Copy and Paste give Octet's.
+- A drawing that holds a picture (a photo, a pasted screenshot) gets Office's copy too. Its EMF holds the picture as
+  raw pixels (300 dpi at most), the CDXML with the picture's file as hex, and the PDF: the pixels and about 4 times
+  the file. Over paste's limit for one type (64 MB, less 64 KB for the zip's other parts) the PDF goes alone.
+- Update in Word (decision 0023) gives Word the same two types as Copy (`clipboard::mac_picture`, packed by
+  `word::picture`), so an updated picture is Octet's EMF too.
 - To check before a release: a document pasted from Octet on a Mac, opened in Word and PowerPoint for Windows (on
-  screen, printed, saved as PDF), and a paste into PowerPoint and Excel for Mac.
-- The zip's parts are deflated at the fastest level. Copy reads the SVG once for the PDF and the EMF. For a drawing
-  of 60 bonds and 12 labels Office's copy adds about 0.3 ms to a copy of 2.2 ms (`mac_copy_time` in `clipboard.rs`).
+  screen, printed, saved as PDF), a paste into PowerPoint and Excel for Mac, Update in Word, and a paste of a drawing
+  that holds a photo (its EMF is stored in the zip, not deflated).
+- The zip's parts are deflated at the fastest level, but a part over 1 MB (an EMF with a picture's pixels) is stored.
+  Copy reads the SVG once and makes the EMF's records on a thread beside the PDF.
+- Times on an M1 Pro (`mac_copy_time` in `clipboard.rs`), Copy against the PDF alone, which was Copy before. A
+  drawing of 60 bonds and 12 labels: 2.4 ms against 2.2 ms. A drawing with a photo waits for the EMF when the EMF
+  takes longer than the PDF. A 1,800 by 1,200 px JPEG: 36 ms against 30 ms. A phone's 12 megapixel JPEG drawn 6 in
+  wide: 178 ms against 166 ms. A 12 megapixel JPEG with a small file (0.5 MB) drawn 8 in wide: 226 ms against 65 ms,
+  because drawing its pixels takes far longer than its small PDF.
 
 ## The EMF (4 November 2026, release 1.1.1, issue 20)
 

@@ -7,7 +7,8 @@
 // - macOS: the picture is a vector PDF with the CDXML in its catalog /Metadata (Office keeps it; ChemDraw and Octet
 //   read the structure back out of it). The types are ChemDraw's. Before the PDF goes Office's own copy of a picture
 //   (a zip, office_package), which Word takes first: its picture file is an EMF with the PDF in a comment and the
-//   drawing as vector records, so the picture is sharp in Word for Mac and in Word for Windows.
+//   drawing as vector records, so the picture is sharp in Word for Mac and in Word for Windows. Update in Word
+//   (word.rs) gives Word the same two (mac_picture).
 // - Windows (REL-3, CH-1): Office for Windows pastes no PDF, so the picture is an EMF (vector, as ChemDraw for Windows
 //   puts a metafile), with the CDXML in a comment, and a bitmap for programs that read no metafile. No PNG: Office
 //   would take it before the EMF and paste pixels. ChemDraw for Windows puts CDX, the molfile and SMILES on under
@@ -48,6 +49,15 @@ pub const SVXB: &str = "application/x-openoffice-svxb;windows_formatname=\"SVXB 
 
 const MAX_TYPE: usize = 64 << 20;
 const MAX_TEXT: usize = 64 << 10;
+// Office's copy of a picture on the Mac is left out, and the PDF goes alone, when its EMF is larger than this: paste's
+// limit for one type, less 64 KB for the zip's other parts, so Octet reads back every copy it makes. For a picture in
+// the drawing (a photo, a pasted screenshot) the EMF holds its pixels raw (300 dpi at most, 3 bytes each), the CDXML
+// with the picture's file as hex (2 bytes a byte), and the PDF, which holds the file and that CDXML deflated. So it
+// is the pixels and about 4 times the file. A 12 MB photo drawn 6 by 4.5 in is about 55 MB.
+const MAX_OFFICE: usize = MAX_TYPE - (64 << 10);
+// In Office's copy, a part larger than 1 MB is stored, not deflated. That is an EMF with a picture's pixels in it, or
+// a very large drawing's: deflating it would take longer than the rest of Copy.
+const STORED_OVER: usize = 1 << 20;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum System {
@@ -216,19 +226,14 @@ fn plain_text(s: System, b: Vec<u8>) -> Option<String> {
 // when `cdxml_type` is set. cdx: ChemDraw's binary drawing.
 #[allow(clippy::too_many_arguments)]
 fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    let mut out: Vec<(&'static str, Vec<u8>)> = Vec::new();
+    // The Mac's picture is the one Update in Word puts on.
+    let mut out: Vec<(&'static str, Vec<u8>)> = match svg {
+        Some(svg) if s == System::Mac => mac_picture(svg, cdxml)?,
+        _ => Vec::new(),
+    };
     let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().map(|n| (*n, b.clone())));
-    if let Some(svg) = svg {
-        if s == System::Mac {
-            // The SVG is read once for both pictures: reading it is most of the time a PDF takes.
-            let tree = crate::export::tree(svg)?;
-            let pdf = crate::export::pdf_of(&tree, cdxml, None)?;
-            // Office's own copy goes first: Word takes it before the PDF. If Octet cannot make it, the PDF goes alone.
-            if let Some(zip) = office_package(&tree, cdxml, &pdf) {
-                put(Kind::Office, zip);
-            }
-            put(Kind::Pdf, pdf);
-        } else if s == System::Windows {
+    if let Some(svg) = svg.filter(|_| s != System::Mac) {
+        if s == System::Windows {
             let tree = crate::export::tree(svg)?;
             put(Kind::Emf, crate::vector::make_emf(&tree, cdxml, None));
             if let (_, Some(b)) = crate::export::clipboard_pixels(&tree, true, dpi, None)? {
@@ -381,28 +386,48 @@ fn cdxml_from_office(zip: &[u8]) -> Option<String> {
     None
 }
 
+// The Mac's picture of a drawing, as (name, bytes) in the order the clipboard gets them: Office's own copy of the
+// picture (office_package) when Octet can make it, then the PDF. Copy and Update in Word (word.rs) both put on what
+// this gives. The SVG is read once for both: reading it is most of the time a PDF takes.
+pub(crate) fn mac_picture(svg: &str, cdxml: Option<&str>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    mac_picture_within(svg, cdxml, MAX_OFFICE)
+}
+
+// mac_picture with Office's copy left out when its EMF is larger than `most` bytes. The EMF's records are made on a
+// thread of their own while the PDF is made here, so the two take about as long as the longer one, and the PDF goes
+// into the EMF after (vector::with_pdf). The thread starts only if the pixels and the CDXML, which the EMF holds as
+// they are, fit the limit; without it Copy takes what the PDF takes. If the system gives no thread, the PDF goes alone.
+fn mac_picture_within(svg: &str, cdxml: Option<&str>, most: usize) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let tree = crate::export::tree(svg)?;
+    let fits = crate::vector::pixel_bytes(&tree).saturating_add(cdxml.map_or(0, str::len)) <= most;
+    let (emf, pdf) = std::thread::scope(|t| {
+        let emf = fits.then(|| std::thread::Builder::new().spawn_scoped(t, || crate::vector::make_emf(&tree, cdxml, None)).ok()).flatten();
+        let pdf = crate::export::pdf_of(&tree, cdxml, None);
+        (emf.and_then(|e| e.join().ok()), pdf)
+    });
+    let pdf = pdf?;
+    let name = |k: Kind| names(System::Mac, k)[0];
+    let mut out = Vec::with_capacity(2);
+    // Office's own copy goes first: Word takes it before the PDF. The size is checked before the PDF is put in.
+    if let Some(emf) = emf.filter(|e| e.len() + crate::vector::pdf_comment(pdf.len()) <= most) {
+        out.push((name(Kind::Office), office_package(crate::vector::size(&tree), &crate::vector::with_pdf(&emf, &pdf))));
+    }
+    out.push((name(Kind::Pdf), pdf));
+    Ok(out)
+}
+
 // Office's own copy of a picture as Octet writes it on the Mac: a zip with the parts Office's has. The drawing part
-// places one picture at the drawing's size, given for the group and for the picture, in EMU (12,700 a pt). The
-// picture's file is an EMF with `pdf` in a comment and the drawing as vector records (vector.rs). Word for Mac draws
-// the PDF and keeps the EMF in the document as it is, so Word for Windows draws the vector records. From a PDF alone
-// Word for Mac makes an EMF whose only drawing is a bitmap of one pixel a point, and that is what Word for Windows
-// then shows. The theme part is Octet's own: the format has one in every copy, and a picture uses nothing from it.
-// None for a drawing that holds a picture, and if the EMF is over paste's 64 MB limit.
-fn office_package(tree: &svg2pdf::usvg::Tree, cdxml: Option<&str>, pdf: &[u8]) -> Option<Vec<u8>> {
+// places one picture at the drawing's size (`w` by `h` pt), given for the group and for the picture, in EMU (12,700 a
+// pt). The picture's file is `emf`: an EMF with the PDF in a comment and the drawing as vector records (vector.rs).
+// Word for Mac draws the PDF and keeps the EMF in the document as it is, so Word for Windows draws the vector
+// records. From a PDF alone Word for Mac makes an EMF whose only drawing is a bitmap of one pixel a point, and that is
+// what Word for Windows then shows. The theme part is Octet's own: the format has one in every copy, and a picture
+// uses nothing from it.
+fn office_package((w, h): (f32, f32), emf: &[u8]) -> Vec<u8> {
     const HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#;
     const RELS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     const MAIN: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
     const CANVAS: &str = "http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas";
-    // A drawing with a picture in it keeps the PDF alone, as before: the EMF would hold the picture as raw pixels,
-    // megabytes more on the clipboard and tens of milliseconds more for each Copy.
-    if crate::vector::has_picture(tree) {
-        return None;
-    }
-    let emf = crate::vector::make_emf(tree, cdxml, Some(pdf));
-    if emf.len() > MAX_TYPE {
-        return None;
-    }
-    let (w, h) = crate::vector::size(tree);
     let emu = |pt: f32| ((f64::from(pt) * 12_700.0).round() as i64).max(1);
     let ext = format!(r#"cx="{}" cy="{}""#, emu(w), emu(h));
     let types = format!(
@@ -428,16 +453,17 @@ fn office_package(tree: &svg2pdf::usvg::Tree, cdxml: Option<&str>, pdf: &[u8]) -
     let theme = format!(
         r#"{HEAD}<a:clipboardTheme xmlns:a="{MAIN}"><a:themeElements><a:clrScheme name="Octet">{colours}</a:clrScheme><a:fontScheme name="Octet"><a:majorFont>{font}</a:majorFont><a:minorFont>{font}</a:minorFont></a:fontScheme><a:fmtScheme name="Octet"><a:fillStyleLst>{fills}</a:fillStyleLst><a:lnStyleLst>{lines}</a:lnStyleLst><a:effectStyleLst>{effects}</a:effectStyleLst><a:bgFillStyleLst>{fills}</a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/></a:clipboardTheme>"#
     );
-    // Deflated at the fastest level: the PDF in the EMF is deflated already, and Copy should not wait for more.
+    // Deflated at the fastest level: the PDF in the EMF is deflated already, and Copy should not wait for more. An EMF
+    // over 1 MB is stored.
     let parts: [(&str, &[u8]); 6] = [
         ("[Content_Types].xml", types.as_bytes()),
         ("_rels/.rels", package.as_bytes()),
         ("clipboard/drawings/drawing1.xml", drawing.as_bytes()),
         ("clipboard/drawings/_rels/drawing1.xml.rels", drawing_rels.as_bytes()),
         ("clipboard/theme/theme1.xml", theme.as_bytes()),
-        ("clipboard/media/image1.emf", &emf),
+        ("clipboard/media/image1.emf", emf),
     ];
-    Some(crate::export::zip(&parts, 1))
+    crate::export::zip(&parts, 1, STORED_OVER)
 }
 
 // The picture's file in LibreOffice's own copy of a picture (SVXB): "NAT5" and a 6-byte header, then the picture's
@@ -522,11 +548,11 @@ pub(crate) mod mac {
     use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
     use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 
-    pub fn write(pb: &NSPasteboard, types: &[(&str, Vec<u8>)]) -> Result<(), String> {
+    pub fn write<B: AsRef<[u8]>>(pb: &NSPasteboard, types: &[(&str, B)]) -> Result<(), String> {
         autoreleasepool(|_| {
             let item = NSPasteboardItem::new();
             for (t, bytes) in types {
-                if !item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(t)) {
+                if !item.setData_forType(&NSData::with_bytes(bytes.as_ref()), &NSString::from_str(t)) {
                     return Err("The clipboard did not accept the data.".to_string());
                 }
             }
@@ -981,8 +1007,8 @@ mod tests {
         assert_eq!(cdxml_from_office(b"PK\x05\x06\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\0\0"), None);
     }
 
-    // Every part of a zip, read from its central directory: each inflated and checked against its size and CRC-32, with
-    // a local header that agrees with the directory.
+    // Every part of a zip, read from its central directory: each inflated (or taken as it is, if it is stored) and
+    // checked against its size and CRC-32, with a local header that agrees with the directory.
     fn unzip(zip: &[u8]) -> Vec<(String, Vec<u8>)> {
         let u16_at = |k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize;
         let u32_at = |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize;
@@ -991,17 +1017,45 @@ mod tests {
         let (mut at, mut out) = (u32_at(end + 16), Vec::new());
         for _ in 0..u16_at(end + 10) {
             assert_eq!(&zip[at..at + 4], b"PK\x01\x02");
-            let (crc, packed, size, name_len, local) = (u32_at(at + 16), u32_at(at + 20), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
+            let (method, crc, packed, size, name_len, local) = (u16_at(at + 10), u32_at(at + 16), u32_at(at + 20), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
             assert_eq!(&zip[local..local + 4], b"PK\x03\x04");
             assert_eq!(zip[local + 4..local + 30], zip[at + 6..at + 32], "the local header agrees with the directory");
             let start = local + 30 + name_len;
-            let data = miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap();
+            let data = match method {
+                0 => zip[start..start + packed].to_vec(),
+                8 => miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap(),
+                m => panic!("method {m}"),
+            };
             assert_eq!((data.len(), crate::export::crc32(&data) as usize), (size, crc));
             out.push((String::from_utf8(zip[at + 46..at + 46 + name_len].to_vec()).unwrap(), data));
             at += 46 + name_len;
         }
         assert_eq!(at, end, "the directory ends where the end record starts");
         out
+    }
+
+    // Each part's method, from the central directory: 8 deflated, 0 stored.
+    fn methods(zip: &[u8]) -> Vec<u16> {
+        let u16_at = |k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]);
+        let (end, mut out) = (zip.len() - 22, Vec::new());
+        let mut at = u32::from_le_bytes(zip[end + 16..end + 20].try_into().unwrap()) as usize;
+        for _ in 0..u16_at(end + 10) {
+            out.push(u16_at(at + 10));
+            at += 46 + usize::from(u16_at(at + 28));
+        }
+        out
+    }
+
+    // The system's own unzip finds nothing wrong with a zip, where there is one.
+    fn system_unzip_passes(zip: &[u8], name: &str) {
+        if !std::path::Path::new("/usr/bin/unzip").exists() {
+            return;
+        }
+        let file = std::env::temp_dir().join(format!("octet-{name}-{}.zip", std::process::id()));
+        std::fs::write(&file, zip).unwrap();
+        let out = std::process::Command::new("/usr/bin/unzip").arg("-t").arg(&file).output().unwrap();
+        std::fs::remove_file(&file).unwrap();
+        assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     }
 
     // The Mac's copy for Word: Office's own copy of the picture first, then the PDF. The copy is a sound zip with the
@@ -1016,21 +1070,19 @@ mod tests {
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, MOLFILE, SMILES, OCTET]);
         let (zip, pdf) = (&t[0].1, &t[1].1);
         assert_eq!(pdf, &crate::export::make_pdf(svg, Some(x), None).unwrap(), "the PDF is the one Copy put on before");
-        // A drawing that holds a picture keeps the PDF alone, as before this change.
-        let with_picture = crate::vector::tests::picture_svg();
-        let p = types(System::Mac, Some(&with_picture), 600.0, Some(x), false, None, None, None, None).unwrap();
-        assert_eq!(p.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF], "no Office copy for a drawing with a picture");
+        assert_eq!(mac_picture(svg, Some(x)).unwrap(), t[..2], "Copy's two pictures are the ones Update in Word gives");
         let parts = unzip(zip);
+        assert_eq!(methods(zip), [8; 6], "every part deflated, the form Word has taken");
         let names: Vec<&str> = parts.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["[Content_Types].xml", "_rels/.rels", "clipboard/drawings/drawing1.xml", "clipboard/drawings/_rels/drawing1.xml.rels", "clipboard/theme/theme1.xml", "clipboard/media/image1.emf"]);
         let part = |n: &str| &parts.iter().find(|(p, _)| p == n).unwrap().1;
         let text = |n: &str| String::from_utf8(part(n).clone()).unwrap();
         // The picture's file: the header (108 bytes), then the comment (its kind and size, the data's size, "GDIC" and
-        // 40 more bytes of fields), with the PDF's bytes 44 into the data.
+        // 56 more bytes of fields), with the PDF's bytes 60 into the data.
         let tree = crate::export::tree(svg).unwrap();
         let emf = part("clipboard/media/image1.emf");
         assert_eq!(emf, &crate::vector::make_emf(&tree, Some(x), Some(pdf)));
-        assert_eq!((&emf[108..112], &emf[120..124], &emf[164..164 + pdf.len()]), (&[70, 0, 0, 0][..], &b"GDIC"[..], &pdf[..]));
+        assert_eq!((&emf[108..112], &emf[120..124], &emf[180..180 + pdf.len()]), (&[70, 0, 0, 0][..], &b"GDIC"[..], &pdf[..]));
         assert_eq!(crate::vector::cdxml_from_emf(emf).as_deref(), Some(x));
         assert_eq!(cdxml_from_office(zip).as_deref(), Some(x));
         // The XML parts are well formed. The drawing gives the picture's size three times (the group, its children's
@@ -1051,14 +1103,7 @@ mod tests {
         assert!(drawing.contains(r#"r:embed="rId1""#));
         let content = text("[Content_Types].xml");
         assert!(content.contains(r#"Extension="emf""#) && content.contains(r#"PartName="/clipboard/drawings/drawing1.xml""#) && content.contains(r#"PartName="/clipboard/theme/theme1.xml""#));
-        // The system's own unzip finds nothing wrong, where there is one.
-        if std::path::Path::new("/usr/bin/unzip").exists() {
-            let file = std::env::temp_dir().join(format!("octet-office-{}.zip", std::process::id()));
-            std::fs::write(&file, zip).unwrap();
-            let out = std::process::Command::new("/usr/bin/unzip").arg("-t").arg(&file).output().unwrap();
-            std::fs::remove_file(&file).unwrap();
-            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        }
+        system_unzip_passes(zip, "office");
         // The two pictures as files, to put on a clipboard by hand and paste into Word.
         if let Ok(dir) = std::env::var("OCTET_CLIPBOARD_SAMPLES") {
             for (name, bytes) in [("office-copy.zip", zip), ("copy.pdf", pdf), ("image1.emf", emf)] {
@@ -1072,7 +1117,7 @@ mod tests {
         // EMF's comment (with a TIFF). The drawing comes from the PDF; from the EMF if Office's copy is there alone.
         let word = |n: &str| match n {
             OFFICE => Some(office_zip(&[("[Content_Types].xml", b"<Types/>"), ("clipboard/media/image1.emf", emf)])),
-            PDF => Some(emf[164..164 + pdf.len()].to_vec()),
+            PDF => Some(emf[180..180 + pdf.len()].to_vec()),
             "public.tiff" => Some(b"MM\0*".to_vec()),
             _ => None,
         };
@@ -1088,10 +1133,147 @@ mod tests {
         }
     }
 
+    // A drawing that holds a picture (a photo, a pasted screenshot) gets Office's copy too: its EMF has the picture as
+    // pixels after the same PDF and CDXML comments. Over the size limit the PDF goes alone, as it did for every such
+    // drawing before.
+    #[test]
+    fn a_drawing_with_a_picture_gets_offices_copy() {
+        let svg = crate::vector::tests::picture_svg();
+        let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
+        let t = types(System::Mac, Some(&svg), 600.0, Some(x), false, None, None, Some("CO"), Some("{}".into())).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, SMILES, OCTET]);
+        let (zip, pdf) = (&t[0].1, &t[1].1);
+        assert_eq!(pdf, &crate::export::make_pdf(&svg, Some(x), None).unwrap());
+        let tree = crate::export::tree(&svg).unwrap();
+        let parts = unzip(zip);
+        let emf = &parts[5].1;
+        assert_eq!((parts[5].0.as_str(), emf), ("clipboard/media/image1.emf", &crate::vector::make_emf(&tree, Some(x), Some(pdf))));
+        // The picture's record (EMR_STRETCHDIBITS) is there: 4 by 2 pixels in rows of 12 bytes, after a 40-byte header.
+        let record = [&[81u8, 0, 0, 0][..], &(80u32 + 40 + 24).to_le_bytes()].concat();
+        assert!(emf.windows(8).any(|w| w == record));
+        assert_eq!(crate::vector::pixel_bytes(&tree), 24);
+        assert_eq!(crate::vector::pixel_bytes(&crate::export::tree(crate::vector::tests::PROLINE).unwrap()), 0);
+        assert_eq!((cdxml_from_office(zip).as_deref(), methods(zip)), (Some(x), vec![8; 6]));
+        system_unzip_passes(zip, "office-picture");
+        // The limit: the pixels and the CDXML over it (no EMF is made), the EMF with the PDF over it by a byte, and
+        // the EMF at it. The size is known before the PDF goes in.
+        let kinds = |most: usize| mac_picture_within(&svg, Some(x), most).unwrap().iter().map(|(t, _)| *t).collect::<Vec<_>>();
+        assert_eq!((kinds(23 + x.len()), kinds(24 + x.len()), kinds(emf.len() - 1), kinds(emf.len())), (vec![PDF], vec![PDF], vec![PDF], vec![OFFICE, PDF]));
+        assert_eq!(crate::vector::make_emf(&tree, Some(x), None).len() + crate::vector::pdf_comment(pdf.len()), emf.len());
+        assert_eq!(mac_picture_within(&svg, Some(x), 23).unwrap()[0].1, *pdf, "the PDF alone is the same PDF");
+        assert_eq!(mac_picture(&svg, Some(x)).unwrap(), t[..2]);
+        // A PDF Octet cannot make is Copy's error, as before; Office's copy changes none.
+        assert!(mac_picture("<svg", None).is_err());
+    }
+
+    // In Office's copy, an EMF over 1 MB is stored, and one of 1 MB or less is deflated like the other parts. Both are
+    // sound zips, and paste reads the drawing from both.
+    #[test]
+    fn offices_copy_stores_a_large_emf() {
+        let x = "<CDXML><page/></CDXML>";
+        let small = crate::vector::make_emf(&crate::export::tree(crate::vector::tests::PROLINE).unwrap(), Some(x), None);
+        // An EMF with a record of zeros at its end is still one for paste's reader, which stops at the CDXML comment.
+        let padded = |len: usize| [&small[..], &vec![0; len - small.len()]].concat();
+        for (len, emf_method) in [(STORED_OVER + 1, 0), (STORED_OVER, 8)] {
+            let emf = padded(len);
+            let zip = office_package((56.21, 36.55), &emf);
+            assert_eq!(methods(&zip), [8, 8, 8, 8, 8, emf_method], "{len} bytes");
+            let parts = unzip(&zip);
+            assert!(parts[5].1 == emf && parts.len() == 6);
+            assert_eq!(cdxml_from_office(&zip).as_deref(), Some(x));
+            system_unzip_passes(&zip, "office-stored");
+            // Stored: the EMF's bytes are in the zip as they are, and the zip is little larger than the EMF.
+            assert_eq!(zip.windows(small.len()).any(|w| w == &small[..]), emf_method == 0);
+            assert!(emf_method == 8 || zip.len() < emf.len() + 4_096);
+        }
+        assert!(MAX_OFFICE > STORED_OVER && MAX_OFFICE <= MAX_TYPE, "paste's limit takes every copy Octet makes");
+    }
+
+    // A drawing that holds one picture of `w` by `h` px, drawn `inches` wide, with a bond and a label over it, and its
+    // CDXML, which holds the picture's file as hex as the page writes it (cdxml.ts). The picture follows no pattern a
+    // deflater likes, as a photo does. A JPEG at `quality` (a photo), or with None a PNG (a pasted screenshot).
+    fn photo(w: u32, h: u32, quality: Option<u8>, inches: f32) -> (String, String) {
+        use base64::Engine;
+        let mut x = 0x2545_F491u32;
+        let mut rgb = Vec::with_capacity((w * h * 3) as usize);
+        for row in 0..h {
+            for col in 0..w {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                let noise = x >> 28;
+                rgb.extend([(col * 220 / w + noise) as u8, (row * 220 / h + noise) as u8, ((col + row) * 110 / w + noise) as u8]);
+            }
+        }
+        let mut file = Vec::new();
+        let (mime, key) = if let Some(q) = quality {
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, q).encode(&rgb, w, h, image::ExtendedColorType::Rgb8).unwrap();
+            ("image/jpeg", "JPEG")
+        } else {
+            let mut enc = png::Encoder::new(&mut file, w, h);
+            enc.set_color(png::ColorType::Rgb);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header().unwrap().write_image_data(&rgb).unwrap();
+            ("image/png", "PNG")
+        };
+        let data = base64::engine::general_purpose::STANDARD.encode(&file);
+        let hex: String = file.iter().map(|b| format!("{b:02X}")).collect();
+        let (pw, ph) = (inches * 72.0, inches * 72.0 * h as f32 / w as f32);
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}pt" height="{}pt" viewBox="0 0 {} {}"><image href="data:{mime};base64,{data}" x="9" y="9" width="{pw}" height="{ph}" preserveAspectRatio="none"/><path d="M40 60L64 74L88 60" fill="none" stroke="rgb(255, 255, 255)" stroke-width="1.2"/><text x="90" y="64" fill="rgb(255, 255, 255)" font-family="Arial, Helvetica, sans-serif" font-size="10">OH</text></svg>"#,
+            pw + 18.0, ph + 18.0, pw + 18.0, ph + 18.0
+        );
+        let cdxml = format!(r#"<CDXML><page><fragment><n id="1"/></fragment><embeddedobject id="2" BoundingBox="9 9 {} {}" {key}="{hex}"/></page></CDXML>"#, pw + 9.0, ph + 9.0);
+        (svg, cdxml)
+    }
+
+    // The limit counts everything the EMF holds. A small photo (300 by 200 px, drawn 1 in wide, so every pixel is
+    // kept) with its file as hex in the CDXML: the EMF is the pixels, the CDXML and the PDF, and Office's copy is
+    // there at that size and not a byte under it. With the pixels and the CDXML alone over the limit, the same PDF.
+    #[test]
+    fn a_photos_file_counts_towards_the_limit() {
+        let (svg, x) = photo(300, 200, Some(85), 1.0);
+        let tree = crate::export::tree(&svg).unwrap();
+        let t = mac_picture(&svg, Some(&x)).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF]);
+        let (pixels, pdf) = (crate::vector::pixel_bytes(&tree), &t[1].1);
+        assert_eq!(pixels, 300 * 200 * 3);
+        let emf = &unzip(&t[0].1)[5].1;
+        assert!(emf.len() > pixels + x.len() + pdf.len() && pdf.len() > x.len() / 4, "the EMF holds all three");
+        assert_eq!(cdxml_from_office(&t[0].1).as_deref(), Some(x.as_str()));
+        let kinds = |most: usize| mac_picture_within(&svg, Some(&x), most).unwrap().iter().map(|(t, _)| *t).collect::<Vec<_>>();
+        assert_eq!((kinds(pixels + x.len() - 1), kinds(emf.len() - 1), kinds(emf.len())), (vec![PDF], vec![PDF], vec![OFFICE, PDF]));
+        assert_eq!(mac_picture_within(&svg, Some(&x), pixels).unwrap()[0].1, *pdf);
+    }
+
+    // The two pictures of a drawing with a photo in it, as files, to put on a clipboard by hand and paste into Word:
+    // Office's copy with its EMF stored, and the PDF. Only when asked, with the folder to write them to:
+    // OCTET_PHOTO_SAMPLES=<folder> cargo test --release --bin octet photo_samples -- --ignored
+    #[test]
+    #[ignore]
+    fn photo_samples() {
+        let dir = std::env::var("OCTET_PHOTO_SAMPLES").expect("OCTET_PHOTO_SAMPLES names the folder");
+        let (svg, x) = photo(1800, 1200, Some(85), 6.0);
+        let t = mac_picture(&svg, Some(&x)).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF]);
+        let (zip, pdf) = (&t[0].1, &t[1].1);
+        assert_eq!(methods(zip), [8, 8, 8, 8, 8, 0], "the EMF is stored");
+        let emf = &unzip(zip)[5].1;
+        assert!(emf.len() > 1_800 * 1_200 * 3 && emf[180..180 + pdf.len()] == pdf[..]);
+        system_unzip_passes(zip, "office-photo");
+        for (name, bytes) in [("office-copy.zip", zip), ("copy.pdf", pdf), ("image1.emf", emf)] {
+            std::fs::write(std::path::Path::new(&dir).join(name), bytes).unwrap();
+        }
+    }
+
     // No step back (decision 0024): Copy on the Mac makes Office's copy as well as the PDF, from one reading of the SVG,
     // so it takes little longer than the PDF alone, which is what Copy made before: a tenth more and 2 ms at most.
     // This prints both times and what Office's copy takes. A drawing of 60 bonds and 12 labels; the middle of 9 runs of
     // each, taken in turn, so other work on the computer slows both alike.
+    // Then the same for drawings that hold one picture (photo), with the picture's file in the CDXML as the page
+    // sends it. Their Copy made the PDF alone before, and now waits for the picture's pixels to be drawn for the EMF
+    // (on a thread beside the PDF), so it takes longer when the EMF takes longer than the PDF. These times are printed
+    // and not judged.
     // A clock on a busy computer can fail it, so it runs only when asked, and it judges only a release build (a debug
     // build deflates many times slower): cargo test --release --bin octet mac_copy_time -- --ignored --nocapture
     #[test]
@@ -1116,30 +1298,47 @@ mod tests {
             v.sort();
             v[v.len() / 2]
         };
-        let pdf = crate::export::make_pdf(&svg, Some(x), None).unwrap();
-        let tree = crate::export::tree(&svg).unwrap();
-        let (mut before, mut now, mut read, mut emf, mut office) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        for _ in 0..9 {
-            before.push(time(&|| {
-                crate::export::make_pdf(&svg, Some(x), None).unwrap();
-            }));
-            now.push(time(&|| {
-                types(System::Mac, Some(&svg), 600.0, Some(x), false, None, None, None, None).unwrap();
-            }));
-            read.push(time(&|| {
-                crate::export::tree(&svg).unwrap();
-            }));
-            emf.push(time(&|| {
-                crate::vector::make_emf(&tree, Some(x), Some(&pdf));
-            }));
-            office.push(time(&|| {
-                office_package(&tree, Some(x), &pdf);
-            }));
-        }
-        let (before, now) = (middle(before), middle(now));
-        let package = office_package(&tree, Some(x), &pdf).unwrap();
-        eprintln!("Copy on the Mac: {now:?}; the PDF alone, as before: {before:?}. Office's copy: {:?}, of which its EMF {:?}. Reading the SVG, once for both: {:?}. The PDF is {} bytes, Office's copy {}.", middle(office), middle(emf), middle(read), pdf.len(), package.len());
+        // The middle time of each step for one drawing: the PDF alone (all of Copy's picture before Office's copy, and
+        // before this change for a drawing with a picture), Copy now, reading the SVG, the EMF's records, the PDF put
+        // into them, the EMF's CRC-32, and the zip (with that CRC-32).
+        let times = |svg: &str, x: &str| {
+            let pdf = crate::export::make_pdf(svg, Some(x), None).unwrap();
+            let tree = crate::export::tree(svg).unwrap();
+            let records = crate::vector::make_emf(&tree, Some(x), None);
+            let emf = crate::vector::with_pdf(&records, &pdf);
+            let mut all: [Vec<std::time::Duration>; 7] = Default::default();
+            for _ in 0..9 {
+                let steps: [&dyn Fn(); 7] = [
+                    &|| drop(crate::export::make_pdf(svg, Some(x), None).unwrap()),
+                    &|| drop(types(System::Mac, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap()),
+                    &|| drop(crate::export::tree(svg).unwrap()),
+                    &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
+                    &|| drop(crate::vector::with_pdf(&records, &pdf)),
+                    &|| drop(std::hint::black_box(vec![crate::export::crc32(std::hint::black_box(&emf))])),
+                    &|| drop(office_package(crate::vector::size(&tree), &emf)),
+                ];
+                for (list, step) in all.iter_mut().zip(steps) {
+                    list.push(time(step));
+                }
+            }
+            let package = office_package(crate::vector::size(&tree), &emf);
+            (all.map(middle), pdf.len(), emf.len(), package.len(), methods(&package)[5])
+        };
+        let ([before, now, read, records, with_pdf, crc, zip], pdf, emf, package, _) = times(&svg, x);
+        eprintln!("Copy on the Mac: {now:?}; the PDF alone, as before: {before:?}. Reading the SVG, once for both: {read:?}. Office's copy: the EMF's records {records:?} (beside the PDF), the PDF put in {with_pdf:?}, the zip {zip:?} (its CRC-32 {crc:?}). The PDF is {pdf} bytes, the EMF {emf}, Office's copy {package}.");
         assert!(cfg!(debug_assertions) || now <= before + before / 10 + std::time::Duration::from_millis(2), "Copy takes {now:?}, the PDF alone {before:?}");
+        let photos = [
+            ("1,800 by 1,200 px, a JPEG, drawn 6 in wide", 1800, 1200, Some(85), 6.0),
+            ("1,800 by 1,200 px, a PNG (a screenshot), drawn 6 in wide", 1800, 1200, None, 6.0),
+            ("4,032 by 3,024 px (a phone's photo), a JPEG, drawn 6 in wide", 4032, 3024, Some(85), 6.0),
+            ("4,032 by 3,024 px, a JPEG with a small file, drawn 8 in wide", 4032, 3024, Some(40), 8.0),
+        ];
+        for (name, w, h, quality, inches) in photos {
+            let (svg, x) = photo(w, h, quality, inches);
+            let ([before, now, read, records, with_pdf, crc, zip], pdf, emf, package, method) = times(&svg, &x);
+            eprintln!("Copy of a drawing with one picture of {name}: {now:?}; the PDF alone, which was Copy before: {before:?}. Reading the SVG: {read:?}. Office's copy: the EMF's records {records:?} (beside the PDF), the PDF put in {with_pdf:?}, the zip {zip:?} (its CRC-32 {crc:?}). The CDXML is {} bytes, the PDF {pdf}, the EMF {emf}, Office's copy {package} (the EMF's method {method}).", x.len());
+            assert!(emf <= MAX_OFFICE && method == 0, "this picture is under the limit, and its EMF is stored");
+        }
     }
 
     // No step back (decision 0024): Copy on Linux makes the PDF while it draws the PNG, so it takes no longer than 1.1.1's
