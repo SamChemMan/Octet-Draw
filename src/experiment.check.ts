@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MAX_START, PURPOSES, outlines, pageSize, purposeStyle, readPurposes, styleFor } from "./docstyle.ts";
-import { FIELDS, MAX_MARKUP, detailsOf, experimentPage, growProcedure, growScheme, ROOM, procedureSpan, inSpan, markupCaption, markupRuns, newExperiment, newGrids, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, today, withDetails, withHeader, type Sheet } from "./experiment.ts";
+import { FIELDS, MAX_MARKUP, detailsOf, experimentPage, growProcedure, growScheme, ROOM, procedureSpan, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, detailRuns, withDetailRuns, titleSizeOf, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, today, withDetails, withHeader, type Sheet } from "./experiment.ts";
 import { addCaption, deleteGraphics, updateCaption } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
@@ -25,7 +25,7 @@ import type { TextRun } from "./richtext.ts";
 }
 
 // The details are the document's annotations, by keyword; other annotations stay as they were.
-const details = { title: "Boc protection of D-glutamic acid", date: "2026-11-04", notebook: "SE-012-034", project: "Peptides", author: "Sam Ellis", temperature: "25 °C", time: "18 h", pressure: "1 atm", solvent: "Water, 1,4-dioxane" };
+const details = { title: "Boc protection of D-glutamic acid", number: "SE-012-034", date: "2026-11-04", notebook: "SE-012-034", project: "Peptides", author: "Sam Ellis", temperature: "25 °C", time: "18 h", pressure: "1 atm", solvent: "Water, 1,4-dioxane" };
 {
   const kept = [{ keyword: "GUID", content: "0A1B" }];
   const annotations = withDetails(kept, details)!;
@@ -123,9 +123,9 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.deepEqual(caps.filter((c) => !c.field).map((c) => [c.text, c.bold]), FIELDS.slice(1).map(([, n]) => [n, true]));
   assert.deepEqual(Object.fromEntries(caps.filter((c) => c.field).map((c) => [c.field, c.text])), details);
   assert.ok(caps.every((c) => c.chemical === false && c.align === "left"), "never read as chemistry: a solvent is not an atom label");
-  const title = caps.find((c) => c.field === "title")!, date = caps.find((c) => c.text === "Date")!, note = caps.find((c) => c.text === "Notebook")!, dateValue = caps.find((c) => c.field === "date")!;
+  const title = caps.find((c) => c.field === "title")!, date = caps.find((c) => c.text === "Date")!, num = caps.find((c) => c.text === "Exp. number")!, dateValue = caps.find((c) => c.field === "date")!;
   assert.deepEqual([title.bold, title.size], [true, 14]);
-  assert.ok(date.y === note.y && note.x > date.x && dateValue.y === date.y && dateValue.x > date.x, "Date and Notebook share a row, each value after its name");
+  assert.ok(date.y === num.y && date.x > num.x && dateValue.y === date.y && dateValue.x > date.x, "Exp. number and Date share a row, as the lab book has them, each value after its name");
   assert.ok(title.y > date.y && caps.every((c) => c.x >= (15 - 105) * k - 1e-9 && c.y <= (page[1] / 2 - 15) * k));
   assert.deepEqual([m.arrows!.length, m.arrows![0].kind], [1, "line"]);
   assert.ok(m.arrows![0].from[1] < Math.min(...caps.map((c) => c.y)), "the rule is under them");
@@ -150,7 +150,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   const slots = slotsOf(m, sheet), slot = (f: string) => slots.find((x) => x.field === f)!;
   assert.deepEqual(slots.map((x) => x.field), FIELDS.map(([f]) => f));
   assert.ok(slots.every((x) => x.caption === caps.find((c) => c.field === x.field)!.id && inSpan(x.box, x.at)));
-  assert.ok(slot("date").box[2] < note.x && Math.abs(slot("notebook").box[2] - (105 - 15) * k) < 1 && slot("date").at[0] === slot("temperature").at[0]);
+  assert.ok(slot("number").box[2] < date.x && Math.abs(slot("date").box[2] - (105 - 15) * k) < 1 && slot("date").at[0] === slot("temperature").at[0]);
   // With no value, the place is after the name: a click there starts text that is the detail. The title, with no name
   // of its own, goes above the top name, larger and bold; with a Title name on the page it goes after that, as the rest.
   const bare = withHeader({ atoms: [], bonds: [] }, sheet, true), empty = slotsOf(bare, sheet);
@@ -166,6 +166,36 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.equal(slotsOf(gone, sheet).some((x) => x.field === "pressure"), false);
   const moved = updateCaption(m, dateValue.id, { x: 3, y: -9 }), far = slotsOf(moved, sheet).find((x) => x.field === "date")!;
   assert.ok(inSpan(far.box, [3.1, -9]) && !inSpan(far.box, slot("date").at) && far.caption === dateValue.id);
+
+  // Experiment details as rich text (DetailsSheet): each value's runs with its caption's own style folded in, the
+  // title bold at its size. Saved, a run's style stays its own: bold taken off one word stays off, a colour and a
+  // superscript stay, the title keeps its size, an emptied value goes, and a value with no text on the page goes in
+  // its place. Nothing changed gives the same drawing.
+  {
+    const runs = detailRuns(m);
+    assert.deepEqual(runs.title, [{ text: details.title, bold: true, size: titleSizeOf(sheet) }]);
+    assert.deepEqual(runs.date, [{ text: details.date }]);
+    assert.equal(withDetailRuns(m, runs, sheet), m);
+    const styledTitle: TextRun[] = [{ text: "Boc ", bold: true }, { text: "protection", colour: "#B3261E" }, { text: " of D-glutamic acid", bold: true }];
+    const saved = withDetailRuns(m, { title: styledTitle, temperature: [{ text: "25 °C" }, { text: "a", script: "super" }], pressure: [] }, sheet);
+    const t = saved.captions!.find((c) => c.field === "title")!;
+    assert.deepEqual([t.text, t.bold, t.size, t.runs!.map((r) => [r.text, r.bold, r.colour, r.size])], [details.title, undefined, undefined,
+      [["Boc ", true, undefined, 14], ["protection", undefined, "#B3261E", 14], [" of D-glutamic acid", true, undefined, 14]]]);
+    assert.equal(saved.captions!.find((c) => c.field === "temperature")!.runs![1].script, "super");
+    assert.equal(saved.captions!.some((c) => c.field === "pressure"), false, "an emptied value goes");
+    const filled = withDetailRuns(bare, { project: [{ text: "  Biaryls  " }] }, sheet), proj = filled.captions!.find((c) => c.field === "project")!;
+    assert.deepEqual([proj.text, proj.x, proj.y], ["Biaryls", at("project").at[0], at("project").at[1]], "trimmed, in its place");
+    // A page with no place for the detail (an older page with no Exp. number name): the annotation only.
+    const noName = deleteGraphics(bare, new Set([bare.captions!.find((c) => c.text === "Exp. number")!.id]));
+    const kept = withDetailRuns(noName, { number: [{ text: "SE-1" }] }, sheet);
+    assert.deepEqual([detailsOf(kept.annotations).number, kept.captions!.some((c) => c.field === "number")], ["SE-1", false]);
+    // Hostile: one line, 200 characters at most, no control characters.
+    const long = withDetailRuns(bare, { solvent: [{ text: `a\u0000b${"x".repeat(900)}` }] }, sheet).captions!.find((c) => c.field === "solvent")!;
+    assert.ok(long.text.length === 200 && !/[\u0000-\u001f]/.test(long.text));
+  }
+  // Each new experiment page has the next experiment number: the last run of digits counts up, as wide as it was.
+  assert.deepEqual([nextNumber(), nextNumber("SE-A1-009"), nextNumber("042"), nextNumber("SE-A1-001a"), nextNumber("Batch"), nextNumber("99")], ["001", "SE-A1-010", "043", "SE-A1-002a", "Batch-2", "100"]);
+  assert.equal(detailsOf(newExperiment(sheet, undefined, "2026-11-12", undefined, "SE-007").annotations).number, "SE-007");
 
   // The details and their text agree after each edit. A value typed on the page is the detail.
   const typed = addCaption(bare, { ...slotText(bare, at("project"), sheet), text: "Biaryls" })[0], synced = syncDetails(bare, typed, sheet);
@@ -276,10 +306,11 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
 {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /if \(what === "remove"\) \{ const r = reactionOf\(arrow\)\?\.arrows \?\? \[arrow\]; return set\(\{ \.\.\.doc, grids: doc\.grids\?\.filter\(\(g\) => !r\.includes\(g\.arrow\)\) \}, true\); \}/);
-  // A click on a detail's text or in its box types it, with every tool but the Eraser; a press in an empty box is that
+  // A click on a detail's text or in its box with Select opens Experiment details at that detail (Sam, 12 November
+  // 2026), and types it with the Text tool and every other tool but the Eraser; a press in an empty box is that
   // click; the details agree with their text after each edit; a page from Octet 1.1.1 gets the text when it opens; and
   // the boxes are on screen only.
-  assert.match(editor, /const slot = tool !== "erase" && !alt && !mods\?\.shift && !mods\?\.alt \? slotAt\(at, t\) : undefined;\n    if \(slot\) return typeField\(slot\);/);
+  assert.match(editor, /const slot = tool !== "erase" && !alt && !mods\?\.shift && !mods\?\.alt \? slotAt\(at, t\) : undefined;\n    if \(slot && tool === "select"\) \{ setSelection\(new Set\(\)\); setPicked\(new Set\(\)\); return setDialog\(\{ kind: "details", focus: slot\.field \}\); \}\n    if \(slot\) return typeField\(slot\);/);
   assert.match(editor, /if \(tool !== "erase" && !e\.shiftKey && !e\.altKey && t\.caption === undefined && slotAt\(p, t\)\) return setDrag\(\{ kind: "click", /);
   assert.match(editor, /next = expPage && mol\.style === doc\.style \? syncDetails\(doc, renumber\(newGrids\(doc, ordered\)\), sheetOf\(style\)\) : ordered;/);
   assert.match(editor, /const mol = withFields\(wholeGroups\(asOpened\(/);

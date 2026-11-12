@@ -12,7 +12,7 @@ import { ELEMENTS } from "./metals.ts";
 
 // The details, each kept as an annotation whose keyword is its name here.
 export const FIELDS = [
-  ["title", "Title"], ["date", "Date"], ["notebook", "Notebook"], ["project", "Project"], ["author", "Author"],
+  ["title", "Title"], ["number", "Exp. number"], ["date", "Date"], ["notebook", "Notebook"], ["project", "Project"], ["author", "Author"],
   ["temperature", "Temperature"], ["time", "Time"], ["pressure", "Pressure"], ["solvent", "Solvent"],
 ] as const;
 export type Field = (typeof FIELDS)[number][0];
@@ -69,14 +69,24 @@ export const HEADINGS: [string, number, number][] = [["Reaction scheme", 60, 200
 const perMm = (bond: number) => 72 / 25.4 / bond; // drawing units (bond lengths) in a mm
 // The page a header is laid out on: its size in mm, its bond length and text size in pt, and a text's width in pt.
 export type Sheet = { page: [number, number]; bond: number; size: number; measure: (text: string, size: number, bold: boolean) => number };
-export function newExperiment(s: Sheet, template?: Mol, date = today(), author?: string): Pick<Mol, "annotations" | "captions" | "shapes" | "arrows" | "fields"> {
+// The experiment number after this one: its last run of digits counts up, as wide as it was (SE-A1-009 gives
+// SE-A1-010), and a number with no digits gets -2. The first experiment is 001.
+export function nextNumber(last?: string): string {
+  const v = last && oneLine(last);
+  if (!v) return "001";
+  const m = /(\d+)(\D*)$/.exec(v);
+  if (!m) return `${v}-2`;
+  const n = String(Number(m[1]) + 1).padStart(m[1].length, "0");
+  return v.slice(0, m.index) + n + m[2];
+}
+export function newExperiment(s: Sheet, template?: Mol, date = today(), author?: string, number?: string): Pick<Mol, "annotations" | "captions" | "shapes" | "arrows" | "fields"> {
   const k = perMm(s.bond), left = (MARGIN - s.page[0] / 2) * k, right = (s.page[0] / 2 - MARGIN) * k, down = (mm: number) => (s.page[1] / 2 - mm) * k;
   const base: Mol = template ? { atoms: [], bonds: [], captions: template.captions, shapes: template.shapes, arrows: template.arrows, annotations: template.annotations, fields: template.fields } : {
     atoms: [], bonds: [],
     captions: HEADINGS.map(([text, top], j) => ({ id: 2 * j, text, bold: true, align: "left" as const, x: left, y: down(top - 2) })),
     shapes: HEADINGS.map(([, top, bottom], j) => ({ id: 2 * j + 1, kind: "box" as const, from: [left, down(top)] as [number, number], to: [right, down(bottom)] as [number, number] })),
   };
-  const had = detailsOf(base.annotations), dated = { ...base, annotations: withDetails(base.annotations, { ...had, date, ...(author && !had.author ? { author } : {}) }) };
+  const had = detailsOf(base.annotations), dated = { ...base, annotations: withDetails(base.annotations, { ...had, date, ...(number ? { number } : {}), ...(author && !had.author ? { author } : {}) }) };
   const { annotations, captions, shapes, arrows, fields } = base.fields ? syncDetails(base, dated, s) : withHeader(dated, s, true);
   return { annotations, ...(captions?.length ? { captions } : {}), ...(shapes?.length ? { shapes } : {}), ...(arrows?.length ? { arrows } : {}), ...(fields ? { fields } : {}) };
 }
@@ -142,6 +152,7 @@ export const growProcedure = (m: Mol, bottom: number) => growScheme(m, bottom, R
 // name (Date, Notebook:) is that detail's name: the place after it takes the value (slotsOf).
 const TITLE = 1.4, GAP = 0.8; // the title's size, and the space between a name and its value, in text sizes
 const titleSize = (s: Sheet) => Math.round(TITLE * s.size * 100) / 100;
+export const titleSizeOf = titleSize;
 const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role;
 const NAMES = new Map<string, Field>(FIELDS.map(([key, name]) => [name.toLowerCase(), key]));
 const nameOf = (c: Caption) => (free(c) && !c.field ? NAMES.get(c.text.trim().replace(/:$/, "").toLowerCase()) : undefined);
@@ -223,6 +234,50 @@ export function slotsOf(m: Mol, s: Sheet): Slot[] {
 // name before it).
 export const slotText = (m: Mol, slot: Slot, s: Sheet): Omit<Caption, "id"> =>
   valueText(slot.field, slot.at, "", s, slot.field === "title" && !(m.captions ?? []).some((c) => nameOf(c) === "title"));
+// Each detail's value as rich text for Experiment details: its runs, each with the caption's own style folded in
+// (the title's bold and size too), so a style taken off one run stays off. A detail with no text on the page has its
+// annotation's text (the title bold).
+export function detailRuns(m: Mol): Record<Field, TextRun[]> {
+  const d = detailsOf(m.annotations), keys = ["bold", "italic", "underline", "font", "size", "colour"] as const;
+  return Object.fromEntries(FIELDS.map(([key]) => {
+    const c = valueOf(m, key);
+    if (!c) return [key, d[key] ? [{ text: d[key]!, ...(key === "title" ? { bold: true as const } : {}) }] : []];
+    const own = Object.fromEntries(keys.filter((k) => c[k] !== undefined).map((k) => [k, c[k]])) as RunStyle;
+    return [key, normalise(runsOf(c).map((r) => ({ ...own, ...r })))];
+  })) as Record<Field, TextRun[]>;
+}
+// The page with the values Experiment details saved: a value's text takes its runs (the caption's own style moves
+// into them; the title keeps its size where a run has none), an emptied value goes, and a new one goes in its place
+// on the page, else into the annotations only (a page with no place for it). syncDetails, run as the edit is set,
+// makes the annotations agree. The same drawing when nothing changed.
+export function withDetailRuns(m: Mol, values: Partial<Record<Field, TextRun[]>>, s: Sheet): Mol {
+  const was = detailRuns(m), plainStyle = { bold: undefined, italic: undefined, underline: undefined, font: undefined, size: undefined, colour: undefined };
+  let out = m, details: Details | undefined, slots: Slot[] | undefined;
+  for (const [key] of FIELDS) {
+    const raw = values[key];
+    if (!raw || JSON.stringify(normalise(raw)) === JSON.stringify(was[key])) continue;
+    const runs = trimRuns(key === "title" ? raw.map((r) => ({ ...r, size: r.size ?? titleSize(s) })) : raw), text = plainOf(runs), c = valueOf(out, key);
+    const rich = { text, runs: styled(runs) ? runs : undefined };
+    if (c) { out = text ? updateCaption(out, c.id, { ...plainStyle, ...rich }) : deleteGraphics(out, new Set([c.id])); continue; }
+    if (!text) continue;
+    const slot = (slots ??= slotsOf(m, s)).find((x) => x.field === key);
+    if (slot) [out] = addCaption(out, { ...slotText(m, slot, s), ...plainStyle, ...rich });
+    else (details ??= { ...detailsOf(out.annotations) })[key] = text;
+  }
+  return details ? { ...out, annotations: withDetails(out.annotations, details) } : out;
+}
+// A value's runs on one line, with no space at either end and MAX_VALUE characters at most.
+function trimRuns(runs: TextRun[]): TextRun[] {
+  const text = plainOf(runs), start = text.length - text.trimStart().length, end = Math.min(text.trimEnd().length, start + MAX_VALUE);
+  const out: TextRun[] = [];
+  let at = 0;
+  for (const r of runs) {
+    const a = Math.max(start, at), b = Math.min(end, at + r.text.length);
+    if (b > a) out.push({ ...r, text: r.text.slice(a - at, b - at).replace(/[\u0000-\u001f\u007f]/g, " ") });
+    at += r.text.length;
+  }
+  return normalise(out);
+}
 // After an edit of an experiment page, its details and their text agree. A value typed, changed or deleted on the page
 // sets or removes the document's annotation, which Home's Experiments list, a table's conditions and ChemDraw read. An
 // annotation the edit changed (Experiment details…, a table's conditions, the document's properties) changes its text,

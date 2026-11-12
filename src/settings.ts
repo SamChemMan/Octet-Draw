@@ -51,6 +51,7 @@ export type Settings = {
   // Home starts Quick start), the style of Quick start and of each built-in purpose when the user made it their own
   // with "Use for new documents", and the user's own purposes (templates).
   purpose: string; purposeStyles: Partial<Record<PurposeKind | typeof QUICK, DocStyle>>; ownPurposes: OwnPurpose[]; experimentStart?: string;
+  lastNumber?: string; // the experiment number a new experiment page last had: the next page has the one after it (nextNumber)
   experimentNoted: boolean; // the notice on the first experiment page shown (Octet 1.1.2) was given: Use for new documents keeps its layout
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
@@ -164,6 +165,7 @@ export function loadSettings(): Settings {
       userName: typeof saved.userName === "string" ? saved.userName.slice(0, 40) : null,
       tutorialDone: saved.tutorialDone === true,
       experimentNoted: saved.experimentNoted === true,
+      ...(typeof saved.lastNumber === "string" && saved.lastNumber.length <= 200 ? { lastNumber: saved.lastNumber } : {}),
       seenNotes: typeof saved.seenNotes === "string" && saved.seenNotes.length <= 20 ? saved.seenNotes : "",
       homeLayout: readLayout(saved.homeLayout?.order, saved.homeLayout?.folded),
       updates: typeof saved.updates === "boolean" ? saved.updates : true,

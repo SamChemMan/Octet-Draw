@@ -78,7 +78,7 @@ import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
-import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type Details, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
+import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -128,6 +128,7 @@ import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelab
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
 import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
+import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
 import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
 import { Select } from "./Select";
@@ -1704,7 +1705,11 @@ export default function Editor() {
     const style = styleFor(settings, id), start = settings.ownPurposes.find((p) => p.id === id)?.start ?? (id === "experiment" ? settings.experimentStart : undefined);
     let template: Mol | undefined;
     try { template = start ? parse(start) : undefined; } catch { template = undefined; }
-    return authored({ ...EMPTY, style, ...(purposeOf(settings, id)?.kind === "experiment" ? newExperiment(sheetOf(style), template, undefined, systemName || undefined) : {}) });
+    if (purposeOf(settings, id)?.kind !== "experiment") return authored({ ...EMPTY, style });
+    // Each new experiment page has the next experiment number, which the user can change (Experiment details).
+    const number = nextNumber(settings.lastNumber);
+    setSettings((s) => ({ ...s, lastNumber: number }));
+    return authored({ ...EMPTY, style, ...newExperiment(sheetOf(style), template, undefined, systemName || undefined, number) });
   };
   const newDrawing = (id = settings.purpose, here = false) => elsewhere || (!here && ((homeWindow && !home) || drawWindow)) ? inNew({ new: id }) : keepWork(() => {
     const fresh = freshFor(id), style = fresh.style!;
@@ -2408,7 +2413,7 @@ export default function Editor() {
     new_quick: () => newDrawing(QUICK),
     ...Object.fromEntries(Object.keys(PURPOSES).map((k) => [`new_${k}`, () => newDrawing(k)])),
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
-    experiment_details: () => { if (expPage) setDialog({ kind: "details", values: detailsOf(doc.annotations) }); },
+    experiment_details: () => { if (expPage) setDialog({ kind: "details" }); },
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
     home: () => (drawWindow ? void invoke("show_home").catch(() => {}) : homeWindow && home ? undefined : templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
@@ -3314,7 +3319,7 @@ export default function Editor() {
     | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string }
     | { kind: "bands"; plate: number; lane: number; value: string } | { kind: "range"; plate: number; low: string; high: string } | { kind: "lane"; plate: number; lane: number; value: string }
     | { kind: "plasmid"; shape: number; name: string; bp: string } | { kind: "region"; shape: number; index?: number; name: string; start: string; end: string; dir: "" | "reverse" | "none" }
-    | { kind: "marker"; shape: number; index?: number; name: string; at: string } | { kind: "details"; values: Details } | { kind: "conditions"; arrow: number; page: boolean; values: GridConditions } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "marker"; shape: number; index?: number; name: string; at: string } | { kind: "details"; focus?: DetailField } | { kind: "conditions"; arrow: number; page: boolean; values: GridConditions } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
@@ -8048,9 +8053,11 @@ export default function Editor() {
     // Sequence: the name field opens with the codes' prefix, and the structure lands where the click was,
     // also over a structure.
     if (tool === "sequence") return insertSequence(SEQUENCES[sequenceChoice].prefix);
-    // An experiment's detail: a click on its text or in its box types it, with every tool but the Eraser. Shift and
-    // Option keep their own clicks (Select adds to and takes from the selection).
+    // An experiment's detail: a click on its text or in its box with Select opens Experiment details at that detail;
+    // with the Text tool (and every other tool but the Eraser) it types it on the page. Shift and Option keep their own
+    // clicks (Select adds to and takes from the selection).
     const slot = tool !== "erase" && !alt && !mods?.shift && !mods?.alt ? slotAt(at, t) : undefined;
+    if (slot && tool === "select") { setSelection(new Set()); setPicked(new Set()); return setDialog({ kind: "details", focus: slot.field }); }
     if (slot) return typeField(slot);
     // An integral group goes in or out whole, and a cycle with all its parts (as a click picks them).
     if (tool === "select" && mods && (mods.shift || mods.alt)) {
@@ -10413,15 +10420,26 @@ export default function Editor() {
           </Dialog>
         );
       })()}</Exit>
-      <Exit>{dialog?.kind === "details" && (
-        // An experiment's details (experiment.ts), kept as the document's annotations.
-        <Dialog title="Experiment details" action="Save" onClose={() => setDialog(undefined)}
-          onAction={() => { const next = withDetails(doc.annotations, Object.fromEntries(Object.entries(dialog.values).map(([k, v]) => [k, v && expandEscapes(v, keptText(detailsOf(doc.annotations)[k as keyof Details]))]))); if (JSON.stringify(next) !== JSON.stringify(doc.annotations)) set({ ...doc, annotations: next }, true); setDialog(undefined); }}>
-          {DETAILS.map(([k, name]) => (
-            <label key={k} className="dialog-row"><span>{name}</span><span className="unit-field text"><input aria-label={name} value={dialog.values[k] ?? ""} maxLength={200} spellCheck={false} onChange={(e) => setDialog({ ...dialog, values: { ...dialog.values, [k]: e.target.value } })} /></span></label>
-          ))}
-        </Dialog>
-      )}</Exit>
+      <Exit>{dialog?.kind === "details" && (() => {
+        // An experiment's details (experiment.ts) as rich text, laid out as the page's header.
+        const runs = detailRuns(doc), sheet = sheetOf(style);
+        return (
+          <DetailsSheet
+            fields={DETAILS.map(([key, name]) => ({ key, name, runs: runs[key] }))} focus={dialog.focus}
+            font={style.captionFont} size={style.captionSize} titleSize={titleSizeOf(sheet)} fonts={fontList} sizes={sizeList} colours={colours}
+            onCharMap={() => setCharMap(true)}
+            onClose={() => setDialog(undefined)}
+            onSave={(values) => {
+              // Names typed as \alpha become their characters, as in any text box (escapes.ts).
+              const typed = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v && expandRuns(v, keptText(plainOf(runs[k as DetailField])))]));
+              const next = withDetailRuns(doc, typed, sheet), number = typed.number && plainOf(typed.number).trim();
+              if (next !== doc) set(next, true);
+              if (number && number !== detailsOf(doc.annotations).number) setSettings((s) => ({ ...s, lastNumber: number }));
+              setDialog(undefined);
+            }}
+          />
+        );
+      })()}</Exit>
       <Exit>{dialog?.kind === "conditions" && (
         // A stoichiometry table's conditions (Grid.conditions), drawn right of the table. On an experiment page's first
         // table, Temperature and Time are the page's details.
