@@ -103,6 +103,7 @@ draws Octet's Windows EMF today.
   takes longer than the PDF. A 1,800 by 1,200 px JPEG: 36 ms against 30 ms. A phone's 12 megapixel JPEG drawn 6 in
   wide: 178 ms against 166 ms. A 12 megapixel JPEG with a small file (0.5 MB) drawn 8 in wide: 226 ms against 65 ms,
   because drawing its pixels takes far longer than its small PDF.
+  Sam accepted these times on 12 November 2026 (decision 0024), for a picture that is sharp in Word for Windows.
 
 ## The EMF (4 November 2026, release 1.1.1, issue 20)
 
