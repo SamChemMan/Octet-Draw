@@ -8641,7 +8641,7 @@ export default function Editor() {
       saw("copy");
       const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style });
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
-      // PDF, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
+      // PDF, with Office's own copy of it before it for Word, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
       // structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form. The CDXML goes in the picture too.
       if (NATIVE_CLIP) {
         const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);

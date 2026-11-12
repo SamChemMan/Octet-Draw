@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn extent_is_the_emf_frame() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
-        let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"));
+        let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"), None);
         assert_eq!(extent(&emf), Some((2540, 1270)), "1 in by 0.5 in");
         assert_eq!(extent(b"not a metafile"), None);
         let mut bad = emf.clone();

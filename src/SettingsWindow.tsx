@@ -601,8 +601,9 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Background", "background transparent white page colour color png tiff jpeg gif", <Select label="Background" value={files.background} options={BACKDROPS} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "JPEG quality", "jpeg jpg quality compression", <NumberField label="JPEG quality" unit="%" min={1} max={100} step={5} value={files.quality} onChange={(n) => setFiles({ quality: Math.round(n) })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
-      // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is a PDF on
-      // the Mac, an EMF on Windows, and a PDF, a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
+      // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is Office's
+      // own copy of it (a zip with an EMF) and a PDF on the Mac, an EMF on Windows, and a PDF, a PNG and an SVG on
+      // Linux (src-tauri/src/clipboard.rs).
       ...([...(WINDOWS ? [["office", "Office object", "office object ole embed word powerpoint excel edit double click"]] as const : []), ["pdf", PICTURE, "picture image pdf png svg word powerpoint keynote office"], ["cdx", "CDX", "cdx chemdraw binary"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
       d("general", "Windows", "Open each drawing in a new window", "windows multiple multi window tabs home new open drawing each own single", <Switch on={p.windows} label="Open each drawing in a new window" onChange={p.onWindows} />),
