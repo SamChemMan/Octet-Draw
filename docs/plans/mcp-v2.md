@@ -2242,3 +2242,40 @@ What the real Claude Code runs of round 5 (`real-r5-*`) showed still costs turns
   read compounds, and boxes with detail: full; checks that placed against a JSON draw's boxes, or took its structure
   ids from made, ask for detail: full or read the ids from compounds (also in headless.check, and the bench cases
   size-change-40 and taxol-v1-job); compound.check's three "keeps its configuration" rows ask for detail: full.
+
+### 19.12 As built (Octet's own time after round 6, and the real Claude Code lab, 12 November 2026)
+
+- **A compound drawn again has its SMILES worked out once.** On a quiet Mac the six taxol benchmark cases were 1 to
+  3.5% slower after rounds 4 to 6 than before them (commit e206301). A profile of both trees put 46 ms of taxol-v1-job
+  on one line: `madeCompounds` asks for the SMILES of each compound it has seen to find repeats, 224 asks for 83
+  structures in that job. The MCP host's `smiles` (Editor.tsx, scripts/headless/host.ts) now uses `keptSmiles` in
+  `chem.ts`, which keeps each answer by the KET Indigo reads, as analyses are kept (cleared at 500). The editor's own
+  paths (copy as SMILES, Add to dictionary, search, export) use `toSmiles` and keep nothing. No reply changes: all 146
+  cases have the same counts. chem.check times a second ask against a first.
+  Best of three, turn about, old / before / after: taxol-v1-job 3,696 / 3,802 / 3,561; taxol-lines 1,836 / 1,837 /
+  1,843; taxol-route 1,852 / 1,874 / 1,859; taxol-route-paper 1,835 / 1,847 / 1,849; taxol-chained 1,782 / 1,798 /
+  1,805; taxol-schemes 2,530 / 2,551 / 2,562.
+- **What is left, for Sam.** The five single-draw taxol cases are still 0.4 to 1.6% over e206301 (20 to 30 ms on 1.8 to
+  2.5 s). The cause is release 1.1.2's limit on each Indigo call (`watched`, `MOST_MS` in `chem.ts`): with the limit
+  set, Indigo's atom mapping is about 3% slower, and mapping is 1.6 s of a 1.85 s taxol draw. With the limit never set
+  the same code gives 1,786, 1,836, 1,852, 1,825, 2,531 and 3,536. The limit stops a call that would never end on a
+  hostile file, so it stays unless Sam says to take it off the mapping call.
+- **Kept times.** Nine `cases/*.mjs` cases have a lower kept time. Corpus cases run once in a full run and take SMILES
+  and analyses kept by the cases before them, so their kept times are a full run's, not a lone job's (gaunt2007-fig9:
+  195 ms alone, 20 kept). That was so before this change. They keep their old numbers.
+- **The lab through real Claude Code** is `scripts/mcp-evals/real.mjs` with `bridge.mjs` (the header of real.mjs says
+  how to run it). It is what a user's model sees: tool search, the instructions as Claude Code keeps them, its turns.
+  The 14 speed jobs, three runs a model, Claude Code 2.1.299:
+
+  | | Pass (of 14) | Turns | Octet calls | Refused | Model seconds |
+  |---|---|---|---|---|---|
+  | Opus, e206301 | 14 / 14 / 13 | 49 / 48 / 46 | 20 / 19 / 17 | 0 | 226 / 242 / 233 |
+  | Opus, round 5 | 14 / 13 / 14 | 32 / 38 / 41 | 18 / 23 / 27 | 0 / 0 / 1 | 190 / 198 / 205 |
+  | Opus, round 6 | 14 / 13 / 14 | 35 / 32 / 31 | 20 / 18 / 17 | 0 | 199 / 200 / 195 |
+  | Haiku, e206301 | 12 / 12 / 12 | 61 / 58 / 58 | 31 / 25 / 29 | 9 / 3 / 5 | 337 / 365 / 320 |
+  | Haiku, round 5 | 13 / 11 / 13 | 38 / 42 / 43 | 24 / 28 / 28 | 2 / 6 / 5 | 381 / 340 / 384 |
+  | Haiku, round 6 | 12 / 13 / 14 | 35 / 47 / 41 | 20 / 33 / 25 | 1 / 7 / 1 | 371 / 428 / 366 |
+
+  Opus spends 15% less model time for the same passes. Haiku passes more and takes fewer turns; its model time is
+  nearly all its own thinking and is not lower. The e206301 logs themselves were deleted in error; these totals are
+  what was printed from them.
