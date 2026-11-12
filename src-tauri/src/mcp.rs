@@ -186,15 +186,21 @@ fn save(app: &AppHandle, info: &Info) -> Result<(), String> {
 }
 
 // Turns the server on (with the saved key, or a new one) or off. new_key: a new key, so AI apps given the old one
-// cannot connect. Returns the address and key, for Settings to show and copy.
+// cannot connect. Returns the address and key, for Settings to show and copy. On while it is on (Home asks each time
+// it opens) changes nothing: the sessions and the port stay.
 #[tauri::command]
 pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bool>) -> Result<Option<Info>, String> {
     let mut running = mcp.running.lock().unwrap();
+    if let Some(info) = unchanged(running.as_ref().map(|r| &r.0), on, new_key) {
+        return Ok(Some(info));
+    }
+    let mut stopped = None;
     if let Some((was, stop)) = running.take() {
         stop.store(u64::MAX, Ordering::SeqCst);
         let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, was.port)); // wakes the accept loop
         mcp.shared.sessions.lock().unwrap().clear();
         *mcp.shared.loose.lock().unwrap() = None;
+        stopped = Some(was.port);
     }
     if !on {
         return Ok(None);
@@ -207,7 +213,7 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
     let appimage = std::env::var("APPIMAGE").ok().filter(|p| cfg!(target_os = "linux") && !p.is_empty());
     info.program = appimage.unwrap_or_else(|| std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
     // The port Octet keeps, else any free one (the address in the AI app must then change).
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, info.port))
+    let listener = listen(info.port, stopped == Some(info.port))
         .or_else(|_| TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))
         .map_err(|e| format!("Octet cannot listen for AI apps. {e}"))?;
     info.port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -227,6 +233,24 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
         }
     });
     Ok(Some(info))
+}
+
+// The server as it runs, when mcp_set is to leave it so: on, asked on again, with no new key.
+fn unchanged(running: Option<&Info>, on: bool, new_key: Option<bool>) -> Option<Info> {
+    running.filter(|_| on && new_key != Some(true)).cloned()
+}
+
+// The listener on `port`. again: the server on it has just stopped, and its listener may take a moment to close, so
+// Octet tries for a second before it takes another port.
+fn listen(port: u16, again: bool) -> std::io::Result<TcpListener> {
+    let mut tries = if again { 20 } else { 1 };
+    loop {
+        tries -= 1;
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+            Err(_) if tries > 0 => std::thread::sleep(Duration::from_millis(50)),
+            got => return got,
+        }
+    }
 }
 
 // Whether AI apps are on now: a drawing window opened while they are runs at full speed when it is behind others.
@@ -1353,6 +1377,32 @@ mod tests {
             assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "manifest.json server/index.js {}", "{}", String::from_utf8_lossy(&o.stderr));
         }
         let _ = std::fs::remove_file(path);
+    }
+
+    // Home asks for the server each time it opens: the one that runs stays, with its sessions and port. A new key, or
+    // off, is a change.
+    #[test]
+    fn on_again_changes_nothing() {
+        let info = Info { port: 47681, token: "k".into(), program: String::new() };
+        assert!(unchanged(Some(&info), true, None) == Some(info.clone()));
+        assert!(unchanged(Some(&info), true, Some(false)).is_some());
+        assert!(unchanged(Some(&info), true, Some(true)).is_none());
+        assert!(unchanged(Some(&info), false, None).is_none());
+        assert!(unchanged(None, true, None).is_none());
+    }
+
+    // A server that stops gives its port back a moment later: the new one takes the same port, not another.
+    #[test]
+    fn a_restart_keeps_its_port() {
+        let old = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = old.local_addr().unwrap().port();
+        assert!(listen(port, false).is_err());
+        let closing = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(old);
+        });
+        assert_eq!(listen(port, true).unwrap().local_addr().unwrap().port(), port);
+        closing.join().unwrap();
     }
 
     #[test]
