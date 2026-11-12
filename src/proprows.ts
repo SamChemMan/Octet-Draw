@@ -15,7 +15,7 @@ import { logS, properties as calculate } from "./props.ts";
 export type Calculated = {
   tpsa: number; henry?: number; pka: { atom: number; kind: string; pka: number; sd: number }[];
   joback?: { tb: number; tm: number; tc: number; pc: number; vc: number; hf: number; gf: number };
-  logS?: number;
+  logS?: number; donors?: number; acceptors?: number; rings?: number;
 };
 // Octet's own calculators' values for a structure, kept with the structure's values they are from (chem.ts keeps those
 // by structure), so each structure is worked out once; pKa sites above 13 (alcohols, amides) are left out.
@@ -35,6 +35,7 @@ const sign = (x: number, places: number) => x.toFixed(places).replace("-", "−"
 const celsius = (k?: number) => (k === undefined ? undefined : `${sign(k - 273.15, 1)} °C`);
 const unit = (x: number | undefined, places: number, u: string) => (x === undefined || !Number.isFinite(x) ? undefined : `${sign(x, places)} ${u}`);
 const JOBACK = "Joback group contributions (Joback and Reid, Chem. Eng. Commun. 1987, 57, 233).";
+const HBOND = "Counted as RDKit's NumHBD and NumHBA count them (RDKit 2026.03, Lipinski.cpp).";
 const CRIPPEN = "Wildman–Crippen atom contributions (Wildman and Crippen, J. Chem. Inf. Comput. Sci. 1999, 39, 868), calculated by Indigo.";
 const GHS = "GHS classification from PubChem (pubchem.ncbi.nlm.nih.gov), found by the structure's standard InChIKey: the first source PubChem shows for the compound.";
 
@@ -52,6 +53,9 @@ export const PROPERTY_ROWS: Row[][] = [
       value: (s, _, d) => isotopePattern(s.formula)?.slice(0, 6).map((p) => `${p.mz.toFixed(d ?? 2)} (${p.rel.toFixed(1)}%)`).join(", ") },
     { key: "analysis", name: "Elemental analysis", method: "Mass percentage of each element, from the formula and the standard atomic weights.", value: (s) => elementalAnalysis(s.composition) },
     { key: "tpsa", name: "tPSA", method: "Topological polar surface area from N and O contributions (Ertl, Rohde and Selzer, J. Med. Chem. 2000, 43, 3714).", value: (_, c) => unit(c?.tpsa, 2, "Å²") },
+    { key: "hbd", name: "H-bond donors", method: `${HBOND} Donors: each N, O or S atom that has a hydrogen, counted once. Lipinski's rule of five counts each N–H and O–H hydrogen instead (acetamide: 1 here, 2 by Lipinski).`, value: (_, c) => c?.donors?.toString() },
+    { key: "hba", name: "H-bond acceptors", method: `${HBOND} Acceptors: each O and S atom except the OH or SH of an acid, each non-aromatic N with three bonds except an amide or sulfonamide N, and each aromatic N with no hydrogen and two neighbours. Lipinski's rule of five counts every N and O atom instead (acetamide: 1 here, 2 by Lipinski).`, value: (_, c) => c?.acceptors?.toString() },
+    { key: "rings", name: "Rings", method: "Number of rings in the smallest set of smallest rings: bonds − atoms + separate structures. A cage has fewer rings than faces (cubane: 5).", value: (_, c) => c?.rings?.toString() },
   ],
   [
     { key: "tb", name: "Boiling point", predicted: true, method: JOBACK, value: (_, c) => celsius(c?.joback?.tb) },
