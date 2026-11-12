@@ -801,6 +801,22 @@ try {
   assert.equal(real.style().preset, "RSC");
   assert.match(JSON.stringify(real.doc().annotations ?? null), /My scheme/, "set_style keeps its properties");
 }
+// A call that changes nothing (a colour the structure has, a move by 0, 0) leaves no undo step: one Undo takes back
+// the colour.
+{
+  const w = drawing("paper");
+  let id = 0;
+  const call = async (name: string, args: unknown) => JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: args } }), () => w.host, "1", session("Check", "same"))).result;
+  await call("set_brief", { destination: { kind: "quick" } });
+  await call("draw", { lines: "CCO" });
+  const colours = () => w.host.doc().atoms.map((a) => a.colour ?? "");
+  assert.match((await call("change", { operations: [{ op: "edit", ids: ["s1"], colour: "#ff0000" }] })).content[0].text, /One undo step/);
+  assert.match((await call("change", { operations: [{ op: "edit", ids: ["s1"], colour: "#ff0000" }] })).content[0].text, /The drawing was so already: no undo step\./);
+  assert.match((await call("change", { operations: [{ op: "move", ids: ["s1"], dx: 0, dy: 0 }] })).content[0].text, /no undo step/);
+  assert.deepEqual(colours(), ["#ff0000", "#ff0000", "#ff0000"]);
+  await call("advanced", { tool: "run_command", args: { command: "undo" } });
+  assert.deepEqual(colours(), ["", "", ""], "one Undo takes back the colour");
+}
 
 {
   const at = (...p: string[]) => join(examplesIn, ...p);

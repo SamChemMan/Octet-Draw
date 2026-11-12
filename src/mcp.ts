@@ -3464,6 +3464,8 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
         if (!free) await h.settle();
         const laid = was && !out.error && !free ? layoutCheck(h, h.doc()) : undefined, cleared = laid && LAYS_OUT.has(tool.name) ? await clearLabels(h, before, laid).then((c) => (tool.name === "replace" ? clearOverlaps(h, before!, c) : c)) : laid;
         const after = h.doc();
+        // A call that changes nothing (a colour it has, a move by 0, 0) leaves no undo step.
+        if (changes && !out.error && after !== before && after.atoms.length === before.atoms.length && JSON.stringify(after) === JSON.stringify(before)) { h.set(before); await h.settle(); out.text = out.text.replace(UNDO, " The drawing was so already: no undo step."); }
         if (!free) keepIdsAbove(highest(after));
         // A short result unless the call (or a batch's step) asked for detail: full (R6).
         const full = wantFull || !!out.full;
