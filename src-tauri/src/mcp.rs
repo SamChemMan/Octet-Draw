@@ -1370,10 +1370,10 @@ fn program_for(flatpak: Option<String>, appimage: Option<String>, exe: String) -
 }
 
 // Starts Octet with its window, for a tool call while it is closed. A dev build's page comes from its dev server, which
-// only tauri dev starts, so a dev build is not started. In a Flatpak this runs inside its sandbox, where Octet's own
-// program is.
+// only tauri dev starts, so a dev build is not started; the MCP Beta app (OCTET_BETA) has its page inside it, so it is.
+// In a Flatpak this runs inside its sandbox, where Octet's own program is.
 fn launch() -> bool {
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) && option_env!("OCTET_BETA").is_none() {
         return false;
     }
     let Ok(exe) = std::env::current_exe() else { return false };
