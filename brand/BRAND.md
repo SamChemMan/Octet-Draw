@@ -73,10 +73,14 @@ Why Instrument Sans: it is a clean, precise grotesque with the polish of San Fra
   One exception, from Sam (16 October 2026): dragging an option onto the toolbar. The item settles into
   its slot and the other icons ripple a 2px bounce. It gives toolbar customising some character; it
   never touches the drawing. Reduced motion turns it off.
-  A second exception, from Sam (11 November 2026): the molecule that builds in the window while an AI
-  app works. Each atom pops in with a small overshoot. It gives the wait some character; it
-  never touches the drawing. Reduced motion turns it off. The same molecule shows while Octet reads a
-  picture with Image to Structure, and on its first-use card (Sam, 12 November 2026).
+  A second exception, from Sam (11 November 2026, redrawn 12 November): Octet's mark draws itself in the
+  window while an AI app works and while Image to Structure reads a picture. The hexagon's bonds draw
+  one after another as skeletal lines, a Kekulé benzene's inner lines follow, the octagon's edges sweep
+  round it and the solid mark fades in, exactly the app icon's mark. It holds, leaves softly and starts
+  again, about every 5 s. Each line takes `motion`; only the loop's length is typed by hand. There is
+  no bounce. It never touches the drawing. Reduced motion shows the still mark.
+  Image to Structure's first-use card shows a grey photo of a molecule read by a blue line, and Octet's
+  own drawing of it appearing in step beside it.
 
 ## Controls
 
