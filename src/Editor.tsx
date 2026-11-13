@@ -6358,7 +6358,9 @@ export default function Editor() {
       if (Array.isArray(v)) return v.forEach(walk);
       if (!v || typeof v !== "object") return;
       for (const [k, x] of Object.entries(v)) {
-        if (k === "style") continue;
+        // Ring fills keep their colours out of the row, as highlights do: a custom fill dragged in the picker would
+        // add a swatch at each step.
+        if (k === "style" || k === "fills") continue;
         if (k === "colour" && typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) { const h = x.toLowerCase(); if (!known.has(h) && !drawingColours.current.includes(h)) drawingColours.current.push(h); }
         else walk(x);
       }
