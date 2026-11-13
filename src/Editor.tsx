@@ -219,7 +219,8 @@ const hitIn = (m: Mol, p: P): Hover => {
   return atom !== undefined ? { atom } : { bond: bondAt(m, p) };
 };
 // The atoms an atom or bond hit stands for.
-const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond !== undefined ? m.bonds[t.bond].atoms : []);
+// A hover can outlive its bond for a moment (the bond just deleted), so a bond gone gives no atoms.
+const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond !== undefined ? (m.bonds[t.bond]?.atoms ?? []) : []);
 // The object a hit stands for: a caption, an arrow or shape, or a cycle.
 const itemsOf = (t: Hover) => [t.caption, t.arrow, t.cycle].filter((x): x is number => x !== undefined);
 

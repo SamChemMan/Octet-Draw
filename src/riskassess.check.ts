@@ -305,4 +305,7 @@ assert.match(editor, /pages: sheets\?\.texts/);
   assert.deepEqual(grown.captions!.filter((c) => items.has(c.id)), withRisk.captions!.filter((c) => items.has(c.id)), "its text stays");
   assert.deepEqual(grown.shapes!.filter((x) => items.has(x.id)), withRisk.shapes!.filter((x) => items.has(x.id)), "its boxes stay");
 }
+// A risk assessment is an integral group, so the pointer over a bond asks which group it is in (integralAt). Deleting
+// that bond left the hover on a bond gone, and the editor stopped (Sam, 13 November 2026).
+assert.match(editor, /const atomsOf = [^\n]*m\.bonds\[t\.bond\]\?\.atoms \?\? \[\]/, "a hover on a bond just deleted gives no atoms");
 console.log("riskassess.check: ok");
