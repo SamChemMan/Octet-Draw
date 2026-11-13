@@ -786,8 +786,8 @@ button.variant.add {
     opacity: 0;
   }
 }
-/* A shortcut that lands settles into place, and the other icons ripple a 2px bounce out from it. One of the
-   two places Octet bounces (brand/BRAND.md, Motion); the other is .mcp-atom. */
+/* A shortcut that lands settles into place, and the other icons ripple a 2px bounce out from it. The one place
+   Octet bounces (brand/BRAND.md, Motion). */
 .tool.landed .glyph {
   animation: settle var(--motion-drop) var(--ease-drop);
 }
@@ -1060,14 +1060,14 @@ button.variant.add {
   }
 }
 
-/* An AI app at work in this window (McpMagic.tsx). A molecule is built in the middle of the window, in Octet's blue:
-   each atom pops in with a small overshoot (the second place Octet bounces: brand/BRAND.md, Motion), the bonds draw
-   between them, and the whole turns slowly, clears and gives way to the next (mcp-life: one turn of it is one
-   molecule). It stays in the middle until the overlay goes, the time the AI app thinks included. A glass pill at the
-   bottom says who is drawing. While a call runs the window is soft and takes no clicks; a moment after the call
-   (held, magic.ts HOLD) the drawing is clear again, but for the molecule. It comes in with motion-slow and leaves
-   with motion-fast. Every motion here is a transform or an opacity, so none makes the browser lay the window out
-   again. Reduced motion: one molecule, still, and only fades. */
+/* An AI app at work in this window (McpMagic.tsx). Octet's mark draws itself in the middle of the window, in Octet's
+   blue: the hexagon's bonds one after another, a Kekulé benzene's inner lines, then the octagon's edges sweep round it
+   and the solid mark fades in (mcp-life: one turn of it is one drawing of the mark; magic.ts has the times). It holds,
+   leaves softly and starts again. It stays in the middle until the overlay goes, the time the AI app thinks included.
+   A glass pill at the bottom says who is drawing. While a call runs the window is soft and takes no clicks; a moment
+   after the call (held, magic.ts HOLD) the drawing is clear again, but for the mark. It comes in with motion-slow and
+   leaves with motion-fast. Every motion here is a transform or an opacity, so none makes the browser lay the window
+   out again. Reduced motion: the mark, still, and only fades. */
 .mcp-magic {
   position: fixed;
   inset: 0;
@@ -1098,7 +1098,7 @@ button.variant.add {
   pointer-events: auto;
   cursor: progress;
 }
-/* The molecule's ground, in the middle of the window: the canvas colour with a soft edge, so the molecule reads over a
+/* The mark's ground, in the middle of the window: the canvas colour with a soft edge, so the mark reads over a
    drawing. The edge is a fade in the ground itself, not a shadow: Octet has one elevation (ui.check.ts). */
 .mcp-stage {
   position: absolute;
@@ -1110,53 +1110,52 @@ button.variant.add {
   border-radius: var(--radius-pill);
   background: radial-gradient(closest-side, color-mix(in oklab, var(--canvas) 82%, transparent) 76%, transparent);
 }
-/* The molecule, about the middle of its ground. One turn of mcp-life is one molecule: as the turn ends, McpMagic puts
-   the next molecule in, in a new element. */
+/* The mark, about the middle of its ground. One turn of mcp-life is one drawing of it: as the turn ends, McpMagic
+   draws it again, in a new element. It leaves to 0.98, softly. */
 .mcp-mol {
   position: absolute;
   top: 50%;
   left: 50%;
-  animation: mcp-life 7s ease-in-out infinite;
+  animation: mcp-life 5.4s ease-in-out infinite;
 }
 @keyframes mcp-life {
-  0% {
-    opacity: 0;
-    transform: rotate(-14deg) scale(0.97);
-  }
-  4% {
+  0%,
+  3% {
     opacity: 0;
   }
   5%,
   86% {
     opacity: 1;
+    transform: none;
   }
-  100% {
+  to {
     opacity: 0;
-    transform: rotate(26deg) scale(1.03);
+    transform: scale(0.98);
   }
 }
-/* The molecule's parts. mcp-gone clears them for good as the molecule's turn ends (39 steps of --motion: 7.02 s, when
-   mcp-life has cleared the molecule), so a page too busy to put the next molecule in on time leaves the ground empty
-   and never shows this one again. It has its own element: with both on .mcp-mol, Chrome ran the two on the page's
-   thread, every frame. */
+/* The mark's parts. mcp-gone clears them for good as the turn ends (30 steps of --motion: 5.4 s, when mcp-life has
+   cleared the mark), so a page too busy to put the next one in on time leaves the ground empty and never shows this
+   one again. It has its own element: with both on .mcp-mol, Chrome ran the two on the page's thread, every frame.
+   --fill: the step at which the solid mark comes (magic.ts FILL). */
 .mcp-parts {
-  animation: mcp-gone var(--motion-fast) var(--ease-out) calc(39 * var(--motion)) forwards;
+  animation: mcp-gone var(--motion-fast) var(--ease-out) calc(30 * var(--motion)) forwards;
 }
 @keyframes mcp-gone {
   to {
     opacity: 0;
   }
 }
-/* --i: the step (of --motion) at which a part of the molecule comes; --turn: the way a bond points (magic.ts). A bond
-   draws from its first atom: both ends of mcp-draw list the same transforms, so every engine goes from one to the
-   other part by part. */
+/* A line of the mark, with round ends: a box as wide as the line is long and a line more, its start a half line in.
+   --i: the step (of --motion) at which it draws; --turn: the way it points (magic.ts). It draws out from its start
+   like a pen: both ends of mcp-draw list the same transforms, so every engine goes from one to the other part by
+   part. */
 .mcp-bond {
   position: absolute;
   height: 2px;
-  margin-top: -1px;
+  margin: -1px 0 0 -1px;
   border-radius: var(--radius-pill);
   background: var(--brand);
-  transform-origin: 0 50%;
+  transform-origin: 1px 50%;
   transform: rotate(var(--turn)) scaleX(1);
   animation: mcp-draw var(--motion) var(--ease-out) both;
   animation-delay: calc(var(--i) * var(--motion));
@@ -1167,21 +1166,25 @@ button.variant.add {
     transform: rotate(var(--turn)) scaleX(0);
   }
 }
-.mcp-atom {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  margin: -4px 0 0 -4px;
-  border-radius: var(--radius-pill);
-  background: var(--brand);
-  animation: mcp-pop var(--motion-drop) var(--ease-drop) both;
-  animation-delay: calc(var(--i) * var(--motion));
+/* The Kekulé lines lie in the hole, so they fade as the solid mark comes. They stay gone. */
+.mcp-kekule {
+  opacity: 0;
+  animation: mcp-fade calc(2 * var(--motion)) var(--ease-out) both;
+  animation-delay: calc(var(--fill) * var(--motion));
 }
-@keyframes mcp-pop {
+@keyframes mcp-fade {
   from {
-    opacity: 0;
-    transform: scale(0.85);
+    opacity: 1;
   }
+}
+/* The solid mark: a box in Octet's blue cut to app-icon.svg's mark (its octagon, then its hexagon: evenodd makes the
+   hole; motion.check.ts reads the numbers against the icon). Its shape never moves; it only fades in. */
+.mcp-fill {
+  position: absolute;
+  background: var(--brand);
+  clip-path: polygon(evenodd, 29.289% 0, 70.711% 0, 100% 29.289%, 100% 70.711%, 70.711% 100%, 29.289% 100%, 0 70.711%, 0 29.289%, 29.289% 0, 50% 8.3%, 86.113% 29.15%, 86.113% 70.85%, 50% 91.7%, 13.887% 70.85%, 13.887% 29.15%, 50% 8.3%);
+  animation: fade-in calc(2 * var(--motion)) var(--ease-out) both;
+  animation-delay: calc(var(--fill) * var(--motion));
 }
 .mcp-pill {
   position: absolute;
@@ -1246,72 +1249,85 @@ button.variant.add {
   flex: none;
   font-weight: 500;
 }
-/* Image to Structure's first-use card (McpMagic.tsx PictureDemo): a picture, tilted as a photo on the desk, is read by
-   a line that sweeps down it, and the same molecule builds beside it with the overlay's motion (.mcp-mol). The build
-   waits for the sweep (--read). One turn of mcp-life is one molecule, in the picture too (a new element each turn).
-   Transforms and opacity only. */
+/* Image to Structure's first-use card (McpMagic.tsx PictureDemo): a photo of a molecule, tilted as on a desk, is read
+   by a line that sweeps down it, and beside it Octet's drawing of the molecule shows as the line goes: a cover in the
+   page's colour moves down off it in step with the line (the same times and curve). One turn of pic-turn is one
+   molecule (a new element each turn). Transforms and opacity only. */
 .pic-demo {
-  --read: calc(6 * var(--motion));
+  --pic: 132px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
   justify-self: stretch;
-  height: 156px;
+  height: 168px;
   margin: 0 calc(-1 * var(--space-4)) var(--space-1);
   background: var(--surface-sunken);
   border-block: 1px solid var(--hairline);
 }
-.pic-photo {
+.pic-photo,
+.pic-built {
   position: relative;
-  width: 108px;
-  height: 108px;
+  flex: none;
+  width: var(--pic);
+  height: var(--pic);
   overflow: hidden;
   background: var(--canvas);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
+  animation: pic-turn 6s ease-in-out infinite;
+}
+@keyframes pic-turn {
+  0% {
+    opacity: 0;
+  }
+  4%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.pic-photo .thumb,
+.pic-built .thumb {
+  position: absolute;
+  inset: var(--space-1);
+  width: calc(100% - 2 * var(--space-1));
+  height: calc(100% - 2 * var(--space-1));
+  color: var(--ink);
+}
+/* The photo: the same drawing, grey and a little soft, as a camera sees a page. */
+.pic-photo {
   transform: rotate(-4deg);
-  animation: fade-in var(--motion-slow) var(--ease-out);
 }
-.pic-sketch {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: scale(0.6);
+.pic-photo .thumb {
+  color: var(--ink-muted);
+  filter: blur(0.4px);
 }
-.pic-line {
-  position: absolute;
-  height: 3px;
-  margin-top: -1.5px;
-  border-radius: var(--radius-pill);
-  background: var(--ink-muted);
-  transform-origin: 0 50%;
-  transform: rotate(var(--turn));
-  opacity: 0.8;
-}
-/* The read: a band in Octet's blue that sweeps down the picture once a turn, then is gone. */
+/* The read: a band in Octet's blue whose lower edge sweeps from the top of the photo to its bottom, then is gone. */
 .pic-scan {
   position: absolute;
   inset: 0 0 auto;
   height: var(--size-control);
   border-bottom: 2px solid var(--brand);
-  background: linear-gradient(transparent, color-mix(in oklab, var(--brand) 22%, transparent));
+  background: linear-gradient(transparent, color-mix(in oklab, var(--brand) 18%, transparent));
   transform: translateY(-100%);
-  animation: pic-scan 7s ease-in-out infinite;
+  animation: pic-scan 6s ease-in-out infinite;
 }
 @keyframes pic-scan {
-  0% {
+  0%,
+  8% {
     transform: translateY(-100%);
     opacity: 1;
-    animation-timing-function: var(--ease-out);
   }
-  15% {
-    transform: translateY(108px);
+  38% {
+    transform: translateY(calc(var(--pic) - 100%));
     opacity: 1;
   }
-  17%,
+  42%,
   100% {
-    transform: translateY(108px);
+    transform: translateY(calc(var(--pic) - 100%));
     opacity: 0;
   }
 }
@@ -1319,28 +1335,37 @@ button.variant.add {
   flex: none;
   color: var(--ink-faint);
 }
-.pic-built {
-  position: relative;
-  width: 132px;
-  height: 132px;
+/* Its top edge is soft, so the drawing comes in as the line passes, as a print develops. It starts above the page
+   and ends below it. */
+.pic-cover {
+  position: absolute;
+  inset: calc(-1 * var(--space-4)) 0 0;
+  background: linear-gradient(transparent, var(--canvas) var(--space-4));
+  animation: pic-reveal 6s ease-in-out infinite;
 }
-.pic-built .mcp-mol {
-  scale: 0.8;
-}
-.pic-built .mcp-bond,
-.pic-built .mcp-atom {
-  animation-delay: calc(var(--i) * var(--motion) + var(--read));
+@keyframes pic-reveal {
+  0%,
+  8% {
+    transform: none;
+  }
+  38%,
+  100% {
+    transform: translateY(100%);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .mcp-mol,
   .mcp-parts,
   .mcp-bond,
-  .mcp-atom,
+  .mcp-kekule,
+  .mcp-fill,
   .mcp-sparkle,
-  .pic-photo {
+  .pic-photo,
+  .pic-built {
     animation: none;
   }
-  .pic-scan {
+  .pic-scan,
+  .pic-cover {
     display: none;
   }
   .mcp-pill {

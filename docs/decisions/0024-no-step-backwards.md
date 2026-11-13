@@ -77,7 +77,7 @@ So:
   least time, so nothing it does glides, settles or animates, and any rule about look or feel gives way to speed
   there. In 1.2 one check, `noMotion()` in `src/Editor.tsx`, covers both, at every motion: glides, the view, the page
   outlines, the shake and the settle.
-- The overlay that shows while an AI app works (`src/McpMagic.tsx`: a molecule that builds, and a pill) is not motion
+- The overlay that shows while an AI app works (`src/McpMagic.tsx`: Octet's mark drawing itself, and a pill) is not motion
   of the drawing. It is for the person who watches, it lies over the window, and no call waits for it or is timed
   with it: the drawing under it still changes at once.
 

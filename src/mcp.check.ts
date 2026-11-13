@@ -1067,6 +1067,17 @@ out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: 
 assert.match(text(out), /"H2SO4 \(conc\.\)" has no column in the table/);
 assert.deepEqual(m.grids![0].typed, {});
 
+// On an experiment page an AI app's text takes the page's markup, as typed text does: **a heading** is bold; anywhere
+// else it stays as given.
+for (const page of [true, false]) {
+  fresh();
+  experiment = page;
+  await call("change", { operations: [{ op: "text", text: "**Safety**\nKeep it vented." }] });
+  const c = m.captions!.at(-1)!;
+  assert.equal(c.text, page ? "Safety\nKeep it vented." : "**Safety**\nKeep it vented.", `experiment page ${page}`);
+  if (page) assert.ok(c.runs?.some((r) => r.text === "Safety" && r.bold), JSON.stringify(c.runs));
+}
+
 // Structured conditions (3b): drawn as text in the usual order, kept as data, read back as fields with formulas.
 fresh();
 experiment = false;

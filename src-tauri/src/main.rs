@@ -1188,7 +1188,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
 
 // The folder Tauri's app_data_dir names, for the AI apps relay, which runs without Tauri (mcp.rs).
 fn data_dir() -> Option<std::path::PathBuf> {
-    let id = "io.github.samchemman.octet-draw";
+    // The MCP Beta app is built with an identifier of its own (OCTET_ID), so its files and settings stay apart.
+    let id = option_env!("OCTET_ID").unwrap_or("io.github.samchemman.octet-draw");
     #[cfg(not(windows))]
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     #[cfg(target_os = "macos")]
@@ -1364,9 +1365,10 @@ fn main() {
             #[cfg(target_os = "linux")]
             linux::note_path(handle);
             app.manage(recovery::start(handle));
-            // A dev build started with OCTET_MCP=1 lets AI apps in at once, for testing the tools (decision 0021).
+            // A dev build started with OCTET_MCP=1, and the MCP Beta app (built with OCTET_BETA), let AI apps in at once,
+            // for testing the tools (decision 0021).
             #[cfg(debug_assertions)]
-            if std::env::var_os("OCTET_MCP").is_some() && !headless {
+            if (std::env::var_os("OCTET_MCP").is_some() || option_env!("OCTET_BETA").is_some()) && !headless {
                 let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
             }
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
