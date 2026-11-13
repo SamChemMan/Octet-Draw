@@ -41,6 +41,7 @@ export type Settings = {
   seenNotes: string; // the version whose notes (releases.ts) the user has seen, so they show once after an update
   updates: boolean; // check for updates when Octet opens: on unless the user turns it off in Settings (decision 0010)
   mcp: boolean; // AI apps may use Octet (decision 0021): on unless the user turns it off in Settings (Sam, 13 November 2026)
+  mcpChosen: boolean; // the user set mcp with the switch: before 13 November 2026 a saved false was only the old default
   wordClick: boolean; // the Mac: a double-click on a structure in Word opens it in Octet (Settings > General); off unless the user turns it on
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
   warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
@@ -98,7 +99,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -174,7 +175,8 @@ export function loadSettings(): Settings {
       seenNotes: typeof saved.seenNotes === "string" && saved.seenNotes.length <= 20 ? saved.seenNotes : "",
       homeLayout: readLayout(saved.homeLayout?.order, saved.homeLayout?.folded),
       updates: typeof saved.updates === "boolean" ? saved.updates : true,
-      mcp: saved.mcp !== false,
+      // Off only when the user turned it off: a beta saved the old default (off) with every setting.
+      mcp: saved.mcpChosen === true ? saved.mcp !== false : true, mcpChosen: saved.mcpChosen === true,
       wordClick: saved.wordClick === true,
       lastSeen: typeof saved.lastSeen === "number" && Number.isFinite(saved.lastSeen) ? saved.lastSeen : 0,
     };

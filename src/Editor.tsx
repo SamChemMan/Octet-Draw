@@ -10661,7 +10661,7 @@ export default function Editor() {
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
           wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
-          mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
+          mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on, mcpChosen: true })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
           onBundle={() => void invoke("mcp_bundle", { tools: TOOL_TABLE.map(({ name, description }) => ({ name, description })) }).catch((e) => setNotice(failure("Octet cannot make the Claude Desktop bundle.", e)))}
           onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
