@@ -48,7 +48,8 @@ export function gridStep<C extends At>(cells: C[], from: { key: string; row: str
 // (interpret.ts); structure: a structure's formula and molar mass; reagent: a reagent's (stoich.ts reagentFormula);
 // captionBox: a caption's box (drawing units, y up); nameWidth: a text's width at a size in pt (drawing units);
 // perPt: drawing units in a point; experiment: the drawing is an experiment page; inchi: a structure's standard InChI,
-// asked for only when its formula is a listed liquid's (stoich.ts liquidOf).
+// asked for only when its formula is a listed liquid's (stoich.ts liquidOf). fit: on an experiment page, the right edge
+// a table in the Reaction scheme box keeps inside (the box's, a bond length in).
 export type GridDeps = {
   reaction: (arrow: number) => Reaction | undefined;
   steps: (r: Reaction) => RoleStep[];
@@ -56,7 +57,7 @@ export type GridDeps = {
   reagent: (text: string) => { formula: string; weight: number } | undefined;
   captionBox: (caption: number) => Box | undefined;
   nameWidth: (text: string, sizePt: number, bold?: boolean) => number;
-  captionSize: number; perPt: number; experiment: boolean; inchi?: (atoms: number[]) => string | undefined;
+  captionSize: number; perPt: number; experiment: boolean; inchi?: (atoms: number[]) => string | undefined; fit?: number;
 };
 
 // What a reagent's text says of itself: its coefficient ("2 HCl"), its text without it, the equivalents it gives, whether
@@ -76,6 +77,7 @@ function readItem(item: string) {
 // grids for its steps (Grid.step: Analyse stoichiometry on a scheme of several arrows, or One table for each step),
 // one table for each step instead, in the scheme's order, each under the one before; a grid of the whole reaction is
 // then not drawn, and an arrow added to the scheme since (an experiment page gives it a grid) is a step with its grid.
+// A table moved on its own (Grid.at) is laid out as before, then put with its corner that far from its arrow's tail.
 export function gridViews(m: Mol, d: GridDeps) {
   const seen = new Set<number>(), out: GridView[] = [];
   for (const g of m.grids ?? []) {
@@ -85,11 +87,11 @@ export function gridViews(m: Mol, d: GridDeps) {
     const steps = d.steps(r);
     if (!steps.length) continue;
     const own = (m.grids ?? []).filter((x) => r.arrows.includes(x.arrow));
-    if (!own.some((x) => x.step)) { const v = layGrid(m, d, g, r, steps, out.length === 0); if (v) out.push(v); continue; }
+    if (!own.some((x) => x.step)) { const v = layGrid(m, d, g, r, steps, out.length === 0); if (v) out.push(fitted(placed(m, g, v), d.fit)); continue; }
     let before: GridView | undefined;
     for (const st of steps) {
       const sg = own.find((x) => x.arrow === st.arrow && x.step) ?? own.find((x) => x.arrow === st.arrow), v = sg && layGrid(m, d, sg, r, steps, out.length === 0, { own: st, before });
-      if (v) out.push(v);
+      if (v) out.push(fitted(placed(m, sg, v), d.fit));
       before = v;
     }
   }
@@ -118,14 +120,15 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // written or drawn over or under the arrow (benzene or acetone drawn in the equation is what reacts).
   // role: a reactant's, as the grid sets it; a column it does not list is a reactant, or in a table made with roles
   // (every table Octet makes now) a solvent when it is a known one.
-  // carried: a step's reactant made by the step before, its moles from that step's Measured mass.
-  const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole; carried?: number }[] = [];
+  // carried: a step's reactant made by the step before, its moles from that step's Measured mass. atoms: a structure's,
+  // for its name, CAS number and hazards (riskassess.ts).
+  const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number; label?: string; given?: number; coef?: number; side: boolean; density?: number; solvent?: boolean; role?: GridRole; carried?: number; atoms?: number[] }[] = [];
   // conditions: only text with a molar mass makes a column ("0 °C", "2 h" and "reflux" do not).
   const add = (p: Part, product: boolean, conditions = false) => {
     const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
     if (p.kind === "structure") {
       const a = d.structure(p.atoms), n = m.captions?.find((c) => isNumber(c) && c.under?.some((i) => p.atoms.includes(i)))?.text, liquid = a && !product && d.inchi ? liquidOf(a.formula, () => d.inchi!(p.atoms)) : undefined;
-      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: conditions && liquid?.solvent });
+      parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low, atoms: p.atoms, label: n, coef: coefs.get(p), side: conditions, density: liquid?.density, solvent: conditions && liquid?.solvent });
       return;
     }
     if (counted.has(p)) return;
@@ -216,6 +219,34 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
 }
 
 export type GridView = NonNullable<ReturnType<typeof layGrid>>;
+// Grid.at: the table's corner (where its row names start, and its top) from its arrow's tail, in the arrow's scale. So
+// it stays where it was put while the reaction's structures change, and goes with the arrow when the reaction moves.
+export const anchorOf = (m: Mol, arrow: number) => m.arrows?.find((a) => a.id === arrow)?.from;
+function placed(m: Mol, g: Grid, v: GridView): GridView {
+  const a = g.at && anchorOf(m, g.arrow);
+  return a ? shiftView(v, [a[0] + g.at![0] * v.f - v.start, a[1] + g.at![1] * v.f - v.top]) : v;
+}
+// The table's Grid.at once moved by d (drawing units) from where it is drawn.
+export const movedAt = (m: Mol, v: GridView, d: [number, number]): [number, number] | undefined => {
+  const a = anchorOf(m, v.arrow);
+  return a && [(v.start + d[0] - a[0]) / v.f, (v.top + d[1] - a[1]) / v.f];
+};
+// A conditions block that would pass the right edge the table keeps inside (fit) goes under the table, from its left,
+// half a row clear.
+function fitted(v: GridView, fit?: number): GridView {
+  const b = v.block, left = v.rules?.[0]?.[0] ?? v.start;
+  if (fit === undefined || !b || b.right <= fit || left >= fit) return v;
+  const foot = v.rules ? v.rules[v.rules.length - 1]?.[2] ?? v.top : v.top - v.rows.length * v.rh, lines = b.lines.map((l, j) => ({ ...l, y: foot - (0.5 + j) * v.rh }));
+  return { ...v, block: { lines, at: left, valueAt: left + b.valueAt - b.at, right: left + b.right - b.at }, bottom: Math.min(foot, lines[lines.length - 1].y - v.rh) };
+}
+// A table drawn d (drawing units) from where it was laid out.
+export function shiftView(v: GridView, [dx, dy]: [number, number]): GridView {
+  if (!dx && !dy) return v;
+  const xy = <T extends { x: number; y: number }>(c: T) => ({ ...c, x: c.x + dx, y: c.y + dy });
+  return { ...v, cols: v.cols.map((c) => ({ ...c, x: c.x + dx })), cells: v.cells.map(xy), texts: v.texts?.map(xy), rules: v.rules?.map(([a, b, h]): [number, number, number] => [a + dx, b + dx, h + dy]),
+    block: v.block && { ...v.block, at: v.block.at + dx, valueAt: v.block.valueAt + dx, right: v.block.right + dx, lines: v.block.lines.map((l) => ({ ...l, y: l.y + dy })) },
+    top: v.top + dy, bottom: v.bottom + dy, left: v.left + dx, start: v.start + dx };
+}
 export const ROLE_NAMES: Record<GridRole, string> = { reactant: "Reactant", catalyst: "Catalyst", solvent: "Solvent" };
 // A column's role set: kept by its key. A table from an older Octet (no roles) first keeps each known solvent as a
 // reactant, so only the column the user changed changes.

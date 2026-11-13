@@ -61,7 +61,7 @@ export function McpMagic({ magic, progress, page }: { magic: Magic; progress: St
   );
 }
 
-// Image to Structure's first-use card (decision 0026): a picture of a molecule is read, and the same molecule builds
+// Image to Structure's first-use card (decision 0027): a picture of a molecule is read, and the same molecule builds
 // beside it, as it does while an AI app works. Each turn of the molecule's loop takes the next sketch, in the picture
 // too. Reduced motion: the picture and the molecule, still.
 export function PictureDemo() {

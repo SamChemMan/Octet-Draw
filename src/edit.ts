@@ -7,6 +7,7 @@ import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
+import { keepHands } from "./cip.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -1085,7 +1086,7 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
-  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}) }]));
+  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }]));
   const same = out.length === m.groups.length && out.every((g, k) => {
     const o = m.groups![k];
     return g.id === o.id && !!g.integral === !!o.integral && g.atoms.length === o.atoms.length && g.atoms.every((i, n) => i === o.atoms[n]) && g.items.length === o.items.length && g.items.every((id, n) => id === o.items[n]);
@@ -2760,14 +2761,15 @@ export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number
     }),
   };
 }
-// Object > Flatten: atoms keep where they are drawn and lose their depth. As in ChemDraw, depth shading stays set (it
-// shows again if the structure is turned again); an opacity set by hand goes.
+// Object > Flatten: atoms keep where they are drawn and lose their depth, and each of their wedged centres still reads
+// as it did with its depth (keepHands). As in ChemDraw, depth shading stays set (it shows again if the structure is
+// turned again); an opacity set by hand goes.
 export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => {
+  keepHands(m, { ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const location: [number, number, number] = [a.location[0], a.location[1], 0];
     return typeof a.shade === "number" ? { ...a, shade: true, location } : { ...a, location };
-  }) });
+  }) }, ids);
 // The axis part of a structure turns about in 3D, as [atom, atom]: the one bond joining the part to the rest of its
 // structure ([inside atom, outside atom]), or, when its bonds to the rest all go to the same two atoms (a
 // carboxylate bridging a metal–metal bond, a ring fused on a bond), the line through those two. Else none.

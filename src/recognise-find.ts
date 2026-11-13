@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): where the structures are in a picture of a scheme, a figure or a page. No
+// Picture to structure (decision 0027): where the structures are in a picture of a scheme, a figure or a page. No
 // model: the ink is split into connected pieces, the size of a letter is measured, and each structure is a large
 // piece (its bonds, which join) with the letters near it (its atom labels). Long thin pieces are arrows or rules and
 // start no structure; a run of letters far from any bond is text. Each structure found goes to the models alone.

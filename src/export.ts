@@ -210,10 +210,11 @@ export function pictureAs(svg: string, f: { format: ExportFormat; margin: number
 // and EMF carry the CDXML (CARRY_CDXML), as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
 // `transparent`; JPEG at `quality` (1 to 100, 95 if not given). mdl: the text of the MDL format asked for, or of CML or a
 // connection table (File > More Formats); csv: Home's Experiments list; model: a 3MF file's 3D model (src/model3mf.ts);
-// tex: chemfig code (chemfig.ts); info: the drawing's title, author and keywords, for a PDF's document information.
+// tex: chemfig code (chemfig.ts); info: the drawing's title, author and keywords, for a PDF's document information;
+// pages: a PDF's pages, each a standalone SVG of one page (an experiment page and its risk assessment), in place of svg.
 // Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
   name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct"; csv?: string; model?: string; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
-  dpi?: number; transparent?: boolean; quality?: number; info?: Properties;
+  dpi?: number; transparent?: boolean; quality?: number; info?: Properties; pages?: string[];
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

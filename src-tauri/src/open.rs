@@ -145,7 +145,7 @@ pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picke
 // one dropped on it is. It is not remembered for Save and does not go on Home's list.
 #[tauri::command]
 pub async fn insert_file(app: AppHandle, pictures: Option<bool>) -> Result<Option<OpenedFile>, String> {
-    // Image to Structure (decision 0026) takes a picture only.
+    // Image to Structure (decision 0027) takes a picture only.
     let picker = app.dialog().file();
     let picker = if pictures == Some(true) { picker.add_filter("Pictures", &PICTURES) } else { picker.add_filter("Drawings and pictures", &[&DRAWINGS[..], &PICTURES, &VECTORS].concat()) };
     let Some(file) = picker.blocking_pick_file() else {

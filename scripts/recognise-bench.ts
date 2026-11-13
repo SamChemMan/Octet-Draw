@@ -1,5 +1,5 @@
 // Run: node scripts/recognise-bench.ts [set folder ...] [--models <folder>] [--out <results.json>] [--check]
-// Picture to structure's bench (decision 0026). Reads every picture of each test set (tests/recognise/* by default)
+// Picture to structure's bench (decision 0027). Reads every picture of each test set (tests/recognise/* by default)
 // with both models, the way the app reads it: each structure in the picture is found (recognise-find.ts), then read
 // by MolScribe and by OCSRGlyph. Each answer is compared with the structure the set expects, by standard InChI
 // ("exact", stereo included) and by the InChI without its stereo layers ("skeleton"). Prints a table per set and

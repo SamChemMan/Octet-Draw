@@ -16,7 +16,7 @@ export default defineConfig(() => ({
   define: { __FEEDBACK__: JSON.stringify(process.env.OCTET_FEEDBACK !== "0") },
 
   // Pre-bundling breaks the relative URL Indigo uses to find its .wasm file, and ONNX Runtime's (picture to
-  // structure, decision 0026).
+  // structure, decision 0027).
   optimizeDeps: { exclude: ["indigo-ketcher", "onnxruntime-web"] },
   // The recognition worker (src/recognise.worker.ts) imports ONNX Runtime as a module.
   worker: { format: "es" as const },

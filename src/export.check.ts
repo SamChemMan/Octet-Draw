@@ -2,6 +2,7 @@
 // picture.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { apartShapes, type Drawing } from "./render.ts";
 import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin, withWidth } from "./export.ts";
 import { EMPTY, extractSelection, sprout } from "./edit.ts";
 
@@ -173,7 +174,7 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
 // hidden page keeps no recovery copy; and a hidden window answers once what it opens is open, a file that did not
 // open answering with why.
 {
-  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(mol, svg, filePrefs\) \}\);/, "Export");
+  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(mol, sheets \? undefined : svg, f\), pages: sheets\?\.texts \}\);/, "Export");
   assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(part, svg, \{ \.\.\.f, format \}\) \}\);/, "Quick export");
   assert.match(editor, /invoke<string>\("export_bytes", \{ export: exportRequest\(mol, svg, f\) \}\)/, "read");
   // (No dialog with no window: mcp.ts refuses Export and the dialog commands when windowless; mcp.check tests it.)
@@ -194,5 +195,17 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   const settings = readFileSync(new URL("settings.ts", import.meta.url), "utf8");
   assert.match(settings, /export const HEADLESS = typeof location !== "undefined" && new URLSearchParams\(location\.search\)\.has\("headless"\);/);
   assert.match(settings, /export function saveSettings\(s: Settings\) \{\n  if \(HEADLESS\) return;/);
+}
+// A picture that leaves Octet (Copy, Export) draws each line of a bond, ring circle, symbol and arrow as a path of its own, as
+// ChemDraw's PDF does, so Inkscape and Illustrator can move each one. The canvas keeps one path per colour.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /function structurePaths\(d: Drawing, apart = false\): \[string, string\]\[\] \{\n  if \(apart && d\.owners\) \{\n    return apartShapes\(d\)/, "structurePaths uses apartShapes");
+  // A double bond (owner 0) gives two paths; a ring circle (owner -1) keeps its hole, listed before the circle.
+  const sq = (x: number, y: number, w: number, h: number): [number, number][] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  const shapes = apartShapes({ polygons: [sq(0, 0, 10, 1), sq(1, 3, 8, 1), sq(23, 3, 4, 4), sq(20, 0, 10, 10)], colours: [undefined, undefined, undefined, undefined], alphas: [1, 1, 1, 1], owners: [0, 0, -1, -1] } as unknown as Drawing);
+  assert.deepEqual(shapes.map(([key, polys]) => [key, polys.length]), [["|1.00|0|0", 1], ["|1.00|0|1", 1], ["|1.00|-1|3", 2]], "each line apart, the hole with its circle");
+  assert.match(editor, /const structureInk = useMemo\([^\n]*structurePaths\(d, !!exporting\)[^\n]*\[drawing, exporting\]\)/, "structures apart when exporting");
+  assert.match(editor, /if \(exporting\) each\.push\(\[key, path\]\);/, "arrows apart when exporting");
 }
 console.log("export.check: ok");

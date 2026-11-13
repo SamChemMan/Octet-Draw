@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): what a model read, as an Octet structure. MolScribe's atoms keep their
+// Picture to structure (decision 0027): what a model read, as an Octet structure. MolScribe's atoms keep their
 // places in the picture, scaled so the median bond is one bond length (14.4 pt in ACS 1996). A label it read (OMe,
 // Ph, CO2Et, R1) stays a written label, as the author drew it; Octet's own chemistry expands it as it expands any
 // label typed by hand.

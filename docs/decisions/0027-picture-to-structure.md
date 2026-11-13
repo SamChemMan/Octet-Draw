@@ -1,4 +1,4 @@
-# 0026: Picture to structure
+# 0027: Picture to structure
 
 Status: built 12 November 2026 by Stefan Schramm's support project, for Sam to review. It changes one line of the
 brief: section "Not in version 1" lists AI features ("Leave clean extension points for these. Do not build them").

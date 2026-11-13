@@ -50,7 +50,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | Instrument Sans (@fontsource/instrument-sans) | 5.3 | OFL-1.1 | UI font |
 | IBM Plex Mono (@fontsource/ibm-plex-mono) | 5.3 | OFL-1.1 | SMILES, InChI and formula font |
 | @phosphor-icons/react | 2.1 | MIT | UI icons |
-| onnxruntime-web (Microsoft) | 1.31 | MIT | Picture to structure (decision 0026): runs the two reading models as WebAssembly, on one thread, in a worker. Only its WASM build is used (`onnxruntime-web/wasm`). Its packages onnxruntime-common (MIT), flatbuffers (Apache-2.0), long (Apache-2.0), protobufjs (BSD-3-Clause) and guid-typescript (ISC) come with it |
+| onnxruntime-web (Microsoft) | 1.31 | MIT | Picture to structure (decision 0027): runs the two reading models as WebAssembly, on one thread, in a worker. Only its WASM build is used (`onnxruntime-web/wasm`). Its packages onnxruntime-common (MIT), flatbuffers (Apache-2.0), long (Apache-2.0), protobufjs (BSD-3-Clause) and guid-typescript (ISC) come with it |
 | sha2 (Rust, RustCrypto) | 0.10 | MIT OR Apache-2.0 | Checks the picture recognition model files by SHA-256 (`src-tauri/src/recognise.rs`). Already in the build through Tauri |
 | MolScribe model (Yujie Qian et al., MIT) | swin_base_char_aux_1m680k | MIT (code and weights) | Picture to structure. Not in the installer: downloaded or installed by the user, once, as `molscribe.octmodel` (exported to ONNX with 8-bit weights by `tools/recognise`) |
 | OCSRGlyph model (Edison Scientific) | 2026 | Apache-2.0 (code and weights) | Picture to structure. Not in the installer: downloaded or installed by the user, once, as `glyph.octmodel` (exported to ONNX with 8-bit weights by `tools/recognise`) |

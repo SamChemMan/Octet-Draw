@@ -220,7 +220,56 @@ function one(s: string): string | undefined {
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);
-  return beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read);
+  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read) ?? familySmiles(s);
+}
+
+// [n]cycloparaphenylene: n benzene rings joined para in one ring, C(6n)H(4n). OPSIN does not read it, and the
+// dictionary's one entry ([8], from Wikidata) had the structure of [12]. Also "[8]CPP", "8-cyclo-p-phenylene" and
+// "[8]cyclo-1,4-phenylene". 4 to 40 rings.
+function hoopSmiles(s: string): string | undefined {
+  // "CPP" alone needs its brackets: 4-CPP is a chlorophenylpiperazine.
+  const m = /^(?:\[(\d{1,2})\][\s-]*cpp|\[?(\d{1,2})\]?[\s-]*cyclo[\s-]*\(?(?:para|p|1,4)[\s-]*phenylene\)?)$/i.exec(s), n = m ? Number(m[1] ?? m[2]) : 0;
+  return n >= 4 && n <= 40 ? `c1cc2ccc1${"-c1ccc(cc1)".repeat(n - 2)}-c1ccc2cc1` : undefined;
+}
+
+// "[n]helicene", "[n]circulene", "[n]radialene", "[n]cyclacene", "[n]cyclophenacene" and the cyclophanes ("[2.2]-
+// metacyclophane", "[6]paracyclophane", "[2.2.2]paracyclophane", "[2.2]metaparacyclophane"), which neither OPSIN nor
+// the dictionary reads. Read last, so a name that reads already keeps its structure. Exported for names.check.ts.
+// The largest n is where Indigo's layout still takes a second or less ([16]helicene 1.4 s; [18]helicene and [20]cyclacene 7 s).
+const label = (k: number) => (k < 10 ? `${k}` : `%${k}`);
+const FAMILIES = new Map<string, [number, number, (n: number) => string | undefined]>(Object.entries({
+  // n benzene rings fused angularly, all the same way: the outer rim, then the inner rim back. C(4n+2)H(2n+4).
+  helicene: [3, 16, (n) => {
+    let s = "c1ccc";
+    for (let k = 1; k < n; k++) s += `c${label(k + 1)}${k < n - 1 ? "cc" : "cccc"}`;
+    for (let k = n - 1; k >= 1; k--) s += `c${label(k + 1)}`;
+    return `${s}1`;
+  }],
+  // n benzene rings round an n-membered ring: the rim, each spoke with its atom of the inner ring. C(4n)H(2n).
+  circulene: [3, 12, (n) => Array.from({ length: n }, (_, k) => `c${k ? "" : "1"}(c${k ? (k % 2 ? 3 : 4) : 2}${k === n - 1 ? 2 : k % 2 ? 4 : 3})cc`).join("") + "1"],
+  // An n-membered ring with =CH2 on every atom. C(2n)H(2n).
+  radialene: [3, 8, (n) => `C=C1${"C(=C)".repeat(n - 2)}C1=C`],
+  // The belts are written with their Kekulé bonds (each rim alternating), as Indigo leaves aromatic bonds in them.
+  // n benzene rings fused linearly round a belt: the top rim, each rung with the bottom rim's CH. C(4n)H(2n).
+  cyclacene: [5, 16, (n) => Array.from({ length: n }, (_, k) => `C${k ? "" : "1"}(C${k ? (k % 2 ? 3 : 4) : 2}=C${k === n - 1 ? 2 : k % 2 ? 4 : 3})=C`).join("") + "1"],
+  // n benzene rings in a belt, each fused angularly and the turns alternating (the phenacenes, picene, closed): the
+  // armchair belt, [10] from C60's equator (C40H20). n is the number of rings, and is even. C(4n)H(2n).
+  cyclophenacene: [6, 16, (n) => n % 2 ? undefined : Array.from({ length: n }, (_, k) => (k % 2 ? `=C(C3${k === n - 1 ? 2 : "=4"})C=C` : `C${k ? "" : "1"}(C${k ? 4 : "=2"}C=C3)`)).join("") + "1"],
+}));
+export function familySmiles(s: string): string | undefined {
+  const m = /^\[?(\d{1,2})\]?[\s-]*([a-z]+)$/i.exec(s), family = m && FAMILIES.get(m[2].toLowerCase()), n = m ? Number(m[1]) : 0;
+  if (family) return n >= family[0] && n <= family[1] ? family[2](n) : undefined;
+  // Cyclophanes: one benzene ring per number, each joined to the next (a ring alone, to itself) by that many CH2, meta
+  // (1,3) or para (1,4). "metapara" gives the first ring meta, the second para.
+  const c = /^\[?(\d{1,2}(?:[.,]\d{1,2}){0,3})\]?[\s-]*((?:meta|para)+)[\s-]*cyclophane$/i.exec(s);
+  if (!c) return undefined;
+  const bridges = c[1].split(/[.,]/).map(Number), kinds = c[2].toLowerCase().match(/meta|para/g)!;
+  if (kinds.length !== 1 && kinds.length !== bridges.length) return undefined;
+  if (bridges.some((b) => b < (bridges.length === 1 ? 4 : 1) || b > (bridges.length === 1 ? 20 : 12))) return undefined;
+  return bridges.map((b, i) => {
+    const ring = (kinds[i] ?? kinds[0]) === "meta" ? "cccc(c1)" : "ccc(cc1)";
+    return `c1${i ? "" : "2"}${ring}${"C".repeat(b)}`;
+  }).join("") + "2";
 }
 
 // Acid addition salts and hydrates of a name, as the name and the acid (or water) side by side, as PubChem draws them.

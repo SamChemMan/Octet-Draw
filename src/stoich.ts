@@ -329,8 +329,9 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const colour = typeof g.colour === "string" && /^#[0-9a-f]{6}$/i.test(g.colour) ? g.colour : undefined;
   const roles = reactantKeyed(g.roles, ROLES), taken = reactantKeyed(g.taken, ["mass", "volume"] as const), conditions = readConditions(g.conditions);
   const conc = typeof g.conc === "number" && Number.isFinite(g.conc) && g.conc > 0 && g.conc <= 1000 ? g.conc : undefined;
+  const at = Array.isArray(g.at) && g.at.length === 2 && g.at.every((x) => typeof x === "number" && Number.isFinite(x) && Math.abs(x) < 1e4) ? [g.at[0], g.at[1]] as [number, number] : undefined;
   return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
-    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}) };
+    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}), ...(at ? { at } : {}) };
 }
 
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what

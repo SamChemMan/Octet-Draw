@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): the three recognition model files (two for structures, one for the text of
+// Picture to structure (decision 0027): the three recognition model files (two for structures, one for the text of
 // reaction conditions), kept in Octet's data folder. They are not in the installer: the user downloads them once
 // (about 280 MB together) or installs them from files, and from then on
 // picture recognition runs offline. Octet takes only the exact files it knows: each one's size and SHA-256 are fixed

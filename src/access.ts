@@ -262,6 +262,7 @@ const unitOf = (m: Mol, items: number[]) => { const ids = new Set(items); return
 // spectrum by its m/z axis, another spectrum as a spectrum, any other group as a group.
 export function groupTitle(m: Mol, g: Group): string {
   if (g.plot) return plotName(g.plot);
+  if (g.risk) return "Risk assessment";
   const unit = unitOf(m, g.items);
   return unit?.text === "m/z" ? "Mass spectrum" : unit || spectrumTitle(m, g.items) ? "Spectrum" : "Group";
 }

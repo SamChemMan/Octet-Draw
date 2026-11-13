@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): the worker that finds and reads the structures in a picture, so the canvas
+// Picture to structure (decision 0027): the worker that finds and reads the structures in a picture, so the canvas
 // stays responsive while the models run (about 2 s per structure for each model). It gets the three model files
 // once, then pictures as RGBA pixels, and answers with each structure as it is read, then the reaction arrows with
 // their conditions.

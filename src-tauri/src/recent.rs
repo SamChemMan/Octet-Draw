@@ -172,7 +172,7 @@ pub async fn open_recent(app: AppHandle, picked: State<'_, Picked>, path: String
 // takes the recent list's). The page can only add a drawing on the recent list, and each record is checked when it
 // comes from the page and when it is read back, as a file could carry anything.
 const MOST_EXPERIMENTS: usize = 1000;
-const DETAILS: [&str; 9] = ["title", "date", "notebook", "project", "author", "temperature", "time", "pressure", "solvent"]; // experiment.ts FIELDS
+const DETAILS: [&str; 10] = ["title", "number", "date", "notebook", "project", "author", "temperature", "time", "pressure", "solvent"]; // experiment.ts FIELDS
 const MAX_VALUE: usize = 200; // characters in a detail (experiment.ts MAX_VALUE)
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]

@@ -18,6 +18,17 @@ Accepted trade-off: someone can make a closed version of Octet.
 
 This replaces the earlier plan for paid institutional licences.
 
+## Citation
+
+Decided 12 November 2026. Octet asks for citation. It does not require it.
+
+- A clause that requires citation would make Octet's licence non-standard. Octet would then not be
+  open source by the OSI definition, and the Journal of Cheminformatics asks for an OSI-approved licence.
+- [NOTICE](../NOTICE) credits Sam Ellis and asks for citation. Apache-2.0 section 4(d) requires every
+  copy or changed version that someone gives to others to keep this text.
+- [CITATION.cff](../CITATION.cff) gives the citation. GitHub shows it as Cite this repository, and
+  Zenodo uses it to give each release a DOI.
+
 ## Contributions
 
 Apache-2.0 section 5 licenses each contribution under Apache-2.0 unless

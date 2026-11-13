@@ -39,7 +39,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 getrandom = "0.3"
 # The Claude Desktop bundle's zip (src/mcp.rs): its checksums. Already in the build through png.
 crc32fast = "1"
-# Picture to structure's model files are checked by SHA-256 (src/recognise.rs, decision 0026). Already in the build
+# Picture to structure's model files are checked by SHA-256 (src/recognise.rs, decision 0027). Already in the build
 # through Tauri.
 sha2 = "0.10"
 

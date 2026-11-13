@@ -17,6 +17,7 @@ import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 import type { Measured } from "./measured.ts";
 import type { Plot, PlotPart } from "./pageplot.ts";
+import type { Risk } from "./riskassess.ts";
 
 type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
@@ -175,6 +176,9 @@ export type Caption = {
   // What the text of a reaction's conditions says, when an AI app gave it as data (mcp.ts, decision 0021): its
   // reagents, catalysts, solvents, temperature, time, atmosphere or yield. In memory only: files keep the text.
   facts?: StepFacts;
+  // On an experiment page: the text is this detail's value (experiment.ts FIELDS: "date", "notebook"), so the detail is
+  // what the text says, wherever the text is moved to.
+  field?: string;
 };
 export type StepFacts = { reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string };
 // Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
@@ -465,7 +469,10 @@ export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
 // spectra: measured spectra (measured.ts), at most one for each key (¹H, ¹³C, IR and so on), shown in the Spectrum panel.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[] };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[];
+  // An experiment page whose details are text on the page (Octet 1.1.2; experiment.ts withHeader). A page without it,
+  // from Octet 1.1.1, gets that text when it opens.
+  fields?: true };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.
@@ -487,19 +494,19 @@ export type Annotation = { keyword: string; content: string };
 // every column a reactant until the user sets one); taken, the amount measured out for a column, its mass or its
 // volume (drawn red and underlined); conc, the concentration typed (mol/L), which gives the volume of the solvent with
 // no amount typed; conditions, the lines of the block beside the table; step, the table covers its own arrow only (one
-// table for each step of a scheme).
+// table for each step of a scheme); at, the table moved on its own: its corner from its arrow's tail (gridview.ts).
 export type GridRole = "reactant" | "catalyst" | "solvent";
 export type GridConditions = Partial<Record<"temperature" | "time" | "atmosphere" | "other", string>>;
 export type Grid = {
   arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
   hidden?: { rows?: string[]; cols?: string[] }; colour?: string; layout?: "rows";
-  roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true;
+  roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true; at?: [number, number];
 };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
 // is never split: a click on any part picks all of it.
-// plot: a page spectrum's record (pageplot.ts).
-export type Group = { id: number; atoms: number[]; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot };
+// plot: a page spectrum's record (pageplot.ts). risk: an experiment page's risk assessment's record (riskassess.ts).
+export type Group = { id: number; atoms: number[]; items: number[]; integral?: true; annotations?: Annotation[]; plot?: Plot; risk?: Risk };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 // terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
 // labelPt: the document's label size in pt, which an atom's own label size is measured against.
@@ -1810,6 +1817,28 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   }
   cache.last = last;
   return out;
+}
+// A structure's ink for a picture that leaves Octet (Copy, Export; structurePaths in Editor.tsx): one list of shapes
+// for each line of a bond (each line of a double bond, each hash), ring circle and symbol, as [colour|alpha|owner|n,
+// shapes]. ChemDraw's PDF draws each line on its own, and Inkscape makes each path an object the user can move. A
+// shape inside a larger one of the same owner (the hole of a ring circle) goes with that one, in any order, so it is
+// still a hole. Without owners: none.
+export function apartShapes(d: Drawing): [string, P[][]][] {
+  if (!d.owners) return [];
+  const shapes = d.polygons.map((poly, i) => {
+    const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
+    return { key: `${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}|${d.owners![i]}`, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as Box, poly };
+  });
+  const inside = (a: Box, b: Box) => b[0] <= a[0] && b[1] <= a[1] && b[2] >= a[2] && b[3] >= a[3];
+  const area = (b: Box) => (b[2] - b[0]) * (b[3] - b[1]);
+  const out = new Map<number, P[][]>();
+  shapes.forEach((sh, i) => {
+    // The largest shape of the same owner that holds this one; of two with the same box, the first.
+    let at = i;
+    shapes.forEach((o, j) => { if (j !== i && o.key === sh.key && inside(sh.box, o.box) && (area(o.box) > area(shapes[at].box) || (area(o.box) === area(shapes[at].box) && j < at))) at = j; });
+    out.set(at, [...(out.get(at) ?? []), sh.poly]);
+  });
+  return [...out].sort((a, b) => a[0] - b[0]).map(([i, polys]) => [`${shapes[i].key}|${i}`, polys]);
 }
 // A drawing moved by x, y (px).
 function shifted(d: Drawing, [x, y]: P): Drawing {

@@ -1,4 +1,4 @@
-// Run: node src/recognise.check.ts. Fails loudly if Picture to Structure (decision 0026) breaks anywhere that needs no
+// Run: node src/recognise.check.ts. Fails loudly if Picture to Structure (decision 0027) breaks anywhere that needs no
 // model: preparing a picture as each model was trained, finding every structure in every test picture, reading the
 // atoms MolScribe writes, building a structure (labels, charges, wedges) from what the models read in the test
 // pictures (tests/recognise/readings.json), weighing the two models, placing the structures beside their picture,

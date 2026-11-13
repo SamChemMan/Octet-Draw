@@ -17,7 +17,8 @@ import { loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
-import { experimentPage, newExperiment, newGrids } from "../../src/experiment.ts";
+import { experimentPage, newExperiment, newGrids, type Sheet } from "../../src/experiment.ts";
+import { addRisk, riskPlace } from "../../src/riskassess.ts";
 import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
@@ -113,7 +114,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
   resetIds();
   const fresh = (id: string): Mol => {
     const style = styleFor({ purposeStyles: {}, ownPurposes: [] }, id);
-    return { ...EMPTY, style, ...(purposeOf({ ownPurposes: [] }, id)?.kind === "experiment" ? newExperiment(pageSize(style), style.bond, undefined) : {}) };
+    if (purposeOf({ ownPurposes: [] }, id)?.kind !== "experiment") return { ...EMPTY, style };
+    // As the app makes one (Editor freshFor), with its risk assessment on page 2 (Settings riskNew is on by default).
+    const sheet: Sheet = { page: pageSize(style), bond: style.bond, size: style.captionSize, measure: (text, size, bold) => textWidth(text, size, bold, false, fontStack(style.captionFont)) };
+    return addRisk({ ...EMPTY, style, ...newExperiment(sheet) }, riskPlace(sheet, 0), sheet, [], true);
   };
   let doc = fresh(purpose), past: Mol[] = [], future: Mol[] = [], start: Mol | undefined, undid = false;
   let picked = { atoms: [] as number[], items: [] as number[] };

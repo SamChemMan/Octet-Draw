@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): from a picture to editable structures. The worker (recognise.worker.ts) finds
+// Picture to structure (decision 0027): from a picture to editable structures. The worker (recognise.worker.ts) finds
 // each structure in the picture and reads it with both models; here, on the page, where Indigo is, each reading
 // becomes a structure and the two models' answers are weighed against each other.
 //

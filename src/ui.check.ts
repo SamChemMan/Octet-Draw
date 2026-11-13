@@ -94,7 +94,7 @@ for (const r of rules) {
   }
   const z = r.props.get("z-index");
   // Inside one component a part goes behind or in front of its siblings with a small number.
-  const LOCAL = [".spectrum-button[aria-pressed]::before", ".indicator", ".home-section.lifted::after", ".menu-head", ".notes-nav", ".home-section.lifted", ".remove-shade", ".folder-front"];
+  const LOCAL = [".spectrum-button[aria-pressed]::before", ".indicator", ".home-section.lifted::after", ".menu-head", ".home-section.lifted", ".remove-shade", ".folder-front"];
   if (z) assert.ok(/^var\(--z-[\w-]+\)$/.test(z) || r.parts.some((p) => LOCAL.includes(p)), `${r.selector}: z-index ${z}; use a --z token`);
 }
 
@@ -229,7 +229,7 @@ for (const r of rules) {
 
 // 7. Fills. A field is a well (the canvas colour). A button with an edge has the raised fill.
 for (const s of [".select-field", ".unit-field", ".segmented", ".list-find", ".page-button"]) assert.ok(rules.some((r) => r.selector === s && r.props.get("background") === "var(--canvas)"), `${s} is a well`);
-for (const s of [".spectrum-button", ".chip", ".prop-add", ".dialog-button", ".home-open", ".notes-tab", ".export-button", ".feedback-link", ".actions-reopen"]) assert.ok(rules.some((r) => r.selector === s && r.props.get("background") === "var(--surface-raised)"), `${s} has the raised fill`);
+for (const s of [".spectrum-button", ".chip", ".prop-add", ".dialog-button", ".home-open", ".export-button", ".feedback-link", ".actions-reopen"]) assert.ok(rules.some((r) => r.selector === s && r.props.get("background") === "var(--surface-raised)"), `${s} has the raised fill`);
 
 // 8. A name from another program. The Update button's name (the program, or the document: up to 260 characters) stays
 // on one line in a pill at most 240 px wide, cut short with an ellipsis. The pill is a block, as an ellipsis does not

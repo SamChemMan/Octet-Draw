@@ -738,7 +738,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("open", "Open…", "CmdOrCtrl+O")?,
         &open_recent,
         &item("import", "Import a Structure…", "")?,
-        // Image to Structure (decision 0026): a picture's structures as atoms and bonds, read on this computer.
+        // Image to Structure (decision 0027): a picture's structures as atoms and bonds, read on this computer.
         &item("image_to_structure", "Image to Structure…", "")?,
         &item("insert_file", "Insert…", "")?,
         &sep()?,

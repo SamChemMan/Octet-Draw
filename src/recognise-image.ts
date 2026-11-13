@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): the pixels of a picture, and the steps that make them what each recognition
+// Picture to structure (decision 0027): the pixels of a picture, and the steps that make them what each recognition
 // model was trained on. Pure functions over RGBA pixels, so the same code runs in the app, in its worker and in the
 // checks. The webview's decoder reads the picture file in the app (recognise.ts); decodePng here is for the checks
 // and the bench, and reads only 8-bit PNGs.

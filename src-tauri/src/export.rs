@@ -95,15 +95,25 @@ pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<V
 
 // make_pdf for an SVG that is read already, so Copy on the Mac reads it once for the PDF and for Office's copy.
 pub fn pdf_of(tree: &usvg::Tree, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    let (chunk, picture) = svg2pdf::to_chunk(tree, svg2pdf::ConversionOptions::default()).map_err(|e| e.to_string())?;
+    pdf_pages(&[tree], cdxml, info)
+}
+
+// The pages Octet sends for a PDF of several pages (an experiment page and its risk assessment), at most MAX_PAGES.
+pub const MAX_PAGES: usize = 64;
+pub fn make_pdf_pages(svgs: &[String], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
+    if svgs.is_empty() || svgs.len() > MAX_PAGES {
+        return Err("Octet cannot export this many pages.".into());
+    }
+    let trees = svgs.iter().map(|s| tree(s)).collect::<Result<Vec<_>, _>>()?;
+    pdf_pages(&trees.iter().collect::<Vec<_>>(), cdxml, info)
+}
+
+// A PDF with a page for each SVG, each page the SVG's box.
+fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
     let mut alloc = Ref::new(1);
-    let [catalog, pages, page, content, meta] = [(); 5].map(|_| alloc.bump());
-    let mut map = HashMap::new();
-    let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+    let [catalog, pages, meta] = [(); 3].map(|_| alloc.bump());
     // usvg measures in CSS px (96 to the inch); PDF in points (72). Rounded, so 86 pt stays 86, not 85.99999.
     let pt = |px: f32| (px * 750.0).round() / 1000.0;
-    let (w, h) = (pt(tree.size().width()), pt(tree.size().height()));
-
     let mut pdf = Pdf::new();
     let mut cat = pdf.catalog(catalog);
     cat.pages(pages);
@@ -111,15 +121,23 @@ pub fn pdf_of(tree: &usvg::Tree, cdxml: Option<&str>, info: Option<&Info>) -> Re
         cat.metadata(meta);
     }
     cat.finish();
-    pdf.pages(pages).kids([page]).count(1);
-    let mut p = pdf.page(page);
-    p.media_box(Rect::new(0.0, 0.0, w, h)).parent(pages).contents(content);
-    p.resources().x_objects().pair(Name(b"S"), map[&picture]);
-    p.finish();
-    let mut c = Content::new();
-    c.save_state().transform([w, 0.0, 0.0, h, 0.0, 0.0]).x_object(Name(b"S")).restore_state();
-    pdf.stream(content, &c.finish());
-    pdf.extend(&chunk);
+    let kids: Vec<Ref> = trees.iter().map(|_| alloc.bump()).collect();
+    pdf.pages(pages).kids(kids.iter().copied()).count(kids.len() as i32);
+    for (tree, &page) in trees.iter().zip(&kids) {
+        let (chunk, picture) = svg2pdf::to_chunk(tree, svg2pdf::ConversionOptions::default()).map_err(|e| e.to_string())?;
+        let content = alloc.bump();
+        let mut map = HashMap::new();
+        let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+        let (w, h) = (pt(tree.size().width()), pt(tree.size().height()));
+        let mut p = pdf.page(page);
+        p.media_box(Rect::new(0.0, 0.0, w, h)).parent(pages).contents(content);
+        p.resources().x_objects().pair(Name(b"S"), map[&picture]);
+        p.finish();
+        let mut c = Content::new();
+        c.save_state().transform([w, 0.0, 0.0, h, 0.0, 0.0]).x_object(Name(b"S")).restore_state();
+        pdf.stream(content, &c.finish());
+        pdf.extend(&chunk);
+    }
     if let Some(x) = cdxml {
         let data = miniz_oxide::deflate::compress_to_vec_zlib(cdxml_document(x).as_bytes(), 6);
         pdf.metadata(meta, &data).filter(Filter::FlateDecode).pair(Name(b"Vendor"), Name(b"org.octet"));
@@ -565,6 +583,7 @@ pub struct Export {
     transparent: Option<bool>,
     quality: Option<u8>, // JPEG
     info: Option<Info>, // the PDF's
+    pages: Option<Vec<String>>, // a PDF's pages, each an SVG, in place of svg (an experiment page and its risk assessment)
 }
 
 // Files exported this session. The page can ask to show one of them in the file manager (reveal_file), never
@@ -580,7 +599,8 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
-        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" => e.svg.is_some(),
+        "pdf" => e.svg.is_some() || e.pages.is_some(),
+        "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "cdx" => e.cdx.is_some(),
         "inchi" => e.inchi.is_some(),
@@ -626,7 +646,10 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
 pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
     let text = |s: &Option<String>| s.clone().unwrap_or_default().into_bytes();
     Ok(match format {
-        "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref(), e.info.as_ref())?,
+        "pdf" => match &e.pages {
+            Some(pages) => make_pdf_pages(pages, e.cdxml.as_deref(), e.info.as_ref())?,
+            None => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref(), e.info.as_ref())?,
+        },
         "svg" => format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n", e.svg.as_deref().unwrap_or_default()).into_bytes(),
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false), e.cdxml.as_deref())?,
         "tif" => make_tiff(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
@@ -1136,6 +1159,19 @@ mod tests {
         let doc = cdxml_document("\u{feff}<?xml version=\"1.0\"?>\n<!DOCTYPE CDXML SYSTEM \"x\">\n<CDXML/>");
         assert!(doc.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!DOCTYPE CDXML SYSTEM \"http://www.cambridgesoft.com/xml/cdxml.dtd\" >\n<CDXML/>"));
         assert_eq!(cdxml_document("<CDXML/>"), doc);
+    }
+
+    // An experiment page with its risk assessment exports as a PDF of two pages, each the size of its SVG, and the
+    // CDXML still reads back. No pages, or more than MAX_PAGES, are refused.
+    #[test]
+    fn pdf_of_pages() {
+        let pages = [SVG.to_string(), SVG.to_string()];
+        let pdf = make_pdf_pages(&pages, Some(CDXML), None).unwrap();
+        assert!(find(&pdf, b"/Count 2").is_some());
+        assert_eq!(pdf.windows(9).filter(|w| w == b"/MediaBox").count(), 2);
+        assert!(cdxml_from_pdf(&pdf).is_some());
+        assert!(make_pdf_pages(&[], None, None).is_err());
+        assert!(make_pdf_pages(&vec![SVG.to_string(); MAX_PAGES + 1], None, None).is_err());
     }
 
     #[test]

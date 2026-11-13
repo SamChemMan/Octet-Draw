@@ -1,4 +1,4 @@
-// Picture to structure (decision 0026): the two recognition models, run with ONNX Runtime Web as WebAssembly on
+// Picture to structure (decision 0027): the two recognition models, run with ONNX Runtime Web as WebAssembly on
 // one thread, in the app's recognition worker and in Node for the bench.
 //
 // - MolScribe (Qian et al., J. Chem. Inf. Model. 2023; MIT): atoms with their positions in the picture, then the bond

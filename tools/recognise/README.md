@@ -1,6 +1,6 @@
 # Picture to structure: the model files
 
-Decision 0026. Octet reads pictures with two published models, exported once from PyTorch to ONNX and packed into
+Decision 0027. Octet reads pictures with two published models, exported once from PyTorch to ONNX and packed into
 one `.octmodel` file each. These steps make both files from the published weights, byte for byte. Their SHA-256
 values go into `src-tauri/src/recognise.rs` (`MODELS`), and the bench's numbers are for exactly these files.
 
