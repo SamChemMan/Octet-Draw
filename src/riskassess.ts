@@ -210,7 +210,7 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
     return h;
   };
   // A box to tick, its bottom on the baseline's descent, and its name after it.
-  const tick = (key: string, x: number, y: number, name?: string) => {
+  const tick = (key: string, x: number, y: number, name?: string, width?: number): number => {
     const b: Box = [x, y - 0.2 * em, x + tb, y - 0.2 * em + tb];
     out.shapes.push({ kind: "box", from: [b[0], b[3]], to: [b[2], b[1]] });
     out.ticks.push({ key, box: b });
@@ -219,13 +219,20 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
       const points = [[0.18, 0.5], [0.4, 0.2], [0.85, 0.85]].map(([a, c]): CurvePoint => ({ at: [b[0] + a * tb, b[1] + c * tb] }));
       out.arrows.push({ kind: "curve", width: 1.2, from: points[0].at, to: points[2].at, curve: { points } });
     }
-    if (name) text(`label:${key}`, name, x + tb + 0.5 * gap, y);
+    // A label the user typed wraps inside its column; Octet's own fit as they are.
+    return name ? Math.max(1, text(`label:${key}`, name, x + tb + 0.5 * gap, y, {}, width && r.texts?.[`label:${key}`] && width - tb - 1.5 * gap)) : 1;
   };
-  // Boxes in columns, each a share of the width from `from`, the removed ones left out. The rows they take.
+  // Boxes in columns, each a share of the width from `from`, the removed ones left out. A label wraps inside its column
+  // and its row grows to fit. The lines they take.
   const row = (items: readonly (readonly [string, string])[], y: number, from = x0, cols = 4) => {
-    const kept = items.filter(([key]) => !gone(`tick:${key}`));
-    kept.forEach(([key, name], j) => part(`tick:${key}`, false, () => tick(key, from + (j % cols) * ((x1 - from) / cols), y - Math.floor(j / cols) * lh, name)));
-    return Math.ceil(kept.length / cols);
+    const kept = items.filter(([key]) => !gone(`tick:${key}`)), w = (x1 - from) / cols;
+    let used = 0;
+    for (let k = 0; k < kept.length; k += cols) {
+      let most = 1;
+      kept.slice(k, k + cols).forEach(([key, name], j) => part(`tick:${key}`, false, () => { most = Math.max(most, tick(key, from + j * w, y - used * lh, name, w)); }));
+      used += most;
+    }
+    return used;
   };
   // A section: a rule, its heading, and what draw puts under it (from the y it is given to the y it returns).
   let y = top - 0.8 * lh;
@@ -242,8 +249,9 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
   const cw = (j: number) => cols[j][1] * W - gap;
   const PIC = 2.4 * em; // a pictogram's frame
   part("sec:substances", true, () => {
-    cols.forEach(([name], j) => text(`col:${j}`, name, at[j], y - em, { bold: true }));
-    y -= em + 0.6 * em;
+    // A heading the user typed wraps inside its column, so a longer one stays clear of the next.
+    const heads = Math.max(1, ...cols.map(([name], j) => text(`col:${j}`, name, at[j], y - em, { bold: true }, r.texts?.[`col:${j}`] && cw(j))));
+    y -= em + (heads - 1) * lh + 0.6 * em;
     rule(y);
     const shown = r.substances.filter((sub) => !gone(`sub:${sub.id}`));
     for (const sub of shown) part(`sub:${sub.id}`, false, () => {

@@ -343,7 +343,12 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.deepEqual([after[0], after[2], after[3]], [box[0], box[2], box[3]], "only the bottom moves");
   const drop = box[1] - after[1], moved = grown.captions!.find((c) => c.id === procedure.id)!, movedBox = grown.shapes!.find((x) => x.id === lower.id)!;
   assert.ok(Math.abs(procedure.y - moved.y - drop) < 1e-9, "the Procedure heading moves down as far");
-  assert.ok(Math.abs(lower.from[1] - movedBox.from[1] - drop) < 1e-9 && Math.abs(lower.to[1] - movedBox.to[1] - drop) < 1e-9, "and its box");
+  // The Procedure box's top moves down as far; its bottom stays while the box keeps 7 bond lengths, so it stays on the
+  // first page while it can (and the risk assessment keeps page 2).
+  const [lo0, hi0] = [Math.min(lower.from[1], lower.to[1]), Math.max(lower.from[1], lower.to[1])], [lo1, hi1] = [Math.min(movedBox.from[1], movedBox.to[1]), Math.max(movedBox.from[1], movedBox.to[1])];
+  assert.ok(Math.abs(hi0 - hi1 - drop) < 1e-9, "its box's top moves down as far");
+  assert.ok(Math.abs(lo0 - lo1 - (drop - Math.min(drop, hi0 - lo0 - 7))) < 1e-9, "and its bottom only as far as it must");
+  assert.ok(hi1 - lo1 >= Math.min(7, hi0 - lo0) - 1e-9, "the Procedure box keeps room to write");
   assert.equal(grown.captions!.find((c) => c.text === "Reaction scheme")!.y, start.captions!.find((c) => c.text === "Reaction scheme")!.y);
   assert.equal(growScheme(start, box[1] + 5), start, "a table that fits changes nothing");
   // The next reaction goes under the first and its table.

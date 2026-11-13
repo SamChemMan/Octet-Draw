@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { addRisk, buildRisk, hCodes, partAt, partItems, removeRiskPart, isSignificant, MAX_SUBSTANCES, pathCurves, readRisk, riskGroup, riskLayout, riskPlace, significantCodes, substancesOf, syncRisk, ticked, TICKS, toggleRisk, withCas, withHazards, withSubstances, type Substance } from "./riskassess.ts";
-import { MARGIN, slotText, templateOf, type Sheet } from "./experiment.ts";
+import { growScheme, MARGIN, newExperiment, slotText, templateOf, type Sheet } from "./experiment.ts";
 import { PICTOGRAMS, type Ghs } from "./ghs.ts";
 import { gridViews, type GridDeps } from "./gridview.ts";
 import { parse, serialize } from "./file.ts";
@@ -268,6 +268,15 @@ assert.equal(riskGroup(parse(JSON.stringify(raw))), undefined);
   }
   // Other parts keep Octet's text.
   assert.ok(p.captions!.some((c) => c.text === "Control measures"));
+  // A typed heading or box name wraps inside its column (and pushes what is under it down); Octet's own do not wrap.
+  const w0 = p.captions!.find((c) => c.field === "rp:col:2")!, lab0 = p.captions!.find((c) => c.field === "rp:label:coat")!;
+  assert.equal(w0.width, undefined);
+  const longer = edit(edit(p, "rp:col:2", { text: "CAS registry number of the substance" }), "rp:label:coat", { text: "Flame-resistant lab coat, buttoned" });
+  assert.ok(longer.captions!.find((c) => c.field === "rp:col:2")!.width! > 0, "a typed heading wraps in its column");
+  assert.ok(longer.captions!.find((c) => c.field === "rp:label:coat")!.width! > 0, "a typed box name wraps in its column");
+  const row1 = (x: Mol) => x.captions!.find((c) => c.field === "rp:name:1")!.y;
+  assert.ok(row1(longer) < row1(p), "the rows move down under a taller heading");
+  assert.ok(lab0.width === undefined);
   // A typed text with a caption-wide style keeps it in its runs.
   p = edit(p, "rp:head:waste", { colour: "#213C99" });
   assert.equal(riskGroup(p)!.risk.texts!["head:waste"][0].colour, "#213C99");
@@ -289,4 +298,11 @@ assert.match(dialog, /alt=\{\{ label: "Print…", onClick: \(\) => onPrint\(part
 assert.match(editor, /onPrint=\{\(part\) => \{ setExportView\(undefined\); void printDrawing\(part === "selection"\); \}\}/);
 assert.match(editor, /const sheets = f\.format === "pdf" && part === "all" && expPage \? pagePictures\(mol\) : undefined;/);
 assert.match(editor, /pages: sheets\?\.texts/);
+// A reaction's table that grows the scheme box leaves the risk assessment where it is, on its page.
+{
+  const page = { atoms: [], bonds: [], ...newExperiment(sheet) } as Mol, withRisk = addRisk(page, riskPlace(sheet, -20), sheet, [{ key: "X", name: "x", formula: "C", role: "reactant" }]);
+  const grown = growScheme(withRisk, -200), items = new Set(riskGroup(withRisk)!.items);
+  assert.deepEqual(grown.captions!.filter((c) => items.has(c.id)), withRisk.captions!.filter((c) => items.has(c.id)), "its text stays");
+  assert.deepEqual(grown.shapes!.filter((x) => items.has(x.id)), withRisk.shapes!.filter((x) => items.has(x.id)), "its boxes stay");
+}
 console.log("riskassess.check: ok");

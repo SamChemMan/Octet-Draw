@@ -123,11 +123,22 @@ export function growScheme(m: Mol, bottom: number, pad = 1, heading?: RegExp): M
   if (!s || !b) return m;
   const d = b[1] - (bottom - pad);
   if (d <= 1e-6) return m;
-  const down = (p: [number, number]): [number, number] => [p[0], p[1] - d];
-  const shapes = m.shapes!.map((x) => (x === s ? { ...x, ...(x.from[1] < x.to[1] ? { from: down(x.from) } : { to: down(x.to) }) } : spanOf(x)[3] < b[1] + 1e-6 ? { ...x, from: down(x.from), to: down(x.to) } : x));
-  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && c.y < b[1] ? { ...c, y: c.y - d } : c));
+  // A risk assessment keeps its place on its own page. The Procedure box under a growing scheme gives up its own
+  // height first, down to PROCEDURE_MIN, so it stays on the first page while it can.
+  const risk = new Set((m.groups ?? []).flatMap((g) => (g.risk ? g.items : []))), proc = heading ? undefined : schemeShape(m, /^procedure$/i);
+  const move = (p: [number, number], by: number): [number, number] => [p[0], p[1] - by];
+  const shapes = m.shapes!.map((x) => {
+    if (x === s) return { ...x, ...(x.from[1] < x.to[1] ? { from: move(x.from, d) } : { to: move(x.to, d) }) };
+    if (risk.has(x.id) || spanOf(x)[3] >= b[1] + 1e-6) return x;
+    if (x !== proc) return { ...x, from: move(x.from, d), to: move(x.to, d) };
+    const [, lo, , hi] = spanOf(x), keep = d - Math.max(0, Math.min(d, hi - lo - PROCEDURE_MIN));
+    return { ...x, ...(x.from[1] > x.to[1] ? { from: move(x.from, d), to: move(x.to, keep) } : { to: move(x.to, d), from: move(x.from, keep) }) };
+  });
+  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && c.y < b[1] && !risk.has(c.id) ? { ...c, y: c.y - d } : c));
   return { ...m, shapes, ...(captions ? { captions } : {}) };
 }
+// The least the Procedure box keeps when the scheme above it grows (bond lengths: twice ROOM, about eight lines).
+const PROCEDURE_MIN = 7;
 
 // What an own template made from an experiment page keeps: its details but the date, its free text (the details'
 // names and values, headings, a procedure to start from), its plain boxes and tables, and its plain lines (the rule

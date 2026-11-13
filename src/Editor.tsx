@@ -9617,8 +9617,10 @@ export default function Editor() {
           // the line under the pointer.
           if (tool === "select") {
             const h = hit(toDoc(e.clientX, e.clientY)), ids = atomsOf(doc, h), its = itemsOf(h).flatMap((x) => (x === h.caption ? labelLines(doc, x) : [x])), g = outermost(groupsOf(doc, new Set(ids), new Set(its)));
-            if (g && (g.integral || ids.length)) return pickWhole(h);
-            if (g && !(its.every((x) => picked.has(x)) && picked.size === its.length && !selection.size)) { setSelection(new Set()); setPicked(new Set(its)); return; }
+            // A risk assessment's text types on a double-click, as any text does (consistency): only its other parts pick it.
+            const riskText = !!g?.risk && h.caption !== undefined;
+            if (g && (g.integral || ids.length) && !riskText) return pickWhole(h);
+            if (g && !riskText && !(its.every((x) => picked.has(x)) && picked.size === its.length && !selection.size)) { setSelection(new Set()); setPicked(new Set(its)); return; }
           }
           // With Select, double-click an atom to type its label (other tools would draw on each click).
           // Double-click a caption with any tool to type into it.
