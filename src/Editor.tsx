@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
-  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
+  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
@@ -14,7 +14,7 @@ import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, labelSmiles, GROUPS } from "./labels";
 import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
+import { MAX_PRESETS, MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, asPreset, isOwnPreset, setOwnPresets, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPreset, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
@@ -92,7 +92,7 @@ import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
-import { casProblem, nameList } from "./dictionary";
+import { casProblem, dictionaryCas, loadDictionary, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
 import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
 import { NUCLEIC, nucleicProblem } from "./nucleic";
@@ -712,6 +712,13 @@ export default function Editor() {
     } catch (e) {
       setNotice(failure(`Octet cannot save ${set} as a ChemDraw template.`, e));
     }
+  }
+  // The user's own style presets reach docstyle.ts, which presetOf and presetAt read, before anything in this render
+  // (or in Settings, which renders under it) asks for a preset by name.
+  const presetsFor = useRef<OwnPreset[]>(undefined);
+  if (presetsFor.current !== settings.ownPresets) {
+    presetsFor.current = settings.ownPresets;
+    setOwnPresets(settings.ownPresets);
   }
   // The user's own dictionary (Structure > Add Structure to Dictionary): names.ts gets the names whenever they change,
   // and names drawn before are drawn again, so a name renamed, removed or given a new structure is never drawn from
@@ -1475,6 +1482,18 @@ export default function Editor() {
       setNotice(failure("Octet cannot read this file.", e));
     }
   }
+  // File > Insert… (ChemDraw's File > Insert): a picture or a drawing picked from a file dialog goes into the open
+  // drawing. The file goes the road a dropped one goes (src-tauri/src/open.rs), so dropFiles places it: centred on the
+  // point given, selected, in one undo step, a picture at 1 pt per pixel. The menu names no point, so it is the middle
+  // of the canvas as it is shown — the part of the page the user is looking at, not the page's own middle.
+  async function insertFile() {
+    // Home has no drawing to insert into; menuRuns already keeps the command off there, and this says so here too.
+    if (!TAURI || home) return;
+    const box = svg.current?.getBoundingClientRect();
+    const at: [number, number] = box ? [box.left + box.width / 2, box.top + box.height / 2] : [innerWidth / 2, innerHeight / 2];
+    try { await invoke<boolean>("pick_insert_file", { at }); }
+    catch (e) { setNotice(failure("Octet cannot insert this file.", e)); }
+  }
   // Settings > Document > For, and For in the command palette: the open drawing takes a purpose's sizes and page in one
   // undo step. The sizes it holds in points go with the scale (decision 0007).
   const applyPurpose = (id: string) => {
@@ -1494,6 +1513,21 @@ export default function Editor() {
     return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept } : p)) }
       : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept } };
   });
+  // Settings > Document > Style > "Save as style…": the drawn sizes (brought back to scale 1, so the preset reads the
+  // same whatever scale it was saved at) become a style preset of the user's own, offered beside Octet's journal
+  // styles from then on. The same name again saves over it. The open drawing takes the name at once, so the picker
+  // shows it instead of Custom.
+  const savePreset = (name: string) => {
+    const own = { name, style: asPreset(style) };
+    setSettings((s) => ({ ...s, ownPresets: s.ownPresets.some((x) => x.name === name) ? s.ownPresets.map((x) => (x.name === name ? own : x)) : [...s.ownPresets, own].slice(0, MAX_PRESETS) }));
+    set({ ...doc, style: { ...style, preset: name } }, true);
+  };
+  // One of their own goes. A drawing using it keeps its sizes and falls back to Custom, since the sizes live in the
+  // drawing, not in the preset.
+  const removePreset = (name: string) => {
+    setSettings((s) => ({ ...s, ownPresets: s.ownPresets.filter((x) => x.name !== name) }));
+    if (style.preset === name) set({ ...doc, style: { ...style, preset: "Custom" } }, true);
+  };
   // A template of the user's own goes from Home, File > New For and Settings; New then starts Quick start if it started that one.
   const removePurpose = (id: string) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? QUICK : s.purpose }));
   // A template made from an experiment page keeps its details and text (experiment.ts templateOf); one made from
@@ -2273,6 +2307,7 @@ export default function Editor() {
     print: () => void printDrawing(),
     print_selection: () => void printDrawing(true),
     apply_style_file: () => void applyStyleFile(),
+    insert_file: () => void insertFile(),
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
     atom_properties: () => atomProperties([...selection][0] ?? hovers.get().atom),
@@ -5809,6 +5844,16 @@ export default function Editor() {
   }, [sweep, selection]);
   const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
   const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues }>(undefined);
+  // The CAS row reads the dictionary, which is loaded on demand (names.ts asks for it when a name is typed). Opening
+  // the Properties panel asks for it as well, so the row is there without typing a name first; until it is in, the row
+  // has no value and the panel leaves it out.
+  const [dictionaryIn, setDictionaryIn] = useState(false);
+  useEffect(() => {
+    if (!settings.properties || dictionaryIn) return;
+    let gone = false;
+    void loadDictionary().then(() => { if (!gone) setDictionaryIn(true); }, () => undefined);
+    return () => { gone = true; };
+  }, [settings.properties, dictionaryIn]);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
@@ -5817,14 +5862,28 @@ export default function Editor() {
     const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : own ? [...own].sort((a, b) => a - b) : chem.mol.atoms.map((_, i) => i);
     const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
-    const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
+    const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), part: g, s: found[k] })).filter((x) => x.s).slice(0, 12);
+    // The CAS number is looked up, not calculated: the structure's InChIKey against the dictionary. A structure
+    // Indigo cannot write an InChIKey for simply has none.
+    const cas = new Map<Structure, string>();
+    if (dictionaryIn) {
+      for (const x of kept) {
+        try {
+          const number = dictionaryCas(toInchiKey(subset(base, new Set(x.part))));
+          if (number) cas.set(x.s!, number);
+        } catch { /* no key, no number */ }
+      }
+    }
     // Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
     const calc = (s: Structure, g: Graph) => {
       if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
-      return calculated.get(s);
+      const own = calculated.get(s);
+      // cas is not kept in `calculated`: that cache is keyed by Structure, and chem.ts hands back the same Structure
+      // object, so a number looked up before the dictionary was in would stick for the rest of the session.
+      return own && { ...own, cas: cas.get(s) };
     };
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
-  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, dictionaryIn]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
@@ -6468,7 +6527,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
-    export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
+    export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], insert_file: ["Insert…", "", <FileImage size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <Asterisk size={18} />], add_variable: ["Add variable attachment", "", <AsteriskSimple size={18} />],
@@ -8829,6 +8888,8 @@ export default function Editor() {
           onExportNames={() => void exportNames()}
           onImportNames={() => void importNames()}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
+          onSavePreset={settings.ownPresets.length < MAX_PRESETS || isOwnPreset(style.preset) ? savePreset : undefined}
+          onRemovePreset={removePreset}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
