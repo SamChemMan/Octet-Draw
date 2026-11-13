@@ -507,6 +507,52 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.deepEqual(d.host.doc().grids!.map((g) => [g.arrow, g.step]), [[arrows[0], undefined]]);
 }
 {
+  // 1.1.2's experiment page through the MCP (docs/plans/mcp-v2.md section 20). A new page has its risk assessment on
+  // page 2, and its substances follow the reagent table as the editor's do (20.6).
+  d = drawing("experiment", "Risk");
+  const risk = () => d.host.doc().groups?.find((g) => g.risk)?.risk;
+  assert.ok(risk(), "a new experiment page has a risk assessment");
+  assert.ok(!(await call("draw", { kind: "reaction", start: [{ text: "benzaldehyde" }], steps: [{ reagents: ["NaBH4", "MeOH"], products: [{ text: "benzyl alcohol" }] }] })).isError);
+  assert.ok(risk()!.substances.length >= 3, JSON.stringify(risk()!.substances.map((x) => x.name)));
+  // 20.1: g<n> moves the table alone (grids[].at, as a drag); a<n> moves the reaction, its table with it.
+  const arrow = d.host.tables()[0].arrow, was = d.host.tables()[0].box, mid = d.host.doc().arrows!.find((x) => x.id === arrow)!.from;
+  let out = await call("change", { operations: [{ op: "move", ids: [`g${arrow}`], dx: 0, dy: -3 }] });
+  assert.ok(!out.isError, out.content[0].text);
+  const at = d.host.doc().grids![0].at, now = d.host.tables()[0].box;
+  assert.ok(at && Math.abs(now[1] - was[1] + 3) < 1e-6 && Math.abs(now[0] - was[0]) < 1e-6, `table moved: ${was} to ${now}`);
+  assert.deepEqual(d.host.doc().arrows!.find((x) => x.id === arrow)!.from, mid, "the arrow stays");
+  await call("change", { operations: [{ op: "move", ids: [`a${arrow}`], dx: 2, dy: 0 }] });
+  assert.ok(Math.abs(d.host.tables()[0].box[0] - now[0] - 2) < 1e-6, "the table goes with its arrow");
+  // 20.3: read gives the risk assessment as its record, not as its texts.
+  let r = (await call("read", {})).structuredContent;
+  assert.ok(r.riskAssessment && r.riskAssessment.substances.length >= 3 && r.riskAssessment.places.includes(`cas${risk()!.substances[0].id}`), JSON.stringify(r.riskAssessment));
+  assert.equal(r.riskAssessment.significant, false);
+  assert.ok(!(r.text ?? []).some((t: { text: string }) => t.text === "Risk assessment"), "its texts are not free text");
+  // 20.4: ticks, the significant answer, typed text, Octet's text typed over, and parts removed; a key not on the page
+  // changes nothing and is named.
+  const first = `sub:${risk()!.substances[0].id}`, cas = `cas${risk()!.substances[1].id}`;
+  out = await call("advanced", { tool: "fill_experiment", args: { risk: { tick: ["fume", "gloves"], significant: true, text: [{ key: cas, text: "7647-14-5" }, { key: "head:waste", text: "Waste" }], remove: [first] } } });
+  assert.ok(!out.isError, out.content[0].text);
+  assert.deepEqual([risk()!.ticks, risk()!.significant, risk()!.removed, risk()!.texts?.["head:waste"]], [["fume", "gloves"], true, [first], [{ text: "Waste" }]]);
+  r = (await call("read", {})).structuredContent.riskAssessment;
+  assert.ok(r.ticked.includes("fume") && r.ticked.includes("significant") && r.substances.some((x: { cas?: string }) => x.cas === "7647-14-5") && !r.substances.some((x: { key: string }) => x.key === first), JSON.stringify(r));
+  out = await call("advanced", { tool: "fill_experiment", args: { risk: { untick: ["gloves"], text: [{ key: cas, text: "" }] } } });
+  assert.deepEqual([risk()!.ticks, (await call("read", {})).structuredContent.riskAssessment.substances.find((x: { key: string }) => x.key === `sub:${cas.slice(3)}`).cas], [["fume"], undefined]);
+  const wrong = await call("advanced", { tool: "fill_experiment", args: { risk: { tick: ["fumes"], remove: ["sec:nothing"] } } });
+  assert.ok(wrong.isError && /no fumes, sec:nothing/.test(wrong.content[0].text), wrong.content[0].text);
+  assert.deepEqual(risk()!.ticks, ["fume"]);
+  // 20.2: the Actions panel's risk actions through run_command.
+  out = await call("advanced", { tool: "run_command", args: { command: "risk.add" } });
+  assert.ok(!out.isError && /already/.test(out.content[0].text), out.content[0].text);
+  out = await call("advanced", { tool: "run_command", args: { command: "risk.remove" } });
+  assert.ok(!out.isError && !risk() && !(d.host.doc().captions ?? []).some((c) => c.field?.startsWith("r")), out.content[0].text);
+  assert.match((await call("advanced", { tool: "run_command", args: { command: "risk.update" } })).content[0].text, /no risk assessment\. run_command risk\.add adds one/);
+  out = await call("advanced", { tool: "run_command", args: { command: "risk.add" } });
+  assert.ok(!out.isError && risk()!.substances.length >= 3, out.content[0].text);
+  d = drawing("paper", "No page");
+  assert.match((await call("advanced", { tool: "run_command", args: { command: "risk.add" } })).content[0].text, /experiment page only/);
+}
+{
   // L4: each scheme wraps to the page in rows of as many steps as can be, none with its last product alone.
   d = drawing("paper", "Rows");
   const rows: Wrote = await call("draw_route", { schemes: [{ ...route(7), start: [{ text: biphenyl(GROUPS[6]), number: "7" }] }], detail: "full" }), levels: number[] = [];

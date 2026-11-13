@@ -2323,3 +2323,23 @@ Found by acceptance case 21 on the final code, with Octet behind another app (th
   both languages are as the page gives them.
 - Case 9's check read the wording `set_brief` gives; `draw` takes `brief` since round 4 and answers "…call again with
   their answers as brief". The check now reads that. It had not run since, as case 9 needs a window.
+
+## 20. 1.1.2's features through the MCP (13 November 2026)
+
+1.1.2 came into this branch by a merge (7d9ccb6). The MCP must reach everything 1.1.2 added. 3D Clean Up
+(`clean_3d`), the copied pictures and the bond fixes need nothing new. These do:
+
+| # | Job | Done when |
+|---|---|---|
+| 20.1 | `move` with a reagent table's id (`g5`) moves the table alone, as a drag with Select does (`grid.at`, gridview.ts `movedAt`). `a5` still moves the reaction, and its table goes with it. | `move g5 dx dy` changes `grids[].at` and no arrow or atom; `read` gives the new box; one undo step puts it back. |
+| 20.2 | `run_command` runs the risk assessment's actions: `risk.add`, `risk.update` (Update substances), `risk.hazards` (Find hazards, online), `risk.remove`. | Each id is in `ACTIONS` and in `run_command`'s description. On an experiment page each gives the same drawing as its Actions button. Off one, Octet says why. |
+| 20.3 | `read` describes the risk assessment: its group id, each substance (name, formula, role, CAS, pictograms, H codes), the boxes ticked by key, the significant-hazards answer and the parts removed. | A page with one reads all of these. A page without one says nothing about it. |
+| 20.4 | `fill_experiment` takes `risk`: `tick` and `untick` (box keys), `text` (a part's key to its text), `remove` (part keys) and `significant` (true or false). Each does what a Select click, typing or Delete does (riskassess.ts `toggleRisk`, typed `risk:` text, `removeRiskPart`). | Each one changes the record as the click does, and a removed part stays removed after `risk.update`. A key that is not on the page is refused by name. |
+| 20.5 | `read` with format `pdf`, and `export` to PDF, give an experiment page as its pages (the experiment, then its risk assessment), as Export does. | The PDF has two pages for a page with a risk assessment, one without. |
+| 20.6 | The windowless test host (`scripts/headless/host.ts`) runs `syncDetails` and `syncRisk` on each set, as the app does, so its tests match the app. | `fill_experiment` details change the text on the page in the host as in the app. |
+
+Not here: rich text in experiment details and markup in an AI app's text on an experiment page. Those are in
+`mcp/experiment-text` (1eb2dbb), which goes in with `mcp/int-13nov`.
+
+Tests: one check block per row in `src/mcp.check.ts` (20.1 to 20.4, 20.6) and `src/export.check.ts` (20.5), run on
+the windowless host. Then `node scripts/mcp-bench/run.ts` with no case worse.

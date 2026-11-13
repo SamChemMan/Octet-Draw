@@ -30,7 +30,8 @@ const INFO: &str = own(cfg!(debug_assertions)).0;
 const KEPT: &str = if cfg!(debug_assertions) { "mcp-tools-dev.json" } else { "mcp-tools.json" };
 // How long a call waits for an Octet the relay has started to answer.
 const WAKE: Duration = Duration::from_secs(25);
-pub const PORT: u16 = own(cfg!(debug_assertions)).1;
+// The MCP Beta app (OCTET_BETA) takes a third port, so it runs beside a dev build from the source tree.
+pub const PORT: u16 = if option_env!("OCTET_BETA").is_some() { 47683 } else { own(cfg!(debug_assertions)).1 };
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024; // a request from the AI app
 const MAX_REPLY: usize = 24 * 1024 * 1024; // a reply from the page (a picture of the drawing)
@@ -47,6 +48,8 @@ pub struct Info {
     program: String, // this Octet's own program, which AI apps start with --mcp (the relay)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     args: Vec<String>, // what goes before --mcp: a Flatpak's program is flatpak, with run --command=octet and its id
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    off: bool, // the user turned AI apps off: the relay lists no tools, never starts Octet and sends nothing
 }
 
 #[derive(Default)]
@@ -65,6 +68,7 @@ struct Shared {
     heard: Mutex<HashMap<String, u32>>,    // each window's newest listener, by the number its page gave it
     open: Mutex<Option<(f64, Instant)>>,   // the rate limit for initialize and for requests with no session, all apps together
     loose: Mutex<Option<String>>,          // the brief of the requests with no session (an older client), all of them together
+    seen: Mutex<HashMap<String, u64>>,     // the relay's nonces of the last SIGNED_FOR seconds, each used once
 }
 
 // A drawing resource's URI as Octet gives it (octet://drawing/{window}, /cdxml or /png), and the window it names.
@@ -208,13 +212,16 @@ pub fn mcp_set(app: AppHandle, mcp: State<'_, Mcp>, on: bool, new_key: Option<bo
         *mcp.shared.loose.lock().unwrap() = None;
         stopped = Some(was.port);
     }
-    if !on {
-        return Ok(None);
-    }
+    // Off is written down too, for the relay, which reads it before each request.
     let mut info = match saved(&app) {
         Some(i) if new_key != Some(true) => i,
-        _ => Info { port: PORT, token: random_hex(32)?, program: String::new(), args: Vec::new() },
+        _ => Info { port: PORT, token: random_hex(32)?, program: String::new(), args: Vec::new(), off: false },
     };
+    info.off = !on;
+    if !on {
+        save(&app, &info)?;
+        return Ok(None);
+    }
     (info.program, info.args) = own_program();
     // The port Octet keeps, else any free one (the address in the AI app must then change).
     let listener = listen(info.port, stopped == Some(info.port))
@@ -628,9 +635,66 @@ fn taken(id: &serde_json::Value, label: &str) -> String {
 fn respond(stream: &mut TcpStream, status: &str, body: &str, session: Option<&str>) {
     let kind = if body.is_empty() { "" } else { "Content-Type: application/json\r\n" };
     let session = session.map(|s| format!("Mcp-Session-Id: {s}\r\n")).unwrap_or_default();
-    let head = format!("HTTP/1.1 {status}\r\n{kind}{session}Content-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n", body.len());
+    let head = format!("HTTP/1.1 {status}\r\n{kind}{session}{}Content-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n", proved(), body.len());
     let _ = stream.write_all(head.as_bytes()).and_then(|_| stream.write_all(body.as_bytes()));
     let _ = stream.shutdown(Shutdown::Both);
+}
+
+// The relay never sends the key. Each request it makes is signed (Authorization: Octet <nonce> <code>): an HMAC-SHA256
+// with the key over the method, a nonce used once (the time in seconds, then 16 random bytes) and the body's SHA-256.
+// Octet's answers to it carry Octet's own code for the nonce (X-Octet-Proof), and the relay takes no answer without
+// it. So a program that takes Octet's port while Octet is closed learns nothing that lets it in, and cannot answer the
+// AI app as Octet. (An AI app or script given the key itself, as a bearer token, still sends it.)
+const SIGNED_FOR: u64 = 120;
+fn hmac(key: &[u8], message: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut k = [0u8; 64];
+    if key.len() > 64 {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let pad = |b: u8| k.iter().map(|x| x ^ b).collect::<Vec<u8>>();
+    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(message).finalize();
+    Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+fn signature(token: &str, method: &str, nonce: &str, body: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(body).iter().map(|b| format!("{b:02x}")).collect();
+    hmac(token.as_bytes(), format!("octet-relay\n{method}\n{nonce}\n{digest}").as_bytes())
+}
+fn proof(token: &str, nonce: &str) -> String {
+    hmac(token.as_bytes(), format!("octet-server\n{nonce}").as_bytes())
+}
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+thread_local! {
+    // This connection's X-Octet-Proof header, once its signed request is checked (each connection has a thread).
+    static PROOF: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+fn proved() -> String {
+    PROOF.with(|p| p.borrow().clone())
+}
+// A signed request checked: its code, its nonce's time and that the nonce is new. true for a request with the bearer
+// key (allowed checked it). On a signed one that passes, this connection's answers carry Octet's proof.
+fn signed_ok(head: &[String], body: &[u8], token: &str, seen: &Mutex<HashMap<String, u64>>) -> bool {
+    let Some(sig) = header(head, "authorization").and_then(|a| a.strip_prefix("Octet ")) else { return true };
+    let mut parts = sig.split_whitespace();
+    let (Some(nonce), Some(code), None) = (parts.next(), parts.next(), parts.next()) else { return false };
+    let method = head.first().and_then(|l| l.split(' ').next()).unwrap_or("");
+    let now = now_secs();
+    let fresh = nonce.split_once('-').and_then(|(t, r)| t.parse::<u64>().ok().filter(|_| r.len() == 32 && r.bytes().all(|b| b.is_ascii_hexdigit()))).is_some_and(|t| t.abs_diff(now) <= SIGNED_FOR);
+    if !fresh || !same(code.as_bytes(), signature(token, method, nonce, body).as_bytes()) {
+        return false;
+    }
+    let mut seen = seen.lock().unwrap();
+    seen.retain(|_, t| now.saturating_sub(*t) <= 2 * SIGNED_FOR);
+    if seen.len() >= 100_000 || seen.insert(nonce.to_string(), now).is_some() {
+        return false;
+    }
+    PROOF.with(|p| *p.borrow_mut() = format!("X-Octet-Proof: {}\r\n", proof(token, nonce)));
+    true
 }
 
 // Both sides of a comparison are read in full, so the time taken does not tell how much of the key was right.
@@ -638,6 +702,9 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
+fn header_is(head: &[String], name: &str, want: &str) -> bool {
+    header(head, name).is_some_and(|v| same(v.as_bytes(), want.as_bytes()))
+}
 fn header<'a>(head: &'a [String], name: &str) -> Option<&'a str> {
     head.iter().skip(1).find_map(|h| h.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case(name)).map(|(_, v)| v.trim()))
 }
@@ -660,8 +727,10 @@ fn allowed(head: &[String], port: u16, token: &str) -> Result<Asked, &'static st
     if !header(head, "host").is_some_and(ours) || header(head, "origin").is_some_and(|o| !o.strip_prefix("http://").is_some_and(ours)) {
         return Err("403 Forbidden");
     }
-    let key = header(head, "authorization").and_then(|a| a.strip_prefix("Bearer ")).unwrap_or("").trim();
-    if !same(key.as_bytes(), token.as_bytes()) {
+    // The bearer key, or a relay's signed request (checked with its body: signed_ok).
+    let auth = header(head, "authorization").unwrap_or("");
+    let key = auth.strip_prefix("Bearer ").unwrap_or("").trim();
+    if !same(key.as_bytes(), token.as_bytes()) && !auth.starts_with("Octet ") {
         return Err("401 Unauthorized");
     }
     // An unsupported protocol version is refused; a missing one is taken as 2025-03-26 (the spec's transports).
@@ -725,7 +794,11 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
         head.push(l.to_string());
     }
     let sid = header(&head, "mcp-session-id").map(String::from);
-    let length = match allowed(&head, info.port, &info.token) {
+    let asked = allowed(&head, info.port, &info.token);
+    if matches!(asked, Ok(Asked::End | Asked::Stream)) && !signed_ok(&head, b"", &info.token, &shared.seen) {
+        return respond(&mut stream, "401 Unauthorized", "", None);
+    }
+    let length = match asked {
         Ok(Asked::Post(n)) => n,
         Ok(Asked::End) => {
             let gone = sid.and_then(|s| shared.sessions.lock().unwrap().remove(&s));
@@ -737,6 +810,9 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
     let mut body = vec![0u8; length];
     if reader.read_exact(&mut body).is_err() {
         return;
+    }
+    if !signed_ok(&head, &body, &info.token, &shared.seen) {
+        return respond(&mut stream, "401 Unauthorized", "", None);
     }
     let Ok(message) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return respond(&mut stream, "400 Bad Request", &error_reply(None, -32700, "The request is not JSON."), None);
@@ -783,7 +859,7 @@ fn serve(mut stream: TcpStream, app: &AppHandle, shared: &Shared, info: &Info) {
 // A call's event stream: its headers, written once (open: whether they went), then each message as an event. false:
 // the AI app has gone.
 fn opened(s: &mut impl Write, open: &mut Option<bool>, new: &str) -> bool {
-    *open.get_or_insert_with(|| write!(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{new}Connection: close\r\n\r\n").is_ok())
+    *open.get_or_insert_with(|| write!(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{new}{}Connection: close\r\n\r\n", proved()).is_ok())
 }
 fn event(s: &mut impl Write, open: &mut Option<bool>, new: &str, data: &str) -> bool {
     opened(s, open, new) && write!(s, "event: message\ndata: {}\n\n", data.replace('\n', " ")).and_then(|_| s.flush()).is_ok()
@@ -958,7 +1034,7 @@ fn notifications(mut stream: TcpStream, shared: &Shared, sid: Option<String>) {
         None => return respond(&mut stream, if sid.is_some() { "404 Not Found" } else { "400 Bad Request" }, "", None),
     }
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
-    if write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n").is_err() {
+    if write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{}Connection: keep-alive\r\n\r\n", proved()).is_err() {
         return;
     }
     loop {
@@ -1108,13 +1184,21 @@ struct RelayState {
     woken: bool, // Octet was started once already: a second call while it is still closed does not start it again
 }
 const CLOSED: &str = "Octet Draw is not open, or its AI apps are off. Open Octet Draw and turn on Settings > General > AI apps > Let AI apps use Octet, then try again.";
+const OFF: &str = "AI apps are off in Octet Draw. To use Octet, the user turns on Settings > General > AI apps > Let AI apps use Octet.";
 
 impl Relay {
     fn new(dir: Option<PathBuf>, out: Out) -> Arc<Relay> {
         Arc::new(Relay { dir, out: Mutex::new(out), state: Mutex::default() })
     }
+    // Where Octet listens and its key; none while AI apps are off.
     fn info(&self) -> Option<Info> {
+        self.saved().filter(|i| !i.off)
+    }
+    fn saved(&self) -> Option<Info> {
         self.dir.as_ref().and_then(|d| std::fs::read(d.join(INFO)).ok()).and_then(|b| serde_json::from_slice(&b).ok())
+    }
+    fn off(&self) -> bool {
+        self.saved().is_some_and(|i| i.off)
     }
     fn say(&self, line: &str) {
         say(&self.out, line)
@@ -1167,7 +1251,16 @@ impl Relay {
                 }
             }
             None => {
-                // A tool call with Octet closed: Octet is started, and the call goes on once it answers.
+                // A tool call with Octet closed: Octet is started, and the call goes on once it answers. With AI apps off,
+                // the relay starts nothing and lists no tools (the user turned them off).
+                if self.off() {
+                    let off = serde_json::json!({ "initialize": { "instructions": OFF }, "tools/list": { "tools": [] } });
+                    self.say(&if method == "tools/call" { error_reply(Some(id), -32603, OFF) } else { closed_answer(method, id, message, Some(off)) });
+                    if self.state.lock().unwrap().hello.is_some() {
+                        self.watch();
+                    }
+                    return;
+                }
                 if method == "tools/call" && self.wake() {
                     let session = self.state.lock().unwrap().session.clone();
                     let got = self.info().and_then(|i| self.post(&i, line, session.as_deref(), |m| self.say(m)).ok()).filter(|g| g.status == 200);
@@ -1283,7 +1376,10 @@ impl Relay {
         let version = self.state.lock().unwrap().version.clone().map(|v| format!("MCP-Protocol-Version: {v}\r\n")).unwrap_or_default();
         let session = session.map(|v| format!("Mcp-Session-Id: {v}\r\n")).unwrap_or_default();
         let length = if method == "POST" { format!("Content-Type: application/json\r\nContent-Length: {}\r\n", body.len()) } else { String::new() };
-        write!(s, "{method} /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nAccept: {accept}\r\n{version}{session}{length}Connection: close\r\n\r\n{body}", info.port, info.token)?;
+        // Signed, never the key (signed_ok); and only Octet's answer, with its proof, is taken.
+        let nonce = format!("{}-{}", now_secs(), random_hex(16).map_err(std::io::Error::other)?);
+        let code = signature(&info.token, method, &nonce, body.as_bytes());
+        write!(s, "{method} /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Octet {nonce} {code}\r\nAccept: {accept}\r\n{version}{session}{length}Connection: close\r\n\r\n{body}", info.port)?;
         let mut reader = std::io::BufReader::new(s);
         let mut head = Vec::new();
         loop {
@@ -1297,6 +1393,9 @@ impl Relay {
             }
         }
         let status = head.first().and_then(|l| l.split(' ').nth(1)).and_then(|c| c.parse().ok()).unwrap_or(0);
+        if !header_is(&head, "x-octet-proof", &proof(&info.token, &nonce)) {
+            return Err(std::io::Error::other("The program on Octet's port is not Octet."));
+        }
         Ok((status, head, reader))
     }
 }
@@ -1409,6 +1508,11 @@ fn app_version() -> String {
 
 #[cfg(test)]
 mod tests {
+    // A stand-in Octet's proof for the relay's signed request in `head`, and the nonce.
+    fn proof_line(head: &str, token: &str) -> String {
+        let nonce = head.lines().find_map(|l| l.strip_prefix("Authorization: Octet ")).and_then(|v| v.split_whitespace().next()).unwrap_or("");
+        format!("X-Octet-Proof: {}\r\n", super::proof(token, nonce))
+    }
     use super::*;
 
     // A script that sends its requests in one write and closes its end (`printf ... | octet --headless --mcp`): each
@@ -1478,7 +1582,7 @@ mod tests {
     // off, is a change.
     #[test]
     fn on_again_changes_nothing() {
-        let info = Info { port: 47681, token: "k".into(), program: String::new(), args: Vec::new() };
+        let info = Info { port: 47681, token: "k".into(), program: String::new(), args: Vec::new(), off: false };
         assert!(unchanged(Some(&info), true, None) == Some(info.clone()));
         assert!(unchanged(Some(&info), true, Some(false)).is_some());
         assert!(unchanged(Some(&info), true, Some(true)).is_none());
@@ -1557,7 +1661,7 @@ mod tests {
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
             let body = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"draw"},{"name":"read"}]}}"#;
-            write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", proof_line(&head, "k"), body.len()).unwrap();
         });
         let out = Lines::default();
         let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
@@ -1590,14 +1694,15 @@ mod tests {
             let mut head = String::new();
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
-            write!(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progress\":1}}}}\n\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}\n\n").unwrap();
+            write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progress\":1}}}}\n\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}\n\n", proof_line(&head, "k3y")).unwrap();
             head
         });
         let out = Lines::default();
         let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
         run(&relay, r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"draw","_meta":{"progressToken":1}}}"#);
         let head = server.join().unwrap();
-        assert!(head.contains("Authorization: Bearer k3y") && head.contains("text/event-stream"), "{head}");
+        // Signed: the key itself never crosses the connection.
+        assert!(head.contains("Authorization: Octet ") && !head.contains("k3y") && head.contains("text/event-stream"), "{head}");
         let all = out.all();
         assert_eq!(all[0]["method"], "notifications/progress");
         assert_eq!(all[1]["id"], 7);
@@ -1657,7 +1762,7 @@ mod tests {
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
             std::thread::sleep(Duration::from_millis(300));
-            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}");
+            let _ = write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\n\r\n{{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}", proof_line(&head, "k3y"));
         });
         let out = Lines::default();
         let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
@@ -1739,6 +1844,84 @@ mod tests {
         assert_eq!(allowed(&swap(3, "Content-Type: text/plain"), 47681, KEY), Err("415 Unsupported Media Type"));
         assert_eq!(allowed(&swap(4, "Content-Length: lots"), 47681, KEY), Err("411 Length Required"));
         assert_eq!(allowed(&swap(4, "Content-Length: 99999999"), 47681, KEY), Err("413 Content Too Large"));
+    }
+
+    // A relay's signed request: right once, with its own body and a fresh time; never again (a replay), with another
+    // body, another key or an old time. Only a request that passes gives the connection Octet's proof.
+    #[test]
+    fn signed_requests_are_checked() {
+        let seen = Mutex::new(HashMap::new());
+        let nonce = |t: u64| format!("{t}-{}", "ab".repeat(16));
+        let signed = |n: &str, key: &str, body: &[u8]| {
+            let mut h = good(&[]);
+            h[2] = format!("Authorization: Octet {n} {}", signature(key, "POST", n, body));
+            h
+        };
+        let n = nonce(now_secs());
+        PROOF.with(|p| p.borrow_mut().clear());
+        assert_eq!(allowed(&signed(&n, KEY, b"{}"), 47681, KEY), Ok(Asked::Post(12)));
+        assert!(!signed_ok(&signed(&n, KEY, b"{}"), b"{\"x\":1}", KEY, &seen), "another body");
+        assert!(!signed_ok(&signed(&n, "other", b"{}"), b"{}", KEY, &seen), "another key");
+        assert!(proved().is_empty(), "no proof for a request that failed");
+        assert!(signed_ok(&signed(&n, KEY, b"{}"), b"{}", KEY, &seen));
+        assert_eq!(proved(), format!("X-Octet-Proof: {}\r\n", proof(KEY, &n)));
+        assert!(!signed_ok(&signed(&n, KEY, b"{}"), b"{}", KEY, &seen), "the same nonce again");
+        let old = nonce(now_secs() - SIGNED_FOR - 5);
+        assert!(!signed_ok(&signed(&old, KEY, b"{}"), b"{}", KEY, &seen), "an old time");
+        assert!(!signed_ok(&signed("1-2", KEY, b"{}"), b"{}", KEY, &seen), "no random part");
+        // HMAC-SHA256 as RFC 4231 test case 2 gives it.
+        assert_eq!(hmac(b"Jefe", b"what do ya want for nothing?"), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+    }
+
+    // AI apps turned off in Settings: the relay lists no tools (not the ones it kept), refuses a call with the reason,
+    // and neither starts Octet nor connects to its port.
+    #[test]
+    fn the_relay_does_nothing_while_ai_apps_are_off() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-off-test-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"k","program":"","off":true}}"#)).unwrap();
+        std::fs::write(dir.join(KEPT), r#"{"tools/list":{"tools":[{"name":"draw"}]}}"#).unwrap();
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        run(&relay, r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#);
+        run(&relay, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        run(&relay, r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"draw"}}"#);
+        let all = out.all();
+        assert_eq!(all[0]["result"]["instructions"], OFF);
+        assert_eq!(all[1]["result"]["tools"], serde_json::json!([]));
+        assert_eq!(all[2]["error"]["message"], OFF);
+        assert!(listener.accept().is_err(), "nothing connected to Octet's port");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // A program on Octet's port that is not Octet (it has no proof) gets no key, and the relay passes on nothing it
+    // says: the AI app hears that Octet is not open.
+    #[test]
+    fn the_relay_takes_no_answer_from_a_squatter() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = std::env::temp_dir().join(format!("octet-squat-test-{port}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(INFO), format!(r#"{{"port":{port},"token":"s3cret","program":""}}"#)).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut head = String::new();
+            let mut r = std::io::BufReader::new(s.try_clone().unwrap());
+            while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            let body = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"evil"}]}}"#;
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            head
+        });
+        let out = Lines::default();
+        let relay = Relay::new(Some(dir.clone()), Box::new(out.clone()));
+        run(&relay, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        assert!(!server.join().unwrap().contains("s3cret"), "the key never went");
+        assert_ne!(out.all()[0]["result"]["tools"].get(0).and_then(|t| t.get("name")), Some(&serde_json::json!("evil")));
+        assert!(!dir.join(KEPT).exists(), "nothing it said is kept");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     // Plan 17.5: which window a session's request goes to, and whether the session takes it.
@@ -1967,17 +2150,17 @@ mod tests {
             let n = header(&head.lines().map(String::from).collect::<Vec<_>>(), "content-length").and_then(|n| n.parse().ok()).unwrap_or(0);
             let mut body = vec![0; n];
             r.read_exact(&mut body).unwrap();
-            String::from_utf8(body).unwrap()
+            (proof_line(&head, "k3y"), String::from_utf8(body).unwrap())
         };
         let server = std::thread::spawn(move || {
             // The call: its stream opens with the question; the answer comes as a POST of its own; then the reply.
             let (mut call, _) = listener.accept().unwrap();
-            head(&call);
-            write!(call, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":\"octet-ask-1\",\"method\":\"elicitation/create\",\"params\":{{}}}}\n\n").unwrap();
+            let (proved, _) = head(&call);
+            write!(call, "HTTP/1.1 200 OK\r\n{proved}Content-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":\"octet-ask-1\",\"method\":\"elicitation/create\",\"params\":{{}}}}\n\n").unwrap();
             call.flush().unwrap();
             let (mut back, _) = listener.accept().unwrap();
-            let answer = head(&back);
-            write!(back, "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n").unwrap();
+            let (proved, answer) = head(&back);
+            write!(back, "HTTP/1.1 202 Accepted\r\n{proved}Content-Length: 0\r\n\r\n").unwrap();
             write!(call, "event: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}\n\n").unwrap();
             answer
         });

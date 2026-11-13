@@ -120,7 +120,7 @@ Octet is free and open-source software under the
 [NOTICE](NOTICE).
 
 If you use Octet Draw in work that you publish, please cite it. On GitHub, click Cite this repository, or see
-[CITATION.cff](CITATION.cff).
+[CITATION.cff](CITATION.cff). The DOI is [10.5281/zenodo.24166447](https://doi.org/10.5281/zenodo.24166447).
 
 Copyright © 2026 Sam Ellis. Made in Manchester and Cambridge.
 

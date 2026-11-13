@@ -3130,7 +3130,9 @@ export default function Editor() {
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
   // shows its address and key.
   const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
-  useEffect(() => { if (TAURI && HOME_WINDOW && settings.mcp) void invoke<McpInfo | null>("mcp_set", { on: true }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Home starts the server when AI apps are on, and writes down that they are off when they are, for the relay
+  // (mcp.rs mcp_set).
+  useEffect(() => { if (TAURI && HOME_WINDOW) void invoke<McpInfo | null>("mcp_set", { on: settings.mcp }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Once an AI app subscribes to this drawing, each change to it (the user's or an AI app's) tells the AI apps that
   // subscribed, at most twice a second.
   const mcpChanged = useRef<number>(undefined), mcpWatched = useRef(false);
@@ -7713,7 +7715,9 @@ export default function Editor() {
       if (format === "chemfig") return toChemfig(mol, frame, measure) || undefined;
       if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return formatOf(mol, format as PartFormat);
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
-      const file = svg && (await invoke<string>("export_bytes", { export: exportRequest(mol, svg, f) }));
+      // An experiment page's PDF is its pages, as Export gives them: the experiment, then its risk assessment.
+      const sheets = format === "pdf" && !part && expPage ? pagePictures(mol) : undefined;
+      const file = svg && (await invoke<string>("export_bytes", { export: { ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts } }));
       return file && format === "svg" ? new TextDecoder().decode(fromBase64(file)) : file;
     },
     inchi: (m) => { try { const e = expandLabels(m); return { inchi: toInchi(e), key: toInchiKey(e) }; } catch { return {}; } },
@@ -7735,7 +7739,7 @@ export default function Editor() {
       return svgText && TAURI ? invoke<string>("mcp_png", { svg: svgText, dpi }) : undefined;
     },
     restyle: (next) => { now.current = (mcpWait.current = { mol: set({ ...scaleSizes(now.current, next.scale / style.scale), style: next }, true) }).mol!; },
-    experiment: () => expPage,
+    experiment: () => expPage, sheet: () => sheetOf(style),
     said: (text) => { mcpRest(); setNotice(text, "info", { label: "Undo", run: () => commands.current.undo() }); },
     // The window shows the AI app at work (McpMagic) while each call runs, and for some seconds after. How far the
     // call is counts no new step.

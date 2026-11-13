@@ -16,9 +16,9 @@ import { centreText, dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle,
 import { loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
-import { carryDepth, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
-import { experimentPage, newExperiment, newGrids, type Sheet } from "../../src/experiment.ts";
-import { addRisk, riskPlace } from "../../src/riskassess.ts";
+import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
+import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
+import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
 import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
@@ -124,6 +124,11 @@ export function drawing(purpose = "paper", title = "Untitled") {
   const told: string[] = [];
   const style = (): DocStyle => readStyle(doc.style ?? DEFAULT_STYLE);
   const expPage = () => { const s = style(); return experimentPage(purposeOf({ ownPurposes: [] }, s.purpose)?.kind, s.purpose, doc.annotations); };
+  // As the editor's sheetOf.
+  const sheet = (): Sheet => { const s = style(); return { page: pageSize(s), bond: s.bond, size: s.captionSize, measure: (text, size, bold) => textWidth(text, size, bold, false, fontStack(s.captionFont)) }; };
+  // The substances in the page's reagent tables, as the editor's riskSubstances (offline: no CAS numbers or hazards).
+  const riskList = () => substancesOf(tables().map((t) => t.view), (atoms) => host.name(pickAtoms(doc, atoms)),
+    (c) => { try { return c.atoms ? toInchiKey(expandLabels(pickAtoms(doc, c.atoms))) || undefined : undefined; } catch { return undefined; } });
   // The editor's set: hydrogens shown on warned atoms, multi-centre points placed, depth carried, groups kept whole,
   // what lands on a cycle joined to it, the stacking order kept, and on an experiment page a reagent table for a new
   // reaction.
@@ -136,7 +141,15 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const fitted = placeCentres(carryDepth(doc, showWarnedHydrogens(mol)));
     const cycled = fitted.cycles?.length ? dropOnCycle(fitted, fragments(fitted), doc, { box: dropBox, bond: s.bond }) : fitted;
     const ordered = onTop(doc, wholeGroups(cycled), fragments);
-    doc = expPage() && mol.style === doc.style ? newGrids(doc, ordered) : ordered;
+    // On an experiment page, as the editor's set: details typed on the page go in its record (syncDetails), its risk
+    // assessment takes in what was typed in it (syncRisk), and its substances follow the reagent tables (the editor
+    // does that a moment after the edit, in the same undo step).
+    const page = expPage() && mol.style === doc.style, before = doc;
+    doc = page ? syncRisk(before, syncDetails(before, newGrids(before, ordered), sheet()), sheet()) : ordered;
+    if (page && riskGroup(doc)) {
+      const g = riskGroup(doc)!, list = riskList();
+      if (JSON.stringify(list.map((x) => [x.key, x.name, x.role])) !== JSON.stringify(g.risk.substances.map((x) => [x.key, x.name, x.role]))) doc = withSubstances(doc, list.map(({ inchi: _, ...x }) => x), sheet());
+    }
     picked = { atoms: [], items: [] };
     return doc;
   };
@@ -264,6 +277,16 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return true;
     },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
+    // The Actions panel's risk assessment actions, offline (no PubChem here: risk.hazards finds nothing).
+    "risk.add": () => {
+      if (!expPage() || riskGroup(doc)) return expPage();
+      const d = drawn(doc), b = union([d.ink(doc.atoms.map((_, i) => i)), ...(doc.captions ?? []).map((c) => d.captionBox(c.id)), ...tables().map((t) => t.box)].filter((x): x is Box => !!x));
+      set(addRisk(doc, riskPlace(sheet(), b ? b[1] : 0), sheet(), riskList().map(({ inchi: _, ...x }) => x)));
+      return true;
+    },
+    "risk.update": () => { if (!riskGroup(doc)) return false; set(withSubstances(doc, riskList().map(({ inchi: _, ...x }) => x), sheet())); return true; },
+    "risk.hazards": () => !!riskGroup(doc),
+    "risk.remove": () => { const g = riskGroup(doc); if (!g) return false; set(deleteGraphics(doc, new Set(g.items))); return true; },
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };
   const host: Host = {
@@ -295,7 +318,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     name: (m) => { try { const e = expandLabels(m), inchi = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } }; return checkedName(m, e, nameToSmiles, inchi, cipOf, knownName); } catch { return undefined; } },
     picture: async () => undefined,
     restyle: (next) => { set({ ...scaleSizes(doc, next.scale / style().scale), style: next }); },
-    experiment: expPage,
+    experiment: expPage, sheet,
     said: (text) => { told.push(text); },
     // No window shows that an AI app is drawing.
     working: () => {},
