@@ -15,15 +15,16 @@ export function WhatsNew({ release, onClose }: { release: Release; onClose: () =
   const id = useId();
   const toggle = (title: string) => setOpen((o) => (o.includes(title) ? o.filter((t) => t !== title) : [...o, title]));
   return (
-    <Dialog title={`What’s new in Octet Draw ${release.version}`} onClose={onClose} alt={{ label: "All versions", onClick: () => void invoke("open_link", { name: "releases" }).catch(() => undefined) }}>
+    <Dialog title={release.heading ?? `What’s new in Octet Draw ${release.version}`} onClose={onClose} alt={{ label: "All versions", onClick: () => void invoke("open_link", { name: "releases" }).catch(() => undefined) }}>
       <div className="notes" tabIndex={0} role="region" aria-label="Release notes">
-        <p>{release.intro}</p>
+        {release.intro && <p>{release.intro}</p>}
         {/* Octet Draw is free for everyone, and stays free. A donation is only for those who want to help: one line and
             a small button at the top of the notes, never a window of its own. */}
         <p className="notes-donate">
           <span>Octet Draw is free. If you want to help, you can donate.</span>
           <button type="button" className="dialog-button" onClick={() => void invoke("open_link", { name: "donate" }).catch(() => undefined)}><Heart size={16} aria-hidden /> Donate</button>
         </p>
+        {highlights && release.heading && <h3 className="notes-more">Highlights</h3>}
         {highlights && (
           <ul className="notes-highlights" aria-label="Highlights">
             {highlights.map((h) => (
@@ -34,6 +35,7 @@ export function WhatsNew({ release, onClose }: { release: Release; onClose: () =
             ))}
           </ul>
         )}
+        {release.signoff?.map((line) => <p key={line}>{line}</p>)}
         <h3 className="notes-more">More changes</h3>
         {release.sections.map((s, i) => (
           <section key={s.title} className="notes-fold">
@@ -43,7 +45,7 @@ export function WhatsNew({ release, onClose }: { release: Release; onClose: () =
               <span className="notes-count" aria-label={`${s.items.length} changes`}>{s.items.length}</span>
             </button>
             <div id={`${id}-${i}`} className="fold-body" data-open={open.includes(s.title) || undefined} inert={!open.includes(s.title)}>
-              <div><ul>{s.items.map((item) => <li key={item}>{item}</li>)}</ul></div>
+              <div>{s.note && <p className="notes-note">{s.note}</p>}<ul>{s.items.map((item) => <li key={item}>{item}</li>)}</ul></div>
             </div>
           </section>
         ))}

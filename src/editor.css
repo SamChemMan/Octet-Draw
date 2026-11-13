@@ -6865,6 +6865,12 @@ div.facts {
 .notes-highlights li:nth-child(4) { animation-delay: 120ms; }
 .notes-highlights li:nth-child(5) { animation-delay: 160ms; }
 .notes-highlights li:nth-child(6) { animation-delay: 200ms; }
+.notes-highlights li:nth-child(7) { animation-delay: 240ms; }
+.notes-highlights li:nth-child(8) { animation-delay: 280ms; }
+/* A highlight with no name: its line in the text colour. */
+.notes-highlights li:not(:has(strong)) span {
+  color: var(--ink);
+}
 @keyframes notes-in {
   from { opacity: 0; transform: translateY(4px); }
 }
@@ -6889,6 +6895,11 @@ div.facts {
   margin-left: auto;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+}
+/* A line under a section's name, before its changes. */
+.notes-note {
+  color: var(--ink-muted);
+  font-style: italic;
 }
 .notes-fold ul {
   padding-bottom: var(--space-3);

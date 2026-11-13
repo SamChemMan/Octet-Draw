@@ -8,13 +8,15 @@ for (const r of RELEASES) {
   const md = readFileSync(new URL(`../docs/release-notes/${r.version}.md`, import.meta.url), "utf8").replace(/\\([*_])/g, "$1");
   const top = r.highlights ?? r.summary;
   for (const h of r.highlights ?? []) assert.ok(md.includes(`- **${h.title}.** ${h.text}`), `${r.version}: GitHub's notes have the highlight "${h.title}"`);
-  for (const text of [r.intro, ...(r.highlights?.flatMap((h) => [h.title, h.text]) ?? r.summary ?? []), ...(top ? [r.thanks] : []), ...r.sections.flatMap((s) => s.items)]) {
+  for (const text of [r.intro, ...(r.highlights?.flatMap((h) => [h.title, h.text]) ?? r.summary ?? []), ...(r.signoff ?? []), ...(top ? [r.thanks] : []), ...r.sections.flatMap((s) => [...(s.note ? [s.note] : []), ...s.items])]) {
     assert.ok(md.includes(text), `${r.version}: GitHub's notes have "${text}"`);
+    // Notes Sam wrote himself (heading) go in as he wrote them (13 November 2026: "bar-for-bar").
+    if (r.heading) continue;
     assert.doesNotMatch(text, /—/, "no em dash");
     for (const sentence of text.split(/(?<=\.) /)) assert.ok(sentence.split(/\s+/).length <= 22, `short sentence: "${sentence}"`);
   }
-  assert.ok(md.includes(`# Octet Draw ${r.version}`));
-  if (top) assert.ok(top.length <= 6 && md.includes("## Highlights"), `${r.version}: a short summary at the top`);
+  assert.ok(md.includes(`# ${r.heading ?? `Octet Draw ${r.version}`}`));
+  if (top) assert.ok((r.heading || top.length <= 6) && md.includes("## Highlights"), `${r.version}: a short summary at the top`);
 }
 assert.deepEqual(RELEASES.map((r) => r.version), [...RELEASES.map((r) => r.version)].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })), "newest first");
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
