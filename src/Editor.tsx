@@ -529,6 +529,12 @@ export default function Editor() {
   const [selection, setSelection] = useState<Set<number>>(new Set());
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  // A tool the user picks (palette, key, command) that isn't Select clears the selection, as in ChemDraw, so the first
+  // press with it draws. The hold-to-Select spring back keeps it.
+  const pickTool = (t: Tool) => {
+    setTool(t);
+    if (t !== "select") { setSelection((s) => (s.size ? new Set() : s)); setPicked((s) => (s.size ? new Set() : s)); }
+  };
   const [drag, setDrag] = useState<Drag>();
   // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
   const [notice, showNotice] = useState<Notice>();
@@ -5125,9 +5131,9 @@ export default function Editor() {
       const ringTools: Record<string, RingKind> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
       if (ringTools[arg]) {
         setSettings((s) => ({ ...s, variants: { ...s.variants, ring: ringTools[arg] } }));
-        return setTool("ring");
+        return pickTool("ring");
       }
-      return setTool(arg as Tool);
+      return pickTool(arg as Tool);
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
     // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
@@ -6518,7 +6524,7 @@ export default function Editor() {
   const WORDS: Record<string, string> = { stoichiometry: "analyze analysis" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
-    const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
+    const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); pickTool(t); };
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
@@ -8924,7 +8930,7 @@ export default function Editor() {
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
         keys={hint}
-        onTool={setTool}
+        onTool={pickTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
