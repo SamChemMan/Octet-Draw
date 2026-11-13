@@ -517,4 +517,10 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
   assert.match(editor, /const readName = useMemo\(\(\) => \(t: string\) => \(namesLoaded \? nameToSmiles\(t\) : undefined\), \[namesLoaded, settings\.dictionary\]\);/);
   assert.match(editor, /reagent: \(item\) => reagentFormula\(item, readName, labelSmiles, smilesWeight\),/);
 }
+{
+  // A reagent table moves when you drag any part of it with Select: a cell, its row names, its lines or a gap (Sam,
+  // 13 November 2026). A press on a cell also picks the cell.
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /gridViews\.find\(\(v\) => \{ const \[x0, y0, x1, y1\] = tableSpan\(v\);[^\n]*\n\s*if \(table\) \{\n\s*choose\(\[\], \[\]\);\n\s*setGridPick\(undefined\);\n\s*return setDrag\(\{ kind: "grid", arrow: table\.arrow/);
+}
 console.log("stoich.check: ok");

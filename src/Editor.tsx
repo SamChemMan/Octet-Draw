@@ -4860,6 +4860,13 @@ export default function Editor() {
       setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
       return setDrag({ kind: "grid", arrow: gc.arrow, from: p, start: screen, d: [0, 0], moved: false });
     }
+    // A press on the rest of a reagent table (its row names, its lines, a gap) grabs it too, with no cell picked.
+    const table = !shift && Object.values(t).every((v) => v === undefined) ? gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; }) : undefined;
+    if (table) {
+      choose([], []);
+      setGridPick(undefined);
+      return setDrag({ kind: "grid", arrow: table.arrow, from: p, start: screen, d: [0, 0], moved: false });
+    }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
     setPicked(picks);
