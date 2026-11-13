@@ -12,7 +12,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ChartPieSlice, ChartPolar,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -565,7 +565,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   if ("chart" in context && context.chart) {
     const c = context.chart;
     items.unshift(it(<GridNine size={18} />, "Edit data…", "chart_edit"));
-    if (c.kind === "energy") items.push(small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")), ...(c.paths.length > 1 ? [small(it(<ListChecks size={18} />, c.key ? "Hide the key" : "Show the key", "chart.key"))] : []));
+    if (c.kind === "energy") items.push(small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")), ...(c.paths.length > 1 ? [small(it(<ListStar size={18} />, c.key ? "Hide the key" : "Show the key", "chart.key"))] : []));
     else items.push(small(it(<ChartPieSlice size={18} />, c.zones ? "Hide the zones" : "Show the zones", "chart.zones")));
   }
   return items;

@@ -312,12 +312,15 @@ for (const [name, m] of cases) {
   const bare = readOct(noComment(oct), true);
   assert.ok(bare.foreign && !bare.resaved);
   kept(`${name}, .oct without its comment`, bare.mol, m, FILE);
-  // Without Octet's data: the CDXML with every Octet attribute taken out, and the CDX, which never holds one.
+  // Without Octet's data: the CDXML with every Octet attribute taken out, and a CDX made from it.
   const foreign = fromCdxml(noOctet(xml));
   assert.deepEqual(foreign.lost, {}, `${name}: nothing a reader cannot hold`);
   plainRead(`${name}, CDXML without Octet's data`, foreign.mol, m, FILE);
-  assert.deepEqual(readCdx(body).lost, {});
-  plainRead(`${name}, CDX without Octet's copy`, readCdx(body).mol, m, FILE);
+  // A CDX keeps Octet's data too (cdx.ts, under Octet's own tag); one without it reads as plain parts.
+  kept(`${name}, CDX from the CDXML`, readCdx(body).mol, m, FILE);
+  const bareCdx = xmlToCdx(parseXml(noOctet(xml)));
+  assert.deepEqual(readCdx(bareCdx).lost, {});
+  plainRead(`${name}, CDX without Octet's data`, readCdx(bareCdx).mol, m, FILE);
   // Written again from what was read, the file is the same picture: nothing drifts from save to save.
   same(`${name}, CDXML saved twice`, fromCdxml(toCdxml(fromCdxml(xml).mol, style)).mol, m, 2 * FILE);
   plainRead(`${name}, another program's file saved by Octet`, fromCdxml(noOctet(toCdxml(foreign.mol, style))).mol, m, 2 * FILE);
@@ -334,8 +337,9 @@ for (const [name, m] of cases) {
 }
 
 // --- Text only: never chemistry ---
-// A state named P, TS1 or INT1 would read as a label (edit.ts labelable). The chart's text has Interpret Chemically
-// off, so it adds nothing to the formula, the mass, the names or a structure file, on the page and after every file.
+// A state named P or INT1 would read as a label (edit.ts labelable; since 1.2's label fixes TS1 does not). The
+// chart's text has Interpret Chemically off, so it adds nothing to the formula, the mass, the names or a structure
+// file, on the page and after every file.
 const { ready, parseStructure, toCml, toInchi, toMolfile, toSdf, toSmiles } = await (async () => {
   // chem.ts loads Indigo's wasm as a browser does; these stand in for the browser (as copyas.check.ts does).
   const g = globalThis as Record<string, unknown>;
@@ -349,7 +353,7 @@ const { ready, parseStructure, toCml, toInchi, toMolfile, toSdf, toSmiles } = aw
 await ready;
 {
   const e = cases[0][1], asked = e.captions!.filter(labelable).map((c) => c.text);
-  for (const t of ["P", "TS1", "INT1", "TS2"]) assert.ok(asked.includes(t), `${t} reads as a label`);
+  for (const t of ["P", "INT1"]) assert.ok(asked.includes(t), `${t} reads as a label`);
   const flagless: Mol = { ...e, captions: e.captions!.map(({ chemical: _, ...c }) => c) };
   assert.ok(withCaptionAtoms(flagless, true).mol.atoms.some((a) => a.label === "P"), "without the flag, P would be phosphorus");
   // The structure files the editor writes (Editor.tsx formatOf): the drawing with its chemical captions as atoms. A MOL
