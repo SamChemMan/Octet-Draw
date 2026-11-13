@@ -75,12 +75,13 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, disa
   const card = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
   const top = useModal(backdrop, !leaving);
   // The first field (a text box, a list or a choice) takes the focus when the dialog opens, and only then: a dialog
-  // draws again as its fields change, and the focus stays in the field being typed in. With no field, the action has
+  // draws again as its fields change, and the focus stays in the field being typed in. A field marked data-first has it
+  // instead (a chart's first value, after its names). With no field, the action has
   // it, never the third choice (Don't Save, Replace): Space on it would lose work. A button that is not a field
   // (What's new's section names, About's links) never has it: Return would press it.
   useEffect(() => {
     const c = card.current;
-    (c?.querySelector<HTMLElement>(`textarea, input, select, .dialog-body :is(${FIELD}):not([tabindex='-1'])`) ?? c?.querySelector<HTMLElement>(".dialog-button.primary"))?.focus();
+    (c?.querySelector<HTMLElement>("[data-first]") ?? c?.querySelector<HTMLElement>(`textarea, input, select, .dialog-body :is(${FIELD}):not([tabindex='-1'])`) ?? c?.querySelector<HTMLElement>(".dialog-button.primary"))?.focus();
   }, []);
   useEffect(() => {
     if (leaving) return;

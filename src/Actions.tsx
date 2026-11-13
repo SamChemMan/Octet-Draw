@@ -12,7 +12,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer,
+  Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ChartPieSlice, ChartPolar,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -59,6 +59,8 @@ export type LabelText = { bold: boolean; italic: boolean; underline: boolean; fo
 // A cycle's side arrow: the ends it has, inside the circle (undefined: all its ends are structures), moved from where
 // Octet puts it, and its heads.
 export type CycleSide = { ends: "both" | "in" | "out"; inside?: boolean; moved: boolean; start: Head; end: Head; head: HeadShape; size: string };
+// A picked chart's look (charts.ts), for its controls in the panel. whole: the whole chart is picked, not one part.
+export type ChartLook = { whole: boolean } & ({ kind: "energy"; join: "line" | "dashed" | "curve"; axis: boolean; key: boolean; paths: { name: string; colour: string }[] } | { kind: "radar"; zones: boolean; min: number; max: number; step: number });
 export type Context =
   // risk: an experiment page with no risk assessment yet, so it can have one (riskassess.ts).
   | { kind: "empty"; risk?: boolean }
@@ -66,10 +68,10 @@ export type Context =
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   // risk: the lone group is the page's risk assessment.
-  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures)
+  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures)
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
-  | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
+  | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
       // shown when the document's is on and one of them reads as chemistry.
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
@@ -78,7 +80,7 @@ export type Context =
       cycleSide?: CycleSide; cycleName?: { moved: boolean } }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
-  | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
+  | { kind: "arrow"; chart?: ChartLook; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
@@ -210,6 +212,18 @@ export function SizeButton({ size, sizes, run }: { size: number; sizes: number[]
   );
 }
 
+// An energy diagram's joins, and a sensitivity screen's scale, as the panel names them.
+const JOINS = [["line", "Lines"], ["dashed", "Dashed lines"], ["curve", "Curves"]] as const;
+const RANGE = [["min", "Edge"], ["max", "Centre"], ["step", "Step"]] as const;
+// A join as its chip shows it: two levels, joined by a line, a dashed line or a curve, in the tool icons' stroke.
+function JoinGlyph({ kind }: { kind: "line" | "dashed" | "curve" }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+      <path d="M2 13h4M12 5h4" />
+      {kind === "curve" ? <path d="M6 13c3 0 3-8 6-8" /> : <path d="M6 13l6-8" strokeDasharray={kind === "dashed" ? "2 2.5" : undefined} />}
+    </svg>
+  );
+}
 // The selection's scale against the document's style, in percent: blank when its parts differ. A typed value sets it
 // (100 matches the document). Enter or leaving the field sets it; Escape leaves it as it was.
 function ScaleField({ scale, run }: { scale: number | null; run: (command: string) => void }) {
@@ -268,16 +282,16 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // short: the name in a menu's cell, where the full name does not fit (the panel's rows show the full name).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean; short?: string };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026; this
-// order and these names, 12 November 2026): the object's own edits (a table's, a plate's, a cycle's); Analyse;
+// order and these names, 12 November 2026): a chart's own edits (charts.ts); the object's own edits (a table's, a plate's, a cycle's); Analyse;
 // Molecule and copy (what is shown on the structure, the rest, the clipboard and library; Display and copy on a panel
 // that is not a structure's); Turn, flip and arrange (every turn, rotation and flip, then the order, alignment and
 // place on the page); Add frame; 3D tools (3D clean up, depth shading, Flatten); Group (Group, Ungroup and Pick as
 // one, as ChemDraw's right-click Group menu); Search literature (Reaxys, PubChem and SciFinder, when Online search is
 // on); and File when it applies. The last small buttons in every panel have no title: what the view does (Select
 // all, Fit to window, Centre in window, Select structure), then Delete.
-const SETS = ["table", "plate", "cycle", "analysis", "more", "turn", "frame", "depth", "group", "search", "file", "delete"] as const;
+const SETS = ["chart", "table", "plate", "cycle", "analysis", "more", "turn", "frame", "depth", "group", "search", "file", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "Display and copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", file: "File", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "Display and copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", file: "File", delete: "Delete" };
 // A structure's panels call Display and copy by what it acts on. A section with no turn or flip in it is Arrange, and
 // the last, untitled one is named for a screen reader by what it holds.
 const titleOf = (s: SetId, c: Context, list: readonly { command: string }[]) => {
@@ -287,11 +301,11 @@ const titleOf = (s: SetId, c: Context, list: readonly { command: string }[]) => 
   return SET_TITLES[s];
 };
 // Each set's icon, for its row when the sets show as menus.
-const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
+const SET_ICONS: Record<SetId, React.ReactNode> = { chart: <ChartPolar size={18} />, table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
   depth: <CubeTransparent size={18} />, group: <BoundingBox size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; a set of more than one kind keeps its kinds in this order (and shows
 // them apart in a menu).
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "turn", group: "group", frame: "frame", file: "file", view: "delete", turn: "turn", depth: "depth", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_FOR: Record<string, SetId> = { chart: "chart", table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "turn", group: "group", frame: "frame", file: "file", view: "delete", turn: "turn", depth: "depth", marks: "more", other: "more", library: "more", delete: "delete" };
 const SET_KINDS: Partial<Record<SetId, string[]>> = { more: ["marks", "other", "library"], turn: ["turn", "arrange"], delete: ["view", "delete"] };
 const byKind = <T extends { command: string }>(s: SetId, list: readonly T[]): T[][] => SET_KINDS[s]?.map((k) => list.filter((i) => kindOf(i.command) === k)) ?? [[...list]];
 const KIND_OF: Record<string, string> = {
@@ -303,7 +317,7 @@ const KIND_OF: Record<string, string> = {
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
-  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group",
+  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
@@ -546,6 +560,14 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     const own = new Set(items.map((i) => i.command));
     items.push(...actionItems(context.molecule, messy, hiddenWarnings, warned, online).filter((i) => !own.has(i.command)));
   }
+  // A chart picked whole, or one of its parts: its data comes first, and its axis, key or zones hide and show as a TLC
+  // plate's origin does.
+  if ("chart" in context && context.chart) {
+    const c = context.chart;
+    items.unshift(it(<GridNine size={18} />, "Edit data…", "chart_edit"));
+    if (c.kind === "energy") items.push(small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")), ...(c.paths.length > 1 ? [small(it(<ListChecks size={18} />, c.key ? "Hide the key" : "Show the key", "chart.key"))] : []));
+    else items.push(small(it(<ChartPieSlice size={18} />, c.zones ? "Hide the zones" : "Show the zones", "chart.zones")));
+  }
   return items;
 }
 
@@ -748,6 +770,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked") || ((context.kind === "atom" || context.kind === "bond") && !!context.molecule);
 
   const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
+  const chart = "chart" in context ? context.chart : undefined;
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
   function startCarry(e: React.PointerEvent, command: string) {
@@ -1102,6 +1125,19 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
       {scale !== undefined && <ScaleField scale={scale} run={run} />}
+      {chart?.kind === "energy" && (
+        // How an energy diagram's levels are joined: each chip is drawn as its join.
+        <div className="chips joins" role="group" aria-label="Joins">
+          {JOINS.map(([id, name]) => <button key={id} className="chip" aria-pressed={chart.join === id} onClick={() => run(`chart.join.${id}`)} data-tip={name}><JoinGlyph kind={id} /></button>)}
+        </div>
+      )}
+      {chart?.kind === "radar" && RANGE.map(([k, name]) => (
+        // A sensitivity screen's scale: the value at its edge, the value at its centre, and the step between rings.
+        <label key={k} className="scale-row">
+          <span className="tray-title">{name}</span>
+          <NumberField label={name} unit="%" lazy min={k === "step" ? 0.001 : -1e6} max={1e6} step={5} value={chart[k]} onChange={(n) => run(`chart.scale.${k}.${n}`)} />
+        </label>
+      ))}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <Fold id="colour" title="Colour" className="colour-block" folded={folded.includes("colour")} onFold={onFold} folds={folds}>
@@ -1110,6 +1146,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             structures. A colour changed in the picker is one step to undo (drag). */}
         <div className="picks" role="group" aria-label="Colour">
           <ColourPick label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
+          {/* A whole energy diagram with two paths or more: a colour for each path, under its own name. */}
+          {chart?.kind === "energy" && chart.whole && chart.paths.length > 1 && chart.paths.map((p, i) => (
+            <ColourPick key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
+          ))}
           {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
           {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
         </div>
