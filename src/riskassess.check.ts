@@ -2,7 +2,7 @@
 // substances, reads hazard codes wrongly, stops ticking or typing, or does not save, open and print as drawn.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addRisk, buildRisk, hCodes, isSignificant, MAX_SUBSTANCES, pathCurves, readRisk, riskGroup, riskLayout, riskPlace, significantCodes, substancesOf, syncRisk, ticked, TICKS, toggleRisk, withCas, withHazards, withSubstances, type Substance } from "./riskassess.ts";
+import { addRisk, buildRisk, hCodes, partAt, partItems, removeRiskPart, isSignificant, MAX_SUBSTANCES, pathCurves, readRisk, riskGroup, riskLayout, riskPlace, significantCodes, substancesOf, syncRisk, ticked, TICKS, toggleRisk, withCas, withHazards, withSubstances, type Substance } from "./riskassess.ts";
 import { MARGIN, slotText, templateOf, type Sheet } from "./experiment.ts";
 import { PICTOGRAMS, type Ghs } from "./ghs.ts";
 import { gridViews, type GridDeps } from "./gridview.ts";
@@ -10,7 +10,7 @@ import { parse, serialize } from "./file.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE, pagesOver } from "./docstyle.ts";
 import { addCaption, deleteGraphics, updateCaption } from "./edit.ts";
-import type { Mol } from "./render.ts";
+import type { Caption, Mol } from "./render.ts";
 
 const sheet: Sheet = { page: [210, 297], bond: 14.4, size: 10, measure: (t, size) => t.length * size * 0.5 };
 const k = 72 / 25.4 / sheet.bond, EMPTY: Mol = { atoms: [], bonds: [] };
@@ -192,6 +192,95 @@ assert.equal(readRisk({ ...good, substances: [{ ...good.substances[0], name: "a\
 const raw = JSON.parse(serialize(m));
 raw.groups[0].risk = { substances: 7 };
 assert.equal(riskGroup(parse(JSON.stringify(raw))), undefined);
+
+// Octet adds one to a new experiment page by itself (auto); the record says so, and keeps it through a file.
+{
+  const a = addRisk(EMPTY, riskPlace(sheet, 0), sheet, [], true), r = riskGroup(a)!.risk;
+  assert.equal(r.auto, true);
+  assert.deepEqual(r.substances, []);
+  assert.equal(riskGroup(parse(serialize(a)))!.risk.auto, true);
+  assert.ok(riskPlace(sheet, 0)[1] < -(297 / 2) * k, "on page 2");
+  // Removed (Remove risk assessment, or Delete with all of it picked), it is gone, and Add risk assessment brings it back.
+  const removed = deleteGraphics(a, new Set(riskGroup(a)!.items));
+  assert.equal(riskGroup(removed), undefined);
+  assert.ok(riskGroup(addRisk(removed, riskPlace(sheet, 0), sheet)));
+}
+
+// A click with Select on one part picks that part; Delete removes it, the rest closes up, and it stays removed when the
+// substances follow the reagent table again or Find hazards runs again. A part: a substance's row, a box to tick with its
+// name, a place to type with its label, a pictogram, the emergency paragraph, the signatures, or a whole section by its
+// heading. Over the title, no part: the click picks all of it.
+{
+  const s2: Omit<Substance, "id">[] = [{ key: "A", name: "acetone", formula: "C3H6O", role: "solvent" }, { key: "B", name: "benzene", formula: "C6H6", role: "reactant" }];
+  let p = withHazards(addRisk(EMPTY, [0, 0], sheet, s2), { B: { cid: 241, pictograms: ["GHS02", "GHS07", "GHS08"], signal: "Danger", hazards: ["H225: x", "H350: y"], precautions: [] } }, sheet);
+  p = syncRisk(p, addCaption(p, { text: "skin", x: 0, y: 0, align: "left", field: "risk:exp1" })[0], sheet);
+  const lay = riskLayout(p, sheet)!, keys = new Set(lay.parts.map((x) => x.key));
+  for (const key of ["sec:substances", "sub:1", "sub:2", "pic:2:GHS08", "sec:significant", "sec:safety", "tick:fire", "field:safety", "sec:controls", "tick:fume", "field:glovetype", "sec:waste", "sec:emergency", "ext", "sec:treatment", "para", "tick:read", "sec:signatures", "sign:assessor"]) assert.ok(keys.has(key), key);
+  const head = p.captions!.find((c) => c.field === "risk")!;
+  assert.equal(partAt(lay, [head.x + 0.2, head.y + 0.1]), undefined, "the title picks all of it");
+  const at = (key: string) => { const b = lay.parts.find((x) => x.key === key)!.box; return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] as [number, number]; };
+  assert.equal(partAt(lay, at("pic:2:GHS08"))?.key, "pic:2:GHS08", "a pictogram before its row");
+  assert.equal(partAt(lay, at("tick:fume"))?.key, "tick:fume", "an item before its section");
+  const name = p.captions!.find((c) => c.field === "rp:name:1")!;
+  assert.equal(partAt(lay, [name.x + 0.1, name.y])?.key, "sub:1");
+  const wasteHead = p.captions!.find((c) => c.field === "rp:head:waste")!;
+  assert.equal(partAt(lay, [wasteHead.x + 0.1, wasteHead.y])?.key, "sec:waste", "a section by its heading");
+  // What each part holds.
+  const row = partItems(p, lay.parts.find((x) => x.key === "sub:1")!), text = (ids: Set<number>) => p.captions!.filter((c) => ids.has(c.id)).map((c) => c.text);
+  assert.deepEqual(text(row).sort(), ["C3H6O", "acetone", "skin"]);
+  assert.ok(text(partItems(p, lay.parts.find((x) => x.key === "sec:waste")!)).includes("Waste store"));
+  assert.equal(partItems(p, lay.parts.find((x) => x.key === "pic:2:GHS08")!).size > 1, true, "a pictogram is its diamond and symbol");
+  // Removed: the row with what was typed in it, a section, a box, a pictogram.
+  const red = (x: Mol) => (x.arrows ?? []).filter((a) => a.colour === "#B42323").length;
+  assert.equal(red(p), 3);
+  let q = removeRiskPart(removeRiskPart(removeRiskPart(removeRiskPart(p, "sub:1", sheet), "sec:waste", sheet), "tick:fume", sheet), "pic:2:GHS08", sheet);
+  assert.deepEqual(riskGroup(q)!.risk.removed, ["sub:1", "sec:waste", "tick:fume", "pic:2:GHS08"]);
+  const texts = q.captions!.map((c) => c.text);
+  for (const t of ["acetone", "skin", "Waste disposal", "Waste store", "Fume cupboard"]) assert.ok(!texts.includes(t), t);
+  assert.ok(texts.includes("benzene") && texts.includes("Powder cabinet") && texts.includes("Emergency procedures"));
+  assert.equal(red(q), 2);
+  assert.ok(riskLayout(q, sheet)!.bottom > riskLayout(p, sheet)!.bottom, "the rest closes up");
+  q = withHazards(withSubstances(q, s2, sheet), { B: { cid: 241, pictograms: ["GHS02", "GHS07", "GHS08"], hazards: [], precautions: [] } }, sheet);
+  assert.ok(!q.captions!.some((c) => c.text === "acetone"), "a refresh keeps the row removed");
+  assert.equal(red(q), 2, "Find hazards again keeps the pictogram removed");
+  assert.deepEqual(riskGroup(removeRiskPart(q, "sub:1", sheet))!.risk.removed, riskGroup(q)!.risk.removed, "removing again changes nothing");
+  // Undo is the drawing before: nothing of the change lives outside the drawing.
+  assert.equal(riskGroup(p)!.risk.removed, undefined);
+}
+
+// Every text can be typed over, with rich text: the record keeps the user's (texts), so a build, a tick and a file
+// keep it. A heading, a box's name and a line of the emergency paragraph.
+{
+  let p = addRisk(EMPTY, [0, 0], sheet, subs);
+  const edit = (x: Mol, field: string, change: Partial<Caption>) => syncRisk(x, updateCaption(x, x.captions!.find((c) => c.field === field)!.id, change), sheet);
+  p = edit(p, "rp:head:safety", { text: "Hazards of the procedure", runs: [{ text: "Hazards of the ", bold: true }, { text: "procedure", bold: true, italic: true }] });
+  p = edit(p, "rp:label:fume", { text: "Fume hood" });
+  p = edit(p, "rp:treat:0", { text: "Skin or eyes: rinse for 15 minutes.", runs: undefined });
+  const r = riskGroup(p)!.risk;
+  assert.deepEqual(Object.keys(r.texts ?? {}).sort(), ["head:safety", "label:fume", "treat:0"]);
+  assert.deepEqual(r.texts!["head:safety"].map((x) => [x.text, !!x.bold, !!x.italic]), [["Hazards of the ", true, false], ["procedure", true, true]]);
+  assert.deepEqual(r.texts!["label:fume"], [{ text: "Fume hood" }], "a box's name");
+  for (const x of [toggleRisk(p, "fume", sheet), parse(serialize(p)), fromCdxml(toCdxml(p, DEFAULT_STYLE)).mol]) {
+    const cs = x.captions!;
+    assert.equal(cs.find((c) => c.field === "rp:head:safety")?.text, "Hazards of the procedure");
+    assert.equal(cs.find((c) => c.field === "rp:label:fume")?.text, "Fume hood");
+    assert.equal(cs.find((c) => c.field === "rp:treat:0")?.text, "Skin or eyes: rinse for 15 minutes.");
+  }
+  // Other parts keep Octet's text.
+  assert.ok(p.captions!.some((c) => c.text === "Control measures"));
+  // A typed text with a caption-wide style keeps it in its runs.
+  p = edit(p, "rp:head:waste", { colour: "#213C99" });
+  assert.equal(riskGroup(p)!.risk.texts!["head:waste"][0].colour, "#213C99");
+  assert.equal(p.captions!.find((c) => c.field === "rp:head:waste")?.runs?.[0].colour, "#213C99");
+  // Hostile texts and removals are refused: unknown keys or styles, too long, too many, not lists.
+  const good2 = riskGroup(p)!.risk;
+  assert.deepEqual(readRisk(JSON.parse(JSON.stringify(good2))), good2);
+  for (const bad of [{ ...good2, texts: [] }, { ...good2, texts: { "Bad Key": [{ text: "x" }] } }, { ...good2, texts: { head: [{ text: "x", onclick: "y" }] } },
+    { ...good2, texts: { head: [{ text: "x", colour: "red" }] } }, { ...good2, texts: { head: [{ text: "x".repeat(2001) }] } }, { ...good2, texts: { head: "x" } },
+    { ...good2, texts: Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`k${i}`, [{ text: "x" }]])) }, { ...good2, removed: "sub:1" },
+    { ...good2, removed: ["<script>"] }, { ...good2, removed: Array.from({ length: 301 }, (_, i) => `sub:${i}`) }, { ...good2, auto: "yes" }]) assert.equal(readRisk(bad), undefined, JSON.stringify(bad).slice(0, 80));
+  assert.equal(readRisk({ ...good2, texts: { head: [{ text: "a\u0000b\nc" }] } })!.texts!.head[0].text, "ab\nc", "control characters go, new lines stay");
+}
 
 // The Export dialog has Print… for every drawing, the same printing as File > Print; an experiment page's PDF is its
 // pages.

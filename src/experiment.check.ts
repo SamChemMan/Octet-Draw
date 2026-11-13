@@ -370,3 +370,28 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.match(editor, /const ghost = useMemo\(\(\) => shownNamed && shownNamed\.atoms\.length \? render\(moveAtoms\(shownNamed, .*, schemeAt\(shownNamed, doc, namingAt\.current\) \?\? landing\(shownNamed, namingAt\.current\)\)/);
   assert.match(editor, /dispatch\(\{ type: "amend", mol: grown \}\)/);
 }
+
+// A new experiment page has its risk assessment on page 2 (Sam, 13 November 2026) unless Settings > Document says no,
+// a switch that is on at first. The first time, a notice says so and how to remove it, before the notice about Use for
+// new documents. Its substances follow the reagent tables after each edit, in the edit's undo step, with hazards
+// from PubChem for new ones when Online search is on. A click with Select picks one part of it and Delete removes that
+// part; Remove risk assessment removes all of it. A new page compared with the page (Settings' isDefault) does not use
+// up an experiment number, so Settings on an experiment page opens.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), prefs = readFileSync(new URL("settings.ts", import.meta.url), "utf8"), window = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
+  assert.match(prefs, /riskNew: true, riskNoted: false/);
+  assert.match(prefs, /riskNew: saved\.riskNew !== false,\n\s+riskNoted: saved\.riskNoted === true,/);
+  assert.match(window, /d\("document", "For", "Add a risk assessment to new experiment pages", [^\n]*<Switch on=\{p\.drawing\.riskNew\} label="Add a risk assessment to new experiment pages" onChange=\{\(on\) => p\.onDrawing\(\{ riskNew: on \}\)\} \/>\)/);
+  assert.match(editor, /return settings\.riskNew \? addRisk\(page, riskPlace\(sheetOf\(style\), 0\), sheetOf\(style\), \[\], true\) : page;/);
+  assert.match(editor, /if \(!peek\) setSettings\(\(s\) => \(\{ \.\.\.s, lastNumber: number \}\)\);/);
+  assert.match(editor, /serialize\(templateOf\(freshFor\(id, true\)\)\)/);
+  assert.match(editor, /const riskFirst = expPage && !home && !settings\.riskNoted && !!riskGroup\(doc\)\?\.risk\.auto;/);
+  assert.match(editor, /setNotice\("Octet adds a risk assessment on page 2\. To remove it, select it and choose Remove risk assessment\.", "info", \{ label: "Open Settings", run: \(\) => setSettingsOpen\("document"\) \}\);\n\s+setSettings\(\(s\) => \(\{ \.\.\.s, riskNoted: true \}\)\);/);
+  assert.match(editor, /if \(!expPage \|\| home \|\| settings\.experimentNoted \|\| notice \|\| riskFirst\) return;/);
+  assert.ok(editor.indexOf("const riskFirst") < editor.indexOf("settings.experimentNoted || notice"), "the risk notice first");
+  assert.match(editor, /const next = withRiskCas\(withSubstances\(m, list\.map\(\(\{ inchi: _, \.\.\.x \}\) => x\), s\), offlineCas\(list\), s\), fresh = list\.filter\(\(x\) => !had\.has\(x\.key\)\);\n\s+lastSet\.current = next;\n\s+dispatch\(\{ type: "amend", mol: next \}\);\n\s+if \(TAURI && settings\.onlineSearch && fresh\.length\) void riskOnline\(true, fresh, true\);/);
+  assert.match(editor, /const part = !shift && selectKind !== "perspective" && riskLay && its\.some\(\(x\) => riskItems\.has\(x\)\) \? partAt\(riskLay, p\) : undefined;/);
+  assert.match(editor, /if \(id === "edit\.delete"\) \{\n\s+if \(riskDelete\(\)\) return;/);
+  assert.match(editor, /if \(command === "delete" && riskDelete\(\)\) return;/);
+  assert.match(editor, /"risk\.remove": \(\) => \{ const g = riskGroup\(doc\); if \(g\) set\(deleteGraphics\(doc, new Set\(g\.items\)\)\); \},/);
+}

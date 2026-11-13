@@ -29,6 +29,7 @@ export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance
 export type DrawingPrefs = {
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; pairBars: boolean;
   autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles"; massUnit: "g" | "mg";
+  riskNew: boolean; // a new experiment page gets a risk assessment (riskassess.ts)
 };
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent" | "page"; margin: number; quality: number; // JPEG, 1 to 100
@@ -507,6 +508,8 @@ export function SettingsWindow(p: Props) {
       { ...d("document", "For", "For", "template for paper thesis slides poster experiment notebook talk presentation new size page", (
         <Segmented className="purposes" label="For" value={style.purpose ?? ""} options={p.purposes.map((x): [string, string] => [x.id, x.name])} onChange={p.onPurpose} />
       )), head: true },
+      // Experiment pages: each new one gets a risk assessment on page 2, unless this is off (riskassess.ts).
+      d("document", "For", "Add a risk assessment to new experiment pages", "risk assessment experiment page new hazards safety coshh lab book", <Switch on={p.drawing.riskNew} label="Add a risk assessment to new experiment pages" onChange={(on) => p.onDrawing({ riskNew: on })} />),
       // One size for the whole style (decision 0007): every length and text size times it, the preset kept. 10% to 1000%.
       d("document", "Style", "Scale", "scale size bigger smaller poster slides percent proportion", (
         <NumberField label="Scale" unit="%" lazy step={1} value={Math.round(style.scale * 1000) / 10} onChange={(n) => p.onStyle(withScale(style, Math.min(10, Math.max(0.1, n / 100))))} />

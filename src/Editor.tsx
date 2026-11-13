@@ -78,7 +78,7 @@ import { toChemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
-import { addRisk, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
+import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
 import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { logS, properties as calculate } from "./props";
@@ -603,8 +603,8 @@ export default function Editor() {
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
   const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
-    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
+    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit, riskNew: settings.riskNew }),
+  [settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -1713,15 +1713,19 @@ export default function Editor() {
   // page put in place of a blank page looks as if New did nothing. here: a new drawing window starts its own drawing.
   // A new drawing for a purpose as it starts. An experiment page starts with an own template's text, or with the text
   // kept for Experiment by Use for new documents.
-  const freshFor = (id: string): Mol => {
+  // peek: only to compare with (isDefault, while drawing), so the experiment number is not used up.
+  const freshFor = (id: string, peek = false): Mol => {
     const style = styleFor(settings, id), start = settings.ownPurposes.find((p) => p.id === id)?.start ?? (id === "experiment" ? settings.experimentStart : undefined);
     let template: Mol | undefined;
     try { template = start ? parse(start) : undefined; } catch { template = undefined; }
     if (purposeOf(settings, id)?.kind !== "experiment") return authored({ ...EMPTY, style });
     // Each new experiment page has the next experiment number, which the user can change (Experiment details).
     const number = nextNumber(settings.lastNumber);
-    setSettings((s) => ({ ...s, lastNumber: number }));
-    return authored({ ...EMPTY, style, ...newExperiment(sheetOf(style), template, undefined, systemName || undefined, number) });
+    if (!peek) setSettings((s) => ({ ...s, lastNumber: number }));
+    const page = authored({ ...EMPTY, style, ...newExperiment(sheetOf(style), template, undefined, systemName || undefined, number) });
+    // Its risk assessment on page 2, unless Settings says no (Sam, 13 November 2026). It fills itself from the reagent
+    // tables as they are made (riskAuto).
+    return settings.riskNew ? addRisk(page, riskPlace(sheetOf(style), 0), sheetOf(style), [], true) : page;
   };
   const newDrawing = (id = settings.purpose, here = false) => elsewhere || (!here && ((homeWindow && !home) || drawWindow)) ? inNew({ new: id }) : keepWork(() => {
     const fresh = freshFor(id), style = fresh.style!;
@@ -1791,7 +1795,7 @@ export default function Editor() {
   // page, the same text.
   const isDefault = () => {
     const id = purposeOf(settings, style.purpose) ? style.purpose! : QUICK;
-    return sameStyle(style, styleFor(settings, id)) && (!expPage || purposeKind !== "experiment" || serialize(templateOf(doc)) === serialize(templateOf(freshFor(id))));
+    return sameStyle(style, styleFor(settings, id)) && (!expPage || purposeKind !== "experiment" || serialize(templateOf(doc)) === serialize(templateOf(freshFor(id, true))));
   };
   // A template of the user's own goes from Home, File > New For and Settings; New then starts Quick start if it started that one.
   const removePurpose = (id: string) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? QUICK : s.purpose }));
@@ -2429,6 +2433,7 @@ export default function Editor() {
     "risk.add": () => addRiskAssessment(),
     "risk.update": () => updateRiskAssessment(),
     "risk.hazards": () => void riskOnline(true),
+    "risk.remove": () => { const g = riskGroup(doc); if (g) set(deleteGraphics(doc, new Set(g.items))); },
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
     home: () => (drawWindow ? void invoke("show_home").catch(() => {}) : homeWindow && home ? undefined : templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
@@ -3241,13 +3246,30 @@ export default function Editor() {
   const riskLay = useMemo(() => (expPage ? riskLayout(doc, sheetOf(style)) : undefined), [expPage, doc.captions, doc.groups, style]); // eslint-disable-line react-hooks/exhaustive-deps
   const riskItems = useMemo(() => new Set(riskGroup(doc)?.items), [doc.groups]); // eslint-disable-line react-hooks/exhaustive-deps
   const riskTickAt = (p: P) => riskLay?.ticks.find((x) => inSpan(x.box, p));
+  // The part of it a press picked (pressSelect): Delete with just that part picked removes it, and it stays removed.
+  const riskPicked = useRef<{ key: string; items: Set<number> }>(undefined);
+  const riskDelete = () => {
+    const r = riskPicked.current;
+    if (!r || selection.size || picked.size !== r.items.size || ![...picked].every((x) => r.items.has(x))) return false;
+    riskPicked.current = undefined;
+    set(removeRiskPart(doc, r.key, sheetOf(style)));
+    return true;
+  };
   const slots = useMemo(() => (expPage ? [...slotsOf(doc, sheetOf(style)), ...(riskLay?.slots ?? [])] : []), [expPage, doc.captions, style, riskLay]); // eslint-disable-line react-hooks/exhaustive-deps
   const slotAt = (p: P, t: Hover): Slot | undefined => (t.caption !== undefined ? slots.find((x) => x.caption === t.caption)
     : Object.values(t).every((v) => v === undefined) || (t.arrow !== undefined && riskItems.has(t.arrow) && Object.entries(t).every(([key, v]) => key === "arrow" || v === undefined)) ? slots.find((x) => inSpan(x.box, p)) : undefined);
   // Once, on the first experiment page shown (Octet 1.1.2): where to keep the page's layout for new experiment pages.
   // Another notice showing then comes first, and this one waits for the next page.
+  // Once, the first time Octet adds a risk assessment to a new experiment page by itself: where it is, how to remove it,
+  // and Settings' switch for new pages. It comes before the notice under it, which waits for the next page.
+  const riskFirst = expPage && !home && !settings.riskNoted && !!riskGroup(doc)?.risk.auto;
   useEffect(() => {
-    if (!expPage || home || settings.experimentNoted || notice) return;
+    if (!riskFirst || notice) return;
+    setNotice("Octet adds a risk assessment on page 2. To remove it, select it and choose Remove risk assessment.", "info", { label: "Open Settings", run: () => setSettingsOpen("document") });
+    setSettings((s) => ({ ...s, riskNoted: true }));
+  }, [riskFirst]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!expPage || home || settings.experimentNoted || notice || riskFirst) return;
     setNotice("To use this layout for each new experiment page, choose Use for new documents in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("document") });
     setSettings((s) => ({ ...s, experimentNoted: true }));
   }, [expPage, home]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4784,6 +4806,16 @@ export default function Editor() {
 
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t), its = itemsOf(t);
+    // A risk assessment (riskassess.ts): a press on one of its parts picks that part, so Delete removes it, and a drag
+    // moves all of it. A press on its title, or Shift, picks all of it, as any integral group.
+    const part = !shift && selectKind !== "perspective" && riskLay && its.some((x) => riskItems.has(x)) ? partAt(riskLay, p) : undefined;
+    if (part) {
+      const items = partItems(doc, part);
+      riskPicked.current = { key: part.key, items };
+      setSelection(new Set());
+      setPicked(items);
+      return startMove(p, screen, t, riskItems, new Set(), copy);
+    }
     // Sam (28 October 2026): a press on any part of a group picks the whole (outermost) group (Shift adds it) and
     // moves it; a press on a part already picked (by a double-click, pickPart) moves that part within its group.
     if (selectKind !== "perspective" && groupsOf(doc, new Set(ids), new Set(its)).length) {
@@ -5814,6 +5846,7 @@ export default function Editor() {
       return set(keepHands(doc, tiltAtoms(doc, selection, centre, arg === "left" ? -12 : arg === "right" ? 12 : 0, arg === "up" ? -12 : arg === "down" ? 12 : 0), selection), true);
     }
     if (id === "edit.delete") {
+      if (riskDelete()) return;
       // A cycle's side arrow picked goes with its text (its structures stay); a step picked loses its arc.
       const alone = !selection.size && picked.size === 1;
       if (alone && branchPick && picked.has(branchPick.cycle)) return cycleAction("side.remove");
@@ -6247,10 +6280,28 @@ export default function Editor() {
     set(withRiskCas(withSubstances(doc, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s), true);
     if (TAURI && settings.onlineSearch) void riskOnline(false, list);
   }
+  // A risk assessment fills itself (Sam, 13 November 2026): a moment after an edit changes the page's reagent tables,
+  // its substances follow them, as Update substances does, in the edit's own undo step; with Online search on, Octet
+  // finds the CAS numbers and hazards of the new ones. A drawing opened is left as it is. Never during a drag or typing.
+  useEffect(() => {
+    if (!expPage || !loaded || drag || writing || doc !== lastSet.current || !riskGroup(doc)) return;
+    const t = setTimeout(() => {
+      const m = now.current, g = riskGroup(m);
+      if (!g || m !== lastSet.current) return;
+      const list = riskSubstances(), s = sheetOf(style), had = new Set(g.risk.substances.map((x) => x.key));
+      const same = list.length === g.risk.substances.length && list.every((x, k) => { const o = g.risk.substances[k]; return o.key === x.key && o.name === x.name && o.formula === x.formula && o.role === x.role; });
+      if (same) return;
+      const next = withRiskCas(withSubstances(m, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s), fresh = list.filter((x) => !had.has(x.key));
+      lastSet.current = next;
+      dispatch({ type: "amend", mol: next });
+      if (TAURI && settings.onlineSearch && fresh.length) void riskOnline(true, fresh, true);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [gridViews, namesLoaded, drag, writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // PubChem's CAS numbers for the substances Octet has none for offline, and with hazards (Find hazards) each one's GHS
   // hazards, one compound at a time, each once a session. They go into the drawing as it is when they come, as one step.
   // With Online search off, a notice says so, and its button opens Settings there.
-  async function riskOnline(hazards: boolean, list = riskSubstances()) {
+  async function riskOnline(hazards: boolean, list = riskSubstances(), amend = false) {
     if (!riskGroup(now.current)) return;
     if (!TAURI || !settings.onlineSearch) return setNotice("To find hazards, turn on Online search in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     const cas: Record<string, string> = {}, found: Record<string, Ghs | null> = {};
@@ -6269,7 +6320,9 @@ export default function Editor() {
       else failed++;
     }
     const s = sheetOf(style), next = withRiskCas(withHazards(now.current, found, s), cas, s);
-    if (next !== now.current) set(next, true);
+    // Found for substances the reaction just got: in the edit's own undo step, when nothing has changed since.
+    if (next !== now.current && amend && lastSet.current === now.current) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
+    else if (next !== now.current) set(next, true);
     if (hazards && failed && !Object.keys(found).length) setNotice("Octet cannot reach PubChem. Check the network connection.", "info");
   }
   // Opened or saved: an experiment page's details, with its first product's yield, go to Home's Experiments list, and
@@ -7785,6 +7838,7 @@ export default function Editor() {
     // A cycle's side arrow picked goes with its text (its structures stay); a step picked loses its arc.
     if (command === "delete" && context.kind === "cycle" && context.side) return cycleAction("side.remove");
     if (command === "delete" && context.kind === "cycle" && context.step && stepPick) return set(hideArc(stepPick.cycle, stepPick.step), true);
+    if (command === "delete" && riskDelete()) return;
     if (command === "delete") return selection.size || picked.size ? set(deleteChosen(doc, selection, picked, undefined, drawnAt, drawnAlign)) : undefined;
     if (command === "number") return numberStructures();
     // Compound numbers in roman numerals (I, II, III) or arabic ones again, as ChemDraw's reaction numbering offers.
