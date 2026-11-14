@@ -15,7 +15,7 @@ Get the latest version from [octet.software](https://octet.software) or the
 | -------- | ---- |
 | Mac | `Octet-Draw-mac.dmg` (Apple silicon and Intel) |
 | Windows | `Octet-Draw-windows.exe`. For a PC with no internet: `Octet.Draw_<version>_x64-offline-setup.exe` |
-| Linux | `.deb` (Ubuntu, Debian), `.rpm` (Fedora) or `Octet-Draw-linux.AppImage` |
+| Linux | `.deb` (Ubuntu, Debian), `.rpm` (Fedora), `Octet-Draw-linux.AppImage`, or with Nix: `nix run github:SamChemMan/Octet-Draw` |
 
 To uninstall: on a Mac, drag Octet Draw from Applications to the Bin. On Windows, Settings > Apps > Installed
 apps > Octet Draw > Uninstall. On Linux, remove the package with your package manager, or delete the AppImage.

@@ -27,3 +27,7 @@ dist-namedemo
 
 # scripts/drive/drive.mjs
 drive-out/
+
+# nix build
+result
+result-*
