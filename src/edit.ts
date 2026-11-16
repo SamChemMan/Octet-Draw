@@ -556,10 +556,11 @@ export const setBond = (m: Mol, i: number, type: number, stereo?: number) => res
 // Delete or Backspace over a bond of more than one line (Sam, 31 October 2026): one line fewer, so a double becomes a
 // single and a triple a double. An aromatic or delocalised bond becomes a single. Undefined for a single bond (or a
 // hydrogen bond), which Delete takes away. The Eraser's click does the same, as ChemDraw's does. A double bond in a
-// ring drawn with an aromatic circle shows as one line, so it is a single bond here too, and goes.
+// ring drawn with an aromatic circle shows as one line, so it is a single bond here too, and goes. A bond in an integral
+// group gives undefined too: the whole group goes, as the hover mark shows.
 export function lowerBond(m: Mol, i: number): Mol | undefined {
   const t = m.bonds[i].type, to = t === QUADRUPLE ? 3 : t === 2 || t === 3 ? t - 1 : t === AROMATIC ? 1 : undefined;
-  if (to === undefined || (t === 2 && inCircle(m, i))) return undefined;
+  if (to === undefined || (t === 2 && inCircle(m, i)) || groupsOf(m, new Set(m.bonds[i].atoms), new Set()).some((g) => g.integral)) return undefined;
   return respec(m, i, { type: to });
 }
 // Whether bond i is a side of a ring drawn with an aromatic circle (circledRings).

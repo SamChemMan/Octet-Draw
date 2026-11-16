@@ -265,7 +265,16 @@ console.log("bondchain.check: hotspot to the next structure ok");
   const circled = addRing(EMPTY, 6, true, { point: [0, 0] }, { circle: true });
   assert.equal(lowerBond(circled, d), undefined, "a double bond drawn as one line in a circled ring goes");
   assert.equal(lowerBond(circled, s), undefined);
-  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), erase = editor.slice(editor.indexOf("case \"erase\": {\n        // A click removes"));
-  assert.ok(erase.indexOf("lowerBond(doc, t.bond)") > 0 && erase.indexOf("lowerBond(doc, t.bond)") < erase.indexOf("return removeAt(t);"), "the Eraser's click lowers a bond before it removes one");
+  // In an integral group (Pick as one) the bond is not lowered: the click or Delete takes the whole group, as the hover
+  // mark shows.
+  const picked: Mol = { ...benzene, groups: [{ id: 1, atoms: benzene.atoms.map((_, k) => k), items: [], integral: true }] };
+  assert.equal(lowerBond(picked, d), undefined, "a double bond in an integral group goes with the group");
+  assert.equal(lowerBond({ ...picked, groups: [{ ...picked.groups![0], integral: undefined }] }, d)!.bonds[d].type, 1, "a plain group does not stop it");
+  // Editor.tsx: the Eraser's click (the case "erase" that ends with removeAt(t)) calls lowerBond before removeAt.
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), lowered = editor.indexOf("lowerBond(doc, t.bond)");
+  assert.ok(lowered > 0, "the Eraser's click calls lowerBond(doc, t.bond)");
+  assert.ok(editor.lastIndexOf("case ", lowered) === editor.lastIndexOf('case "erase": {', lowered), "lowerBond(doc, t.bond) is in the Eraser's case");
+  const removed = editor.indexOf("return removeAt(t);", lowered);
+  assert.ok(removed > 0 && editor.indexOf("case ", lowered) > removed, "the Eraser's click lowers a bond before it removes one");
   console.log("bondchain.check: a click on a ring's double bond (issue 140) ok");
 }
