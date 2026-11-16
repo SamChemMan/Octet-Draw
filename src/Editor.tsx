@@ -5959,6 +5959,9 @@ export default function Editor() {
     const b = doc.bonds.findIndex((x) => x.atoms.includes(ids[0]) && x.atoms.includes(ids[1]));
     return b >= 0 ? { bond: b } : {};
   };
+  // The caption under the pointer that an atom tool makes an atom (Rh, Nu, E), for a charge key (keys.ts actionFor).
+  const keyCaption = () => { const id = hovers.get().caption; return id === undefined ? undefined : doc.captions?.find((c) => c.id === id && atomCaption(c, style.interpret)); };
+  const keyPlace = (t: { atom?: number; bond?: number }) => (t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : keyCaption() ? "caption" : "none");
   // Puts the keyboard hotspot on an atom or bond of mol, and keeps it with mol for undo.
   const keyHot = (hot: Hot, mol = doc) => {
     lastHot.current = hot.atom ?? (hot.bond !== undefined ? mol.bonds[hot.bond]?.atoms[0] : undefined);
@@ -6066,6 +6069,12 @@ export default function Editor() {
     if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true, pending: ownStyle(doc.atoms[atom]) }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
     if (kind === "charge" && atom !== undefined) return set(keyCharge(doc, atom, arg));
+    // Over a caption such as Nu or Rh, a charge key makes it its atom with the charge, as one undo step, as the Symbols
+    // tool's click does.
+    if (kind === "charge") {
+      const c = keyCaption(), key = c && `element ${++elementSteps}`, made = c && key && makeElements([c], key, false);
+      if (made) return set(keyCharge(made, doc.atoms.length, arg), false, key);
+    }
     if (kind === "subst" && atom !== undefined) return set(stepSubstituents(doc, atom, arg as "free" | "upto" | "exactly" | "lower"));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
     if (kind === "action") { runAction(id.slice(7)); return; } // an Actions panel action on a key (Settings)
@@ -9111,7 +9120,7 @@ export default function Editor() {
       // Option keys run only what the shortcut table gives them: Option + arrows turn the selection (as ChemDraw's).
       // One that works anywhere goes on below (so it reaches a selection); one for an atom or bond runs here.
       if (e.altKey && !bound) {
-        const t = keyTarget(), id = pressedKey && actionFor(keymap(settings.keys), pressedKey, t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : "none");
+        const id = pressedKey && actionFor(keymap(settings.keys), pressedKey, keyPlace(keyTarget()));
         if (id) { e.preventDefault(); run(id); }
         return;
       }
@@ -9172,7 +9181,7 @@ export default function Editor() {
         if (!runMany(id, many)) run(id);
         return;
       }
-      const target = keyTarget(), id = pressed && actionFor(keymap(settings.keys), pressed, target.atom !== undefined ? "atom" : target.bond !== undefined ? "bond" : "none");
+      const id = pressed && actionFor(keymap(settings.keys), pressed, keyPlace(keyTarget()));
       if (!id) return;
       e.preventDefault();
       run(id);
