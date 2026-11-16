@@ -4,7 +4,7 @@
 // carbon and on a label, from the Symbols tool and from a ChemDraw file, and the unit goes to CDXML as one symbol.
 import assert from "node:assert/strict";
 import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
-import { addSymbol } from "./edit.ts";
+import { addSymbol, markNear, moveMark } from "./edit.ts";
 import { fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { readV3000, writeV3000 } from "./molv3.ts";
@@ -88,4 +88,36 @@ console.log("radicalion.check: the dot and the sign draw as one unit ok");
   assert.deepEqual([read.charge, read.radical, Object.keys(read.angles ?? {})], [-1, 1, ["charge"]], "ChemDraw's radical anion");
   assert.ok(read.angles!.charge > 90 && read.angles!.charge < 180, `up and to the left: ${read.angles!.charge}`);
   console.log("radicalion.check: CDXML, CDX and molfile ok");
+}
+
+// On a label the unit moves as on a skeletal carbon: a drag with Select on its dot or its sign takes the unit (charge),
+// and the unit goes out that way, clear of the label. CDXML writes the symbol where Octet draws the unit (its middle,
+// between the dot and the sign), after the label or where it was moved, not over the label.
+{
+  const L = S.bond, doc = (q: P): P => [q[0] / L, -q[1] / L];
+  const amine = (more: Partial<Atom> = {}): Mol => ({ atoms: [A("C", 0, 0), A("N", 1, 0, { charge: 1, radical: 1, ...more })], bonds: [b(0, 1)] });
+  const unitOf = (m: Mol) => {
+    const r = render(m, S, ink, S.bond), dot = r.electrons.find((e) => e.atom === 1 && e.key !== "charge")!, sign = r.labels.find((l) => l.text === "+")!;
+    return { r, dot: dot.at, mid: [(dot.at[0] + sign.x + (9.6 * SUB) / 2) / 2, dot.at[1]] as P };
+  };
+  const { r, dot } = unitOf(amine());
+  const sign = r.labels.find((l) => l.text === "+")!;
+  for (const q of [dot, [sign.x + (9.6 * SUB) / 2, sign.y - (9.5 * SUB) / 2] as P]) assert.deepEqual(markNear(r.electrons, amine(), doc(q), L), { atom: 1, mark: "charge" }, "a press on the label's unit takes the unit");
+  const down = moveMark(amine(), 1, "charge", [1, -1], true), at = unitOf(down);
+  assert.equal(down.atoms[1].angles?.charge, -90, "the unit is moved below");
+  assert.ok(at.dot[1] > 0.5 * S.size && Math.abs(at.mid[0] - L) < 0.3 * S.size, `the unit draws below the label (${at.mid.map((v) => v.toFixed(1))})`);
+  // The file: the symbol's middle against the label's box and the atom (node p), in points.
+  const placed = (m: Mol) => {
+    const xml = toCdxml(m, DEFAULT_STYLE), n = xml.match(/<n\b[^>]*Element="7"[^>]*>/s)![0], p = n.match(/ p="([^"]*)"/)![1].split(" ").map(Number);
+    const t = xml.match(/<t\b[^>]*BoundingBox="([^"]*)"/)![1].split(" ").map(Number), g = xml.match(/BoundingBox="([^"]*)"[^>]*SymbolType="RadicalCation"/)![1].split(" ").map(Number);
+    return { p, t, mid: [(g[0] + g[2]) / 2, (g[1] + g[3]) / 2] };
+  };
+  const after = placed(amine());
+  assert.ok(after.mid[0] > after.t[2] && after.mid[1] > after.t[1] && after.mid[1] < after.p[1], `CDXML: the symbol is after the label and raised, as drawn (${after.mid}, label ${after.t})`);
+  const angle = (v: number[]) => (Math.atan2(v[1], v[0]) * 180) / Math.PI;
+  const drawn = unitOf(amine()).mid, file = angle([after.mid[0] - after.p[0], after.mid[1] - after.p[1]]), page = angle([drawn[0] - L, drawn[1]]);
+  assert.ok(Math.abs(file - page) < 20, `CDXML: the symbol is the way Octet draws the unit (${file.toFixed(0)}° against ${page.toFixed(0)}°)`);
+  const below = placed(down);
+  assert.ok(below.mid[1] > below.t[3] && Math.abs(below.mid[0] - below.p[0]) < 2, `CDXML: a unit moved below is below the label (${below.mid}, label ${below.t})`);
+  console.log("radicalion.check: a label's unit moves, and CDXML puts it where it is drawn ok");
 }

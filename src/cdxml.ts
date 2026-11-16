@@ -12,7 +12,7 @@ import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -732,7 +732,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Where Octet draws a labelled atom's charge sign (render.ts signSpot), worked out from Arial's metrics as the label
   // anchors are: undefined when it is after the label, where ChemDraw puts a label's sign; else the middle of its ink.
   // The label's attaching line (text, after a mass number isoW wide) starts left of the atom by half its first glyph,
-  // or read right to left ends at end.
+  // or read right to left ends at end. A radical ion's unit (render.ts: its dot, then the sign) is placed as one, after
+  // the label too, or out the way it was moved (Atom.angles charge): the middle between its dot and its sign.
   function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number): P | undefined {
     const a = mol.atoms[i], f = scaleOf(a), s = 0.75 * size, t = (a.charge ?? 0) > 0 ? "+" : "–", [w, l, r] = arialGlyph(t).map((n) => (n * s) / 1000);
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = rtl ? X[0] + end - isoW - textW : X[0] - advance(text[0], size) / 2 - isoW;
@@ -743,7 +744,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const z = { spacing: (style.spacing / 100) * B * f, margin: ((style.margin * 1.69) / 1.6) * f, hw: (line / 2) * f, wide: style.bold * 0.75 * f };
     const shownAt = (j: number) => { const b = mol.atoms[j], d = seen[j].length; return !b.attach && !b.bead && !b.centre && (b.label !== "C" || !d || !!b.text || !!b.isotope || !!b.shown || (d === 1 ? style.terminalLabels : style.carbonLabels)); };
     const { bonds, rings } = signBonds(i, seen, covalent, bondOf, shownAt, page, z);
-    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, w, ink, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size);
+    const R = 0.1 * size, g = ION_GAP * size, lead = radicalIon(a) ? 2 * g + 2 * R - l : 0, deg = lead ? a.angles?.charge : undefined;
+    const unit = lead ? [...edge([g, c[1] - R, g + 2 * R, c[1] + R]), ...ink.map(([px, py]): P => [px + lead, py])] : ink;
+    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, lead + w, unit, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size, deg === undefined ? undefined : (-deg * Math.PI) / 180);
+    if (lead) return [at[0] + (g + R + lead + c[0]) / 2, at[1] + c[1]];
     return after ? undefined : [at[0] + c[0], at[1] + c[1]];
   }
 
@@ -777,7 +781,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const q = queryLabel(a.text), u = q === "list" || q === "alt" || q === "link" ? undefined : units(text)[0], tail = (u ? u.count ?? u.text : text).slice(-1);
     const ink = (ch: string, k: number): [number, number] => { const [w, l, r] = arialGlyph(ch); return [(l * k) / 1000, ((w - r) * k) / 1000]; };
     const end = u && !u.count && [...u.text].length === 1 ? advance(text[0], size) / 2 : advance(text[0], size) / 2 - ink(text[0], size)[0] + ink(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size)[1];
-    if (Math.abs(charge) === 1 && sign) {
+    if (Math.abs(charge) === 1 && (sign || radicalIon(a))) {
       // The label's attaching line: a stacked label's first unit.
       const at = signAt(i, X, size, text, isoW, wide(stack && u ? u.text + (u.count ?? "") : text), a.align ? a.align === "right" : right, end);
       if (at) { signs.set(i, at); sign = ""; if (!a.align && (a.text || !h)) just = right && text.length > 1 ? "Right" : "Left"; }
@@ -811,7 +815,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const tail = units(own)[units(own).length - 1], start = X[0] - advance(own[0], size) / 2, end = X[0] + (tail?.count ? advance(tail.count.slice(-1), 0.75 * size) : advance(own[own.length - 1], size)) / 2;
     const from = (j: number) => (just === "Center" ? X[0] - ws[j] / 2 : just === "Right" ? end - ws[j] : start);
     const base = X[1] + (/[OSCGQ]/.test(own[0]) ? 0.364 : 0.358) * size, y0 = base - k0 * pitch;
-    if (sign && Math.abs(a.charge ?? 0) === 1) {
+    if ((sign || radicalIon(a)) && Math.abs(a.charge ?? 0) === 1) {
       const at = signAt(i, X, size, own, 0, ws[k0], just === "Right", end - X[0]);
       if (at) { signs.set(i, at); sign = ""; }
     }
@@ -919,10 +923,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // one with a click.
     const symbol = (c: P, type: string, represent: string[]) => el("graphic", { id: fresh(), BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - size / 4, c[1]])} ${pt([c[0] + size / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - size, c[1]])}`,
       Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type }, represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
-    const sign = moved ? symbol(moved, charge > 0 ? "Plus" : "Minus", ["Charge"]) : "";
+    // A radical ion (render.ts) is one symbol, ChemDraw's Radical Cation or Radical Anion, for its charge and radical: on a
+    // label where Octet draws it (signAt), else round the atom as a skeletal carbon's sign.
+    const ion: [string, string[]] | undefined = radicalIon(a) ? [charge > 0 ? "RadicalCation" : "RadicalAnion", ["Charge", "Radical"]] : undefined;
+    const sign = moved ? symbol(moved, ...(ion ?? [charge > 0 ? "Plus" : "Minus", ["Charge"]])) : "";
     const list: [string, string[]][] = [];
-    // A radical ion (render.ts) is one symbol, ChemDraw's Radical Cation or Radical Anion, for its charge and radical.
-    if (radicalIon(a)) list.push([charge > 0 ? "RadicalCation" : "RadicalAnion", ["Charge", "Radical"]]);
+    if (ion && !moved) list.push(ion);
     else if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
     if (a.radical === 3) list.push([a.bars ? "LonePairBar" : "LonePair", ["Radical"]]);
