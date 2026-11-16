@@ -2,11 +2,20 @@
 // places in the picture, scaled so the median bond is one bond length (14.4 pt in ACS 1996). A label it read (OMe,
 // Ph, CO2Et, R1) stays a written label, as the author drew it; Octet's own chemistry expands it as it expands any
 // label typed by hand.
-import { ELEMENTS, labelSmiles } from "./labels.ts";
+import { ELEMENTS, givenLabel, labelSmiles } from "./labels.ts";
 import type { Graph } from "./recognise-models.ts";
 import type { Mol } from "./render.ts";
 
 type Atom = Mol["atoms"][number];
+
+// Condensed formulas a picture writes from the left (CH3CO–R), as the abbreviation from its attachment atom. Octet's
+// label reader reads them right (issue 142), but a label is kept from its attachment atom and turned round when its
+// bond comes from the right, so CH3CO kept as written would show as OCH3C. One written from the attachment atom
+// (OC2H5, C6H5, COCH3) stays as written. Any other label is kept from its attachment atom as an AI app's label is
+// (MeO as OMe, EtO2C as CO2Et, NC as the nitrile CN: labels.ts givenLabel).
+const CONDENSED: Record<string, string> = {
+  H5C2: "Et", C2H5O: "OEt", C2H5OOC: "CO2Et", C2H5O2C: "CO2Et", H5C6: "Ph", C6H5O: "OPh", CH3CO: "Ac", CH3COO: "OAc", CH3CO2: "OAc",
+};
 
 // One atom as MolScribe writes it: C, c (aromatic), Cl, [NH+], [13CH3], [O-], [H], or a label in brackets ([OMe]).
 // A bracket that is an element's symbol but a group to Octet's label reader ([Ac], [Pr], [Ts]: acetyl, propyl, tosyl)
@@ -21,7 +30,7 @@ export function readSymbol(symbol: string): Pick<Atom, "label" | "text" | "charg
       return { label: el, ...(charge ? { charge } : {}), ...(m[1] ? { isotope: +m[1] } : {}) };
     }
   }
-  return { label: "C", text: inner === "*" ? "R" : inner };
+  return { label: "C", text: inner === "*" ? "R" : CONDENSED[inner] ?? givenLabel(inner) };
 }
 
 const STEREO_ELEMENTS = new Set(["C", "N", "P", "S", "Si", "Ge", "Sn", "B", "As", "Se"]);

@@ -110,6 +110,10 @@ assert.deepEqual(readSymbol("[Xy]"), { label: "C", text: "Xy" }); // not an elem
 // A condensed formula stays as written (issue 142): Octet's label reader reads it as the abbreviation (labels.check.ts).
 assert.deepEqual(readSymbol("[OC2H5]"), { label: "C", text: "OC2H5" });
 assert.deepEqual(readSymbol("[C6H5]"), { label: "C", text: "C6H5" });
+// One written from the left becomes the label from its attachment atom, so it is drawn as the picture shows it on
+// either side of its bond (kept as CH3CO, it showed as OCH3C left of its bond).
+for (const [from, to] of [["CH3CO", "Ac"], ["CH3COO", "OAc"], ["CH3CO2", "OAc"], ["C2H5O", "OEt"], ["C6H5O", "OPh"], ["C2H5OOC", "CO2Et"], ["C2H5O2C", "CO2Et"], ["H5C6", "Ph"], ["H5C2", "Et"], ["MeO", "OMe"], ["EtO2C", "CO2Et"], ["NC", "CN"]])
+  assert.deepEqual(readSymbol(`[${from}]`), { label: "C", text: to }, from);
 // An element's symbol that Octet reads as a group is the group: acetyl, propyl, tosyl. Np and Am are elements to
 // Octet's label reader too, and real elements stay elements.
 assert.deepEqual(readSymbol("[Ac]"), { label: "C", text: "Ac" });
@@ -140,8 +144,9 @@ for (const r of readings) {
 const ibuprofen = graphMol(readings.find((r) => r.file === "drawn/drawn-14.png")!.graph);
 for (const b of ibuprofen.bonds.filter((b) => b.stereo)) assert.equal(ibuprofen.bonds.filter((x) => x.atoms.includes(b.atoms[0])).length, 3, "the wedge starts at the stereocentre");
 // The picture's labels stay labels: Octet's chemistry expands them, the drawing shows them as the author wrote them.
+// The picture's MeO is left of its bond: it is kept as OMe, which Octet draws there as MeO.
 const boc = graphMol(readings.find((r) => r.file === "drawn/drawn-27.png")!.graph);
-assert.deepEqual(boc.atoms.flatMap((a) => (a.text ? [a.text] : [])).sort(), ["MeO", "tBu"]);
+assert.deepEqual(boc.atoms.flatMap((a) => (a.text ? [a.text] : [])).sort(), ["OMe", "tBu"]);
 
 // Weighing: MolScribe's answer, however confident OCSRGlyph is, and sure only when both agree. When MolScribe reads
 // nothing Octet can use, OCSRGlyph's.
