@@ -3,7 +3,7 @@
 // Drawn left to right from the attached atom; when the bond comes from the right, the units are reversed
 // (OMe becomes MeO, CO2Et becomes EtO2C), as ChemDraw does in its ACS 1996 output.
 
-import { condensedLabel } from "./condensed.ts";
+import { condensedLabel, condensedRoot } from "./condensed.ts";
 
 const SYMBOLS = (
   "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr " +
@@ -231,6 +231,20 @@ const written = (us: Unit[]) => us.map((u) => u.text + (u.count ?? "")).join("")
 // is read as (S and iPr are no SiPr; the formula reader takes tBu for t-Bu).
 const small = (u: Unit) => u.kind === "group" && u.text[0] >= "a";
 const plain = (us: Unit[]) => us.map((u) => (small(u) ? `(${SPELT[u.text] ?? u.text})` : u.text) + (u.count ?? "")).join("");
+const textOf = (us: Unit[], label: string) => (us.some(small) ? plain(us) : label);
+// A label read from its last atom, with an ester written from the left as chemists write it (CH3OOC, EtO2C: O–C(=O)).
+const endText = (us: Unit[], label: string) => textOf(us, label).replace(/O[O2]C$/, "OC(O)");
+// The hydrogens a label writes on its attachment atom when it is read with its bond on its last atom (HOCH2 2, CH3CO
+// 0, as labelSmiles reads them). Undefined for any other label. Kept, as the structure check reads it on every change.
+const ends = new Map<string, number | undefined>();
+export function endHydrogens(label: string): number | undefined {
+  if (ends.has(label)) return ends.get(label);
+  const us = units(label), end = us.length > 1 ? condensedRoot(endText(us, label), true) : undefined;
+  const h = end && end.smiles === labelSmiles(label) ? end.h : undefined;
+  if (ends.size >= 1000) ends.clear();
+  ends.set(label, h);
+  return h;
+}
 // A label written from the left as Octet keeps a label, from its attachment atom (MeO as OMe, pinB as Bpin, O2N as
 // NO2, t-BuNH as NHt-Bu), so that it is drawn the right way round on either side of its bond. Any other label, and
 // one that would read differently written so (iPrS is no SiPr), comes back as it is.
@@ -287,8 +301,9 @@ export function labelSmiles(label: string): string | undefined {
   }
   // Groups written as formulas, read as chemists write them: phenyl, cyclohexyl, a straight chain CnH2n+1 (OC2H5,
   // C2H5O, NHC6H5, N(C2H5)2) and i-, s- and t- before C3H7 or C4H9. Any other carbon counted before its hydrogens
-  // (C6H4 with no position, C2H3, C10H7) has more than one structure and is not read.
-  const named = label.replace(/(?:([inst])-)?C(\d+)H(\d+)(?!\d)/g, (m, p: string | undefined, c: string, h: string, at: number) => {
+  // (C6H4 with no position, C2H3, C10H7) has more than one structure and is not read. A label can start with the
+  // formula written from the left (H5C6, H5C2O).
+  const named = label.replace(/^H(\d+)C(\d+)(?![\da-z])/, "C$2H$1").replace(/(?:([inst])-)?C(\d+)H(\d+)(?!\d)/g, (m, p: string | undefined, c: string, h: string, at: number) => {
     const n = Number(c), g = WRITTEN[(p ? `${p}-` : "") + `C${c}H${h}`];
     if (g || (p && p !== "n") || Number(h) !== 2 * n + 1 || n < 2) return g ?? m;
     return CHAINS[n] ?? (at === 0 && label.length > m.length ? "CH3" + "CH2".repeat(n - 1) : "CH2".repeat(n - 1) + "CH3");
@@ -304,7 +319,7 @@ export function labelSmiles(label: string): string | undefined {
   if (!us.length || (us.length === 1 && us[0].kind === "other")) return undefined;
   const back = [...us].reverse(), reverse = written(back);
   if (FORMULAS[reverse]) return FORMULAS[reverse];
-  const left = fromEnd(us);
+  const left = fromEnd(us), given = us;
   if (left) us = fromAtom(back);
   // A nitrile written from its N (MeCN, NCMe, NCCH3, PhCN) is a ligand on a dative bond, which a label does not hold:
   // Octet reads no group in it, where read on as below it would be an amine.
@@ -314,9 +329,12 @@ export function labelSmiles(label: string): string | undefined {
   // where an O or S comes after its atom (MeO2S, Ph2(O)P, EtOC), but for the ester the reading below gets right (MeO2C).
   const valence = left ? us.some((u, k) => k > 0 && (u.text === "O" || u.text === "S" || u.text === "(O)" || u.text === "(S)")) && !(us[0].text === "C" && us[1].text === "O" && us[1].count === "2")
     : us[0].kind === "element" && us[0].text !== "H" && us.length > 1;
-  // A first atom its hydrogens fill (CH3CO, CH3O, CH3CH2) takes no bond: the label is written from the left and the
-  // bond is on its last atom (acetyl, methoxy, ethyl).
-  const whole = valence ? condensedLabel(left || us.some(small) ? plain(us) : label) ?? (!left && us[1].text === "H" ? condensedLabel(label, true) : undefined) : undefined;
+  // A label whose first atom cannot take the bond (CH3CO, HOCH2, (CH3)2N, CF3CO) is written from the left: the bond is
+  // on its last atom, every valence used (acetyl, hydroxymethyl, dimethylamino). A label that starts with a group is
+  // read so before it is read from its end, as its units in reverse are no formula (PhCO is benzoyl, PhOCO no benzoate).
+  const end = () => (us.length > 1 ? condensedLabel(endText(given, label), true) : undefined);
+  const first = valence ? condensedLabel(left ? plain(us) : textOf(us, label)) : undefined;
+  const whole = left ? end() ?? first : first ?? end();
   if (whole && !crowded(whole)) return whole;
   let smiles = "";
   const atom = (sym: string) => (ORGANIC.has(sym) ? sym : sym === "D" ? "[2H]" : sym === "T" ? "[3H]" : `[${sym}]`);

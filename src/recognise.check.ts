@@ -107,8 +107,9 @@ assert.deepEqual(readSymbol("[OMe]"), { label: "C", text: "OMe" }); // a label s
 assert.deepEqual(readSymbol("[tBu]"), { label: "C", text: "tBu" });
 assert.deepEqual(readSymbol("[R1]"), { label: "C", text: "R1" });
 assert.deepEqual(readSymbol("[Xy]"), { label: "C", text: "Xy" }); // not an element: a label Octet shows as written
-assert.deepEqual(readSymbol("[OC2H5]"), { label: "C", text: "OEt" }); // a condensed formula as the abbreviation Octet reads
-assert.deepEqual(readSymbol("[C6H5]"), { label: "C", text: "Ph" });
+// A condensed formula stays as written (issue 142): Octet's label reader reads it as the abbreviation (labels.check.ts).
+assert.deepEqual(readSymbol("[OC2H5]"), { label: "C", text: "OC2H5" });
+assert.deepEqual(readSymbol("[C6H5]"), { label: "C", text: "C6H5" });
 // An element's symbol that Octet reads as a group is the group: acetyl, propyl, tosyl. Np and Am are elements to
 // Octet's label reader too, and real elements stay elements.
 assert.deepEqual(readSymbol("[Ac]"), { label: "C", text: "Ac" });

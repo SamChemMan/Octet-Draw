@@ -32,7 +32,7 @@ for (const [label, smiles] of Object.entries(cases)) assert.equal(labelSmiles(la
 assert.equal(labelSmiles("Hello world"), undefined);
 // Labels written right to left read from the atom that attaches, and no label starts its SMILES with a branch.
 const reversed: Record<string, string> = {
-  H2O2: "OO", HO2C: "C(=O)O", HOOC: "C(=O)O", OHC: "C=O", O2N: "[N+](=O)[O-]", MeO: "O(C)", EtO2C: "C(=O)O(CC)", Et3N: "N(CC)(CC)(CC)", BocHN: "N(C(=O)OC(C)(C)C)",
+  H2O2: "OO", HO2C: "C(=O)O", HOOC: "C(=O)O", OHC: "C=O", O2N: "[N+](=O)[O-]", MeO: "OC", EtO2C: "C(OCC)=O", Et3N: "N(CC)(CC)(CC)", BocHN: "N(C(=O)OC(C)(C)C)",
 };
 for (const [label, smiles] of Object.entries(reversed)) assert.equal(labelSmiles(label), smiles, label);
 for (const label of ["H2O2", "Me3Si", "(CH2)3", "Ph2", "H2(Boc)2", "HN(Me)2"]) assert.ok(!labelSmiles(label)?.startsWith("("), label);
@@ -43,7 +43,7 @@ const formulas: Record<string, string> = {
   OC2H5: "OCC", C6H5: "c1ccccc1", COOC2H5: "C(=O)OCC", CH3CO: "C(C)=O", C6H11: "C1CCCCC1", C2H5: "CC", "n-C3H7": "CCC", C3H7: "CCC",
   "i-C3H7": "C(C)C", "t-C4H9": "C(C)(C)C", "s-C4H9": "C(C)CC", "i-C4H9": "CC(C)C", "n-C4H9": "CCCC", C6H13: "CCCCCC", OC5H11: "OCCCCC",
   CH2CH3: "CC", CH3CH2: "CC", CO2C2H5: "C(=O)OCC", OCOCH3: "OC(=O)C", CH3CO2: "OC(C)=O", NHC6H5: "Nc1ccccc1", OC6H5: "Oc1ccccc1",
-  CH2C6H5: "Cc1ccccc1", C6H5CH2: "C(c1ccccc1)", "N(C2H5)2": "N(CC)CC", C2H5O: "O(CC)", CH3O: "OC", C2H5OOC: "C(=O)OCC",
+  CH2C6H5: "Cc1ccccc1", C6H5CH2: "Cc1ccccc1", "N(C2H5)2": "N(CC)CC", C2H5O: "OCC", CH3O: "OC", C2H5OOC: "C(OCC)=O",
   CH2CO2C2H5: "CC(=O)OCC", OCOC6H5: "OC(=O)c1ccccc1", "P(C6H11)2": "P(C1CCCCC1)C1CCCCC1", "4-BrC6H4": "c3ccc(Br)cc3",
 };
 for (const [label, smiles] of Object.entries(formulas)) assert.equal(labelSmiles(label), smiles, label);
@@ -257,12 +257,12 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["COtBu C(O)t-Bu", "CC(C)(C)C(=O)c1ccccc1", "C11H14O"],
     ["NHtBu NHt-Bu t-BuHN t-BuNH", "CC(C)(C)Nc1ccccc1", "C10H15N"],
     ["NHBoc BocHN BocNH", "CC(C)(C)OC(=O)Nc1ccccc1", "C11H15NO2"],
-    ["NHAc AcHN AcNH", "CC(=O)Nc1ccccc1", "C8H9NO"],
+    ["NHAc AcHN AcNH CH3CONH NHCOCH3", "CC(=O)Nc1ccccc1", "C8H9NO"],
     ["SO2Me MeO2S", "CS(=O)(=O)c1ccccc1", "C7H8O2S"],
     ["SO2CF3 F3CO2S Tf", "FC(F)(F)S(=O)(=O)c1ccccc1", "C7H5F3O2S"],
-    ["CH2Ph PhCH2 Bn", "C(c1ccccc1)c1ccccc1", "C13H12"],
+    ["CH2Ph PhCH2 Bn CH2C6H5 C6H5CH2", "C(c1ccccc1)c1ccccc1", "C13H12"],
     ["iPrS S(iPr) i-PrS", "CC(C)Sc1ccccc1", "C9H12S"], // written from the left: S with iPr (SiPr is a silyl group)
-    ["COEt EtOC C(O)Et", "CCC(=O)c1ccccc1", "C9H10O"],
+    ["COEt EtOC C(O)Et EtCO CH3CH2CO", "CCC(=O)c1ccccc1", "C9H10O"],
     ["CONMe2 Me2NOC C(O)NMe2", "CN(C)C(=O)c1ccccc1", "C9H11NO"],
     ["SO2t-Bu S(O)2tBu", "CC(C)(C)S(=O)(=O)c1ccccc1", "C10H14O2S"],
     ["4-ClPh 4-ClC6H4 p-ClC6H4", "Clc1ccc(cc1)-c1ccccc1", "C12H9Cl"],
@@ -288,15 +288,31 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["NC", "[C-]#[N+]c1ccccc1", "C7H5N"], // the isocyanide: the bond is on N
     ["P(O)(OEt)2 PO(OEt)2 (EtO)2(O)P", "CCOP(=O)(OCC)c1ccccc1", "C10H15O3P"],
     ["P(O)Ph2 POPh2 Ph2(O)P", "O=P(c1ccccc1)(c1ccccc1)c1ccccc1", "C18H15OP"],
-    ["C(O)OMe CO2Me MeO2C", "COC(=O)c1ccccc1", "C8H8O2"],
-    ["C(O)Me COMe Ac", "CC(=O)c1ccccc1", "C8H8O"],
+    ["C(O)OMe CO2Me MeO2C CO2CH3 COOCH3 CH3OOC", "COC(=O)c1ccccc1", "C8H8O2"],
+    ["C(O)Me COMe Ac CH3CO COCH3 MeCO", "CC(=O)c1ccccc1", "C8H8O"],
     ["CF3 F3C", "FC(F)(F)c1ccccc1", "C7H5F3"],
     ["CCl3 Cl3C", "ClC(Cl)(Cl)c1ccccc1", "C7H5Cl3"],
     ["S(O)Me", "CS(=O)c1ccccc1", "C7H8OS"],
-    ["TMS SiMe3 Me3Si", "C[Si](C)(C)c1ccccc1", "C9H14Si"],
+    ["TMS SiMe3 Me3Si (CH3)3Si Si(CH3)3", "C[Si](C)(C)c1ccccc1", "C9H14Si"],
     ["TBS", "CC(C)(C)[Si](C)(C)c1ccccc1", "C12H20Si"],
     ["TIPS", "CC(C)[Si](C(C)C)(C(C)C)c1ccccc1", "C15H26Si"],
     ["NO2 O2N", "[O-][N+](=O)c1ccccc1", "C6H5NO2"],
+    // Condensed formulas (issue 142), as the abbreviation is read. Written from the left, a label whose first atom
+    // cannot take the bond has it on its last atom: CH3CO, HOCH2 and (CH3)2N are no warning and no other compound.
+    ["C6H5 H5C6 Ph", "c1ccc(cc1)-c1ccccc1", "C12H10"],
+    ["OC2H5 C2H5O H5C2O OEt EtO OCH2CH3 CH3CH2O", "CCOc1ccccc1", "C8H10O"],
+    ["COOC2H5 CO2C2H5 C2H5OOC C2H5O2C C2H5OCO CO2Et EtO2C", "CCOC(=O)c1ccccc1", "C9H10O2"],
+    ["OC6H5 C6H5O H5C6O OPh PhO", "c1ccc(cc1)Oc1ccccc1", "C12H10O"],
+    ["OCOCH3 CH3COO CH3CO2 OAc AcO", "CC(=O)Oc1ccccc1", "C8H8O2"],
+    ["PhCO C6H5CO COC6H5 Bz", "O=C(c1ccccc1)c1ccccc1", "C13H10O"],
+    ["PhOCO C6H5OCO COOC6H5 PhCO2 C6H5COO OBz", "O=C(Oc1ccccc1)c1ccccc1", "C13H10O2"],
+    ["HOCH2 CH2OH", "OCc1ccccc1", "C7H8O"],
+    ["CF3CO COCF3", "FC(F)(F)C(=O)c1ccccc1", "C8H5F3O"],
+    ["(CH3)2N N(CH3)2 Me2N NMe2", "CN(C)c1ccccc1", "C8H11N"],
+    ["(CH3)2NCO CON(CH3)2", "CN(C)C(=O)c1ccccc1", "C9H11NO"],
+    ["C6H5CONH NHCOC6H5 NHBz", "O=C(Nc1ccccc1)c1ccccc1", "C13H11NO"],
+    ["(CH3)2CHCH2 CH2CH(CH3)2 iBu", "CC(C)Cc1ccccc1", "C10H14"],
+    ["HCOO OCHO", "O=COc1ccccc1", "C7H6O2"],
   ];
   for (const [labels, full, want, apart] of table) for (const label of labels.split(" ")) {
     const m = labelled("*c1ccccc1", [label]), e = expandLabels(m), whole = parseStructure(label === "T" ? full.replace("[2H]", "[3H]") : full);

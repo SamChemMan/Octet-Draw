@@ -8,13 +8,6 @@ import type { Mol } from "./render.ts";
 
 type Atom = Mol["atoms"][number];
 
-// Condensed formulas old drawings write out, as the abbreviation Octet's chemistry reads (Octet 1.1.1 reads "OC2H5" as
-// O(CH3)2 and "C6H5" as a chain): ethyl, phenyl and acetyl, alone or in an ester or ether.
-const CONDENSED: Record<string, string> = {
-  C2H5: "Et", H5C2: "Et", OC2H5: "OEt", C2H5O: "EtO", COOC2H5: "CO2Et", CO2C2H5: "CO2Et", C2H5OOC: "EtO2C", C2H5O2C: "EtO2C",
-  C6H5: "Ph", H5C6: "Ph", OC6H5: "OPh", C6H5O: "PhO", CH3CO: "Ac", COCH3: "Ac", OCOCH3: "OAc", CH3COO: "AcO", CH3CO2: "AcO",
-};
-
 // One atom as MolScribe writes it: C, c (aromatic), Cl, [NH+], [13CH3], [O-], [H], or a label in brackets ([OMe]).
 // A bracket that is an element's symbol but a group to Octet's label reader ([Ac], [Pr], [Ts]: acetyl, propyl, tosyl)
 // is that group.
@@ -28,7 +21,7 @@ export function readSymbol(symbol: string): Pick<Atom, "label" | "text" | "charg
       return { label: el, ...(charge ? { charge } : {}), ...(m[1] ? { isotope: +m[1] } : {}) };
     }
   }
-  return { label: "C", text: inner === "*" ? "R" : CONDENSED[inner] ?? inner };
+  return { label: "C", text: inner === "*" ? "R" : inner };
 }
 
 const STEREO_ELEMENTS = new Set(["C", "N", "P", "S", "Si", "Ge", "Sn", "B", "As", "Se"]);

@@ -40,23 +40,27 @@ export function condensedSmiles(text: string): string | undefined {
 // whole formula with the bond to the drawing as one more substituent of its first atom, so every valence is used:
 // N3 and NO2 are azide and nitro, SO2 a sulfone, a short bond along the chain a double or triple bond.
 // last: the bond is on the label's last atom, for a label written from the left (CH3CO is acetyl, CH3O methoxy).
-export function condensedLabel(text: string, last = false): string | undefined {
-  if (text.length > 40 || !/^[A-Z][A-Za-z0-9()]*$/.test(text)) return undefined;
+export const condensedLabel = (text: string, last = false) => condensedRoot(text, last)?.smiles;
+// The same reading with the hydrogens on the attachment atom (h): a label read with its bond on its last atom writes
+// them there (HOCH2 2, CH3CO 0), and the structure check counts them.
+export function condensedRoot(text: string, last = false): { smiles: string; h: number } | undefined {
+  if (text.length > 40 || !/^[A-Z(][A-Za-z0-9()]*$/.test(text)) return undefined;
   const tokens = tokenise(text), star: Token = { t: "group", smiles: "[*]" };
-  if (!tokens?.length || tokens[0].t !== "atom") return undefined;
+  if (!tokens?.length || (!last && tokens[0].t !== "atom")) return undefined;
   const g = assemble(last ? [...tokens, star] : [star, ...tokens], 0);
   // A label leaves out what a chemist takes as read (SiOMe, SCMe, CCO2H): a double or triple bond only where the group
   // written always has one, C=O, N=O, P=O, S=O, C=S and P=S, and C≡N, C≡C or C=N along the chain, and never O–O.
   // Others are read left to right instead (labelSmiles).
   const el = (i: number) => g!.nodes[i].el ?? "", pair = (a: number, b: number) => el(a) + el(b);
   const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
-  if (!g?.bonds.every(fine)) return undefined;
+  // Read from its last atom, a label makes no double or triple bond along the chain (NCCC is no C≡C–C≡N).
+  if (!g?.bonds.every((b) => fine(b) && !(last && !b.fixed && b.order > 1))) return undefined;
   const at = g.bonds.find((b) => g.nodes[b.a].smiles === "[*]" || g.nodes[b.b].smiles === "[*]"), root = at && (g.nodes[at.a].el ? at.a : at.b);
   const smiles = root === undefined ? undefined : smilesOf(g, root);
   if (!smiles?.startsWith(`[${g.nodes[root!].el}`)) return undefined;
   // The bond to the drawing goes; hydrogens are left to valence, as the rest of Octet's label SMILES has them.
   const out = smiles.replace(/\(\[\*\]\)|\[\*\]/, "").replace(/\[(Cl|Br|[BCNOPSFI])(?:H\d*)?\]/g, "$1");
-  return out.includes("*") ? undefined : out;
+  return out.includes("*") ? undefined : { smiles: out, h: g.nodes[root!].h };
 }
 
 // The text as tokens: atoms with their hydrogens, groups, brackets (inner tokens, repeated by the count after them) and
