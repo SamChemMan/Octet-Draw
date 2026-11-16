@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { contrast } from "./access.ts";
-import { CURSOR_INKS, CURSORS, cursorColour, cursorPaint, cursorSvg, cursorValue, type CursorName } from "./cursor.ts";
+import { CURSOR_INKS, CURSORS, cursorColour, cursorPaint, cursorSvg, cursorValue, linuxCursorSize, type CursorName } from "./cursor.ts";
 
 const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
 const KEYWORDS = /^(auto|default|none|context-menu|help|pointer|progress|wait|cell|crosshair|text|vertical-text|alias|copy|move|no-drop|not-allowed|grab|grabbing|(n|e|s|w|ne|nw|se|sw|ew|ns|nesw|nwse|col|row)-resize|all-scroll|zoom-in|zoom-out)$/;
@@ -38,12 +38,25 @@ for (const name of Object.keys(CURSORS) as CursorName[]) {
   assert.ok(x >= 0 && x < 24 && y >= 0 && y < 24, `${name}'s hotspot is in its 24 px box`);
   assert.ok(v.endsWith(`) ${x} ${y}, ${CURSORS[name].fallback}`) && KEYWORDS.test(CURSORS[name].fallback), `${name}: ${v}`);
   // Issue #165: WebKitGTK takes the 2x picture on a 200% screen and shows it twice the size, with the hotspot in its
-  // pixels. On Linux the cursor is the 1x picture alone, which the desktop scales with its hotspot. The Mac and
-  // Windows webviews scale image-set cursors, so they keep the 2x picture.
-  assert.equal(cursorValue(name, "one.png", "two.png", true), `url("one.png") ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on Linux`);
-  assert.equal(cursorValue(name, "one.png", "two.png", false), `-webkit-image-set(url("one.png") 1x, url("two.png") 2x) ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on the Mac and Windows`);
+  // pixels. On Linux the cursor is one picture at the desktop's cursor size, which the desktop scales with its
+  // hotspot. The Mac and Windows webviews scale image-set cursors, so they keep the 2x picture.
+  assert.equal(cursorValue(name, "one.png", "two.png", 24), `url("one.png") ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on Linux`);
+  assert.equal(cursorValue(name, "one.png", "two.png"), `-webkit-image-set(url("one.png") 1x, url("two.png") 2x) ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on the Mac and Windows`);
+  // A larger desktop cursor: the hotspot stays on the same point of the glyph, inside the picture.
+  for (const size of [36, 48, 72]) {
+    const [, hx, hy] = /^url\("one\.png"\) (\d+) (\d+), /.exec(cursorValue(name, "one.png", "", size)) ?? assert.fail(`${name} at ${size}`);
+    for (const [h, v] of [[+hx, x], [+hy, y]]) assert.ok(h >= v * size / 24 && h < (v + 1) * size / 24, `${name} at ${size}: hotspot ${h} is in pixel ${v} scaled`);
+  }
 }
-assert.match(readFileSync(new URL("cursor.ts", import.meta.url), "utf8"), /const LINUX = typeof navigator !== "undefined" && navigator\.platform\.startsWith\("Linux"\);\nexport function cursorValue\(name: CursorName, one: string, two: string, linux = LINUX\)/, "the cursors know they are on Linux");
+// Linux follows the desktop's cursor size (KDE and GNOME's Cursor Size): 24 when there is none, and never so large
+// that WebKit drops the picture.
+assert.deepEqual([0, -1, Number.NaN, 24, 36, 48, 10, 512].map((n) => linuxCursorSize([n, false], 2)), [24, 24, 24, 24, 36, 48, 16, 128]);
+// X11 at 100% takes the setting. X11 with the display scaled keeps 24: GTK's setting can be in pixels there.
+assert.deepEqual([linuxCursorSize([36, true], 1), linuxCursorSize([48, true], 2), linuxCursorSize([48, false], 2)], [36, 24, 48]);
+const main = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+assert.match(main, /#\[cfg\(target_os = "linux"\)\] cursor_size,/, "Linux has the cursor_size command");
+assert.match(main, /async fn cursor_size\(app: AppHandle\) -> \(i32, bool\) \{/, "cursor_size gives the size and whether the window is on X11");
+assert.match(readFileSync(new URL("cursor.ts", import.meta.url), "utf8"), /invoke<\[number, boolean\]>\("cursor_size"\)/, "cursor.ts reads the desktop's cursor size");
 
 // Black and white: each has its glyph and its edge in the two colours, far apart.
 const INK = "#0F172A"; // the light theme's --ink
