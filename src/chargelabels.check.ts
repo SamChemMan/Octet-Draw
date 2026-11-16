@@ -1,0 +1,65 @@
+// Run: node src/chargelabels.check.ts. Fails loudly if a label that stands in for a group (Nu, E, LG, R) stops taking
+// a charge (issue 164), or a label's charge sign stops moving round its atom with a drag, as a ChemDraw charge does.
+import assert from "node:assert/strict";
+import { fromCdxml, toCdxml } from "./cdxml.ts";
+import { DEFAULT_STYLE } from "./docstyle.ts";
+import { addSymbol, atomCaption, captionAtom, chemicalCaption, keyCharge, markNear, moveMark, standInCaption } from "./edit.ts";
+import { render, type Atom, type Caption, type Ink, type Mol } from "./render.ts";
+
+type P = [number, number];
+const cap = (text: string, more: Partial<Caption> = {}): Caption => ({ id: 1, text, x: 0, y: 0, ...more });
+
+// A caption written as Nu, E or LG is no chemistry (it counts in no formula), but the atom tools (the Symbols tool
+// with its charges too) and Make element make it an atom, as they do Rh or OMe.
+for (const t of ["Nu", "E", "LG", "R", "R1", "X", "PG", "Hal", "EWG", " Nu "]) {
+  assert.ok(standInCaption(cap(t)) && atomCaption(cap(t), true), `${t} takes the atom tools`);
+  assert.ok(!chemicalCaption(cap(t), true), `${t} counts in no formula`);
+}
+for (const t of ["reflux", "rt", "1", "2a", "Nu E", "Nu-", ""]) assert.ok(!atomCaption(cap(t), true), `${t} is text`);
+assert.ok(atomCaption(cap("Rh"), true), "a caption that reads as a label still does");
+assert.ok(!atomCaption(cap("Nu", { under: [0] }), true) && !atomCaption(cap("Nu", { on: { arrow: 2, side: "above" } }), true), "tied text is text");
+assert.ok(!atomCaption(cap("Nu"), false) && !atomCaption(cap("Nu", { chemical: false }), true), "not with Interpret chemically off");
+
+// The atom it makes is the label, and takes a charge from the Symbols tool and the + and - keys, drawn after it.
+const pt = 4 / 3, S = { bond: 14.4 * pt, line: 0.6 * pt, bold: 2 * pt, spacing: 0.18 * 14.4 * pt, hash: 2.5 * pt, margin: 1.69 * pt, size: 10 * pt };
+const box: P[] = [];
+for (let i = 0; i <= 40; i++) { const f = i / 40; box.push([9.6 * f, 0], [9.6 * f, -9.5], [0, -9.5 * f], [9.6, -9.5 * f]); }
+const ink = (t: string): Ink => ({ width: 9.6 * t.length, ascent: 9.5, outline: box.map(([x, y]): P => [x * t.length, y]) });
+const lone = (t: string): Mol => ({ atoms: [captionAtom(cap(t), [0, 0, 0], DEFAULT_STYLE)], bonds: [] });
+for (const [t, made] of [["Nu", addSymbol(lone("Nu"), 0, "minus")], ["E", addSymbol(lone("E"), 0, "plus")], ["LG", keyCharge(lone("LG"), 0, "minus")]] as const) {
+  assert.equal(made.atoms[0].text, t, `${t} is the label`);
+  const texts = render(made, S, ink).labels.map((l) => l.text);
+  assert.deepEqual(texts, [t, made.atoms[0].charge! > 0 ? "+" : "–"], `${t} is drawn with its sign`);
+}
+assert.equal(addSymbol(addSymbol(lone("Nu"), 0, "circledMinus"), 0, "circledMinus").atoms[0].charge, -2, "the circled marks add up too");
+
+// A label's sign is a mark, as a skeletal carbon's and a circled one are: a drag with Select moves it round its atom
+// (Atom.angles charge), clear of the label, and it stays there.
+const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
+const amine: Mol = { atoms: [A("N", 0, 0, { charge: 1, implicitHCount: 0 }), A("C", -0.87, 0.5), A("C", 0.87, 0.5)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [0, 2] }] };
+const L = S.bond, doc = (p: P): P => [p[0] / L, -p[1] / L];
+const signOf = (m: Mol) => render(m, S, ink).electrons.find((e) => e.atom === 0 && e.key === "charge")?.at;
+const first = signOf(amine);
+assert.ok(first, "the sign is a mark");
+assert.deepEqual(markNear(render(amine, S, ink).electrons, amine, doc(first), L), { atom: 0, mark: "charge" }, "a press on the sign takes the sign");
+const down = moveMark(amine, 0, "charge", [0.05, -1], true);
+assert.equal(down.atoms[0].angles?.charge, -90, "dragged below the atom, in 15° steps");
+const below = signOf(down)!, plus = render(down, S, ink).labels.find((l) => l.text === "+")!;
+assert.ok(Math.abs(below[0]) < 1 && below[1] > 9.5 / 2, "the sign goes below the N, clear of it");
+assert.ok(plus.y - (9.5 * plus.size) / S.size > 9.5 / 2, "the sign's ink is under the N's");
+assert.notDeepEqual(signOf(moveMark(amine, 0, "charge", [-1, 0], true)), below, "and goes where it is dragged");
+
+// CDXML: a sign moved off its label is a Plus symbol linked to the atom, where it is drawn (ChemDraw keeps a sign moved
+// round its atom so); a ChemDraw file's symbol comes back at its angle.
+const xml = toCdxml(down, DEFAULT_STYLE), sym = /<graphic\s[^>]*BoundingBox="([\d.-]+) ([\d.-]+)[^>]*SymbolType="Plus"/.exec(xml.replace(/\n/g, " "));
+assert.ok(sym, "a Plus symbol");
+const n = /<n\s[^>]*?p="([\d.-]+) ([\d.-]+)"[^>]*Element="7"/.exec(xml.replace(/\n/g, " "))!;
+assert.ok(Number(sym[2]) - Number(n[2]) > 3 && Math.abs(Number(sym[1]) - Number(n[1])) < 1, "below the N on the page");
+const read = fromCdxml(xml.replace(/ Octet="[^"]*"/g, "")).mol.atoms.find((a) => a.label === "N")!;
+assert.ok(Math.abs(read.angles!.charge + 90) < 1, "ChemDraw's symbol comes back at its angle");
+assert.equal(fromCdxml(xml).mol.atoms.find((a) => a.label === "N")!.angles?.charge, -90, "Octet's own angle comes back");
+// A sign that cannot go after its label (a bond on each side) goes clear of it, never on the atom.
+const chain: Mol = { atoms: [A("C", -1, 0), A("N", 0, 0, { charge: 1 }), A("C", 1, 0)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }] };
+const flat = toCdxml(chain, DEFAULT_STYLE).replace(/\n/g, " "), at = /<graphic\s[^>]*BoundingBox="([\d.-]+) ([\d.-]+)[^>]*SymbolType="Plus"/.exec(flat)!, np = /<n\s[^>]*?p="([\d.-]+) ([\d.-]+)"[^>]*Element="7"/.exec(flat)!;
+assert.ok(Math.hypot(Number(at[1]) - Number(np[1]), Number(at[2]) - Number(np[2])) > 5, "the sign is not on the atom");
+console.log("chargelabels.check: ok");

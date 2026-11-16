@@ -2051,10 +2051,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(!r.isError, text(r));
   assert.deepEqual(commands, ["scale.120", "ringfill.#CFE8E4"]);
   // The rest of an atom's, a bond's and a structure's properties.
-  r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1`], atom_number: "7", hidden: false, bars: true, label_angle: 30, bold: true, size: 12, query: { substituents: "upto", n: 2, rings: "simple" } }] });
+  r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1`], atom_number: "7", hidden: false, bars: true, label_angle: 30, charge_angle: -90, bold: true, size: 12, query: { substituents: "upto", n: 2, rings: "simple" } }] });
   assert.ok(!r.isError, text(r));
   const a1 = m.atoms[g2[0]];
-  assert.equal(a1.number, "7"); assert.equal(a1.bars, true); assert.equal(a1.labelAngle, 30); assert.equal(a1.bold, true); assert.equal(a1.size, 12);
+  assert.equal(a1.number, "7"); assert.equal(a1.bars, true); assert.equal(a1.labelAngle, 30); assert.equal(a1.angles?.charge, -90); assert.equal(a1.bold, true); assert.equal(a1.size, 12);
   assert.deepEqual(a1.query, { subst: { kind: "upto", n: 2 }, rings: "simple" });
   r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1-2`], position: "left", spacing: 20, topology: "ring", reaction_centre: "change" }] });
   assert.ok(!r.isError, text(r));

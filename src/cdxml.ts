@@ -726,8 +726,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
 
-  // Where Octet draws a labelled atom's charge sign (render.ts signSpot), worked out from Arial's metrics as the label
-  // anchors are: undefined when it is after the label, where ChemDraw puts a label's sign; else the middle of its ink.
+  // Where Octet draws a labelled atom's charge sign (render.ts signSpot, or where it was dragged round the atom), worked
+  // out from Arial's metrics as the label anchors are: undefined when it is after the label, where ChemDraw puts a
+  // label's sign; else the middle of its ink.
   // The label's attaching line (text, after a mass number isoW wide) starts left of the atom by half its first glyph,
   // or read right to left ends at end.
   function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number): P | undefined {
@@ -740,7 +741,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const z = { spacing: (style.spacing / 100) * B * f, margin: ((style.margin * 1.69) / 1.6) * f, hw: (line / 2) * f, wide: style.bold * 0.75 * f };
     const shownAt = (j: number) => { const b = mol.atoms[j], d = seen[j].length; return !b.attach && !b.bead && !b.centre && (b.label !== "C" || !d || !!b.text || !!b.isotope || !!b.shown || (d === 1 ? style.terminalLabels : style.carbonLabels)); };
     const { bonds, rings } = signBonds(i, seen, covalent, bondOf, shownAt, page, z);
-    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, w, ink, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size);
+    const turn = a.angles?.charge === undefined ? undefined : (-a.angles.charge * Math.PI) / 180;
+    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, w, ink, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size, turn);
     return after ? undefined : [at[0] + c[0], at[1] + c[1]];
   }
 
