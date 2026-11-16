@@ -218,4 +218,29 @@ assert.match(css, /\.fold-title\[aria-expanded="false"\] \.fold-caret \{\n  tran
 assert.doesNotMatch(css, /\.fold\[data-folded\]/, "the caret does not turn by the folded setting alone");
 assert.match(actions, /quiet\.current = pointer && open;\n    folds\.peeks\.delete\(id\);\n    setPeek\(false\);\n    if \(!folded \|\| !peek\) onFold\(id, !folded\);/, "a click on a section open on hover closes it and does not pin it open");
 assert.match(actions, /aria-controls=\{body\} onPointerDown=\{\(\) => clearTimeout\(timer\.current\)\} onClick=\{toggle\}>/, "a press before it opens on hover stops it opening, so a tap opens it");
+// A panel along the bottom (Spectrum, Mass spec, Properties) scrolls the canvas up so its structure shows above it.
+// Minimised or closed, the panel has no size (display none): it covers nothing, and the canvas does not move. Closing
+// Mass spec, minimising it or opening the Actions panel over it used to scroll the drawing off the top of the window.
+{
+  const fn = /\n  function clearOfPanel\(panel: Element \| null \| undefined, atoms: number\[\]\) \{\n([^]*?)\n  \}\n/.exec(editor);
+  assert.ok(fn, "one helper scrolls the canvas clear of a panel");
+  assert.equal(editor.split("(r.top - box.top)").length - 1, 1, "no panel has its own copy of the scroll");
+  assert.doesNotMatch(editor, /panel\.top - box\.top/);
+  assert.match(editor, /const fit = \(\) => \{ if \(!el\.classList\.contains\("expanded"\)\) clearOfPanel\(el, msAtoms \?\? \[\]\); \};/, "Mass spec");
+  assert.match(editor, /clearOfPanel\(document\.querySelector\("\.spectrum:not\(\.massspec, \.minimised\)"\), /, "Spectrum: the panel that shows, not a minimised one");
+  assert.match(editor, /clearOfPanel\(document\.querySelector\("\.properties:not\(\.stacked\)"\), /, "Properties");
+  // The helper itself, with the canvas at the top of a 800 px window and the structure's lowest atom at y = 0.
+  const run = (panel: { top: number; height: number } | undefined) => {
+    const moves: { x: number; y: number; zoom: number }[] = [];
+    const svg = { current: { getBoundingClientRect: () => ({ top: 0 }) } }, views = { get: () => ({ x: 0, y: 500, zoom: 1 }) };
+    const doc = { atoms: [{}, {}] }, pos = (_: unknown, i: number) => [0, i];
+    const el = panel && { getBoundingClientRect: () => panel };
+    new Function("panel", "atoms", "svg", "views", "doc", "pos", "L", "moveView", fn![1])(el, [0, 1], svg, views, doc, pos, 30, (v: { x: number; y: number; zoom: number }) => moves.push(v));
+    return moves;
+  };
+  assert.deepEqual(run({ top: 0, height: 0 }), [], "a hidden panel (display none) does not move the canvas");
+  assert.deepEqual(run(undefined), [], "no panel: the canvas stays");
+  assert.deepEqual(run({ top: 600, height: 200 }), [], "a panel under the structure: the canvas stays");
+  assert.deepEqual(run({ top: 500, height: 300 }), [{ x: 0, y: 440, zoom: 1 }], "a panel over the structure: the canvas goes up two bond lengths past it");
+}
 console.log("panels.check: ok");

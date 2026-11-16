@@ -7147,18 +7147,21 @@ export default function Editor() {
     set(next);
     openMassSpec(doc.bonds[crossed[0].bond].atoms[0]);
   }
+  // A panel along the bottom scrolls the canvas up so these atoms show above it, with two bond lengths to spare. A
+  // panel with no size (minimised or closed: display none) covers nothing, so the view stays where it is.
+  function clearOfPanel(panel: Element | null | undefined, atoms: number[]) {
+    const r = panel?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
+    const low = Math.min(...atoms.filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]));
+    if (!r?.height || !box || !Number.isFinite(low)) return;
+    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (r.top - box.top);
+    if (over > 0) moveView({ ...view, y: view.y - over });
+  }
   // Opening the panel scrolls the canvas up if the panel would cover the structure, as the Spectrum panel does, and
   // again as the panel grows (its rows come in, a peak list opens).
   useEffect(() => {
     const el = document.querySelector(".massspec");
     if (!massSpec || !el) return;
-    const fit = () => {
-      const atoms = (msAtoms ?? []).filter((i) => doc.atoms[i]), panel = el.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-      const low = Math.min(...atoms.map((i) => pos(doc, i)[1]));
-      if (!box || !Number.isFinite(low) || el.classList.contains("expanded")) return;
-      const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-      if (over > 0) moveView({ ...view, y: view.y - over });
-    };
+    const fit = () => { if (!el.classList.contains("expanded")) clearOfPanel(el, msAtoms ?? []); };
     const watch = new ResizeObserver(fit);
     watch.observe(el);
     return () => watch.disconnect();
@@ -7350,11 +7353,7 @@ export default function Editor() {
   // as the panel grows).
   useEffect(() => {
     if (!spectrum || nmrView !== "open" || (!nmr && !measured)) return;
-    const panel = document.querySelector(".spectrum:not(.massspec)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-    const low = Math.min(...[...new Set(nmr ? nmr.toDoc : doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]));
-    if (!panel || !box || !Number.isFinite(low)) return;
-    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) moveView({ ...view, y: view.y - over });
+    clearOfPanel(document.querySelector(".spectrum:not(.massspec, .minimised)"), nmr ? nmr.toDoc : doc.atoms.map((_, i) => i));
   }, [spectrum, nmrView, !!nmr?.prediction, settings.nmrDetails, spectrumShow, !!measured]); // eslint-disable-line react-hooks/exhaustive-deps
   // A closed panel goes for good once the drawing changes (Undo can no longer bring it back).
   useEffect(() => {
@@ -7431,11 +7430,7 @@ export default function Editor() {
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
     if (!settings.properties) return;
-    const panel = document.querySelector(".properties:not(.stacked)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-    const atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i), low = Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1]));
-    if (!panel || !box || !Number.isFinite(low)) return;
-    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) moveView({ ...view, y: view.y - over });
+    clearOfPanel(document.querySelector(".properties:not(.stacked)"), selection.size ? [...selection] : doc.atoms.map((_, i) => i));
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   // The measured shifts of linked atoms when the measured spectrum shows; otherwise the predicted ones.
   if (nmrView !== "open") { /* minimised: no shifts beside the atoms */ }
