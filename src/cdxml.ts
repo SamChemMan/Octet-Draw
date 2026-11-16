@@ -134,6 +134,9 @@ const SPECIAL: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;"
 const escText = (s: string) => clean(s).replace(/\r/g, "").replace(/[&<>"']/g, (c) => SPECIAL[c]);
 const escAttr = (s: string) => clean(s).replace(/[&<>"'\n\t\r]/g, (c) => SPECIAL[c]);
 
+// A radical ion as render.ts draws it, one unit: one unpaired electron and a charge of one, not circled, its radical not
+// moved by hand. It goes to CDXML as one Radical Cation or Radical Anion symbol.
+const radicalIon = (a: Atom) => a.radical === 1 && Math.abs(a.charge ?? 0) === 1 && !a.circled && a.angles?.radical0 === undefined;
 // An element as ChemDraw writes it: one attribute per line, children straight after the start tag. Attributes
 // with undefined values are left out.
 function el(name: string, attrs: Record<string, string | number | undefined>, inner = ""): string {
@@ -756,7 +759,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
-    let sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
+    let sign = charge && !a.circled && !radicalIon(a) ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
     if (a.text?.includes("\n")) return labelLines(i, size, right, sign);
     let text = a.text ?? a.label, just = right && (text + sign).length > 1 ? "Right" : "Left", stack: string | undefined;
     if (!a.text && h) {
@@ -912,14 +915,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length, moved = signs.get(i);
     const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
-    const symbol = (c: P, type: string, represent: string[]) => el("graphic", { id: fresh(), BoundingBox: `${pt(c)} ${pt([c[0] - size, c[1]])}`, Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type },
-      represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
+    // A radical ion's symbol is level, its two points half a symbol's size apart about its middle, as ChemDraw draws
+    // one with a click.
+    const symbol = (c: P, type: string, represent: string[]) => el("graphic", { id: fresh(), BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - size / 4, c[1]])} ${pt([c[0] + size / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - size, c[1]])}`,
+      Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type }, represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
     const sign = moved ? symbol(moved, charge > 0 ? "Plus" : "Minus", ["Charge"]) : "";
     const list: [string, string[]][] = [];
-    if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
+    // A radical ion (render.ts) is one symbol, ChemDraw's Radical Cation or Radical Anion, for its charge and radical.
+    if (radicalIon(a)) list.push([charge > 0 ? "RadicalCation" : "RadicalAnion", ["Charge", "Radical"]]);
+    else if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
     if (a.radical === 3) list.push([a.bars ? "LonePairBar" : "LonePair", ["Radical"]]);
-    else for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) list.push(["Electron", ["Radical"]]);
+    else if (!radicalIon(a)) for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) list.push(["Electron", ["Radical"]]);
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) list.push([a.bars ? "LonePairBar" : "LonePair", []]);
     if (!list.length) return sign;
     const taken = nbrs[i].map((j) => { const d = sub(page(j), X); return Math.atan2(d[1], d[0]); });
@@ -2472,15 +2479,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const c = toOctet(box[0], box[1]), linked = x.kids.filter((k) => k.name === "represent").map((k) => atomOf.get(int(k.attrs.object) ?? -1)).find((i) => i !== undefined);
       const sign = ({ Plus: 1, CirclePlus: 1, RadicalCation: 1, Minus: -1, CircleMinus: -1, RadicalAnion: -1 } as Record<string, number>)[type], unpaired = type === "Electron" || type.startsWith("Radical");
       // Where a ChemDraw file puts a mark round its atom is its angle (Atom.angles), by the renderer's key.
-      const place = (a: Atom, key: string) => { if (!octet) a.angles = { ...a.angles, [key]: Math.round((Math.atan2(c[1] - a.location[1], c[0] - a.location[0]) * 1800) / Math.PI) / 10 }; };
+      const place = (a: Atom, key: string, q = c) => { if (!octet) a.angles = { ...a.angles, [key]: Math.round((Math.atan2(q[1] - a.location[1], q[0] - a.location[0]) * 1800) / Math.PI) / 10 }; };
       if (linked !== undefined && (sign || unpaired)) {
         const a = mol.atoms[linked];
         if (sign && !a.charge) a.charge = sign;
         if (type.startsWith("Circle")) a.circled = true;
         if (unpaired && !a.radical) a.radical = 1;
-        // A radical ion's symbol is its charge and electron together: it keeps no place of its own.
+        // A radical ion's symbol is its charge and electron together, drawn as one unit (render.ts): its middle is
+        // the charge's place.
         if (type === "Electron") { const n = electrons.get(linked) ?? 0; electrons.set(linked, n + 1); if (n < 2) place(a, `radical${n}`); }
         else if (sign && !unpaired) place(a, "charge");
+        else if (sign) { const ends = reals(x.attrs.BoundingBox, 4); place(a, "charge", ends ? toOctet((ends[0] + ends[2]) / 2, (ends[1] + ends[3]) / 2) : c); }
         continue;
       }
       if (linked !== undefined && type.startsWith("LonePair") && mol.atoms[linked].radical === 3 && x.kids.some((k) => k.name === "represent" && k.attrs.attribute === "Radical")) {
