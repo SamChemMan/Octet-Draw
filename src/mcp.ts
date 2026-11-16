@@ -29,6 +29,7 @@ import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, t
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
 import type { TextRun } from "./richtext.ts";
+import { ICON } from "./mcpicon.ts";
 
 type P = [number, number];
 // What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
@@ -3400,7 +3401,7 @@ async function answer(msg: Message, host: () => Host, version: string, from: Fro
       const want = msg.params?.protocolVersion;
       return reply(id, {
         protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[0], capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: { name: "octet-draw", title: "Octet Draw", version, description: "Draws and reads chemical structures, reactions, schemes and catalytic cycles in the Octet Draw window open on this computer.", websiteUrl: "https://octet.software" },
+        serverInfo: { name: "octet-draw", title: "Octet Draw", version, description: "Draws and reads chemical structures, reactions, schemes and catalytic cycles in the Octet Draw window open on this computer.", websiteUrl: "https://octet.software", icons: [{ src: ICON, mimeType: "image/png", sizes: ["64x64"] }] },
         instructions: instructionsFor(!!from.elicit),
       });
     }

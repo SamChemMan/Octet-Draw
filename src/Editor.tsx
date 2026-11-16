@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -102,7 +102,7 @@ import {
 import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
+import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE, peptideProblem } from "./peptide";
@@ -148,9 +148,10 @@ import { decodePicture, placeReadings, readStructures, startReader, stopReader, 
 import { history, type History } from "./history";
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, movedAt, setRole, shiftView, stepGrids } from "./gridview";
 import { logError } from "./crashlog";
-import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
+import { handle as handleMcp, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
 import { McpMagic, PictureDemo, type Magic } from "./McpMagic";
+import { AiCard } from "./AiCard";
 import "./editor.css";
 
 
@@ -169,6 +170,8 @@ const TAURI = "__TAURI_INTERNALS__" in window;
 // Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has
 // a window. ?window marks a drawing window; ?editor (tests) is the editor with no Home.
 type McpInfo = { port: number; token: string; program: string; args?: string[] };
+// An AI app on this computer and whether it has Octet (src-tauri/src/aiapps.rs).
+export type AiApp = { id: string; name: string; state: "connected" | "waiting" | "off" | "taken" | "unreadable" };
 // This page's own id, so the app can tell a reloaded page (whose requests are lost) from this one saying it listens again.
 const MCP_PAGE = Math.random().toString(36).slice(2);
 // Each listener this page puts up for the app's MCP requests has a number, so the app knows which one went.
@@ -2609,7 +2612,7 @@ export default function Editor() {
     tutorial: () => startTutorial(),
     shortcuts: () => setSettingsOpen("keys"),
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
-    connect_ai: () => setSettingsOpen("general"),
+    connect_ai: () => setSettingsOpen("ai"),
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
@@ -3146,6 +3149,45 @@ export default function Editor() {
   // Home starts the server when AI apps are on, and writes down that they are off when they are, for the relay
   // (mcp.rs mcp_set).
   useEffect(() => { if (TAURI && HOME_WINDOW) void invoke<McpInfo | null>("mcp_set", { on: settings.mcp }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The AI apps on this computer (aiapps.rs). The first time Octet opens with AI apps on (a new user, or the update
+  // that brings them), it adds itself to each one that has no Octet, and says so once, with Settings > AI tools to
+  // see them or turn them off (Sam, 13 November 2026). After that, Home connects again the apps that lost their entry
+  // (Claude waits until it quits, and Octet may have quit first), unless the user turned that app off.
+  const [aiApps, setAiApps] = useState<AiApp[]>([]);
+  useEffect(() => {
+    if (!TAURI || !HOME_WINDOW || !settings.mcp) return;
+    void invoke<AiApp[]>("ai_apps").then((apps) => {
+      setAiApps(apps);
+      const off = apps.filter((a) => a.state === "off").map((a) => a.id);
+      // Claude's entry is kept while Octet is open (aiapps.rs keep_claude), so the apps the user kept go in too.
+      connectAi(settings.aiShown ? settings.aiApps.filter((id) => apps.some((a) => a.id === id)) : off, !settings.aiShown);
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const connectAi = (ids: string[], first = false) => {
+    setSettings((s) => ({ ...s, aiShown: true, aiApps: [...new Set([...s.aiApps, ...ids])] }));
+    if (!ids.length && !first) return;
+    void invoke<AiApp[]>("ai_connect", { ids }).then((apps) => {
+      setAiApps(apps);
+      const now = apps.filter((a) => a.state === "connected" || a.state === "waiting"), waiting = now.some((a) => a.state === "waiting");
+      if (first && now.length) setAiCard({ apps: now.map((a) => a.name), waiting });
+      else if (waiting) setNotice("Claude gets Octet's tools when you quit Claude and open it again.", "info");
+    }, (e) => setNotice(failure("Octet cannot connect to the AI apps.", e)));
+  };
+  // The card that says so (McpMagic.tsx AiCard), and its More info: the video, Try it out and learn more (Octet's page
+  // on AI apps), and Disable the AI connectors, which turns AI apps off and takes Octet out of each app.
+  const [aiCard, setAiCard] = useState<{ apps: string[]; waiting: boolean }>();
+  const disableAi = () => {
+    setAiCard(undefined);
+    setDialog(undefined);
+    for (const a of aiApps) if (a.state === "connected" || a.state === "waiting") disconnectAi(a.id);
+    setSettings((s) => ({ ...s, mcp: false, mcpChosen: true }));
+    void invoke<McpInfo | null>("mcp_set", { on: false }).then(setMcpInfo).catch(() => {});
+    setNotice("AI connectors are off. You can turn them on again in Settings > AI tools.", "info", { label: "Open Settings", run: () => setSettingsOpen("ai") });
+  };
+  const disconnectAi = (id: string) => {
+    setSettings((s) => ({ ...s, aiApps: s.aiApps.filter((x) => x !== id) }));
+    void invoke<AiApp[]>("ai_disconnect", { id }).then(setAiApps, (e) => setNotice(failure("Octet cannot disconnect the AI app.", e)));
+  };
   // Once an AI app subscribes to this drawing, each change to it (the user's or an AI app's) tells the AI apps that
   // subscribed, at most twice a second.
   const mcpChanged = useRef<number>(undefined), mcpWatched = useRef(false);
@@ -3558,7 +3600,11 @@ export default function Editor() {
   };
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
-  useEffect(() => { if (TAURI && settingsOpen) void invoke<McpInfo | null>("mcp_status").then(setMcpInfo).catch(() => {}); }, [settingsOpen]);
+  useEffect(() => {
+    if (!TAURI || !settingsOpen) return;
+    void invoke<McpInfo | null>("mcp_status").then(setMcpInfo).catch(() => {});
+    void invoke<AiApp[]>("ai_apps").then(setAiApps).catch(() => {});
+  }, [settingsOpen]);
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   const [copiedSettings, setCopiedSettings] = useState<ObjectSettings>(); // Settings > Pro > Selection's Copy settings
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
@@ -3598,7 +3644,7 @@ export default function Editor() {
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
-    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "image"; then: "file" | "selected"; busy?: string }>();
+    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "image"; then: "file" | "selected"; busy?: string } | { kind: "ai" }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
@@ -6108,15 +6154,21 @@ export default function Editor() {
   // drawing does (the P of PPh3 bonded to Pd has none).
   const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s, false) : s); } catch { return undefined; } };
   // The checked name (bare), the name shown (with its abbreviation) and the structure named.
+  // The part is the structure alone: the drawing's text, arrows and boxes stay out of it (a polymer's or R-group's
+  // brackets stay), so its key does not change when they do. A risk assessment writes these names into its own text:
+  // with that text in the key, a name not found once was found again under the other key, and the assessment flipped
+  // between the name and the formula. A name not found before OPSIN has loaded (names.ts) is looked for again after.
   const namedPart = (g: number[], base = doc) => {
-    const part = subset(base, new Set(g)), key = serialize(part);
+    const part = subset({ atoms: base.atoms, bonds: base.bonds, shapes: base.shapes?.filter((x) => x.polymer || x.rgroup || x.bracketed) }, new Set(g)), key = serialize(part);
     if (!nameCache.current.has(key)) {
       let bare: string | undefined;
       // A metallocene drawn with the j key is named as its ions, as OPSIN and the standard InChI have it.
       const p = sandwichIons(part) ?? part;
       try { bare = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { bare = undefined; }
       // The abbreviation follows the checked name, as in an experimental section: "... (TREN)".
-      nameCache.current.set(key, { bare, name: bare && withAbbreviation(bare, abbreviationOf(inchiOf(p))), mol: p });
+      const named = { bare, name: bare && withAbbreviation(bare, abbreviationOf(inchiOf(p))), mol: p };
+      if (bare || opsinLoaded()) nameCache.current.set(key, named);
+      else return named;
     }
     return nameCache.current.get(key)!;
   };
@@ -6517,7 +6569,8 @@ export default function Editor() {
   // its substances follow them, as Update substances does, in the edit's own undo step; with Online search on, Octet
   // finds the CAS numbers and hazards of the new ones. A drawing opened is left as it is. Never during a drag or typing.
   useEffect(() => {
-    if (!expPage || !loaded || drag || writing || doc !== lastSet.current || !riskGroup(doc)) return;
+    // It waits for the names engine, so a page opened at start keeps its names and never shows the formula first.
+    if (!expPage || !loaded || !namesLoaded || drag || writing || doc !== lastSet.current || !riskGroup(doc)) return;
     const t = setTimeout(() => {
       const m = now.current, g = riskGroup(m);
       if (!g || m !== lastSet.current) return;
@@ -10662,7 +10715,7 @@ export default function Editor() {
           wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
           onCheckUpdates={() => checkUpdates(true)}
           mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on, mcpChosen: true })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
-          onBundle={() => void invoke("mcp_bundle", { tools: TOOL_TABLE.map(({ name, description }) => ({ name, description })) }).catch((e) => setNotice(failure("Octet cannot make the Claude Desktop bundle.", e)))}
+          aiApps={aiApps} onAiApp={(id, on) => (on ? connectAi([id]) : disconnectAi(id))}
           onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
@@ -11067,6 +11120,16 @@ export default function Editor() {
           </Dialog>
         );
       })()}</Exit>
+      <Exit>{dialog?.kind === "ai" && (
+        <Dialog title="Octet and AI apps" action="Try it out and learn more" cancel="Close" onClose={() => setDialog(undefined)}
+          onAction={() => { setDialog(undefined); setAiCard(undefined); void invoke("open_link", { name: "ai" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))); }}>
+          {/* The video of an AI app drawing in Octet comes here (Sam, 13 November 2026). */}
+          <div className="ai-video" aria-label="Video"><PlayCircle size={20} aria-hidden /></div>
+          <p className="dialog-note">Ask Claude for a structure, a reaction or a whole route. It draws in your drawing, and you can change all of it.</p>
+          {/* The way out Octet does not offer first: plain text in the muted ink, under the note. */}
+          <button className="text-button ai-disable" onClick={disableAi}>Disable the AI connectors</button>
+        </Dialog>
+      )}</Exit>
       <Exit>{dialog?.kind === "image" && (() => {
         const then = dialog.then;
         return (
@@ -11469,6 +11532,7 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
+      <Exit>{aiCard && <AiCard apps={aiCard.apps} waiting={aiCard.waiting} onMore={() => setDialog({ kind: "ai" })} onClose={() => setAiCard(undefined)} />}</Exit>
       <Exit>{reading && !magic && <McpMagic magic={reading} progress={readFar} page={{ paper, dark: darkPaper, own }} />}</Exit>
       <Exit>{magic && <McpMagic magic={magic} progress={mcpFar} page={{ paper, dark: darkPaper, own }} />}</Exit>
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>

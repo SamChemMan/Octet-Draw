@@ -46,7 +46,7 @@ Set-Alias octet "$env:LOCALAPPDATA\Octet Draw\octet.exe"
 - Octet reads one JSON-RPC message a line on standard input. It writes one message a line on standard output.
 - Send `initialize` first. Then send `tools/call` for each tool call.
 - To stop Octet, close its standard input. Octet completes the calls in progress, then stops.
-- Octet Draw does not have to be open. Settings > General > AI apps > Let AI apps use Octet can be off.
+- Octet Draw does not have to be open. Settings > AI tools > Let AI apps use Octet can be off.
 - Each call that changes the drawing is one step that Undo can take away (`advanced` with `run_command` and `undo`).
 - On Linux, Octet needs a display, also with no window. On a computer with no display (a server, or CI), start it
   with `xvfb-run -a`, for example `xvfb-run -a "$OCTET" --headless --mcp`. This is also true for `--convert`.

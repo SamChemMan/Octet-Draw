@@ -1183,8 +1183,8 @@ struct RelayState {
     asks: bool,
     woken: bool, // Octet was started once already: a second call while it is still closed does not start it again
 }
-const CLOSED: &str = "Octet Draw is not open, or its AI apps are off. Open Octet Draw and turn on Settings > General > AI apps > Let AI apps use Octet, then try again.";
-const OFF: &str = "AI apps are off in Octet Draw. To use Octet, the user turns on Settings > General > AI apps > Let AI apps use Octet.";
+const CLOSED: &str = "Octet Draw is not open, or its AI apps are off. Open Octet Draw and turn on Settings > AI tools > Let AI apps use Octet, then try again.";
+const OFF: &str = "AI apps are off in Octet Draw. To use Octet, the user turns on Settings > AI tools > Let AI apps use Octet.";
 
 impl Relay {
     fn new(dir: Option<PathBuf>, out: Out) -> Arc<Relay> {
@@ -1437,10 +1437,13 @@ fn closed_answer(method: &str, id: &serde_json::Value, message: &serde_json::Val
         "initialize" => {
             let want = message.pointer("/params/protocolVersion").and_then(|v| v.as_str()).filter(|v| VERSIONS.contains(v)).unwrap_or(VERSIONS[0]);
             let instructions = kept("initialize").and_then(|k| k.get("instructions").cloned()).unwrap_or_else(|| format!("{CLOSED} Octet's tools appear here once it is open.").into());
+            // Octet's own serverInfo, kept, has its icon (mcp.ts).
+            let mut info = kept("initialize").and_then(|k| k.get("serverInfo").cloned()).filter(|s| s.is_object()).unwrap_or_else(|| serde_json::json!({ "name": "octet-draw", "title": "Octet Draw" }));
+            info["version"] = app_version().into();
             serde_json::json!({
                 "protocolVersion": want,
                 "capabilities": { "tools": { "listChanged": true }, "prompts": { "listChanged": true }, "resources": { "subscribe": true, "listChanged": true } },
-                "serverInfo": { "name": "octet-draw", "title": "Octet Draw", "version": app_version() },
+                "serverInfo": info,
                 "instructions": instructions,
             })
         }
@@ -1457,7 +1460,7 @@ fn closed_answer(method: &str, id: &serde_json::Value, message: &serde_json::Val
 // The program an AI app starts, with what goes before --mcp. An AppImage (Linux) runs from a new folder each time: the
 // AI app starts the AppImage itself. A Flatpak's own program is only there inside its sandbox: the AI app starts it
 // through flatpak.
-fn own_program() -> (String, Vec<String>) {
+pub fn own_program() -> (String, Vec<String>) {
     let var = |k: &str| std::env::var(k).ok().filter(|v| cfg!(target_os = "linux") && !v.is_empty());
     program_for(var("FLATPAK_ID"), var("APPIMAGE"), std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default())
 }

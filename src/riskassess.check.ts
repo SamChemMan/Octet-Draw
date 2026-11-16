@@ -308,4 +308,9 @@ assert.match(editor, /pages: sheets\?\.texts/);
 // A risk assessment is an integral group, so the pointer over a bond asks which group it is in (integralAt). Deleting
 // that bond left the hover on a bond gone, and the editor stopped (Sam, 13 November 2026).
 assert.match(editor, /const atomsOf = [^\n]*m\.bonds\[t\.bond\]\?\.atoms \?\? \[\]/, "a hover on a bond just deleted gives no atoms");
+// A substance's name is kept by its structure alone. With the drawing's text in the key, the names the assessment
+// writes changed the key, and a name not found before OPSIN loaded flipped with the formula twice a second (Sam,
+// 16 November 2026).
+assert.match(editor, /const part = subset\(\{ atoms: base\.atoms, bonds: base\.bonds, shapes: [^\n]*\}, new Set\(g\)\), key = serialize\(part\);/, "a structure's name is keyed by the structure alone");
+assert.match(editor, /if \(bare \|\| opsinLoaded\(\)\) nameCache\.current\.set\(key, named\);/, "a name not found before OPSIN loads is looked for again");
 console.log("riskassess.check: ok");

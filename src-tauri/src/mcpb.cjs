@@ -21,7 +21,7 @@ if (program && (args.length || existsSync(program))) {
   relay.on("exit", (code) => process.exit(code ?? 0));
   relay.on("error", () => process.exit(1));
 } else {
-  const fix = "Open Octet Draw and turn on Settings > General > AI apps > Let AI apps use Octet. Then quit and open Claude again.";
+  const fix = "Open Octet Draw and turn on Settings > AI tools > Let AI apps use Octet. Then quit and open Claude again.";
   let rest = "";
   process.stdin.on("data", (chunk) => {
     const lines = (rest + chunk).split("\n");

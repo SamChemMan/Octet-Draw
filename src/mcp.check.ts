@@ -99,6 +99,8 @@ const read = async () => JSON.parse(text(await call("read", { detail: "full" }))
 let r = await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "x", version: "1" } });
 assert.equal(r.result.protocolVersion, "2025-06-18");
 assert.equal(r.result.serverInfo.name, "octet-draw");
+// The AI app shows Octet's app icon beside its tools: the 64 px icon file itself.
+assert.deepEqual(r.result.serverInfo.icons, [{ src: `data:image/png;base64,${readFileSync(new URL("../src-tauri/icons/64x64.png", import.meta.url)).toString("base64")}`, mimeType: "image/png", sizes: ["64x64"] }]);
 assert.match(r.result.instructions, /make ONE draw call with lines: a reaction, a scheme, every scheme of a route/);
 assert.equal((await send("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion, "2025-11-25");
 assert.deepEqual((await send("ping")).result, {});

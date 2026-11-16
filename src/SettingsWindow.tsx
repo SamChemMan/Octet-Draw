@@ -2,7 +2,7 @@
 // modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Toolbox, Warning, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, PlugsConnected, Plus, Swatches, Toolbox, Warning, X } from "@phosphor-icons/react";
 import { ColourPick, ColourPicker, ColourPop } from "./ColourPicker";
 import { OWN_MOST } from "./colours";
 import { Dialog, useModal } from "./Dialog";
@@ -20,10 +20,11 @@ import { EXPORT_FORMATS, PICTURES, copyToClipboard, type ExportFormat } from "./
 import { BACKDROPS, DpiField } from "./ExportDialog";
 import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, LIMITS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import type { ObjectSettings } from "./edit";
+import type { AiApp } from "./Editor";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
 
-export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance" | "files" | "warnings" | "dictionary" | "pro";
+export type ModuleId = "general" | "ai" | "document" | "drawing" | "keys" | "appearance" | "files" | "warnings" | "dictionary" | "pro";
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting),
 // and ChemDraw's other preferences that change the drawing or what opening a file gives (settings.ts, CH-34).
 export type DrawingPrefs = {
@@ -113,7 +114,8 @@ type Props = {
   onWordClick: (on: boolean) => void;
   onCheckUpdates: () => void;
   // AI apps (decision 0021): the server's address and key while it is on, and the switch.
-  mcp: { port: number; token: string; program: string; args?: string[] } | null; onMcp: (on: boolean, newKey?: boolean) => void; onBundle: () => void;
+  mcp: { port: number; token: string; program: string; args?: string[] } | null; onMcp: (on: boolean, newKey?: boolean) => void;
+  aiApps: AiApp[]; onAiApp: (id: string, on: boolean) => void; // the AI apps on this computer, and Octet in each
   onAddToLibreOffice: () => void; // Linux: opens Octet's extension for LibreOffice, and says so when it cannot
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
@@ -362,7 +364,8 @@ function SelectionColour({ value, onChange }: { value: string; onChange: (hex: s
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
-  { id: "general", name: "General", icon: <GearSix size={18} />, words: "general updates version check structure ai apps mcp claude" },
+  { id: "general", name: "General", icon: <GearSix size={18} />, words: "general updates version check structure" },
+  { id: "ai", name: "AI tools", icon: <PlugsConnected size={18} />, words: "ai tools apps mcp claude chatgpt assistant connect" },
   { id: "document", name: "Document", icon: <FileText size={18} />, words: "document style page text" },
   { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={18} />, words: "drawing tools bonds rings draw" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={18} />, words: "keyboard shortcut hotkey keys" },
@@ -627,14 +630,16 @@ export function SettingsWindow(p: Props) {
         <button className="text-button" onClick={p.onAddToLibreOffice}>Add to LibreOffice</button>
       ))] : []),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
-      d("general", "AI apps", "Let AI apps use Octet", "ai apps mcp claude chatgpt assistant model context protocol connect draw", <Switch on={!!p.mcp} label="Let AI apps use Octet" onChange={(on) => p.onMcp(on)} />),
+      d("ai", "AI apps", "Let AI apps use Octet", "ai apps mcp claude chatgpt assistant model context protocol connect draw", <Switch on={!!p.mcp} label="Let AI apps use Octet" onChange={(on) => p.onMcp(on)} />),
       ...(p.mcp ? [
-        // Each AI app starts Octet's relay (Octet Draw --mcp), which reads the port and key itself (decision 0021).
-        d("general", "AI apps", "Claude Code", "claude code command mcp add terminal", <button className="text-button" onClick={() => void copyToClipboard({ text: `claude mcp add --scope user octet-draw -- "${p.mcp!.program}" ${[...(p.mcp!.args ?? []), "--mcp"].join(" ")}` })}>Copy command</button>),
-        ...(LINUX ? [] : [d("general", "AI apps", "Claude Desktop", "claude desktop install bundle extension mcpb", <button className="text-button" onClick={p.onBundle}>Install</button>)]),
-        d("general", "AI apps", "VS Code", "vs code visual studio copilot json settings", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ servers: { "octet-draw": { type: "stdio", command: p.mcp!.program, args: ["--mcp"] } } }, null, 2) })}>Copy settings</button>),
-        d("general", "AI apps", "Other AI apps", "cursor windsurf chatgpt config json other apps stdio", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: [...(p.mcp!.args ?? []), "--mcp"] } } }, null, 2) })}>Copy settings</button>),
-        d("general", "AI apps", "Key", "key token new disconnect revoke", <button className="text-button" onClick={() => p.onMcp(true, true)}>New key</button>),
+        d("ai", "AI apps", "Key", "key token new disconnect revoke", <button className="text-button" onClick={() => p.onMcp(true, true)}>New key</button>),
+        // The AI apps on this computer (aiapps.rs): on, Octet adds its entry to the app; off, it takes it out. An entry
+        // with Octet's name that the user made stays the user's. Each AI app starts Octet's relay (Octet Draw --mcp),
+        // which reads the port and key itself (decision 0021).
+        ...p.aiApps.map((a) => d("ai", "On this computer", a.name, `${a.name} connect mcp claude code desktop cursor vs code windsurf`, a.state === "unreadable"
+          ? <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: [...(p.mcp!.args ?? []), "--mcp"] } } }, null, 2) })}>Copy settings</button>
+          : <Switch on={a.state !== "off"} disabled={a.state === "taken"} label={a.name} onChange={(on) => p.onAiApp(a.id, on)} />)),
+        d("ai", "On this computer", "Other AI apps", "cursor windsurf chatgpt config json other apps stdio", <button className="text-button" onClick={() => void copyToClipboard({ text: JSON.stringify({ mcpServers: { "octet-draw": { command: p.mcp!.program, args: [...(p.mcp!.args ?? []), "--mcp"] } } }, null, 2) })}>Copy settings</button>),
       ] : []),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
         <span className="swatches" role="list" aria-label="Octet's colours">
@@ -673,7 +678,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

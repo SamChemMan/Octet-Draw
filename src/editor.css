@@ -1353,6 +1353,78 @@ button.variant.add {
     transform: translateY(100%);
   }
 }
+/* The card the first time Octet connects itself to the AI apps (McpMagic.tsx AiCard), at the bottom right of the
+   window: it comes up a little as it shows, as the tutorial card does at the bottom. Octet's mark draws itself in it
+   at half size, once, and stays. */
+.ai-card {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + var(--dock, 0px));
+  z-index: var(--z-notice);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: min(360px, calc(100% - 2 * var(--space-4)));
+  padding: var(--space-3) var(--space-1) var(--space-3) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  animation: ai-card-in var(--motion-slow) var(--ease-out);
+}
+@keyframes ai-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.ai-card-mark {
+  position: relative;
+  flex: none;
+  width: calc(2 * var(--size-control));
+  height: calc(2 * var(--size-control));
+}
+.ai-card-scale {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: scale(0.5);
+}
+.ai-card .mcp-mol,
+.ai-card .mcp-parts {
+  animation: none;
+}
+.ai-card-body {
+  display: grid;
+  flex: 1;
+  justify-items: start;
+  gap: var(--space-1);
+}
+.ai-card-body p {
+  margin: 0;
+}
+.ai-card-body .text-button {
+  margin-left: calc(-1 * var(--space-2));
+}
+/* More info (Editor, AI apps): the video of an AI app drawing in Octet, in a frame as wide as the dialog. */
+.ai-video {
+  display: grid;
+  place-items: center;
+  justify-self: stretch;
+  aspect-ratio: 16 / 9;
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+/* The way out that Octet does not want to offer first: plain text, in the quiet ink. */
+.text-button.ai-disable {
+  justify-self: start;
+  margin-left: calc(-1 * var(--space-2));
+  color: var(--ink-muted);
+}
 @media (prefers-reduced-motion: reduce) {
   .mcp-mol,
   .mcp-parts,
@@ -2015,7 +2087,7 @@ button.variant.add {
 /* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
    they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above, the
    tutorial card at the bottom and the next tip along a row have their own way in, so they are named here too. */
-:is(.strip, .library, .floating-templates, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip).leaving,
+:is(.strip, .library, .floating-templates, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip, .ai-card).leaving,
 .page-menu.above.leaving,
 .strip.list.leaving,
 .coach.low.leaving,
@@ -4620,6 +4692,7 @@ div.facts {
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
   height: var(--size-control);
   box-sizing: border-box;
+  white-space: nowrap;
 }
 .dialog-button.primary {
   border-color: var(--brand);
@@ -5714,6 +5787,9 @@ div.facts {
 .home ~ .notice {
   left: var(--space-4);
   right: var(--space-4);
+  z-index: var(--z-home);
+}
+.home ~ .ai-card {
   z-index: var(--z-home);
 }
 .home-inner {
