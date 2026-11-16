@@ -48,6 +48,8 @@ const run = (shell: string, vars: Record<string, string>) => {
 };
 const gtk = Object.keys(hook).filter((k) => k !== "APPDIR" && k !== "XDG_DATA_DIRS");
 const libs = `${system}/none ${system}/lib64 ${system}/none2 ${system}`;
+const appimageKit = ["usr/lib", "usr/lib/i386-linux-gnu", "usr/lib/x86_64-linux-gnu", "usr/lib32", "usr/lib64", "lib",
+  "lib/i386-linux-gnu", "lib/x86_64-linux-gnu", "lib32", "lib64"].map((d) => `${app}/${d}/`).join(":");
 
 try {
   for (const shell of ["sh", "dash", "bash"].filter((s) => spawnSync(s, ["-c", ":"]).status === 0)) {
@@ -56,6 +58,7 @@ try {
     assert.equal(got.cwd, join(app, "usr"), `${shell}: Octet starts in usr, as before`);
     assert.equal(got.args, "/home/u/a b.cdxml|--object|", `${shell}: the arguments go to Octet as they are`);
     assert.equal(got.env.LD_LIBRARY_PATH, `/opt/mine:${system}/lib64:${system}`, shell);
+    assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "/opt/mine", `${shell}: the programs Octet starts get the session's (linux.rs)`);
     for (const k of gtk) assert.equal(got.env[k], undefined, `${shell}: GTK finds its own ${k}`);
     assert.equal(got.env.XDG_DATA_DIRS, "/home/u/.local/share", `${shell}: the user's own data folders`);
     assert.equal(got.env.GST_PLUGIN_SYSTEM_PATH, undefined, shell);
@@ -63,13 +66,15 @@ try {
     assert.ok(got.env.PATH.startsWith(`${app}/usr/bin/:`), shell);
     got = run(shell, { OCTET_SYSTEM_LIBS: libs, XDG_DATA_DIRS: `${mount}/usr/share:/usr/share:` });
     assert.equal(got.env.LD_LIBRARY_PATH, `${system}/lib64:${system}`, shell);
+    assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "", `${shell}: the session has none`);
     assert.equal(got.env.XDG_DATA_DIRS, undefined, `${shell}: no data folders set gives GLib its own`);
 
     // No WebKitGTK 4.1 in the system, or OCTET_SYSTEM_LIBS empty: the AppImage's copies, as AppImageKit's AppRun.
     for (const vars of [{ OCTET_SYSTEM_LIBS: `${system}/none ${system}` }, { OCTET_SYSTEM_LIBS: "" }]) {
       got = run(shell, vars);
       assert.equal(got.cwd, join(app, "usr"), shell);
-      assert.equal(got.env.LD_LIBRARY_PATH, `${app}/usr/lib/`, shell);
+      assert.equal(got.env.LD_LIBRARY_PATH, appimageKit, `${shell}: the folders of AppImageKit's AppRun`);
+      assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "", shell);
       for (const k of gtk.filter((k) => k !== "GSETTINGS_SCHEMA_DIR")) assert.equal(got.env[k], hook[k as keyof typeof hook], shell);
       assert.equal(got.env.GSETTINGS_SCHEMA_DIR, `${app}/usr/share/glib-2.0/schemas/:${mount}/usr/share/glib-2.0/schemas`, shell);
       assert.equal(got.env.XDG_DATA_DIRS, `${app}/usr/share/:${hook.XDG_DATA_DIRS}`, shell);

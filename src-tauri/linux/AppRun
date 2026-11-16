@@ -18,6 +18,9 @@ for d in ${OCTET_SYSTEM_LIBS-/usr/lib/$m-linux-gnu /lib/$m-linux-gnu /usr/lib64 
   if [ -e "$d/libwebkit2gtk-4.1.so.0" ] || { [ -n "$system" ] && [ -d "$d" ]; }; then system=${system:+$system:}$d; fi
 done
 
+# The session's LD_LIBRARY_PATH (empty when it has none), which src-tauri/src/linux.rs gives back to the programs that
+# Octet starts.
+export OCTET_SESSION_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
 if [ -n "$system" ]; then
   # The loader looks in LD_LIBRARY_PATH before the RUNPATH that linuxdeploy gives Octet ($ORIGIN/../lib). So each
   # library comes from the system, and only a library that the system does not have comes from the AppImage.
@@ -28,7 +31,11 @@ if [ -n "$system" ]; then
   XDG_DATA_DIRS=${XDG_DATA_DIRS#"$APPDIR/usr/share:/usr/share:"}
   [ -n "$XDG_DATA_DIRS" ] || unset XDG_DATA_DIRS
 else
-  export LD_LIBRARY_PATH="$a/usr/lib/${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  # The library folders of AppImageKit's AppRun.
+  l=
+  for d in usr/lib usr/lib/i386-linux-gnu usr/lib/x86_64-linux-gnu usr/lib32 usr/lib64 lib lib/i386-linux-gnu \
+    lib/x86_64-linux-gnu lib32 lib64; do l="$l$a/$d/:"; done
+  export LD_LIBRARY_PATH="${l%:}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   export XDG_DATA_DIRS="$a/usr/share/:${XDG_DATA_DIRS:-/usr/local/share/:/usr/share/}"
   export GSETTINGS_SCHEMA_DIR="$a/usr/share/glib-2.0/schemas/${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
   export GST_PLUGIN_SYSTEM_PATH="$a/usr/lib/gstreamer" GST_PLUGIN_SYSTEM_PATH_1_0="$a/usr/lib/gstreamer-1.0"

@@ -103,7 +103,9 @@ The AppImage holds the WebKitGTK, GTK and libepoxy of the Ubuntu 22.04 runner. O
 use the graphics card, and Octet is then slow (issue 37). So the AppImage's launcher (`src-tauri/linux/AppRun`) uses
 the system's libraries when the system has WebKitGTK 4.1, and the AppImage's copies only when it does not. To use the
 copies on a system that has WebKitGTK, start the AppImage with `OCTET_SYSTEM_LIBS=` before it. The release build
-puts the launcher where Tauri gets the AppImage's AppRun from, and then checks the AppImage it made.
+puts the launcher where Tauri gets the AppImage's AppRun from, and then checks the AppImage it made. That check
+runs after Tauri has put the AppImage in the draft release. If the check fails on a tag, delete the AppImage from the
+draft release.
 
 ## Make a release
 
