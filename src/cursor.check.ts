@@ -37,7 +37,13 @@ for (const name of Object.keys(CURSORS) as CursorName[]) {
   const [x, y] = CURSORS[name].hot;
   assert.ok(x >= 0 && x < 24 && y >= 0 && y < 24, `${name}'s hotspot is in its 24 px box`);
   assert.ok(v.endsWith(`) ${x} ${y}, ${CURSORS[name].fallback}`) && KEYWORDS.test(CURSORS[name].fallback), `${name}: ${v}`);
+  // Issue #165: WebKitGTK takes the 2x picture on a 200% screen and shows it twice the size, with the hotspot in its
+  // pixels. On Linux the cursor is the 1x picture alone, which the desktop scales with its hotspot. The Mac and
+  // Windows webviews scale image-set cursors, so they keep the 2x picture.
+  assert.equal(cursorValue(name, "one.png", "two.png", true), `url("one.png") ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on Linux`);
+  assert.equal(cursorValue(name, "one.png", "two.png", false), `-webkit-image-set(url("one.png") 1x, url("two.png") 2x) ${x} ${y}, ${CURSORS[name].fallback}`, `${name} on the Mac and Windows`);
 }
+assert.match(readFileSync(new URL("cursor.ts", import.meta.url), "utf8"), /const LINUX = typeof navigator !== "undefined" && navigator\.platform\.startsWith\("Linux"\);\nexport function cursorValue\(name: CursorName, one: string, two: string, linux = LINUX\)/, "the cursors know they are on Linux");
 
 // Black and white: each has its glyph and its edge in the two colours, far apart.
 const INK = "#0F172A"; // the light theme's --ink

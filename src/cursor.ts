@@ -87,11 +87,14 @@ export function cursorSvg(name: CursorName, ink: string, edge: string, icon: str
 }
 
 // The CSS value: the 1x and 2x pictures at the hotspot, then the keyword. A webview that does not take image-set for
-// a cursor gets the 1x picture.
-export function cursorValue(name: CursorName, one: string, two: string): string {
+// a cursor gets the 1x picture. So does Linux (issue #165): WebKitGTK shows a cursor picture at one pixel a point and
+// does not scale its hotspot, so on a 200% screen the 2x picture was twice the size and pointed up and to the left.
+// The desktop scales the 1x picture and its hotspot to the screen.
+const LINUX = typeof navigator !== "undefined" && navigator.platform.startsWith("Linux");
+export function cursorValue(name: CursorName, one: string, two: string, linux = LINUX): string {
   const { hot: [x, y], fallback } = CURSORS[name];
   const set = `-webkit-image-set(url("${one}") 1x, url("${two}") 2x) ${x} ${y}, ${fallback}`;
-  return globalThis.CSS?.supports("cursor", set) === false ? `url("${one}") ${x} ${y}, ${fallback}` : set;
+  return linux || globalThis.CSS?.supports("cursor", set) === false ? `url("${one}") ${x} ${y}, ${fallback}` : set;
 }
 
 // Every cursor in black and in white, drawn at start-up (outside React's rendering, where flushSync cannot draw the
