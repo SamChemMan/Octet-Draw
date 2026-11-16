@@ -240,7 +240,7 @@ const ends = new Map<string, number | undefined>();
 export function endHydrogens(label: string): number | undefined {
   if (ends.has(label)) return ends.get(label);
   const us = units(label), end = us.length > 1 ? condensedRoot(endText(us, label), true) : undefined;
-  const h = end && end.smiles === labelSmiles(label) ? end.h : undefined;
+  const h = end && sameGroup(end.smiles, labelSmiles(label)) ? end.h : undefined;
   if (ends.size >= 1000) ends.clear();
   ends.set(label, h);
   return h;
@@ -252,7 +252,44 @@ export function attachmentFirst(label: string): string {
   const us = units(label);
   if (us.length < 2 || FORMULAS[label]) return label;
   const back = [...us].reverse(), turn = fromEnd(us) ? fromAtom(back) : FORMULAS[written(back)] ? back : undefined, text = turn && written(turn);
-  return text && units(text).every((u, k) => u.text === turn[k].text && u.count === turn[k].count) ? text : label;
+  // The label read the other way round must be the same group (PhCO is benzoyl, OCPh benzyloxy).
+  return text && units(text).every((u, k) => u.text === turn[k].text && u.count === turn[k].count) && sameGroup(labelSmiles(text), labelSmiles(label)) ? text : label;
+}
+// Two label SMILES that are one group with one attachment atom (C(OCC)=O and C(=O)OCC). Each atom is named by its
+// element and, round after round, by its neighbours and bonds; the attachment atom is marked.
+function sameGroup(a: string | undefined, b: string | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const names = new Map<string, number>(), name = (s: string) => names.get(s) ?? (names.set(s, names.size), names.size - 1);
+  const graph = (smiles: string) => {
+    const atoms: string[] = [], near: [number, string][][] = [], stack: number[] = [], rings = new Map<string, [number, string]>();
+    let prev = -1, bond = "";
+    const join = (i: number, j: number, o: string) => { near[i].push([j, o]); near[j].push([i, o]); };
+    for (const t of smiles.match(/\[[^\]]*\]|Br|Cl|[A-Za-z*]|[=#\-.()]|%\d\d|\d/g) ?? []) {
+      if (t === "(") stack.push(prev);
+      else if (t === ")") prev = stack.pop() ?? -1;
+      else if ("=#-.".includes(t)) bond = t;
+      else if (/^%?\d/.test(t)) {
+        const open = rings.get(t);
+        if (open) { join(prev, open[0], bond || open[1]); rings.delete(t); } else rings.set(t, [prev, bond]);
+        bond = "";
+      } else {
+        const i = atoms.push(t) - 1;
+        near.push([]);
+        if (prev >= 0 && bond !== ".") join(prev, i, bond);
+        prev = i; bond = "";
+      }
+    }
+    return { atoms, near };
+  };
+  const ga = graph(a), gb = graph(b);
+  if (ga.atoms.length !== gb.atoms.length) return false;
+  const label = (g: ReturnType<typeof graph>) => {
+    let ids = g.atoms.map((x, i) => name(x + (i ? "" : "*")));
+    for (let r = 0; r < g.atoms.length; r++) ids = ids.map((id, i) => name(`${id}:${g.near[i].map(([j, o]) => o + ids[j]).sort().join(",")}`));
+    return ids.sort((x, y) => x - y).join(" ");
+  };
+  return label(ga) === label(gb);
 }
 // A label an AI app gives (for a *, on an atom, in a change), as Octet keeps one: from its attachment atom. NC is the
 // nitrile written from the left (NC–R), as an AI app copies it from a picture: Octet's own reading of NC, bond on N,
@@ -332,9 +369,11 @@ export function labelSmiles(label: string): string | undefined {
   // A label whose first atom cannot take the bond (CH3CO, HOCH2, (CH3)2N, CF3CO) is written from the left: the bond is
   // on its last atom, every valence used (acetyl, hydroxymethyl, dimethylamino). A label that starts with a group is
   // read so before it is read from its end, as its units in reverse are no formula (PhCO is benzoyl, PhOCO no benzoate).
+  // An O written just before an S or P is on that atom (MeOS, H2NO2S: a sulfinyl and a sulfonamide), as in MeO2S. An S
+  // or P with an O after it has its own (MeOSO2 is methoxysulfonyl).
   const end = () => (us.length > 1 ? condensedLabel(endText(given, label), true) : undefined);
   const first = valence ? condensedLabel(left ? plain(us) : textOf(us, label)) : undefined;
-  const whole = left ? end() ?? first : first ?? end();
+  const whole = left && !/(?:O\d?|\(O\))[SP](?![a-zO(])/.test(label) ? end() ?? first : first ?? end();
   if (whole && !crowded(whole)) return whole;
   let smiles = "";
   const atom = (sym: string) => (ORGANIC.has(sym) ? sym : sym === "D" ? "[2H]" : sym === "T" ? "[3H]" : `[${sym}]`);

@@ -179,6 +179,9 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
   // A label written from the left, as Octet keeps a label (the AI apps' tools store it so): from its attachment atom.
   // Others, and one that would read as another group written so (S and iPr as silicon), come back as they are.
   for (const [label, kept] of Object.entries({ MeO: "OMe", pinB: "Bpin", F3C: "CF3", "t-BuO": "Ot-Bu", O2N: "NO2", HO2C: "CO2H", OHC: "CHO", "t-BuNH": "NHt-Bu", BocHN: "NHBoc", H2N: "NH2", HO: "OH", Et3N: "NEt3", MeO2C: "CO2Me", TBSO: "OTBS", D3C: "CD3",
+    MeOOC: "COOMe", EtO2C: "CO2Et", H2NO2S: "SO2NH2", Me2NO2S: "SO2NMe2",
+    // Written the other way round these read as another group (OCPh is benzyloxy, OOCCH3 a peroxide): kept as they are.
+    PhCO: "PhCO", MeCO: "MeCO", PhOCO: "PhOCO", H2NCO: "H2NCO", H3CCONH: "H3CCONH", H3CCOO: "H3CCOO", H5C6CO: "H5C6CO",
     OMe: "OMe", Bpin: "Bpin", NC: "NC", CN: "CN", NCO: "NCO", OCN: "OCN", iPrS: "iPrS", Ph: "Ph", "t-Bu": "t-Bu", "4-ClC6H4": "4-ClC6H4", "n-C8H17": "n-C8H17", R: "R", Ar: "Ar", Xyz: "Xyz", ODMT: "ODMT" }))
     assert.equal(attachmentFirst(label), kept, label);
   // Drawn: a label kept from its attachment atom reads towards its bond on either side, and a phenyl with its
@@ -292,7 +295,7 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["C(O)Me COMe Ac CH3CO COCH3 MeCO", "CC(=O)c1ccccc1", "C8H8O"],
     ["CF3 F3C", "FC(F)(F)c1ccccc1", "C7H5F3"],
     ["CCl3 Cl3C", "ClC(Cl)(Cl)c1ccccc1", "C7H5Cl3"],
-    ["S(O)Me", "CS(=O)c1ccccc1", "C7H8OS"],
+    ["S(O)Me SOMe MeOS", "CS(=O)c1ccccc1", "C7H8OS"],
     ["TMS SiMe3 Me3Si (CH3)3Si Si(CH3)3", "C[Si](C)(C)c1ccccc1", "C9H14Si"],
     ["TBS", "CC(C)(C)[Si](C)(C)c1ccccc1", "C12H20Si"],
     ["TIPS", "CC(C)[Si](C(C)C)(C(C)C)c1ccccc1", "C15H26Si"],
@@ -313,10 +316,19 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["C6H5CONH NHCOC6H5 NHBz", "O=C(Nc1ccccc1)c1ccccc1", "C13H11NO"],
     ["(CH3)2CHCH2 CH2CH(CH3)2 iBu", "CC(C)Cc1ccccc1", "C10H14"],
     ["HCOO OCHO", "O=COc1ccccc1", "C7H6O2"],
+    // An O written just before an S is on the S: a sulfonamide or sulfinamide written from the left is no nitro group.
+    ["SO2NH2 H2NO2S", "NS(=O)(=O)c1ccccc1", "C6H7NO2S"],
+    ["SO2NMe2 Me2NO2S", "CN(C)S(=O)(=O)c1ccccc1", "C8H11NO2S"],
+    ["SONH2 H2NOS", "NS(=O)c1ccccc1", "C6H7NOS"],
+    ["OSO2NH2 H2NO2SO", "NS(=O)(=O)Oc1ccccc1", "C6H7NO3S"],
+    ["CH2SO2NH2 H2NO2SCH2", "NS(=O)(=O)Cc1ccccc1", "C7H9NO2S"],
+    ["CO2H COOH HO2C HOOC", "OC(=O)c1ccccc1", "C7H6O2"],
   ];
   for (const [labels, full, want, apart] of table) for (const label of labels.split(" ")) {
     const m = labelled("*c1ccccc1", [label]), e = expandLabels(m), whole = parseStructure(label === "T" ? full.replace("[2H]", "[3H]") : full);
     assert.equal(toInchiKey(e), toInchiKey(whole), `${label} on benzene is ${full}`);
+    // As the AI apps' tools keep it (attachmentFirst): the same compound.
+    assert.equal(toInchiKey(expandLabels(labelled("*c1ccccc1", [attachmentFirst(label)]))), toInchiKey(whole), `${label} kept as ${attachmentFirst(label)}`);
     assert.equal(formula(m), want, `${label} on benzene: formula`);
     assert.equal(formula(whole), apart ?? want, `${full}: formula`);
     assert.ok(!toSmiles(e).includes("^"), `${label} on benzene: no radical in ${toSmiles(e)}`);
