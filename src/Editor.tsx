@@ -23,8 +23,8 @@ import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, flipBond,
-  addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
+  EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
+  addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
@@ -4347,9 +4347,10 @@ export default function Editor() {
   const inkOf = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
   // A structure's size as people see it, as ChemDraw treats a structure and its caption: its atoms with their labels,
   // and the captions attached to it (under it). For frames, aligning, snapping and the group frame.
+  // Part of a structure gives only its own atoms and the bonds between them (inkOfAtoms).
   const withCaptions = (atoms: Iterable<number>): Box | undefined => {
     const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i))).map((c) => c.id));
-    return union([...[...set].flatMap((i) => (drawing.ink[i] ? [drawing.ink[i]] : [])), ...placed.filter((c) => under.has(c.id)).map((c) => c.box)]);
+    return union([...[inkOfAtoms(shown, drawing.ink, drawing.label, set, L)].filter((b): b is Box => !!b), ...placed.filter((c) => under.has(c.id)).map((c) => c.box)]);
   };
   // Atoms and objects as drawn (px, y down): the atoms with their labels and the text under them, and the text, arrows,
   // curves, shapes and cycles. For the group frame, the rotation handle and the middle every turn and flip goes about.
@@ -5903,15 +5904,15 @@ export default function Editor() {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, d: [p[0] - drag.from[0], p[1] - drag.from[1]], moved: true });
       case "box": {
-        // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
+        // As ChemDraw's Marquee: only the atoms inside the box (atomsInArea). The highlight shows what stays selected on release.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
         const within = ([x, y]: P) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1];
-        chooseArea(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])), [...drag.picks, ...captionsWhere(within, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])], within);
+        chooseArea(atomsInArea(doc, drag.base, within), [...drag.picks, ...captionsWhere(within, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])], within);
         return setDrag({ ...drag, to: p, moved: true });
       }
       case "lasso": {
         const points = [...drag.points, p];
-        chooseArea(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)], (q) => inPolygon(q, points));
+        chooseArea(atomsInArea(doc, drag.base, (q) => inPolygon(q, points)), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)], (q) => inPolygon(q, points));
         return setDrag({ ...drag, points, moved: true });
       }
       case "move": {

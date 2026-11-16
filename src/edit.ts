@@ -1356,14 +1356,26 @@ export function erase(m: Mol, bonds: Set<number>, atoms: Set<number>): Mol {
   return removeAtoms({ ...m, bonds: m.bonds.filter((_, i) => !bonds.has(i)) }, new Set(atoms), m.bonds);
 }
 
-// Atoms a selection box missed but that obviously belong: every neighbour is selected (a terminal O, an H,
-// an atom bridging two selected ones).
-export function complete(m: Mol, ids: Set<number>): Set<number> {
-  const out = new Set(ids), near = m.atoms.length > LARGE ? bondedTo(m) : undefined;
-  m.atoms.forEach((_, i) => {
-    const ns = near ? near[i] : neighbours(m, i);
-    if (!out.has(i) && ns.length && ns.every((j) => ids.has(j))) out.add(i);
-  });
+// What a selection box or lasso takes in, as ChemDraw's Marquee and Lasso: the atoms already selected (base) and each
+// atom inside the area (inside: whether a point is in it). A bond is selected when both of its atoms are. An atom
+// outside the area never joins, a terminal atom or label too.
+export function atomsInArea(m: Mol, base: Set<number>, inside: (q: P) => boolean): Set<number> {
+  const out = new Set(base);
+  m.atoms.forEach((_, i) => { if (inside(pos(m, i))) out.add(i); });
+  return out;
+}
+// The ink box (px, y down) of some atoms as drawn: each atom's ink (ink: its label and the bonds that touch it), but
+// an atom bonded to one not in atoms gives only its label (or its point) and its bonds to the others, so the box holds
+// what is selected and no bond that is not. k: px per bond length.
+export function inkOfAtoms(m: Mol, ink: (Box | undefined)[], label: (Box | undefined)[], atoms: Iterable<number>, k: number): Box | undefined {
+  const set = new Set(atoms), edge = new Set<number>(), boxes = new Map<number, Box>();
+  for (const { atoms: [a, b] } of m.bonds) { const x = set.has(a); if (x !== set.has(b)) edge.add(x ? a : b); }
+  const px = (i: number): Box => { const [x, y] = pos(m, i); return [x * k, -y * k, x * k, -y * k]; };
+  const grow = (b: Box, c: Box): Box => [Math.min(b[0], c[0]), Math.min(b[1], c[1]), Math.max(b[2], c[2]), Math.max(b[3], c[3])];
+  for (const i of edge) if (ink[i]) boxes.set(i, label[i] ?? px(i));
+  if (edge.size) for (const { atoms: [a, b] } of m.bonds) if (set.has(a) && set.has(b)) for (const [i, j] of [[a, b], [b, a]]) { const c = boxes.get(i); if (c) boxes.set(i, grow(c, px(j))); }
+  let out: Box | undefined;
+  for (const i of set) { const b = edge.has(i) ? boxes.get(i) : ink[i]; if (b) out = out ? grow(out, b) : b; }
   return out;
 }
 

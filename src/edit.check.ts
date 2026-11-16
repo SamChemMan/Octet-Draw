@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
 import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
@@ -71,9 +71,8 @@ assert.equal(rubbed.bonds.length, 1);
 assert.equal(rubbed.atoms.length, 2);
 console.log("edit.check: erase ok");
 
-// Smart selection: a box that misses the O of ethanol still picks it up; inside a selected ring counts as on it.
+// Inside a selected ring counts as on it.
 const ethanol = setElement(sprout(sprout(EMPTY, [0, 0]), 1), 2, "O");
-assert.deepEqual([...complete(ethanol, new Set([0, 1]))].sort(), [0, 1, 2]);
 const ring = addRing(EMPTY, 6, false, { point: [0, 0] });
 assert.ok(onSelection(ring, new Set([0, 1, 2, 3, 4, 5]), [0, 0]), "the ring centre is on the selection");
 assert.ok(!onSelection(ring, new Set([0, 1, 2, 3, 4, 5]), [3, 3]), "far away is not");
@@ -89,13 +88,12 @@ assert.ok(didJoin);
 assert.equal(joinedMol.atoms.length, 3);
 assert.equal(joinedMol.bonds.length, 2);
 assert.equal(fragments(joinedMol).length, 1);
-console.log("edit.check: smart selection and join ok");
+console.log("edit.check: on selection and join ok");
 
-// A large drawing completes a selection from a list of neighbours made once: the same atoms as the plain loop.
+// A large drawing.
 {
   const big = addRing(ethanol, 6, false, { point: [5, 5] }), spare: Mol["atoms"] = Array.from({ length: LARGE + 1 }, (_, k) => ({ label: "C", location: [100 + k * 2, 0, 0] }));
   const large = { ...big, atoms: [...big.atoms, ...spare] };
-  for (const ids of [new Set([0, 1]), new Set([1]), new Set([3, 5, 7]), new Set([3, 4, 5, 6, 7])]) assert.deepEqual([...complete(large, ids)].sort(), [...complete(big, ids)].sort());
   // Group: the whole structures the selection touches, as one group.
   const [grouped, id] = groupSelection(large, new Set([0, 3]), new Set())!;
   assert.deepEqual(grouped.groups?.find((g) => g.id === id)?.atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
