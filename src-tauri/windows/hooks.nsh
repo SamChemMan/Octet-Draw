@@ -32,12 +32,21 @@
   WriteRegStr HKCU "Software\Classes\Octet Drawing\CLSID" "" '${OCTET_CLSID}'
 !macroend
 
+; A .oct file shows its own icon (oct.ico, which tauri.windows.conf.json puts beside the program), not the program's.
+; Tauri's file association names the class "Octet Drawing" and gives it the program's icon; this runs after it.
+; SHChangeNotify tells Explorer that file associations changed, so it shows the new icon at once.
+!macro OCTET_DOCUMENT_ICON
+  WriteRegStr HKCU "Software\Classes\Octet Drawing\DefaultIcon" "" '$INSTDIR\oct.ico'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   SetRegView 64
   !insertmacro OCTET_OLE_KEYS
   SetRegView 32
   !insertmacro OCTET_OLE_KEYS
   SetRegView default
+  !insertmacro OCTET_DOCUMENT_ICON
 !macroend
 
 !macro OCTET_OLE_REMOVE
