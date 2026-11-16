@@ -14,6 +14,7 @@ const yml = read(".github/workflows/release.yml");
 const install = yml.indexOf('install -Dm755 src-tauri/linux/AppRun "${XDG_CACHE_HOME:-$HOME/.cache}/tauri/AppRun-x86_64"');
 assert.ok(install > 0 && install < yml.indexOf("uses: tauri-apps/tauri-action"), "release.yml gives Tauri the launcher before it builds");
 assert.ok(yml.includes('cmp "$app/AppRun.wrapped" "$GITHUB_WORKSPACE/src-tauri/linux/AppRun"'), "release.yml checks that the AppImage has it");
+assert.ok(yml.includes("APPDIR | XDG_DATA_DIRS | GTK_THEME) ;;"), "release.yml lets the GTK hook set the theme");
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "octet-appimage-")));
 // The runtime's mount by another name ($APPDIR), as when $TMPDIR is a link; AppRun names it by its real path.
@@ -46,7 +47,7 @@ const run = (shell: string, vars: Record<string, string>) => {
   const [cwd, args, ...env] = r.stdout.trimEnd().split("\n");
   return { cwd, args, env: Object.fromEntries(env.map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)])) };
 };
-const gtk = Object.keys(hook).filter((k) => k !== "APPDIR" && k !== "XDG_DATA_DIRS");
+const gtk = Object.keys(hook).filter((k) => k !== "APPDIR" && k !== "XDG_DATA_DIRS" && k !== "GTK_THEME");
 const libs = `${system}/none ${system}/lib64 ${system}/none2 ${system}`;
 const appimageKit = ["usr/lib", "usr/lib/i386-linux-gnu", "usr/lib/x86_64-linux-gnu", "usr/lib32", "usr/lib64", "lib",
   "lib/i386-linux-gnu", "lib/x86_64-linux-gnu", "lib32", "lib64"].map((d) => `${app}/${d}/`).join(":");
@@ -60,6 +61,9 @@ try {
     assert.equal(got.env.LD_LIBRARY_PATH, `/opt/mine:${system}/lib64:${system}`, shell);
     assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "/opt/mine", `${shell}: the programs Octet starts get the session's (linux.rs)`);
     for (const k of gtk) assert.equal(got.env[k], undefined, `${shell}: GTK finds its own ${k}`);
+    // The GTK hook's theme is Adwaita, dark when the desktop prefers dark. WebKitGTK reads ":dark" in GTK_THEME, and
+    // then Octet opens dark, as 1.1.2 did.
+    assert.equal(got.env.GTK_THEME, "Adwaita:dark", `${shell}: Octet follows the desktop's dark setting`);
     assert.equal(got.env.XDG_DATA_DIRS, "/home/u/.local/share", `${shell}: the user's own data folders`);
     assert.equal(got.env.GST_PLUGIN_SYSTEM_PATH, undefined, shell);
     assert.equal(got.env.APPDIR, mount, `${shell}: Octet knows its AppImage (src-tauri/src/linux.rs)`);
@@ -75,7 +79,7 @@ try {
       assert.equal(got.cwd, join(app, "usr"), shell);
       assert.equal(got.env.LD_LIBRARY_PATH, appimageKit, `${shell}: the folders of AppImageKit's AppRun`);
       assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "", shell);
-      for (const k of gtk.filter((k) => k !== "GSETTINGS_SCHEMA_DIR")) assert.equal(got.env[k], hook[k as keyof typeof hook], shell);
+      for (const k of [...gtk, "GTK_THEME"].filter((k) => k !== "GSETTINGS_SCHEMA_DIR")) assert.equal(got.env[k], hook[k as keyof typeof hook], shell);
       assert.equal(got.env.GSETTINGS_SCHEMA_DIR, `${app}/usr/share/glib-2.0/schemas/:${mount}/usr/share/glib-2.0/schemas`, shell);
       assert.equal(got.env.XDG_DATA_DIRS, `${app}/usr/share/:${hook.XDG_DATA_DIRS}`, shell);
       assert.equal(got.env.GST_PLUGIN_SYSTEM_PATH_1_0, `${app}/usr/lib/gstreamer-1.0`, shell);

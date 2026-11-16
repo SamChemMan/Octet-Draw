@@ -180,7 +180,7 @@ jobs:
       - name: The AppImage uses the system's WebKitGTK when it has one (issue 37)
         # The job stops if a new Tauri or linuxdeploy changes what the launcher needs: Octet's launcher as AppRun.wrapped,
         # started after the GTK hook; a RUNPATH (which LD_LIBRARY_PATH comes before), not an RPATH; and each variable
-        # the GTK hook sets is one that the launcher knows. The runner has WebKitGTK 4.1, so the loader must take it
+        # the GTK hook sets is one that the launcher knows or keeps. The runner has WebKitGTK 4.1, so the loader must take it
         # from the system with the launcher's LD_LIBRARY_PATH, and from the AppImage without.
         if: matrix.platform == 'ubuntu-22.04'
         shell: bash
@@ -198,7 +198,7 @@ jobs:
           grep -qxF 'export XDG_DATA_DIRS="$APPDIR/usr/share:/usr/share:$XDG_DATA_DIRS" # g_get_system_data_dirs() from GLib' "$app/apprun-hooks/linuxdeploy-plugin-gtk.sh"
           for v in $(sed -n 's/^[[:space:]]*export[[:space:]]\{1,\}\([A-Za-z_0-9]*\)=.*/\1/p' "$app/apprun-hooks/linuxdeploy-plugin-gtk.sh"); do
             case $v in
-              APPDIR | XDG_DATA_DIRS) ;;
+              APPDIR | XDG_DATA_DIRS | GTK_THEME) ;;
               LD_LIBRARY_PATH) echo "::error::The GTK hook sets LD_LIBRARY_PATH, which the launcher takes as the session's."; exit 1 ;;
               *) sed 's/#.*//' "$app/AppRun.wrapped" | grep -qw "$v" || { echo "::error::The GTK hook sets $v, which src-tauri/linux/AppRun does not unset."; exit 1; } ;;
             esac

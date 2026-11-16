@@ -25,8 +25,10 @@ if [ -n "$system" ]; then
   # The loader looks in LD_LIBRARY_PATH before the RUNPATH that linuxdeploy gives Octet ($ORIGIN/../lib). So each
   # library comes from the system, and only a library that the system does not have comes from the AppImage.
   export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$system"
-  # The system's GTK modules, schemas and theme, not the AppImage's that the GTK hook sets.
-  unset GTK_DATA_PREFIX GTK_THEME GSETTINGS_SCHEMA_DIR GI_TYPELIB_PATH GIO_MODULE_DIR GTK_EXE_PREFIX GTK_PATH \
+  # GTK uses the system's modules and schemas. The GTK hook sets them to the AppImage's copies, so remove them. Keep
+  # the hook's GTK_THEME (Adwaita, with ":dark" when the desktop prefers dark): WebKitGTK reads ":dark" in it, and
+  # then Octet opens dark, as 1.1.2 did. APPIMAGE_GTK_THEME sets another theme.
+  unset GTK_DATA_PREFIX GSETTINGS_SCHEMA_DIR GI_TYPELIB_PATH GIO_MODULE_DIR GTK_EXE_PREFIX GTK_PATH \
     GTK_IM_MODULE_FILE GDK_PIXBUF_MODULE_FILE
   XDG_DATA_DIRS=${XDG_DATA_DIRS#"$APPDIR/usr/share:/usr/share:"}
   [ -n "$XDG_DATA_DIRS" ] || unset XDG_DATA_DIRS
