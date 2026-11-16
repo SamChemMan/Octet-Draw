@@ -8948,9 +8948,12 @@ export default function Editor() {
       case "ring":
         return drag.to ? set(ringDrop(drag), false, undefined, !chairFree(drag) && "placed") : click(drag.target, drag.at, drag.alt, { meta: drag.meta, shift: drag.shift });
       case "erase": {
-        // A click removes the atom, bond or object under the pointer; a rub removes everything it marked.
+        // A click removes the atom, bond or object under the pointer; a rub removes everything it marked. As in
+        // ChemDraw, a click on a double or triple bond takes one line off (lowerBond), as Delete does.
         const t = drag.target;
         if (drag.moved) return set(deleteChosen(doc, drag.atoms, drag.captions, drag.bonds, drawnAt, drawnAlign));
+        const lower = t.atom === undefined && t.bond !== undefined ? lowerBond(doc, t.bond) : undefined;
+        if (lower) return set(lower);
         return removeAt(t);
       }
       case "box":

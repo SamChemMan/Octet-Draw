@@ -1,6 +1,7 @@
 // Run: node src/bondchain.check.ts. Fails loudly if the bond and chain tools stop acting as ChemDraw's do.
 import assert from "node:assert/strict";
-import { EMPTY, addChain, chainPoints, chainTo, clickBond, dragBond, jumpHot, keyBond, merge, nextSide, pos, setBondSpec, snake, sprout, type BondSpec, type P } from "./edit.ts";
+import { readFileSync } from "node:fs";
+import { EMPTY, addChain, addRing, chainPoints, chainTo, clickBond, dragBond, jumpHot, keyBond, lowerBond, merge, nextSide, pos, setBondSpec, snake, sprout, type BondSpec, type P } from "./edit.ts";
 import { QUADRUPLE, type Mol } from "./render.ts";
 import { BONDS } from "./kinds.ts";
 
@@ -247,4 +248,24 @@ console.log("bondchain.check: hotspot to the next structure ok");
     assert.ok(parallel(d, out) && d[0] * out[0] + d[1] * out[1] > 0, "a flat ring's bond points out from its middle");
   }
   console.log("bondchain.check: axial and equatorial bonds off a chair ok");
+}
+
+// Issue 140. As in ChemDraw, a Solid tool click on a double bond of a Kekulé ring moves its second line and does not
+// make it single. The Eraser's click (and Delete over the bond) takes one line off each kind of multiple bond, so the
+// ring becomes a cyclohexene. A ring drawn with an aromatic circle shows each bond as one line, so the bond goes.
+{
+  const benzene = addRing(EMPTY, 6, true, { point: [0, 0] }), d = benzene.bonds.findIndex((x) => x.type === 2), s = benzene.bonds.findIndex((x) => x.type === 1);
+  assert.equal(clickBond(benzene, d, SOLID, mid(benzene, d)).bonds[d].type, 2, "the Solid tool moves the line");
+  assert.equal(lowerBond(benzene, d)!.bonds[d].type, 1, "the Eraser makes it single");
+  for (const [x, to] of [[{ type: 2, display: "bold" }, 1], [{ type: 2, display: "aromatic" }, 1], [{ type: 2, display: "either" }, 1], [{ type: 4 }, 1], [{ type: 3 }, 2], [{ type: QUADRUPLE }, 3]] as const) {
+    const one = { ...benzene, bonds: benzene.bonds.map((y, k) => (k === d ? { ...y, ...x } : y)) };
+    assert.equal(lowerBond(one, d)!.bonds[d].type, to, `${x.type} ${"display" in x ? x.display : ""} loses one line`);
+  }
+  assert.equal(lowerBond(benzene, s), undefined, "a single bond goes");
+  const circled = addRing(EMPTY, 6, true, { point: [0, 0] }, { circle: true });
+  assert.equal(lowerBond(circled, d), undefined, "a double bond drawn as one line in a circled ring goes");
+  assert.equal(lowerBond(circled, s), undefined);
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), erase = editor.slice(editor.indexOf("case \"erase\": {\n        // A click removes"));
+  assert.ok(erase.indexOf("lowerBond(doc, t.bond)") > 0 && erase.indexOf("lowerBond(doc, t.bond)") < erase.indexOf("return removeAt(t);"), "the Eraser's click lowers a bond before it removes one");
+  console.log("bondchain.check: a click on a ring's double bond (issue 140) ok");
 }
