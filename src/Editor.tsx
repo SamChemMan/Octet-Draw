@@ -33,7 +33,7 @@ import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
 import { model3mf } from "./model3mf";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
-import { store, type Store } from "./store";
+import { sameSet, store, type Store } from "./store";
 import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type Swatch } from "./settings";
 import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
@@ -1037,7 +1037,8 @@ export default function Editor() {
   // Where the centre mark was put (Option-drag, as in ChemDraw): every turn of the selection goes about it until the
   // selection changes.
   const [pivot, setPivot] = useState<P>();
-  useEffect(() => setPivot(undefined), [selection, picked]);
+  // Cleared only when there is one: to clear it again still draws the editor once more, on each move of a box.
+  useEffect(() => { if (pivot) setPivot(undefined); }, [selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const was = before.current;
     before.current = doc;
@@ -5146,15 +5147,17 @@ export default function Editor() {
 
   // Selects atoms and objects, with the whole of any integral group they touch: one cannot be split (as in ChemDraw,
   // where selecting any part of it selects all of it).
-  const choose = (atoms: Iterable<number>, items: Iterable<number>) => {
+  // keep: the same things chosen again keep the sets as they are (a box or lasso moved without taking in more), so
+  // nothing that follows the selection works again.
+  const choose = (atoms: Iterable<number>, items: Iterable<number>, keep = false) => {
     const [a, i] = wholeIntegral(doc, new Set(atoms), new Set(items));
-    setSelection(a);
-    setPicked(i);
+    setSelection((s) => (keep && sameSet(s, a) ? s : a));
+    setPicked((s) => (keep && sameSet(s, i) ? s : i));
   };
   // What a selection area (inside: whether a point is in it) takes in: also each cycle whose circle it takes in, or all
   // of whose intermediates it does, with all its parts. A side arrow it takes in whole, with no atoms and no text but
   // its own, is picked.
-  const chooseArea = (atoms: Set<number>, items: number[], inside: (q: P) => boolean) => {
+  const chooseArea = (atoms: Set<number>, items: number[], inside: (q: P) => boolean, keep: boolean) => {
     const node = (c: Cycle, n: number[], j: number) => (n.length ? n.every((i) => atoms.has(i)) : items.includes(textOn(doc, c, j)?.id ?? NaN));
     const cycles = (doc.cycles ?? []).filter((c) => Array.from({ length: 16 }, (_, k) => (k * Math.PI) / 8).every((a) => inside([c.centre[0] + c.radius * Math.cos(a), c.centre[1] + c.radius * Math.sin(a)]))
       || (c.nodes.some((n, j) => n.length || textOn(doc, c, j)) && c.nodes.every((n, j) => node(c, n, j) || (!n.length && !textOn(doc, c, j)))));
@@ -5164,8 +5167,8 @@ export default function Editor() {
     const parts = cycles.map(cycleParts), bs = cycles.length || atoms.size ? [] : cycleLayout.branches.filter((b) => whole(b) && own(b));
     setStepPick(undefined);
     setBranchPick(bs.length === 1 ? { cycle: bs[0].cycle, branch: bs[0].branch } : undefined);
-    if (bs.length === 1) return choose([], [bs[0].cycle]);
-    choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1])]);
+    if (bs.length === 1) return choose([], [bs[0].cycle], keep);
+    choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1])], keep);
   };
   // A selection area: a box, or a lasso, as the Select tool is set.
   function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
@@ -5906,12 +5909,12 @@ export default function Editor() {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
         const within = ([x, y]: P) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1];
-        chooseArea(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])), [...drag.picks, ...captionsWhere(within, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])], within);
+        chooseArea(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])), [...drag.picks, ...captionsWhere(within, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])], within, drag.moved);
         return setDrag({ ...drag, to: p, moved: true });
       }
       case "lasso": {
         const points = [...drag.points, p];
-        chooseArea(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)], (q) => inPolygon(q, points));
+        chooseArea(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)], (q) => inPolygon(q, points), drag.moved);
         return setDrag({ ...drag, points, moved: true });
       }
       case "move": {
@@ -6502,6 +6505,9 @@ export default function Editor() {
   // A reagent's name is read by one reader while Octet's names and the user's own stay the same, so it is read once
   // (stoich.ts reagentFormula).
   const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
+  // While a drag changes what is drawn, the tables stay as they were at the press (drawnGrids moves the ones that go
+  // with the drag), so a pointer move does not work them out again, nor the Actions panel that reads them.
+  const dragHeld = !!drag && shown !== doc;
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
     structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)),
@@ -6510,7 +6516,7 @@ export default function Editor() {
     captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
     captionSize: style.captionSize, perPt: pt / L, experiment: expPage, fit: expPage ? (schemeSpan(m)?.[2] ?? Infinity) - 1 : undefined,
-  }) : []; }, [loaded, namesLoaded, doc, drawing, placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }) : []; }, [loaded, namesLoaded, doc, !dragHeld && drawing, !dragHeld && placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
   function tableSpan(v: GridView): number[] {
@@ -6671,7 +6677,7 @@ export default function Editor() {
   };
   // A grid cell clicked with Select: picked, for the grid's actions (Set as limiting, Hide row and column, colour).
   const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string }>();
-  useEffect(() => { if (selection.size || picked.size) setGridPick(undefined); }, [selection, picked]);
+  useEffect(() => { if (gridPick && (selection.size || picked.size)) setGridPick(undefined); }, [selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   // A scheme of several arrows: whether its tables are one for each step (join: One table for the scheme) or not
   // (split: One table for each step).
   const gridSteps = (arrow: number): { steps?: "split" | "join" } => {
@@ -6916,7 +6922,7 @@ export default function Editor() {
     if (!sweep) return;
     const t = setTimeout(() => setPaused({ sweep, selection }), 250);
     return () => clearTimeout(t);
-  }, [sweep, selection]);
+  }, [sweep, selection, drag]); // a move that keeps the selection still waits
   const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
   // Find hazards (with Online search on): each structure's standard InChIKey, worked out when the user presses it, and
   // PubChem's GHS hazards for each key, kept while the window is open (null: PubChem has none). Octet asks PubChem
@@ -7968,15 +7974,18 @@ export default function Editor() {
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
+  // The keys as the user has them, made once for each change in Settings: hint runs for every button of the Actions
+  // panel each time the editor draws.
+  const userKeys = useMemo(() => keymap(settings.keys), [settings.keys]);
   const hint = (command: string) => {
     // A menu command's shortcut as the user has it (Settings), else as the menu has it.
-    const own = menuReady ? keymap(settings.keys)[`menu.${command}`] : undefined;
+    const own = menuReady ? userKeys[`menu.${command}`] : undefined;
     if (own) return own[0] ? keyLabel(own[0]) : undefined;
-    const panelKey = keymap(settings.keys)[`action.${command}`]?.[0]; // an Actions panel action's own key (Settings)
+    const panelKey = userKeys[`action.${command}`]?.[0]; // an Actions panel action's own key (Settings)
     if (panelKey) return keyLabel(panelKey);
     if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
     if (MENU_NAMES[command]?.[1]) return platformLabel(MENU_NAMES[command][1]);
-    const first = keymap(settings.keys)[command]?.[0];
+    const first = userKeys[command]?.[0];
     return first ? keyLabel(first) : undefined;
   };
 

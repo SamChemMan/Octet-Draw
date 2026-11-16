@@ -42,7 +42,9 @@ export function Scrollbars({ views, box, ruler, theme, pan, glide, canvas }: {
     const draw = () => {
       const view = views.get(), now: [Axis, Axis] = [axisOf(true, view, box, ruler), axisOf(false, view, box, ruler)];
       axes.current = now;
-      setHas((h) => (h[0] === !!now[0].b && h[1] === !!now[1].b ? h : [!!now[0].b, !!now[1].b]));
+      // Set only when it changes: to set the same value still draws the scroll bars again, a second commit for each
+      // pointer move of a drag.
+      if (has[0] !== !!now[0].b || has[1] !== !!now[1].b) setHas([!!now[0].b, !!now[1].b]);
       for (const [el, a, x] of [[across.current, now[0], true], [down.current, now[1], false]] as const) {
         if (!el || !a.b) continue;
         el.style.transform = x ? `translateX(${a.b.at}px)` : `translateY(${a.b.at}px)`;
