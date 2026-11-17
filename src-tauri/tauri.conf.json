@@ -77,12 +77,13 @@
       }
     ],
     "linux": {
-      "deb": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml" } },
-      "rpm": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml" } }
+      "deb": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml", "/usr/share/icons/hicolor/16x16/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-16.png", "/usr/share/icons/hicolor/24x24/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-24.png", "/usr/share/icons/hicolor/32x32/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-32.png", "/usr/share/icons/hicolor/48x48/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-48.png", "/usr/share/icons/hicolor/64x64/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-64.png", "/usr/share/icons/hicolor/128x128/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-128.png", "/usr/share/icons/hicolor/256x256/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-256.png", "/usr/share/icons/hicolor/512x512/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-512.png", "/usr/share/icons/hicolor/scalable/mimetypes/application-x-octet-drawing.svg": "linux/mime-icons/application-x-octet-drawing.svg" } },
+      "rpm": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml", "/usr/share/icons/hicolor/16x16/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-16.png", "/usr/share/icons/hicolor/24x24/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-24.png", "/usr/share/icons/hicolor/32x32/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-32.png", "/usr/share/icons/hicolor/48x48/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-48.png", "/usr/share/icons/hicolor/64x64/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-64.png", "/usr/share/icons/hicolor/128x128/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-128.png", "/usr/share/icons/hicolor/256x256/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-256.png", "/usr/share/icons/hicolor/512x512/mimetypes/application-x-octet-drawing.png": "linux/mime-icons/application-x-octet-drawing-512.png", "/usr/share/icons/hicolor/scalable/mimetypes/application-x-octet-drawing.svg": "linux/mime-icons/application-x-octet-drawing.svg" } }
     },
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist",
+      "files": { "Resources/oct.icns": "icons/oct.icns" },
       "minimumSystemVersion": "12.0"
     },
     "windows": {

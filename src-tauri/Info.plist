@@ -2,6 +2,34 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- The .oct type, as tauri.conf.json's fileAssociations declares it, with its own icon (icons/oct.icns, put in
+	     Contents/Resources by bundle.macOS.files). This key takes the place of the one Tauri writes, so the two must
+	     say the same: src/doctype.check.ts checks that they do. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Octet drawing</string>
+			<key>UTTypeIconFile</key>
+			<string>oct.icns</string>
+			<key>UTTypeIdentifier</key>
+			<string>io.github.samchemman.octet.drawing</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>oct</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/x-octet-drawing</string>
+			</dict>
+		</dict>
+	</array>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Octet Draw reads the drawing that you select in Word and puts your changes back.</string>
 	<key>NSServices</key>

@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The file types Octet opens, for Linux file managers (REL-14). The .deb and .rpm put this in
-     /usr/share/mime/packages, so file managers know .oct, .cdxml and .cdx files by the types octet.desktop lists. -->
+     /usr/share/mime/packages, so file managers know .oct, .cdxml and .cdx files by the types octet.desktop lists. A .oct file
+     shows its own icon, which the packages put in the hicolor theme's mimetypes folders. -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-octet-drawing">
     <comment>Octet drawing</comment>
+    <icon name="application-x-octet-drawing"/>
     <sub-class-of type="application/xml"/>
     <glob pattern="*.oct"/>
   </mime-type>
