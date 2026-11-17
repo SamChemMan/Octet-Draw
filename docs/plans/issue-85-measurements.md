@@ -335,3 +335,9 @@ What the build changed in this plan, and why:
 - Speed: the ring search (rings.ts) stops at 19 bonds from each bond, as rings of more than 20 atoms were left out
   already, and 3D Clean Up's typing lists each atom's bonds once. Results are the same; Measure on a flat 4000-atom
   peptide went from 3.8 s to 60 ms.
+- In the Actions panel and the right-click menu, Measure distance, angle and dihedral are in 3D tools, beside 3D
+  Clean Up (they measure in 3D, and clean up a flat structure first).
+- AI apps: new text over a measurement (edit's text or runs, text with id) makes it plain text, as typing over it does.
+- The ChemDraw 22.2 round trip by AppleScript did not run on 17 November: ChemDraw 22.2 (started by another session at
+  10:29) opened no file sent to it, not even a plain Octet CDXML with no measurement, and an AppleScript open timed
+  out. The same check with ChemDraw's save stood in for by taking out Octet's data passes (measurement.check.ts).
