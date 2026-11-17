@@ -2474,6 +2474,8 @@ export default function Editor() {
     if (tool === "sequence" && next.kind !== sequenceChoice) setSettings((s) => ({ ...s, variants: { ...s.variants, sequence: next.kind } }));
     requestAnimationFrame(() => { const f = nameField.current; f?.focus(); f?.setSelectionRange(caret, caret); });
   }
+  // A structure from the name field lands where the field was, and the field closes.
+  const landName = (frag: Mol) => { settleFrom.current = doc.atoms.length; place(frag, doc, namingAt.current); setNaming(undefined); };
   // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name. Text
   // nothing offline reads goes to PubChem (askPubChem), and true means the answer draws when it comes.
   function drawNamed(): boolean {
@@ -2494,10 +2496,8 @@ export default function Editor() {
     }
     const frag = named;
     if (!frag) return askPubChem(naming) || offerPubChem(naming);
-    settleFrom.current = doc.atoms.length;
-    place(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)), doc, namingAt.current);
+    landName(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)));
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), frag); } else if (suggestion) rememberName(suggestion, frag);
-    setNaming(undefined);
     return true;
   }
   // Return's structure on its way from the worker: the text it is for (the field shows it is busy) and the job. An edit,
@@ -2520,10 +2520,8 @@ export default function Editor() {
     let frag = mols && (mols.length > 1 ? inRow(mols) : mols[0]);
     if (frag && !name) frag = asOpened(frag, text);
     if (!frag?.atoms.length) { if (nameField.current) shake(nameField.current); return; }
-    settleFrom.current = doc.atoms.length;
-    place(withOwnCaption(s, asResidues(s, frag)), doc, namingAt.current);
+    landName(withOwnCaption(s, asResidues(s, frag)));
     if (name) rememberName(s, frag);
-    setNaming(undefined);
   };
   // Name to Structure's last step (decision 0015): with Settings > Online search on, a name or InChIKey nothing offline
   // reads goes to PubChem when the user presses Return. Typing never waits for the answer. It draws if the field still
@@ -2541,10 +2539,8 @@ export default function Editor() {
       if (nameField.current) shake(nameField.current);
       return;
     }
-    settleFrom.current = doc.atoms.length;
-    place(frag, doc, namingAt.current);
+    landName(frag);
     rememberName(text, frag);
-    setNaming(undefined);
     // A CAS number PubChem gave a structure for goes into the user's dictionary (Settings > Dictionary), so it reads
     // offline from then on. A CAS number in the dictionary never names a structure (names.ts setOwnNames).
     const cas = casNumber(text), kept = cas && smiles ? withOwnName(settings.dictionary, { name: cas, smiles }) : settings.dictionary;

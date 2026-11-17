@@ -77,7 +77,8 @@ assert.match(editor, /const shownFull = later \? quickPreview\?\.mol : named, sh
 assert.match(editor, /if \(later\) \{\n\s+if \(placing === naming\) return true;\n\s+placingJob\.current\?\.cancel\(\);/, "Return on a waiting structure asks the worker, once");
 assert.match(editor, /const job = fullLayout\(list && list\.join\("\."\) === typedSmiles \? list : \[later\], !!typedSmiles \|\| isSequence\(s\)\);/);
 assert.match(editor, /if \(placing === undefined \|\| naming === placing\) return;\n\s+placingJob\.current\?\.cancel\(\);/, "an edit, Escape or closing the field cancels it");
-assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,800}place\(withOwnCaption\(s, asResidues\(s, frag\)\), doc, namingAt\.current\);/, "it lands as one place(), one undo step");
+assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,800}landName\(withOwnCaption\(s, asResidues\(s, frag\)\)\);/, "it lands as one place(), one undo step");
+assert.match(editor, /const landName = \(frag: Mol\) => \{ settleFrom\.current = doc\.atoms\.length; place\(frag, doc, namingAt\.current\); setNaming\(undefined\); \};/, "it lands as one place(), one undo step");
 assert.match(editor, /aria-busy=\{placing === naming \|\| undefined\}/, "the field shows it is busy");
 const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
 const busy = /\.name-field\[aria-busy="true"\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
