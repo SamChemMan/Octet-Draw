@@ -36,7 +36,6 @@ import {
 } from "@phosphor-icons/react";
 import { COLOURS, QUICK, outlines, type DocStyle, type PurposeKind } from "./docstyle";
 import mark from "../brand/logos/octet-mark.svg";
-import markSmall from "../brand/logos/octet-mark-small.svg";
 import markWhite from "../brand/logos/octet-mark-white.svg";
 import lockup from "../brand/logos/octet-lockup.svg";
 import lockupWhite from "../brand/logos/octet-lockup-white.svg";
@@ -82,16 +81,6 @@ function when(at: number, now: Date): string {
   if (days === 1) return `Yesterday, ${time}`;
   if (days > 1 && days < 7) return d.toLocaleDateString("en-GB", { weekday: "long" });
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
-}
-
-// The mark (brand/logos/README.md): the small-size file under 20 px, the exact mark above; white on the dark navy.
-function Mark({ size }: { size: number }) {
-  return (
-    <picture>
-      <source srcSet={markWhite} media="(prefers-color-scheme: dark)" />
-      <img src={size < 20 ? markSmall : mark} alt="" width={size} height={size} draggable={false} />
-    </picture>
-  );
 }
 
 // A purpose's page as a picture: the page and its outlines, with a small scheme (two rings and an arrow) at its true
@@ -463,10 +452,7 @@ export function Home(p: Props) {
       mark(projectAt(ev.clientX, ev.clientY));
     };
     const end = (drop: boolean) => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
-      removeEventListener("keydown", escape, true);
-      removeEventListener("blur", away);
+      ac.abort();
       stop();
       const tile = over.current, target = tile?.dataset.project;
       mark(null);
@@ -479,10 +465,11 @@ export function Home(p: Props) {
     };
     const up = () => end(true), away = () => end(false); // the window losing the focus puts it back too
     const escape = (ev: KeyboardEvent) => { if (ev.key === "Escape" && on) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-    addEventListener("keydown", escape, true);
-    addEventListener("blur", away);
+    const ac = new AbortController(), { signal } = ac;
+    addEventListener("pointermove", move, { signal });
+    addEventListener("pointerup", up, { signal });
+    addEventListener("keydown", escape, { capture: true, signal });
+    addEventListener("blur", away, { signal });
   };
 
   // A box dragged from the background selects the drawings it touches, as the Select tool's box does on the canvas: it
@@ -520,11 +507,7 @@ export function Home(p: Props) {
     };
     const end = (keep: boolean) => {
       clearTimeout(hold);
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
-      removeEventListener("pointercancel", away);
-      removeEventListener("keydown", escape, true);
-      removeEventListener("blur", away);
+      ac.abort();
       stop();
       if (!on) return;
       stray.current = true; // the click that ends the box does not clear the selection
@@ -543,11 +526,12 @@ export function Home(p: Props) {
       setBoxing(false);
       setChosen(before);
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-    addEventListener("pointercancel", away);
-    addEventListener("keydown", escape, true);
-    addEventListener("blur", away);
+    const ac = new AbortController(), { signal } = ac;
+    addEventListener("pointermove", move, { signal });
+    addEventListener("pointerup", up, { signal });
+    addEventListener("pointercancel", away, { signal });
+    addEventListener("keydown", escape, { capture: true, signal });
+    addEventListener("blur", away, { signal });
   };
 
   // ——— The sections as modules ———
@@ -614,10 +598,7 @@ export function Home(p: Props) {
       step();
     };
     const end = (drop: boolean) => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
-      removeEventListener("keydown", escape, true);
-      removeEventListener("blur", away);
+      ac.abort();
       stop();
       if (!on) return;
       stray.current = true; // the click that ends the drag does not fold the section
@@ -631,10 +612,11 @@ export function Home(p: Props) {
     };
     const up = () => end(true), away = () => end(false);
     const escape = (ev: KeyboardEvent) => { if (ev.key === "Escape" && on) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-    addEventListener("keydown", escape, true);
-    addEventListener("blur", away);
+    const ac = new AbortController(), { signal } = ac;
+    addEventListener("pointermove", move, { signal });
+    addEventListener("pointerup", up, { signal });
+    addEventListener("keydown", escape, { capture: true, signal });
+    addEventListener("blur", away, { signal });
   };
 
   // Right-click menus: on the tile, or with the Menu key or Shift+F10 on a focused tile. The buttons under a tile open
@@ -1141,7 +1123,11 @@ export function NameBox({ onDone, leaving }: { onDone: (name: string) => void; l
   return (
     <main ref={page} className={leaving ? "home name-box leaving" : "home name-box"} aria-label="Welcome" inert={leaving}>
       <div className="name-box-inner">
-        <Mark size={56} />
+        {/* The mark (brand/logos/README.md), white on the dark navy. */}
+        <picture>
+          <source srcSet={markWhite} media="(prefers-color-scheme: dark)" />
+          <img src={mark} alt="" width={56} height={56} draggable={false} />
+        </picture>
         <h1 className="name-title">Hey, what shall we call you?</h1>
         <label className="name-frame">
           <svg className="name-dots" aria-hidden><rect x="0.5" y="0.5" rx="10" /></svg>

@@ -69,25 +69,13 @@ export function Tooltips() {
     // A key hides the tip, as a shortcut may change what is on screen. Tab moves the focus, which shows the next one.
     const key = (e: KeyboardEvent) => { if (e.key !== "Tab") hide(true); };
     const away = () => hide();
-    addEventListener("pointerover", over, true);
-    addEventListener("pointerout", out, true);
-    addEventListener("pointerdown", press, true);
-    addEventListener("focusin", focus, true);
-    addEventListener("focusout", blur, true);
-    addEventListener("keydown", key, true);
-    addEventListener("wheel", away, { capture: true, passive: true });
-    addEventListener("scroll", away, { capture: true, passive: true });
+    // Passive: no handler here calls preventDefault.
+    const on = [["pointerover", over], ["pointerout", out], ["pointerdown", press], ["focusin", focus], ["focusout", blur], ["keydown", key], ["wheel", away], ["scroll", away]] as [string, EventListener][];
+    for (const [type, f] of on) addEventListener(type, f, { capture: true, passive: true });
     return () => {
       clearTimeout(timer);
       clearInterval(check);
-      removeEventListener("pointerover", over, true);
-      removeEventListener("pointerout", out, true);
-      removeEventListener("pointerdown", press, true);
-      removeEventListener("focusin", focus, true);
-      removeEventListener("focusout", blur, true);
-      removeEventListener("keydown", key, true);
-      removeEventListener("wheel", away, true);
-      removeEventListener("scroll", away, true);
+      for (const [type, f] of on) removeEventListener(type, f, true);
     };
   }, []);
   // Placed by its own size before it is painted.
