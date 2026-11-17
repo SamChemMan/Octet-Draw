@@ -229,10 +229,12 @@ export function registerMenu(items: [string, string, string, string][]) {
   registered();
 }
 
-// The action a key runs here. Atom and bond keys win over keys that work anywhere.
-export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "none"): string | undefined {
+// The action a key runs here. Atom and bond keys win over keys that work anywhere. Over a caption that an atom tool
+// makes an atom (Rh, Nu, E), a charge key wins too: it makes the caption its atom with that charge (issue 164).
+export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "caption" | "none"): string | undefined {
   const found = (p: Place) => ACTIONS.find((a) => (a.place === p || (a.place === "item" && p !== "any")) && map[a.id]?.includes(key))?.id;
-  return (place !== "none" ? found(place) : undefined) ?? found("any");
+  const charge = place === "caption" ? found("atom") : undefined;
+  return (place === "atom" || place === "bond" ? found(place) : charge?.startsWith("charge.") ? charge : undefined) ?? found("any");
 }
 
 // Other actions that already use this key in the same place.

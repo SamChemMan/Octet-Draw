@@ -2,7 +2,7 @@
 // Coordinates are in bond lengths with y up, the same as KET.
 import { AROMATIC, bandRf, bandSize, GEL, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
-import { anchorElement, chemicalText, isElement, labelSmiles } from "./labels.ts";
+import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
@@ -388,6 +388,13 @@ export function labelable(c: Caption): boolean {
 // Interpret chemically is on (on), the caption's own is not off, and the caption reads as a label. It stays a caption,
 // but it counts in the formula, the mass, the names and the warnings, and bonds join it.
 export const chemicalCaption = (c: Caption, on: boolean) => on && c.chemical !== false && labelable(c);
+// A caption that stands in for a group (Nu, E, LG, R, X), not tied to a structure, an arrow or a cycle. It is read as
+// no atoms, so it does not count as chemistry. But Make element and the atom tools make it an atom, as they do a
+// caption that reads as a label, and that atom takes a charge or a bond as any label does (issue 164).
+export const standInCaption = (c: Caption) => !c.on && !c.under && !c.cycle && standsIn(c.text.trim());
+// A caption that an atom tool makes an atom when it presses it, and that a bond joins: one that counts as chemistry,
+// or one that stands in for a group, with the same Interpret chemically switches.
+export const atomCaption = (c: Caption, on: boolean) => on && c.chemical !== false && (labelable(c) || standInCaption(c));
 // The drawing as chemistry reads it: each chemical caption as a lone atom after the drawing's atoms, at the caption's
 // place. One element symbol is that element with no hydrogens (Rh, Bi, K), as a written label has only the hydrogens
 // it shows; other text is a label (CH3OH, NaOCl). captions: the caption each of those atoms is, by id.
