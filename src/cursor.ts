@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ArrowClockwise, Selection } from "@phosphor-icons/react";
+import { invoke } from "@tauri-apps/api/core";
 
 // The glyph's path data, read from the real icon component (no copied paths).
 function glyphPaths(icon: typeof Selection = Selection): string[] {
@@ -25,12 +26,13 @@ function lightInk() {
   return ink;
 }
 
-async function png(svg: string, scale: number): Promise<string> {
+// The SVG drawn to a PNG `size` pixels square.
+async function png(svg: string, size: number): Promise<string> {
   const img = new Image();
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   await img.decode();
   const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 24 * scale;
+  canvas.width = canvas.height = size;
   canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/png");
 }
@@ -87,12 +89,25 @@ export function cursorSvg(name: CursorName, ink: string, edge: string, icon: str
 }
 
 // The CSS value: the 1x and 2x pictures at the hotspot, then the keyword. A webview that does not take image-set for
-// a cursor gets the 1x picture.
-export function cursorValue(name: CursorName, one: string, two: string): string {
+// a cursor gets the 1x picture. Linux (issue #165) gets one picture, `linux` pixels square, with its hotspot moved to
+// match. WebKitGTK shows a cursor picture at one pixel a point and does not scale its hotspot, so on a 200% screen
+// the 2x picture was twice the size and pointed up and to the left. The desktop scales the picture and its hotspot
+// to the screen.
+export function cursorValue(name: CursorName, one: string, two: string, linux = 0): string {
   const { hot: [x, y], fallback } = CURSORS[name];
+  const at = (v: number) => Math.floor((v + 0.5) * linux / 24);
+  if (linux) return `url("${one}") ${at(x)} ${at(y)}, ${fallback}`;
   const set = `-webkit-image-set(url("${one}") 1x, url("${two}") 2x) ${x} ${y}, ${fallback}`;
   return globalThis.CSS?.supports("cursor", set) === false ? `url("${one}") ${x} ${y}, ${fallback}` : set;
 }
+
+// The size of Octet's cursors on Linux, in points: the desktop's cursor size (GTK's setting, which the window's own
+// arrow uses), so they are as large as the system's cursors. 24 when there is no setting. Also 24 on X11 with the
+// display scaled: there the setting can be in pixels, not points. WebKit shows no cursor picture over 128 pixels.
+export const linuxCursorSize = ([desktop, x11]: [number, boolean], ratio: number) =>
+  desktop > 0 && !(x11 && ratio > 1) ? Math.min(128, Math.max(16, Math.round(desktop))) : 24;
+const LINUX = typeof navigator !== "undefined" && navigator.platform.startsWith("Linux");
+const desktopCursorSize = () => ("__TAURI_INTERNALS__" in window ? invoke<[number, boolean]>("cursor_size") : Promise.reject()).catch((): [number, boolean] => [0, false]);
 
 // Every cursor in black and in white, drawn at start-up (outside React's rendering, where flushSync cannot draw the
 // icons). A cursor that fails to draw is its keyword.
@@ -100,11 +115,12 @@ let drawn: Promise<Record<"black" | "white", Cursors>> | undefined;
 export function drawCursors() {
   return (drawn ??= (async () => {
     const ink = lightInk(), icons: Partial<Record<CursorName, string[]>> = { select: glyphPaths(), turn: glyphPaths(ArrowClockwise) };
+    const linux = LINUX ? linuxCursorSize(await desktopCursorSize(), devicePixelRatio) : 0;
     const set = async (colour: "black" | "white") => Object.fromEntries(await Promise.all((Object.keys(CURSORS) as CursorName[]).map(async (name) => {
       const svg = cursorSvg(name, ...cursorPaint(colour, ink), icons[name]);
       try {
-        const [one, two] = await Promise.all([png(svg, 1), png(svg, 2)]);
-        return [name, cursorValue(name, one, two)];
+        const [one, two] = await Promise.all(linux ? [png(svg, linux), ""] : [png(svg, 24), png(svg, 48)]);
+        return [name, cursorValue(name, one, two, linux)];
       } catch {
         return [name, CURSORS[name].fallback];
       }
