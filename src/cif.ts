@@ -20,6 +20,7 @@ type Group = { sites: Site[]; bonds?: [number, number, number][] };
 
 const MOST = 1000; // atoms in one structure (a data block, or a ligand); MOST_ROWS limits the file
 const MOST_ROWS = 20_000, MOST_TAGS = 100, MOST_BLOCKS = 1000; // rows kept from the tables Octet reads, tags in one, data blocks
+const FAR = 1_000_000; // Å: no atom is further from the origin on any axis (a macromolecule's are within 10,000)
 // The tables Octet reads, by one tag each: the others are only checked.
 const READ = new Set(["_atom_site_fract_x", "_atom_site_cartn_x", "_chem_comp_atom_atom_id", "_chem_comp_bond_atom_id_1", "_entity_type"]);
 const WATER = new Set(["HOH", "DOD", "WAT", "H2O"]);
@@ -46,8 +47,9 @@ const element = (s = "", label = false) => {
 };
 
 // A CIF file: comments and blank lines, then its first data block, and atoms in an atom_site or chem_comp_atom table.
+// Lines end in LF, CR LF or CR (an old Mac file), each one way only, so a file that is not CIF is refused at once.
 export const isCif = (text: string) =>
-  /^﻿?(?:[ \t]*(?:#[^\n]*)?\r?\n)*[ \t]*data_\S/i.test(text) && /^[ \t]*_(?:atom_site[._](?:fract|cartn)_x|chem_comp_atom[._]atom_id)\s/im.test(text);
+  /^﻿?(?:[ \t]*(?:#[^\r\n]*)?(?:\r\n|\r(?!\n)|\n))*[ \t]*data_\S/i.test(text) && /^[ \t]*_(?:atom_site[._](?:fract|cartn)_x|chem_comp_atom[._]atom_id)\s/im.test(text);
 
 // The file's data blocks: each block's single items, and the rows of the tables Octet reads, each row by its tags.
 // Tags are compared in lower case, with a DDL2 tag's first dot as an underscore (_atom_site.Cartn_x is
@@ -135,7 +137,10 @@ const table = (b: Block, tag: string): Row[] => b.tables.find((t) => t[0]?.[tag]
 
 // The structures in a data block.
 function groupsOf(b: Block): Group[] {
-  const known = (s: Site) => !!s.el && s.p.every(Number.isFinite);
+  const known = (s: Site) => {
+    if (s.p.some((x) => Math.abs(x) > FAR)) fail(`an atom is more than ${FAR.toLocaleString("en-GB")} Å from the origin`);
+    return !!s.el && s.p.every(Number.isFinite);
+  };
   // A ligand's own file: its ideal coordinates (else the model's), its charges and its bonds.
   const comp = table(b, "_chem_comp_atom_atom_id");
   if (comp.length) {
@@ -269,6 +274,9 @@ function face(ps: V[]): V[] {
 // file as its atom number, not shown (Show Atom Number shows it). Throws a RangeError, with the reason to show, for a
 // file over Octet's limits.
 export function readCif(text: string): Mol {
+  // An old Mac file's lines end in CR alone (its first line end says how the file's lines end).
+  const cr = text.indexOf("\r");
+  if (cr >= 0 && text[cr + 1] !== "\n") text = text.replace(/\r\n?/g, "\n");
   const groups = blocks(text).flatMap(groupsOf).filter((g) => g.sites.length);
   if (groups.some((g) => g.sites.length > MOST)) throw new RangeError(`It has a structure of more than ${MOST.toLocaleString("en-GB")} atoms.`);
   for (const g of groups) if (!g.bonds) { g.bonds = near(g.sites); orders(g.sites, g.bonds); }
