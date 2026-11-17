@@ -278,6 +278,10 @@ jobs:
       # what those tests print (the cache's formats, the large path's layouts, the edge pixels).
       - name: The object's own tests (storages in memory, the data objects, the clipboard's order, the picture in GDI+)
         run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole -- --nocapture
+      # Which layouts of an EMF+ object continued over records GDI+ reads (issue 166, for a fallback). It only prints.
+      - name: The object's picture with a large path continued over records (information only)
+        continue-on-error: true
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole_plus_large_path_continued -- --ignored --nocapture
       - name: Build Octet with its page, and keep a copy for the harness
         shell: pwsh
         run: |
