@@ -189,6 +189,10 @@ Build now.
 
 - A paste of a CIF or mmCIF file's text (⌘V, and into the name field) draws the same structures as File > More
   Formats > Open CIF or mmCIF…, selected, one undo step.
+  Found while building: the name field never holds text of several lines. It is a one-line box, and it takes the
+  clipboard when it opens only for text of 200 characters or fewer on one line (Editor.tsx clipboardText). So a CIF
+  file's text, as a MOL file's today, comes in by ⌘V on the canvas. `structureFromText` serves both, so the field
+  would read it the same if it ever held it.
 - An AI app's `add_file {text}` with CIF text adds the same structures. The tool's description and its error name CIF.
   The headless host (`scripts/headless/host.ts`) does the same.
 - A damaged or oversized CIF file shows the reader's reason on File > More Formats, Finder, a drop, a paste and
@@ -245,7 +249,7 @@ The siblings are the ways a file comes in, and the other text formats of More Fo
 | Drop on Home (opens) | yes (UTF-8 only) | yes | yes |
 | Drop on a Home tile (project) | refused: not a drawing | same | same |
 | `--convert` of the file | yes (UTF-8 only) | yes | yes |
-| Paste (⌘V), and paste into the name field | no | yes | yes |
+| Paste (⌘V) on the canvas (the name field takes one line only, as for a MOL file) | no | yes | yes |
 | AI app `add_file {text}` | no | yes | yes |
 | AI app `drawings new {text}` | yes | yes | yes |
 | File > Insert…, File > Import…, `--convert` of a folder | not offered (rare format) | same | same |
