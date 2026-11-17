@@ -1,7 +1,7 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
-// offer, every Settings page, the command palette, a Jablonski diagram with a level and a transition picked) and lets
-// the app's own watch (src/lookwatch.ts) measure each one.
+// drawing, the Structure panel, Attach Data's dialog, the spectrum panel with two tabs, the template library, a
+// caption with the paste offer, every Settings page, the command palette, a Jablonski diagram with a level and a
+// transition picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -47,6 +47,23 @@ await measure("the Structure panel", !!(await until(() => labelled("Add a captio
 labelled("Show the Properties panel")?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
+await wait(600);
+
+// Attach Data's dialog, with a field typed in its grid (its empty row then comes under it), in light and in dark.
+labelled("Attach data…")?.click();
+const grid = await until(() => document.querySelector(".dialog .chart-table input"), 3000);
+if (grid) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(grid, "Batch");
+  grid.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait(300);
+  const value = document.querySelector(".dialog .chart-table textarea");
+  if (value) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(value, "B-001\nsecond line"); value.dispatchEvent(new Event("input", { bubbles: true })); }
+}
+await measure("Attach data", !!grid && document.querySelectorAll(".dialog .chart-table input").length === 2);
+document.documentElement.dataset.theme = "dark";
+await measure("Attach data, dark", !!grid);
+delete document.documentElement.dataset.theme;
+key({ key: "Escape" });
 await wait(600);
 
 // The spectrum panel: one tab, then two (each with its X, and the + after them).

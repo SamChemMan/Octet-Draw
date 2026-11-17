@@ -4501,16 +4501,12 @@ div.facts {
   display: flex;
   justify-content: center;
 }
-/* A field of lines of text (a data field's value): as tall as its lines, up to six. */
-.unit-field.lines {
-  height: auto;
-  min-height: var(--size-control);
-  padding-block: 4px;
-  align-self: start;
-}
+/* A field of lines of text (a data field's value): as high as any field, one line in view, the caret's. */
 .unit-field textarea {
   width: 100%;
   min-width: 0;
+  height: 18px;
+  overflow: hidden;
   padding: 0;
   border: 0;
   outline: none;

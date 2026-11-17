@@ -1,8 +1,8 @@
 // A grid of fields to type a table in: a chart's data (ChartDialog.tsx) and a structure's data fields (DataDialog.tsx).
 // head: the first row names the columns, and its first cell is empty. Up and Down move between rows. Paste fills from
 // the cell pasted in, and grows the grid as far as `most` rows and columns. kinds: a column's fields, one line of text
-// (the default), lines of text (Shift+Return or Option+Return makes a new line; Return does the dialog's action), or a
-// switch. limit: the most characters a column's field takes.
+// (the default), lines of text (one line in view, the caret's: Shift+Return or Option+Return makes a new line, and
+// Return does the dialog's action), or a switch. limit: the most characters a column's field takes.
 import { pastedRows, spare } from "./charts";
 import { Switch } from "./Fields";
 
@@ -15,8 +15,6 @@ type Props = {
   // titles: each column's name, over it. disabled: a field that does not apply now.
   titles?: string[]; disabled?: (r: number, c: number) => boolean;
 };
-// A line field's height: a row for each line, up to 6 (it scrolls beyond).
-const rowsOf = (text: string) => Math.min(6, text.split("\n").length);
 
 export function Cells({ label, cells, head, most, name, placeholder, onChange, kinds, limit = () => 200, columns, first, headed: isHeaded, titles, disabled }: Props) {
   const cols = cells[0].length, kind = (c: number): CellKind => kinds?.[c] ?? "text";
@@ -62,9 +60,9 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
         const off = disabled?.(r, c);
         if (kind(c) === "switch") return <span key={`${r}:${c}`} className="cell-switch"><Switch on={!!text && !off} label={name(r, c)} disabled={off} onChange={(on) => set(r, c, on ? "1" : "")} /></span>;
         return (
-          <span key={`${r}:${c}`} className={kind(c) === "lines" ? "unit-field text lines" : "unit-field text"}>
+          <span key={`${r}:${c}`} className="unit-field text">
             {kind(c) === "lines"
-              ? <textarea {...common} value={text} rows={rowsOf(text)} maxLength={limit(c)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)}
+              ? <textarea {...common} value={text} rows={1} maxLength={limit(c)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.metaKey || e.ctrlKey) return;
                   e.preventDefault();

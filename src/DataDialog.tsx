@@ -14,7 +14,7 @@ const LIMITS = [MAX_NAME, MAX_VALUE, 1];
 
 // focus: the row of the field whose text was picked (Edit attached data…).
 export function DataDialog({ rows, focus, onClose, onSave }: { rows: DataRow[]; focus?: number; onClose: () => void; onSave: (rows: DataRow[]) => void }) {
-  const [cells, setCells] = useState(() => spare(rows.map((r) => [r.name, r.value, r.show ? "1" : ""]), MOST, false));
+  const [cells, setCells] = useState(() => spare(rows.length ? rows.map((r) => [r.name, r.value, r.show ? "1" : ""]) : [["", "", ""]], MOST, false));
   const at = focus === undefined ? 0 : Math.max(0, rows.findIndex((r) => r.key === focus));
   // A value too long to show has its Show off.
   const long = (r: number) => cells[r][1].length > MAX_SHOWN;
