@@ -141,6 +141,8 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   const t = E.normalise(E.extractSelection(withFields, new Set(Q), new Set()));
   const placed = E.addTemplate(E.EMPTY, t, { point: [0, 0] });
   assert.deepEqual(values(placed, [0, 1, 2]), [["ID", "OCT-002", false]]);
+  // Clean Up Structure keeps them too.
+  assert.deepEqual(values(chem.cleanUp(withFields), P), values(withFields, P));
   // S21, S31: turns, flips, Contract and Expand Label keep the fields.
   assert.deepEqual(values(E.rotateAtoms(withFields, new Set(P), 90), P), values(withFields, P));
   assert.deepEqual(values(E.flipAtoms(withFields, new Set(P), "horizontal"), P), values(withFields, P));
