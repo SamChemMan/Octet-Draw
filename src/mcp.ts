@@ -1775,7 +1775,7 @@ async function addText(host: Host, a: TextIn): Promise<Result> {
   if (a.id) {
     const n = Number(/^t(\d+)$/.exec(a.id)?.[1]);
     if (!m.captions?.some((c) => c.id === n)) return { text: `There is no text ${a.id}.`, error: true };
-    m = { ...m, captions: m.captions.map((c) => (c.id === n ? marked(host, { ...c, text, runs: r, ...textStyle(a) }) : c)) };
+    m = { ...m, captions: m.captions.map((c) => (c.id === n ? marked(host, { ...c, text, runs: r, ...textStyle(a), ...(c.measure ? { measure: undefined } : {}) }) : c)) };
     m = host.set(m);
     return { text: `Changed ${a.id} to "${text}".${UNDO}` };
   }
@@ -2541,6 +2541,8 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       const plainNow = "property" in change, live = !!caption.property?.attrs.rows && !plainNow;
       if (use.includes("names") && !live) unfit.push(`${id} takes no names: ${plainNow ? "its new text is plain text" : "it is not live values (add_values adds them)"}`);
       named ||= use.includes("names") && live;
+      // New text over a measurement makes it plain text, as typing over it does.
+      if (caption.measure && (use.includes("text") || (use.includes("runs") && runs))) change.measure = undefined;
       if (use.includes("align")) { if (a.align === "above" || a.align === "below" || a.align === "auto") unfit.push(`${id} takes no align ${a.align}`); else change.align = a.align as Caption["align"]; }
       if (use.includes("colour")) change.colour = ink;
       if (use.includes("width")) change.width = a.width;

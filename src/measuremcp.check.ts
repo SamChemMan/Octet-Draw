@@ -141,9 +141,15 @@ r = await call("change", { operations: [{ op: "move", ids: [s], dx: 3, dy: 0 }] 
 const at2 = measures().find((c) => `t${c.id}` === t)!;
 assert.ok(Math.abs(at2.x - at1.x - 3) < 1e-6 && Math.abs(at2.y - at1.y) < 1e-6, "follows its structure");
 assert.ok(Math.abs(measureValue(m, at2.measure!.atoms)! - v0!) < 1e-9);
-r = await call("change", { operations: [{ op: "delete", ids: [t] }] });
+// S32: new text over a measurement makes it plain text.
+const t2 = `t${measures().find((c) => c.measure!.atoms.length === 2)!.id}`;
+r = await call("change", { operations: [{ op: "edit", ids: [t2], text: "about 3 Å" }] });
 assert.ok(!r.isError, text(r));
-assert.equal(measures().length, 2);
+assert.equal(m.captions!.find((c) => `t${c.id}` === t2)!.measure, undefined, "plain text now");
+assert.equal(m.captions!.find((c) => `t${c.id}` === t2)!.text, "about 3 Å");
+r = await call("change", { operations: [{ op: "delete", ids: [t, t2] }] });
+assert.ok(!r.isError, text(r));
+assert.equal(measures().length, 1);
 
 // S30: two AI sessions. A measures; B deletes a measured atom (the measurement goes in the same step); A's edit of the
 // old t id is told it is not there.
