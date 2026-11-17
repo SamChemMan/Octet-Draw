@@ -281,7 +281,7 @@ const num6 = (v: number) => String(+v.toFixed(6));
 // A TLC spot's CurveType, as ChemDraw writes it: Filled 128 (a shaded spot is filled for ChemDraw, and 256 for Octet),
 // Dashed 2, Bold 4, Doubled 512. A hollow or dashed spot has no fill.
 export const spotType = (x: Spot) => (x.style === "hollow" || x.dashed ? 0 : 128) | (x.style === "shaded" ? 256 : 0) | (x.dashed ? 2 : 0) | (x.bold ? 4 : 0) | (x.doubled ? 512 : 0);
-const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
+export const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const boxOf = (qs: P[], pad = 0): Box => [Math.min(...qs.map((q) => q[0])) - pad, Math.min(...qs.map((q) => q[1])) - pad, Math.max(...qs.map((q) => q[0])) + pad, Math.max(...qs.map((q) => q[1])) + pad];
 // A text's box turned anticlockwise by degrees about its p (page points, y down): the box round it.
 function turnedBox(b: Box, p: P, degrees = 0): Box {

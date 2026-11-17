@@ -6,17 +6,17 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
+import { bounds, extent, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
 import { change, labelled, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds } from "./mixtures.ts";
 import { LIBRARY, loadMore } from "./library.ts";
 import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
-import { ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
+import { ASCENT, hydrogens, straightArrow, curved, ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { buildRisk, isSignificant, riskGroup, riskLayout, significantOf, ticked, TICKS, MAX_TEXT as RISK_TEXT } from "./riskassess.ts";
 import { withDetails, detailsOf, markupCaption, oneLine, FIELDS, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
-import { readPlasmid } from "./cdxml.ts";
+import { readPlasmid, union } from "./cdxml.ts";
 import { emptyRows, movedAt, setRole, stepGrids, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, type Field } from "./stoich.ts";
 import { stereoFacts, stereoLabels } from "./chem.ts";
@@ -25,10 +25,9 @@ import { isDrawingText, readOct } from "./oct.ts";
 import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notation.ts";
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
-import { ASCENT, hydrogens, straightArrow, curved, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts } from "./render.ts";
 import type { Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
-import type { TextRun } from "./richtext.ts";
+import { plainOf, type TextRun } from "./richtext.ts";
 import { ICON } from "./mcpicon.ts";
 
 type P = [number, number];
@@ -912,10 +911,6 @@ function origin(host: Host, m: Mol): P {
   // window or run. The call's work comes into view when it ends.
   return [leftMargin(s), s.edges ? (h / 2 - 15) * k : 2];
 }
-const boxOf = (m: Mol): Box => {
-  const xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-};
 
 // note: what its changes did to its stereocentres. unread: each label given with it that Octet reads no group in.
 type Read = { mol: Mol; text: string; number?: string; caption?: string; named?: boolean; note?: string; unread?: string[] };
@@ -1069,7 +1064,6 @@ function runsOf(r: RunIn[]): TextRun[] | string {
   const out = r.map((x): TextRun => ({ text: x.text.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ""), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}), ...(x.script ? { script: x.script } : {}), ...(x.colour ? { colour: x.colour } : {}) })).filter((x) => x.text);
   return out.length ? out : "runs: give some text";
 }
-const plain = (runs: TextRun[]) => runs.map((x) => x.text).join("");
 // A structure given atom by atom (F4): each atom where it is given, with its label; each bond of the kind given (a
 // wedge narrow at from). Nothing is laid out again.
 function fromMolecule(x: MoleculeIn): Mol | string {
@@ -1087,7 +1081,7 @@ function fromMolecule(x: MoleculeIn): Mol | string {
   for (const [i, a] of x.atoms.entries()) {
     const runs = a.runs && runsOf(a.runs);
     if (typeof runs === "string") return `molecule: atom ${i}: ${runs}.`;
-    const label = runs ? plain(runs) : clean(a.label ?? "");
+    const label = runs ? plainOf(runs) : clean(a.label ?? "");
     if (label) m = runs ? setLabel(m, i, label) : labelled(m, i, label);
     // Runs keep their styles on a written label (an M with a superscript IV).
     if (runs && runs.some((r) => Object.keys(r).length > 1)) m = { ...m, atoms: m.atoms.map((y, k) => (k === i ? { ...y, text: label, runs } : y)) };
@@ -1199,14 +1193,13 @@ function crowded(m: Mol): boolean {
   const bonded = new Set(m.bonds.map((b) => `${Math.min(...b.atoms)} ${Math.max(...b.atoms)}`));
   return m.atoms.some((a, i) => m.atoms.some((b, j) => j > i && !bonded.has(`${i} ${j}`) && Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]) < 0.5));
 }
-// A structure added with its left, middle at `at`; its atoms, and the drawing.
 // Each structure a tool drew: the text it was drawn from, and whether Name to Structure read it as a name (3d). By the
 // structure's key, for this window.
 const sources = new Map<number, { given: string; named: boolean }>();
 // over: text that goes under the structure before its number (a figure's number_under_caption): Octet stacks a
 // structure's text under it in the order it was added.
 function place(m: Mol, s: Read, left: number, middle: number, over?: Omit<Caption, "id">): { mol: Mol; atoms: number[]; width: number; number?: number; over?: number } {
-  const b = boxOf(s.mol), r = insertMol(m, { ...s.mol, style: undefined }, [left - b[0], middle - (b[1] + b[3]) / 2]);
+  const b = bounds(s.mol)!, r = insertMol(m, { ...s.mol, style: undefined }, [left - b[0], middle - (b[1] + b[3]) / 2]);
   let mol = r.mol;
   const atoms = [...r.atoms], key = ++lastKey;
   for (const i of atoms) mol.atoms[i].key = key;
@@ -1257,7 +1250,7 @@ async function drawStructures(host: Host, a: { structures: { text: string; numbe
   // The cells from the atoms: as wide and as tall as the largest structure, with room between. The columns: as given;
   // else one row for 6 or fewer and a block for more. On a page, no more than fit inside its margins: then the fewest
   // rows that hold them all, as even as they can be (6 where 5 fit are two rows of 3).
-  const sizes = ok.map((s) => boxOf(s.mol)), cell: P = [Math.max(...sizes.map((b) => b[2] - b[0])) + 2, Math.max(...sizes.map((b) => b[3] - b[1])) + 2.5];
+  const sizes = ok.map((s) => bounds(s.mol)!), cell: P = [Math.max(...sizes.map((b) => b[2] - b[0])) + 2, Math.max(...sizes.map((b) => b[3] - b[1])) + 2.5];
   const st = host.style(), paged = st.edges && !host.experiment(), inside = -2 * leftMargin(st), most = ok.length <= 6 ? ok.length : Math.ceil(Math.sqrt(ok.length * 1.6));
   const fit = (row: number, step: number) => Math.max(1, Math.floor((inside - row) / step + 1e-6) + 1);
   const columns = (fitting: number) => a.columns ?? (!paged || fitting >= most ? most : Math.ceil(ok.length / Math.ceil(ok.length / fitting))), drawn = columns(fit(cell[0] - 2, cell[0]));
@@ -1347,7 +1340,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
   // The row's line: under where new work starts by as far as the row can reach up (half its tallest structure, however
   // it is turned; an arrow's lines, about a bond length each, and structures over it). So the new row is read alone:
   // text within 3 bond lengths over an arrow's line reads as its conditions (a scheme's title, drawn before).
-  const tall = Math.max(...ok.map((s) => { const b = boxOf(s.mol); return Math.hypot(b[2] - b[0], b[3] - b[1]); }));
+  const tall = Math.max(...ok.map((s) => { const b = bounds(s.mol)!; return Math.hypot(b[2] - b[0], b[3] - b[1]); }));
   const was = m, [x0, top] = origin(host, m), up = Math.max(tall / 2, ...lines.map((l) => l.above.reduce((h, [t]) => h + (typeof t !== "string" || structured(t) ? tall : t.split("\n").length), 0)));
   const y = top - up, arrows = new Set<number>(), lem = host.style().labelSize / host.style().bond;
   let x = x0;
@@ -1373,7 +1366,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     // The structures over and under the arrow, each with its box by its atoms and the room its longest label can take
     // either side. The arrow is as long as its text and as each side's structures in a row: Clean Up Reaction reads
     // as an arrow's conditions the structures that lie within its ends, and lays them out clear of its text.
-    const beside = [above, below].map((items) => items.filter(structured).map(() => { const s = next(), b = boxOf(s.mol); return { s, b, pad: 0.3 + 0.6 * lem * Math.max(0, ...s.mol.atoms.map((x) => (x.text ?? (x.label === "C" ? "" : x.label)).length)) }; }));
+    const beside = [above, below].map((items) => items.filter(structured).map(() => { const s = next(), b = bounds(s.mol)!; return { s, b, pad: 0.3 + 0.6 * lem * Math.max(0, ...s.mol.atoms.map((x) => (x.text ?? (x.label === "C" ? "" : x.label)).length)) }; }));
     const rowOf = (l: (typeof beside)[number]) => l.reduce((w, v) => w + v.b[2] - v.b[0] + 2 * v.pad, 0) + 0.75 * Math.max(0, l.length - 1);
     const length = Math.max(3, longest + 1, ...beside.map((l) => (l.length ? rowOf(l) + 1 : 0)));
     const [mol, id] = addArrow(m, { kind: st.arrow ?? "reaction", from: [x, y], to: [x + length, y] });
@@ -1554,7 +1547,7 @@ async function drawCycle(host: Host, a: { intermediates: { text: string; labels?
     const labels = [...(it.labels ?? [])], text = clean(it.text.replace(/\*/g, () => labels.shift() ?? "*")), number = it.number && clean(it.number);
     return { text, number, box: [0, -em, text.length * 0.55 * em, number ? em : 0] as Box };
   });
-  const n = items.length, sizes = items.map((s) => ("read" in s ? boxOf(s.read!.mol) : s.box)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
+  const n = items.length, sizes = items.map((s) => ("read" in s ? bounds(s.read!.mol)! : s.box)), big = Math.max(...sizes.map((b) => Math.hypot(b[2] - b[0], b[3] - b[1])));
   const radius = Math.max(3, (big + 2) / (2 * Math.sin(Math.PI / n))), clockwise = !a.anticlockwise;
   let m = host.doc();
   const [x0, y0] = origin(host, m), centre: P = [x0 + radius + big / 2, y0 - radius - big / 2];
@@ -1658,7 +1651,7 @@ async function replaceStructure(host: Host, a: { structure: string; text?: strin
   // is plain text now.
   const old = host.ink(atoms)!, under = (m.captions ?? []).filter((c) => c.under?.some((i) => atoms.includes(i))), number = under.find((c) => c.bold);
   const kept = erase(m, new Set(m.bonds.flatMap((b, k) => (atoms.includes(b.atoms[0]) ? [k] : []))), new Set(atoms));
-  const b = boxOf(ok[0].mol), r = place(kept, ok[0], own && !turn ? b[0] : (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, own && !turn ? (b[1] + b[3]) / 2 : (old[1] + old[3]) / 2);
+  const b = bounds(ok[0].mol)!, r = place(kept, ok[0], own && !turn ? b[0] : (old[0] + old[2]) / 2 - (b[2] - b[0]) / 2, own && !turn ? (b[1] + b[3]) / 2 : (old[1] + old[3]) / 2);
   // A cycle's intermediate (or a side arrow's compound) that was the old structure is the new one, in its place: erase
   // leaves an empty node there (plan 19.10: a replaced intermediate fell out of its cycle).
   const was = (n?: number[]) => !!n?.length && n.every((i) => atoms.includes(i)), into = (e: CycleEnd | undefined, o: CycleEnd | undefined) => (e && was(o?.atoms) ? { ...e, atoms: r.atoms } : e);
@@ -1705,7 +1698,7 @@ async function addText(host: Host, a: TextIn): Promise<Result> {
   const r = a.runs ? runsOf(a.runs) : undefined;
   if (typeof r === "string") return { text: `Octet added nothing. ${r}.`, error: true };
   if (a.colour !== undefined && a.colour !== "none" && !COLOUR.test(a.colour)) return { text: `colour: give #rrggbb, not ${a.colour}.`, error: true };
-  const text = r ? plain(r) : clean(a.text!, true), runs = r && { runs: r };
+  const text = r ? plainOf(r) : clean(a.text!, true), runs = r && { runs: r };
   if (a.id) {
     const n = Number(/^t(\d+)$/.exec(a.id)?.[1]);
     if (!m.captions?.some((c) => c.id === n)) return { text: `There is no text ${a.id}.`, error: true };
@@ -2316,7 +2309,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
     if (atom !== undefined) {
       const use = fits(id, ["label", "runs", "charge", "isotope", "radical", "lone_pairs", "bars", "enhanced", "align", "colour", "highlight", "atom_number", "hidden", "chemical", "label_angle", "query", "scale", "ring_fill", "ignore_warnings", ...STYLE]);
       if (use.includes("label") && a.label!.trim()) m = labelled(m, atom, clean(a.label!));
-      if (use.includes("runs") && runs) { const t = plain(runs); m = setLabel(m, atom, t); m = { ...m, atoms: m.atoms.map((x, k) => (k === atom ? { ...x, text: t, runs } : x)) }; }
+      if (use.includes("runs") && runs) { const t = plainOf(runs); m = setLabel(m, atom, t); m = { ...m, atoms: m.atoms.map((x, k) => (k === atom ? { ...x, text: t, runs } : x)) }; }
       if (use.includes("label") || use.includes("runs")) relabelled.push(m.atoms[atom]);
       const change: Partial<Atom> = textOf(use);
       if (use.includes("charge")) change.charge = Math.max(-8, Math.min(8, Math.round(a.charge!))) || undefined;
@@ -2380,7 +2373,7 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", ...(cyc ? ["at"] : []), ...STYLE]), moves = cyc && (use.includes("at") || use.includes("side"));
       const change: Partial<Caption> = textOf(use);
       if (use.includes("text")) Object.assign(change, { text: clean(a.text!, true), runs: undefined });
-      if (use.includes("runs") && runs) Object.assign(change, { text: plain(runs), runs });
+      if (use.includes("runs") && runs) Object.assign(change, { text: plainOf(runs), runs });
       if (use.includes("align")) { if (a.align === "above" || a.align === "below" || a.align === "auto") unfit.push(`${id} takes no align ${a.align}`); else change.align = a.align as Caption["align"]; }
       if (use.includes("colour")) change.colour = ink;
       if (use.includes("width")) change.width = a.width;
@@ -2469,8 +2462,7 @@ function pointOf(host: Host, m: Mol, at: string | number[]): P | undefined {
   if (b !== undefined) { const [p, q] = m.bonds[b].atoms.map((i) => m.atoms[i].location); return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; }
   const i = atomOf(m, at, host);
   if (i !== undefined) { const l = m.atoms[i].location; return at.endsWith(":pair") ? [l[0], l[1] + 0.45] : [l[0], l[1]]; }
-  const g = structureOf(m, at, host), box = g ? host.ink(g) : (() => { const n = Number(/^t(\d+)$/.exec(at)?.[1]); return Number.isFinite(n) ? host.textBox(n) : undefined; })();
-  return box ? [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2] : undefined;
+  const box = boxAt(host, m, at); return box && mid(box);
 }
 // An object's box (a structure or text), when the place is one.
 function boxAt(host: Host, m: Mol, at: string | number[]): Box | undefined {
@@ -2615,13 +2607,12 @@ const SIDES = ["right_of", "left_of", "below", "above"] as const;
 const placed = (a: Placement) => !!(a.at || a.to || SIDES.some((k) => a[k] !== undefined));
 // The ids a placement is beside (one, or several: the box round them).
 const beside = (a: Placement, side: (typeof SIDES)[number]) => [a[side]!].flat();
-const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const corners = (ps: P[]): Box => [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))];
 const arrowBox = (x: Arrow): Box => corners([x.from, x.to, ...(x.curve?.points.flatMap((q) => [q.at, ...(q.c1 ? [q.c1] : []), ...(q.c2 ? [q.c2] : [])]) ?? [])]);
 const mid = (b: Box): P => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 // The box of a drawing before it is drawn (a file's, a template's): its atoms' places, its arrows and shapes, and
 // the points its free text is at.
-const roughBox = (t: Mol): Box => union([...(t.atoms.length ? [boxOf(t)] : []), ...(t.arrows ?? []).map(arrowBox), ...(t.shapes ?? []).map((x) => corners([x.from, x.to])), ...(t.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle).map((c): Box => [c.x, c.y, c.x, c.y])]) ?? [0, 0, 0, 0];
+const roughBox = (t: Mol): Box => union([...(t.atoms.length ? [bounds(t)!] : []), ...(t.arrows ?? []).map(arrowBox), ...(t.shapes ?? []).map((x) => corners([x.from, x.to])), ...(t.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle).map((c): Box => [c.x, c.y, c.x, c.y])]) ?? [0, 0, 0, 0];
 const rounded = (b: Box) => b.map((v) => Math.round(v * 10) / 10);
 // The box of what the ids name (bond lengths, y up), with what belongs to them: a structure's number, an arrow's
 // conditions, a cycle's text. Each write result gives these boxes, and placement measures with them.
@@ -2798,7 +2789,7 @@ type PanelIn = { title?: Rich; subtitle?: Rich; frame?: "none" | "line" | "fill"
 function richOf(t: Rich): { text: string; runs?: TextRun[] } | string {
   if (typeof t === "string") return { text: clean(t, true) };
   const runs = runsOf(t);
-  return typeof runs === "string" ? runs : { text: plain(runs), runs };
+  return typeof runs === "string" ? runs : { text: plainOf(runs), runs };
 }
 const PANEL_PAD = 0.8, ROW_GAP = 1.2, PANEL_GAP = 1, TITLE_GAP = 0.6, UNDER_GAP = 0.3, BRACKET_PAD = 0.3;
 async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_caption?: boolean; colour_by_element?: boolean; element_colours?: Record<string, unknown>; width?: number }, ctx: Ctx): Promise<Result> {
@@ -2892,7 +2883,7 @@ async function drawFigure(host: Host, a: { panels: PanelIn[]; number_under_capti
         const { cx, middle, under } = est.spots[i][r][j];
         if (!isStructure(item)) return { item, text: caption(item.text!, cx, middle - 0.35 * em) };
         const over = a.number_under_caption && item.caption !== undefined ? { ...texts.get(item.caption)!, x: 0, y: 0, align: "centre" as const } : undefined;
-        const x = ok[next++], b = boxOf(x.mol), placed = place(m, x, cx - (b[2] - b[0]) / 2, middle, over), set = new Set(placed.atoms);
+        const x = ok[next++], b = bounds(x.mol)!, placed = place(m, x, cx - (b[2] - b[0]) / 2, middle, over), set = new Set(placed.atoms);
         m = placed.mol;
         const own = (c?: string) => c && { colour: c };
         m = { ...m, atoms: m.atoms.map((y, q) => (set.has(q) ? { ...y, ...(own(item.colour) ?? own(colourOf.get(y.text ?? "") ?? colourOf.get(y.label)) ?? {}) } : y)), bonds: item.colour ? m.bonds.map((y) => (set.has(y.atoms[0]) ? { ...y, colour: item.colour } : y)) : m.bonds };
@@ -3036,8 +3027,7 @@ function layoutCheck(host: Host, m: Mol): Check {
   const edges: string[][] = [], within = (p: Box, q: Box) => p[0] >= q[0] - 0.02 && p[1] >= q[1] - 0.02 && p[2] <= q[2] + 0.02 && p[3] <= q[3] + 0.02;
   const crossed = (m.shapes ?? []).filter((x) => ["box", "rounded", "oval", "picture"].includes(x.kind)).map((x) => ({ id: `b${x.id}`, box: corners([x.from, x.to]) }));
   for (const p of crossed.length ? placedOf(host, m).filter((x) => x.id[0] === "s" || x.id[0] === "t") : []) for (const q of crossed) {
-    const cut = p.box[0] < q.box[2] - 0.05 && q.box[0] < p.box[2] - 0.05 && p.box[1] < q.box[3] - 0.05 && q.box[1] < p.box[3] - 0.05;
-    if (edges.length < 20 && cut && !within(p.box, q.box) && !within(q.box, p.box)) edges.push([p.id, q.id]);
+    if (edges.length < 20 && overlap(p.box, q.box) && !within(p.box, q.box) && !within(q.box, p.box)) edges.push([p.id, q.id]);
   }
   if (!overlaps.length && !off.length && !on.length && !clash.length && !edges.length) return "clean";
   return { ...(overlaps.length ? { overlaps: overlaps.slice(0, 20) } : {}), ...(off.length ? { off_page: off.slice(0, 20) } : {}), ...(on.length ? { text_on_bonds: on } : {}), ...(clash.length ? { labels_overlap: clash } : {}), ...(edges.length ? { on_shape_edges: edges } : {}) };
