@@ -127,7 +127,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { formulaCaption, formulaRuns } from "./labels";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
-import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, withCaptionAtoms } from "./edit";
+import { atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
 import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
@@ -493,8 +493,8 @@ const namedMol = (name: string): Mol | undefined => {
 // keystroke that gives the same name again does not lay it out again.
 const typedMols = new Map<string, Mol | undefined>();
 const namedOf = (kind: string) => { const name = kindName(kind); return name ? namedMol(name) : undefined; };
-// The tools that work on an atom also work on a caption that counts as chemistry (edit.ts chemicalCaption), made an
-// atom when they press it. elementSteps names the undo step each press makes.
+// The tools that work on an atom also work on a caption that counts as chemistry or stands in for a group (edit.ts
+// atomCaption), made an atom when they press it. elementSteps names the undo step each press makes.
 const ATOM_TOOLS = new Set<Tool>(["bond", "chain", "ring", "template", "symbol"]);
 let elementSteps = 0;
 // A bond's style in the tool's list, if it is one of them.
@@ -2910,9 +2910,10 @@ export default function Editor() {
       const on = caps.some((c) => c.chemical === false), flag = ({ chemical: _, ...c }: Caption): Caption => (on ? c : { ...c, chemical: false });
       return set({ ...doc, captions: doc.captions!.map((c) => (picked.has(c.id) ? flag(c) : c)) }, true);
     },
-    // Make element (Sam, 21 October 2026): the picked captions that read as an element or a label become atoms.
+    // Make element (Sam, 21 October 2026): the picked captions that read as an element or a label (Nu, E and LG too)
+    // become atoms.
     make_element: () => {
-      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
+      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && (labelable(c) || standInCaption(c)));
       if (!caps.length) return setNotice("Select a caption with an element or a label, such as Rh or OMe.", "info");
       makeElements(caps);
     },
@@ -5494,9 +5495,9 @@ export default function Editor() {
     if (tool === "cycle") { setDrag({ kind: "cycle", from: p, start: screen, target: t, shift: e.shiftKey }); return startHold(p, t, screen); }
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
     // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that counts as chemistry
-    // (Bi, Rh, OMe), makes it that atom and goes on from it, as one undo step. ChemDraw joins bonds to a caption it
-    // reads chemically (Interpret Chemically).
-    const asAtom = !e.shiftKey && t.caption !== undefined && ATOM_TOOLS.has(tool) ? doc.captions?.find((c) => c.id === t.caption && chemicalCaption(c, style.interpret)) : undefined;
+    // (Bi, Rh, OMe) or stands in for a group (Nu, E, LG), makes it that atom and goes on from it, as one undo step.
+    // ChemDraw joins bonds to a caption it reads chemically (Interpret Chemically).
+    const asAtom = !e.shiftKey && t.caption !== undefined && ATOM_TOOLS.has(tool) ? doc.captions?.find((c) => c.id === t.caption && atomCaption(c, style.interpret)) : undefined;
     const key = asAtom && `element ${++elementSteps}`;
     if (asAtom && key && makeElements([asAtom], key, false)) {
       joinNext.current = key;
@@ -5650,8 +5651,8 @@ export default function Editor() {
         const onto = hitAt(p).atom, onCaption = onto === undefined ? captionAt(p) : undefined;
         // A hydrogen bond goes from an atom to another atom, never to a new one.
         if (bondKind === "hydrogen" && (typeof drag.from !== "number" || onto === undefined || onto === drag.from)) return setDrag({ ...drag, to: undefined });
-        // A caption that counts as chemistry (Rh) takes the bond's end where its atom will be.
-        const c = onCaption !== undefined ? doc.captions?.find((x) => x.id === onCaption && chemicalCaption(x, style.interpret)) : undefined, cp = c && placed.find((x) => x.id === c.id);
+        // A caption that counts as chemistry (Rh), or stands in for a group (Nu), takes the bond's end where its atom will be.
+        const c = onCaption !== undefined ? doc.captions?.find((x) => x.id === onCaption && atomCaption(x, style.interpret)) : undefined, cp = c && placed.find((x) => x.id === c.id);
         if (c && cp) { const [x, y] = placedAtom(c, cp).location; return setDrag({ ...drag, to: [x, y], onto: c.id }); }
         // From a metal, the middle of a ring takes the bond's end: the ring joins as an η ligand (edit.ts dragBond).
         const eta = onto === undefined && typeof drag.from === "number" ? etaRing(doc, drag.from, p) : undefined;
@@ -5959,6 +5960,9 @@ export default function Editor() {
     const b = doc.bonds.findIndex((x) => x.atoms.includes(ids[0]) && x.atoms.includes(ids[1]));
     return b >= 0 ? { bond: b } : {};
   };
+  // The caption under the pointer that an atom tool makes an atom (Rh, Nu, E), for a charge key (keys.ts actionFor).
+  const keyCaption = () => { const id = hovers.get().caption; return id === undefined ? undefined : doc.captions?.find((c) => c.id === id && atomCaption(c, style.interpret)); };
+  const keyPlace = (t: { atom?: number; bond?: number }) => (t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : keyCaption() ? "caption" : "none");
   // Puts the keyboard hotspot on an atom or bond of mol, and keeps it with mol for undo.
   const keyHot = (hot: Hot, mol = doc) => {
     lastHot.current = hot.atom ?? (hot.bond !== undefined ? mol.bonds[hot.bond]?.atoms[0] : undefined);
@@ -6066,6 +6070,12 @@ export default function Editor() {
     if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true, pending: ownStyle(doc.atoms[atom]) }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
     if (kind === "charge" && atom !== undefined) return set(keyCharge(doc, atom, arg));
+    // Over a caption such as Nu or Rh, a charge key makes it its atom with the charge, as one undo step, as the Symbols
+    // tool's click does.
+    if (kind === "charge") {
+      const c = keyCaption(), key = c && `element ${++elementSteps}`, made = c && key && makeElements([c], key, false);
+      if (made) return set(keyCharge(made, doc.atoms.length, arg), false, key);
+    }
     if (kind === "subst" && atom !== undefined) return set(stepSubstituents(doc, atom, arg as "free" | "upto" | "exactly" | "lower"));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
     if (kind === "action") { runAction(id.slice(7)); return; } // an Actions panel action on a key (Settings)
@@ -6824,7 +6834,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
@@ -9111,7 +9121,7 @@ export default function Editor() {
       // Option keys run only what the shortcut table gives them: Option + arrows turn the selection (as ChemDraw's).
       // One that works anywhere goes on below (so it reaches a selection); one for an atom or bond runs here.
       if (e.altKey && !bound) {
-        const t = keyTarget(), id = pressedKey && actionFor(keymap(settings.keys), pressedKey, t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : "none");
+        const id = pressedKey && actionFor(keymap(settings.keys), pressedKey, keyPlace(keyTarget()));
         if (id) { e.preventDefault(); run(id); }
         return;
       }
@@ -9172,7 +9182,7 @@ export default function Editor() {
         if (!runMany(id, many)) run(id);
         return;
       }
-      const target = keyTarget(), id = pressed && actionFor(keymap(settings.keys), pressed, target.atom !== undefined ? "atom" : target.bond !== undefined ? "bond" : "none");
+      const id = pressed && actionFor(keymap(settings.keys), pressed, keyPlace(keyTarget()));
       if (!id) return;
       e.preventDefault();
       run(id);

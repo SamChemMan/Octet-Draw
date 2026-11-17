@@ -121,3 +121,47 @@ console.log("radicalion.check: the dot and the sign draw as one unit ok");
   assert.ok(below.mid[1] > below.t[3] && Math.abs(below.mid[0] - below.p[0]) < 2, `CDXML: a unit moved below is below the label (${below.mid}, label ${below.t})`);
   console.log("radicalion.check: a label's unit moves, and CDXML puts it where it is drawn ok");
 }
+
+// A radical ion dragged with Select, on a labelled atom and on a skeletal carbon: a press on its dot or its sign takes
+// the unit (charge), the unit draws out the way it was dragged (its dot still just before its sign), and CDXML and CDX
+// write one Radical Cation symbol there, which comes back at that angle from Octet's own file and as ChemDraw's file.
+{
+  const L = S.bond, doc = (q: P): P => [q[0] / L, -q[1] / L], R = 0.1 * S.size;
+  const cdx = (x: string) => cdxToXml(xmlToCdx(parseXml(x)));
+  const unitOf = (m: Mol, i: number) => {
+    const r = render(m, S, ink, S.bond), dot = r.electrons.find((e) => e.atom === i && !e.key)!.at, l = r.labels.find((x) => x.text === "+")!;
+    const sign: P = [l.x + (9.6 * SUB) / 2, l.y - (9.5 * SUB) / 2];
+    return { r, dot, sign, mid: [(dot[0] + sign[0]) / 2, (dot[1] + sign[1]) / 2] as P };
+  };
+  const cases: [string, Mol, number, P, number][] = [
+    // N+• on a labelled atom, its bond to the left: dragged up.
+    ["a labelled atom", { atoms: [A("C", 0, 0), A("N", 1, 0, { charge: 1, radical: 1 })], bonds: [b(0, 1)] }, 1, [1, 1], 90],
+    // C+• on a skeletal carbon of a chain: dragged down.
+    ["a skeletal carbon", { atoms: [A("C", 0, 0), A("C", 0.866, 0.5, { charge: 1, radical: 1 }), A("C", 1.732, 0)], bonds: [b(0, 1), b(1, 2)] }, 1, [0.866, -0.5], -90],
+  ];
+  for (const [what, m, i, to, deg] of cases) {
+    const X: P = [m.atoms[i].location[0] * L, -m.atoms[i].location[1] * L], first = unitOf(m, i);
+    for (const q of [first.dot, first.sign]) assert.deepEqual(markNear(first.r.electrons, m, doc(q), L), { atom: i, mark: "charge" }, `${what}: a press on the dot or the sign takes the unit`);
+    const moved = moveMark(m, i, "charge", to, true), u = unitOf(moved, i);
+    assert.equal(moved.atoms[i].angles?.charge, deg, `${what}: the unit is dragged to ${deg}°`);
+    assert.ok(Math.abs(u.dot[1] - u.sign[1]) < 0.01 && u.dot[0] + R < u.sign[0] - 2 && u.sign[0] - u.dot[0] < 0.6 * S.size, `${what}: still one unit, the dot just before the sign`);
+    const way = (Math.atan2(-(u.mid[1] - X[1]), u.mid[0] - X[0]) * 180) / Math.PI;
+    assert.ok(Math.abs(way - deg) < 25 && Math.hypot(u.mid[0] - X[0], u.mid[1] - X[1]) > 0.5 * S.size, `${what}: the unit draws out at ${way.toFixed(0)}°, clear of the atom`);
+    assert.equal(u.r.electrons.filter((e) => e.atom === i && e.key === "charge").length, 2, `${what}: the dot and the sign are the one mark, charge`);
+    // The file: one symbol, at the angle the unit is drawn at, round the atom (node p, page y down).
+    const xml = toCdxml(moved, DEFAULT_STYLE), flat = xml.replace(/\n/g, " ");
+    assert.deepEqual([...flat.matchAll(/SymbolType="(\w+)"/g)].map((x) => x[1]), ["RadicalCation"], `${what}: one symbol`);
+    const nodes = [...flat.matchAll(/<n\s[^>]*?p="([\d.-]+) ([\d.-]+)"/g)].map((x) => [Number(x[1]), Number(x[2])]), p = nodes[i];
+    const g = /BoundingBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"[^>]*SymbolType="RadicalCation"/.exec(flat)!.slice(1).map(Number), mid = [(g[0] + g[2]) / 2, (g[1] + g[3]) / 2];
+    const file = (Math.atan2(-(mid[1] - p[1]), mid[0] - p[0]) * 180) / Math.PI;
+    assert.ok(Math.abs(file - way) < 20, `${what}: CDXML writes the symbol the way the unit is drawn (${file.toFixed(0)}° against ${way.toFixed(0)}°)`);
+    for (const [kind, back] of [["CDXML", fromCdxml(xml)], ["CDX", fromCdxml(cdx(xml))], ["ChemDraw's CDXML", fromCdxml(xml.replace(/ Octet="[^"]*"/g, ""))], ["ChemDraw's CDX", fromCdxml(cdx(xml.replace(/ Octet="[^"]*"/g, "")))]] as const) {
+      const a = back.mol.atoms[i];
+      assert.deepEqual([a.charge, a.radical, a.angles?.radical0], [1, 1, undefined], `${what}, ${kind}: the radical ion comes back as one unit`);
+      assert.ok(Math.abs(a.angles!.charge - deg) < 20, `${what}, ${kind}: the unit comes back at its angle (${a.angles?.charge}°)`);
+      const again = unitOf(back.mol, i), w = (Math.atan2(-(again.mid[1] - X[1]), again.mid[0] - X[0]) * 180) / Math.PI;
+      assert.ok(Math.abs(w - way) < 20, `${what}, ${kind}: and draws where it was (${w.toFixed(0)}° against ${way.toFixed(0)}°)`);
+    }
+  }
+  console.log("radicalion.check: a dragged unit on a label and on a skeletal carbon, CDXML and CDX ok");
+}

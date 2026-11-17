@@ -72,8 +72,8 @@ export type Atom = {
   labelAngle?: number;
   hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
   // Marks moved round the atom by hand (dragged with Select): each mark's angle in degrees, anticlockwise from the right,
-  // by its key: charge (a circled one, or a skeletal carbon's sign), partial, radical0, radical1, pair0 to pair3. Marks
-  // without one go in the widest gaps.
+  // by its key: charge (a circled one, the sign of a skeletal carbon or a label, or a radical ion's dot and sign as one
+  // unit), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
   angles?: Record<string, number>;
   bars?: true; // the lone pairs drawn as bars, not dot pairs (ChemDraw's LonePairBar)
   // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the label): the label is its text, not chemistry.
@@ -633,10 +633,11 @@ export const ION_GAP = 0.09;
 // circled charge does. X: the atom. bonds: each bond's far atom, its lines' offsets from its axis, and how far a line
 // stops short of ink. rings: pairs of bonds (by index) that are two sides of one ring at the atom. left, right: the
 // ends of the label's attaching line. raised: a raised sign's baseline. w, ink: the sign's advance, and its ink outline
-// from its origin. label: the label's ink outline. size: the label's size. toward: a direction set by hand (radians, y
-// down), where the sign goes out along, just clear of the label, in place of the places above.
+// from its origin. label: the label's ink outline. size: the label's size. turn: the way out from the atom the sign was
+// dragged to (Atom.angles charge, in radians, y down), as ChemDraw lets a charge move round its atom: the sign goes
+// that way, just clear of the label.
 // Returns the sign's origin, and whether that is after the label and raised, where ChemDraw puts a label's sign.
-export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], rings: [number, number][], left: number, right: number, raised: number, w: number, ink: P[], rtl: boolean, label: P[], size: number, toward?: number): { at: P; after: boolean } {
+export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], rings: [number, number][], left: number, right: number, raised: number, w: number, ink: P[], rtl: boolean, label: P[], size: number, turn?: number): { at: P; after: boolean } {
   const [x0, y0, x1, y1] = outlineBox(ink), first = rtl ? left - w : right, second = rtl ? right : left - w;
   // How far out along a bond's lines some ink (moved by o) stops them, as the label cuts below work it out.
   const cutBy = (pts: P[], d: number, u: P, lines: number[], m: number, o: P = [0, 0]) => {
@@ -656,24 +657,30 @@ export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], r
   // A corner is clear when the sign there stops no bond, sits at least 30° off every bond, and is not inside a ring.
   const mid: P = [(x0 + x1) / 2, (y0 + y1) / 2], stops = (o: P) => ways.some(({ d, u, lines, m, cut }) => cutBy(ink, d, u, lines, m, o) > cut + 1e-9);
   const clear = (o: P) => { const v = sub(add(o, mid), X); return !inRing(v) && !stops(o) && ways.every(({ u }) => angle(v, u) >= Math.PI / 6); };
-  let at = toward === undefined ? ([[first, raised], [second, raised]] as P[]).find(clear) : undefined;
+  let at = turn === undefined ? ([[first, raised], [second, raised]] as P[]).find(clear) : undefined;
   if (!at) {
     // The gaps between the bonds and the parts of the label away from the atom (its H, a mass number).
-    const TAU = 2 * Math.PI, taken = bonds.map(({ to }) => Math.atan2(to[1] - X[1], to[0] - X[0]));
-    for (const q of label) if (len(sub(q, X)) > 0.62 * size) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
-    const sorted = taken.map((t) => ((t % TAU) + TAU) % TAU).sort((p, q) => p - q);
-    const fromUpRight = (t: number) => Math.abs(Math.atan2(Math.sin(t + Math.PI / 4), Math.cos(t + Math.PI / 4)));
-    let t = toward ?? -Math.PI / 4, most = -Infinity;
-    if (toward === undefined) sorted.forEach((s, k) => {
-      const span = (k + 1 < sorted.length ? sorted[k + 1] : sorted[0] + TAU) - s, mid = s + span / 2, score = span - (inRing([Math.cos(mid), Math.sin(mid)]) ? 10 : 0);
-      if (score > most + 1e-6 || (score > most - 1e-6 && fromUpRight(mid) < fromUpRight(t))) { most = score; t = mid; }
-    });
-    // Out along the gap's middle until the sign's ink box clears the label's ink by a seventh of the label size, and
-    // the sign stops no bond.
-    const d: P = [Math.cos(t), Math.sin(t)], g = 0.14 * size;
-    const fits = (o: P) => label.every((q) => q[0] <= o[0] + x0 - g || q[0] >= o[0] + x1 + g || q[1] <= o[1] + y0 - g || q[1] >= o[1] + y1 + g) && !stops(o);
-    for (let r = 0; r <= 4 * size && !at; r += 0.02 * size) { const o = sub(add(X, mul(d, r)), mid); if (fits(o)) at = o; }
-    at ??= sub(add(X, mul(d, 4 * size)), mid);
+    let t = turn ?? -Math.PI / 4;
+    if (turn === undefined) {
+      const TAU = 2 * Math.PI, taken = bonds.map(({ to }) => Math.atan2(to[1] - X[1], to[0] - X[0]));
+      for (const q of label) if (len(sub(q, X)) > 0.62 * size) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
+      const sorted = taken.map((t) => ((t % TAU) + TAU) % TAU).sort((p, q) => p - q);
+      const fromUpRight = (t: number) => Math.abs(Math.atan2(Math.sin(t + Math.PI / 4), Math.cos(t + Math.PI / 4)));
+      let most = -Infinity;
+      sorted.forEach((s, k) => {
+        const span = (k + 1 < sorted.length ? sorted[k + 1] : sorted[0] + TAU) - s, mid = s + span / 2, score = span - (inRing([Math.cos(mid), Math.sin(mid)]) ? 10 : 0);
+        if (score > most + 1e-6 || (score > most - 1e-6 && fromUpRight(mid) < fromUpRight(t))) { most = score; t = mid; }
+      });
+    }
+    // Out along the gap's middle (or the way it was dragged) until the sign's ink box clears the label's ink by a
+    // seventh of the label size, and, unless it was dragged there, the sign stops no bond. The search starts at the far
+    // side of the label ink in the sign's way, so the sign never sits inside the label (in the ring of an O, or where
+    // the label is only its box).
+    const d: P = [Math.cos(t), Math.sin(t)], g = 0.14 * size, way = Math.max(x1 - x0, y1 - y0) / 2 + g;
+    const fits = (o: P) => label.every((q) => q[0] <= o[0] + x0 - g || q[0] >= o[0] + x1 + g || q[1] <= o[1] + y0 - g || q[1] >= o[1] + y1 + g) && (turn !== undefined || !stops(o));
+    const r0 = label.reduce((r, q) => (Math.abs(cross(d, sub(q, X))) < way ? Math.max(r, dot(sub(q, X), d)) : r), 0);
+    for (let r = r0; r <= r0 + 4 * size && !at; r += 0.02 * size) { const o = sub(add(X, mul(d, r)), mid); if (fits(o)) at = o; }
+    at ??= sub(add(X, mul(d, r0 + 4 * size)), mid);
   }
   return { at, after: at[0] === right && at[1] === raised };
 }
@@ -853,15 +860,19 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   for (const back of endOn.values()) if (!labelled[back]) newman.set(back, 0.4 * zOf(scaleOf(mol.atoms[back])).L);
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
-  const skeletalSign: (P | undefined)[] = []; // where a skeletal carbon's charge is drawn, to move it (electrons)
+  // The middle of each charge sign drawn (a skeletal carbon's, a label's, a radical ion's), to move it (electrons).
+  const signAt: (P | undefined)[] = [];
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
   // A radical ion (one unpaired electron and a charge that is not circled) draws as one unit, as ChemDraw's Radical
   // Cation and Radical Anion symbols: the radical's dot, then the sign (•+, •−), the dot level with the middle of the
   // sign's ink and ION_GAP label sizes before it. The unit goes where the sign goes. A radical moved by hand
-  // (Atom.angles radical0) stays a mark of its own. ionDot: where each unit's dot is drawn; ionSign: where a label's
-  // unit has its sign, so a drag on either moves the unit (charge).
+  // (Atom.angles radical0) stays a mark of its own. ionDot: where each unit's dot is drawn. A drag on its dot or its
+  // sign (signAt) moves the unit round its atom (Atom.angles charge), as a drag on any other charge sign does.
   const isIon = (a: Atom) => a.radical === 1 && !!a.charge && !a.circled && a.angles?.radical0 === undefined;
-  const ionDot: (P | undefined)[] = [], ionSign: (P | undefined)[] = [];
+  const ionDot: (P | undefined)[] = [];
+  // A turned label's sign that is a symbol of its own: its run, its texts, and how far it moves from where it was put
+  // to its place clear of the turned label's ink (charged).
+  const loose: ({ run: Run; texts: Label[]; place: (ink: P[]) => P } | undefined)[] = [];
   // A diamond or star attachment point, ChemDraw's size: three quarters of the label size and two line widths across.
   const pointR = (0.75 * s.size + 2 * s.line) / 2;
   const pointOutline = (st: "diamond" | "star"): P[] => st === "diamond"
@@ -908,7 +919,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
         // the sign alone does.
         const R = 0.1 * S, lead = isIon(a) ? 2 * R + ION_GAP * S : 0;
         const c = add(add(pts[i], mul(d, 0.6 * S + (lead / 2) * Math.abs(d[0]))), [lead / 2, 0]);
-        skeletalSign[i] = c;
+        signAt[i] = c;
         const x = c[0] - (m.width * SUB) / 2, y = c[1] + (m.ascent * SUB) / 2;
         labels.push({ text: t, x, y, size: S * SUB, colour: a.colour });
         labelAtom.set(labels[labels.length - 1], i);
@@ -987,21 +998,28 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       runsAt[i].push(r);
       return r;
     };
-    // The charge sign, where signSpot puts it: left and right are the ends of the label's attaching line, base its
-    // baseline.
+    // The charge sign, where signSpot puts it (or where it was dragged round the atom, Atom.angles charge; y is down
+    // here): left and right are the ends of the label's attaching line, base its baseline.
     const charged = (left: number, right: number, base: number, rtl: boolean) => {
       if (!a.charge || a.circled) return;
       const t = sign(a.charge), m = M(t), ink = m.outline.length ? m.outline.map(([px, py]): P => [px * SUB, py * SUB]) : ([[0, -m.ascent * SUB], [m.width * SUB, 0]] as P[]);
       const { bonds, rings } = signBonds(i, nbrs, covalent, (p, q) => bondAt.get(key(p, q))!, (j) => labelled[j], (j) => pts[j], atomZ[i]);
       // A radical ion: its dot, then the sign, placed as one (its ink is the dot's box and the sign's moved past it). The
-      // dot keeps the same gap from the label as from the sign. A unit moved by hand (Atom.angles charge) goes out that
-      // way.
+      // dot keeps the same gap from the label as from the sign. The sign, or the unit, moved by hand (Atom.angles
+      // charge) goes out that way.
       const R = 0.1 * S, g = ION_GAP * S, [x0, y0, x1, y1] = outlineBox(ink), lead = isIon(a) ? 2 * g + 2 * R - x0 : 0, dy = (y0 + y1) / 2;
       const unit = lead ? [[g, dy - R], [g + 2 * R, dy + R], ...ink.map(([px, py]): P => [px + lead, py])] as P[] : ink;
-      const deg = lead ? a.angles?.charge : undefined;
-      const { at } = signSpot(pts[i], bonds, rings, left, right, base - RISE * S, lead + m.width * SUB, unit, rtl, placedPoints(shape), S, deg === undefined ? undefined : (-deg * Math.PI) / 180);
-      run(t, at[0] + lead, at[1], SUB, -1);
-      if (lead) { ionDot[i] = [at[0] + g + R, at[1] + dy]; ionSign[i] = [at[0] + lead + (x0 + x1) / 2, at[1] + dy]; }
+      const deg = a.angles?.charge, place = (ink: P[], turn?: number) => signSpot(pts[i], bonds, rings, left, right, base - RISE * S, lead + m.width * SUB, unit, rtl, ink, S, turn);
+      const { at, after } = place(placedPoints(shape), deg === undefined ? undefined : (-deg * Math.PI) / 180), from = labels.length, r = run(t, at[0] + lead, at[1], SUB, -1);
+      signAt[i] = [at[0] + lead + (x0 + x1) / 2, at[1] + dy];
+      if (lead) ionDot[i] = [at[0] + g + R, at[1] + dy];
+      // On a turned label, a sign that is not after the label (dragged, a radical ion, or moved off a bond) is a symbol
+      // of its own, as ChemDraw keeps it: it stays level and goes out from the atom on the page, clear of the turned
+      // label and of the atom (which a label turned about its end may leave bare), the way it was dragged or else the way
+      // it is from the atom before the label turns.
+      if (!a.labelAngle || !r || (after && !lead && deg === undefined)) return;
+      const [u0, v0, u1, v1] = outlineBox(unit), way = deg === undefined ? Math.atan2(at[1] + (v0 + v1) / 2 - pts[i][1], at[0] + (u0 + u1) / 2 - pts[i][0]) : (-deg * Math.PI) / 180;
+      loose[i] = { run: r, texts: labels.slice(from), place: (ink: P[]) => sub(place(ink, way).at, at) };
     };
     // A text's ink, left and right of where it starts; and how far left of the middle of a glyph its ink starts.
     const inkOf = (t: string): [number, number] => { const o = M(t).outline; if (!o.length) return [0, 0]; const b = outlineBox(o); return [b[0], b[2]]; };
@@ -1141,16 +1159,19 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   });
   // A turned label (labelAngle) turns about its anchor, as ChemDraw turns a text about its p: the middle of its first
   // line when centred, else the end of its first line that the atom is nearer (where it starts, or ends read right to
-  // left). Its glyph outlines turn with it.
+  // left). Its glyph outlines turn with it, but not a sign that is a symbol of its own (charged).
   const turned = mol.atoms.map((a, i) => {
-    const runs = runsAt[i];
+    const sym = loose[i], runs = runsAt[i].filter((r) => r !== sym?.run);
     if (!a.labelAngle || !runs.length) return false;
     const line = runs.filter((r) => r.line <= 0), x = pts[i][0], start = Math.min(...line.map((r) => r.p.x)), end = Math.max(...line.map((r) => r.p.x + r.width * r.p.f));
     const pivot: P = [a.align === "centre" ? x : x - start <= end - x ? start : end, runs.find((r) => r.line === 0 && r.p.f === 1)?.p.y ?? runs[0].p.y];
     for (const { p } of runs) Object.assign(p, { pts: p.pts.map(([px, py]) => turnPx([p.x + px * p.f, p.y + py * p.f], pivot, a.labelAngle!)), x: 0, y: 0, f: 1 });
-    if (ionDot[i]) ionDot[i] = turnPx(ionDot[i]!, pivot, a.labelAngle);
-    if (ionSign[i]) ionSign[i] = turnPx(ionSign[i]!, pivot, a.labelAngle);
-    for (const l of labels) if (labelAtom.get(l) === i) Object.assign(l, { angle: a.labelAngle, pivot });
+    for (const l of labels) if (labelAtom.get(l) === i && !sym?.texts.includes(l)) Object.assign(l, { angle: a.labelAngle, pivot });
+    if (!sym) { if (signAt[i]) signAt[i] = turnPx(signAt[i]!, pivot, a.labelAngle); return true; }
+    const [dx, dy] = sym.place([...runs.flatMap((r) => r.p.pts), pts[i]]), by = (q?: P): P | undefined => q && [q[0] + dx, q[1] + dy];
+    sym.run.p.x += dx; sym.run.p.y += dy;
+    for (const l of sym.texts) { l.x += dx; l.y += dy; }
+    signAt[i] = by(signAt[i]); ionDot[i] = by(ionDot[i]);
     return true;
   });
   if (only) return { label: shapes.map((shape) => around(shape.map(pieceBox))), scale: k };
@@ -1178,19 +1199,19 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   // charge sits up and to the right when that is clear; the rest share out the widest gaps between the bonds and
   // the label, evenly spaced, and each sits just clear of the label.
   const symbols: P[][][] = mol.atoms.map(() => []);
-  const electrons: { atom: number; at: P; key?: string }[] = skeletalSign.flatMap((at, i) => (at ? [{ atom: i, at, key: 'charge' }] : [])), beads: { at: P; r: number }[] = [];
+  const electrons: { atom: number; at: P; key?: string }[] = signAt.flatMap((at, i) => (at ? [{ atom: i, at, key: 'charge' }] : [])), beads: { at: P; r: number }[] = [];
   const TAU = 2 * Math.PI, turn = (x: number) => ((x % TAU) + TAU) % TAU;
   // Every polygon winds one way (see polygons below); a disc or ring built here is turned to match.
   const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
-  // A radical ion's dot. A curved arrow can start at it; a drag on it, or on a label's unit's sign, moves the unit
-  // (charge), on a label as on a skeletal carbon.
+  // A radical ion's dot. A curved arrow can start at it; a drag on it moves the unit (charge), as a drag on its sign
+  // does.
   ionDot.forEach((c, i) => {
     if (!c) return;
-    const R = 0.1 * s.size * ratio[i], sg = ionSign[i];
+    const R = 0.1 * s.size * ratio[i];
     symbols[i].push(disc(c, R));
     marks[i].push(add(c, [-R, -R]), add(c, [R, R]));
-    electrons.push({ atom: i, at: c }, { atom: i, at: c, key: 'charge' }, ...(sg ? [{ atom: i, at: sg, key: 'charge' }] : []));
+    electrons.push({ atom: i, at: c }, { atom: i, at: c, key: 'charge' });
   });
   mol.atoms.forEach((a, i) => {
     if (a.hidden) return;
