@@ -2250,10 +2250,11 @@ export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f
     shapes: m.shapes?.map((x) => {
       if (!items.has(x.id)) return x;
       // The middle moves by f, and the shape turns as f turns the page: a turn turns it, a scale keeps its angle and
-      // grows it along its own sides (turned by its angle), and a flip turns its angle the other way.
+      // grows it along its own sides (turned by its angle), and a flip turns its angle the other way. A free symbol
+      // (a charge) grows as text does (by text), as an atom's charge does.
       const c = mul(add(x.from, x.to), 0.5), to = f(c), r = ((x.angle ?? 0) * Math.PI) / 180, e = sub(f(add(c, [1, 0])), to);
       const u = sub(f(add(c, [Math.cos(r), Math.sin(r)])), to), v = sub(f(add(c, [-Math.sin(r), Math.cos(r)])), to);
-      const half: P = [((x.to[0] - x.from[0]) / 2) * len(u), ((x.to[1] - x.from[1]) / 2) * len(v)], angle = mirror ? -(x.angle ?? 0) : (x.angle ?? 0) + (Math.atan2(e[1], e[0]) * 180) / Math.PI;
+      const half: P = [((x.to[0] - x.from[0]) / 2) * (x.kind === "symbol" ? text : len(u)), ((x.to[1] - x.from[1]) / 2) * (x.kind === "symbol" ? text : len(v))], angle = mirror ? -(x.angle ?? 0) : (x.angle ?? 0) + (Math.atan2(e[1], e[0]) * 180) / Math.PI;
       const grows = size[0] !== 1 || size[1] !== 1;
       const table = x.table && grows ? { ...x.table, ...(x.table.widths ? { widths: x.table.widths.map((w) => w * size[0]) } : {}), ...(x.table.heights ? { heights: x.table.heights.map((h) => h * size[1]) } : {}) } : x.table;
       return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}), angle });

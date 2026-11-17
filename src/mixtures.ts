@@ -6,6 +6,31 @@
 import { polymerBrackets, repeatCount } from "./query.ts";
 import type { Mol } from "./render.ts";
 
+type Box = [number, number, number, number];
+// A free symbol (a sign placed with the Symbols tool, on no atom) within 0.3 bond lengths of a structure's ink, or of
+// brackets round a structure, is that structure's own: its charge, or a complex's total charge by its brackets, as
+// text that close is. Clean Up moves it with the structure, and a plus one is not a reaction's plus sign. boxes: each
+// structure's ink. Gives each such symbol's structure, by its index in boxes (the nearest).
+export function symbolOwners(doc: Mol, boxes: Box[]): Map<number, number> {
+  const out = new Map<number, number>(), shapes = doc.shapes ?? [];
+  if (!shapes.some((s) => s.kind === "symbol")) return out; // most drawings
+  const boxOf = (s: { from: number[]; to: number[] }): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
+  const gap = (p: Box, q: Box) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]);
+  const round = shapes.filter((s) => s.kind === "brackets" || s.kind === "parens" || s.kind === "braces").flatMap((s): [Box, number][] => {
+    const f = boxOf(s), k = boxes.findIndex((b) => (b[0] + b[2]) / 2 > f[0] && (b[0] + b[2]) / 2 < f[2] && (b[1] + b[3]) / 2 > f[1] && (b[1] + b[3]) / 2 < f[3]);
+    return k < 0 ? [] : [[f, k]];
+  });
+  for (const s of shapes) {
+    if (s.kind !== "symbol") continue;
+    const b = boxOf(s);
+    let best = 0.3, k = -1;
+    boxes.forEach((q, j) => { const g = gap(b, q); if (g < best) { best = g; k = j; } });
+    for (const [f, j] of round) { const g = gap(b, f); if (g < best) { best = g; k = j; } }
+    if (k >= 0) out.set(s.id, k);
+  }
+  return out;
+}
+
 // The structures to name (each a list of atoms), with the ions of a salt together: charged pieces within 3.5 bond
 // lengths of each other whose charges cancel are named as one, as sodium acetate rather than two names. The nearest
 // go together first, and a salt whose charges cancel takes no more: two salts side by side are two. A plus sign drawn
@@ -17,10 +42,12 @@ export function withSalts(doc: Mol, all: number[][]): number[][] {
   // (Each ion's box first: most pairs are too far apart to look at their atoms.)
   const box = ions.map((g) => g.reduce((b, i) => [Math.min(b[0], at(i)[0]), Math.min(b[1], at(i)[1]), Math.max(b[2], at(i)[0]), Math.max(b[3], at(i)[1])], [Infinity, Infinity, -Infinity, -Infinity]));
   const gap = (g: number[], h: number[]) => { let d = Infinity; for (const i of g) for (const j of h) d = Math.min(d, Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1])); return d; };
+  // (A plus sign placed with the Symbols tool, by its middle, unless it is an ion's charge: by it or by its brackets.
+  // An ion's ink is taken as its atoms and their labels, 0.3 bond lengths round them.)
+  const charges = symbolOwners(doc, box.map((b): Box => [b[0] - 0.3, b[1] - 0.3, b[2] + 0.3, b[3] + 0.3]));
   const pairs: [number, number, number][] = [], plus = [
     ...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+"),
-    // (A plus sign placed with the Symbols tool, by its middle.)
-    ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus").map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
+    ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus" && !charges.has(s.id)).map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
   ];
   const inside = (b: number[], x: number, y: number, e: number) => x > b[0] - e && x < b[2] + e && y > b[1] - e && y < b[3] + e;
   const apart = (p: number[], q: number[]) => plus.some((c) => inside([Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[2], q[2]), Math.max(p[3], q[3])], c.x, c.y, 0.5) && !inside(p, c.x, c.y, 0.2) && !inside(q, c.x, c.y, 0.2));

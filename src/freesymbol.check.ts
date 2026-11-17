@@ -8,8 +8,8 @@ import { readFileSync } from "node:fs";
 import { MAGIC, cdxToXml, xmlToCdx } from "./cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { addArrow, addShape, transformParts } from "./edit.ts";
-import { cleanUpReactions, findReaction, rowOf } from "./reaction.ts";
+import { addArrow, addCaption, addShape, transformParts } from "./edit.ts";
+import { cleanUpReactions, findReaction, layoutRow, rowOf } from "./reaction.ts";
 import { withSalts } from "./mixtures.ts";
 import { parse, serialize } from "./file.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
@@ -36,11 +36,11 @@ const ion = { id: 1, ...freeSymbol("radicalCation", [0, 0], SIGN), angle: 90 };
 assert.equal(settleShape(ion).angle, 90);
 assert.equal(settleShape({ ...ion, angle: 270 }).angle, -90);
 assert.equal(settleShape({ ...ion, angle: 360 }).angle, undefined);
-// A turn of the selection turns it about its middle; Scale grows its box, so the symbol.
+// A turn of the selection turns it about its middle; Scale with Labels and lines on (text 2) grows it.
 const m0: Mol = { atoms: [], bonds: [], shapes: [{ ...ion, angle: undefined }] };
 const turned = transformParts(m0, new Set(), new Set([1]), ([x, y]) => [-y, x]).shapes![0];
 assert.ok(near(turned.angle!, 90) && near(symbolSize(turned), SIGN), JSON.stringify(turned));
-const grown = transformParts(m0, new Set(), new Set([1]), ([x, y]) => [2 * x, 2 * y], [2, 2]).shapes![0];
+const grown = transformParts(m0, new Set(), new Set([1]), ([x, y]) => [2 * x, 2 * y], [2, 2], undefined, 2).shapes![0];
 assert.ok(near(symbolSize(grown), 2 * SIGN) && grown.symbol === "radicalCation");
 
 // 2. The ink: inside its box, every polygon wound as the bonds' (shapeInk gives it), turned with the shape. A plus has
@@ -156,7 +156,7 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
 
 // 8. A free plus is a reaction's plus sign, as a "+" caption is: A + B → C reads with its plus, from the app or from a
 // ChemDraw file (its unattached Plus), and Clean Up Reaction moves it into the row and adds no second plus. It keeps
-// two ions apart, and a screen reader calls it a plus sign.
+// two ions apart, and a screen reader calls it by the name the Actions panel gives it.
 {
   const at = (x: number) => ({ label: "C", location: [x, 0, 0] as [number, number, number] });
   let m: Mol = { atoms: [at(0), at(1), at(3), at(4), at(8), at(9)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }, { atoms: [4, 5], order: 1 }] as Mol["bonds"] };
@@ -182,7 +182,65 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
   const ions: Mol = { atoms: [{ label: "Na", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [2, 0, 0], charge: -1 }], bonds: [] };
   assert.equal(withSalts(ions, [[0], [1]]).length, 1);
   assert.equal(withSalts(addShape(ions, freeSymbol("plus", [1, 0], SIGN))[0], [[0], [1]]).length, 2);
-  assert.ok(describe(m, { box: () => [0, 0, 1, 1] }).some((x) => x.role === "shape" && x.name === "Plus sign"));
+  assert.ok(describe(m, { box: () => [0, 0, 1, 1] }).some((x) => x.role === "shape" && x.name === "Positive charge"));
+}
+
+// 9. A free symbol by a structure, or by brackets round one, is that structure's charge (a complex's total charge, as
+// issue 164's commenters draw it): Clean Up Reaction moves it with the structure, as it moves text there. A free plus
+// there is a charge, not a plus sign of the row, and does not keep a salt's ions apart. The reaction is read again
+// when a plus sign or brackets are added, though the atoms are the same.
+{
+  const at = (x: number, y = 0) => ({ label: "C", location: [x, y, 0] as [number, number, number] });
+  const ink = (mol: Mol) => (atoms: number[]) => { const q = atoms.map((i) => mol.atoms[i].location); return [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))] as [number, number, number, number]; };
+  const cbox = (mol: Mol) => (id: number) => { const c = mol.captions?.find((x) => x.id === id); return c ? [c.x - 0.15, c.y - 0.15, c.x + 0.15, c.y + 0.15] as [number, number, number, number] : undefined; };
+  const layout = { gap: 0.8, width: 100, plusBox: [-0.25, -0.15, 0.25, 0.45] as [number, number, number, number], captionPt: 10, bondPt: 14.4 };
+  const clean = (mol: Mol) => cleanUpReactions(mol, mol.arrows!, ink, { ...layout, captionBox: cbox(mol) }, () => true).mol;
+  // A complex in brackets above the arrow's level, its charge by the brackets' top right.
+  let m: Mol = { atoms: [at(-5, 0.25), at(-4, 0.25), at(3), at(4)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  [m] = addArrow(m, { kind: "reaction", from: [-3, 0], to: [1.5, 0] });
+  [m] = addShape(m, { kind: "brackets", from: [-5.3, 0.75], to: [-3.7, -0.25] });
+  for (const k of ["minus", "plus", "radicalCation"] as const) {
+    const [x] = addShape(m, freeSymbol(k, [-3.5, 0.85], SIGN)), sym = x.shapes![1];
+    const r = findReaction(x, x.arrows![0].id, x.arrows!, ink(x), cbox(x))!;
+    assert.deepEqual(r.steps.map((s) => s.kind), ["structure", "arrow", "structure"], k);
+    assert.ok(r.carried.includes(sym.id), k);
+    const out = clean(x), br = out.shapes!.find((s) => s.kind === "brackets")!, now = out.shapes!.find((s) => s.id === sym.id)!;
+    assert.ok(near(out.atoms[0].location[1], 0) && near(mid(now)[1] - br.from[1], 0.85 - 0.75) && near(mid(now)[0], -3.5), k);
+  }
+  // A charge by a structure (no brackets), and a free plus at a cation's top right.
+  let c: Mol = { atoms: [at(0), at(1), at(4), at(5)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  [c] = addArrow(c, { kind: "reaction", from: [2, 0.3], to: [3.4, 0.3] });
+  for (const k of ["plus", "minus", "circledMinus"] as const) {
+    const [x] = addShape(c, freeSymbol(k, [1.25, 0.25], SIGN)), id = x.shapes![0].id;
+    assert.deepEqual(findReaction(x, x.arrows![0].id, x.arrows!, ink(x), cbox(x))!.steps.map((s) => s.kind), ["structure", "arrow", "structure"], k);
+    const out = clean(x), dy = out.atoms[1].location[1] - x.atoms[1].location[1], now = out.shapes!.find((s) => s.id === id)!;
+    assert.ok(Math.abs(dy) > 0.1 && near(mid(now)[0], 1.25) && near(mid(now)[1], 0.25 + dy), k);
+  }
+  // A caption at the same place goes the same way.
+  { const [x] = addCaption(c, { text: "−", x: 1.25, y: 0.25 } as Parameters<typeof addCaption>[1]), out = clean(x); assert.ok(near(out.captions![0].y - 0.25, out.atoms[1].location[1])); }
+  // Clean up of a row of structures (no arrow) takes the charge with its structure, and reads no plus sign.
+  const two: Mol = { atoms: [at(0), at(1), at(1.2, 0.2), at(2.2, 0.2)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  const [t] = addShape(two, freeSymbol("plus", [2.45, 0.45], SIGN)), row = rowOf(t, undefined, ink(t), () => undefined)!;
+  assert.equal(row.plus, false);
+  const laid = layoutRow(t, row.steps, 0.8).mol, moved = laid.atoms[3].location;
+  assert.ok(near(mid(laid.shapes![0])[0] - moved[0], 0.25) && near(mid(laid.shapes![0])[1] - moved[1], 0.25));
+  // A salt in brackets with its charge by them is one compound; a plus sign between the ions keeps them two.
+  const salt: Mol = { atoms: [{ label: "N", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [3, 0, 0], charge: -1 }], bonds: [] };
+  const [inBrackets] = addShape(salt, { kind: "brackets", from: [-1.2, -1.3], to: [1.2, 1.3] });
+  assert.equal(withSalts(addShape(inBrackets, freeSymbol("plus", [1.45, 1.35], SIGN))[0], [[0], [1]]).length, 1);
+  assert.equal(withSalts(addShape(inBrackets, freeSymbol("plus", [2.1, 0], SIGN))[0], [[0], [1]]).length, 2);
+  // Same atoms array, a plus sign added: the ions read apart.
+  let ions: Mol = { atoms: [{ label: "Na", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [2, 0, 0], charge: -1 }, at(7), at(8)], bonds: [{ atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  [ions] = addArrow(ions, { kind: "reaction", from: [3.5, 0], to: [5.5, 0] });
+  const read = (x: Mol) => findReaction(x, x.arrows![0].id, x.arrows!, ink(x), cbox(x))!.steps.map((s) => s.kind).join(" ");
+  assert.equal(read(ions), "structure arrow structure");
+  assert.equal(read(addShape(ions, freeSymbol("plus", [1, 0], SIGN))[0]), "structure plus structure arrow structure");
+  // Scale with Labels and lines off keeps a free symbol's size, as it keeps an atom's charge; on, it grows with them.
+  const one = { id: 1, ...freeSymbol("plus", [1, 1], SIGN) }, page: Mol = { atoms: [], bonds: [], shapes: [one] };
+  assert.ok(near(symbolSize(transformParts(page, new Set(), new Set([1]), (q) => [2 * q[0], 2 * q[1]], [2, 2], undefined, 1).shapes![0]), SIGN));
+  assert.ok(near(symbolSize(transformParts(page, new Set(), new Set([1]), (q) => [2 * q[0], 2 * q[1]], [2, 2], undefined, 2).shapes![0]), 2 * SIGN));
+  // Text > Size on a caption and a free symbol picked together sizes both.
+  assert.match(editor, /restyle\(\(\) => \(\{ size: Number\(arg\) === style\.captionSize \? undefined : Number\(arg\) \}\), \{ shapes \}\)/);
 }
 
 console.log("freesymbol.check: free symbols place, draw, size, save and read back as ChemDraw's.");

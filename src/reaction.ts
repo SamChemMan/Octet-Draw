@@ -5,7 +5,7 @@
 // so a fuller reading of reactions (reaction interpretation) can replace findReaction and keep the layout.
 import { GAP_ARROW_PT, LINE, curveBox, curved, isNumber, straightArrow, type Arrow, type Box, type Caption, type Mol, type Shape } from "./render.ts";
 import { addCaption, fragments, moveAtoms } from "./edit.ts";
-import { compounds } from "./mixtures.ts";
+import { compounds, symbolOwners } from "./mixtures.ts";
 
 type P = [number, number];
 // One thing in the row, with its box in drawing units (y up): [left, bottom, right, top]. A part's carry: what stands
@@ -26,8 +26,8 @@ export type Conditions = { above: Step[]; below: Step[] };
 // objects its parts carry (curved arrows, drawn curves, shapes).
 export type Reaction = { steps: Step[]; arrows: number[]; atoms: number[]; captions: number[]; carried: number[]; conditions: Map<number, Conditions> };
 
-// A plus sign placed with the Symbols tool (a free symbol) is a reaction's plus sign as a "+" caption is.
-// Its box is its ink: the shape's box.
+// A plus sign placed with the Symbols tool (a free symbol) is a reaction's plus sign as a "+" caption is, unless it is
+// a structure's charge (mixtures.ts symbolOwners). Its box is its ink: the shape's box.
 const isPlusShape = (s: Shape) => s.kind === "symbol" && s.symbol === "plus";
 export const plusShapes = (m: Mol) => (m.shapes ?? []).filter(isPlusShape);
 const shapeBox = (s: Shape): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
@@ -60,8 +60,9 @@ const isYield = (text: string) => !!text.trim() && text.split("\n").every((t) =>
 // drawn: each structure with its box, and (worked out only when a row asks, for the structure it asks about) the
 // boxes of the text under one: its number, a caption. findReaction measures them once for all its rows.
 // plus: a plus sign to read the row from in place of the arrow (a line of products that goes on under the arrow's
-// line): the row through it, the way the arrow points.
-type Drawn = { parts: { atoms: number[]; box: Box }[]; under: (part: number) => Box[] };
+// line): the row through it, the way the arrow points. owners: the free symbols that are a structure's own (its
+// charge), each with its structure (by its index in parts); owned: each such structure's symbols.
+type Drawn = { parts: { atoms: number[]; box: Box }[]; under: (part: number) => Box[]; owners: Map<number, number>; owned: Map<number, Shape[]> };
 function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, captionBox: (id: number) => Box | undefined, plus?: number): Reaction | undefined {
   const a = arrows.find((x) => x.id === arrowId), from = plus === undefined ? undefined : plusBoxOf(m, plus, captionBox);
   if (!a || !straightArrow(a) || (plus !== undefined && !from)) return undefined;
@@ -79,7 +80,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   const item = (step: Step): Item => { const c = corners(step.box), xs = c.map(along), ys = c.map(across); return { step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 }; };
   const items: Item[] = drawn.parts.map((p) => item({ kind: "structure", atoms: p.atoms, box: p.box }));
   for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) items.push(item({ kind: c.text.trim() === "+" ? "plus" : "text", id: c.id, box: b })); }
-  for (const s of plusShapes(m)) items.push(item({ kind: "plus", id: s.id, box: shapeBox(s), shape: true }));
+  for (const s of plusShapes(m)) if (!drawn.owners.has(s.id)) items.push(item({ kind: "plus", id: s.id, box: shapeBox(s), shape: true }));
   // Straight arrows: one that points the same way can be a step of the reaction; one that points another way (the
   // other reaction of C ← A → B) ends the row where it stands.
   const against = new Set<Item>();
@@ -93,6 +94,9 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   const gapOf = (p: Box, q: Box) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]);
   const near = (q: P, b: Box, slack = 0.5) => q[0] >= b[0] - slack && q[0] <= b[2] + slack && q[1] >= b[1] - slack && q[1] <= b[3] + slack;
   const structures = items.filter((it) => it.step.kind === "structure");
+  // A structure's own free symbols (its charge), which go with it wherever it goes.
+  const symbolsOf = new Map<Item, Shape[]>();
+  for (const [k, l] of drawn.owned) symbolsOf.set(structures[k], l);
   // What stands wholly on one side of the line, near it, with its middle over an arrow is that arrow's conditions,
   // however close to the line or to a structure: the first of several lines of text under it, or a wide one.
   const shafts = items.filter((it) => it.step.kind === "arrow" && !against.has(it) && Math.abs(it.off) < 0.4);
@@ -159,7 +163,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
 
   // 2. The row. A structure reaches as far as the text that clings to it (not as far as a structure that clings to it,
   //    which can reach past the arrow's end).
-  const frames = (m.shapes ?? []).filter((x) => x.kind !== "highlight").map((x): [number, Box, boolean] => [x.id, [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])], x.kind === "box" || x.kind === "rounded" || x.kind === "oval"]);
+  const frames = (m.shapes ?? []).filter((x) => x.kind !== "highlight" && x.kind !== "symbol").map((x): [number, Box, boolean] => [x.id, [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])], x.kind === "box" || x.kind === "rounded" || x.kind === "oval"]);
   const inside = (b: Box, f: Box) => (b[0] + b[2]) / 2 > f[0] && (b[0] + b[2]) / 2 < f[2] && (b[1] + b[3]) / 2 > f[1] && (b[1] + b[3]) / 2 < f[3];
   const arrowBox: Box = from ?? [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]), Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1])];
   const fenced = (it: Item) => frames.some(([, f, box]) => box && inside(it.step.box, f) && !inside(arrowBox, f));
@@ -223,6 +227,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
       if (t.step.kind === "structure") { k.atoms.push(...t.step.atoms); bring(k, t); } else k.captions.push((t.step as { id: number }).id);
     }
     k.arrows.push(...(ties.get(s) ?? []));
+    for (const x of symbolsOf.get(s) ?? []) { k.shapes.push(x.id); k.boxes.push(shapeBox(x)); }
   };
   for (const r of row) if (r.step.kind === "structure") bring(carry(r.step), r);
   // Frames round one part alone go with it, and widen it for what else it carries.
@@ -282,6 +287,12 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
     if (o) { carry(o).arrows.push(x.id); carry(o).boxes.push(box); }
   }
   for (const [id, f] of frames) { const o = row.some((r) => inside(r.step.box, f)) ? undefined : owner(item({ kind: "text", id, box: f })); if (o) { carry(o).shapes.push(id); carry(o).boxes.push(f); } }
+  // Free symbols close over or under a part, as text is (a plus sign that is no structure's own is the row's or none).
+  for (const x of m.shapes ?? []) {
+    if (x.kind !== "symbol" || isPlusShape(x) || drawn.owners.has(x.id)) continue;
+    const b = shapeBox(x), o = owner(item({ kind: "text", id: x.id, box: b }));
+    if (o) { carry(o).shapes.push(x.id); carry(o).boxes.push(b); }
+  }
   // Curved arrows.
   const on = (q: P) => row.find((r) => r.step.kind === "structure" && near(q, r.step.box))?.step as Part | undefined;
   for (const x of arrows) {
@@ -353,7 +364,8 @@ function stackedOn(m: Mol): Map<number, Caption[]> {
   return by;
 }
 // A drawing's compounds, by its atoms, for the bonds and text they were found with.
-const found = new WeakMap<Mol["atoms"], { bonds: Mol["bonds"]; captions: Mol["captions"]; all: number[][] }>();
+const found = new WeakMap<Mol["atoms"], { bonds: Mol["bonds"]; captions: Mol["captions"]; shapes: Mol["shapes"]; signs: string; all: number[][] }>();
+const signsOf = (m: Mol) => (m.shapes ?? []).filter((s) => isPlusShape(s) || s.kind === "brackets" || s.kind === "parens" || s.kind === "braces").map((s) => `${s.from}/${s.to}`).join(";");
 export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): Reaction | undefined {
   const from = arrows.find((x) => x.id === arrowId);
   if (!from || !straightArrow(from)) return undefined;
@@ -361,13 +373,19 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   // they are found and measured once: each with its box, and the boxes of the text under it (its number, a caption).
   // A compound of several structures (a salt's ions, the structures under one number) is one part of the row. The
   // compounds are found once for the drawing's atoms, bonds and text: Clean Up Reaction reads a row from each arrow.
+  // (A free plus sign keeps two ions apart, and one by an ion or its brackets does not: the free symbols' and
+  // brackets' places count too, and only when the shapes change.)
   let was = found.get(m.atoms);
-  if (was?.bonds !== m.bonds || was.captions !== m.captions) found.set(m.atoms, (was = { bonds: m.bonds, captions: m.captions, all: compounds(m, fragments(m)) }));
+  const signs = was && was.shapes === m.shapes ? was.signs : signsOf(m);
+  if (was?.bonds !== m.bonds || was.captions !== m.captions || was.signs !== signs) found.set(m.atoms, (was = { bonds: m.bonds, captions: m.captions, shapes: m.shapes, signs, all: compounds(m, fragments(m)) }));
+  else was.shapes = m.shapes;
   const all = was.all;
   const parts = all.flatMap((atoms) => { const box = ink(atoms); return box ? [{ atoms, box }] : []; });
   let texts: number[][] | undefined; // each structure's text, by id
   const boxes: Box[][] = [];
-  const drawn: Drawn = { parts, under: (k) => {
+  const owners = symbolOwners(m, parts.map((p) => p.box)), owned = new Map<number, Shape[]>();
+  if (owners.size) for (const x of m.shapes!) { const k = owners.get(x.id); if (k !== undefined) owned.set(k, [...(owned.get(k) ?? []), x]); }
+  const drawn: Drawn = { parts, owners, owned, under: (k) => {
     if (!texts) {
       const home: number[] = new Array(m.atoms.length); // each atom's structure
       parts.forEach((p, j) => { for (const i of p.atoms) home[i] = j; });
@@ -797,11 +815,14 @@ export function reactionClean(m: Mol, r: Reaction, arrows: Arrow[], o: Layout): 
 export function rowOf(m: Mol, atoms: Set<number> | undefined, ink: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): { steps: Step[]; plus: boolean } | undefined {
   const structures = fragments(m).filter((g) => !atoms || g.some((i) => atoms.has(i))).flatMap((g): Step[] => { const b = ink(g); return b ? [{ kind: "structure", atoms: g, box: b }] : []; });
   if (structures.length < 2) return undefined;
+  // (A structure's own free symbols, its charge, go with it.)
+  const owners = symbolOwners(m, structures.map((s) => s.box));
+  for (const [id, k] of owners) { const s = structures[k] as Extract<Step, { kind: "structure" }>; (s.carry ??= { captions: [], atoms: [], arrows: [], shapes: [], ends: [], boxes: [] }).shapes.push(id); }
   const all: Box = [Math.min(...structures.map((s) => s.box[0])) - 1, Math.min(...structures.map((s) => s.box[1])) - 1, Math.max(...structures.map((s) => s.box[2])) + 1, Math.max(...structures.map((s) => s.box[3])) + 1];
   const plus = (m.captions ?? []).flatMap((c): Step[] => {
     const b = captionBox(c.id);
     return b && c.text.trim() === "+" && !c.under && !c.on && b[0] >= all[0] && b[2] <= all[2] && b[1] >= all[1] && b[3] <= all[3] ? [{ kind: "plus", id: c.id, box: b }] : [];
-  }).concat(plusShapes(m).flatMap((s): Step[] => { const b = shapeBox(s); return b[0] >= all[0] && b[2] <= all[2] && b[1] >= all[1] && b[3] <= all[3] ? [{ kind: "plus", id: s.id, box: b, shape: true }] : []; }));
+  }).concat(plusShapes(m).flatMap((s): Step[] => { const b = shapeBox(s); return !owners.has(s.id) && b[0] >= all[0] && b[2] <= all[2] && b[1] >= all[1] && b[3] <= all[3] ? [{ kind: "plus", id: s.id, box: b, shape: true }] : []; }));
   const touch = (p: Box, q: Box) => p[0] < q[2] + 0.3 && q[0] < p[2] + 0.3 && p[1] < q[3] + 0.3 && q[1] < p[3] + 0.3;
   const overlap = structures.some((s, k) => structures.slice(k + 1).some((t) => touch(s.box, t.box)));
   if (!overlap && !plus.length) return undefined;
@@ -818,8 +839,9 @@ export function layoutRow(m: Mol, steps: Step[], gap: number): { mol: Mol; level
   for (const s of steps) {
     const [dx, dy] = [x - s.box[0], level - (s.box[1] + s.box[3]) / 2];
     if (s.kind === "structure") out = moveAtoms(out, new Set(s.atoms), [dx, dy]);
-    if (s.kind === "plus" && s.shape) out = { ...out, shapes: out.shapes?.map((x) => (x.id === s.id ? { ...x, from: [x.from[0] + dx, x.from[1] + dy], to: [x.to[0] + dx, x.to[1] + dy] } : x)) };
-    else if (s.kind === "plus" || s.kind === "text") out = { ...out, captions: out.captions?.map((c) => (c.id === s.id ? { ...c, x: c.x + dx, y: c.y + dy } : c)) };
+    const shapes = s.kind === "plus" ? (s.shape ? [s.id] : []) : (s.carry?.shapes ?? []);
+    if (shapes.length) out = { ...out, shapes: out.shapes?.map((x) => (shapes.includes(x.id) ? { ...x, from: [x.from[0] + dx, x.from[1] + dy], to: [x.to[0] + dx, x.to[1] + dy] } : x)) };
+    if ((s.kind === "plus" && !s.shape) || s.kind === "text") out = { ...out, captions: out.captions?.map((c) => (c.id === s.id ? { ...c, x: c.x + dx, y: c.y + dy } : c)) };
     x += s.box[2] - s.box[0] + gap;
   }
   return { mol: out, level, right: x - gap };

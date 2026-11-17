@@ -4560,7 +4560,7 @@ export default function Editor() {
     set({ ...doc, captions: doc.captions.map((c) => (picked.has(c.id) ? markupCaption(c) ?? c : c)) }, true);
   }
   // Applies a style change to the caption being typed, or to every picked caption.
-  function restyle(change: (c: Partial<Caption>) => Partial<Caption>) {
+  function restyle(change: (c: Partial<Caption>) => Partial<Caption>, with_: Partial<Mol> = {}) {
     if (writing) {
       const base = writing.id !== undefined ? { ...doc.captions?.find((c) => c.id === writing.id), ...writing.style } : writing.style;
       return setWriting({ ...writing, style: { ...writing.style, ...change(base) } });
@@ -4572,7 +4572,7 @@ export default function Editor() {
     // lose that style.
     const delta = change(whole(first)), keys = Object.keys(delta);
     const restyled = (c: Caption): Caption => { const runs = c.runs && without(c.runs, keys); return { ...c, ...delta, ...(c.runs ? { runs: runs && styled(runs) ? runs : undefined } : {}) }; };
-    set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? restyled(c) : c)) }, true);
+    set({ ...doc, ...with_, captions: doc.captions?.map((c) => (picked.has(c.id) ? restyled(c) : c)) }, true);
   }
   // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
   // away from it and stays where it is dragged.
@@ -8547,9 +8547,12 @@ export default function Editor() {
         const runs = (a: Atom) => { if (!a.runs || what === "size" || what === "font" || what === "align") return {}; const r = without(a.runs, what === "plain" ? ["bold", "italic", "underline"] : [what]); return { runs: styled(r) ? r : undefined }; };
         return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change), ...runs(a) } : a)) }, true);
       }
-      // On picked free symbols, a size is the symbol's size (pt), about its middle.
+      // On picked free symbols, a size is the symbol's size (pt), about its middle. Picked captions take it too.
       const symbols = !writing && !selection.size && what === "size" && Number(arg) > 0 ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && x.kind === "symbol") : [];
-      if (symbols.length) { const ids = new Set(symbols.map((x) => x.id)); return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...resizeSymbol(x, Number(arg) / style.bond) } : x)) }, true); }
+      if (symbols.length) {
+        const ids = new Set(symbols.map((x) => x.id)), shapes = doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...resizeSymbol(x, Number(arg) / style.bond) } : x));
+        return doc.captions?.some((c) => picked.has(c.id)) ? restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }), { shapes }) : set({ ...doc, shapes }, true);
+      }
       // On picked tables, plates and plasmid maps, the same styles set their text (the cells, Rf values, sizes or
       // names), as in ChemDraw.
       const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || isPlate(x) || x.kind === "plasmid")) : [];

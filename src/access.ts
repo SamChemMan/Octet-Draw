@@ -173,7 +173,7 @@ function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string }
   return said ? { role: `${lower(kind)} arrow`, name: said } : { role: "arrow", name: kind };
 }
 // A free plus can be a charge or a reaction's plus sign: it reads as a plus sign, as a "+" caption does.
-const symbolName = (sh: Shape) => ((sh.symbol ?? "plus") === "plus" ? "Plus sign" : FREE_SYMBOL_NAMES[sh.symbol!]);
+const symbolName = (sh: Shape) => FREE_SYMBOL_NAMES[sh.symbol ?? "plus"];
 function shapeText(sh: Shape): { name: string; more?: string } {
   const base = SHAPES[sh.kind], dashed = sh.dashed ? ", dashed" : "";
   if (sh.rgroup) return { name: `R-group definition ${sh.rgroup.name}` };
