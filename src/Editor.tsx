@@ -88,7 +88,7 @@ import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { inkOn, richSpans } from "./richspans";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
-import { clearScheme, interpret, mapScheme, rolesOf, turnScheme, type Part, type Role, type RoleStep } from "./interpret";
+import { clearScheme, interpret, mapScheme, rolesOf, turnScheme, type Part, type Role } from "./interpret";
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
@@ -199,6 +199,8 @@ function useListen<T>(event: string, run: (e: { payload: T }) => void, on = TAUR
 }
 
 const L = STYLE.bond; // px per bond length at 100%
+// The structures among a reaction step's parts (interpret.ts), by their atoms.
+const structureAtoms = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
 // The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
 // labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
 // purpose opens with bonds the same length on screen (IDEA-SIZE-7): Slides and Poster show their page smaller round
@@ -4117,18 +4119,19 @@ export default function Editor() {
   const inkBox = (atoms: number[]): Box | undefined => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; };
   const captionBox = (id: number): Box | undefined => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; };
   const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows, inkBox, captionBox);
-  // Every reaction in the drawing, each once, with its steps as Octet reads them (interpret.ts).
-  const reactions = () => {
-    const out: { r: Reaction; steps: RoleStep[] }[] = [], seen = new Set<number>();
+  // Every reaction in the drawing, each once (reactionList), with its steps as Octet reads them (interpret.ts).
+  const reactionList = () => {
+    const out: Reaction[] = [], seen = new Set<number>();
     for (const a of arrows) {
       if (seen.has(a.id) || !straightArrow(a)) continue;
       const r = reactionOf(a.id);
       if (!r) continue;
       r.arrows.forEach((id) => seen.add(id));
-      out.push({ r, steps: interpret(doc, r, captionBox) });
+      out.push(r);
     }
     return out;
   };
+  const reactions = () => reactionList().map((r) => ({ r, steps: interpret(doc, r, captionBox) }));
   // Show Reaction Interpretation: each reaction's steps and what each part is, read again when the drawing changes.
   const interpreted = useMemo(() => (settings.interpretation && loaded ? reactions().map(({ r, steps }) => ({ r, steps, roles: rolesOf(steps) })) : []),
     [settings.interpretation, loaded, doc, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4137,8 +4140,7 @@ export default function Editor() {
   // and a product structure, and all of it in the part.
   const stepsIn = (part: Mol): RxnStep[] => {
     const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
-    const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-    return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structures(s.reactants), products: structures(s.products), agents: structures([...s.above, ...s.below]) }))
+    return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structureAtoms(s.reactants), products: structureAtoms(s.products), agents: structureAtoms([...s.above, ...s.below]) }))
       .filter((s) => s.reactants.length && s.products.length && (!at || [...s.reactants, ...s.products, ...s.agents].flat().every((i) => at.has(i))))
       .map((s) => (at ? { reactants: s.reactants.map((g) => g.map((i) => at.get(i)!)), products: s.products.map((g) => g.map((i) => at.get(i)!)), agents: s.agents.map((g) => g.map((i) => at.get(i)!)) } : s));
   };
@@ -4177,7 +4179,6 @@ export default function Editor() {
     const size = (style.captionSize * pt) / L, w = textWidth("+", style.captionSize * pt, false, false, fontStack(style.captionFont)) / L;
     return { gap: reactionGap, width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
   };
-  const placedBox = (id: number): Box | undefined => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; };
   // Whether two drawings have everything in the same place (to within a millionth of a bond length).
   const sameLayout = (p: Mol, q: Mol) => {
     const near = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
@@ -4188,7 +4189,7 @@ export default function Editor() {
   // Lays out every reaction `pick` takes (reaction.ts cleanUpReactions), measured as drawn now.
   function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
     const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
-    return cleanUpReactions(m, arrows, inkOf, reactionLayout(placedBox), pick);
+    return cleanUpReactions(m, arrows, inkOf, reactionLayout(captionBox), pick);
   }
   // Each product of the reactions `pick` takes, turned to lie as the starting material it came from, by the atom map
   // (ChemDraw's Augmented Clean Up Reaction, interpret.ts alignByMap), then the reactions read again from where their
@@ -6319,13 +6320,7 @@ export default function Editor() {
     if (site === "scholar" && !namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", "info"); }
     const all = !selection.size && !picked.size, part = all ? doc : extractSelection(doc, selection, picked);
     if (!part.atoms.length) return setNotice("Select a structure to search.", "info");
-    const reactions: Reaction[] = [], seen = new Set<number>();
-    for (const a of arrows.filter((x) => straightArrow(x))) {
-      if (seen.has(a.id)) continue;
-      const r = reactionOf(a.id);
-      r?.arrows.forEach((id) => seen.add(id));
-      if (r) reactions.push(r);
-    }
+    const reactions = reactionList();
     const role = roleOf(reactions, fragments(doc).filter((g) => all || g.some((i) => selection.has(i))));
     if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.", "info");
     let query: ReturnType<typeof searchQuery>, text: string | undefined;
@@ -6716,7 +6711,7 @@ export default function Editor() {
       return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false, font: textStyle.font ?? style.captionFont, fonts: fontList };
     // A whole reaction picked (as a double-click on its arrow picks it).
     const reaction = reactionPicked();
-    if (reaction) return { kind: "reaction", roman: romanOrNone(), grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(doc, reaction, arrows, reactionLayout(placedBox)), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
+    if (reaction) return { kind: "reaction", roman: romanOrNone(), grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(doc, reaction, arrows, reactionLayout(captionBox)), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
     // A cycle picked (with its intermediates), when it is all that is picked.
     const mix = mixOf();
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
@@ -8244,8 +8239,7 @@ export default function Editor() {
       const r = reactionPicked() ?? (arrow !== undefined ? reactionOf(arrow) : undefined);
       if (!r) return setNotice("Select a reaction first.", "info");
       if (command === "reaction.unmap") return set(clearScheme(doc, new Set(r.atoms)), true);
-      const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structureAtoms(x.reactants), products: structureAtoms(x.products) }));
       const mapped = mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms));
       return mapped ? set(mapped, true) : setNotice("Octet cannot map these atoms.");
     }
@@ -8876,8 +8870,7 @@ export default function Editor() {
         // rest of the pair's reaction is mapped too, keeping the pairs mapped by hand.
         const paired = pairMap(doc, drag.atom, to), hit = settings.autoMap ? reactions().find(({ r }) => r.atoms.includes(drag.atom) && r.atoms.includes(to)) : undefined;
         if (!hit) return set(paired, true);
-        const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-        const steps = hit.steps.map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+        const steps = hit.steps.map((x) => ({ reactants: structureAtoms(x.reactants), products: structureAtoms(x.products) }));
         return set(mapScheme(paired, steps, (rs, ps) => mapReaction(rs, ps, true), (atoms) => pickAtoms(paired, atoms)) ?? paired, true);
       }
       case "turn":
