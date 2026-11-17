@@ -1378,10 +1378,11 @@ pub async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T +
 }
 
 // File > Update Document1 (Ctrl+S), from objects::ole_update, which checked the sizes: the picture becomes the EMF
-// here, as Copy makes it. The window sends its picture once the drawing is open, so GetData and GetExtent have it,
-// and then its newest drawing after each change, for Close and Quit (Session::message).
+// here, as Copy makes it for the object (with EMF+, which Word draws anti-aliased: issue 166). The window sends its
+// picture once the drawing is open, so GetData and GetExtent have it, and then its newest drawing after each change,
+// for Close and Quit (Session::message).
 pub async fn update(app: AppHandle, id: u64, oct: String, svg: String, cdxml: String, send: Option<bool>, seq: Option<u64>) -> std::result::Result<(), String> {
-    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml), None);
+    let emf = crate::vector::make_office_emf(&crate::export::tree(&svg)?, Some(&cdxml));
     on_main(&app, move || {
         let o = OPEN.with(|m| m.borrow().get(&id).cloned()).filter(|o| !o.closing.get()).ok_or("The document is closed. Save a copy to keep this drawing.")?;
         match o.message(seq, send != Some(false), oct, emf) {

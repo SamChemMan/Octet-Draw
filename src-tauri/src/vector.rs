@@ -21,7 +21,9 @@ struct Stroke {
     width: f32,       // pt
     cap: u8,          // 0 butt, 1 round, 2 square
     join: u8,         // 0 miter, 1 round, 2 bevel
+    miter: f32,       // the miter limit, in widths (EMF+ only)
     dash: Vec<f32>,   // pt
+    offset: f32,      // where the dashes start, pt (EMF+ only)
 }
 struct Shape {
     segs: Vec<Seg>,
@@ -158,7 +160,9 @@ fn walk(g: &usvg::Group, opacity: f32, base: Transform, text: Option<&usvg::font
                     width: s.width().get() * k,
                     cap: match s.linecap() { usvg::LineCap::Butt => 0, usvg::LineCap::Round => 1, usvg::LineCap::Square => 2 },
                     join: match s.linejoin() { usvg::LineJoin::Round => 1, usvg::LineJoin::Bevel => 2, _ => 0 },
+                    miter: s.miterlimit().get(),
                     dash: s.dasharray().map(|d| d.iter().map(|v| v * k).collect()).unwrap_or_default(),
+                    offset: s.dashoffset() * k,
                 });
                 out.push(Mark::Shape(Shape { segs, fill, stroke }));
             }
@@ -467,9 +471,200 @@ const CDXML_TAG: &[u8] = b"Octet CDXML\0";
 // (with_pdf). Word for Mac draws the PDF. Windows has no use for a PDF and draws the records. With None the EMF has no
 // such comment, and its bytes are what they were before make_emf took a PDF.
 pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>, pdf: Option<&[u8]>) -> Vec<u8> {
-    if let Some(pdf) = pdf {
-        return with_pdf(&make_emf(tree, cdxml, None), pdf);
+    match pdf {
+        Some(pdf) => with_pdf(&emf(tree, cdxml, false), pdf),
+        None => emf(tree, cdxml, false),
     }
+}
+
+// The EMF of an Octet Drawing object in Word, PowerPoint and Excel for Windows (issue 166, decision 0023): make_emf's
+// records, and the same picture as EMF+ records, anti-aliased. Word draws an object's picture through GDI+, which
+// draws GDI records without anti-aliasing: an object with make_emf's picture has jagged bonds. GDI+ draws the EMF+
+// records and skips the GDI ones; GDI and programs that read no EMF+ skip the EMF+ ones (they are comments) and draw
+// what make_emf draws. ChemDraw's objects have such pictures too.
+pub fn make_office_emf(tree: &usvg::Tree, cdxml: Option<&str>) -> Vec<u8> {
+    emf(tree, cdxml, true)
+}
+
+// EMF+ (MS-EMFPLUS): records in EMR_COMMENT records, which GDI skips. Each mark's EMF+ records go in a comment before
+// its GDI records, as GDI+ writes a dual metafile. They draw in the reference device's px (page unit pixel, scale 1,
+// no world transform): a pt is 4/3 px, so each EMF+ point times 15 is the GDI one (1/20 pt) to within its rounding.
+const PX: f32 = 4.0 / 3.0;
+// EmfPlusGraphicsVersion: the metafile signature and GDI+ 1.1.
+const PLUS_VERSION: u32 = 0xDBC0_1002;
+// The objects' ids (0 to 63). Each shape and run defines its own again; a new definition replaces the old one.
+const PLUS_PATH: u16 = 0;
+const PLUS_PEN: u16 = 1;
+const PLUS_FONT: u16 = 2;
+
+// The EMF+ records of one comment.
+#[derive(Default)]
+struct Plus(Vec<u8>);
+impl Plus {
+    // Type, flags, size and the data's size (both in whole 4-byte words), then the data.
+    fn record(&mut self, kind: u16, flags: u16, data: &[u8]) {
+        let size = 12 + data.len().next_multiple_of(4);
+        self.0.extend(kind.to_le_bytes());
+        self.0.extend(flags.to_le_bytes());
+        self.0.extend((size as u32).to_le_bytes());
+        self.0.extend((size as u32 - 12).to_le_bytes());
+        self.0.extend(data);
+        self.0.resize(self.0.len() + size - 12 - data.len(), 0);
+    }
+}
+impl Emf {
+    // EMR_COMMENT with EMF+ records: the data's size, "EMF+", then the records.
+    fn plus(&mut self, p: &Plus) {
+        self.record_with(70, &[4 + p.0.len() as i32, 0x2B46_4D45], &p.0);
+    }
+}
+// Little-endian bytes of 32-bit values, for EMF+ data.
+fn le(out: &mut Vec<u8>, words: &[u32]) {
+    out.extend(words.iter().flat_map(|w| w.to_le_bytes()));
+}
+fn lef(out: &mut Vec<u8>, values: &[f32]) {
+    out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+}
+// EmfPlusARGB: a colour on white, so opaque.
+fn argb(c: [u8; 3]) -> u32 {
+    0xFF00_0000 | (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])
+}
+
+// A shape as EMF+: its outline as a path object, then filled with its colour (EmfPlusFillPath) and drawn with a pen
+// object (EmfPlusDrawPath). Points are floats; each figure starts with a start point and a closed one has the close
+// flag on its last point. A nonzero fill sets PathPointFlags 0x2000, as GDI+ writes a path with winding fill (MS-EMFPLUS
+// names no fill mode; the Windows CI test ole_plus_fill_mode checks it). None for a shape with no points or no paint.
+fn plus_shape(sh: &Shape) -> Option<Plus> {
+    let (mut points, mut types) = (Vec::new(), Vec::<u8>::new());
+    let (mut start, mut open) = ([0.0f32; 2], false);
+    let add = |p: [f32; 2], kind: u8, points: &mut Vec<f32>, types: &mut Vec<u8>, open: &mut bool, start: [f32; 2]| {
+        if !*open {
+            // A line or curve after a close starts a new figure where the last one started, as in GDI.
+            points.extend(start);
+            types.push(0);
+            *open = true;
+        }
+        points.extend(p);
+        types.push(kind);
+    };
+    for seg in &sh.segs {
+        match *seg {
+            Seg::Move(x, y) => {
+                start = [x * PX, y * PX];
+                points.extend(start);
+                types.push(0);
+                open = true;
+            }
+            Seg::Line(x, y) => add([x * PX, y * PX], 1, &mut points, &mut types, &mut open, start),
+            Seg::Curve(a, b, c, d, x, y) => {
+                for p in [[a, b], [c, d], [x, y]] {
+                    add([p[0] * PX, p[1] * PX], 3, &mut points, &mut types, &mut open, start);
+                }
+            }
+            Seg::Close => {
+                if open {
+                    if let Some(t) = types.last_mut() {
+                        *t |= 0x80;
+                    }
+                }
+                open = false;
+            }
+        }
+    }
+    if types.is_empty() || (sh.fill.is_none() && sh.stroke.is_none()) {
+        return None;
+    }
+    let mut path = Vec::with_capacity(12 + 9 * types.len());
+    le(&mut path, &[PLUS_VERSION, types.len() as u32, if matches!(sh.fill, Some((_, false))) { 0x2000 } else { 0 }]);
+    lef(&mut path, &points);
+    path.extend(&types);
+    let mut p = Plus::default();
+    p.record(0x4008, (3 << 8) | PLUS_PATH, &path); // EmfPlusObject: a path
+    if let Some((c, _)) = sh.fill {
+        p.record(0x4014, 0x8000 | PLUS_PATH, &argb(c).to_le_bytes()); // EmfPlusFillPath, the colour inline (S)
+    }
+    if let Some(st) = &sh.stroke {
+        p.record(0x4008, (2 << 8) | PLUS_PEN, &pen(st)); // EmfPlusObject: a pen
+        p.record(0x4015, PLUS_PATH, &u32::from(PLUS_PEN).to_le_bytes()); // EmfPlusDrawPath
+    }
+    Some(p)
+}
+
+// An EMF+ pen (EmfPlusPen): its width in world units (px here), the caps and join, the miter limit, the dashes, then
+// a solid brush of its colour. GDI+ measures dashes in pen widths. The SVG's miter join turns to a bevel past the
+// limit: in GDI+ that is LineJoinMiterClipped. GDI+ has no square dash cap, so with square caps each dash is a width
+// longer and starts half a width earlier, which draws the same. A dash or gap is at least 1/20 pt, as in the GDI pen.
+fn pen(st: &Stroke) -> Vec<u8> {
+    let cap = [0u32, 2, 1][usize::from(st.cap.min(2))]; // flat, round, square
+    let join = [3u32, 2, 1][usize::from(st.join.min(2))]; // miter clipped, round, bevel
+    let mut flags = 0x02 | 0x04 | 0x08 | 0x10; // start cap, end cap, join, miter limit
+    let mut extra = Vec::new();
+    le(&mut extra, &[cap, cap, join]);
+    lef(&mut extra, &[st.miter.max(1.0)]);
+    if !st.dash.is_empty() {
+        flags |= 0x20 | 0x40 | 0x80 | 0x100; // line style, dash cap, dash offset, dashes
+        let width = st.width.max(1.0 / UNIT);
+        let least = 1.0 / UNIT / width;
+        let square = st.cap == 2;
+        let dashes: Vec<f32> = st.dash.iter().enumerate().map(|(i, d)| {
+            let d = (d / width).max(least);
+            match (square, i % 2) {
+                (true, 0) => d + 1.0,
+                (true, _) => (d - 1.0).max(least),
+                _ => d,
+            }
+        }).collect();
+        le(&mut extra, &[5, if st.cap == 1 { 2 } else { 0 }]); // LineStyleCustom, DashedLineCap round or flat
+        lef(&mut extra, &[st.offset / width + if square { 0.5 } else { 0.0 }]);
+        le(&mut extra, &[dashes.len() as u32]);
+        lef(&mut extra, &dashes);
+    }
+    let mut out = Vec::with_capacity(40 + extra.len());
+    le(&mut out, &[PLUS_VERSION, 0, flags, 0]); // version, type, flags, UnitWorld
+    lef(&mut out, &[st.width * PX]);
+    out.extend(extra);
+    le(&mut out, &[PLUS_VERSION, 0, argb(st.rgb)]); // EmfPlusBrush: solid, its colour
+    out
+}
+
+// A run as EMF+: its font (EmfPlusFont: em size in px, bold from a weight of 600, italic, the same Windows face as the
+// GDI record) and EmfPlusDrawDriverString with each character at its origin on the baseline, as the GDI record puts
+// it. The record is 28 bytes and 10 a character, so a run of an odd number of characters ends in a space, at the end of
+// its last advance, to keep its size in whole 4-byte words. A space draws nothing.
+fn plus_text(r: &Run) -> Plus {
+    let face: Vec<u16> = r.face.encode_utf16().collect();
+    let mut font = Vec::with_capacity(24 + 2 * face.len());
+    le(&mut font, &[PLUS_VERSION]);
+    lef(&mut font, &[r.size * PX]);
+    le(&mut font, &[2, u32::from(r.weight >= 600) | (u32::from(r.italic) << 1), 0, face.len() as u32]); // UnitPixel, style, reserved, length
+    font.extend(face.iter().flat_map(|c| c.to_le_bytes()));
+    let (mut chars, mut xs) = (r.chars.clone(), r.xs.clone());
+    if chars.len() % 2 == 1 {
+        chars.push(0x20);
+        xs.push(r.end);
+    }
+    let mut text = Vec::with_capacity(16 + 10 * chars.len());
+    le(&mut text, &[argb(r.rgb), 1, 0, chars.len() as u32]); // the colour, CmapLookup (characters, not glyph ids), no matrix
+    text.extend(chars.iter().flat_map(|c| c.to_le_bytes()));
+    lef(&mut text, &xs.iter().flat_map(|x| [x * PX, r.y * PX]).collect::<Vec<_>>());
+    let mut p = Plus::default();
+    p.record(0x4008, (6 << 8) | PLUS_FONT, &font); // EmfPlusObject: a font
+    p.record(0x4036, 0x8000 | PLUS_FONT, &text); // EmfPlusDrawDriverString, the colour inline (S)
+    p
+}
+
+// The records that map logical units (1/20 pt) to device px: MM_ANISOTROPIC, the window in logical units and the
+// viewport in device px, both from 0.
+fn mapping(e: &mut Emf, logical: (i32, i32), device: (i32, i32)) {
+    e.record(17, &[8]); // EMR_SETMAPMODE MM_ANISOTROPIC
+    e.record(9, &[logical.0, logical.1]); // EMR_SETWINDOWEXTEX
+    e.record(10, &[0, 0]); // EMR_SETWINDOWORGEX
+    e.record(11, &[device.0, device.1]); // EMR_SETVIEWPORTEXTEX
+    e.record(12, &[0, 0]); // EMR_SETVIEWPORTORGEX
+}
+
+// make_emf without a PDF, and with `plus` make_office_emf: one walk of the drawing for both.
+fn emf(tree: &usvg::Tree, cdxml: Option<&str>, plus: bool) -> Vec<u8> {
     let (w, h) = size(tree);
     // The picture in device px (whole ones, the logical units fifteen to each), and its frame in hundredths of a mm.
     let px = |pt: f32| (((pt * UNIT).ceil().max(1.0) as i32).saturating_add(PER_PX - 1)) / PER_PX;
@@ -480,15 +675,26 @@ pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>, pdf: Option<&[u8]>) -> V
     // EMR_HEADER (filled in at the end with the totals): bounds, frame, " EMF", version, bytes, records, handles,
     // reserved, description, palette, device, millimetres, pixel format, OpenGL, micrometres.
     e.record(1, &[0, 0, dw - 1, dh - 1, 0, 0, fw, fh, 0x464D_4520, 0x10000, 0, 0, 4, 0, 0, 0, DEVICE.0, DEVICE.1, DEVICE_MM.0, DEVICE_MM.1, 0, 0, 0, DEVICE_MM.0 * 1000, DEVICE_MM.1 * 1000]);
+    if plus {
+        // The EMF+ header first, as MS-EMFPLUS requires: EmfPlusHeader (dual: GDI records too; GDI+ 1.1; recorded for
+        // a video display at 96 dpi, the reference device's). Then anti-aliasing on at high quality, text anti-aliased,
+        // pixels offset by half (so a pixel is covered from its edge, as in GDI), smooth scaling, and the page unit px.
+        let mut p = Plus::default();
+        let mut head = Vec::new();
+        le(&mut head, &[PLUS_VERSION, 1, 96, 96]);
+        p.record(0x4001, 1, &head);
+        p.record(0x401E, (2 << 1) | 1, &[]); // EmfPlusSetAntiAliasMode: SmoothingModeHighQuality, on
+        p.record(0x401F, 4, &[]); // EmfPlusSetTextRenderingHint: TextRenderingHintAntiAlias
+        p.record(0x4022, 4, &[]); // EmfPlusSetPixelOffsetMode: PixelOffsetModeHalf
+        p.record(0x4021, 7, &[]); // EmfPlusSetInterpolationMode: HighQualityBicubic
+        p.record(0x4030, 2, &1.0f32.to_le_bytes()); // EmfPlusSetPageTransform: UnitPixel, scale 1
+        e.plus(&p);
+    }
     if let Some(x) = cdxml {
         let data = [CDXML_TAG, x.as_bytes()].concat();
         e.record_with(70, &[data.len() as i32], &data); // EMR_COMMENT: the data's size, then the data
     }
-    e.record(17, &[8]); // EMR_SETMAPMODE MM_ANISOTROPIC
-    e.record(9, &[lw, lh]); // EMR_SETWINDOWEXTEX
-    e.record(10, &[0, 0]); // EMR_SETWINDOWORGEX
-    e.record(11, &[dw, dh]); // EMR_SETVIEWPORTEXTEX
-    e.record(12, &[0, 0]); // EMR_SETVIEWPORTORGEX
+    mapping(&mut e, (lw, lh), (dw, dh));
     e.record(18, &[1]); // EMR_SETBKMODE TRANSPARENT
     e.record(22, &[24]); // EMR_SETTEXTALIGN TA_BASELINE, TA_LEFT
     let at = |v: f32| (v * UNIT).round() as i32;
@@ -496,15 +702,34 @@ pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>, pdf: Option<&[u8]>) -> V
         let sh = match mark {
             Mark::Shape(sh) => sh,
             Mark::Text(r) => {
+                if plus {
+                    e.plus(&plus_text(&r));
+                }
                 text_record(&mut e, &r, at);
                 continue;
             }
             Mark::Picture(p) => {
+                // GDI+ draws a picture's GDI records after EmfPlusGetDC, up to the next EMF+ record. It has played
+                // none of the set-up records above, so the picture's records save the DC, set the mapping again, and
+                // restore the DC after. GDI plays them too, to the same pixels.
+                if plus {
+                    let mut q = Plus::default();
+                    q.record(0x4004, 0, &[]); // EmfPlusGetDC
+                    e.plus(&q);
+                    e.record(33, &[]); // EMR_SAVEDC
+                    mapping(&mut e, (lw, lh), (dw, dh));
+                }
                 let k = UNIT / PER_PX as f32;
                 picture_record(&mut e, &p, (k, k));
+                if plus {
+                    e.record(34, &[-1]); // EMR_RESTOREDC
+                }
                 continue;
             }
         };
+        if let Some(p) = plus.then(|| plus_shape(&sh)).flatten() {
+            e.plus(&p);
+        }
         // The outline as a GDI path, with its bounds.
         let path = |e: &mut Emf| {
             e.record(59, &[]); // EMR_BEGINPATH
@@ -550,6 +775,11 @@ pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>, pdf: Option<&[u8]>) -> V
             e.record(37, &[NULL_PEN]);
             e.record(40, &[2]);
         }
+    }
+    if plus {
+        let mut p = Plus::default();
+        p.record(0x4002, 0, &[]); // EmfPlusEndOfFile
+        e.plus(&p);
     }
     e.record(14, &[0, 16, 20]); // EMR_EOF: no palette, nSizeLast
     let (bytes, records) = (e.out.len() as u32, e.records);
@@ -635,7 +865,7 @@ pub(crate) mod tests {
     fn tree(svg: &str) -> usvg::Tree {
         usvg::Tree::from_str(svg, &usvg::Options::default()).unwrap()
     }
-    const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M0 0L72 36" stroke="#000" stroke-width="2"/><rect x="10" y="10" width="20" height="10" fill="#213C99" fill-opacity="0.5"/></svg>"##;
+    pub(crate) const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M0 0L72 36" stroke="#000" stroke-width="2"/><rect x="10" y="10" width="20" height="10" fill="#213C99" fill-opacity="0.5"/></svg>"##;
 
     #[test]
     fn eps_has_its_box_and_paths() {
@@ -1044,3 +1274,8 @@ pub(crate) mod tests {
         assert_eq!(&seen[k - 2..k + 2], &[21, 35, 81, 36]);
     }
 }
+
+// The Office object's EMF, read back by MS-EMFPLUS, and drawn by GDI and GDI+ on Windows (issue 166).
+#[cfg(test)]
+#[path = "vector_plus_tests.rs"]
+mod plus_tests;

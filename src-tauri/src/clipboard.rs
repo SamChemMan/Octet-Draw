@@ -223,9 +223,10 @@ fn plain_text(s: System, b: Vec<u8>) -> Option<String> {
 
 // The types for one copy on system `s`, in ChemDraw's order, as (name, bytes). svg: the picture (None: no picture).
 // cdxml: hidden in the picture (on macOS in the PDF and in the EMF in Office's copy), and also put on as its own type
-// when `cdxml_type` is set. cdx: ChemDraw's binary drawing.
+// when `cdxml_type` is set. cdx: ChemDraw's binary drawing. object: an Octet Drawing object goes on first (Windows,
+// decision 0023), so the EMF is the object's picture, with EMF+ records (issue 166).
 #[allow(clippy::too_many_arguments)]
-fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+fn types(s: System, object: bool, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     // The Mac's picture is the one Update in Word puts on.
     let mut out: Vec<(&'static str, Vec<u8>)> = match svg {
         Some(svg) if s == System::Mac => mac_picture(svg, cdxml)?,
@@ -234,9 +235,17 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
     let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().map(|n| (*n, b.clone())));
     if let Some(svg) = svg.filter(|_| s != System::Mac) {
         if s == System::Windows {
+            // The EMF is made on a thread of its own while the bitmap is drawn, so Copy takes about what the bitmap
+            // takes. If the system gives no thread, it is made after.
             let tree = crate::export::tree(svg)?;
-            put(Kind::Emf, crate::vector::make_emf(&tree, cdxml, None));
-            if let (_, Some(b)) = crate::export::clipboard_pixels(&tree, true, dpi, None)? {
+            let emf = || if object { crate::vector::make_office_emf(&tree, cdxml) } else { crate::vector::make_emf(&tree, cdxml, None) };
+            let (made, bitmap) = std::thread::scope(|t| {
+                let made = std::thread::Builder::new().spawn_scoped(t, emf).ok();
+                let bitmap = crate::export::clipboard_pixels(&tree, true, dpi, None);
+                (made.and_then(|m| m.join().ok()), bitmap)
+            });
+            put(Kind::Emf, made.unwrap_or_else(emf));
+            if let (_, Some(b)) = bitmap? {
                 put(Kind::Bitmap, b);
             }
         } else {
@@ -656,20 +665,22 @@ pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, dpi: 
         Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet cannot copy this.".to_string())?),
         _ => None,
     };
-    let object = oct.filter(|o| text.is_none() && o.len() <= MAX_TYPE);
+    // Whether the object goes on is known before the types are made: its picture is the EMF with EMF+ (issue 166).
+    #[cfg(windows)]
+    let object = oct.filter(|o| text.is_none() && o.len() <= MAX_TYPE && crate::ole::win::offered());
     #[cfg(not(windows))]
-    let _ = object;
+    let object: Option<String> = oct.and(None);
     let types = match text {
         Some(t) if t.len() <= MAX_TYPE => text_types(HERE, &t),
         Some(_) => return Err("This text is too long to copy.".into()),
-        None => types(HERE, svg.as_deref(), dpi.unwrap_or(600.0), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?,
+        None => types(HERE, object.is_some(), svg.as_deref(), dpi.unwrap_or(600.0), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?,
     };
     let _ = &app;
     #[cfg(target_os = "macos")]
     return mac::write(&mac::general(), &types);
     #[cfg(windows)]
     {
-        if let Some(oct) = object.filter(|_| crate::ole::win::offered()) {
+        if let Some(oct) = object {
             let numbered = types.into_iter().map(|(n, b)| (win::format(n) as u16, n, b)).collect::<Vec<_>>();
             if numbered.iter().any(|(f, ..)| *f == 0) {
                 return Err("Octet cannot copy this.".into());
@@ -769,10 +780,10 @@ mod tests {
     #[test]
     fn copy_types_in_chemdraws_order() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let t = types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, false, Some(svg), 600.0, Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, CDX[0], CDX[1], CDX[2], CDXML[0], CDXML[1], CDXML[2], MOLFILE, SMILES, OCTET]);
         assert!(t[2].1.starts_with(b"VjCD0100") && t[2].1 == t[3].1 && t[2].1 == t[4].1);
-        let t = types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, false, Some(svg), 600.0, Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, CDXML[0], CDXML[1], CDXML[2], MOLFILE, SMILES, OCTET]);
         assert!(t[2].1.starts_with(b"<?xml") && t[2].1.ends_with(b"<CDXML/>") && t[2].1 == t[3].1 && t[2].1 == t[4].1);
         assert_eq!(t[6].1, b"CO\0");
@@ -803,9 +814,9 @@ mod tests {
         let c = clip(System::Mac, |name| (name == PDF).then(|| t[1].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
         // The Copy switches in Settings: with all four off, only Octet's JSON goes on; CDXML off keeps it in the PDF.
-        let t = types(System::Mac, None, 600.0, Some("<CDXML/>"), false, None, None, None, Some("{}".into())).unwrap();
+        let t = types(System::Mac, false, None, 600.0, Some("<CDXML/>"), false, None, None, None, Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OCTET]);
-        let t = types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, Some("CO"), None).unwrap();
+        let t = types(System::Mac, false, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, Some("CO"), None).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, SMILES]);
         assert!(crate::export::cdxml_from_pdf(&t[1].1).unwrap().contains("<CDXML/>"));
     }
@@ -847,7 +858,7 @@ mod tests {
     fn windows_and_linux_copy_the_same() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
-        let all = |s| types(s, Some(svg), 600.0, Some("<CDXML/>"), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let all = |s| types(s, false, Some(svg), 600.0, Some("<CDXML/>"), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         let t = all(System::Windows);
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
         assert_eq!(&t[0].1[40..44], b" EMF");
@@ -873,17 +884,60 @@ mod tests {
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "application/pdf", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"]);
         assert_eq!((t[2].1.as_slice(), t[5].1.as_slice(), t[6].1.as_slice()), (crate::export::px_units(svg).as_bytes(), MOL.as_bytes(), b"CO".as_slice()));
         // The PDF is the Mac's, with the CDXML in it.
-        assert_eq!(t[1].1, types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, None, None).unwrap()[1].1);
+        assert_eq!(t[1].1, types(System::Mac, false, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, None, None).unwrap()[1].1);
         let c = clip(System::Linux, |n| read(&t, n));
         assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
         assert!(c.cdxml.unwrap().ends_with("<CDXML/>") && c.cdx.is_some());
         // The Copy switches: with all five off, only Octet's JSON goes on.
         for s in [System::Windows, System::Linux] {
-            let t = types(s, None, 600.0, None, false, None, None, None, Some("{}".into())).unwrap();
+            let t = types(s, false, None, 600.0, None, false, None, None, None, Some("{}".into())).unwrap();
             assert_eq!(t.len(), 1);
         }
         // Paste reads only names its system has.
         assert!(readable(System::Windows).contains(&"MDLCT") && !readable(System::Linux).contains(&PDF) && readable(System::Linux).contains(&"application/pdf"));
+    }
+
+    // Issue 166. Copy on Windows without the object (Settings > Import and export > Copy > Office object off, or the
+    // class not registered) is 1.1.2's copy to the byte: every type but the bitmap has the CRC-32 it had in 1.1.2, and
+    // the bitmap is clipboard_pixels', as in 1.1.2. With the object, the EMF is the object's picture, with EMF+
+    // records; every other type is the same bytes in the same order. Paste reads the drawing from either EMF alone.
+    #[test]
+    fn windows_copy_with_and_without_the_object() {
+        let svg = crate::vector::tests::SVG; // no text, so the bytes are the same on every system
+        let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
+        let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
+        let copy = |object| types(System::Windows, object, Some(svg), 600.0, Some(x), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let (plain, office) = (copy(false), copy(true));
+        let names = |t: &[(&'static str, Vec<u8>)]| t.iter().map(|(n, _)| *n).collect::<Vec<_>>();
+        assert_eq!(names(&plain), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
+        assert_eq!(names(&office), names(&plain));
+        let tree = crate::export::tree(svg).unwrap();
+        assert!(plain[0].1 == crate::vector::make_emf(&tree, Some(x), None) && office[0].1 == crate::vector::make_office_emf(&tree, Some(x)));
+        assert_eq!(&office[0].1[120..124], b"EMF+", "the object's picture has EMF+ records");
+        assert!(plain[1..] == office[1..], "only the EMF differs");
+        assert_eq!(Some(&plain[1].1), crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap().1.as_ref());
+        let all: Vec<u8> = plain.iter().filter(|(n, _)| *n != DIB).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
+        assert_eq!((all.len(), crate::export::crc32(&all)), (1_254, 0x3536_9BE5), "Copy on Windows without the object has changed since 1.1.2");
+        for t in [&plain, &office] {
+            assert_eq!(clip(System::Windows, |n| (n == ENHMETAFILE).then(|| t[0].1.clone())).cdxml.as_deref(), Some(x));
+        }
+    }
+
+    // S18: Ctrl+C many times fast, two selections in turn, from several threads at once: each copy makes its EMF on a
+    // thread of its own and waits for it, and the same selection gives the same bytes every time.
+    #[test]
+    fn windows_copies_in_a_row_give_the_same_bytes() {
+        let svgs = [crate::vector::tests::PROLINE.to_string(), crate::vector::tests::picture_svg()];
+        let copy = |k: usize| types(System::Windows, true, Some(&svgs[k % 2]), 300.0, Some("<CDXML/>"), false, None, None, Some("CO"), Some("{}".into())).unwrap();
+        let first = [copy(0), copy(1)];
+        std::thread::scope(|t| {
+            let runs: Vec<_> = (0..4).map(|_| t.spawn(|| (0..5).map(|k| (k, copy(k))).collect::<Vec<_>>())).collect();
+            for run in runs {
+                for (k, c) in run.join().unwrap() {
+                    assert!(c == first[k % 2], "copy {k} differs");
+                }
+            }
+        });
     }
 
     // A zip as Office writes its own copy of a picture (Art::GVML ClipFormat): `files` deflated, with the central
@@ -911,7 +965,7 @@ mod tests {
         let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
         let doc = crate::export::cdxml_document(x);
         let tree = crate::export::tree(svg).unwrap();
-        let on = |s| types(s, Some(svg), 600.0, Some(x), false, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let on = |s| types(s, false, Some(svg), 600.0, Some(x), false, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         let picture = |s, n: &str| on(s).into_iter().find(|(t, _)| *t == n).unwrap().1;
         let (pdf, emf, png) = (picture(System::Mac, PDF), picture(System::Windows, ENHMETAFILE), picture(System::Linux, "image/png"));
         let redrawn = crate::vector::make_emf(&tree, None, None); // an EMF Word drew, with no comment
@@ -1066,7 +1120,7 @@ mod tests {
     fn mac_copy_puts_offices_copy_first() {
         let svg = crate::vector::tests::PROLINE;
         let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
-        let t = types(System::Mac, Some(svg), 600.0, Some(x), false, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, false, Some(svg), 600.0, Some(x), false, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, MOLFILE, SMILES, OCTET]);
         let (zip, pdf) = (&t[0].1, &t[1].1);
         assert_eq!(pdf, &crate::export::make_pdf(svg, Some(x), None).unwrap(), "the PDF is the one Copy put on before");
@@ -1125,10 +1179,10 @@ mod tests {
         assert_eq!(clip(System::Mac, |n| (n == OFFICE).then(|| zip.clone())).cdxml.as_deref(), Some(x));
         // A copy with no CDXML still has Office's copy. Windows and Linux have none (their lists are in
         // windows_and_linux_copy_the_same).
-        let t = types(System::Mac, Some(svg), 600.0, None, false, None, None, None, None).unwrap();
+        let t = types(System::Mac, false, Some(svg), 600.0, None, false, None, None, None, None).unwrap();
         assert_eq!((t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), cdxml_from_office(&t[0].1)), (vec![OFFICE, PDF], None));
         for s in [System::Windows, System::Linux] {
-            let t = types(s, Some(svg), 600.0, Some(x), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+            let t = types(s, false, Some(svg), 600.0, Some(x), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
             assert!(!t.iter().any(|(n, _)| n.contains("GVML")), "{s:?}");
         }
     }
@@ -1140,7 +1194,7 @@ mod tests {
     fn a_drawing_with_a_picture_gets_offices_copy() {
         let svg = crate::vector::tests::picture_svg();
         let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
-        let t = types(System::Mac, Some(&svg), 600.0, Some(x), false, None, None, Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, false, Some(&svg), 600.0, Some(x), false, None, None, Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OFFICE, PDF, SMILES, OCTET]);
         let (zip, pdf) = (&t[0].1, &t[1].1);
         assert_eq!(pdf, &crate::export::make_pdf(&svg, Some(x), None).unwrap());
@@ -1310,7 +1364,7 @@ mod tests {
             for _ in 0..9 {
                 let steps: [&dyn Fn(); 7] = [
                     &|| drop(crate::export::make_pdf(svg, Some(x), None).unwrap()),
-                    &|| drop(types(System::Mac, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap()),
+                    &|| drop(types(System::Mac, false, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap()),
                     &|| drop(crate::export::tree(svg).unwrap()),
                     &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
                     &|| drop(crate::vector::with_pdf(&records, &pdf)),
@@ -1370,7 +1424,7 @@ mod tests {
                 crate::export::px_units(&svg);
             }));
             now.push(time(&|| {
-                types(System::Linux, Some(&svg), 600.0, Some(x), false, None, None, None, None).unwrap();
+                types(System::Linux, false, Some(&svg), 600.0, Some(x), false, None, None, None, None).unwrap();
             }));
         }
         before.sort();
