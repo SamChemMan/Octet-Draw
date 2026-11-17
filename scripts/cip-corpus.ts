@@ -6,23 +6,18 @@
 // Run: node scripts/cip-corpus.ts [--all] (--all lists every labelled atom and bond, not only the disagreements).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { browser, norender } from "./checkkit.ts";
 import type { Mol } from "../src/render.ts";
 
 const folder = `${homedir()}/octet-research/corpus/sam`;
 if (!existsSync(folder)) { console.log("cip-corpus: skipped (no corpus)"); process.exit(0); }
 const all = process.argv.includes("--all");
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("../src/chem.ts");
 const { fromCdxml, parseXml } = await import("../src/cdxml.ts");
 const { fragments, subset } = await import("../src/edit.ts");
 await chem.ready;
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+const indigo = await norender();
 
 // Indigo's labels for a structure (labels expanded), as Octet took them before it had its own labeller.
 function indigoLabels(m: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
