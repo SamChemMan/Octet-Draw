@@ -5294,12 +5294,12 @@ export default function Editor() {
   const selectionFrame = useMemo(() => {
     if (!framing) return undefined;
     // The frame holds what its handles turn and scale: the selection with its groups (chosen).
-    const [atoms, items] = withGroups(selection, new Set([...picked].filter((id) => id !== DRAFT))), ids = [...items], grown = atoms.size + items.size > selection.size + picked.size;
+    const [atoms, items] = withGroups(selection, new Set([...picked].filter((id) => id !== DRAFT))), ids = [...items];
     const arrow = ids.length === 1 && !atoms.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     if (!items.size && (!atoms.size || (atoms.size === 1 && neighbours(doc, [...atoms][0]).length))) return undefined;
     const box = drawnBox(atoms, items);
     const turning = atoms.size + ids.length >= 2 || !!arrow || !!doc.shapes?.some((x) => x.id === ids[0] && turns(x));
-    return box && { box, handles: !arrow || arrow.kind === "curve", corners: !grown && textAlone(), turns: turning };
+    return box && { box, handles: !arrow || arrow.kind === "curve", corners: textAlone(), turns: turning };
   }, [framing, selection, picked, drawing, placed, arrows, cycleArrows, shown.shapes]); // eslint-disable-line react-hooks/exhaustive-deps
   // The frame in drawing units (y up), 4 px clear of what it holds at this zoom, and the handles it shows: the side
   // handles only when that side is long enough on screen to hold them apart.

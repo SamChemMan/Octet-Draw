@@ -252,7 +252,7 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
   assert.match(editor, /const lines = drag\.text \|\| drag\.labels !== e\.ctrlKey;/);
   assert.match(editor, /lines: scalesText\(\), text: textAlone\(\),/);
   assert.match(editor, /const scalesText = \(\) => settings\.scaleLabels \|\| textAlone\(\);/);
-  assert.match(editor, /corners: !grown && textAlone\(\)/);
+  assert.match(editor, /corners: textAlone\(\)/, "text alone, a group of it too, has corners only");
 }
 
 console.log("freesymbol.check: free symbols place, draw, size, save and read back as ChemDraw's.");
