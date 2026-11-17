@@ -380,3 +380,21 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.ok(plain.captions![0].cycle, "plain text there does (the control)");
   console.log("measurement.check: not chemistry ok");
 }
+
+// S36: a distance from a metal to a ring's multi-centre point is to the point, and follows the ring (the editor puts
+// multi-centre points where their atoms are, then settles the measurements).
+{
+  const { placeCentres, moveAtoms } = await import("./edit.ts");
+  const ring = [0, 1, 2, 3, 4].map((k) => ({ label: "C", location: [Math.cos((2 * Math.PI * k) / 5) * 0.85, 2 + Math.sin((2 * Math.PI * k) / 5) * 0.85, 0] as [number, number, number] }));
+  const m: Mol = {
+    atoms: [...ring, { label: "Fe", location: [0, 0, 0], shade: true }, { label: "C", location: [0, 2, 0], centre: { atoms: [0, 1, 2, 3, 4] } } as Mol["atoms"][number]],
+    bonds: [...[0, 1, 2, 3, 4].map((k) => ({ type: 1, atoms: [k, (k + 1) % 5] as [number, number] })), { type: 1, atoms: [5, 6] as [number, number] }],
+  };
+  const r = made(addMeasure({ ...m, atoms: m.atoms.map((a) => ({ ...a, shade: true as const })) }, [5, 6]));
+  const v0 = measureValue(r.mol, [5, 6])!;
+  const up = settleMeasures(r.mol, placeCentres(moveAtoms(r.mol, new Set([0, 1, 2, 3, 4]), [0, 1])));
+  assert.ok(Math.abs(up.atoms[6].location[1] - r.mol.atoms[6].location[1] - 1) < 1e-9, "the point follows its ring");
+  assert.ok(measureValue(up, [5, 6])! > v0, "and the distance with it");
+  assert.notEqual(up.captions![0].text, r.mol.captions![0].text);
+  console.log("measurement.check: multi-centre ok");
+}
