@@ -11,7 +11,7 @@
 // This checks the code that the editor runs, without the window. Before a release, also measure the app itself in
 // headless Chrome with a 4x CPU slow-down (Sam's bench: ~/octet-research/tools/perf/bench.mjs).
 import assert from "node:assert/strict";
-import { atomsIn, bondOrders, complete, fragments, groupSelection } from "./edit.ts";
+import { atomsInArea, bondOrders, fragments, groupSelection } from "./edit.ts";
 import { messy, problems } from "./check.ts";
 import { render, type Ink, type Mol } from "./render.ts";
 import { toCdxml } from "./cdxml.ts";
@@ -62,14 +62,13 @@ function time(f: () => unknown): number {
 // What each operation is (for the editor), its budget in ms on the large drawing, and how to run it on a drawing.
 const OPS: [string, number, (m: Mol, all: Set<number>, half: Set<number>, text: string) => unknown][] = [
   ["render (each change to the structures)", 50, (m) => render(m, S, ink, S.bond)],
-  ["complete (each move of a selection box)", 1, (m, _, half) => complete(m, half)],
   ["messy, nothing selected (each change)", 10, (m) => messy(m, new Set())],
   ["messy, all selected (each selection)", 10, (m, all) => messy(m, all)],
   ["groupSelection (Group)", 4, (m, all) => groupSelection(m, all, new Set())],
   ["fragments (structures)", 1, (m) => fragments(m)],
   ["problems (chemical warnings)", 3, (m) => problems(m)],
   ["bondOrders", 0.3, (m) => bondOrders(m)],
-  ["atomsIn (atoms in a selection box)", 0.3, (m) => atomsIn(m, [-1, -1], [30, 30])],
+  ["atomsInArea (each move of a selection box)", 0.3, (m, _, half) => atomsInArea(m, half, ([x, y]) => x >= -1 && x <= 30 && y >= -1 && y <= 30)],
   ["toCdxml (Save, Export, Copy)", 50, (m) => toCdxml(m, DEFAULT_STYLE)],
   ["serialize (Octet's own form)", 5, (m) => serialize(m)],
   ["parse (Paste, Open)", 5, (_m, _a, _h, text) => parse(text)],
