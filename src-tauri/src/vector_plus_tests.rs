@@ -1017,3 +1017,7 @@ fn ole_plus_zoom() {
         let _ = ink;
     }
 }
+
+// Stress cases (issue 166's stress list and more; src/wordpaste-stress.check.ts lists them).
+#[path = "wordpaste_stress_tests.rs"]
+mod stress;
