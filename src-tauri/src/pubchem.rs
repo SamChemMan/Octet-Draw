@@ -11,6 +11,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const BY_NAME: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/property/SMILES/TXT";
+const BY_NAME_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/property/InChIKey/TXT";
 const BY_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/";
 const BY_CID: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/";
 const MOST_TEXT: usize = 300;
@@ -63,6 +64,35 @@ pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<St
         return Err("Online search is off in Settings.".into());
     }
     lookup(text.trim(), &app.package_info().version.to_string()).await
+}
+
+// The risk assessment's substances written as text nothing offline reads (decision 0008): PubChem's standard
+// InChIKey for the text, when PubChem has one compound for it. The key, not a SMILES, comes back, so Octet never
+// reads PubChem's structure again its own way (a lone [Mg] would gain hydrogens).
+#[tauri::command]
+pub async fn pubchem_key(app: AppHandle, text: String) -> Result<Option<String>, String> {
+    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
+        return Err("Online search is off in Settings.".into());
+    }
+    key_lookup(text.trim(), &app.package_info().version.to_string()).await
+}
+
+async fn key_lookup(text: &str, version: &str) -> Result<Option<String>, String> {
+    if text.is_empty() || text.len() > MOST_TEXT || text.chars().any(char::is_control) {
+        return Ok(None);
+    }
+    // A name goes in the body, so no character of it can change the address.
+    let request = client(version)?.post(BY_NAME_KEY).header("Content-Type", "application/x-www-form-urlencoded").body(format!("name={}", crate::search::encode(text)));
+    Ok(answer(request, MOST_ANSWER).await?.and_then(|t| key_of(&t)))
+}
+
+// The InChIKey in PubChem's answer, when it has exactly one.
+pub fn key_of(answer: &str) -> Option<String> {
+    let keys: Vec<&str> = answer.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    match keys.as_slice() {
+        [k] if is_inchikey(k) => Some(k.to_string()),
+        _ => None,
+    }
 }
 
 // Runs for the Properties panel, once for each structure the dictionary has no CAS number for.
@@ -224,5 +254,18 @@ mod tests {
         let hazards = |k: &str| tauri::async_runtime::block_on(hazards(k, "test"));
         assert!(hazards("LFQSCWFLJHTTHZ-UHFFFAOYSA-N").unwrap().unwrap().contains("GHS02"), "ethanol is flammable");
         assert_eq!(hazards("AAAAAAAAAAAAAA-UHFFFAOYSA-N").unwrap(), None);
+        // A reagent written as text in the risk assessment (Sam, 16 November 2026): its key, then its hazards.
+        let key = |t: &str| tauri::async_runtime::block_on(key_lookup(t, "test"));
+        assert_eq!(key("Na2S2O8").unwrap().as_deref(), Some("CHQMHPLRPQMAMX-UHFFFAOYSA-L"));
+        assert_eq!(key("Mg").unwrap().as_deref(), Some("FYYHWMGAXLPEAU-UHFFFAOYSA-N"), "magnesium, not its hydride");
+        assert!(hazards("CHQMHPLRPQMAMX-UHFFFAOYSA-L").unwrap().unwrap().contains("GHS03"), "sodium persulfate is an oxidiser");
+        assert_eq!(hazards("HHUNWJWOJPWLNK-UHFFFAOYSA-N").unwrap(), None, "PubChem has no GHS data for methyl 2-methylisonicotinate");
+    }
+
+    #[test]
+    fn keys_from_names() {
+        assert_eq!(key_of("CHQMHPLRPQMAMX-UHFFFAOYSA-L\n").as_deref(), Some("CHQMHPLRPQMAMX-UHFFFAOYSA-L"));
+        assert_eq!(key_of("CHQMHPLRPQMAMX-UHFFFAOYSA-L\nFYYHWMGAXLPEAU-UHFFFAOYSA-N\n"), None, "more than one compound");
+        assert_eq!(key_of("<html>"), None);
     }
 }

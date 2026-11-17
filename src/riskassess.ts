@@ -20,8 +20,11 @@ type P = [number, number];
 export type Role = "reactant" | "catalyst" | "solvent" | "product";
 // A substance used or formed: its key in the reagent table (gridview.ts: its formula or "text"), a number of its own
 // for its typed cells (risk:cas3, risk:exp3), its name, formula and role, and its GHS hazards once found (found: Find
-// hazards asked PubChem; codes: its H and EUH statement codes).
-export type Substance = { id: number; key: string; name: string; formula: string; role: Role; pictograms?: string[]; signal?: string; codes?: string[]; found?: true };
+// hazards asked PubChem: true, it has a classification with codes; "unclassified", its sources report the substance
+// as not classified; "none", PubChem has no GHS data for it, which is not the same as safe, so the row says to check
+// the SDS; codes: its H and EUH statement codes). Before 16 November 2026 "none" was saved as true with no codes.
+export type Substance = { id: number; key: string; name: string; formula: string; role: Role; pictograms?: string[]; signal?: string; codes?: string[]; found?: true | "unclassified" | "none" };
+const FOUND = [true, "unclassified", "none"] as const;
 // ticks: the boxes ticked, by key. significant: the significant-hazards answer the user set (unset: Octet's, from the
 // codes). removed: the parts the user deleted, by key ("sub:3", "sec:waste", "pic:3:GHS07"). texts: the texts the user
 // typed over Octet's, by key ("head:waste", "label:fume"). auto: Octet added it to a new experiment page by itself.
@@ -84,9 +87,11 @@ export function readRisk(raw: unknown): Risk | undefined {
     const pictograms = x.pictograms, codes = x.codes, signal = x.signal === undefined ? undefined : str(x.signal, 20);
     if (pictograms !== undefined && !(Array.isArray(pictograms) && pictograms.length <= 9 && pictograms.every((p) => typeof p === "string" && has(PICTOGRAMS, p)))) return undefined;
     if (codes !== undefined && !(Array.isArray(codes) && codes.length <= MAX_CODES && codes.every((c) => typeof c === "string" && c.length <= 60 && CODE.exec(c)?.[0] === c))) return undefined;
-    if ((x.signal !== undefined && signal === undefined) || (x.found !== undefined && x.found !== true)) return undefined;
+    const was = FOUND.find((f) => f === x.found);
+    if ((x.signal !== undefined && signal === undefined) || (x.found !== undefined && was === undefined)) return undefined;
     ids.add(id);
-    substances.push({ id, key, name: oneLine(name), formula: oneLine(formula), role, ...(pictograms ? { pictograms: [...new Set(pictograms as string[])] } : {}), ...(signal ? { signal: oneLine(signal) } : {}), ...(codes ? { codes: codes as string[] } : {}), ...(x.found ? { found: true as const } : {}) });
+    const found: Substance["found"] = was === true && !(codes as string[] | undefined)?.length ? "none" : was;
+    substances.push({ id, key, name: oneLine(name), formula: oneLine(formula), role, ...(pictograms ? { pictograms: [...new Set(pictograms as string[])] } : {}), ...(signal ? { signal: oneLine(signal) } : {}), ...(codes ? { codes: codes as string[] } : {}), ...(found ? { found } : {}) });
   }
   if (!r.ticks.every((t) => typeof t === "string" && TICKS.includes(t))) return undefined;
   const x = raw as { removed?: unknown; texts?: unknown; auto?: unknown };
@@ -269,7 +274,10 @@ function layout(r: Risk, fields: Map<string, Caption>, [x0, top]: P, s: Sheet): 
         }
         grow([cx - 0.46 * PIC, cy - 0.46 * PIC, cx + 0.46 * PIC, cy + 0.46 * PIC]);
       }));
-      const words = sub.codes?.length ? sub.codes.join(", ") : sub.found ? "Not classified" : "", runs: TextRun[] = [...(sub.signal ? [{ text: sub.signal + (words ? " " : ""), bold: true as const }] : []), ...(words ? [{ text: words }] : [])];
+      // No data is said in bold, as a signal word is: it is not "Not classified".
+      const words = sub.codes?.length ? sub.codes.join(", ") : sub.found === "unclassified" ? "Not classified" : "", runs: TextRun[] = sub.found === "none" && !sub.codes?.length
+        ? [{ text: "Could not find, please go manual!", bold: true }]
+        : [...(sub.signal ? [{ text: sub.signal + (words ? " " : ""), bold: true as const }] : []), ...(words ? [{ text: words }] : [])];
       const said = runs.length ? text(`haz:${sub.id}`, runs, at[3], down ? y - pad - down * PIC - em : base, {}, cw(3)) : 0;
       const h = Math.max(name * lh, cas, exp, down * PIC + said * lh + (down && said ? 0.3 * em : 0), lh) + 2 * pad;
       y -= h;
@@ -405,7 +413,8 @@ export const withHazards = (m: Mol, found: Record<string, Ghs | null>, s: Sheet)
   ...r, substances: r.substances.map((x) => {
     if (!has(found, x.key)) return x;
     const g = found[x.key], codes = g ? hCodes(g.hazards) : [], { pictograms: _p, signal: _s, codes: _c, ...rest } = x;
-    return { ...rest, found: true as const, ...(g?.pictograms.length ? { pictograms: g.pictograms.filter((p) => has(PICTOGRAMS, p)).slice(0, 9) } : {}), ...(g?.signal ? { signal: oneLine(g.signal).slice(0, 20) } : {}), ...(codes.length ? { codes } : {}) };
+    const said: Substance["found"] = codes.length ? true : g?.hazards.some((h) => /^not classified$/i.test(h)) ? "unclassified" : "none";
+    return { ...rest, found: said, ...(g?.pictograms.length ? { pictograms: g.pictograms.filter((p) => has(PICTOGRAMS, p)).slice(0, 9) } : {}), ...(g?.signal ? { signal: oneLine(g.signal).slice(0, 20) } : {}), ...(codes.length ? { codes } : {}) };
   }),
 }));
 // CAS numbers found, by substance key: each goes in its substance's CAS cell when that cell has no text yet.
