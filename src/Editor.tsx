@@ -6271,9 +6271,7 @@ export default function Editor() {
   };
   // The structures to name. The ions of a salt (charged pieces within 3.5 bond lengths of each other whose charges
   // cancel) are named together, as sodium acetate rather than two names. With only captions picked, none.
-  const targets = () => {
-    return withSalts(doc, fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked))));
-  };
+  const targets = () => withSalts(doc, fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked))));
   // The online searches (decision 0008): the selection, or the whole drawing when nothing is selected (as Copy), opens
   // in Octet's Reaxys window or the user's browser. Structures on one side of a reaction search Reaxys's reactions for
   // them in that part, as ChemDraw's Reactant and Reaction product searches. Only a press runs a search.
@@ -6316,16 +6314,12 @@ export default function Editor() {
     let m = doc, missed = 0;
     // A grouped mixture has one name, with its components' ratio (ChemDraw 26.1).
     const all = targets(), mixtures = mixturesOf(doc, all), inMixture = new Set(mixtures.flatMap((x) => x.atoms));
-    for (const mix of mixtures) {
-      const name = mixtureNameFor(mix), atoms = mix.atoms;
-      if (!name) { missed++; continue; }
-      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, ...typeset(name), x: 0, y: 0, under: atoms })[0];
-    }
-    for (const atoms of all.filter((t) => !t.some((i) => inMixture.has(i)))) {
-      const name = nameFor(atoms);
-      if (!name) { missed++; continue; }
-      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, ...typeset(name), x: 0, y: 0, under: atoms })[0];
-    }
+    const put = (name: string | undefined, atoms: number[]) => {
+      if (!name) missed++;
+      else if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, ...typeset(name), x: 0, y: 0, under: atoms })[0];
+    };
+    for (const mix of mixtures) put(mixtureNameFor(mix), mix.atoms);
+    for (const atoms of all.filter((t) => !t.some((i) => inMixture.has(i)))) put(nameFor(atoms), atoms);
     // Captions that count as chemistry (Rh as rhodium): the picked ones, or all of them with nothing selected. The
     // name goes under the caption.
     const own = selection.size ? new Set<number>() : pickedChem(picked);
@@ -6796,13 +6790,8 @@ export default function Editor() {
   // fine; a glide that stutters is not.
   const gliding = !!fast || glide?.to === doc || !!glideNext.current;
   glidingNow.current = gliding;
-  const stillPanels = useRef(new Map<string, React.ReactNode>()), lastPanel = useRef<Context>(undefined);
-  const holdPanels = (name: string, make: () => React.ReactNode) => {
-    if (gliding && stillPanels.current.has(name)) return stillPanels.current.get(name);
-    const made = make();
-    stillPanels.current.set(name, made);
-    return made;
-  };
+  const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
+  const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
   const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
@@ -6970,7 +6959,6 @@ export default function Editor() {
     const a = g && loaded ? analyse(subset(doc, new Set(g)), 1, namesLoaded ? abbreviationOf : undefined)?.[0] : undefined;
     return { text: a ? a.abbreviation ?? subscripts(a.formula) : "", formula: !!a && !a.abbreviation }; // a formula with its subscripts; an abbreviation as it is (2-MeTHF)
   };
-  const titleOf = (x: Session | undefined) => sessionName(x).text;
   // A session comes into the strip (Predict, a new tab, its pill): the session there goes to its pill, so does Mass
   // spec, and an open Actions panel becomes its pill. From a pill the strip opens out of it; with another session in
   // the strip already, the strip stays and its content changes.
@@ -7060,18 +7048,19 @@ export default function Editor() {
     set(next);
     openMassSpec(doc.bonds[crossed[0].bond].atoms[0]);
   }
+  // The canvas scrolls up if a panel along the bottom would cover what is drawn down to low (bond lengths, y up).
+  const liftAbove = (panel: DOMRect | undefined, low: number) => {
+    const box = svg.current?.getBoundingClientRect();
+    if (!panel || !box || !Number.isFinite(low)) return;
+    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
+    if (over > 0) moveView({ ...view, y: view.y - over });
+  };
   // Opening the panel scrolls the canvas up if the panel would cover the structure, as the Spectrum panel does, and
   // again as the panel grows (its rows come in, a peak list opens).
   useEffect(() => {
     const el = document.querySelector(".massspec");
     if (!massSpec || !el) return;
-    const fit = () => {
-      const atoms = (msAtoms ?? []).filter((i) => doc.atoms[i]), panel = el.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-      const low = Math.min(...atoms.map((i) => pos(doc, i)[1]));
-      if (!box || !Number.isFinite(low) || el.classList.contains("expanded")) return;
-      const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-      if (over > 0) moveView({ ...view, y: view.y - over });
-    };
+    const fit = () => { if (!el.classList.contains("expanded")) liftAbove(el.getBoundingClientRect(), Math.min(...(msAtoms ?? []).filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]))); };
     const watch = new ResizeObserver(fit);
     watch.observe(el);
     return () => watch.disconnect();
@@ -7260,11 +7249,8 @@ export default function Editor() {
   // as the panel grows).
   useEffect(() => {
     if (!spectrum || nmrView !== "open" || (!nmr && !measured)) return;
-    const panel = document.querySelector(".spectrum:not(.massspec)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-    const low = Math.min(...[...new Set(nmr ? nmr.toDoc : doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]));
-    if (!panel || !box || !Number.isFinite(low)) return;
-    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) moveView({ ...view, y: view.y - over });
+    const panel = document.querySelector(".spectrum:not(.massspec)")?.getBoundingClientRect();
+    liftAbove(panel, Math.min(...[...new Set(nmr ? nmr.toDoc : doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1])));
   }, [spectrum, nmrView, !!nmr?.prediction, settings.nmrDetails, spectrumShow, !!measured]); // eslint-disable-line react-hooks/exhaustive-deps
   // A closed panel goes for good once the drawing changes (Undo can no longer bring it back).
   useEffect(() => {
@@ -7332,7 +7318,7 @@ export default function Editor() {
   const pills: Pill[] = [];
   for (const x of sessions) {
     if (x.view !== "min" || lost(x)) continue;
-    const atoms = sessionMols.get(x.id), short = keyName(x.key).replace(/ NMR$/, ""), title = titleOf(x);
+    const atoms = sessionMols.get(x.id), short = keyName(x.key).replace(/ NMR$/, ""), title = sessionName(x).text;
     const name = `${x.keys.length > 1 ? `${x.keys.length} spectra` : `${keyName(x.key)} spectrum`}${title ? ` of ${title}` : ""}`;
     pills.push({ key: pillKey("nmr", x.id), short, count: x.keys.length > 1 ? x.keys.length : undefined, name, box: pillBox(atoms),
       onRestore: (keyboard) => showSession(x.id, keyboard), onClose: () => closePanel("nmr", x.id), onPoint: (on) => setPillLit(on ? atoms : undefined) });
@@ -7341,11 +7327,8 @@ export default function Editor() {
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
     if (!settings.properties) return;
-    const panel = document.querySelector(".properties:not(.stacked)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-    const atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i), low = Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1]));
-    if (!panel || !box || !Number.isFinite(low)) return;
-    const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) moveView({ ...view, y: view.y - over });
+    const panel = document.querySelector(".properties:not(.stacked)")?.getBoundingClientRect(), atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i);
+    liftAbove(panel, Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1])));
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   // The measured shifts of linked atoms when the measured spectrum shows; otherwise the predicted ones.
   if (nmrView !== "open") { /* minimised: no shifts beside the atoms */ }
@@ -7377,7 +7360,6 @@ export default function Editor() {
     const items = [...texts].filter(([i]) => !has.has(i)).map(([i, text]) => { const px = sizeOf(i) * pt, [up, down] = textExtent(text, px, false, false, family); return { atom: i, w: textWidth(text, px, false, false, family), up, down, L: Ls[i] }; });
     return placeBeside(items, { at, bonded, rings: ringsOf, ink: bondInk, labels: drawing.label, taken }).map((s) => ({ ...s, text: texts.get(s.atom)!, size: sizeOf(s.atom) }));
   }, [shiftKey, spectrum, shown, drawing, placed, ringsOf, stereo, style, pt, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shiftLabels = () => shiftSpots;
   // A label's place beside an atom (px): in a gap between its bonds, out of its rings (or away from the atoms within
   // two bonds), clear of the atom's own label and of the boxes in `taken` (the chosen box is added to it).
   function besideAtom(i: number, w: number, h: number, taken: number[][], gap = 0.62) {
@@ -7572,7 +7554,7 @@ export default function Editor() {
   // notice under the structure when the shifts are predicted and the drawing has none. Measured shifts carry none.
   function addShifts() {
     let m = doc;
-    for (const l of shiftLabels()) m = addCaption(m, { text: l.text, x: l.x / L, y: -l.y / L, size: l.size, align: l.align })[0];
+    for (const l of shiftSpots) m = addCaption(m, { text: l.text, x: l.x / L, y: -l.y / L, size: l.size, align: l.align })[0];
     const predicted = !(measuredShown && spectrumAnalysis) && !!nmr?.prediction;
     const atoms = predicted ? [...new Set(nmr!.toDoc)].filter((i) => doc.atoms[i]) : [];
     if (m === doc) return;
@@ -9775,37 +9757,31 @@ export default function Editor() {
             <text x={v.block!.valueAt * L} y={baseline(l.y)}>{formula(l.value, size)}</text>
           </Fragment>
         ));
+        // A cell's amount, unless it is open for typing.
+        const amountAt = (row: string, key: string, x: number, at: number, t: ReturnType<typeof gridText>) => gridEdit?.arrow === v.arrow && gridEdit.key === key && gridEdit.row === row ? null : (
+          <Fragment key={`${row}${key}`}>
+            <text data-cell={`${v.arrow} ${row} ${key}`} x={x} y={at} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{row === "formula" ? formula(t.text, size) : t.text}</text>
+            {t.taken && takenLine(x, at, t.text, size, !!t.typed, v.f)}
+          </Fragment>
+        );
         if (v.texts && v.rules) return (
           <g key={`grid${v.arrow}`} className="stoich" fill={ink} style={{ font }}>
             {block}
             {v.rules.map(([a, b, h], k) => <line key={`r${k}`} x1={a * L} x2={b * L} y1={-h * L} y2={-h * L} stroke={ink} strokeWidth={frame.line * v.f} />)}
             {v.texts.map((t, k) => <text key={`t${k}`} x={t.x * L} y={baseline(t.y)} textAnchor={t.anchor} fontWeight={t.bold ? 700 : undefined}>{t.formula ? formula(t.text, size) : t.text}</text>)}
-            {v.cells.map((cell) => {
-              const c = v.cols.find((x) => x.key === cell.key), row = GRID_ROWS.find((x) => x.id === cell.row), t = c && row ? gridText(v, c, row) : undefined;
-              return t?.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row) ? (
-                <Fragment key={`${cell.row}${cell.key}`}>
-                  <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
-                  {t.taken && takenLine(cell.x * L, baseline(cell.y), t.text, size, !!t.typed, v.f)}
-                </Fragment>
-              ) : null;
+            {v.cells.map((at) => {
+              const c = v.cols.find((x) => x.key === at.key), row = GRID_ROWS.find((x) => x.id === at.row), t = c && row ? gridText(v, c, row) : undefined;
+              return t?.text ? amountAt(at.row, at.key, at.x * L, baseline(at.y), t) : null;
             })}
           </g>
         );
         return (
-          <g key={`grid${v.arrow}`} className="stoich" fill={v.colour ? textInk(v.colour) : "var(--ink)"} style={{ font }}>
+          <g key={`grid${v.arrow}`} className="stoich" fill={ink} style={{ font }}>
             {block}
-            <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
-            <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
+            <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={ink} strokeWidth={frame.line * v.f} />
+            <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={ink} strokeWidth={frame.line * v.f} />
             {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
-            {v.rows.flatMap((row, k) => v.cols.map((c) => {
-              const t = gridText(v, c, row);
-              return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
-                <Fragment key={`${row.id}${c.key}`}>
-                  <text data-cell={`${v.arrow} ${row.id} ${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
-                  {t.taken && takenLine(c.x * L, y(k), t.text, size, !!t.typed, v.f)}
-                </Fragment>
-              ) : null;
-            }))}
+            {v.rows.flatMap((row, k) => v.cols.map((c) => { const t = gridText(v, c, row); return t.text ? amountAt(row.id, c.key, c.x * L, y(k), t) : null; }))}
           </g>
         );
       })}
@@ -9824,7 +9800,7 @@ export default function Editor() {
       {msPoint && msAtoms && <g className="nmr-marks">{msPoint.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ms${i}`, ""))}</g>}
       {nmrBondMarks.size > 0 && <g className="nmr-marks">{[...nmrBondMarks].filter((k) => k < shown.bonds.length).map((k) => bondMark(k, `nmrb${k}`, ""))}</g>}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
-      {shiftLabels().map((l) => (
+      {shiftSpots.map((l) => (
         <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails && nmrQuality.has(l.atom) ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.align === "left" ? "start" : l.align === "right" ? "end" : "middle"} style={{ font: `${l.size * pt}px ${fontStack(style.captionFont)}` }}>{l.text}</text>
       ))}
       <Live store={hovers}>{hovered}</Live>
@@ -9992,28 +9968,17 @@ export default function Editor() {
           <g className="pages" aria-hidden>{gridMarks(view)}</g>
           {/* The page outlines: the page and what its purpose needs, each an edge with corner marks and its name. Not part of the drawing. */}
           <g className="pages" aria-hidden ref={pagesEl}>
-            {style.edges && pages.map(([name, w, h]) => {
+            {/* An experiment page's risk assessment starts the page under it (riskassess.ts): that page and any after it to the risk assessment's foot, the same size. */}
+            {style.edges && [...pages.map(([name, w, h]): [string, string, number, number, number] => [name, name, w, h, 0]),
+              ...(riskLay ? Array.from({ length: Math.min(63, Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2]))) }, (_, j): [string, string, number, number, number] => [`page${j}`, `Page ${j + 2}`, pages[0][1], pages[0][2], (j + 1) * pages[0][2] * mm * L]) : [])].map(([key, name, w, h, dy]) => {
               const [x, y, t] = [(w / 2) * mm * L, (h / 2) * mm * L, 10 / view.zoom];
               return (
-                <g key={name} className={pageHover === name ? "page hovered" : "page"}>
-                  <rect className="page-edge" x={-x} y={-y} width={2 * x} height={2 * y} vectorEffect="non-scaling-stroke" />
-                  {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => (
-                    <path key={`${sx}${sy}`} d={`M${sx * x - sx * t} ${sy * y}H${sx * x}V${sy * y - sy * t}`} vectorEffect="non-scaling-stroke" />
-                  ))}
-                  <text x={-x + 3 / view.zoom} y={-y + 13 / view.zoom} style={{ fontSize: 11 / view.zoom }}>{name}</text>
-                </g>
-              );
-            })}
-            {/* An experiment page's risk assessment starts the page under it (riskassess.ts): that page and any after it to the risk assessment's foot, the same size. */}
-            {style.edges && riskLay && Array.from({ length: Math.min(63, Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2]))) }, (_, j) => {
-              const [x, y, t, dy] = [(pages[0][1] / 2) * mm * L, (pages[0][2] / 2) * mm * L, 10 / view.zoom, (j + 1) * pages[0][2] * mm * L];
-              return (
-                <g key={`page${j}`} className="page">
+                <g key={key} className={pageHover === name ? "page hovered" : "page"}>
                   <rect className="page-edge" x={-x} y={dy - y} width={2 * x} height={2 * y} vectorEffect="non-scaling-stroke" />
                   {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => (
                     <path key={`${sx}${sy}`} d={`M${sx * x - sx * t} ${dy + sy * y}H${sx * x}V${dy + sy * y - sy * t}`} vectorEffect="non-scaling-stroke" />
                   ))}
-                  <text x={-x + 3 / view.zoom} y={dy - y + 13 / view.zoom} style={{ fontSize: 11 / view.zoom }}>{`Page ${j + 2}`}</text>
+                  <text x={-x + 3 / view.zoom} y={dy - y + 13 / view.zoom} style={{ fontSize: 11 / view.zoom }}>{name}</text>
                 </g>
               );
             })}
@@ -10669,7 +10634,7 @@ export default function Editor() {
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
-      {holdPanels("panels", () => (<>
+      {holdPanels(() => (<>
       {/* One panel for each session: the one in the strip draws as the pointer moves; the others keep what they last
           showed (minimised, they do not draw), so each comes back as it was. */}
       {sessions.map((x) => <Live key={x.id} store={hovers}>{(hover) => {
