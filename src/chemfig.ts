@@ -14,7 +14,7 @@
 // Much of this is from konokonekonoko's chemfig writer (pull request 127): the ring syntax and its rules, the readable
 // lines, the marks, the label styles and characters, the bond styles and the notice. Here it reads the page's own
 // drawing for which atoms show a label, where each mark is and which side a double bond's second line is on.
-import { AROMATIC, H_FIRST, HBOND, QUADRUPLE, circledRings, hydrogens, isBracket, orderOf, render, type Atom, type Bond, type Face, type Ink, type Mol, type Style } from "./render.ts";
+import { AROMATIC, H_FIRST, HBOND, QUADRUPLE, circledRings, hydrogens, isBracket, orderOf, render, type Face, type Ink, type Mol, type Style } from "./render.ts";
 import { pieces, units, type Unit } from "./labels.ts";
 import { ESCAPES } from "./escapes.ts";
 
@@ -196,7 +196,7 @@ function syntaxRings(at: (i: number) => P, nb: { to: number; covalent: boolean }
   });
 }
 
-// The code and the notice's words for the structures in mol (chemfig()); "" and "" when there are none.
+// The code alone (chemfig()); "" when mol has no structure.
 export function toChemfig(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, o: ChemfigOptions = {}): string {
   return chemfig(mol, s, measure, o).code;
 }
@@ -526,8 +526,9 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     const place = new Map<number, number>();
     trace.forEach((i, n) => { if (i >= 0 && !place.has(i)) place.set(i, n); });
     const named = closes.map(([p, q, k]) => (place.get(p)! <= place.get(q)! ? [p, q, k] : [q, p, k])).sort((x, y) => place.get(x[0])! - place.get(y[0])! || place.get(x[1])! - place.get(y[1])!);
+    // (A hook's bond takes no side: =^ and =_ are written =, which chemfig centres.)
     named.forEach(([p, q, k], n) => {
-      const { char, tikz } = look(k, p);
+      const { char: c, tikz } = look(k, p), char = c.startsWith("=") ? "=" : c;
       hooks[p].push(`?[${n + 1}]`);
       hooks[q].push(`?${fieldsOf([String(n + 1), char === "-" ? "" : `{${char}}`, tikz.join(",")])}`);
     });
@@ -582,4 +583,3 @@ function chemfigNotice(mol: Mol, left: Set<string>, rings: number[][]): string {
 
 // For checks: the characters that typeset() writes for a run of plain text in maths mode.
 export const texText = (s: string) => { const left = new Set<string>(); return { tex: texOf(s, left), left: [...left] }; };
-export type { Atom, Bond };

@@ -125,7 +125,7 @@ function read(code: string, where: string): Read {
         const seen = out.hooks.get(name) ?? 0;
         assert.ok(seen < 2, `${where}: hook ${name} more than twice`);
         if (!seen) assert.equal(f.length, 1, `${where}: the first hook ${name} is plain`);
-        else { assert.ok(f.length === 1 || /^(\{(=\^|=_|=|~|<|>|<:|>:|<\||>\|)\})?$/.test(f[1] ?? ""), `${where}: hook bond ${f[1]}`); tikzOk(f[2] ?? "", where); }
+        else { assert.ok(f.length === 1 || /^(\{(=|~|<|>|<:|>:|<\||>\|)\})?$/.test(f[1] ?? ""), `${where}: hook bond ${f[1]}`); tikzOk(f[2] ?? "", where); }
         out.hooks.set(name, seen + 1);
         continue;
       }
@@ -562,7 +562,7 @@ gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u
   const pms = time(() => chemfig(pep, S, ink), 3);
   console.log(`chemfig: a 500-residue peptide (${pep.atoms.length} atoms) in ${pms.toFixed(0)} ms (median of 3)`);
   assert.ok(pms < 300, `the peptide took ${pms.toFixed(0)} ms`);
-  for (const [name, smiles] of [["cholesterol", "C[C@H](CCCC(C)C)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CC=C4[C@@]3(CC[C@@H](C4)O)C)C"], ["caffeine", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"], ["indole", "c1ccc2[nH]ccc2c1"], ["pyrene", "c1cc2ccc3cccc4ccc(c1)c2c34"], ["coronene", "c1cc2ccc3ccc4ccc5ccc6ccc1c7c2c3c4c5c67"], ["ferrocene", "[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]"], ["a salt", "[Na+].[O-]C(=O)C"], ["a zwitterion", "[NH3+]CC([O-])=O"]] as const) {
+  for (const [name, smiles] of [["cholesterol", "C[C@H](CCCC(C)C)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CC=C4[C@@]3(CC[C@@H](C4)O)C)C"], ["caffeine", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"], ["indole", "c1ccc2[nH]ccc2c1"], ["pyrene", "c1cc2ccc3cccc4ccc(c1)c2c34"], ["coronene", "c1cc2ccc3ccc4ccc5ccc6ccc1c7c2c3c4c5c67"], ["a dendrimer of rings", "c1(-c2cc(-c3ccccc3)cc(-c3ccccc3)c2)cc(-c2cc(-c3ccccc3)cc(-c3ccccc3)c2)cc(-c2cc(-c3ccccc3)cc(-c3ccccc3)c2)c1"], ["ferrocene", "[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]"], ["a salt", "[Na+].[O-]C(=O)C"], ["a zwitterion", "[NH3+]CC([O-])=O"]] as const) {
     check(name, chem.parseStructure(smiles), 0.05);
   }
 }
