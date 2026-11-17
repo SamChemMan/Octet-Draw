@@ -626,6 +626,8 @@ export default function Editor() {
   const [selection, setSelection] = useState<Set<number>>(new Set());
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  // The atoms selected and the objects picked, both at once.
+  const reselect = (atoms: Set<number>, items: Set<number>) => { setSelection(atoms); setPicked(items); };
   const [drag, setDrag] = useState<Drag>();
   // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
   const [notice, showNotice] = useState<Notice>();
@@ -736,8 +738,7 @@ export default function Editor() {
       back: { h, file, view: views.get(), guides, selection, picked } });
     dispatch({ type: "reset", h: { stack: [start], at: 0 } });
     setFile({ saved: start, name: own?.name ?? libraryItem(kind)?.name ?? kindName(kind) });
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
     setGuides(freshGuides([0, 0], newStyle));
     setTemplatePick(undefined);
     setView({ x: innerWidth / 2 - (b ? (b[0] + b[2]) / 2 : 0) * zoom * L, y: innerHeight / 2 + (b ? (b[1] + b[3]) / 2 : 0) * zoom * L, zoom });
@@ -749,8 +750,7 @@ export default function Editor() {
     setFile(e.back.file);
     setView(e.back.view);
     setGuides(e.back.guides);
-    setSelection(e.back.selection);
-    setPicked(e.back.picked);
+    reselect(e.back.selection, e.back.picked);
     setTemplateEdit(undefined);
   }
   function saveTemplateEdit() {
@@ -1185,8 +1185,7 @@ export default function Editor() {
     if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
     sayAfter(redo ? "Redo" : "Undo");
     dispatch({ type: redo ? "redo" : "undo" });
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
     const back = hovers.get().key && hotOf.current.get(h.stack[Math.max(0, Math.min(h.stack.length - 1, h.at + (redo ? 1 : -1)))]);
     if (back) setHover({ ...back, key: true });
   };
@@ -2260,8 +2259,7 @@ export default function Editor() {
     if (frag.shapes?.length || frag.arrows?.length || frag.captions?.length) {
       const r = insertMol(base, frag, land(frag, at));
       set(frag.arrows?.length ? laidOut(r.mol, (frag.arrows ?? []).map((a) => r.ids.get(a.id)!)) : r.mol, false, undefined, drop);
-      setSelection(r.atoms);
-      return setPicked(r.items);
+      return reselect(r.atoms, r.items);
     }
     set(merge(base, frag, land(frag, at)), false, undefined, drop);
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
@@ -2345,8 +2343,7 @@ export default function Editor() {
       if (!added.length && !arrows) return setNotice("Octet found no structure in the picture.", "info");
       set(m, true);
       revealNext.current = true;
-      setSelection(new Set(unsure.length ? unsure : added));
-      setPicked(new Set());
+      reselect(new Set(unsure.length ? unsure : added), new Set());
       const groups = (count === 1 ? "1 structure" : `${count} structures`) + (arrows ? (arrows === 1 ? " and 1 arrow" : ` and ${arrows} arrows`) : "");
       setNotice(unsure.length ? `Octet read ${groups}. Check the selected atoms against the picture: the two reading models differ there.` : `Octet read ${groups}. Both reading models agree.`, unsure.length ? "info" : "done");
     } catch (err) {
@@ -2632,8 +2629,7 @@ export default function Editor() {
         return;
       }
       // Everything, as ChemDraw's Select All: structures, text, arrows, orbitals, shapes, brackets and cycles.
-      setSelection(new Set(doc.atoms.map((_, i) => i)));
-      setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
+      reselect(new Set(doc.atoms.map((_, i) => i)), new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     snap_grid: () => setSettings((s) => ({ ...s, snapGrid: !s.snapGrid })),
@@ -2760,8 +2756,7 @@ export default function Editor() {
     },
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
     invert_selection: () => {
-      setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
-      setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id).filter((id) => !picked.has(id))));
+      reselect(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))), new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id).filter((id) => !picked.has(id))));
     },
     // Clean Up Reaction (⇧⌘X): every reaction the selection touches (a structure, a plus sign, an arrow or its text),
     // or every reaction in the drawing when nothing is selected, as Clean Up Structure works on the whole drawing.
@@ -3958,8 +3953,7 @@ export default function Editor() {
     return t.gel ? undefined : Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
   };
   const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
-    setSelection(new Set());
-    setPicked(new Set([sh.id]));
+    reselect(new Set(), new Set([sh.id]));
     setLanePick({ plate: sh.id, lane: laneOf(sh, p) });
     const t = tlcLayout(sh), spots = sh.tlc?.spots ?? [], hit = spotHit(sh, p);
     if (hit >= 0) {
@@ -3977,8 +3971,7 @@ export default function Editor() {
   const [featurePick, setFeaturePick] = useState<{ map: number; region?: number; marker?: number }>();
   const pickPart = (sh: Shape, p: P) => {
     const { region, marker } = plasmidPart(sh, p);
-    setSelection(new Set());
-    setPicked(new Set([sh.id]));
+    reselect(new Set(), new Set([sh.id]));
     setFeaturePick(region !== undefined || marker !== undefined ? { map: sh.id, region, marker } : undefined);
   };
   useEffect(() => {
@@ -4064,8 +4057,7 @@ export default function Editor() {
     const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
     cellOpen.current = true;
     setCell({ id: sh.id, r, c, value: sh.table?.cells[r]?.[c] ?? "" });
-    setSelection(new Set());
-    setPicked(new Set([sh.id]));
+    reselect(new Set(), new Set([sh.id]));
   };
   // Ends the Pen's curve (closed when it came back to its first point) and adds it, if it has two points or more.
   function finishPen(closed = false) {
@@ -4159,8 +4151,7 @@ export default function Editor() {
     set(mol);
     revealNext.current = true;
     if (hot !== undefined) hotOf.current.set(mol, { atom: hot });
-    setSelection(r.atoms);
-    setPicked(new Set());
+    reselect(r.atoms, new Set());
     return true;
   }
   // Clean Up Reaction's spacing and page (reaction.ts): the gap from the document's style, the page's width less a
@@ -4338,8 +4329,7 @@ export default function Editor() {
   // Typing captions. Enter, Escape or a click elsewhere keeps the text. Empty text deletes the caption.
   function startWriting(target: { id: number } | { at: P }) {
     tabRow.current = undefined;
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
     if ("id" in target) {
       const c = doc.captions?.find((x) => x.id === target.id);
       if (c) openWriting({ id: c.id, value: c.text, runs: runsOf(c).map((r) => ({ ...r })), version: 0, style: {} });
@@ -4374,8 +4364,7 @@ export default function Editor() {
   function typeField(slot: Slot) {
     if (slot.caption !== undefined) return startWriting({ id: slot.caption });
     tabRow.current = undefined;
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
     const { text: _, x, y, ...own } = slotText(doc, slot, sheetOf(style));
     openWriting({ value: "", at: [x, y], style: own });
   }
@@ -4616,8 +4605,7 @@ export default function Editor() {
       const [m, branch] = addBranch(doc, c.id, s);
       if (branch === undefined) return;
       set(m, true);
-      setSelection(new Set());
-      setPicked(new Set([c.id]));
+      reselect(new Set(), new Set([c.id]));
       setStepPick(undefined);
       return setBranchPick({ cycle: c.id, branch });
     }
@@ -4654,8 +4642,7 @@ export default function Editor() {
   // A step's name opened for typing: the name it has, or a new one.
   function openName(id: number, step: number) {
     const there = doc.captions?.find((x) => x.cycle?.cycle === id && x.cycle.step === step && x.cycle.side === "name");
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
     if (there) return openWriting({ id: there.id, value: there.text, runs: runsOf(there).map((x) => ({ ...x })), version: 0, style: {} });
     return openWriting({ value: "", cycle: { cycle: id, step, side: "name" }, style: { ...textStyle, italic: true } });
   }
@@ -4946,8 +4933,7 @@ export default function Editor() {
     if (copy && (atoms.size || picks.size)) {
       const d = duplicateSelection(doc, atoms, picks);
       [base, atoms, picks, copies] = [d.mol, d.atoms, d.items, d.ids];
-      setSelection(atoms);
-      setPicked(picks);
+      reselect(atoms, picks);
     }
     const { captions, arrowIds, cycleIds } = movers(base, atoms, picks, new Map([...(copies ?? [])].map(([from, to]) => [to, from])));
     // Snapping (snap.ts): the box of everything moving, drawn (atoms with their labels, text as placed, arrows and
@@ -4990,15 +4976,13 @@ export default function Editor() {
     if (stepAgain.current === undefined) setStepPick(undefined);
     setBranchPick(undefined);
     setCycleStep({ cycle: c.id, step: t.step ?? 0 });
-    setSelection(atoms);
-    setPicked(picks);
+    reselect(atoms, picks);
     startMove(p, screen, t, picks, atoms, copy);
   }
   // A press on a cycle's side arrow picks that side arrow on its own and grabs the end of the half pressed (a click leaves
   // it picked).
   function pressBranch(p: P, t: Hover, screen: [number, number]) {
-    setSelection(new Set());
-    setPicked(new Set([t.cycle!]));
+    reselect(new Set(), new Set([t.cycle!]));
     setStepPick(undefined);
     setBranchPick({ cycle: t.cycle!, branch: t.branch! });
     setCycleStep({ cycle: t.cycle!, step: t.step ?? 0 });
@@ -5022,8 +5006,7 @@ export default function Editor() {
     if (part) {
       const items = partItems(doc, part);
       riskPicked.current = { key: part.key, items };
-      setSelection(new Set());
-      setPicked(items);
+      reselect(new Set(), items);
       return startMove(p, screen, t, riskItems, new Set(), copy);
     }
     // Sam (28 October 2026): a press on any part of a group picks the whole (outermost) group (Shift adds it) and
@@ -5031,16 +5014,14 @@ export default function Editor() {
     if (selectKind !== "perspective" && groupsOf(doc, new Set(ids), new Set(its)).length) {
       if (!shift && ids.every((i) => selection.has(i)) && its.every((x) => picked.has(x))) return startMove(p, screen, t, picked, selection, copy);
       const [ga, gi] = withGroups(new Set(ids), new Set(its)), atoms = new Set([...(shift ? selection : []), ...ga]), picks = new Set([...(shift ? picked : []), ...gi]);
-      setSelection(atoms);
-      setPicked(picks);
+      reselect(atoms, picks);
       return startMove(p, screen, t, picks, atoms, copy);
     }
     // Structure Perspective: a press on the selection, or on a structure, tilts it through 3D as the pointer moves.
     if (selectKind === "perspective" && (ids.length || (selection.size && onSelection(doc, selection, p)))) {
       const on = selection.size && (onSelection(doc, selection, p) || ids.some((i) => selection.has(i)));
       const [set3, picks3] = wholeIntegral(doc, new Set(on ? [...selection] : (fragments(doc).find((g) => g.includes(ids[0])) ?? ids)), new Set());
-      setSelection(set3);
-      setPicked(picks3);
+      reselect(set3, picks3);
       const hinge = hingeOf(doc, set3), ps = [...set3].map((i) => doc.atoms[i].location);
       const centre: [number, number, number] = [0, 1, 2].map((k) => (Math.min(...ps.map((q) => q[k] ?? 0)) + Math.max(...ps.map((q) => q[k] ?? 0))) / 2) as [number, number, number];
       return setDrag({ kind: "tilt", base: doc, ids: set3, centre, start: screen, hinge, working: doc });
@@ -5050,16 +5031,14 @@ export default function Editor() {
     if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
     if (ids.length) {
       const atoms = new Set(shift ? [...selection, ...ids] : ids), picks = shift ? picked : new Set<number>();
-      setSelection(atoms);
-      setPicked(picks);
+      reselect(atoms, picks);
       return startMove(p, screen, t, picks, atoms, copy);
     }
     // A press anywhere inside the frame of a selected group moves the whole group.
     const f = frameBox(views.get().zoom);
     if (!shift && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
       const [ga, gi] = withGroups(selection, picked);
-      setSelection(ga);
-      setPicked(gi);
+      reselect(ga, gi);
       return startMove(p, screen, t, gi, ga, copy);
     }
     // A press on a reagent table picks its cell and grabs the table, which moves on its own (Grid.at).
@@ -5077,8 +5056,7 @@ export default function Editor() {
       return setDrag({ kind: "grid", arrow: table.arrow, from: p, start: screen, d: [0, 0], moved: false });
     }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
-    setSelection(base);
-    setPicked(picks);
+    reselect(base, picks);
     startArea(p, t, base, picks);
   }
 
@@ -5086,8 +5064,7 @@ export default function Editor() {
   // where selecting any part of it selects all of it).
   const choose = (atoms: Iterable<number>, items: Iterable<number>) => {
     const [a, i] = wholeIntegral(doc, new Set(atoms), new Set(items));
-    setSelection(a);
-    setPicked(i);
+    reselect(a, i);
   };
   // What a selection area (inside: whether a point is in it) takes in: also each cycle whose circle it takes in, or all
   // of whose intermediates it does, with all its parts. A side arrow it takes in whole, with no atoms and no text but
@@ -5273,8 +5250,7 @@ export default function Editor() {
     const map = !plate && free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "plasmid")) ? plasmidAt(p) : undefined;
     if (plate) {
       const k = spotHit(plate, p);
-      setSelection(new Set());
-      setPicked(new Set([plate.id]));
+      reselect(new Set(), new Set([plate.id]));
       setSpotPick(k >= 0 ? { plate: plate.id, index: k } : undefined);
       setLanePick({ plate: plate.id, lane: laneOf(plate, p) });
     } else if (map) pickPart(map, p);
@@ -5284,8 +5260,7 @@ export default function Editor() {
       const on = atoms.length || items.length ? atoms.every((i) => selection.has(i)) && items.every((x) => picked.has(x)) : selection.size > 0 && onSelection(doc, selection, p);
       if (cycle) setCycleStep({ cycle: cycle.id, step: found.step ?? 0 });
       if (cycle && (found.branch !== undefined || (on && found.step !== undefined))) {
-        setSelection(new Set());
-        setPicked(new Set([cycle.id]));
+        reselect(new Set(), new Set([cycle.id]));
         setStepPick(found.branch === undefined ? { cycle: cycle.id, step: found.step! } : undefined);
         setBranchPick(found.branch !== undefined ? { cycle: cycle.id, branch: found.branch } : undefined);
       } else if (!on) choose([...atoms, ...own], [...items, ...text]);
@@ -5384,8 +5359,7 @@ export default function Editor() {
     // Select or the TLC tool.
     const tick = lanePlate ? tickAt(lanePlate, p) : undefined;
     if (lanePlate && tick !== undefined) {
-      setSelection(new Set());
-      setPicked(new Set([lanePlate.id]));
+      reselect(new Set(), new Set([lanePlate.id]));
       return setDrag({ kind: "lane", plate: lanePlate.id, from: tick, to: tick, base: doc, working: doc });
     }
     // An experiment's detail with no text yet: the press is a click in its box, which types the detail (click).
@@ -5409,8 +5383,7 @@ export default function Editor() {
     // click inside a cell opens it. A hold there gives Select, as with every tool.
     if (tool === "table" && tableEdge(p)) {
       const { sh, axis, index } = tableEdge(p)!;
-      setSelection(new Set());
-      setPicked(new Set([sh.id]));
+      reselect(new Set(), new Set([sh.id]));
       setDrag({ kind: "tableedge", id: sh.id, axis, index, base: doc, working: doc });
       return startHold(p, t, screen);
     }
@@ -5423,8 +5396,7 @@ export default function Editor() {
     if (tool === "cycle" && t.caption !== undefined) return pressCaption(p, t, false, screen);
     if (tool === "cycle" && (t.atom !== undefined || t.bond !== undefined)) {
       const [atoms, picks] = wholeIntegral(doc, new Set(fragments(doc).find((g) => g.includes(t.atom ?? doc.bonds[t.bond!].atoms[0]))), new Set());
-      setSelection(atoms);
-      setPicked(picks);
+      reselect(atoms, picks);
       return startMove(p, screen, t, picks, atoms);
     }
     if (tool === "cycle" && t.branch !== undefined) return pressBranch(p, t, screen);
@@ -5470,8 +5442,7 @@ export default function Editor() {
     // Pressing away from the selection with a drawing tool clears it. On empty canvas that is all the press does, so
     // the next press draws (Sam, 19 October 2026; ChemDraw also draws). A hold still gives Select.
     if (selection.size || picked.size) {
-      setSelection(new Set());
-      setPicked(new Set());
+      reselect(new Set(), new Set());
       if (t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined) return startHold(p, t, screen);
     }
     // A bond tool's Shift-drag moves the atom (or bond) pressed, as ChemDraw's does. Dropped on a neighbour, the atom
@@ -7140,8 +7111,7 @@ export default function Editor() {
     if (a.what !== "spectrum") m = landText(m, items, a.what === "label" ? atoms : undefined);
     set(m);
     revealNext.current = true;
-    setSelection(new Set());
-    setPicked(new Set(items));
+    reselect(new Set(), new Set(items));
   }
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
@@ -7159,8 +7129,7 @@ export default function Editor() {
       setSessions((ss) => [...ss, { id, keys: [key], key, view: "open", full: false, at }]);
       showSession(id, false, true);
     }
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
   }
   const [nmrTables, setNmrTables] = useState(false);
   const [nmrPoint, setNmrPoint] = useState<number[]>();
@@ -7238,8 +7207,7 @@ export default function Editor() {
     if (!home) openSpectrum(key, [...fragments(next)].sort((p, q) => q.length - p.length)[0] ?? []);
     setSpectrumShow("measured");
     setChosenGroup(undefined);
-    setSelection(new Set());
-    setPicked(new Set());
+    reselect(new Set(), new Set());
   }  useEffect(() => { if (spectrum && !nmrTables) void nmrReady().then(() => setNmrTables(true)); }, [spectrum, nmrTables]);
   // Only the panel that shows predicts (B1.12): minimised, it keeps the drawing it last predicted from, so it comes
   // back as it was, and predicts again on restore if the drawing changed.
@@ -7648,8 +7616,7 @@ export default function Editor() {
     set(m);
     // It comes into view in the room the panels leave (above the strip), picked (B1.20).
     revealNext.current = true;
-    setSelection(new Set());
-    setPicked(new Set(items));
+    reselect(new Set(), new Set(items));
     say("Spectrum added");
   }
   // The chart every picked object is part of (a chart picked whole, or one of its parts).
@@ -7676,8 +7643,7 @@ export default function Editor() {
     const [m, items] = placePlot(doc, { ...record, origin: landing({ atoms: [], bonds: [] }, undefined, figureBox(fig, style.captionSize / style.bond, env.measure)) }, env, fig);
     set(m);
     revealNext.current = true;
-    setSelection(new Set());
-    setPicked(new Set(items));
+    reselect(new Set(), new Set(items));
     say(`${plotName(record)} added`);
   }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts. One for a
@@ -8583,8 +8549,7 @@ export default function Editor() {
       const atoms = new Set(mods.atoms), picks = new Set(mods.picks);
       for (const i of ids) if (out) atoms.delete(i); else atoms.add(i);
       for (const x of items) if (out) picks.delete(x); else picks.add(x);
-      setSelection(atoms);
-      setPicked(picks);
+      reselect(atoms, picks);
       return;
     }
     // Edit curve: a click on the curve it had picked adds a point there; a click away from it, a point at its end.
@@ -8605,8 +8570,7 @@ export default function Editor() {
       // A second click on a picked cycle's arc picks that step on its own.
       if (t.cycle !== undefined) {
         if (stepAgain.current === undefined) return;
-        setSelection(new Set());
-        setPicked(new Set([t.cycle]));
+        reselect(new Set(), new Set([t.cycle]));
         return setStepPick({ cycle: t.cycle, step: stepAgain.current });
       }
       const on = t.atom !== undefined ? `atom ${t.atom}` : t.bond !== undefined ? `bond ${t.bond}` : undefined, was = lastPick.current, now = performance.now();
@@ -8684,8 +8648,7 @@ export default function Editor() {
       const round = "circle" in shapePick && shapePick.circle && tool === "shape", cx = (b[0] + b[2]) / 2 / L, cy = -(b[1] + b[3]) / 2 / L, r = Math.hypot(b[2] - b[0], b[3] - b[1]) / 2 / L + pad / L;
       const [mol, id] = addShape(doc, { ...sh, ...(round ? { from: [cx - r, cy - r], to: [cx + r, cy + r] } : { from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L] }) });
       set(mol);
-      setSelection(new Set());
-      return setPicked(new Set([id]));
+      return reselect(new Set(), new Set([id]));
     }
     if (tool === "template") {
       const mol = templateMol(templateVariant);
@@ -8838,8 +8801,7 @@ export default function Editor() {
         if (drag.working === drag.base && tool === "select") {
           if (pressMods.current?.shift || pressMods.current?.alt) return click({ atom: drag.atom }, pos(doc, drag.atom));
           const [atoms, picks] = withGroups(new Set([drag.atom]), new Set());
-          setSelection(atoms);
-          setPicked(picks);
+          reselect(atoms, picks);
         }
         pressMods.current = undefined;
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
@@ -9097,8 +9059,7 @@ export default function Editor() {
         const [m, id] = addArrow(doc, { kind: "reaction", from: offer.from, to: offer.to });
         setOffer(undefined);
         set(m, true);
-        setSelection(new Set());
-        return setPicked(new Set([id]));
+        return reselect(new Set(), new Set([id]));
       }
       // Otherwise Tab and Shift+Tab step through the objects on the canvas (stepAccess).
       if (e.key === "Tab" && !e.altKey && stepAccess(e.shiftKey)) { e.preventDefault(); return; }
