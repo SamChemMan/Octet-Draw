@@ -73,6 +73,30 @@ try {
     assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, "", `${shell}: the session has none`);
     assert.equal(got.env.XDG_DATA_DIRS, undefined, `${shell}: no data folders set gives GLib its own`);
 
+    // After an update, Octet starts the new AppImage with its own environment (update.rs, app.restart()). From 1.1.2,
+    // AppImageKit's AppRun put the old mount's folders first: Octet must not load the old AppImage's libraries.
+    const old = "/tmp/.mount_OctetOld", mine = "/opt/mine";
+    const kit = ["usr/lib", "usr/lib/i386-linux-gnu", "lib"].map((d) => `${old}/${d}/`).join(":");
+    const update = {
+      LD_LIBRARY_PATH: `${kit}:${mine}`,
+      XDG_DATA_DIRS: `${mount}/usr/share:/usr/share:${old}/usr/share/:${old}/usr/share:/usr/share:/home/u/.local/share`,
+      GST_PLUGIN_SYSTEM_PATH: `${old}/usr/lib/gstreamer:`, GST_PLUGIN_SYSTEM_PATH_1_0: `${old}/usr/lib/gstreamer-1.0`,
+    };
+    got = run(shell, { OCTET_SYSTEM_LIBS: libs, ...update });
+    assert.equal(got.env.LD_LIBRARY_PATH, `${mine}:${system}/lib64:${system}`, `${shell}: an update loads no library from the old AppImage`);
+    assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, mine, shell);
+    assert.equal(got.env.XDG_DATA_DIRS, "/usr/share:/home/u/.local/share", shell);
+    assert.equal(got.env.GST_PLUGIN_SYSTEM_PATH, undefined, shell);
+    assert.equal(got.env.GST_PLUGIN_SYSTEM_PATH_1_0, undefined, shell);
+    got = run(shell, { OCTET_SYSTEM_LIBS: "", ...update });
+    assert.equal(got.env.LD_LIBRARY_PATH, `${appimageKit}:${mine}`, `${shell}: the copies of the new AppImage only`);
+    // From this launcher: the session's value is the one it kept, and the system's folders are not added twice.
+    for (const session of ["", mine]) {
+      got = run(shell, { OCTET_SYSTEM_LIBS: libs, OCTET_SESSION_LD_LIBRARY_PATH: session, LD_LIBRARY_PATH: `${session || old}:${system}/lib64:${system}` });
+      assert.equal(got.env.LD_LIBRARY_PATH, `${session ? `${session}:` : ""}${system}/lib64:${system}`, `${shell}: a restart keeps the session's folders`);
+      assert.equal(got.env.OCTET_SESSION_LD_LIBRARY_PATH, session, shell);
+    }
+
     // No WebKitGTK 4.1 in the system, or OCTET_SYSTEM_LIBS empty: the AppImage's copies, as AppImageKit's AppRun.
     for (const vars of [{ OCTET_SYSTEM_LIBS: `${system}/none ${system}` }, { OCTET_SYSTEM_LIBS: "" }]) {
       got = run(shell, vars);

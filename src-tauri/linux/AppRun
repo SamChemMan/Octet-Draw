@@ -18,26 +18,41 @@ for d in ${OCTET_SYSTEM_LIBS-/usr/lib/$m-linux-gnu /lib/$m-linux-gnu /usr/lib64 
   if [ -e "$d/libwebkit2gtk-4.1.so.0" ] || { [ -n "$system" ] && [ -d "$d" ]; }; then system=${system:+$system:}$d; fi
 done
 
+# Sets r to the folders in $1 without the empty ones and the ones in an AppImage's mount (/.mount_). After an update,
+# Octet starts the new AppImage with its own environment, so the old AppImage's folders can be in it.
+fresh() {
+  r=
+  IFS=:
+  for d in $1; do case $d in '' | */.mount_*) ;; *) r=${r:+$r:}$d ;; esac; done
+  unset IFS
+}
+
 # The session's LD_LIBRARY_PATH (empty when it has none), which src-tauri/src/linux.rs gives back to the programs that
-# Octet starts.
-export OCTET_SESSION_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
+# Octet starts. After an update, it is the one that the last launcher kept.
+fresh "${OCTET_SESSION_LD_LIBRARY_PATH-${LD_LIBRARY_PATH-}}"
+export OCTET_SESSION_LD_LIBRARY_PATH="$r"
 if [ -n "$system" ]; then
   # The loader looks in LD_LIBRARY_PATH before the RUNPATH that linuxdeploy gives Octet ($ORIGIN/../lib). So each
   # library comes from the system, and only a library that the system does not have comes from the AppImage.
-  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$system"
+  export LD_LIBRARY_PATH="${r:+$r:}$system"
+  # GStreamer uses the system's plugins. AppImageKit's AppRun (1.1.2) set these to the old AppImage's.
+  fresh "${GST_PLUGIN_SYSTEM_PATH-}"; GST_PLUGIN_SYSTEM_PATH=$r
+  fresh "${GST_PLUGIN_SYSTEM_PATH_1_0-}"; GST_PLUGIN_SYSTEM_PATH_1_0=$r
+  [ -n "$GST_PLUGIN_SYSTEM_PATH" ] || unset GST_PLUGIN_SYSTEM_PATH
+  [ -n "$GST_PLUGIN_SYSTEM_PATH_1_0" ] || unset GST_PLUGIN_SYSTEM_PATH_1_0
   # GTK uses the system's modules and schemas. The GTK hook sets them to the AppImage's copies, so remove them. Keep
   # the hook's GTK_THEME (Adwaita, with ":dark" when the desktop prefers dark): WebKitGTK reads ":dark" in it, and
   # then Octet opens dark, as 1.1.2 did. APPIMAGE_GTK_THEME sets another theme.
   unset GTK_DATA_PREFIX GSETTINGS_SCHEMA_DIR GI_TYPELIB_PATH GIO_MODULE_DIR GTK_EXE_PREFIX GTK_PATH \
     GTK_IM_MODULE_FILE GDK_PIXBUF_MODULE_FILE
-  XDG_DATA_DIRS=${XDG_DATA_DIRS#"$APPDIR/usr/share:/usr/share:"}
+  fresh "${XDG_DATA_DIRS#"$APPDIR/usr/share:/usr/share:"}"; XDG_DATA_DIRS=$r
   [ -n "$XDG_DATA_DIRS" ] || unset XDG_DATA_DIRS
 else
   # The library folders of AppImageKit's AppRun.
   l=
   for d in usr/lib usr/lib/i386-linux-gnu usr/lib/x86_64-linux-gnu usr/lib32 usr/lib64 lib lib/i386-linux-gnu \
     lib/x86_64-linux-gnu lib32 lib64; do l="$l$a/$d/:"; done
-  export LD_LIBRARY_PATH="${l%:}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH="${l%:}${r:+:$r}"
   export XDG_DATA_DIRS="$a/usr/share/:${XDG_DATA_DIRS:-/usr/local/share/:/usr/share/}"
   export GSETTINGS_SCHEMA_DIR="$a/usr/share/glib-2.0/schemas/${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
   export GST_PLUGIN_SYSTEM_PATH="$a/usr/lib/gstreamer" GST_PLUGIN_SYSTEM_PATH_1_0="$a/usr/lib/gstreamer-1.0"
