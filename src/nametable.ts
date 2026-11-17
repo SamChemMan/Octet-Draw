@@ -288,25 +288,14 @@ export class NameTable {
     return this.gramIds.get((t.charCodeAt(j) * 65536 + t.charCodeAt(j + 1)) * 65536 + t.charCodeAt(j + 2)) ?? -1;
   }
 
-  // The names with a trigram (three characters of a name in lower case, with a space before and after it), in order;
-  // a name that has the trigram twice comes twice.
-  *withGram(gram: string): Generator<number> {
-    const id = gram.length === 3 ? this.gramId(gram, 0) : -1;
-    if (id < 0) return;
-    let i = -1;
-    for (let p = this.gramStart[id], e = this.gramStart[id + 1]; p < e;) {
-      let d = 0, shift = 0, b;
-      do { b = this.grams[p++]; d |= (b & 0x7f) << shift; shift += 7; } while (b & 0x80);
-      i += d;
-      yield i;
-    }
-  }
   // How long a trigram's list is (its bytes), to read the shorter of two.
   gramSize(gram: string): number {
     const id = gram.length === 3 ? this.gramId(gram, 0) : -1;
     return id < 0 ? 0 : this.gramStart[id + 1] - this.gramStart[id];
   }
-  // The same names to visit, in a plain loop: a generator costs more than the decoding in the hot loops (nearNames).
+  // The names with a trigram (three characters of a name in lower case, with a space before and after it), in order;
+  // a name that has the trigram twice comes twice. A plain loop: a generator costs more than the decoding in the hot
+  // loops (nearNames).
   forGram(gram: string, visit: (i: number) => void) {
     const id = gram.length === 3 ? this.gramId(gram, 0) : -1;
     if (id < 0) return;

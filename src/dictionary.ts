@@ -158,7 +158,9 @@ export function completeName(typed: string): string | undefined {
 export function dictionaryStarting(typed: string, most: number): string[] {
   const q = commonKey(typed.trim()), head = typed.trim().toLowerCase().slice(0, 2), t = table;
   if (q.length < 2 || head.length < 2 || most <= 0 || !t) return [];
-  const found = [...new Set(t.withGram(` ${head}`))].filter((i) => commonKey(t.lower(i)).startsWith(q)).sort((a, b) => t.lower(a).length - t.lower(b).length || (t.lower(a) < t.lower(b) ? -1 : 1));
+  const hits = new Set<number>();
+  t.forGram(` ${head}`, (i) => hits.add(i));
+  const found = [...hits].filter((i) => commonKey(t.lower(i)).startsWith(q)).sort((a, b) => t.lower(a).length - t.lower(b).length || (t.lower(a) < t.lower(b) ? -1 : 1));
   const seen = new Set<number>(), out: string[] = [];
   for (const i of found) {
     if (seen.has(t.compound(i))) continue;
