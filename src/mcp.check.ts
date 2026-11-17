@@ -89,6 +89,7 @@ const call = async (name: string, args: any, session?: string) => {
   return out;
 };
 const text = (r: { content: { text?: string }[] }) => r.content[0].text!;
+const callOk = async (name: string, args: any, session?: string) => { const r = await call(name, args, session); assert.ok(!r.isError, text(r)); return r; };
 // The id of each structure a draw made, from its compounds (a draw lists them there, not in made: plan 19.11).
 const sids = (r: any): string[] => (r.structuredContent.compounds ?? []).map((c: string) => /^(?:\S+ )?(s\d+) /.exec(c)![1]);
 const fresh = () => { m = EMPTY; steps = []; said = []; far = []; picked = { atoms: [], items: [] }; experiment = false; };
@@ -305,8 +306,7 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
     ["JACS, on screen", { kind: "paper", journal: "ACS Document 1996" }],
   ] as [string, object][]).entries()) {
     fresh();
-    o = await call("draw", { lines: "ethanol -> water", brief }, `s-q${k}`);
-    assert.ok(!o.isError, text(o));
+    o = await callOk("draw", { lines: "ethanol -> water", brief }, `s-q${k}`);
     assert.deepEqual(JSON.parse(briefs.get(`s-q${k}`)!).destination, want, brief);
   }
   // set_brief's destination in words is read so too.
@@ -473,8 +473,7 @@ const HERE = `Octet needs the brief first. If the user has not answered these th
   ] as [unknown, object][]) {
     fresh();
     briefs.delete("s-10");
-    o = await call("draw", { lines: "ethanol (1)\nwater (2)", brief: line }, "s-10");
-    assert.ok(!o.isError, text(o));
+    o = await callOk("draw", { lines: "ethanol (1)\nwater (2)", brief: line }, "s-10");
     assert.deepEqual(JSON.parse(briefs.get("s-10")!), brief, JSON.stringify(line));
   }
 }
@@ -641,8 +640,7 @@ assert.equal(steps.length, 0);
 
 // A reaction: the esterification, one undo step, conditions kept on the arrow, the number bold under its product.
 fresh();
-let out = await call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] });
-assert.ok(!out.isError, text(out));
+let out = await callOk("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4 (cat.)"], below: ["reflux"], products: [{ text: "ethyl acetate", number: "1" }, { text: "water" }] }] });
 assert.equal(text(out).split("\n")[0], "Drew the reaction. Octet laid it out with Clean Up Reaction. One undo step.");
 assert.equal(steps.length, 1);
 assert.equal(open, 0);
@@ -831,8 +829,7 @@ assert.ok(!m.groups?.length, "no group");
   const salt = d.structures[0].id, was = m.atoms.slice(0, 6).map((a) => a.location[0]);
   assert.ok(!(await call("change", { operations: [{ op: "move", ids: [salt], dx: 2, dy: 0 }] })).isError);
   assert.ok(m.atoms.slice(0, 6).every((a, i) => Math.abs(a.location[0] - was[i] - 2) < 1e-9), "both ions move");
-  out = await call("change", { operations: [{ op: "replace", structure: salt, text: "[Na+].[Cl-]" }] });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("change", { operations: [{ op: "replace", structure: salt, text: "[Na+].[Cl-]" }] });
   d = await read();
   assert.deepEqual(d.structures.map((s: { number: string; formula: string }) => [s.number, s.formula]).sort(), [["1", "ClNa"], ["2", "C2H6O"]]);
   assert.ok(!(await call("change", { operations: [{ op: "delete", ids: ["1"] }] })).isError);
@@ -860,8 +857,7 @@ assert.ok(m.captions!.filter((c) => c.on).every((c) => c.text.split("\n").every(
 // number, as well as text or "structure:" before a name. The arrow is as long as the structure, which lies within
 // its ends and reads as the step's. from: "previous" passes over it.
 fresh();
-out = await call("draw", { kind: "reaction", start: [{ text: "benzene", number: "1" }], steps: [{ above: [{ text: "*CCCCCCCC", labels: ["Bn"], number: 5 }, "heat"], below: ["structure: ethanol"], products: [{ from: "previous", number: "2" }] }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("draw", { kind: "reaction", start: [{ text: "benzene", number: "1" }], steps: [{ above: [{ text: "*CCCCCCCC", labels: ["Bn"], number: 5 }, "heat"], below: ["structure: ethanol"], products: [{ from: "previous", number: "2" }] }] });
 assert.match(out.content[1].text!, /Read number 5 as text\./);
 d = await read();
 {
@@ -873,8 +869,7 @@ d = await read();
 
 // cycle: three intermediates on the circle, the centre text, side arrows in and out, step names.
 fresh();
-out = await call("draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene", number: "5" }, { text: "phenol" }], centre: "Pd(0)", steps: [{ step: 0, in: "PhBr", name: "OA" }, { step: 1, in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, out: "Ph–Ar" }, { step: 7, in: "nothing" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("draw", { kind: "cycle", intermediates: [{ text: "benzene" }, { text: "toluene", number: "5" }, { text: "phenol" }], centre: "Pd(0)", steps: [{ step: 0, in: "PhBr", name: "OA" }, { step: 1, in: "ArB(OH)2", out: "B(OH)3" }, { step: 2, out: "Ph–Ar" }, { step: 7, in: "nothing" }] });
 const c = m.cycles![0];
 assert.equal(c.nodes.length, 3);
 assert.ok(c.clockwise);
@@ -891,8 +886,7 @@ assert.deepEqual(d.cycles[0].sides.map((x: { side: string; text: string; at: str
 // A replaced intermediate keeps its place in the cycle, its number and the side texts at its steps (real-r4-opus-1
 // paper-cycle, plan 19.10: two replaced in one change fell out of the cycle, which read as [s1, null, s3, null]).
 // replace with ids of one structure and no structure is that structure (real-r4-haiku-3 say-fix).
-out = await call("change", { operations: [{ op: "replace", structure: d.structures[1].id, text: "COc1ccccc1" }, { op: "replace", ids: [d.structures[2].id], text: "Nc1ccccc1" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "replace", structure: d.structures[1].id, text: "COc1ccccc1" }, { op: "replace", ids: [d.structures[2].id], text: "Nc1ccccc1" }] });
 assert.equal(out.content[1]?.text, "Read ids as structure.");
 {
   const e = await read(), formula = (id: string) => e.structures.find((s: { id: string }) => s.id === id)?.formula;
@@ -905,8 +899,7 @@ assert.equal(out.content[1]?.text, "Read ids as structure.");
 fresh();
 await call("draw", { kind: "structures", structures: [{ text: "benzene", number: "2" }, { text: "water" }] });
 d = await read();
-out = await call("change", { operations: [{ op: "replace", structure: d.structures[0].id, text: "toluene" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "replace", structure: d.structures[0].id, text: "toluene" }] });
 d = await read();
 assert.deepEqual(d.structures.map((s: { formula: string; number?: string }) => [s.formula, s.number]), [["H2O", undefined], ["C7H8", "2"]]);
 assert.ok((await call("change", { operations: [{ op: "replace", structure: "s999", text: "water" }] })).isError);
@@ -1036,8 +1029,7 @@ assert.ok((await call("advanced", { tool: "fill_experiment", args: { details: { 
 experiment = true;
 await call("draw", { kind: "reaction", start: [{ text: "acetic acid" }, { text: "ethanol" }], steps: [{ above: ["H2SO4"], products: [{ text: "ethyl acetate", number: "1" }] }] });
 // No reagent table yet: fill_experiment makes the reaction's.
-out = await call("advanced", { tool: "fill_experiment", args: { details: { title: "Ethyl acetate", solvent: "none" }, amounts: [{ of: "acetic acid", mass: "6.0 g", limiting: true }, { of: "ethanol", equiv: "3" }, { of: "1", measured: "7.9 g" }, { of: "H2SO4", volume: "0.1 mL" }, { of: "argon", mass: "1 g" }] } });
-assert.ok(!out.isError, text(out));
+out = await callOk("advanced", { tool: "fill_experiment", args: { details: { title: "Ethyl acetate", solvent: "none" }, amounts: [{ of: "acetic acid", mass: "6.0 g", limiting: true }, { of: "ethanol", equiv: "3" }, { of: "1", measured: "7.9 g" }, { of: "H2SO4", volume: "0.1 mL" }, { of: "argon", mass: "1 g" }] } });
 assert.match(text(out), /"argon" is not in the reaction/);
 assert.doesNotMatch(text(out), /"H2SO4" has no column/, "H2SO4 has its column");
 assert.match(text(out), /cannot use the volume of H2SO4 without a density/, "a volume with no density is said, as it gives no moles");
@@ -1051,8 +1043,7 @@ assert.deepEqual(grid.roles, {}, "a table made here starts with known solvents a
 assert.deepEqual((await read()).experiment, { title: "Ethyl acetate", solvent: "none" });
 // 1.1.2's table: a column's role (a solvent is never limiting), the amount measured out, the concentration and the
 // table's conditions. A product takes no role and no measure.
-out = await call("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "ethanol", role: "solvent" }, { of: "acetic acid", role: "solvent", measure: "volume" }, { of: "1", role: "catalyst", measure: "mass" }], concentration: "0.5 M", conditions: { temperature: "reflux", time: "4 h" } } });
-assert.ok(!out.isError, text(out));
+out = await callOk("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "ethanol", role: "solvent" }, { of: "acetic acid", role: "solvent", measure: "volume" }, { of: "1", role: "catalyst", measure: "mass" }], concentration: "0.5 M", conditions: { temperature: "reflux", time: "4 h" } } });
 assert.match(text(out), /cannot read a role for the product 1; measure for the product 1/);
 const g2 = m.grids![0];
 assert.deepEqual([g2.roles, g2.taken, g2.limiting, g2.conc, g2.conditions], [{ "r:C2H6O": "solvent", "r:C2H4O2": "solvent" }, { "r:C2H4O2": "volume" }, undefined, 0.5, { temperature: "reflux", time: "4 h" }]);
@@ -1083,8 +1074,7 @@ for (const page of [true, false]) {
 // Structured conditions (3b): drawn as text in the usual order, kept as data, read back as fields with formulas.
 fresh();
 experiment = false;
-out = await call("draw", { kind: "reaction", start: [{ text: "benzene" }], steps: [{ reagents: ["MeNO2", "NH4OAc"], catalysts: ["CuI (10 mol%)"], solvents: ["AcOH"], temperature: "reflux", time: "4 h", atmosphere: "N2", yield: "78%", below: ["then workup"], products: [{ text: "toluene" }] }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("draw", { kind: "reaction", start: [{ text: "benzene" }], steps: [{ reagents: ["MeNO2", "NH4OAc"], catalysts: ["CuI (10 mol%)"], solvents: ["AcOH"], temperature: "reflux", time: "4 h", atmosphere: "N2", yield: "78%", below: ["then workup"], products: [{ text: "toluene" }] }] });
 const onArrow = (side: string) => m.captions!.filter((c) => c.on?.side === side).map((c) => c.text);
 assert.deepEqual(onArrow("above"), ["CuI (10 mol%)", "MeNO2, NH4OAc"], "reagents nearest the top, catalysts under them");
 assert.deepEqual(onArrow("below"), ["AcOH, reflux, 4 h, N2", "then workup", "78%"]);
@@ -1110,8 +1100,7 @@ assert.deepEqual([fields.catalysts[0].text, fields.solvents[0].text, fields.temp
 fresh();
 await call("draw", { kind: "structures", structures: [{ text: "benzene", number: "1" }, { text: "water", number: "2" }] });
 commands = [];
-out = await call("change", { operations: [{ op: "arrange", ids: ["1", "2"], how: "top" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "arrange", ids: ["1", "2"], how: "top" }] });
 assert.deepEqual(commands, ["arrange_top"]);
 assert.deepEqual(picked, { atoms: [], items: [] });
 assert.ok((await call("change", { operations: [{ op: "arrange", ids: ["1"], how: "left" }] })).isError, "one thing does not line up");
@@ -1259,8 +1248,7 @@ await call("draw", { kind: "structures", structures: [{ text: "CCN", number: "4"
 d = (await call("read", { atoms: true }) as unknown as { structuredContent: { structures: { id: string; atoms: { id: string; label: string }[]; bonds: { id: string; kind: string }[] }[] } }).structuredContent;
 const nAtom = d.structures[0].atoms.find((x) => x.label === "N")!, cc = d.structures[0].bonds.find((b) => b.id.endsWith("1-2"))!;
 assert.equal(cc.kind, "single");
-out = await call("change", { operations: [{ op: "edit", ids: [nAtom.id], charge: 1, isotope: 15, lone_pairs: 1, colour: "#2F6FED" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "edit", ids: [nAtom.id], charge: 1, isotope: 15, lone_pairs: 1, colour: "#2F6FED" }] });
 const N = m.atoms.find((x) => x.label === "N")!;
 assert.deepEqual([N.charge, N.isotope, N.pairs, N.colour], [1, 15, 1, "#2F6FED"]);
 await call("change", { operations: [{ op: "edit", ids: [cc.id], bond: "wedge" }] });
@@ -1283,13 +1271,11 @@ assert.deepEqual([m.arrows![0].style, m.arrows![0].end, m.captions!.find((c) => 
 // arrow: a curved arrow from a lone pair to a bond; shape: brackets round a structure with a mark.
 d = (await call("read", { atoms: true }) as unknown as { structuredContent: { structures: { id: string; atoms: { id: string; label: string }[]; bonds: { id: string }[] }[] } }).structuredContent;
 const o = d.structures[0].atoms.find((x) => x.label === "O")!, bondId = d.structures[1].bonds[0].id;
-out = await call("change", { operations: [{ op: "arrow", kind: "curved", from: `${o.id}:pair`, to: bondId }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "arrow", kind: "curved", from: `${o.id}:pair`, to: bondId }] });
 const arc = m.arrows!.find((x) => x.kind === "curved")!;
 assert.ok(arc.bend === 0.3 && Math.hypot(arc.from[0] - arc.to[0], arc.from[1] - arc.to[1]) > 0.2);
 assert.ok((await call("change", { operations: [{ op: "arrow", kind: "fishhook", from: "s99.1", to: bondId }] })).isError);
-out = await call("change", { operations: [{ op: "shape", kind: "brackets", around: [d.structures[1].id], mark: "‡" }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "shape", kind: "brackets", around: [d.structures[1].id], mark: "‡" }] });
 assert.deepEqual([m.shapes![0].kind, m.shapes![0].mark], ["brackets", "‡"]);
 const sh = (await read()).shapes;
 assert.equal(sh[0].kind, "brackets");
@@ -1300,8 +1286,7 @@ await call("change", { operations: [{ op: "delete", ids: [sh[0].id] }] });
 fresh();
 await call("draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] });
 d = await read();
-out = await call("change", { operations: [{ op: "arrow", kind: "reaction", from: d.structures[0].id, to: d.structures[1].id }] });
-assert.ok(!out.isError, text(out));
+out = await callOk("change", { operations: [{ op: "arrow", kind: "reaction", from: d.structures[0].id, to: d.structures[1].id }] });
 const ra = m.arrows![0];
 assert.ok(ra.from[0] >= d.structures[0].box[2] + 0.4 && ra.to[0] <= d.structures[1].box[0] - 0.4, JSON.stringify([ra, d.structures.map((x: { box: number[] }) => x.box)]));
 assert.doesNotMatch(text(out), /overlaps/);
@@ -1469,8 +1454,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(m, before, "a bad placement draws nothing");
   // move: to a point, or beside an object; not both a place and dx.
   const t = (await call("change", { operations: [{ op: "text", text: "Note", at: [0, -30], anchor: "top_left" }] }) as unknown as { structuredContent: { made: string[] } }).structuredContent.made[0];
-  let mv = await call("change", { operations: [{ op: "move", ids: [t], right_of: ref.id, align: "top" }] });
-  assert.ok(!mv.isError, text(mv));
+  let mv = await callOk("change", { operations: [{ op: "move", ids: [t], right_of: ref.id, align: "top" }] });
   const tb = (await read()).text.find((x: { id: string }) => x.id === t);
   assert.ok(tb.at[0] > ref.box[2], JSON.stringify(tb));
   assert.ok((await call("change", { operations: [{ op: "move", ids: [t], dx: 1, to: [0, 0] }] })).isError);
@@ -1587,12 +1571,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // F6: arrow from and to a point; shape at a box; same_width; rich text in text and edit.
 {
   fresh();
-  let out = await call("change", { operations: [{ op: "arrow", kind: "line", from: [0, 0], to: [5, 0] }] });
-  assert.ok(!out.isError, text(out));
+  let out = await callOk("change", { operations: [{ op: "arrow", kind: "line", from: [0, 0], to: [5, 0] }] });
   assert.deepEqual([m.arrows![0].from, m.arrows![0].to], [[0, 0], [5, 0]]);
   for (const bad of [[1e9, 0], [1], ["a", 0]]) assert.match(text(await call("change", { operations: [{ op: "arrow", kind: "line", from: bad, to: [5, 0] }] })), /from: not an id .* or a point/);
-  out = await call("change", { operations: [{ op: "shape", kind: "rounded", box: [0, 0, 10, 4], fill: "solid", colour: "#EEF2F8" }] });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("change", { operations: [{ op: "shape", kind: "rounded", box: [0, 0, 10, 4], fill: "solid", colour: "#EEF2F8" }] });
   await call("change", { operations: [{ op: "shape", kind: "rounded", box: [0, -10, 6, -6] }] });
   const [p1, p2] = m.shapes!;
   const line = `a${m.arrows![0].id}`;
@@ -1603,8 +1585,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(w(m.shapes![1]), 10);
   assert.equal(Math.min(m.shapes![1].from[0], m.shapes![1].to[0]), 0, "keeps its left edge");
   assert.ok((await call("change", { operations: [{ op: "shape", kind: "box" }] })).isError);
-  out = await call("change", { operations: [{ op: "text", runs: [{ text: "M = " }, { text: "Ce", colour: "#6B35B8" }, { text: "IV", script: "super" }] }] });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("change", { operations: [{ op: "text", runs: [{ text: "M = " }, { text: "Ce", colour: "#6B35B8" }, { text: "IV", script: "super" }] }] });
   const c = m.captions!.at(-1)!;
   assert.equal(c.text, "M = CeIV");
   assert.deepEqual(c.runs!.map((r) => [r.text, r.colour, r.script]), [["M = ", undefined, undefined], ["Ce", "#6B35B8", undefined], ["IV", undefined, "super"]]);
@@ -1619,8 +1600,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 {
   fresh();
   const molecule = { atoms: [{ label: "Ce", x: 0, y: 0 }, { label: "O", x: 1, y: 0.5 }, { label: "O", x: 1, y: -0.5 }, { label: "Si(OtBu)2", x: 1.8, y: 0 }], bonds: [{ from: 0, to: 1 }, { from: 1, to: 3 }, { from: 3, to: 2 }, { from: 2, to: 0, kind: "wedge" }] };
-  let out = await call("draw", { kind: "structures", structures: [{ molecule, number: "S-1" }] });
-  assert.ok(!out.isError, text(out));
+  let out = await callOk("draw", { kind: "structures", structures: [{ molecule, number: "S-1" }] });
   const xs = m.atoms.map((a) => a.location[0]);
   assert.ok(Math.abs(xs[1] - xs[0] - 1) < 1e-9 && Math.abs(xs[3] - xs[0] - 1.8) < 1e-9, "coordinates kept");
   assert.equal(m.atoms[3].text, "Si(OtBu)2");
@@ -1638,8 +1618,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   }
   assert.equal(m, before);
   fresh();
-  out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }] });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }] });
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => a.text), ["L", "Ar"]);
   assert.match(text(await call("draw", { kind: "structures", structures: [{ text: "*[Pd]*", labels: ["L"] }] })), /has 2 \* but 1 labels/);
   // C6: a label Octet reads no group in, and that stands in for none, is named in the reply of every draw that takes
@@ -1708,13 +1687,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   }
   // A hint or a colour that names a label as the AI app gave it finds the label as Octet kept it.
   fresh();
-  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["MeO"], right: "MeO", colours: { MeO: "#C42B2B" } }] });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("draw", { kind: "structures", structures: [{ text: "*c1ccccc1", labels: ["MeO"], right: "MeO", colours: { MeO: "#C42B2B" } }] });
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
   assert.ok(m.atoms.find((a) => a.text)!.location[0] > Math.max(...m.atoms.filter((a) => !a.text).map((a) => a.location[0])), "the label named by right is the atom furthest right");
   fresh();
-  out = await call("draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["MeO"] }]] }], element_colours: { MeO: "#C42B2B" } });
-  assert.ok(!out.isError, text(out));
+  out = await callOk("draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccccc1", labels: ["MeO"] }]] }], element_colours: { MeO: "#C42B2B" } });
   assert.deepEqual(m.atoms.filter((a) => a.text).map((a) => [a.text, a.colour]), [["OMe", "#C42B2B"]]);
   // A label on an atom of a molecule, one set with edit and one a change puts on (swap, add) are kept the same way.
   fresh();
@@ -1844,13 +1821,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const only = () => m.atoms.map((a) => a.location);
   // up: the named label points up from the middle (to the nearest 30°); a second hint sets the side.
   fresh();
-  let r = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["OMe", "Br"], up: "OMe" }] });
-  assert.ok(!r.isError, text(r));
+  let r = await callOk("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["OMe", "Br"], up: "OMe" }] });
   const ome = m.atoms.findIndex((a) => a.text === "OMe"), br = m.atoms.findIndex((a) => a.text === "Br");
   assert.ok(Math.abs(m.atoms[ome].location[0] - m.atoms[br].location[0]) < 0.01 && m.atoms[ome].location[1] > m.atoms[br].location[1], "OMe straight up, Br straight down");
   fresh();
-  r = await call("draw", { kind: "structures", structures: [{ text: "OC(=O)c1ccccc1C", left: "O", up: "#9" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "structures", structures: [{ text: "OC(=O)c1ccccc1C", left: "O", up: "#9" }] });
   const xs = only(), mid = [(Math.min(...xs.map((p) => p[0])) + Math.max(...xs.map((p) => p[0]))) / 2, (Math.min(...xs.map((p) => p[1])) + Math.max(...xs.map((p) => p[1]))) / 2];
   assert.ok(xs[0][0] < mid[0] && xs[9][1] > mid[1], "the OH to the left, the methyl up");
   // rotate is exact; flip keeps each stereocentre (the same InChI as without it).
@@ -1862,15 +1837,13 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(host.smiles(m), plain, "a flip keeps the stereocentre");
   // geometry: an octahedral metal's ligands at their places, wedges in front and hashes behind, narrow at the metal.
   fresh();
-  r = await call("draw", { kind: "structures", structures: [{ text: "[Ce](*)(*)(*)(*)(N#CC)(N#CC)", labels: ["OSiPh3", "OSiPh3", "OSiPh3", "OSiPh3"], geometry: "octahedral" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "structures", structures: [{ text: "[Ce](*)(*)(*)(*)(N#CC)(N#CC)", labels: ["OSiPh3", "OSiPh3", "OSiPh3", "OSiPh3"], geometry: "octahedral" }] });
   const ce = m.atoms.findIndex((a) => a.label === "Ce"), c = m.atoms[ce].location;
   const at = m.bonds.filter((b) => b.atoms[0] === ce).map((b) => ({ angle: Math.round(((Math.atan2(m.atoms[b.atoms[1]].location[1] - c[1], m.atoms[b.atoms[1]].location[0] - c[0]) * 180) / Math.PI + 360) % 360), stereo: b.stereo ?? 0, ligand: b.atoms[1] }));
   assert.deepEqual(at.sort((p, q) => p.ligand - q.ligand).map((x) => [x.angle, x.stereo]), [[90, 0], [270, 0], [150, 6], [210, 1], [30, 6], [330, 1]]);
   // colours by label and by element.
   fresh();
-  r = await call("draw", { kind: "structures", structures: [{ text: "*c1ccccc1O", labels: ["MIV"], colours: { MIV: "#4E8B4E", O: "#E0352B" } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "structures", structures: [{ text: "*c1ccccc1O", labels: ["MIV"], colours: { MIV: "#4E8B4E", O: "#E0352B" } }] });
   assert.equal(m.atoms.find((a) => a.text === "MIV")?.colour, "#4E8B4E");
   assert.equal(m.atoms.find((a) => a.label === "O")?.colour, "#E0352B");
   // Bad hints draw nothing and say why.
@@ -1887,8 +1860,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(chelate.isError && /chelate/.test(text(chelate)) && !m.atoms.length, text(chelate));
   // The same hints in reaction and figure.
   fresh();
-  r = await call("draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccc(*)cc1", labels: ["OMe", "Br"], down: "OMe", number: "1" }]] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "figure", panels: [{ rows: [[{ structure: "*c1ccc(*)cc1", labels: ["OMe", "Br"], down: "OMe", number: "1" }]] }] });
   assert.ok(m.atoms.find((a) => a.text === "OMe")!.location[1] < m.atoms.find((a) => a.text === "Br")!.location[1], "OMe down in a figure");
 }
 
@@ -1977,8 +1949,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 // is the batch's too) a step's data (a figure's ids, a table) comes back with the step.
 {
   fresh();
-  let r = await call("change", { operations: [{ op: "draw", kind: "figure", panels: [{ rows: [[{ structure: "benzene" }]] }], picture: true, detail: "full" }, { op: "select", ids: [] }] });
-  assert.ok(!r.isError, text(r));
+  let r = await callOk("change", { operations: [{ op: "draw", kind: "figure", panels: [{ rows: [[{ structure: "benzene" }]] }], picture: true, detail: "full" }, { op: "select", ids: [] }] });
   assert.ok(r.content.some((c) => c.type === "image"), "the step's picture");
   assert.ok((r as any).structuredContent.steps[0].figure, JSON.stringify((r as any).structuredContent.steps[0]));
   // One operation is run as itself: its result is its own call's (a figure's ids at the top, no list of steps).
@@ -1993,14 +1964,12 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 {
   fresh();
   // C(O)(N)S: Octet walks the bonds from C to S first, but the ids follow the SMILES (C, O, N, S).
-  let r = await call("draw", { kind: "structures", structures: [{ text: "C(O)(N)S" }] });
-  assert.ok(!r.isError, text(r));
+  let r = await callOk("draw", { kind: "structures", structures: [{ text: "C(O)(N)S" }] });
   const id = sids(r)[0], at = (l: string) => m.atoms.findIndex((a) => a.label === l);
   assert.ok(!(await call("change", { operations: [{ op: "edit", ids: [`${id}.2`], charge: -1 }] })).isError);
   assert.equal(m.atoms[at("O")].charge, -1, "s.2 is the O, the second atom of the SMILES");
   const was = m.atoms.map((a) => [...a.location]);
-  r = await call("change", { operations: [{ op: "move", ids: [`${id}.4`], dx: 1 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "move", ids: [`${id}.4`], dx: 1 }] });
   assert.ok(m.atoms.every((a, i) => Math.abs(a.location[0] - was[i][0] - (a.label === "S" ? 1 : 0)) < 1e-9), "only the S moves");
   assert.equal(JSON.parse(text(await call("read", { ids: [`${id}.2`] }))).structures.length, 1, "an atom id reads its structure");
   assert.ok(!(await call("change", { operations: [{ op: "select", ids: [`${id}.2`] }] })).isError);
@@ -2012,16 +1981,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(await call("change", { operations: [{ op: "edit", ids: [`${id}.3`], align: "justify" }] })), /takes no align justify/);
   r = await call("change", { operations: [{ op: "text", text: "note" }] });
   assert.match(text(await call("change", { operations: [{ op: "edit", ids: [(r as any).structuredContent.made[0]], align: "above" }] })), /takes no align above/);
-  r = await call("change", { operations: [{ op: "delete", ids: [`${id}.1-4`] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "delete", ids: [`${id}.1-4`] }] });
   assert.equal(m.bonds.length, 2, "the bond alone goes");
   assert.equal(m.atoms.length, 4, "the S stays");
   assert.ok(!(await call("change", { operations: [{ op: "delete", ids: [`${id}.3`] }] })).isError);
   assert.equal(at("N"), -1);
   // number_under_caption: the caption is the structure's own, added before its number, so Octet draws it first.
   fresh();
-  r = await call("draw", { kind: "figure", number_under_caption: true, panels: [{ rows: [[{ structure: "benzene", number: "1", caption: "M = Ce" }, { structure: "toluene", number: "2" }]] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "figure", number_under_caption: true, panels: [{ rows: [[{ structure: "benzene", number: "1", caption: "M = Ce" }, { structure: "toluene", number: "2" }]] }] });
   const cap = m.captions!.find((c) => c.text === "M = Ce")!, num = m.captions!.find((c) => c.text === "1")!;
   assert.ok(cap.under && cap.under.join() === num.under!.join() && cap.id < num.id, JSON.stringify(m.captions));
 }
@@ -2034,8 +2001,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   r = await call("draw", { kind: "structures", structures: [{ text: "toluene" }, { text: "phenol" }] });
   const made = sids(r), [s1, s2] = made;
   // Highlights: an atom's halo (the disc behind its label), a bond's, and a structure's on every atom and bond; none takes them off.
-  r = await call("change", { operations: [{ op: "edit", ids: [`${s1}.1`, `${s1}.2-3`], highlight: "#FFD6A5" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`${s1}.1`, `${s1}.2-3`], highlight: "#FFD6A5" }] });
   assert.equal(m.atoms[0].halo, "#FFD6A5");
   assert.equal(m.bonds.find((b) => b.atoms.includes(1) && b.atoms.includes(2))!.halo, "#FFD6A5");
   r = await call("change", { operations: [{ op: "edit", ids: [s2], highlight: "#D9E1F2" }] });
@@ -2047,28 +2013,23 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(await call("change", { operations: [{ op: "edit", ids: [s2], highlight: "red" }] })), /#rrggbb or none/);
   // Ring fill and scale run as the Actions panel does them, on the ids selected.
   commands.length = 0;
-  r = await call("change", { operations: [{ op: "edit", ids: [s1], ring_fill: "#CFE8E4", scale: 120 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [s1], ring_fill: "#CFE8E4", scale: 120 }] });
   assert.deepEqual(commands, ["scale.120", "ringfill.#CFE8E4"]);
   // The rest of an atom's, a bond's and a structure's properties.
-  r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1`], atom_number: "7", hidden: false, bars: true, label_angle: 30, bold: true, size: 12, query: { substituents: "upto", n: 2, rings: "simple" } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`${s2}.1`], atom_number: "7", hidden: false, bars: true, label_angle: 30, bold: true, size: 12, query: { substituents: "upto", n: 2, rings: "simple" } }] });
   const a1 = m.atoms[g2[0]];
   assert.equal(a1.number, "7"); assert.equal(a1.bars, true); assert.equal(a1.labelAngle, 30); assert.equal(a1.bold, true); assert.equal(a1.size, 12);
   assert.deepEqual(a1.query, { subst: { kind: "upto", n: 2 }, rings: "simple" });
-  r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1-2`], position: "left", spacing: 20, topology: "ring", reaction_centre: "change" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`${s2}.1-2`], position: "left", spacing: 20, topology: "ring", reaction_centre: "change" }] });
   const b1 = m.bonds.find((b) => b.atoms.includes(g2[0]) && b.atoms.includes(g2[1]))!;
   assert.equal(b1.position, "left"); assert.equal(b1.spacing, 20); assert.equal(b1.topology, "ring"); assert.equal(b1.rxn, "change");
   const wasX = m.atoms[g2[0]].location[0];
-  r = await call("change", { operations: [{ op: "edit", ids: [s2], rotate: 90, perspective: true, stereo_labels: true, atom_numbers: true, aromatic_circles: true }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [s2], rotate: 90, perspective: true, stereo_labels: true, atom_numbers: true, aromatic_circles: true }] });
   assert.notEqual(m.atoms[g2[0]].location[0], wasX);
   assert.ok(g2.every((i) => m.atoms[i].shade), "perspective"); assert.ok(g2.every((i) => m.atoms[i].cip), "stereo labels"); assert.ok(g2.every((i) => m.atoms[i].circle), "aromatic circles");
   assert.deepEqual(g2.map((i) => m.atoms[i].number).sort(), g2.map((_, k) => String(k + 1)).sort(), "atom numbers");
   assert.match(text(await call("change", { operations: [{ op: "edit", ids: [s2], charge: 1 }] })), /takes no charge/);
-  r = await call("change", { operations: [{ op: "edit", ids: [s2, `${s1}.1`], ignore_warnings: true }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [s2, `${s1}.1`], ignore_warnings: true }] });
   assert.ok(g2.every((i) => m.atoms[i].ignoreWarnings) && m.atoms[0].ignoreWarnings, "Display Warnings off");
   // A problem on an atom with Display Warnings off is not a warning (as the window hides it).
   r = await call("change", { operations: [{ op: "edit", ids: [`${s2}.1`], charge: 3 }] });
@@ -2077,66 +2038,52 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   fresh();
   r = await call("draw", { kind: "reaction", start: [{ text: "toluene" }], steps: [{ products: [{ text: "phenol" }] }] });
   const made2 = sids(r), arrow = `a${m.arrows![0].id}`;
-  r = await call("change", { operations: [{ op: "text", text: "KOH, 300 °C", arrow, side: "above", italic: true, colour: "#7F7F7F" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "text", text: "KOH, 300 °C", arrow, side: "above", italic: true, colour: "#7F7F7F" }] });
   let c = m.captions!.find((x) => x.text === "KOH, 300 °C")!;
   assert.deepEqual(c.on, { arrow: m.arrows![0].id, side: "above" });
   assert.equal(c.italic, true); assert.equal(c.colour, "#7F7F7F");
-  r = await call("change", { operations: [{ op: "edit", ids: [`t${c.id}`], side: "below", font: "Helvetica", width: 6, line_height: "variable" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`t${c.id}`], side: "below", font: "Helvetica", width: 6, line_height: "variable" }] });
   c = m.captions!.find((x) => x.id === c.id)!;
   assert.equal(c.on!.side, "below"); assert.equal(c.font, "Helvetica"); assert.equal(c.width, 6); assert.equal(c.lineHeight, "variable");
-  r = await call("change", { operations: [{ op: "edit", ids: [`t${c.id}`], arrow: "none" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`t${c.id}`], arrow: "none" }] });
   assert.equal(m.captions!.find((x) => x.id === c.id)!.on, undefined);
   r = await call("change", { operations: [{ op: "text", text: "x", arrow: "a999", side: "above" }] });
   assert.ok(r.isError);
   // Arrows: an orbital, and every property of a block arrow.
-  r = await call("change", { operations: [{ op: "arrow", kind: "orbital", from: `${made2[0]}.1`, to: [5, 5], orbital_shape: "p", orbital_phase: "phased", line_width: 1.5 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "arrow", kind: "orbital", from: `${made2[0]}.1`, to: [5, 5], orbital_shape: "p", orbital_phase: "phased", line_width: 1.5 }] });
   const orb = m.arrows!.find((x) => x.kind === "orbital")!;
   assert.deepEqual(orb.orbital, { shape: "p", phase: "phased" }); assert.equal(orb.width, 1.5);
-  r = await call("change", { operations: [{ op: "arrow", kind: "block", from: [0, -8], to: [6, -8], head_size: "medium", shaft: 4, fill: "shaded" }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "arrow", kind: "block", from: [0, -8], to: [6, -8], head_size: "medium", shaft: 4, fill: "shaded" }] });
   const blk = m.arrows!.find((x) => x.kind === "block")!;
   assert.equal(blk.shaft, 4); assert.equal(blk.fill, "shaded"); assert.equal(blk.headSize!.length, 6);
-  r = await call("change", { operations: [{ op: "edit", ids: [`a${blk.id}`], ratio: 2, rotate: 90, head_size: { length: 10, centre: 8, width: 3 } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`a${blk.id}`], ratio: 2, rotate: 90, head_size: { length: 10, centre: 8, width: 3 } }] });
   const turned = m.arrows!.find((x) => x.id === blk.id)!;
   assert.equal(turned.ratio, 2); assert.deepEqual(turned.headSize, { length: 10, centre: 8, width: 3 });
   assert.ok(Math.abs(turned.from[0] - turned.to[0]) < 1e-6, "turned upright");
   assert.match(text(await call("change", { operations: [{ op: "arrow", kind: "reaction", from: [0, -12], to: [5, -12], orbital_shape: "p" }] })), /go on an orbital/);
   // Shapes: a highlight (behind the rest), one round an atom's label alone, a TLC plate, a table, a picture, brackets.
-  r = await call("change", { operations: [{ op: "shape", kind: "highlight", around: [made2[0]] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "highlight", around: [made2[0]] }] });
   assert.equal(m.shapes![0].kind, "highlight");
-  r = await call("change", { operations: [{ op: "shape", kind: "oval", around: [`${made2[0]}.1`] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "oval", around: [`${made2[0]}.1`] }] });
   const disc = m.shapes!.find((x) => x.kind === "oval")!, l = m.atoms[fragments(m)[0][0]].location;
   assert.ok(Math.abs(disc.to[0] - disc.from[0]) < 2 && Math.abs((disc.from[0] + disc.to[0]) / 2 - l[0]) < 0.1, `round the atom, not the structure: ${JSON.stringify(disc)}`);
-  r = await call("change", { operations: [{ op: "shape", kind: "tlc", box: [10, 0, 14, 5], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.4 }, { lane: 2, rf: 0.7, style: "hollow", tail: 0.3 }], rf: true, ticks: true } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "tlc", box: [10, 0, 14, 5], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.4 }, { lane: 2, rf: 0.7, style: "hollow", tail: 0.3 }], rf: true, ticks: true } }] });
   const plate = m.shapes!.find((x) => x.kind === "tlc")!;
   assert.equal(plate.tlc!.lanes, 3); assert.equal(plate.tlc!.spots.length, 2); assert.equal(plate.tlc!.spots[1].style, "hollow"); assert.equal(plate.tlc!.rf, true); assert.equal(plate.tlc!.ticks, true);
-  r = await call("change", { operations: [{ op: "shape", kind: "table", box: [10, -8, 18, -2], table: { cells: [["Entry", "Yield"], ["1", "90%"]], lines: "grid", align: ["left", "right"] } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "table", box: [10, -8, 18, -2], table: { cells: [["Entry", "Yield"], ["1", "90%"]], lines: "grid", align: ["left", "right"] } }] });
   const table = m.shapes!.find((x) => x.kind === "table")!;
   assert.deepEqual(table.table!.cells, [["Entry", "Yield"], ["1", "90%"]]); assert.deepEqual(table.table!.lines, ["top", "bottom", "left", "right", "header", "rows", "cols"]);
-  r = await call("change", { operations: [{ op: "edit", ids: [`b${table.id}`], bold: true, size: 8, table: { lines: "journal" } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`b${table.id}`], bold: true, size: 8, table: { lines: "journal" } }] });
   assert.equal(m.shapes!.find((x) => x.id === table.id)!.bold, true); assert.deepEqual(m.shapes!.find((x) => x.id === table.id)!.table!.lines, ["top", "header", "bottom"]);
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
-  r = await call("change", { operations: [{ op: "shape", kind: "picture", box: [20, 0, 24, 3], png }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "picture", box: [20, 0, 24, 3], png }] });
   assert.equal(m.shapes!.find((x) => x.kind === "picture")!.picture!.PNG, "89504E470D0A1A0A00000000");
   assert.match(text(await call("change", { operations: [{ op: "shape", kind: "picture", box: [20, 0, 24, 3], png: "aGVsbG8=" }] })), /not a PNG/);
   assert.match(text(await call("change", { operations: [{ op: "shape", kind: "picture", box: [20, 0, 24, 3] }] })), /needs png/);
-  r = await call("change", { operations: [{ op: "shape", kind: "brackets", around: [made2[1]], usage: "sru", bracket_label: "n", bracket_side: "right", line_width: 2, angle: 15 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "brackets", around: [made2[1]], usage: "sru", bracket_label: "n", bracket_side: "right", line_width: 2, angle: 15 }] });
   const br = m.shapes!.find((x) => x.kind === "brackets")!;
   assert.deepEqual(br.polymer, { usage: "sru", label: "n" }); assert.equal(br.side, "right"); assert.equal(br.width, 2); assert.equal(br.angle, 15);
-  r = await call("change", { operations: [{ op: "edit", ids: [`b${br.id}`], kind: "oval", radius: 0.5, shade_depth: 0.3, shadow: true, rotate: 10 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`b${br.id}`], kind: "oval", radius: 0.5, shade_depth: 0.3, shadow: true, rotate: 10 }] });
   const ov = m.shapes!.find((x) => x.id === br.id)!;
   assert.equal(ov.kind, "oval"); assert.equal(ov.radius, 0.5); assert.equal(ov.shade!.depth, 0.3); assert.equal(ov.shadow, true); assert.equal(ov.angle, 25);
   assert.match(text(await call("change", { operations: [{ op: "edit", ids: [`b${ov.id}`], table: { cells: [["x"]] } }] })), /goes on a table/);
@@ -2146,12 +2093,10 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(sum.shapes.some((x: { kind: string }) => x.kind === "tlc") && sum.shapes.some((x: { kind: string }) => x.kind === "picture"));
   // run_command: a menu command, an action with ids (selected first), and one Octet does not have.
   commands.length = 0;
-  r = await call("advanced", { tool: "run_command", args: { command: "halo.#FF0000", ids: [made2[0]] } });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("advanced", { tool: "run_command", args: { command: "halo.#FF0000", ids: [made2[0]] } });
   assert.deepEqual([...picked.atoms].sort((p, q) => p - q), [...fragments(m)[0]].sort((p, q) => p - q));
   assert.deepEqual(commands, ["halo.#FF0000"]);
-  r = await call("advanced", { tool: "run_command", args: { command: "bring_front" } });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("advanced", { tool: "run_command", args: { command: "bring_front" } });
   assert.ok(commands.includes("bring_front"));
   assert.match(text(await call("advanced", { tool: "run_command", args: { command: "rotate_dialog" } })), /dialog/);
   r = await call("advanced", { tool: "run_command", args: { command: "shape.kind.hexagon" } });
@@ -2160,8 +2105,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // place_template (8 November 2026): the whole library by name, from the Lab set, and a name the
   // library does not have.
   fresh();
-  r = await call("advanced", { tool: "place_template", args: { name: "Round-bottom flask" } });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("advanced", { tool: "place_template", args: { name: "Round-bottom flask" } });
   assert.match(text(r), /Placed Round-bottom flask from Lab\./);
   assert.ok((m.arrows?.length ?? 0) > 0, "the flask's pen lines are drawn");
   r = await call("advanced", { tool: "place_template", args: { name: "Unobtainium flask" } });
@@ -2180,8 +2124,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name} from ${set}\\.`));
   }
   fresh();
-  r = await call("change", { operations: [{ op: "shape", kind: "gel", box: [0, 0, 6, 6], gel: { unit: "bp", lanes: 3, names: ["L", "A"], range: [5000, 100], bands: [{ lane: 1, size: 500 }, { lane: 2, size: 2000 }, { lane: 7, size: 50 }] } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "shape", kind: "gel", box: [0, 0, 6, 6], gel: { unit: "bp", lanes: 3, names: ["L", "A"], range: [5000, 100], bands: [{ lane: 1, size: 500 }, { lane: 2, size: 2000 }, { lane: 7, size: 50 }] } }] });
   const gel = m.shapes!.find((x) => x.kind === "gel")!.tlc!;
   assert.deepEqual([gel.unit, gel.lanes, gel.names, gel.range], ["bp", 3, ["L", "A", "2"], [100, 5000]]);
   assert.deepEqual(gel.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gel, x.rf))]), [[1, 500], [2, 2000]], "bands at their sizes; none in a lane the gel has not");
@@ -2203,8 +2146,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // Lanes come and go at the gel's right as Add a lane and Delete the lane do: each lane keeps its width, so the gel
   // gets wider or narrower, and the bands and names stay in their lanes.
   const across = () => { const s = gelOne(); return Math.abs(s.to[0] - s.from[0]); }, lane = across() / 3;
-  r = await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 5 } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 5 } }] });
   assert.deepEqual([gelOne().tlc!.lanes, gelOne().tlc!.names, Math.round((across() / lane) * 1000) / 1000], [5, ["L", "A", "2", "3", "4"], 5]);
   assert.deepEqual(gelOne().tlc!.spots.filter((x) => x.lane).map((x) => [x.lane, Math.round(bandSize(gelOne().tlc!, x.rf))]), [[1, 500], [2, 2000]]);
   await call("change", { operations: [{ op: "edit", ids: [gelId], gel: { lanes: 2 } }] });
@@ -2214,8 +2156,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.deepEqual(m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, { bp: 3000, name: "pUC", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
   // An edit changes what it gives, over the map as it is: a new name keeps the regions and markers.
   const map = () => m.shapes!.find((x) => x.kind === "plasmid")!.plasmid, mapId = `b${m.shapes!.find((x) => x.kind === "plasmid")!.id}`;
-  r = await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { name: "pUC19" } }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { name: "pUC19" } }] });
   assert.deepEqual(map(), { bp: 3000, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [{ at: 50, name: "EcoRI" }] });
   await call("change", { operations: [{ op: "edit", ids: [mapId], plasmid: { bp: 2686, markers: [] } }] });
   assert.deepEqual(map(), { bp: 2686, name: "pUC19", regions: [{ start: 100, end: 900, name: "AmpR", dir: "reverse" }, { start: 1000, end: 1200 }], markers: [] });
@@ -2227,8 +2168,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   fresh();
   r = await call("draw", { kind: "structures", structures: [{ text: "benzene" }, { text: "toluene" }] });
   const [w1, w2] = sids(r);
-  r = await call("change", { operations: [{ op: "edit", ids: [`${w1}.1-2`], line_width: 1.2, bold_width: 3 }, { op: "edit", ids: [w2], line_width: 0.9 }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("change", { operations: [{ op: "edit", ids: [`${w1}.1-2`], line_width: 1.2, bold_width: 3 }, { op: "edit", ids: [w2], line_width: 0.9 }] });
   const [gw1, gw2] = fragments(m), inG = (g: number[]) => m.bonds.filter((b) => g.includes(b.atoms[0]));
   assert.deepEqual(inG(gw1).filter((b) => b.line || b.bold).map((b) => [b.line, b.bold]), [[1.2, 3]], "the one bond's own widths");
   assert.ok(inG(gw2).every((b) => b.line === 0.9 && !b.bold), "every bond of the structure");
@@ -2242,8 +2182,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // A structure over the arrow is the one given there, and the product the product (6 November 2026: they were read
   // products first and drawn structures first, so they swapped).
   fresh();
-  r = await call("draw", { kind: "reaction", start: [{ text: "toluene" }], steps: [{ above: ["structure: water"], products: [{ text: "phenol", number: "2" }] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "reaction", start: [{ text: "toluene" }], steps: [{ above: ["structure: water"], products: [{ text: "phenol", number: "2" }] }] });
   const over = fragments(m).find((g) => g.length === 1)!, prod = fragments(m).find((g) => g.length === 7 && g.some((i) => m.atoms[i].label === "O"))!;
   assert.equal(m.atoms[over[0]].label, "O");
   assert.ok(m.captions!.some((c) => c.text === "2" && c.under!.includes(prod[0])), "the number is under the product");
@@ -2252,13 +2191,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // Clean Up Reaction), unless keep_orientation is false; like turns a structure as one drawn.
   const ringAngle = (g: number[]) => { const [p, q] = m.bonds.find((b) => g.includes(b.atoms[0]) && g.includes(b.atoms[1]) && m.atoms[b.atoms[0]].label === "C" && m.atoms[b.atoms[1]].label === "C")!.atoms.map((i) => m.atoms[i].location); return ((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI + 360) % 60; };
   fresh();
-  r = await call("draw", { kind: "reaction", start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }], keep_orientation: false });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "reaction", start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }], keep_orientation: false });
   let [ga, gb] = fragments(m);
   assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) > 2, "unaligned, as a check of the check");
   fresh();
-  r = await call("draw", { kind: "reaction", start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }, { products: [{ text: "Oc1ccc(Br)cc1" }] }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "reaction", start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }, { products: [{ text: "Oc1ccc(Br)cc1" }] }] });
   [ga, gb] = fragments(m);
   const gc = fragments(m)[2];
   assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `product as its reactant: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
@@ -2266,8 +2203,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   fresh();
   r = await call("draw", { kind: "structures", structures: [{ text: "Cc1ccccc1", rotate: 17 }] });
   const ref = sids(r)[0];
-  r = await call("draw", { kind: "structures", structures: [{ text: "Clc1ccccc1", like: ref }] });
-  assert.ok(!r.isError, text(r));
+  r = await callOk("draw", { kind: "structures", structures: [{ text: "Clc1ccccc1", like: ref }] });
   [ga, gb] = fragments(m);
   assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `like: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
   assert.match(text(await call("draw", { kind: "structures", structures: [{ text: "benzene", like: "s99" }] })), /no structure s99/);
@@ -2769,16 +2705,14 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // A later scheme that starts from a compound of one before draws it again, as each scheme shows its own start: the
   // list marks the repeat, with no formula (Haiku took the two 15s for a fault and told the user so).
   fresh();
-  o = await call("draw", { lines: "# One\nc1ccccc1 -> O=[N+]([O-])c1ccccc1 (15), HNO3, 90%\n# Two\n15 -> Nc1ccccc1 (16), H2, Pd/C, 95%" });
-  assert.ok(!o.isError, text(o));
+  o = await callOk("draw", { lines: "# One\nc1ccccc1 -> O=[N+]([O-])c1ccccc1 (15), HNO3, 90%\n# Two\n15 -> Nc1ccccc1 (16), H2, Pd/C, 95%" });
   assert.match(o.structuredContent.compounds.join("|"), /^s\d+ C6H6\|15 (s\d+) C6H5NO2\|15 s\d+ =\1\|16 s\d+ C6H7N$/, text(o));
   fresh();
   o = await call("change", { operations: [{ op: "draw", lines: "CCO (3)" }, { op: "text", text: "ethanol", below: "$1.s[0]" }] });
   assert.ok(!o.isError && (await read()).structures[0].number === "3", text(o));
   assert.match(text(await call("change", { operations: [{ op: "draw", lines: "# A\nC -> CC" }] })), /^Octet changed nothing\. operations\[0\]: these lines make several drawings: draw them with draw, then change them\.$/);
   fresh();
-  o = await call("draw", { structures: [{ text: "CC(=O)Oc1ccccc1C(O)=O", changes: [{ swap: { OAc: "OH" } }], number: "4" }] });
-  assert.ok(!o.isError, text(o));
+  o = await callOk("draw", { structures: [{ text: "CC(=O)Oc1ccccc1C(O)=O", changes: [{ swap: { OAc: "OH" } }], number: "4" }] });
   assert.equal((await read()).structures[0].inchiKey, host.inchi(host.structure("Oc1ccccc1C(O)=O")!).key);
   const at = () => m.atoms.map((x) => x.location.map((v) => Math.round(v * 10) / 10).join()).join(" "), was = at();
   o = await call("change", { operations: [{ op: "replace", structure: "4", rotate: 90 }] });
