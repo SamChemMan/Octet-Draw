@@ -24,6 +24,8 @@
 // The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from
 // other apps, so the page cannot read these types itself: paste calls read_clipboard. Paste also reads a picture (a
 // screenshot, a picture copied from a browser): PNG, else the system's bitmap (TIFF on the Mac, the bitmap on Windows).
+// A picture copied in LibreOffice pastes as its drawing on every system: LibreOffice's own copy (SVXB) holds the PDF or
+// EMF that was pasted in (decision 0025).
 
 pub const PDF: &str = "com.adobe.pdf";
 // ChemDraw 26.1 declares the Revvity names too (its Info.plist), and the CambridgeSoft names for the same CDX and CDXML

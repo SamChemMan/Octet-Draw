@@ -41,16 +41,19 @@ one thing the stand-ins could not. Write what you see beside each step; a step t
 3. Copy a structure in Octet and paste it into Writer. Edit in Octet Draw is in the context menu (LibreOffice pasted
    the PDF).
 4. Double-click the picture with Octet open, then with Octet quit. Each time there is one Octet in the Dock, and the
-   object window is in front, titled "Octet Drawing in <document>".
+   object window is in front, titled "Octet Drawing in <document>". Write down whether Writer stops answering while
+   Octet starts (the extension waits for `open`, 10 s at most).
 5. Do Windows steps 3 to 9, 11 and 12, with ⌘S.
 6. Copy a picture in Writer, then in Terminal: `osascript -e 'clipboard info'`. Write down the exact name of the SVXB
    type (Octet reads `application/x-openoffice-svxb;…` and `application/x-openoffice-svbx;…`).
 7. Paste a ChemDraw picture (ChemDraw 22.2, Edit > Copy) into Writer and double-click it: it opens in Octet.
 8. Open any PDF named `drawing.pdf` from a Downloads folder with Octet: it opens as an ordinary drawing, not as an
    object.
+9. Open the `.odt` from Windows step 8 (an EMF picture) on the Mac and double-click the picture: it opens in Octet, and
+   Update keeps it an EMF (Windows can open it again).
 
 ## Linux (regression, the VM of 0025)
 
-1. Writer, Impress, Draw and now Calc: double-click, Update, Undo, Insert > Octet Drawing.
+1. Writer, Impress, Draw and Calc: double-click, Update, Undo, Insert > Octet Drawing.
 2. A read-only document, and a cropped picture (Windows steps 11 and 12).
 3. A copy of Octet 1.1.2's extension already in LibreOffice: Add to LibreOffice replaces it.
