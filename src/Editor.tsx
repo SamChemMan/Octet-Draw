@@ -566,8 +566,6 @@ let crashOffered = false; // the log of a crash is offered once, at start
 // The two panels that minimise to a pill (plan B1), and the state of each.
 type PanelKind = "nmr" | "ms";
 type PanelView = "open" | "min" | "closed";
-// The nuclei Octet predicts (nmr.ts predict): each one is a Predict command and a tab a session can add.
-const PREDICTED: string[] = NUCLEUS_LIST;
 type Session = { id: number; keys: string[]; key: string; view: PanelView; full: boolean; at: [number, number][] };
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
@@ -2684,10 +2682,7 @@ export default function Editor() {
       glideTo(m);
     },
     // ChemDraw's Rotate 180° Horizontal and Vertical (⇧⌘H, ⇧⌘V: stereo kept), and its Flip (a mirror image).
-    flip_h: () => flip("horizontal"),
-    flip_v: () => flip("vertical"),
-    mirror_h: () => flip("horizontal", true),
-    mirror_v: () => flip("vertical", true),
+    ...Object.fromEntries((["horizontal", "vertical"] as const).flatMap((d) => [[`flip_${d[0]}`, () => flip(d)], [`mirror_${d[0]}`, () => flip(d, true)]])),
     // Add Frame (Object menu): a frame round everything selected, 0.4 bond lengths clear of it (0.3 for brackets).
     ...Object.fromEntries(([["frame_brackets", "brackets", false], ["frame_parens", "parens", false], ["frame_braces", "braces", false], ["frame_box", "box", false],
       ["frame_rounded", "rounded", false], ["frame_box_shadow", "box", true], ["frame_rounded_shadow", "rounded", true]] as const).map(([id, kind, shadow]) => [id, () => {
@@ -2852,9 +2847,7 @@ export default function Editor() {
       set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), ...made] }, true);
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
-    predict_1h: () => openSpectrum("1H"),
-    predict_19f: () => openSpectrum("19F"),
-    predict_31p: () => openSpectrum("31P"),
+    ...Object.fromEntries(NUCLEUS_LIST.map((n) => [`predict_${n.toLowerCase()}`, () => openSpectrum(n)])),
     mass_spec: () => massSpecOf(),
     // View > Show or Hide Spectrum: the panel shown goes to its pill, or the last one minimised comes back.
     toggle_spectrum: () => {
@@ -2949,7 +2942,6 @@ export default function Editor() {
       const on = !atoms.every((i) => doc.atoms[i].cip);
       set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, cip: on || undefined } : a)) }, true);
     },
-    predict_13c: () => openSpectrum("13C"),
     // Explain This Warning (ChemDraw's context menu): the warnings marked on the selection, in a dialog.
     explain_warning: () => { const list = selectedOf(found); return list.length ? setExplaining(list) : setNotice("Select an object with a warning.", "info"); },
     // Structure > Check Structure: the selection's problems (or the drawing's) one at a time (see checkThen).
@@ -2965,11 +2957,9 @@ export default function Editor() {
     // Image to Structure (decision 0027): from a file (File menu), or the selected picture (Actions, right-click).
     image_to_structure: () => void imageToStructure(),
     recognise_structures: () => void recognisePictures(),
-    // Structure > Insert Peptide… (issue 27): the name field, ready for one-letter codes after "peptide: " (peptide.ts).
-    insert_peptide: () => insertSequence("peptide: "),
-    // Structure > Insert RNA… and Insert DNA…: the same, for one-letter codes after "rna: " or "dna: " (nucleic.ts).
-    insert_rna: () => insertSequence("rna: "),
-    insert_dna: () => insertSequence("dna: "),
+    // Structure > Insert Peptide… (issue 27), Insert RNA… and Insert DNA…: the name field, ready for one-letter codes
+    // after "peptide: " (peptide.ts), "rna: " or "dna: " (nucleic.ts).
+    ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => insertSequence(`${k}: `)])),
     // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
     dictionary_add: () => addToDictionary(),
     // View > Templates: a set's floating palette shown or hidden (the user's sets, then Octet's, as the menu lists them).
@@ -2979,14 +2969,7 @@ export default function Editor() {
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
-    copy_smiles: () => copyAs("smiles"),
-    copy_inchi: () => copyAs("inchi"),
-    copy_inchikey: () => copyAs("inchikey"),
-    copy_cdxml: () => copyAs("cdxml"),
-    copy_mol: () => copyAs("mol"),
-    copy_mol_v2000: () => copyAs("mol_v2000"),
-    copy_helm: () => copyAs("helm"),
-    copy_fasta: () => copyAs("fasta"),
+    ...Object.fromEntries(["smiles", "inchi", "inchikey", "cdxml", "mol", "mol_v2000", "helm", "fasta"].map((f) => [`copy_${f}`, () => copyAs(f)])),
     // File > Open Recent: the drawing at that place in the list (the menu lists them in the list's order).
     ...Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`recent_${k}`, () => {
       if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
@@ -3002,11 +2985,7 @@ export default function Editor() {
     send_back: () => restack(false),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); },
     // The Text menu styles the caption being typed, or the picked captions.
-    text_bold: () => runAction("caption.bold"),
-    text_plain: () => runAction("caption.plain"),
-    text_sub: () => runAction("caption.sub"),
-    text_super: () => runAction("caption.super"),
-    text_formula: () => runAction("caption.formula"),
+    ...Object.fromEntries(["bold", "plain", "sub", "super", "formula", "italic", "underline"].map((st) => [`text_${st}`, () => runAction(`caption.${st}`)])),
     text_markup: () => markupText(),
     // While typing, the key moves the focus into a map already open (CharMap.tsx); otherwise it opens or closes it. The
     // map opened with the key takes the focus; opened from the menu with the mouse, it leaves the caret in the text.
@@ -3021,15 +3000,9 @@ export default function Editor() {
       const c = contextOf();
       setDialog({ kind: "font", font: (c.kind === "caption" ? c.font : c.kind === "atom" || c.kind === "structure" ? c.text?.font : undefined) ?? style.captionFont });
     },
-    text_italic: () => runAction("caption.italic"),
-    text_underline: () => runAction("caption.underline"),
     // Text alignment: on captions, and on the selected atom labels (with Stacked Above and Automatic), as in ChemDraw.
-    align_left: () => runAction("caption.align.left"),
-    align_centre: () => runAction("caption.align.centre"),
-    align_right: () => runAction("caption.align.right"),
+    ...Object.fromEntries(["left", "centre", "right", "above", "auto"].map((a) => [`align_${a}`, () => runAction(`caption.align.${a}`)])),
     align_justify: () => restyle(() => ({ align: "justify" })),
-    align_above: () => runAction("caption.align.above"),
-    align_auto: () => runAction("caption.align.auto"),
     // The Curves menu: line styles, heads at either end (again takes one off), and a closed curve's fill.
     ...Object.fromEntries(["plain", "dashed", "bold", "doubled"].map((st) => [`curves_${st}`, () => runAction(`arrow.style.${st}`)])),
     ...Object.fromEntries((["start", "end"] as const).flatMap((at) => (["full", "left", "right"] as const).map((h) => [`curves_${at}_${h}`, () => runAction(`arrow.${at}.${h}`)]))),
@@ -7206,7 +7179,7 @@ export default function Editor() {
   }
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
-  const nucleusOpen: Nucleus | undefined = spectrum && PREDICTED.includes(spectrum) ? (spectrum as Nucleus) : undefined;
+  const nucleusOpen: Nucleus | undefined = isNucleus(spectrum) ? spectrum : undefined;
   // Predict (a nucleus) or a measured spectrum on a structure (the first selected, else the drawing's largest): its
   // session gets the tab, or a new session opens with it (B1.8: a kind already open shows that tab).
   function openSpectrum(key: string, atoms?: number[], from = doc) {
@@ -10801,7 +10774,7 @@ export default function Editor() {
         <SpectrumPanel
           hidden={panelHidden("nmr") || lost(x)} sizing={sizing} title={named.text} formulaTitle={named.formula} noStructure={x.at.length > 0 && !nmrTarget}
           onPointTitle={(on) => setPillLit(on ? sessionMols.get(x.id) : undefined)}
-          addable={[...new Set([...PREDICTED, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
+          addable={[...new Set([...NUCLEUS_LIST, ...(doc.spectra ?? []).map(spectrumKeyOf)])].filter((k) => !x.keys.includes(k))}
           onAddKey={(k) => openSpectrum(k, sessionMols.get(x.id))} onCloseTab={closeTab}
           decoupled={!!nucleusOpen && (settings.nmrDecouple?.[nucleusOpen] ?? NUCLEI[nucleusOpen].decouple)}
           onDecouple={(on) => nucleusOpen && setSettings((y) => ({ ...y, nmrDecouple: { ...y.nmrDecouple, [nucleusOpen]: on } }))} expanded={nmrFull} onExpanded={setNmrFull} onMinimise={(keyboard) => minimisePanel("nmr", keyboard)} label={panelName("nmr")}

@@ -33,7 +33,7 @@ assert.equal(peptideProblem("aspirin"), undefined);
 // The menu item and the toolbar's Sequence tool open the name field with "peptide: " in it. A click with the tool
 // opens it, so the structure lands there (as ChemDraw starts a sequence where you click). The Actions panel has none.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-assert.match(editor, /insert_peptide: \(\) => insertSequence\("peptide: "\),/);
+assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
 assert.match(editor, /function insertSequence\(prefix: string\) \{\n\s+warmLayout\(\);\n\s+openNaming\(prefix\);/);
 assert.match(editor, /casProblem\(naming\) \?\? peptideProblem\(naming\)/, "the name field says why codes are refused");
 assert.match(readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8"), /item\("insert_peptide", "Insert Peptide…", ""\)/);

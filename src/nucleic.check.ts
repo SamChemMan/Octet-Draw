@@ -36,8 +36,7 @@ assert.equal(nucleicProblem("aspirin"), undefined);
 // The menu items and the Sequence tool (peptide.check.ts) open the name field with the prefix in it, and the field
 // says why codes are refused. Codes never go to PubChem and are never corrected to a name.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-assert.match(editor, /insert_rna: \(\) => insertSequence\("rna: "\),/);
-assert.match(editor, /insert_dna: \(\) => insertSequence\("dna: "\),/);
+assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
 assert.match(editor, /peptideProblem\(naming\) \?\? nucleicProblem\(naming\)/);
 assert.match(editor, /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| looksLikeSmiles\(s\)\) return false;/);
 assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
