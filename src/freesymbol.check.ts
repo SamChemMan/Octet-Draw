@@ -8,7 +8,9 @@ import { readFileSync } from "node:fs";
 import { MAGIC, cdxToXml, xmlToCdx } from "./cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { addShape, transformParts } from "./edit.ts";
+import { addArrow, addShape, transformParts } from "./edit.ts";
+import { cleanUpReactions, findReaction, rowOf } from "./reaction.ts";
+import { withSalts } from "./mixtures.ts";
 import { parse, serialize } from "./file.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
 import { FREE_SYMBOLS, SYMBOL_BOX, freeSymbol, resizeSymbol, settleShape, shapeBounds, shapeInk, symbolInk, symbolSize, type Mol, type Shape } from "./render.ts";
@@ -77,31 +79,33 @@ const pts = /BoundingBox="([^"]+)"/.exec(g)![1].split(" ").map(Number), d = Math
 assert.ok(near(d, 1.5 * SIGN * B, 0.01), g);
 // At 20° anticlockwise (y down on the page), the second point is back along the turn.
 assert.ok(near(Math.atan2(-(pts[1] - pts[3]), pts[0] - pts[2]) * 180 / Math.PI, 20, 0.05), g);
-// Octet reads its own back exactly; read as ChemDraw's (Octet's data stripped), its kind, middle, size and turn hold.
+// Octet reads its own back exactly; read as ChemDraw's (Octet's data stripped), its kind, middle and size hold, and
+// it stands upright (ChemDraw's points are not a turn for every kind).
 const back = fromCdxml(toCdxml(doc, DEFAULT_STYLE)).mol;
 const b0 = back.shapes![0];
 assert.deepEqual([b0.symbol, b0.angle, b0.colour?.toLowerCase()], ["circledMinus", 20, "#cc0000"]);
 assert.ok(same(b0.from, sym.from) && same(b0.to, sym.to), JSON.stringify(b0));
 const foreign = fromCdxml(toCdxml(doc, DEFAULT_STYLE).replace(/\sOctet='[^']*'/g, "").replace(/\sOctet="[^"]*"/g, "")).mol, f = foreign.shapes!.find((x) => x.kind === "symbol")!;
 assert.equal(f.symbol, "circledMinus");
-assert.ok(near(mid(f)[0], 3, 0.01) && near(mid(f)[1], 2, 0.01) && near(symbolSize(f), 1.5 * SIGN, 0.01) && near(f.angle!, 20, 0.1), JSON.stringify(f));
+assert.ok(near(mid(f)[0], 3, 0.01) && near(mid(f)[1], 2, 0.01) && near(symbolSize(f), 1.5 * SIGN, 0.01) && f.angle === undefined, JSON.stringify(f));
 // The atom's own charge stays on it (a linked sign), and the free symbol adds none.
 assert.deepEqual([back.atoms[0].charge, foreign.atoms[0].charge], [1, 1]);
 // Every kind round-trips through CDXML read as ChemDraw's, and through CDX.
 for (const kind of FREE_SYMBOLS) {
   const one: Mol = { atoms: [], bonds: [], shapes: [{ id: 1, ...freeSymbol(kind, [-2, 1], SIGN), angle: kind === "radicalAnion" ? -45 : undefined }] };
   const text = toCdxml(one, DEFAULT_STYLE), plain = text.replace(/\sOctet='[^']*'/g, "").replace(/\sOctet="[^"]*"/g, "");
-  for (const read of [fromCdxml(plain).mol, fromCdxml(cdxToXml(xmlToCdx(parseXml(plain)))).mol, readCdx(writeCdx(one, DEFAULT_STYLE)).mol]) {
+  for (const [read, own] of [[fromCdxml(plain).mol, false], [fromCdxml(cdxToXml(xmlToCdx(parseXml(plain)))).mol, false], [readCdx(writeCdx(one, DEFAULT_STYLE)).mol, true]] as const) {
     const x = read.shapes?.[0];
     assert.ok(x && x.kind === "symbol" && x.symbol === kind && !read.captions?.length && !read.atoms.length, `${kind}: ${JSON.stringify(read)}`);
-    assert.ok(near(mid(x)[0], -2, 0.01) && near(mid(x)[1], 1, 0.01) && near(symbolSize(x), SIGN, 0.01) && near(x.angle ?? 0, kind === "radicalAnion" ? -45 : 0, 0.1), `${kind}: ${JSON.stringify(x)}`);
+    assert.ok(near(mid(x)[0], -2, 0.01) && near(mid(x)[1], 1, 0.01) && near(symbolSize(x), SIGN, 0.01) && near(x.angle ?? 0, own && kind === "radicalAnion" ? -45 : 0, 0.1), `${kind}: ${JSON.stringify(x)}`);
   }
   assert.ok(writeCdx(one, DEFAULT_STYLE).subarray(0, MAGIC.length).every((b, i) => b === MAGIC.charCodeAt(i)));
 }
 
 // 5. ChemDraw's own files: a page-level sign with no link is a free symbol at its size (as text before 1.2); a sign
-// linked to an atom is that atom's charge; a lone pair or electron with no link goes on the atom it is next to, as
-// before, and one away from every atom is a free symbol; a dagger is still text.
+// linked to an atom is that atom's charge; a lone pair with no link goes on the atom it is next to, as before, and one
+// away from every atom is a free symbol; an electron with no link is free even next to an atom (it is no radical, so
+// no formula changes); a dagger is still text.
 const page = (body: string) => `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.4" LabelSize="10" CaptionSize="10"><page id="1" BoundingBox="0 0 540 720">${body}</page></CDXML>`;
 const atom = `<fragment id="2"><n id="3" p="200 200" Element="7"/></fragment>`;
 let r = fromCdxml(page(`${atom}<graphic id="9" BoundingBox="300 200 292.5 200" GraphicType="Symbol" SymbolType="Plus"/>`)).mol;
@@ -114,6 +118,14 @@ assert.deepEqual([r.shapes, r.atoms[0].pairs], [undefined, 1]);
 r = fromCdxml(page(`${atom}<graphic id="9" BoundingBox="400 300 392.5 300" GraphicType="Symbol" SymbolType="Electron"/><graphic id="10" BoundingBox="398 330 402 330" GraphicType="Symbol" SymbolType="RadicalAnion"/>`)).mol;
 assert.deepEqual([r.shapes?.map((x) => x.symbol), r.atoms[0].radical, r.atoms[0].charge], [["radical", "radicalAnion"], undefined, undefined]);
 assert.ok(near(symbolSize(r.shapes![1]) * 14.4, 8, 1e-3) && r.shapes![1].angle === undefined);
+r = fromCdxml(page(`${atom}<graphic id="9" BoundingBox="207 200 199.5 200" GraphicType="Symbol" SymbolType="Electron"/>`)).mol;
+assert.deepEqual([r.shapes?.map((x) => x.symbol), r.atoms[0].radical], [["radical"], undefined]);
+// ChemDraw's points may lie one below the other (its unattached electrons and daggers do): every kind stands upright,
+// a radical's and lone pair's size is an atom's mark's, and a box with one point (a radical ion's too) is read sound.
+r = fromCdxml(page(`<graphic id="9" BoundingBox="300 200 300 207.5" GraphicType="Symbol" SymbolType="Minus"/><graphic id="10" BoundingBox="300 250 300 252.9" GraphicType="Symbol" SymbolType="LonePair"/><graphic id="11" BoundingBox="200 300" GraphicType="Symbol" SymbolType="RadicalCation"/>`)).mol;
+assert.deepEqual(r.shapes?.map((x) => [x.symbol, x.angle]), [["minus", undefined], ["pair", undefined], ["radicalCation", undefined]]);
+assert.ok(r.shapes!.every((x) => [...x.from, ...x.to].every(Number.isFinite) && near(symbolSize(x), SIGN, 1e-3)), JSON.stringify(r.shapes));
+assert.doesNotThrow(() => parse(serialize(r)));
 r = fromCdxml(page(`<graphic id="9" BoundingBox="300 200 292.5 200" GraphicType="Symbol" SymbolType="Dagger"/>`)).mol;
 assert.deepEqual([r.shapes, r.captions?.[0]?.text], [undefined, "†"]);
 // A file from Octet 1.1 (an atom's lone pairs, written with no link) opens as it did.
@@ -141,5 +153,36 @@ assert.match(editor, /if \(what === "style"\) return each\(\(x\) => \(x\.kind ==
 assert.match(actions, /run\(`shape\.symbol\.\$\{k\}`\)/);
 assert.match(actions, /<SizeButton size=\{context\.symbolPt\} sizes=\{sizes\} run=\{run\} \/>/);
 assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]\.includes\(context\.shape\)/);
+
+// 8. A free plus is a reaction's plus sign, as a "+" caption is: A + B → C reads with its plus, from the app or from a
+// ChemDraw file (its unattached Plus), and Clean Up Reaction moves it into the row and adds no second plus. It keeps
+// two ions apart, and a screen reader calls it a plus sign.
+{
+  const at = (x: number) => ({ label: "C", location: [x, 0, 0] as [number, number, number] });
+  let m: Mol = { atoms: [at(0), at(1), at(3), at(4), at(8), at(9)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }, { atoms: [4, 5], order: 1 }] as Mol["bonds"] };
+  [m] = addArrow(m, { kind: "reaction", from: [5, 0], to: [7, 0] });
+  [m] = addShape(m, freeSymbol("plus", [2, 0.3], SIGN));
+  const ink = (mol: Mol) => (atoms: number[]) => { const q = atoms.map((i) => mol.atoms[i].location); return [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))] as [number, number, number, number]; };
+  const none = () => undefined;
+  const layout = { gap: 0.8, width: 100, captionBox: none, plusBox: [-0.25, -0.15, 0.25, 0.45] as [number, number, number, number], captionPt: 10, bondPt: 14.4 };
+  for (const mol of [m, fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/\sOctet='[^']*'/g, "").replace(/\sOctet="[^"]*"/g, "")).mol]) {
+    const r = findReaction(mol, mol.arrows![0].id, mol.arrows!, ink(mol), none)!;
+    assert.deepEqual(r.steps.map((x) => x.kind), ["structure", "plus", "structure", "arrow", "structure"]);
+    assert.ok(r.carried.includes(mol.shapes![0].id));
+    const out = cleanUpReactions(mol, mol.arrows!, ink, layout, () => true).mol;
+    assert.equal(out.captions?.length ?? 0, 0);
+    const y = mid(out.shapes![0])[1], structureY = out.atoms[0].location[1];
+    assert.ok(Math.abs(y - structureY) < 0.3 && mid(out.shapes![0])[0] > out.atoms[1].location[0] && mid(out.shapes![0])[0] < out.atoms[2].location[0], JSON.stringify(out.shapes));
+    assert.ok(rowOf(mol, undefined, ink(mol), none)?.plus);
+  }
+  // The CDXML scheme lists it as a plus of the step.
+  const xml = toCdxml(m, DEFAULT_STYLE), gid = new RegExp(`<graphic\\s+id="(\\d+)"[^>]*GraphicType="Symbol"`).exec(xml)![1];
+  assert.match(xml, new RegExp(`ReactionStepPlusses="${gid}"`));
+  // Two ions with a free plus between them are named apart, as with a "+" caption.
+  const ions: Mol = { atoms: [{ label: "Na", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [2, 0, 0], charge: -1 }], bonds: [] };
+  assert.equal(withSalts(ions, [[0], [1]]).length, 1);
+  assert.equal(withSalts(addShape(ions, freeSymbol("plus", [1, 0], SIGN))[0], [[0], [1]]).length, 2);
+  assert.ok(describe(m, { box: () => [0, 0, 1, 1] }).some((x) => x.role === "shape" && x.name === "Plus sign"));
+}
 
 console.log("freesymbol.check: free symbols place, draw, size, save and read back as ChemDraw's.");

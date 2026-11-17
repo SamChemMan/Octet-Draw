@@ -172,10 +172,12 @@ function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string }
   const r = straightArrow(a) ? s.reaction?.(a.id) : undefined, said = r && reactionText(m, r, a.id, s);
   return said ? { role: `${lower(kind)} arrow`, name: said } : { role: "arrow", name: kind };
 }
+// A free plus can be a charge or a reaction's plus sign: it reads as a plus sign, as a "+" caption does.
+const symbolName = (sh: Shape) => ((sh.symbol ?? "plus") === "plus" ? "Plus sign" : FREE_SYMBOL_NAMES[sh.symbol!]);
 function shapeText(sh: Shape): { name: string; more?: string } {
   const base = SHAPES[sh.kind], dashed = sh.dashed ? ", dashed" : "";
   if (sh.rgroup) return { name: `R-group definition ${sh.rgroup.name}` };
-  if (sh.kind === "symbol") return { name: FREE_SYMBOL_NAMES[sh.symbol ?? "plus"] };
+  if (sh.kind === "symbol") return { name: symbolName(sh) };
   // A gel by its lanes' names and the sizes of the bands it draws (in its range), largest first; a plasmid map by its
   // length, regions and markers.
   if (sh.kind === "gel" && sh.tlc) {
@@ -287,7 +289,7 @@ const nounOf = (m: Mol, id: number): string | undefined => {
   const a = m.arrows?.find((x) => x.id === id);
   if (a) return a.kind === "line" || a.kind === "arc" || a.kind === "curve" || a.kind === "cut" || a.kind === "orbital" ? lower(ARROWS[a.kind]) : `${lower(ARROWS[a.kind])} arrow`;
   const sh = m.shapes?.find((x) => x.id === id);
-  if (sh) return lower(sh.kind === "symbol" ? FREE_SYMBOL_NAMES[sh.symbol ?? "plus"] : SHAPES[sh.kind]);
+  if (sh) return lower(sh.kind === "symbol" ? symbolName(sh) : SHAPES[sh.kind]);
   return m.cycles?.some((c) => c.id === id) ? "catalytic cycle" : undefined;
 };
 const graphics = (m: Mol) => new Map<number, object>([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => [x.id, x]));

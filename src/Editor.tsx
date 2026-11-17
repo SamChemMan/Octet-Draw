@@ -8774,6 +8774,8 @@ export default function Editor() {
       if (!free || t.bond !== undefined) return;
       const on = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && x.kind === "symbol") : undefined;
       if (on) { const { from, to } = freeSymbol(free, [(on.from[0] + on.to[0]) / 2, (on.from[1] + on.to[1]) / 2], symbolSize(on)); return set(updateShape(doc, on.id, { symbol: free, from, to })); }
+      // A click on other text, an arrow or a shape only picks it (the press did), as before.
+      if (t.caption !== undefined || t.arrow !== undefined) return;
       // It is not picked, as ChemDraw leaves it, so the next click places another.
       return set(addShape(doc, freeSymbol(free, at, (0.75 * style.labelSize) / style.bond))[0]);
     }

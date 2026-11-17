@@ -2507,8 +2507,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     return p;
   }
 
-  // Symbols: a charge or radical they represent belongs to that node; lone pairs and stray electrons to the
-  // nearest atom (in their own fragment first). A sign that represents nothing, and a lone pair or electron with no
+  // Symbols: a charge or radical they represent belongs to that node; a lone pair that represents nothing to the
+  // nearest atom (in its own fragment first). A sign or electron that represents nothing, and a lone pair with no
   // atom near, is a free symbol, on the page by itself; so is every free symbol Octet wrote (its data has its box).
   // Other signs (a dagger) become text.
   function readSymbols() {
@@ -2517,12 +2517,14 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       let sh: Omit<Shape, "id">;
       if (own) sh = { kind: "symbol", symbol: kind, from: [own[0], own[1]], to: [own[2], own[3]], ...(isNum(p?.angle, -360, 360) && p!.angle ? { angle: p!.angle as number } : {}) };
       else {
-        // ChemDraw's two points, as the writer puts them: the middle and a point the size back along its turn, or a
-        // radical ion's ends half its size apart. A size out of reason is an atom's charge sign's.
-        const e = reals(x.attrs.BoundingBox, 4) ?? [...reals(x.attrs.BoundingBox, 2)!, NaN, NaN], p1 = toOctet(e[0], e[1]), p2 = toOctet(e[2], e[3]), ion = kind === "radicalCation" || kind === "radicalAnion";
-        const v: P = ion ? sub(p2, p1) : sub(p1, p2), d = len(v) * (ion ? 2 : 1), size = d > 0.02 && d < 40 ? d : (0.75 * style.labelSize) / B;
-        const angle = d > 0.02 && d < 40 ? Math.round((Math.atan2(v[1], v[0]) * 1800) / Math.PI) / 10 : 0;
-        sh = { ...freeSymbol(kind, ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1, size), ...(Math.abs(angle) >= 0.05 ? { angle } : {}) };
+        // ChemDraw's two points. The first is the middle, or a radical ion's ends are half its size apart about it, as
+        // ChemDraw writes an atom's charge signs. Their distance is the size of a charge sign or a radical ion. A
+        // radical's or lone pair's distance is not its size in ChemDraw's own files, and the way the points lie is not
+        // a turn for every kind (an upright dagger's second point is below it), so these take an atom's mark's size and
+        // every symbol stands upright. A size out of reason, or one point only, is an atom's mark's too.
+        const e = reals(x.attrs.BoundingBox, 4), p1 = toOctet(...(e ?? reals(x.attrs.BoundingBox, 2)!) as [number, number]), p2 = e ? toOctet(e[2], e[3]) : p1;
+        const ion = kind === "radicalCation" || kind === "radicalAnion", d = len(sub(p2, p1)) * (ion ? 2 : 1), sized = kind !== "radical" && kind !== "pair" && kind !== "bar";
+        sh = freeSymbol(kind, ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1, sized && d > 0.02 && d < 40 ? d : (0.75 * style.labelSize) / B);
       }
       const colour = colourOf(x.attrs.color);
       addShape({ ...sh, id: newId(x), ...(colour ? { colour } : {}), z: zOf(x) }, x, group);
@@ -2557,15 +2559,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         continue;
       }
       const kind = FREE_OF.get(type);
-      if (kind && (Array.isArray(priv(x)?.box) || !(type === "LonePair" || type === "LonePairBar" || type === "Electron"))) { free(x, kind, group); continue; }
-      if (type === "LonePair" || type === "LonePairBar" || type === "Electron") {
+      // An unlinked electron is not a radical: ChemDraw links each radical it counts. An unlinked lone pair goes on its
+      // atom, as ChemDraw leaves lone pairs drawn on atoms unlinked (a lone pair changes no formula).
+      if (kind && (Array.isArray(priv(x)?.box) || !(type === "LonePair" || type === "LonePairBar"))) { free(x, kind, group); continue; }
+      if (type === "LonePair" || type === "LonePairBar") {
         const i = nearest(c, atoms) ?? nearest(c, everyAtom);
         if (i === undefined) { free(x, kind!, group); continue; }
-        const a = mol.atoms[i], key = type === "Electron" ? `radical${a.radical ?? 0}` : `pair${(a.pairs ?? 0) + (a.radical === 3 ? 1 : 0)}`;
-        if (type === "Electron") a.radical = Math.min(2, (a.radical ?? 0) + 1); else a.pairs = Math.min(4, (a.pairs ?? 0) + 1);
+        const a = mol.atoms[i], key = `pair${(a.pairs ?? 0) + (a.radical === 3 ? 1 : 0)}`;
+        a.pairs = Math.min(4, (a.pairs ?? 0) + 1);
         if (type === "LonePairBar") a.bars = true;
-        // A ChemDraw file's lone pairs and radicals stay where it put them round the atom.
-        if (/^(radical[01]|pair[0-3])$/.test(key)) place(a, key);
+        // A ChemDraw file's lone pairs stay where it put them round the atom.
+        if (/^pair[0-3]$/.test(key)) place(a, key);
         continue;
       }
       const text = SYMBOL_TEXT[type];

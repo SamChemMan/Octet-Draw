@@ -17,7 +17,11 @@ export function withSalts(doc: Mol, all: number[][]): number[][] {
   // (Each ion's box first: most pairs are too far apart to look at their atoms.)
   const box = ions.map((g) => g.reduce((b, i) => [Math.min(b[0], at(i)[0]), Math.min(b[1], at(i)[1]), Math.max(b[2], at(i)[0]), Math.max(b[3], at(i)[1])], [Infinity, Infinity, -Infinity, -Infinity]));
   const gap = (g: number[], h: number[]) => { let d = Infinity; for (const i of g) for (const j of h) d = Math.min(d, Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1])); return d; };
-  const pairs: [number, number, number][] = [], plus = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+");
+  const pairs: [number, number, number][] = [], plus = [
+    ...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+"),
+    // (A plus sign placed with the Symbols tool, by its middle.)
+    ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus").map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
+  ];
   const inside = (b: number[], x: number, y: number, e: number) => x > b[0] - e && x < b[2] + e && y > b[1] - e && y < b[3] + e;
   const apart = (p: number[], q: number[]) => plus.some((c) => inside([Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[2], q[2]), Math.max(p[3], q[3])], c.x, c.y, 0.5) && !inside(p, c.x, c.y, 0.2) && !inside(q, c.x, c.y, 0.2));
   ions.forEach((g, k) => ions.forEach((h, j) => {

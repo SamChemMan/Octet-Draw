@@ -2883,6 +2883,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // read gives its kind and size.
   const listed = (await call("read", { detail: "full" })).structuredContent.shapes.find((x: { id: string }) => x.id === id);
   assert.deepEqual([listed.kind, listed.symbol, listed.size], ["symbol", "radicalCation", 15]);
+  // A plain read names its kind too.
+  assert.equal((await call("read", {})).structuredContent.shapes.find((x: { id: string }) => x.id === id).symbol, "radicalCation");
   // Beside brackets: at their top right, outside them.
   o = await call("change", { operations: [{ op: "shape", kind: "brackets", around: [sid] }, { op: "shape", kind: "symbol", symbol: "plus", around: ["$1.made"] }] });
   assert.ok(!o.isError, text(o));
