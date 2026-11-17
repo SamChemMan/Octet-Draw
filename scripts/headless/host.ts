@@ -8,7 +8,7 @@
 import "./browser.ts";
 import { readFileSync } from "node:fs";
 import { loadOpsin, opsinDir } from "../checkkit.ts";
-import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, importStructure, isOwnFormat, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -316,6 +316,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
     select: (atoms, items) => { picked = { atoms, items }; },
     file: (text) => {
       if (/<CDXML[\s>/]/.test(text.slice(0, 65536))) { const read = fromCdxml(text); return read.style ? fitSizes(read.mol, read.style, style()) : read.mol; }
+      // A CIF file, as the app reads it (its refusal is thrown, for add_file to say why).
+      if (isOwnFormat(text)) { const m = importStructure(text); return m.atoms.length ? m : undefined; }
       return structure(text);
     },
     export: () => false,

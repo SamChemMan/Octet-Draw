@@ -9,6 +9,7 @@ import { hydrogens, NONMETAL, QUADRUPLE, type Mol } from "./render.ts";
 import { ELEMENTS } from "./labels.ts";
 import { kekulise } from "./rings.ts";
 import { crossV, dotV } from "./clean3d.ts";
+import { DamagedFile } from "./notice.ts";
 
 type V = [number, number, number];
 type Row = Record<string, string>;
@@ -36,7 +37,7 @@ const RADII = ("31 28 128 96 84 76 71 66 57 58 166 141 121 111 107 105 102 106 2
   "187 187 175 170 162 151 144 141 136 136 132 145 146 148 140 150 150 260 221 215 206 200 196 190 187 180 169").split(" ");
 const radius = new Map([...[...ELEMENTS].slice(0, RADII.length).map((el, k): [string, number] => [el, +RADII[k] / 100]), ["D", 0.31]]);
 
-const fail = (why: string): never => { throw new Error(`This CIF file is damaged: ${why}.`); };
+const fail = (why: string): never => { throw new DamagedFile(`This CIF file is damaged: ${why}.`); };
 // A number as CIF writes it, with its standard uncertainty in brackets (1.2345(6)); NaN for ? and . (unknown).
 const num = (s?: string) => (s ? Number(s.replace(/\(\d+\)$/, "")) : NaN);
 const dist = (p: V, q: V) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
@@ -272,7 +273,7 @@ function face(ps: V[]): V[] {
 // A CIF or mmCIF file as a drawing: its median bond between atoms other than H is one bond length (X-ray C–H bonds are
 // short), and each structure is in a row from left to right, two bond lengths apart. Each atom keeps its name in the
 // file as its atom number, not shown (Show Atom Number shows it). Throws a RangeError, with the reason to show, for a
-// file over Octet's limits.
+// file over Octet's limits, and a DamagedFile for a damaged one.
 export function readCif(text: string): Mol {
   // An old Mac file's lines end in CR alone (its first line end says how the file's lines end).
   const cr = text.indexOf("\r");

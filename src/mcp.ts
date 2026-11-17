@@ -30,6 +30,7 @@ import { plusShapes, type Reaction } from "./reaction.ts";
 import type { Problem } from "./check.ts";
 import { plainOf, type TextRun } from "./richtext.ts";
 import { ICON } from "./mcpicon.ts";
+import { refusal } from "./notice.ts";
 
 type P = [number, number];
 // What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
@@ -80,7 +81,7 @@ export type Host = {
   working: (text?: string, stop?: () => void, far?: string) => void; // tells the user an AI app is drawing, with Stop; far: how far the call is ("Step 9 of 17"), no new call; none clears it
   selection: () => { atoms: number[]; items: number[] };
   select: (atoms: number[], items: number[]) => void;
-  file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF or RXN file, SMILES or InChI
+  file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF, RXN or CIF file, SMILES or InChI; throws a reader's refusal (notice.ts)
   opens: (text: string) => Promise<{ failed?: string; lost?: string }>; // a file's text read as File > Open reads it, put nowhere: why it would not open, or what it would leave out
   export: (format: string) => boolean; // Octet's Export dialog, on this format
   dialog: (command: string) => boolean; // the command opens a dialog or a box to type in (run_command says so, or refuses it with no window)
@@ -533,7 +534,7 @@ const OPS: Op[] = [
   },
   {
     name: "add_file", title: "Add a drawing from file text", hints: ADD, outputSchema: CHANGE, done: "added a drawing",
-    description: "Adds a drawing from a file's text: CDXML, MOL, SDF, RXN, SMILES or InChI. CDXML and MOL keep their coordinates, labels and colours; Octet lays out SMILES and InChI. Pictures (CDXML) too." + PLACE_NOTE,
+    description: "Adds a drawing from a file's text: CDXML, MOL, SDF, RXN, CIF, SMILES or InChI. CDXML and MOL keep their coordinates, labels and colours; Octet lays out SMILES and InChI. Pictures (CDXML) too." + PLACE_NOTE,
     inputSchema: obj({ text: str(1_000_000), ...placing("at") }, ["text"]),
     run: addFile, place: true,
   },
@@ -545,7 +546,7 @@ const OPS: Op[] = [
   },
   {
     name: "new", hints: ADD, outputSchema: OPENED, done: "opened a new drawing",
-    description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, SMILES or InChI), which opens as File > Open opens it, in its own style.",
+    description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, CIF, SMILES or InChI), which opens as File > Open opens it, in its own style.",
     inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }), text: { ...str(1_000_000), unlisted: true } }, ["for"]),
     run: newDrawing,
   },
@@ -2690,8 +2691,10 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
 
 async function addFile(host: Host, a: { text: string }): Promise<Result> {
   await host.ready();
-  const add = host.file(a.text);
-  if (!add || (!add.atoms.length && !add.captions?.length && !add.arrows?.length && !add.shapes?.length)) return { text: "Octet cannot read this as a drawing. Give CDXML, a MOL, SDF or RXN file, SMILES or InChI.", error: true };
+  // A reader's own reason (over a limit, or a damaged CIF file) is the error.
+  let add;
+  try { add = host.file(a.text); } catch (e) { const why = refusal(e); if (!why) throw e; return { text: `Octet cannot read this file. ${why}`, error: true }; }
+  if (!add || (!add.atoms.length && !add.captions?.length && !add.arrows?.length && !add.shapes?.length)) return { text: "Octet cannot read this as a drawing. Give CDXML, a MOL, SDF, RXN or CIF file, SMILES or InChI.", error: true };
   let m = host.doc();
   const b = roughBox(add), [x, y] = origin(host, m), r = insertMol(m, { ...add, style: undefined }, [x - b[0], y - b[3]]);
   m = r.mol;

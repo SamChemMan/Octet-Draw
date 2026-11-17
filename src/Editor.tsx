@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS } from "./labels";
-import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -137,7 +137,7 @@ import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
-import { failure, fileName, type NoticeKind } from "./notice";
+import { failure, fileName, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, keepPlace, movedAt, staticTable, rowOf as gridRowOf, setRole, shiftView, shownCell, stepGrids, TABLE, tableOf } from "./gridview";
@@ -1303,14 +1303,17 @@ export default function Editor() {
   };
   // A structure for typed or pasted text: a chemical name first (Octet's own names, drugs and formulas too), then
   // SMILES, InChI or a MOL file when the text looks like one. Indigo reads words such as "aspirin" as query atoms,
-  // so a word is never read as SMILES. Text of several lines that is not a file can be a list of names.
-  // refused gets the reason when the text is over Octet's limits.
+  // so a word is never read as SMILES. Text of several lines that is not a file can be a list of names. A file Octet
+  // reads itself (CIF) is read as File > Open reads it. refused gets the reason when the text is over Octet's limits or
+  // damaged.
   const structureFromText = (text: string, refused?: (why: string) => void, smiles?: string | null): Mol | undefined => {
     const s = text.trim(), lines = s.includes("\n");
+    const why = (err: unknown) => { const r = refusal(err); if (r) refused?.(r); return undefined; };
+    if (lines && isOwnFormat(s)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); } }
     const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s, smiles);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
     // A MOL file keeps its first line, which is often blank (the name).
-    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
+    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); }
   };
   // Octet's own names that begin as typed (TREN and Tris for "TR"). Drawing one takes a few milliseconds, so while typing
   // (read false) only the ones drawn before come; once typing pauses (read true), all of them and the name as typed, or
@@ -2026,8 +2029,9 @@ export default function Editor() {
         const r = readOct(f.text!);
         mols.push({ ...(r.mol.style ? fitSizes(r.mol, r.mol.style, style) : r.mol), style: undefined });
         for (const [what, n] of Object.entries(r.lost)) lost[what] = (lost[what] ?? 0) + n;
-      } catch {
-        setNotice(`Octet cannot read the structures in ${f.name}.`);
+      } catch (e) {
+        const why = refusal(e);
+        setNotice(`Octet cannot read the structures in ${f.name}.${why ? ` ${why}` : ""}`);
       }
     }
     const add = stack(mols), b = mols.map(extent).find(Boolean), at = files[0].at && toDoc(...files[0].at);
@@ -2084,7 +2088,8 @@ export default function Editor() {
     if (typeof text !== "string") return { mol: text, lost: {} };
     if (isDrawingText(text)) return readOct(text, /\.oct$/i.test(path ?? ""));
     let mol: Mol;
-    try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
+    // A reader's own reason (over a limit, or damaged) goes as it is; Indigo's words do not.
+    try { mol = importStructure(text); } catch (e) { throw refusal(e) ? e : new Error("Octet cannot read the structures in this file."); }
     const b = bounds(mol);
     if (!b) throw new Error("There are no structures in this file.");
     return { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
@@ -7901,8 +7906,9 @@ export default function Editor() {
     select: (atoms, items) => { mcpWait.current = { after: mcpRenders.current }; setSelection(new Set(atoms)); setPicked(new Set(items)); },
     file: (text) => {
       if (/<CDXML[\s>/]/.test(text.slice(0, 65536))) { const read = fromCdxml(text); return read.style ? fitSizes(read.mol, read.style, style) : read.mol; }
-      // A MOL, SDF or RXN file keeps its own drawing, as File > Import keeps it; SMILES and names are laid out.
-      if (/V[23]000|^\$RXN|^\$RDFILE/m.test(text)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text, true) : undefined; } catch { return undefined; } }
+      // A MOL, SDF or RXN file keeps its own drawing, as File > Import keeps it, and a CIF file is read as File > Open
+      // reads it; SMILES and names are laid out. A reader's refusal (a limit, a damaged file) is thrown, for the reply.
+      if (/V[23]000|^\$RXN|^\$RDFILE/m.test(text) || isOwnFormat(text)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text, true) : undefined; } catch (e) { if (refusal(e)) throw e; return undefined; } }
       return structureFromText(text);
     },
     window: () => ({ id: TAURI ? getCurrentWindow().label : "main", name }),
@@ -9330,7 +9336,7 @@ export default function Editor() {
           for (const source of [clip.molfile, clip.smiles]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = asOpened(importStructure(source), source); } catch (err) { frag = undefined; if (err instanceof RangeError) refused(err.message); }
+            try { frag = asOpened(importStructure(source), source); } catch (err) { frag = undefined; const why = refusal(err); if (why) refused(why); }
             if (frag?.atoms.length) return place(frag);
           }
           if (text?.trim()) {

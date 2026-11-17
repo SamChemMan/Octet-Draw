@@ -189,10 +189,14 @@ const over = (most: number, what: string) => new RangeError(`It has more than ${
 // Atoms in a SMILES (bracket atoms and the organic subset), up to the first space (CXSMILES and names come after it).
 export const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|Br|Cl|[BCNOPSFIbcnops*]/g)?.length ?? 0;
 
+// Text that Octet reads itself (CIF and mmCIF, cif.ts), which Indigo does not read. Paste, the name field and an AI
+// app's add_file test it first, so it reads on every way in as File > Open reads it. Only text of several lines can be
+// one, so a name being typed is not tested.
+export const isOwnFormat = (text: string) => isCif(text);
 // A structure file (MOL, SDF, RXN, RDF, CDXML, KET, SMILES, CIF), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out. A reaction keeps its
 // arrows and plus signs; an RD file's reactions stand one under another. A CIF or mmCIF file (cif.ts) has its own limits.
-// Throws a RangeError, with the reason to show, for text over Octet's limits.
+// Throws a RangeError, with the reason to show, for text over Octet's limits, and a DamagedFile for a damaged CIF file.
 // An MDL file (MOL, SDF, RXN, RDF) whose only enhanced stereochemistry is its chiral flag: no V3000 stereo collections.
 // Indigo reads the flag as abs (1) or &1 (0) on every stereocentre.
 export const chiralFlagOnly = (text: string) => /V2000|V3000/.test(text) && !/MDLV30\/STE(ABS|RAC|REL)/.test(text);

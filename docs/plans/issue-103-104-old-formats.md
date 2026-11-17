@@ -167,6 +167,17 @@ No default key: ChemDraw has none for these formats.
   does now) and a `DamagedFile` error (a new `Error` subclass in `cif.ts`) for damage. `readFile`, `dropFiles`, the
   paste's `refused` and `add_file` show those two messages as they are. Every other error (Indigo's own text) keeps
   today's general words. `host.file` lets the two through; `addFile` returns the message as its error.
+  Built (17 November): `DamagedFile` and `refusal(e)` are in `src/notice.ts`, beside `reason` and `failure`, so
+  `mcp.ts` and the two hosts use them without the readers. `reason` never reads a damaged file's words as a system
+  error (they can quote the file). A message that is not a short sentence, or has "error" or "null" in it, keeps the
+  general words, as `reason` does for any error.
+- D12 (found while building J1). Old Mac CIF files: `isCif` takes lines that end in CR alone, and `readCif` makes
+  them LF when the first line end is a lone CR (LF and CR LF files are not copied). Its line-end pattern matches
+  each line end one way only, so it cannot backtrack.
+- D13 (found by the fuzz while building J1). A CIF atom more than 1,000,000 Å from the origin on any axis refuses
+  the file: "This CIF file is damaged: an atom is more than 1,000,000 Å from the origin." Before, a coordinate of
+  1e160 Å or more gave NaN positions, and 1e30 Å gave a drawing 10^29 bond lengths wide. D7 sets the same limit for
+  SMD.
 
 ## Jobs
 
@@ -276,7 +287,7 @@ below run them on the readers' output.
 | 6 | A count line that says 5 atoms over 3 atom records; or 3 over 5 | "This SMD file is damaged: …". |
 | 7 | A bond to atom 0, to atom 99 of 5, to itself, or twice between one pair | Damaged. |
 | 8 | Hostile format strings: `(999999A2)`, 1,000 nested parentheses, `(I0)`, `(I99999)`, an unknown descriptor, 10,000 characters | Refused in under 10 ms each. No hang, no stack overflow. |
-| 9 | Coordinate exponent 300, −1 or text; a 40-digit integer; every atom at one point | Exponent and number: damaged. One point: laid out as a SMILES is. No NaN or Infinity anywhere. |
+| 9 | Coordinate exponent 300, −1 or text; a 40-digit integer; every atom at one point | Exponent and number: damaged. One point: laid out as a SMILES is. No NaN or Infinity anywhere. CIF (D13): a coordinate of 1e30, 1e308 or a 40-digit integer, Cartesian or fractional, is damaged. |
 | 10 | CR line ends (an old Mac file), CRLF, tabs, trailing spaces, Latin-1 names | Reads as the LF file reads. |
 | 11 | CIF text with `>CT` in a comment; SMD with a title that starts `data_` | Each read by its own reader only. |
 | 12 | 5,000 fuzzed SMD and CIF files (cut at a random byte, lines doubled, deleted or swapped, fields made huge, negative or text) | Each ends in under 50 ms with a valid drawing (finite coordinates, bonds between atoms that exist, within the limits) or a refusal that starts "This SMD file is damaged", "This CIF file is damaged" or "It has". No other exception. |
@@ -291,7 +302,7 @@ below run them on the readers' output.
 | 21 | Two AI sessions call `add_file` with CIF text at once, each on its own drawing | Each drawing gets its own structures. One undo step each. |
 | 22 | `run_command more_cif` or `more_smd`; More formats off and `more_smd` asked by name | Refused as a dialog command; "no command" while More formats is off. |
 | 23 | A binary file of 1 MB random bytes named `.skc` or `.chm`, from Finder, a drop and `--convert` | Today's refusal. Nothing added. |
-| 24 | Random text of 1 MB named `.tgf` or `.msm`; and of 100 KB | Today's words: "Octet cannot read the structures in this file." (over 300,000 characters Indigo is not asked). Under 1 s. Nothing added. |
+| 24 | Random text of 1 MB named `.tgf` or `.msm`; and of 100 KB | 100 KB: today's words, "Octet cannot read the structures in this file." 1 MB: the limit, "Octet cannot open this file. It has more than 300,000 characters." (D11 lets a limit through on every way in; a paste said it already). Under 1 s. Nothing added. |
 | 25 | An MDL V2000 molfile named `.msm` | Opens as a MOL file (no refusal by extension). |
 | 26 | More formats switched off | No Open SMD… in the File menu, the palette or Settings > Keys. A dropped `.smd` file still opens, as a dropped `.cif` does. |
 
@@ -302,7 +313,7 @@ below run them on the readers' output.
 | J1 paste and name field; D11; cases 1, 3, 11, 13 | `src/filetext.check.ts`: `isOwnFormat` on each format; source checks that `structureFromText` and both `host.file` functions call it before `parseStructure`, and that `readFile`, `dropFiles` and the paste pass `RangeError` and `DamagedFile` messages through. Dev server on port 1473: paste CIF text through the page's paste handler, see the structures, ⌘Z and ⇧⌘Z. |
 | J1 `add_file`; cases 20, 21 | `src/filetext.check.ts`: `handle()` from `src/mcp.ts` with a host built as `mcprobust.check.ts` builds one, its `file` the headless host's; two sessions at once. |
 | J1 Latin-1; case 10 | `cargo test` in `src-tauri` with `CARGO_TARGET_DIR=…/cargo-g103`: `open::read` of a Latin-1 `.cif`; a binary `.mol` still refused. |
-| J1 speed | `src/filetext.check.ts`: interleaved medians of `importStructure` on a 300,000-character MOL text, this branch's code against `v1.1.2`'s (from `git archive v1.1.2`), within 3%. `isOwnFormat` on that text under 1 ms. |
+| J1 speed | A script outside the repository: interleaved medians, this branch's `chem.ts` and `cif.ts` against `v1.1.2`'s (from `git archive v1.1.2`), on a 298,704-character SD file (`importStructure`, and a paste's `isOwnFormat` then `parseStructure`) and a 7.3 MB mmCIF file (`readCif`, LF and CR LF). `src/filetext.check.ts` guards the one cost J1 adds to a paste and the name field: `isOwnFormat` under 1 ms and under 1% of reading the file, and under 20 ms on text made to be slow for it. (A check that compares with v1.1.2 would need the tag and a second Indigo on every `npm test`.) |
 | J2 reader; cases 3–9, 12 | `src/smd.check.ts`: files written by the check from S1–S9; every field; limits; fuzz with a fixed seed; time caps. |
 | J2 detection; case 11 | `src/smd.check.ts`: `isSmd` false on every other format's text from the existing checks' writers. `isCif` false on SMD. |
 | J2 menu; cases 22, 26 | `src/moreformats.check.ts` (the line's shape); `src/cif.check.ts` and `cargo test` (`open_more` table, unknown names refused); dev server: the palette lists Open SMD… with the same icon and row as Open CIF or mmCIF…, `npm run look -- http://localhost:1473/` with no `look:` errors. |
