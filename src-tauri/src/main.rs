@@ -409,12 +409,20 @@ const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 // magic). Anything else that is not UTF-8 text is an InvalidData error.
 // It reads 64 MB at most, whatever the file's size said before (a file that grows, or one such as /dev/zero).
 pub fn read_text_or_cdx(path: &Path) -> std::io::Result<String> {
+    text_or_cdx(read_bytes(path)?, false)
+}
+
+// A file's bytes as read_text_or_cdx gives them. lossy: text can have bytes that are not UTF-8, which are replaced
+// (older CIF files have Latin-1 names in them); bytes with a NUL in them are still not text.
+pub fn text_or_cdx(bytes: Vec<u8>, lossy: bool) -> std::io::Result<String> {
     use base64::Engine;
-    let bytes = read_bytes(path)?;
     if bytes.starts_with(b"VjCD0100") {
         return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
     }
-    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    String::from_utf8(bytes).or_else(|e| match lossy && !e.as_bytes().contains(&0) {
+        true => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+        false => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+    })
 }
 
 // A file's bytes, 64 MB at most, whatever its size said before.
@@ -600,19 +608,16 @@ async fn import_structure(app: AppHandle, ct: Option<bool>) -> Result<Option<(St
     Ok(Some((name, text)))
 }
 
-// File > More Formats > Open CIF or mmCIF…: a crystal structure's file. Returns its name and text, with any bytes that
-// are not UTF-8 replaced (older CIF files can have Latin-1 names in them). It is not a drawing to save over.
+// File > More Formats > Open CIF or mmCIF…: a crystal structure's file. Returns its name and text, read as Finder's
+// open reads it (open::read: bytes that are not UTF-8 replaced). It is not a drawing to save over.
 #[tauri::command]
 async fn open_cif(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("CIF and mmCIF", &["cif", "mmcif"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("CIF and mmCIF", &open::LOSSY).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
-    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
-        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
-    }
-    let text = String::from_utf8_lossy(&fs::read(&path).map_err(|e| e.to_string())?).into_owned();
-    Ok(Some((path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), text)))
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    open::read(&path, &name).map(|text| Some((name, text)))
 }
 
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
