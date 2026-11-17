@@ -40,7 +40,7 @@ for (const more of [{ attach: true }, { bead: true }, { text: "Workup", chemical
 // The editor and the panel use it: a lone atom or bond that is a whole molecule gets its structure's actions.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), actions = readFileSync(new URL("Actions.tsx", import.meta.url), "utf8");
 assert.match(editor, /const molecule = ids\.length <= 2 && wholeMolecule\(doc, ids\) \? structureOf\(\) : undefined;/);
-assert.match(actions, /items\.push\(\.\.\.actionItems\(context\.molecule, messy, hiddenWarnings, warned, online\)\.filter/);
+assert.match(actions, /items\.push\(\.\.\.actionItems\(context\.molecule, messy, hiddenWarnings, warned, online, more\)\.filter/);
 // Both the atom and the bond context carry it, and both the editor and the panel show its formula and mass.
 assert.equal(editor.match(/, molecule \};/g)?.length, 2);
 assert.equal((editor + actions).match(/\(\w+\??\.kind === "atom" \|\| \w+\??\.kind === "bond"\) && !!\w+\.molecule\)/g)?.length, 2);

@@ -22,7 +22,7 @@ import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
 import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
-import { resetIds, type FileFormat, type From, type Host } from "../../src/mcp.ts";
+import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
 import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
@@ -32,7 +32,7 @@ import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type 
 import { reagentFormula } from "../../src/stoich.ts";
 import { toCt, toSln } from "../../src/textformats.ts";
 import { toFasta, toHelm } from "../../src/helm.ts";
-import { toChemfig } from "../../src/chemfig.ts";
+import { chemfig } from "../../src/chemfig.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
@@ -216,7 +216,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     return out.filter((st) => st.reactants.length && st.products.length);
   };
   // A file's text as Export writes it (the editor's formatOf), for the drawing or a part of it. Nothing is saved.
-  const fileText = (format: FileFormat, part?: Mol): string | undefined => {
+  const fileText = (format: FileFormat, part?: Mol, o?: FileOptions): string | undefined => {
     const m = part ?? doc, cdxml = () => toCdxml(m, style(), {
       derived: drawn(m).cycleArrows, name: title,
       expand: (text) => { const smiles = labelSmiles(text); try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
@@ -224,7 +224,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     try {
       if (format === "cdxml") return cdxml();
       if (format === "cdx") return toBase64(xmlToCdx(parseXml(cdxml())));
-      if (format === "chemfig") { const d = drawn(m); return toChemfig(m, d.frame, d.measure) || undefined; }
+      if (format === "chemfig") { const d = drawn(m); return chemfig(m, d.frame, d.measure, { compact: o?.compact }).code || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
       if (format === "inchi") return toInchi(chem) || undefined;

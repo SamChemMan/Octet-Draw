@@ -36,7 +36,7 @@ type P = [number, number];
 export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "cml", "ct", "sln", "helm", "fasta", "chemfig", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "bmp"] as const;
 export type FileFormat = (typeof FILE_FORMATS)[number];
 // Export's own options for a picture: its resolution, a clear background, and its width in mm.
-export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number };
+export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number; compact?: boolean }; // compact: chemfig on one line
 // What the editor does for the tools (Editor.tsx makes one each time it draws).
 export type Host = {
   doc: () => Mol;
@@ -602,9 +602,9 @@ const OPS: Op[] = [
   },
   {
     name: "file", hints: READ, outputSchema: { type: "object", required: ["format", "text"], properties: { format: { type: "string" }, text: { type: "string" }, ids: ids } },
-    description: `read with format: the drawing (or the ids) as the file Export writes, in any of its formats (${FILE_FORMATS.join(", ")}), a binary one in base64. mol, sdf, rxn and rdf are V3000; mol2000, sdf2000, rxn2000 and rdf2000 are V2000; ct is a connection table; helm and fasta give a peptide or nucleic acid drawn along its backbone; chemfig is Export LaTeX's, the structures alone. A picture takes Export's options: dpi (36 to 2400), transparent, and width_mm (the whole picture, margin included). Nothing is saved.`,
+    description: `read with format: the drawing (or the ids) as the file Export writes, in any of its formats (${FILE_FORMATS.join(", ")}), a binary one in base64. mol, sdf, rxn and rdf are V3000; mol2000, sdf2000, rxn2000 and rdf2000 are V2000; ct is a connection table; helm and fasta give a peptide or nucleic acid drawn along its backbone; chemfig is Export LaTeX's, the structures alone (compact: true or false sets one line or an atom a line; else the user's setting). A picture takes Export's options: dpi (36 to 2400), transparent, and width_mm (the whole picture, margin included). Nothing is saved.`,
     // (tools/list lists the formats read had before; the rest, and the options, are here for room.)
-    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles", tiff: "tif", jpeg: "jpg" }, quiet: FILE_FORMATS.slice(8) }), ids: list(str(40), 500), dpi: { ...num(36, 2400), unlisted: true }, transparent: { type: "boolean", unlisted: true }, width_mm: { ...num(1, 2000), unlisted: true } }, ["format"]),
+    inputSchema: obj({ format: pick(FILE_FORMATS, undefined, { also: { smi: "smiles", tiff: "tif", jpeg: "jpg" }, quiet: FILE_FORMATS.slice(8) }), ids: list(str(40), 500), dpi: { ...num(36, 2400), unlisted: true }, transparent: { type: "boolean", unlisted: true }, width_mm: { ...num(1, 2000), unlisted: true }, compact: { type: "boolean", unlisted: true } }, ["format"]),
     run: getFile,
   },
   {
