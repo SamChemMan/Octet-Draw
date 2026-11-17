@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ArrowClockwise, Selection } from "@phosphor-icons/react";
+import { lightTheme } from "./docstyle.ts";
 
 // The glyph's path data, read from the real icon component (no copied paths).
 function glyphPaths(icon: typeof Selection = Selection): string[] {
@@ -16,14 +17,7 @@ function glyphPaths(icon: typeof Selection = Selection): string[] {
 }
 
 // The light theme's ink, the cursors' black.
-function lightInk() {
-  const probe = document.createElement("div");
-  probe.dataset.theme = "light";
-  document.body.append(probe);
-  const ink = getComputedStyle(probe).getPropertyValue("--ink").trim() || "#0F172A";
-  probe.remove();
-  return ink;
-}
+const lightInk = () => lightTheme((css) => css.getPropertyValue("--ink").trim() || "#0F172A");
 
 async function png(svg: string, scale: number): Promise<string> {
   const img = new Image();

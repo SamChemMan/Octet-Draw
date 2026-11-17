@@ -11,6 +11,7 @@ import { HBOND, bandSize, curved, hydrogens, isBracket, orderOf, sizeText, strai
 import { plotName } from "./pageplot.ts";
 import { isChart } from "./charts.ts";
 import { ELEMENTS } from "./metals.ts";
+import { luminance } from "./docstyle.ts";
 import { rings } from "./rings.ts";
 import { USAGES, polymerLabel } from "./query.ts";
 import type { Reaction, Step } from "./reaction.ts";
@@ -380,7 +381,6 @@ function turnText(was: Mol, now: Mol, moved: number[]): string {
 // ——— The focus ring ———
 // The focus ring's colour on a page of the user's own colour: Octet's focus blue where it stands out 3 to 1 (WCAG's
 // non-text contrast), else white on a dark page and navy on a light one. Undefined when the blue does.
-const luminance = (hex: string) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((s, c, k) => s + c * [0.2126, 0.7152, 0.0722][k], 0);
 export const contrast = (a: string, b: string) => { const [x, y] = [luminance(a), luminance(b)]; return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 export const FOCUS = "#3F6BFF";
 export function ringOn(page: string): string | undefined {
