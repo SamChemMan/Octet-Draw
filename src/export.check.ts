@@ -174,10 +174,11 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
 // hidden page keeps no recovery copy; and a hidden window answers once what it opens is open, a file that did not
 // open answering with why.
 {
-  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(mol, sheets \? undefined : svg, f\), pages: sheets\?\.texts \}\);/, "Export");
+  assert.match(editor, /async function exportAs\([^]*?const path = await exportFile\(\{ name, \.\.\.r \}\);/, "Export and Quick export send exportFile their request");
+  assert.match(editor, /const path = await exportAs\(\(\) => \{[^]{0,300}return \{ \.\.\.exportRequest\(mol, sheets \? undefined : svg, f\), pages: sheets\?\.texts \};/, "Export");
   // An AI app's read with format pdf gives an experiment page as its pages too (MCP plan section 20.5).
   assert.match(editor, /const sheets = format === "pdf" && !part && expPage \? pagePictures\(mol\) : undefined;\n\s*const file = svg && \(await invoke<string>\("export_bytes", \{ export: \{ \.\.\.exportRequest\(mol, sheets \? undefined : svg, f\), pages: sheets\?\.texts \} \}\)\);/, "read as PDF");
-  assert.match(editor, /const path = await exportFile\(\{ name, \.\.\.exportRequest\(part, svg, \{ \.\.\.f, format \}\) \}\);/, "Quick export");
+  assert.match(editor, /await exportAs\(\(\) => exportRequest\(part, svg, \{ \.\.\.f, format \}\)\);/, "Quick export");
   // (No dialog with no window: mcp.ts refuses Export and the dialog commands when windowless; mcp.check tests it.)
   assert.ok(editor.includes("windowless: () => HEADLESS,"));
   assert.ok(editor.includes("ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true);"));

@@ -88,7 +88,8 @@ assert.equal(cf([], []), "");
 // The command is in File > More Formats, and the app saves its code as a .tex file.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), rust = readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8");
 assert.match(editor, /\["more_chemfig", "Export LaTeX \(chemfig\)…", <BracketsCurly size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportChemfig\(\)\)\],/);
-assert.match(editor, /tex = toChemfig\(part, frame, measure\);[\s\S]{0,200}exportFile\(\{ name, format: "tex", tex \}\)/);
+assert.match(editor, /tex = toChemfig\(part, frame, measure\);[\s\S]{0,200}exportAs\(\(\) => \(\{ format: "tex", tex \}\)/);
+assert.match(editor, /async function exportAs\([^]*?const path = await exportFile\(\{ name, \.\.\.r \}\);\n\s+if \(path\) saved\(path, text\?\.\(path\)\);/);
 assert.match(rust, /\("tex", "LaTeX \(chemfig\)", &\["tex"\]\)/);
 assert.match(rust, /"tex" => e\.tex\.is_some\(\),/);
 assert.match(rust, /"tex" => format!\("\{\}\\n", e\.tex\.as_deref\(\)\.unwrap_or_default\(\)\.trim\(\)\)\.into_bytes\(\),/);

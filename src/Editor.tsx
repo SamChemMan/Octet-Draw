@@ -77,7 +77,7 @@ import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog"
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
 import { toChemfig } from "./chemfig";
-import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat } from "./export";
+import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
@@ -1431,12 +1431,7 @@ export default function Editor() {
     const sheets = pagePictures(part);
     if (!sheets) return;
     const { texts, cols: across } = sheets;
-    const srcs = texts.map((text) => {
-      const bytes = new TextEncoder().encode(text);
-      let bin = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return `data:image/svg+xml;base64,${btoa(bin)}`;
-    });
+    const srcs = texts.map((text) => `data:image/svg+xml;base64,${toBase64(new TextEncoder().encode(text))}`);
     const size = { w: (w * 72) / 25.4, h: (h * 72) / 25.4 };
     if (LINUX) return setDialog({ kind: "print", srcs, ...size, cols: across, page });
     await printPages({ srcs, ...size });
@@ -1489,30 +1484,36 @@ export default function Editor() {
     const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
     return { format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) };
   };
-  async function exportPart(part: "all" | "selection") {
-    const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
-    if (!v || !mol) return;
+  // An export to the Save dialog: the request is made in the try, so a failure while it is made says so too. The file
+  // saved says so (saved, with text's words when it gives some). The path saved, if any.
+  async function exportAs(request: () => Omit<ExportRequest, "name"> | undefined, text?: (path: string) => string | undefined) {
     try {
-      // An experiment page's PDF is its pages, as Print gives them: the experiment, then its risk assessment.
-      const sheets = f.format === "pdf" && part === "all" && expPage ? pagePictures(mol) : undefined;
-      if (f.format === "pdf" && part === "all" && expPage && !sheets) return;
-      const path = await exportFile({ name, ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts });
-      if (path) { setExportView(undefined); saved(path); }
+      const r = request();
+      if (!r) return;
+      const path = await exportFile({ name, ...r });
+      if (path) saved(path, text?.(path));
+      return path;
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
+  }
+  async function exportPart(part: "all" | "selection") {
+    const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
+    if (!v || !mol) return;
+    const path = await exportAs(() => {
+      // An experiment page's PDF is its pages, as Print gives them: the experiment, then its risk assessment.
+      const sheets = f.format === "pdf" && part === "all" && expPage ? pagePictures(mol) : undefined;
+      if (f.format === "pdf" && part === "all" && expPage && !sheets) return;
+      return { ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts };
+    });
+    if (path) setExportView(undefined);
   }
   // File > More Formats > Export CML… and Export Connection Table…: the selected structures, or every structure, to
   // the Save dialog in that format.
   async function exportText(f: "cml" | "ct") {
     const part = selectedPart() ?? doc, text = formatOf(part, f);
     if (!text) return setNotice(part.atoms.length ? `Octet cannot write this structure as ${f === "cml" ? "CML" : "a connection table"}.` : "There is no structure to export.", part.atoms.length ? "error" : "info");
-    try {
-      const path = await exportFile({ name, format: f, mdl: text });
-      if (path) saved(path);
-    } catch (e) {
-      setNotice(failure("Octet cannot export this drawing.", e));
-    }
+    await exportAs(() => ({ format: f, mdl: text }));
   }
   // Quick export: the selection, or the whole drawing, straight to the Save dialog in the Quick export format (PNG
   // at first; SVG or EMF for Office, PDF for LaTeX), with the saved settings. A PDF, PNG or EMF carries the CDXML, as
@@ -1520,36 +1521,23 @@ export default function Editor() {
   async function quickExport(format = filePrefs.quick) {
     const part = selectedPart() ?? doc, svg = pictureOf(part), f = filePrefs;
     if (!svg) return setNotice("There is nothing to export.", "info");
-    try {
-      const path = await exportFile({ name, ...exportRequest(part, svg, { ...f, format }) });
-      if (path) saved(path);
-    } catch (e) {
-      setNotice(failure("Octet cannot export this drawing.", e));
-    }
+    await exportAs(() => exportRequest(part, svg, { ...f, format }));
   }
   // File > More Formats > Export 3MF…: the selection, or the whole drawing, as a ball-and-stick model to 3D print,
   // straight to the Save dialog.
   async function exportModel() {
-    try {
+    await exportAs(() => {
       const model = model3mf(selectedPart() ?? doc);
-      if (!model) return setNotice("There is nothing to export.", "info");
-      const path = await exportFile({ name, format: "3mf", model });
-      if (path) saved(path);
-    } catch (e) {
-      setNotice(failure("Octet cannot export this drawing.", e));
-    }
+      if (!model) return void setNotice("There is nothing to export.", "info");
+      return { format: "3mf", model };
+    });
   }
   // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code (chemfig.ts) in a
   // .tex file. chemfig draws structures only, so the notice says when the rest was left out.
   async function exportChemfig() {
     const part = selectedPart() ?? doc, tex = toChemfig(part, frame, measure);
     if (!tex) return setNotice("There is nothing to export.", "info");
-    try {
-      const path = await exportFile({ name, format: "tex", tex });
-      if (path) saved(path, part.captions?.length || part.arrows?.length || part.shapes?.length || part.cycles?.length ? `Saved ${fileName(path)}. The file has only the structures.` : undefined);
-    } catch (e) {
-      setNotice(failure("Octet cannot export this drawing.", e));
-    }
+    await exportAs(() => ({ format: "tex", tex }), (path) => (part.captions?.length || part.arrows?.length || part.shapes?.length || part.cycles?.length ? `Saved ${fileName(path)}. The file has only the structures.` : undefined));
   }
   // A file written where the user chose (an export, or a save to a new place): its name (or `text`), and a button that
   // shows it in the system's file manager.
