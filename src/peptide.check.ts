@@ -2,8 +2,9 @@
 // Name to Structure gives the structure of the three-letter sequence, bad letters and more than 60 residues are
 // refused with a short message, and Structure > Insert Peptide… opens the name field ready for codes.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { MAX_RESIDUES, peptideProblem, peptideSmiles, peptideText, threeLetter } from "./peptide.ts";
+import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 
 // The conversion.
 assert.deepEqual(threeLetter("ACDEFGHIKLMNPQRSTVWY"), { sequence: "Ala-Cys-Asp-Glu-Phe-Gly-His-Ile-Lys-Leu-Met-Asn-Pro-Gln-Arg-Ser-Thr-Val-Trp-Tyr" });
@@ -44,23 +45,11 @@ assert.match(tools, /\{ id: "sequence", name: SEQUENCES\[p\.variants\.sequence\]
 assert.match(editor, /if \(tool === "sequence"\) return insertSequence\(SEQUENCES\[sequenceChoice\]\.prefix\);/);
 
 // Through Name to Structure: the same structure as the three-letter sequence typed out, with OPSIN built.
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("peptide: ok (Name to Structure skipped, no OPSIN build)"); process.exit(0); }
+needOpsin("peptide: ok (Name to Structure skipped, no OPSIN build)");
 const { DRUGS } = await import("./drugs.ts");
 const { attachOpsin, nameToSmiles } = await import("./names.ts");
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
+const opsin = await loadOpsin();
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
 
 for (const [codes, three] of [
   ["ACDEFGHIKLMNPQRSTVWY", "Ala-Cys-Asp-Glu-Phe-Gly-His-Ile-Lys-Leu-Met-Asn-Pro-Gln-Arg-Ser-Thr-Val-Trp-Tyr"],
@@ -82,12 +71,7 @@ assert.equal(sixty, nameToSmiles(`H-${Array(30).fill("Ala-Gly").join("-")}-OH`),
 assert.equal(peptideSmiles("aspirin"), undefined);
 assert.equal(peptideSmiles("peptide: ABG"), undefined);
 assert.equal(peptideSmiles("peptide: "), undefined);
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { ready, toInchi, parseStructure } = await import("./chem.ts");
 await ready;
 const inchi = (smiles: string) => toInchi(parseStructure(smiles, false));

@@ -9,9 +9,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { hydrogens, type Mol } from "./render.ts";
+import type { Mol } from "./render.ts";
 import { predict, readTables } from "./nmr.ts";
-import type { Graph } from "./naming.ts";
+import { graph } from "../scripts/checkkit.ts";
 import { fullRange } from "./spectrumplot.ts";
 import { analyse, fromJcamp } from "./measured.ts";
 import { fragments } from "./edit.ts";
@@ -97,11 +97,6 @@ function works(x: OnPage, what: string) {
 // A predicted ¹H spectrum of octane-3,5-dione and a measured one of 40,000 points (8,192 on the page), as
 // pageplot.check.ts builds them.
 readTables(gunzipSync(readFileSync(new URL("../data/nmr/shifts.bin.gz", import.meta.url))));
-function graph(els: string[], bonds: [number, number, number][]): Graph {
-  const used = els.map(() => 0);
-  for (const [a, b, o] of bonds) { used[a] += o; used[b] += o; }
-  return { atoms: els.map((el, i) => ({ el, charge: 0, h: hydrogens(el, 0, used[i]) })), bonds: bonds.map(([a, b, order]) => ({ a, b, order: order as 1 | 2 | 3 })) };
-}
 const h1 = predict(graph(["C", "C", "C", "C", "O", "C", "C", "O", "C", "C"], [[0, 1, 1], [1, 2, 1], [2, 3, 1], [3, 4, 2], [3, 5, 1], [5, 6, 1], [6, 7, 2], [6, 8, 1], [8, 9, 1]]), "1H")!, keys = signalKeys(h1.signals);
 const predicted: SpectrumPlot = {
   kind: "predicted", nucleus: "1H", mhz: 400, solvent: "CDCl₃", solventPeaks: true, range: fullRange(h1, "1H"), frame: [14, 3.5], ...place, labels: "auto", title: "¹H NMR (400 MHz, CDCl₃), predicted", notice: true,

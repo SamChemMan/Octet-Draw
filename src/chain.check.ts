@@ -7,17 +7,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 const { chainLayout } = await import("./chain.ts");
-const { fragments } = await import("./edit.ts");
+const { fragments, neighbours: near } = await import("./edit.ts");
 const { peptideSmiles } = await import("./peptide.ts");
 const { nucleicText } = await import("./nucleic.ts");
 const { residues } = await import("./sequence.ts");
@@ -29,7 +25,6 @@ const drawn = (text: string) => chem.fullMol(smilesOf(text));
 let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
 const byHand = (text: string): Mol => { const m = chem.parseStructure(smilesOf(text), false); return { ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] + rnd() * 0.3, a.location[1] + rnd() * 0.3, 0] })) }; };
-const near = (m: Mol, i: number) => m.bonds.flatMap((b) => (b.atoms[0] === i ? [b.atoms[1]] : b.atoms[1] === i ? [b.atoms[0]] : []));
 const y = (m: Mol, i: number) => m.atoms[i].location[1];
 // A peptide's backbone: each N–Cα–C(=O) and its Cα's side chain atom, in order along the chain.
 const carbonyl = (m: Mol, c: number) => m.atoms[c].label === "C" && m.bonds.some((b) => b.type === 2 && b.atoms.includes(c) && m.atoms[b.atoms[0] === c ? b.atoms[1] : b.atoms[0]].label === "O");

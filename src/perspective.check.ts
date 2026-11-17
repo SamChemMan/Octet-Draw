@@ -41,7 +41,6 @@ const flat = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, locati
   assert.deepEqual([shadeAt(0.8, [-0.8, 0.8]), shadeAt(0, [-0.8, 0.8]), shadeAt(-0.8, [-0.8, 0.8]), shadeAt(-5, [-0.8, 0.8])], [1, 0.62, 0.25, 0.25]);
   assert.equal(depthRange({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1], a.location[2] * 0.2] as [number, number, number] })) }), null, "no shading over 5 pt of depth or less");
 }
-console.log("perspective.check: 3D structures draw every bond style ok");
 
 // Crossing bonds, as ChemDraw decides them: the bond whose middle is nearer is in front, whatever their order (Bring
 // to Front does nothing there); at the same depth the later bond is. The bond behind has a gap: the front bond's width
@@ -77,7 +76,6 @@ console.log("perspective.check: 3D structures draw every bond style ok");
   const stub = render(nearly, S, ink, S.bond).polygons.filter((p) => Math.max(...ys(p)) - Math.min(...ys(p)) < 1);
   assert.ok(Math.abs(Math.min(...stub.flatMap(xs)) - (S.line / 2 + M)) < 1e-9, "a near miss is cut");
 }
-console.log("perspective.check: crossings by depth ok");
 
 // Atoms drawn onto a turned structure take the depth of the atom they are drawn from; a pasted 3D structure keeps its
 // own; a new flat structure stays flat.
@@ -96,7 +94,6 @@ console.log("perspective.check: crossings by depth ok");
   const plain = bondTo(flatOnly, 1, [1.5, 0.87]);
   assert.equal(carryDepth(flatOnly, plain), plain, "a flat drawing is left as it is");
 }
-console.log("perspective.check: new atoms take the structure's depth ok");
 
 // Turning part of a structure: a ligand bridging two atoms (a carboxylate on a Rh–Rh bond) turns about the line
 // through them, keeping its bond lengths; a 90° turn takes it out of the page.
@@ -118,7 +115,6 @@ console.log("perspective.check: new atoms take the structure's depth ok");
   const gone = flattenAtoms({ ...twice, atoms: twice.atoms.map((a) => ({ ...a, shade: true as const })) }, all);
   assert.ok(gone.atoms.every((a) => a.location[2] === 0 && a.shade), "Flatten drops the depth");
 }
-console.log("perspective.check: turns about a bridging ligand ok");
 
 // Where atoms or bonds lie over each other as seen, the pointer takes the one in front: the nearer atom, the bond
 // whose middle is nearer, or (flat) the bond drawn later.
@@ -129,7 +125,6 @@ console.log("perspective.check: turns about a bridging ligand ok");
   assert.equal(bondAt(flat(m), [0, 0.5]), 1, "flat bonds crossing: the later");
   assert.equal(bondAt({ ...m, atoms: m.atoms.map((x, i) => (i === 2 ? { ...x, location: [-1, 0.5, 1] as [number, number, number] } : x)) }, [0, 0.5]), 0, "the bond in front");
 }
-console.log("perspective.check: the pointer takes what is in front ok");
 
 // A structure in perspective is not messy (its short and crossing bonds are by design), and an atom that is in line
 // with a bond only as seen (far behind it) is not very close to it.
@@ -140,7 +135,6 @@ console.log("perspective.check: the pointer takes what is in front ok");
   const cross: Mol = { atoms: [A("C", -0.5, 0, 0), A("C", 0.5, 0, 0.6), A("C", 0, -0.5, 0.3), A("C", 0, 0.5, 0.3)], bonds: [b(0, 1), b(2, 3), b(1, 3)] };
   assert.ok(!messy(cross) && messy(flat(cross)), "crossing bonds are messy only when flat");
 }
-console.log("perspective.check: warnings in perspective ok");
 
 // A bond seen end on (a Newman projection): not drawn, and the atom behind is a circle 0.4 bond lengths across that its
 // other bonds start from. The front and back bonds meet at the middle but do not cut each other.
@@ -161,7 +155,6 @@ console.log("perspective.check: warnings in perspective ok");
   const tilted = { ...m, atoms: m.atoms.map((a, i) => (i === 1 ? { ...a, location: [0.4, 0, -0.5] as [number, number, number] } : a)) };
   assert.ok(render(tilted, S, ink).polygons.length < d.polygons.length - 40, "no circle (its 48 pieces)");
 }
-console.log("perspective.check: Newman projections ok");
 
 // Files keep depth and depth shading: Octet's own, and CDXML as ChemDraw writes it (xyz on atoms with depth, its z
 // pointing away from the viewer; ShowPerspective on the shaded atoms and bonds). Older Octet CDXML wrote Octet's z.
@@ -180,7 +173,6 @@ console.log("perspective.check: Newman projections ok");
   const chemdraw = xml.replace(/ Octet='[^']*'/g, "").replace(/ Octet="[^"]*"/g, "");
   assert.equal(zs(chemdraw)[1][0], 0.5, "ChemDraw's negative z is nearer");
 }
-console.log("perspective.check: files keep depth and shading ok");
 
 // An opacity set by hand (the Actions panel's Opacity) on an atom of a structure with depth shading: its label and its
 // bonds fade by it over the depth shading, a bond by the fainter of its two atoms. It stays on the same atoms when the

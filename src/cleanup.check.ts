@@ -12,9 +12,9 @@
 // there is about 8 times slower than a laptop. At 8 there, a 145-atom pass runs into the 1 s safety stop (chem.ts SAFETY).
 // The structures run in a worker thread, so a clean-up that never ends stops the check instead of hanging it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { Worker, isMainThread, parentPort } from "node:worker_threads";
 import type { Mol } from "./render.ts";
+import { browser, norender } from "../scripts/checkkit.ts";
 
 const BOUND = 1000, REAL = 500; // ms for each drawing
 const ph = "c1ccccc1", pph3 = "P(c1ccccc1)(c1ccccc1)c1ccccc1", on = (group: string, n: number) => `(${group})`.repeat(n);
@@ -75,17 +75,11 @@ if (isMainThread) {
   });
   worker.on("error", (e) => { clearTimeout(timer); console.error(e); process.exitCode = 1; });
 } else {
-  // chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  browser();
   const { cleanUp, MOST_CLEAN, ready } = await import("./chem.ts");
   // A second Indigo, to lay out the structures (in 50 rounds, as Octet lays out pasted text) and to clean them as
   // Indigo does.
-  const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+  const indigo = await norender();
   await ready;
   const post = (m: object) => parentPort!.postMessage(m);
   const timed = <T>(name: string, bound: number, run: () => T, outcome: (t: T) => string) => {

@@ -16,14 +16,11 @@ assert.equal(m.bonds.length, 3);
 for (const b of m.bonds) assert.ok(Math.abs(Math.hypot(pos(m, b.atoms[1])[0] - pos(m, b.atoms[0])[0], pos(m, b.atoms[1])[1] - pos(m, b.atoms[0])[1]) - 1) < 1e-9);
 // Zig-zag: atoms 0 and 2 lie on the same side, 1 and 3 on the other (y alternates).
 assert.ok(pos(m, 1)[1] > pos(m, 0)[1] && pos(m, 2)[1] < pos(m, 1)[1] && pos(m, 3)[1] > pos(m, 2)[1], "chain zig-zags");
-console.log("edit.check: chain ok");
 
 // A bond dragged onto an existing atom joins it instead of adding a new atom.
 const joined = bondTo(m, 3, pos(m, 0));
 assert.equal(joined.atoms.length, 4);
 assert.equal(joined.bonds.length, 4);
-console.log("edit.check: join ok");
-
 
 // Benzene on empty canvas: six atoms, three double bonds, no atom with two.
 const benzene = addRing(EMPTY, 6, true, { point: [0, 0] });
@@ -36,7 +33,6 @@ const naph = addRing(benzene, 6, true, { bond: shared });
 assert.equal(naph.atoms.length, 10);
 assert.equal(naph.bonds.length, 11);
 for (let i = 0; i < 10; i++) assert.ok(naph.bonds.filter((b) => b.type === 2 && b.atoms.includes(i)).length <= 1, "no atom has two double bonds");
-console.log("edit.check: rings ok");
 
 // Deleting a bond removes carbons left with no bonds; deleting an atom removes its bonds.
 const ethane = sprout(EMPTY, [0, 0]);
@@ -47,7 +43,6 @@ assert.equal(atomAt(m, [100, 100]), undefined);
 const d = nextDirection(m, 1), a = pos(m, 0), b = pos(m, 2), here = pos(m, 1);
 assert.ok((a[0] - here[0]) * d[0] + (a[1] - here[1]) * d[1] < 0 && (b[0] - here[0]) * d[0] + (b[1] - here[1]) * d[1] < 0);
 assert.ok(near([0, 0], pos(m, 0)));
-console.log("edit.check: delete ok");
 
 // Selection: a box picks the atoms inside it; moving shifts only those; deleting removes them and their bonds.
 const chain = sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2);
@@ -57,14 +52,12 @@ const moved = moveAtoms(chain, new Set(inBox), [10, 0]);
 assert.ok(near(pos(moved, 0), [10, 0]) && near(pos(moved, 2), pos(chain, 2)));
 assert.equal(deleteAtoms(chain, new Set([0, 1])).bonds.length, 1);
 assert.equal(subset(chain, new Set([0, 1])).bonds.length, 1);
-console.log("edit.check: selection ok");
 
 // One eraser stroke removes all its bonds at once, and the carbons it leaves bare.
 const butane = sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2);
 const rubbed = erase(butane, new Set([0, 1]), new Set());
 assert.equal(rubbed.bonds.length, 1);
 assert.equal(rubbed.atoms.length, 2);
-console.log("edit.check: erase ok");
 
 // Smart selection: a box that misses the O of ethanol still picks it up; inside a selected ring counts as on it.
 const ethanol = setElement(sprout(sprout(EMPTY, [0, 0]), 1), 2, "O");
@@ -84,7 +77,6 @@ assert.ok(didJoin);
 assert.equal(joinedMol.atoms.length, 3);
 assert.equal(joinedMol.bonds.length, 2);
 assert.equal(fragments(joinedMol).length, 1);
-console.log("edit.check: smart selection and join ok");
 
 // A large drawing completes a selection from a list of neighbours made once: the same atoms as the plain loop.
 {
@@ -95,7 +87,6 @@ console.log("edit.check: smart selection and join ok");
   const [grouped, id] = groupSelection(large, new Set([0, 3]), new Set())!;
   assert.deepEqual(grouped.groups?.find((g) => g.id === id)?.atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
   assert.equal(groupSelection(large, new Set([3, 4]), new Set()), undefined, "one structure alone is not a group");
-  console.log("edit.check: large selection and group ok");
 }
 
 // Bond styles: a wedge drawn from atom 0 has its narrow end there; flipping swaps it. A chain counts its bonds.
@@ -109,7 +100,6 @@ const { mol: hexane, bonds: n } = chainTo(EMPTY, [0, 0], [5 * Math.cos(Math.PI /
 assert.equal(n, 5);
 assert.equal(hexane.atoms.length, 6);
 for (const b of hexane.bonds) assert.ok(Math.abs(Math.hypot(pos(hexane, b.atoms[1])[0] - pos(hexane, b.atoms[0])[0], pos(hexane, b.atoms[1])[1] - pos(hexane, b.atoms[0])[1]) - 1) < 1e-9, "unit bonds");
-console.log("edit.check: bond styles and chain ok");
 
 // ChemDraw group keys: 3 on a chain end adds a phenyl; 2 on a CH2 in a chain makes it C=O; z then 1 runs straight.
 const propane = sprout(sprout(EMPTY, [0, 0]), 1);
@@ -125,7 +115,6 @@ assert.ok(Math.abs((a1[0] - a0[0]) * (a2[1] - a1[1]) - (a1[1] - a0[1]) * (a2[0] 
 // Option+arrows turn a selection about its centre.
 const turned = rotateAtoms(propane, new Set([0, 1, 2]), 180);
 assert.ok(Math.abs(pos(turned, 0)[0] - pos(propane, 2)[0]) < 1e-9);
-console.log("edit.check: group keys and rotation ok");
 
 // Chairs: six atoms, six bonds, drawn bonds about one bond long; fused onto a bond it shares two atoms.
 const chair = addChair(EMPTY, 1, { point: [0, 0] });
@@ -183,21 +172,18 @@ for (const which of [1, 2] as const) {
 // Lasso: atoms inside the path are picked.
 assert.deepEqual(atomsInPolygon(chair, [[-5, -5], [5, -5], [5, 5], [-5, 5]]).length, 6);
 assert.deepEqual(atomsInPolygon(chair, [[10, 10], [11, 10], [11, 11]]), []);
-console.log("edit.check: chairs and lasso ok");
 
 // Flip: a wedge becomes a hashed wedge (same stereochemistry), positions mirror about the centre.
 const chiral = bondTo(sprout(EMPTY, [0, 0]), 1, [2, 1], { type: 1, stereo: 1 });
 const flipped = flipAtoms(chiral, new Set([0, 1, 2]), "horizontal");
 assert.equal(flipped.bonds[1].stereo, 6);
 assert.ok(Math.abs(pos(flipped, 0)[0] - pos(chiral, 2)[0]) < 1e-9);
-console.log("edit.check: flip ok");
 
 // Align: two structures at different heights end up with their centres on one line.
 const pair = merge(sprout(EMPTY, [0, 0]), sprout(EMPTY, [0, 0]), [4, 2]);
 const row = alignFragments(pair, new Set([0, 1, 2, 3]), "row");
 const cy = (m: typeof row, a: number, b: number) => (pos(m, a)[1] + pos(m, b)[1]) / 2;
 assert.ok(Math.abs(cy(row, 0, 1) - cy(row, 2, 3)) < 1e-9, "centres share one y");
-console.log("edit.check: align ok");
 
 // Align by part (as ChemDraw's Object > Align): a structure selected only in part lines up by its selected atoms' box
 // (one atom: its centre) and moves whole and rigidly. A structure selected whole lines up by its own box, as before.
@@ -240,7 +226,6 @@ console.log("edit.check: align ok");
   assert.ok(near(pos(row, n + 1)[1] - pos(row, n)[1], pos(two, n + 1)[1] - pos(two, n)[1]), "row: B moves whole");
   const wholeRow = alignFragments(two, new Set([...a, ...b]), "row");
   assert.ok(near((Math.min(...a.map((i) => pos(wholeRow, i)[1])) + Math.max(...a.map((i) => pos(wholeRow, i)[1]))) / 2, (Math.min(...b.map((i) => pos(wholeRow, i)[1])) + Math.max(...b.map((i) => pos(wholeRow, i)[1]))) / 2), "row: whole structures by their centres, as before");
-  console.log("edit.check: align by part ok");
 }
 
 // Captions follow their structure's atoms through deletes and merges, and go when the structure goes.
@@ -254,7 +239,6 @@ console.log("edit.check: align ok");
   assert.deepEqual(less.captions?.[0].under, [0, 1, 2, 3, 4], "under is renumbered");
   assert.equal(deleteAtoms(two, new Set([0, 1, 2, 3, 4, 5])).captions?.length, 0, "a caption goes with its structure");
   assert.ok(flipAtoms(named, new Set([0, 1]), "horizontal").captions, "flip keeps captions");
-  console.log("edit.check: captions ok");
 }
 
 // Templates: fused along a bond they share its atoms; on a point they keep their own shape.
@@ -273,7 +257,6 @@ console.log("edit.check: align ok");
   const indane = normalise(addRing(addRing(EMPTY, 6, false, { point: [0, 0] }), 5, false, { bond: 0 }));
   const twice = addTemplate(indane, indane, { bond: indane.bonds.findIndex((b) => b.atoms.includes(3) && b.atoms.includes(4)) });
   assert.equal(twice.atoms.length, 9 + 7, "only the shared bond's two atoms are shared");
-  console.log("edit.check: templates ok");
 }
 
 // Clean up levels a ring structure's bottom bond: a turned pentagon comes back with a level bottom edge.
@@ -284,7 +267,6 @@ console.log("edit.check: align ok");
   const bottom = ys.reduce((lo, y) => (y[0] + y[1] < lo[0] + lo[1] ? y : lo));
   assert.ok(Math.abs(bottom[0] - bottom[1]) < 1e-6, "the bottom bond is level");
   assert.equal(levelTurn(turned, all), 0, "and a level ring is left alone");
-  console.log("edit.check: level ok");
 }
 
 // Tables: a new one numbers its entries; a row added carries the numbers on; a long cell widens its column only.
@@ -323,7 +305,6 @@ console.log("edit.check: align ok");
   assert.ok(!fit.table!.heights && !fit.table!.widths && Math.abs(tableLayout(fit).h - 0.8) < 1e-9);
   const typed = { ...sh, ...setTableCell(sh, 1, 1, "THF") };
   assert.deepEqual({ ...typed, ...clearTable(typed) }.table!.cells, [["Entry", "", ""], ["1", "", ""], ["2", "", ""]]);
-  console.log("edit.check: tables ok");
 }
 
 // Atom maps: a pair takes the next free number, a mapped atom lends its number, and a number is never on two pairs.
@@ -336,7 +317,6 @@ console.log("edit.check: align ok");
   m = pairMap(m, 0, 4);
   assert.deepEqual(m.atoms.map((a) => a.map), [1, 2, undefined, 2, 1, undefined], "atom 2 gives up number 1");
   assert.equal(clearMap(m, 4).atoms[4].map, undefined);
-  console.log("edit.check: atom maps ok");
 }
 
 // ChemDraw's two turns: Rotate 180° (⇧⌘H) turns a wedge into a hash, keeping the configuration; Flip mirrors it.
@@ -346,7 +326,6 @@ console.log("edit.check: align ok");
   const all = new Set(m.atoms.map((_, i) => i));
   assert.equal(flipAtoms(m, all, "horizontal").bonds[0].stereo, 6, "Rotate 180° swaps wedge for hash");
   assert.equal(flipAtoms(m, all, "horizontal", true).bonds[0].stereo, 1, "Flip keeps the wedge: a mirror image");
-  console.log("edit.check: flips ok");
 }
 
 // Structure Perspective: a 90° yaw turns a bond along x into one along the view (depth); flattening keeps where
@@ -362,7 +341,6 @@ console.log("edit.check: align ok");
   const turned = turnAboutBond(m, new Set([2]), 1, 0, 60), d = (q: number[], r: number[]) => Math.hypot(q[0] - r[0], q[1] - r[1], (q[2] ?? 0) - (r[2] ?? 0));
   assert.ok(Math.abs(d(turned.atoms[2].location, turned.atoms[1].location) - d(m.atoms[2].location, m.atoms[1].location)) < 1e-9, "bond length kept");
   assert.deepEqual(hingeOf(m, new Set([2])), [2, 1]);
-  console.log("edit.check: perspective ok");
 }
 
 // Option-drag copies: atoms and the bonds between them, and picked objects with new ids, a caption kept to its copied arrow.
@@ -375,7 +353,6 @@ console.log("edit.check: align ok");
   assert.deepEqual([...d.atoms], [m.atoms.length, m.atoms.length + 1]);
   const copy = d.mol.captions!.find((c) => c.id === d.ids.get(11))!;
   assert.equal(copy.on!.arrow, d.ids.get(10));
-  console.log("edit.check: duplicate ok");
 }
 
 // Copy and paste: a structure with its compound number and an arrow with its conditions come back whole, with new
@@ -407,16 +384,13 @@ console.log("edit.check: align ok");
   assert.deepEqual(alone.captions?.map((c) => [c.text, c.x, c.y, c.under, c.on, c.bold]), [["heat", 4, 1, undefined, undefined, undefined], ["1", 5, -2, undefined, undefined, true]]);
   assert.equal(insertMol(m, alone, [1, 0]).mol.captions?.length, 4, "the free copies paste");
   assert.deepEqual(extractSelection(m, new Set([0, 1, 2]), new Set([12]), at).captions?.map((c) => c.under), [[0, 1, 2]]);
-  console.log("edit.check: copy and paste ok");
   // Delete an arrow (issue 12): its conditions stay where they are drawn, as free text.
   const gone = deleteGraphics(m, new Set([10]), at);
   assert.deepEqual([gone.arrows, gone.captions?.map((c) => [c.text, c.x, c.y, c.on, c.placed])], [[], [["heat", 4, 1, undefined, undefined], ["1", 0, 0, undefined, undefined]]]);
-  console.log("edit.check: an arrow's conditions stay when it is deleted");
   // Cut an arrow, as onCut does: what goes on the clipboard leaves the drawing, so Paste brings one copy of "heat" back.
   const clip = extractSelection(m, new Set(), new Set([10]), at), cut = deleteGraphics(m, new Set([10, ...clip.captions!.map((c) => c.id)]), at);
   assert.deepEqual(cut.captions?.map((c) => c.text), ["1"]);
   assert.deepEqual(insertMol(cut, clip).mol.captions?.map((c) => c.text), ["1", "heat"]);
-  console.log("edit.check: cut then paste keeps one copy of an arrow's conditions");
 }
 
 // Expand Label joins the group where the label was, pointing away from the structure; Contract Label undoes it.
@@ -432,7 +406,6 @@ console.log("edit.check: align ok");
   const back = contractLabel(out, 1, new Set([1, 2]), "OMe");
   assert.equal(back.atoms.length, 2);
   assert.equal(back.atoms[1].text, "OMe");
-  console.log("edit.check: labels ok");
 }
 
 
@@ -475,7 +448,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   };
   const all = m.atoms.map((_, i) => i), dirs = markDirections(m, all);
   for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
-  console.log("edit.check: ring bonds and mark directions ok");
 }
 
 // Atom hotkeys build what ChemDraw 26.1 builds, and move the keyboard hotspot to the atom it moves to.
@@ -565,7 +537,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { atom: 3 }), { atom: 2 });
   assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { bond: 3 }), { bond: 2 });
   assert.equal(keepHot(hexane, deleteAtoms(hexane, new Set([3])), { atom: 3 }), undefined);
-  console.log("edit.check: atom hotkeys ok");
 }
 
 // Files dropped together: each drawing goes under the one before, and the box round everything counts arrows and text.
@@ -580,7 +551,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   const r = extent(ring)!, c = both.captions![0];
   assert.ok(near([c.x, c.y], [r[0], r[1] - 2]), "the caption goes two bond lengths under the ring, on its left edge");
   assert.equal(both.style, undefined);
-  console.log("edit.check: dropped files stack ok");
 }
 
 // IDEA-SCALE-7: bonds, chains, rings, groups and templates drawn from a scaled atom take its scale, so they match.
@@ -608,7 +578,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   // On a plain atom nothing changes: unit bonds, no scale written.
   const plain = sprout(sprout(EMPTY, [0, 0]), 1);
   assert.ok(plain.atoms.every((a) => !("scale" in a)) && Math.abs(len(plain, plain.bonds[1]) - 1) < 1e-9);
-  console.log("edit.check: drawing on a scaled structure ok");
 }
 
 // Groups (ChemDraw's Object > Group): a group holds whole structures, so atoms drawn onto a grouped structure join it,
@@ -663,7 +632,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   // Flip about a line that is not the middle of the atoms: each atom goes to the far side of that line.
   const flipped = flipAtoms(m, new Set([0]), "horizontal", false, 1);
   assert.ok(Math.abs(pos(flipped, 0)[0] - (2 - pos(m, 0)[0])) < 1e-9);
-  console.log("edit.check: groups ok");
 }
 
 // Nested groups (ChemDraw's groups nest): Group adds one level and Ungroup takes one away; each level keeps its own
@@ -714,7 +682,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   const d = duplicateSelection(two, sel.atoms, sel.items);
   assert.equal(d.mol.groups!.length, 4);
   assert.equal(groupParents(d.mol.groups!).filter((q) => q === undefined).length, 2);
-  console.log("edit.check: nested groups ok");
 }
 
 // Groups lose what is deleted (GRP-11): an object id that is gone goes from the group, and a group left with fewer
@@ -734,7 +701,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.equal(deleteGraphics(g, new Set([r, box])).groups!.length, 1, "the benzene and its number are still two things");
   const fixed = tidyGroups({ ...m, groups: [{ id: 50, atoms: [0], items: [] }, { id: 51, atoms: [0, 0, 6], items: [] }, { id: 52, atoms: [0, 6], items: [999] }] });
   assert.deepEqual(fixed.groups!.map((x) => [x.atoms, x.items]), [[[0, 6], []]]);
-  console.log("edit.check: groups after a delete ok");
 }
 
 // Groups that cross (a damaged or hostile file) are put right in one pass: 3000 groups that each share atom 0 become
@@ -755,7 +721,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
     for (const a of sets) for (const b of sets) if (a !== b && [...a].some((x) => b.has(x))) assert.ok(within(a, b) || within(b, a), JSON.stringify(groups));
     groupParents(gs).forEach((p, k) => p !== undefined && assert.ok(within(sets[k], sets[p])));
   }
-  console.log("edit.check: crossing groups ok");
 }
 
 // Group on a large selection runs fragments once (GRP-13): 300 rings group in well under 100 ms.
@@ -765,7 +730,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   const t = performance.now(), r = groupSelection(m, new Set(m.atoms.map((_, i) => i)), new Set());
   assert.equal(r![0].groups![0].atoms.length, 1800);
   assert.ok(performance.now() - t < 100, `Group took ${performance.now() - t} ms`);
-  console.log("edit.check: large group ok");
 }
 
 // A cycle in a group stays in it when its intermediates go on being grouped.
@@ -776,7 +740,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   const [g] = groupSelection(m, new Set(), new Set([y, box]))!;
   assert.deepEqual(g.groups![0].items.sort(), [y, box].sort());
   assert.equal(outermost(groupsOf(g, new Set(), new Set([y])))!.items.length, 2, "a double-click on the cycle finds its group");
-  console.log("edit.check: grouped cycle ok");
 }
 
 // Bond orders are added up for every atom in one pass (an aromatic bond counts 1.5), and freePairs gives the same
@@ -789,7 +752,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   for (const mol of [m, aromatic]) for (let i = 0; i < mol.atoms.length; i++) assert.equal(freePairs(mol, i, bondOrders(mol)[i]), freePairs(mol, i));
   assert.equal(freePairs(m, 1), 1); // an amine N: one lone pair
   assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
-  console.log("edit.check: bond orders ok");
 }
 
 // Editing a pen curve (CD-17): a point added on a segment keeps the curve's shape, a straight segment stays straight,
@@ -813,7 +775,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.ok(near(moved.points[1].c1!, [1, 2]) && near(moved.points[1].c2!, [3, 0]), "handles go with their anchor");
   assert.equal(removeCurvePoint(removeCurvePoint(smooth, 1), 0).points.length, 2);
   assert.deepEqual(appendCurvePoint(smooth, [5, 5]).points[3], { at: [5, 5] });
-  console.log("edit.check: curve editing ok");
 }
 
 // ChemDraw's c key, and C typed as a label, show the carbon's label; setting an element (or Delete's first press)
@@ -825,7 +786,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.equal(setLabel(chain, 0, "C").atoms[0].shown, true);
   assert.equal(setElement(keyElement(chain, 0, "C"), 0, "C").atoms[0].shown, undefined);
   assert.deepEqual([keyElement(chain, 0, "N").atoms[0].label, keyElement(chain, 0, "N").atoms[0].shown], ["N", undefined]);
-  console.log("edit.check: shown carbons ok");
   // The element key again on that element takes off one hydrogen, and after none gives the usual ones back (issue
   // 125): o twice at a chain end is a bare O, and c on a lone CH4 gives CH3, CH2, CH, C, then CH4. Another element, or
   // a bond that leaves no room for fewer, makes it a usual atom again.
@@ -838,13 +798,11 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.equal(keyElement(keyElement(chain, 1, "O"), 1, "O").atoms[1].implicitHCount, undefined, "an ether O has no H to take off");
   assert.equal(settleHydrogens(bare), bare);
   assert.equal(settleHydrogens(bondTo(bare, 2, [5, 5])).atoms[2].implicitHCount, undefined);
-  console.log("edit.check: hydrogens set by hand ok");
   // A label typed on more than one line (Option-Return) keeps its lines, each trimmed, empty ones left out; one line
   // left is a label as before.
   assert.equal(setLabel(chain, 0, " Direct, \n\n No ISC \n").atoms[0].text, "Direct,\nNo ISC");
   assert.deepEqual([setLabel(chain, 0, "\nN\n").atoms[0].label, setLabel(chain, 0, "\nN\n").atoms[0].text], ["N", undefined]);
   assert.equal(setLabel(chain, 0, "OMe\n").atoms[0].text, "OMe");
-  console.log("edit.check: labels of more than one line ok");
 }
 
 // Ring tools as ChemDraw's: a drag sets the first bond and the ring lies on its left; Shift makes the first bond
@@ -873,7 +831,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   const flat = addChair(EMPTY, 1, { point: [0, 0] }), up = addChair(EMPTY, 1, { point: [0, 0], turn: Math.PI / 2 });
   const span = (m: typeof flat, k: 0 | 1) => Math.max(...m.atoms.map((a) => a.location[k])) - Math.min(...m.atoms.map((a) => a.location[k]));
   assert.ok(span(flat, 0) > span(flat, 1) && span(up, 1) > span(up, 0), "a chair dragged up stands up");
-  console.log("edit.check: ring tool drags and keys ok");
 }
 
 // Bring to Front and Send to Back order the selected bonds: the front one is last.
@@ -883,7 +840,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.deepEqual(toFront(m, new Set([0, 1])).bonds.map((b) => b.atoms), [[1, 2], [2, 3], [0, 1]]);
   assert.deepEqual(toFront(m, new Set([2, 3]), true).bonds.map((b) => b.atoms), [[2, 3], [0, 1], [1, 2]]);
   assert.equal(toFront(m, new Set([0])), m, "no bond: nothing changes");
-  console.log("edit.check: bond order ok");
 }
 
 // Turned shapes (CD-3, UI-7): a quarter turn of a box or oval swaps its sides and leaves it upright; a half turn
@@ -930,7 +886,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
     const again = transformParts({ ...cap, captions: [flipped] }, new Set(), two, f, [1, 1], new Map([[2, f(mid)]]), 1, how).captions![0];
     assert.ok(near([again.x, again.y], [1, 2]) && Math.abs(again.angle! - 30) < 1e-9, `flipped ${how} twice, as it was`);
   }
-  console.log("edit.check: turned shapes ok");
 }
 
 // The atom a turn goes about (ChemDraw's centre of rotation): a substituent turns about the atom that joins it to the
@@ -942,7 +897,6 @@ function inRing(m: typeof EMPTY, k: number): boolean {
   assert.equal(pivotOf(chain, new Set([0, 1, 3, 4])), 2, "one atom left out in the middle is the centre");
   assert.equal(pivotOf(chain, new Set([0, 1, 2, 3, 4])), undefined);
   assert.equal(pivotOf(chain, new Set([0, 4])), undefined, "two ways out, from two atoms to two atoms: the middle");
-  console.log("edit.check: centre of rotation ok");
 }
 
 // Enhanced stereo groups: a new and or or group takes the lowest number its structure has free (and and or counted

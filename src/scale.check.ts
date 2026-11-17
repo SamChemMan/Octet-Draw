@@ -36,7 +36,6 @@ import { tableLayout, type Mol, type Shape } from "./render.ts";
   const thin = withScale(readStyle({ ...DEFAULT_STYLE, line: 0.05 }), 0.1);
   assert.deepEqual([thin.scale, thin.line], [0.2, 0.01], "a 0.05 pt line stops at 20%");
   assert.deepEqual([withScale(DEFAULT_STYLE, 50).scale, withScale(DEFAULT_STYLE, 0.01).scale], [10, 0.1], "1000% and 10% at most");
-  console.log("scale.check: document scale ok");
 }
 
 // The size lists are ChemDraw's sizes times the document scale, to the nearest half point.
@@ -46,7 +45,6 @@ assert.deepEqual(sizesAt(2.5), [12.5, 15, 17.5, 20, 22.5, 25, 30, 35, 40, 45, 60
 assert.deepEqual(sizesAt(0.1), [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.6, 1.8, 2.4, 3.6]);
 for (let f = 0.1; f <= 10; f += 0.01) assert.equal(sizesAt(f).length, SIZES.length, `the sizes at ${Math.round(f * 100)}% are all different`);
 assert.deepEqual([roundPt(0.04), roundPt(3.33), roundPt(5.2), roundPt(12.3)], [0.1, 3.3, 5, 12.5]);
-console.log("scale.check: text sizes ok");
 
 // A new document scale multiplies the sizes the drawing holds in points; Scale… with Labels and lines multiplies the
 // chosen objects' scales and the sizes of their text.
@@ -68,7 +66,6 @@ console.log("scale.check: text sizes ok");
   assert.deepEqual(s.captions!.map((c) => c.size), [20, 12, 20], "text under the atoms and on the arrow takes its size; other text keeps its own");
   const back = scaleSettings(s, new Set([0, 1]), new Set([4, 6]), 0.5, 10);
   assert.deepEqual([back.atoms[0].scale, back.atoms[1].scale, back.arrows![0].scale, "scale" in back.atoms[0]], [undefined, undefined, undefined, false], "back to 1: the scale is left unset");
-  console.log("scale.check: sizes and object scales ok");
 }
 
 // A table's least sizes follow its scale: Size To Fit Contents and a dragged border.
@@ -78,7 +75,6 @@ console.log("scale.check: text sizes ok");
   assert.ok(Math.abs(fit.from[1] - fit.to[1] - (t.y1 - t.y0)) < 1e-9 && Math.abs(t.h - 0.08) < 1e-9, "fitted rows are the least height at the table's scale");
   const dragged = sizeTable(sh, { heights: [0.1, 0.08] });
   assert.deepEqual(dragged.table!.heights, [0.1, 0.08], "a row of a small table keeps the height it is dragged to");
-  console.log("scale.check: tables ok");
 }
 
 // An atom with no bonds (a counter-ion, a label on its own) keeps its scale in ChemDraw's copy too, from its LineWidth.
@@ -91,7 +87,6 @@ console.log("scale.check: text sizes ok");
   const two = fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><page><fragment>
 <n id="1" p="100 100"/><n id="2" p="114.4 100"/><n id="3" p="128.8 100"/><b id="4" B="1" E="2" HashSpacing="2.70"/><b id="5" B="2" E="3"/></fragment></page></CDXML>`);
   assert.deepEqual([two.lost, two.mol.bonds.map((b) => b.own)], [{}, [{ HashSpacing: "2.70" }, undefined]]);
-  console.log("scale.check: atoms on their own ok");
 }
 
 // IDEA-SCALE-4: a caption scales about its middle, wherever its anchor is. With Labels and lines its text grows with
@@ -109,7 +104,6 @@ console.log("scale.check: text sizes ok");
   // its middle, and its anchor goes round it.
   const turned = transformParts(m, new Set(), new Set([1]), ([x, y]) => [12 - (y - 5.3), 5.3 + (x - 12)], [1, 1], middle).captions![0];
   assert.ok(Math.abs(turned.x - 12.3) < 1e-9 && Math.abs(turned.y - 3.3) < 1e-9 && turned.angle === 90, `${turned.x} ${turned.y} ${turned.angle}`);
-  console.log("scale.check: captions ok");
 }
 
 // A flip goes through the same transform as a scale or a turn, and turns the objects over: a curved arrow bends and a
@@ -131,7 +125,6 @@ console.log("scale.check: text sizes ok");
   const d = transformParts(m, new Set(), items, ([x, y]) => [x, -y], [1, 1], undefined, 1, "down");
   assert.equal(d.shapes![0].side, "left", "a bracket flipped down still faces the same way");
   assert.equal(transformParts(m, new Set(), items, across).arrows![0].bend, 0.5, "a move that is not a flip keeps the bend");
-  console.log("scale.check: flips ok");
 }
 
 // IDEA-SCALE-5: the median bond counts only bonds with both atoms chosen; none gives undefined.
@@ -140,7 +133,6 @@ console.log("scale.check: text sizes ok");
   assert.equal(medianBond(m, new Set([0, 1, 2, 3])), 2);
   assert.equal(medianBond(m, new Set([2, 3])), 3);
   assert.equal(medianBond(m, new Set([0, 2])), undefined);
-  console.log("scale.check: median bond ok");
 }
 
 // IDEA-SCALE-3: the resize handles. A corner scales in proportion about the opposite corner; Shift stretches it freely;
@@ -165,7 +157,6 @@ console.log("scale.check: text sizes ok");
   assert.equal(sideAt(b, SIDES, [2, 1.75], 0.3, held), undefined, "inside what the frame holds");
   assert.equal(sideAt(b, SIDES, [2, 1.75], 0.3), "n");
   assert.equal(sideAt(b, SIDES, [3, 2.1], 0.3, held), undefined, "not near a handle");
-  console.log("scale.check: resize handles ok");
 }
 
 // IDEA-SCALE-10 and IDEA-SIZE-10: a paste from a drawing of other sizes. Captions go by the ratio of bond lengths
@@ -181,7 +172,6 @@ console.log("scale.check: text sizes ok");
   assert.deepEqual(fit.captions!.map((c) => c.size), [11.52, undefined, undefined], "the source's caption size lands on this drawing's, so it is left unset");
   assert.deepEqual([fit.captions![2].runs![0].size, fit.shapes![0].table!.weight], [14.4, 0.48]);
   assert.equal(fitSizes(m, to, to), m, "the same sizes change nothing");
-  console.log("scale.check: paste sizes ok");
 }
 
 // A catalytic cycle's own line width (UI-42) is a size in points, so it goes with the document scale and a paste.
@@ -189,7 +179,6 @@ console.log("scale.check: text sizes ok");
   const m: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [4, 0, 0] }], bonds: [], cycles: [{ id: 1, centre: [2, 0], radius: 2, clockwise: true, nodes: [[0], [1]], width: 1.2 }] };
   assert.equal(scaleSizes(m, 2).cycles![0].width, 2.4);
   assert.equal(fitSizes(m, { bond: 30, labelSize: 10, captionSize: 10 }, { bond: 15, labelSize: 10, captionSize: 10 }).cycles![0].width, 0.6);
-  console.log("scale.check: cycle line width ok");
 }
 
 // A half-point size (7.5 pt) is one Edit > Repeat runs again, and Escape in Other size… leaves the size as it was.

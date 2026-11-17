@@ -3,15 +3,9 @@
 // failed, and the formula and mass in the Actions panel stopped the editor. One call can also damage Indigo (the InChI
 // of a large fused ring system overflows its stack). chem.ts loads a fresh Indigo for both.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 type Mol = import("./render.ts").Mol;
 await chem.ready;
@@ -24,7 +18,6 @@ for (let k = 0, n = 0; k < 14; k++) {
   assert.equal(chem.analyse(chain(k + 2))?.[0].formula, `C${k + 2}H${2 * k + 6}`, `the formula after ${n} failed calls`);
   await pause();
 }
-console.log("indigo.check: the formula comes after 1,400 failed calls");
 
 // A grid of 16 by 16 fused rings: its InChI overflows Indigo's stack, which damages Indigo. Until a fresh Indigo is in,
 // the values are not there (as while Indigo loads at start), and no value throws.
@@ -51,7 +44,6 @@ assert.equal(chem.analyse(chain(7))?.[0].formula, "C7H16");
 assert.equal(chem.structures(chain(8))?.[0]?.formula, "C8H18");
 assert.equal(chem.analyse(grid)?.[0].formula, "C289H68", "the grid's formula, with no InChI");
 assert.equal(chem.stereoLabels(methyl), undefined, "no stereocentre once Indigo reads the label");
-console.log("indigo.check: a damaged Indigo is replaced, and no value throws meanwhile");
 
 // The Actions panel asks for an abbreviation (by InChI) only for a structure of up to 120 atoms (MOST_NAMED), as for a
 // selection of several structures. Above that, a fused ring system's InChI can take seconds, overflow (the grid above,
@@ -67,7 +59,6 @@ const drawnH = chain(40);
 drawnH.atoms.slice().forEach((_, k) => { for (let n = k % 39 ? 2 : 3; n--; ) { drawnH.bonds.push({ type: 1, atoms: [k, drawnH.atoms.length] }); drawnH.atoms.push({ label: "H", location: [k * 0.87, 2 + n, 0] }); } });
 chem.analyse(drawnH, 3, cite);
 assert.equal(asked.length, 2, "an InChI for 40 carbons with their hydrogens drawn");
-console.log("indigo.check: no InChI for the panel's large structures");
 
 // The stereo warnings keep Indigo's reading of a structure by its shape, not by where it is, so a structure moved is
 // not read again (wedges that conflict make failed calls). The shape still counts: two wedges on next bonds conflict,

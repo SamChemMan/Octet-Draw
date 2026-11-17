@@ -28,7 +28,6 @@ for (let i = 0; i < mol.atoms.length; i++) assert.ok(Math.abs(back.atoms[i].loca
     assert.equal(parse(JSON.stringify(f)).atoms[0].kept, undefined, JSON.stringify(bad));
   }
 }
-console.log("file.check: round trip ok");
 
 // Bad files are refused with a message, never half-loaded.
 const bad = [
@@ -41,7 +40,6 @@ const bad = [
   JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0 }, { label: "C", x: 1, y: 0 }], bonds: [{ atoms: [0, 1], type: 9 }] } }),
 ];
 for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
-console.log("file.check: bad files refused");
 
 // Captions survive a save and reopen, and bad ones are refused.
 {
@@ -52,7 +50,6 @@ console.log("file.check: bad files refused");
   const base = { format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0 }], bonds: [] } };
   for (const captions of [[{ text: 5, x: 0, y: 0 }], [{ text: "a", x: 0, y: 0, under: [3] }], [{ text: "a", x: 0, y: 0, size: 5000 }], [{ text: "a\u0000", x: 0, y: 0 }], "x"])
     assert.throws(() => parse(JSON.stringify({ ...base, captions })), /damaged/);
-  console.log("file.check: captions ok");
 }
 
 // Arrows and their conditions survive a save and reopen.
@@ -67,7 +64,6 @@ console.log("file.check: bad files refused");
   const base = { format: "octet", version: 1, structure: { atoms: [], bonds: [] } };
   for (const bad of [{ arrows: [{ kind: "teleport", x1: 0, y1: 0, x2: 1, y2: 0 }] }, { arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: "a", y2: 0 }] }, { arrows: [], captions: [{ text: "a", x: 0, y: 0, on: { arrow: 0, side: "above" } }] }])
     assert.throws(() => parse(JSON.stringify({ ...base, ...bad })), /damaged/);
-  console.log("file.check: arrows ok");
 }
 
 // Radicals, lone pairs, circled and partial charges survive a save and reopen; bad values are refused.
@@ -88,7 +84,6 @@ console.log("file.check: bad files refused");
   assert.deepEqual([iso.isotope, iso.radical], [13, 3]);
   for (const bad of [{ radical: 4 }, { isotope: 0 }, { isotope: 2.5 }, { pairs: 9 }, { circled: "yes" }, { partial: "x" }, { enhanced: "rac" }, { colour: "red" }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, ...bad }], bonds: [] } })), /damaged/);
-  console.log("file.check: atom marks ok");
 }
 
 // Shapes keep their kind, corners, dashes, colour and order.
@@ -98,7 +93,6 @@ console.log("file.check: bad files refused");
   const again = parse(serialize(two));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), two.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "star", x1: 0, y1: 0, x2: 1, y2: 1 }] })), /damaged/);
-  console.log("file.check: shapes ok");
 }
 
 // Draw order (Bring to Front, Send to Back) survives a save and reopen on every kind; a bad order is left out.
@@ -109,7 +103,6 @@ console.log("file.check: bad files refused");
   assert.deepEqual([again.shapes![0].order, again.atoms[0].order, again.captions![0].order, again.arrows![0].order], [-1, 2, 3, 4]);
   const bad = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, order: 0.5 }], bonds: [] } }));
   assert.equal(bad.atoms[0].order, undefined);
-  console.log("file.check: draw order ok");
 }
 
 // Lines, arcs, dashed arrows and orbitals survive a save and reopen.
@@ -130,7 +123,6 @@ console.log("file.check: bad files refused");
   assert.deepEqual(again.arrows?.map(({ id: _, ...a }) => a), m.arrows?.map(({ id: _, ...a }) => a));
   for (const bad of [{ headSize: { length: 0, centre: 1, width: 1 } }, { ratio: -1 }, { shaft: "wide" }, { point: 1 }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 0, ...bad }] })), /damaged/);
-  console.log("file.check: lines and orbitals ok");
 }
 
 // Shape styles, single brackets with a mark, and a TLC plate's spots survive a save and reopen.
@@ -175,7 +167,6 @@ console.log("file.check: bad files refused");
   assert.equal(legacy.shapes?.length, 1);
   assert.equal(legacy.arrows?.[0].kind, "curve");
   assert.equal(legacy.arrows?.[0].style, "dashed");
-  console.log("file.check: shape styles, TLC, tables and curves ok");
 }
 
 // A shadow's depth, softness and opacity survive a save; an opacity over 1 is refused.
@@ -183,7 +174,6 @@ console.log("file.check: bad files refused");
   const box = { id: 7, kind: "box" as const, from: [0, 1] as [number, number], to: [2, 0] as [number, number], shadow: true, shade: { depth: 0.3, blur: 0.2, opacity: 0.6 } };
   assert.deepEqual(parse(serialize({ ...mol, shapes: [box] })).shapes?.[0].shade, box.shade);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, shade: { depth: 0.1, blur: 0, opacity: 3 } }] })), /damaged/);
-  console.log("file.check: shadows ok");
 }
 
 // Rich captions: runs and a font survive a save; runs that do not spell the caption's text are refused.
@@ -196,7 +186,6 @@ console.log("file.check: bad files refused");
   // A turned caption keeps its turn (CD-19); a turn that is not a number is refused.
   assert.equal(parse(serialize({ ...mol, captions: [{ id: 4, text: "x", x: 0, y: 0, angle: -54 }] })).captions![0].angle, -54);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "x", x: 0, y: 0, angle: "up" }] })), /damaged/);
-  console.log("file.check: rich text ok");
 }
 
 // Groups survive a save: their atoms, and their other objects by kind and place; a group naming a missing object is refused.
@@ -216,7 +205,6 @@ console.log("file.check: bad files refused");
   const one = parse(JSON.stringify({ format: "octet", version: 1, structure: JSON.parse(serialize(mol)).structure, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 3, y2: 0 }],
     groups: [{ atoms: [0], items: [] }, { atoms: [0, 0, 1], items: [["a", 0]] }] }));
   assert.deepEqual(one.groups!.map((x) => [x.atoms, x.items.length]), [[[0, 1], 1]]);
-  console.log("file.check: groups ok");
 }
 
 // A catalytic cycle keeps its own line width (UI-42); a bad width is refused.
@@ -225,7 +213,6 @@ console.log("file.check: bad files refused");
   assert.equal(parse(serialize(m)).cycles?.[0].width, 1.2);
   const structure = JSON.parse(serialize(mol)).structure;
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure, cycles: [{ x: 0, y: 0, radius: 3, nodes: [[0], [3]], width: 0 }] })), /damaged/);
-  console.log("file.check: cycle line width ok");
 }
 
 // Annotations from ChemDraw (keyword and content pairs) come back; a bad one makes the file damaged.
@@ -237,7 +224,6 @@ console.log("file.check: bad files refused");
   assert.throws(bad([{ keyword: "a\u0001", content: "" }]), /damaged/);
   assert.throws(bad({ keyword: "x", content: "y" }), /damaged/);
   assert.throws(bad(Array(1001).fill({ keyword: "k", content: "c" })), /damaged/);
-  console.log("file.check: annotations ok");
 }
 
 // Decision 0007: each object's scale and the document's scale survive a save and reopen; a bad scale is refused.
@@ -252,7 +238,6 @@ console.log("file.check: bad files refused");
   const base = { format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, scale: 0 }], bonds: [] } };
   assert.throws(() => parse(JSON.stringify(base)), /damaged/);
   assert.throws(() => parse(JSON.stringify({ ...base, structure: { atoms: [{ label: "C", x: 0, y: 0, scale: "2" }], bonds: [] } })), /damaged/);
-  console.log("file.check: scales ok");
 }
 
 // The grid: only the steps Settings offers (1e-20 mm once hung Octet as it drew a line per step), and what the

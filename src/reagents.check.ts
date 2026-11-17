@@ -2,33 +2,18 @@
 // as Name to Structure does, after reagentName takes off its amount and form ("conc.", "(cat.)"), so each gets its
 // own formula, as a user and an AI app write them.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("reagents.check: skipped (no OPSIN build)"); process.exit(0); }
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+needOpsin("reagents.check: skipped (no OPSIN build)");
+browser();
+const opsin = await loadOpsin();
 const { attachOpsin, nameToSmiles } = await import("./names.ts");
 const { DRUGS } = await import("./drugs.ts");
 const { ready, smilesWeight } = await import("./chem.ts");
 const { conditionItems, formulaWeight, inert, reagentFormula, reagentName } = await import("./stoich.ts");
 const { labelSmiles } = await import("./labels.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS, JSON.parse(readFileSync(new URL("./abbreviations.json", import.meta.url), "utf8")));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS, JSON.parse(readFileSync(new URL("./abbreviations.json", import.meta.url), "utf8")));
 await ready;
 
 // reagentName: amounts and forms off, the reagent kept.

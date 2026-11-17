@@ -12,16 +12,10 @@
 // - every bond of a six-membered ring or a chain lies at a multiple of 30° to the page, to 0.01°;
 // - the structure stays centred where it was, and a second Clean Up moves no atom (1e-6 bond lengths).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import type { Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { cleanUp, parseStructure, ready } = await import("./chem.ts");
 await ready;
 

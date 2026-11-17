@@ -57,7 +57,6 @@ for (const grid of ["bond", 1, 2, 5, 10, 20, 3.175, 6.35, 12.7]) assert.equal(re
   assert.deepEqual(snapToGrid(g, [0.53, 0.97], 10, 6), [1, 1]); // the halves do not show at 10 px per bond
   assert.deepEqual(snapToGrid(g, [0.01, 0.01], 5, 6), [undefined, undefined]);
 }
-console.log("grid.check: ok");
 
 // Snap to Grid on a move: the nearest of the moving points lands on a line, on each axis it can.
 {

@@ -3,8 +3,9 @@
 // each base. Bad letters are named, more than 30 nucleotides are refused, and Structure > Insert RNA… and Insert DNA…
 // open the name field ready for codes, as Insert Peptide… does.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { MAX_NUCLEOTIDES, nucleicProblem, nucleicSmiles, nucleicText } from "./nucleic.ts";
+import { browser, loadOpsin, needOpsin } from "../scripts/checkkit.ts";
 
 // The text.
 const smiles = (text: string, dna = false) => { const r = nucleicSmiles(text, dna); assert.ok(r && "smiles" in r, `${text} reads`); return r.smiles; };
@@ -46,12 +47,7 @@ assert.match(menu, /item\("insert_peptide", "Insert Peptide…", ""\)\?,\n\s+&it
 // Through Name to Structure, as the editor draws it. The reference InChIs are OPSIN's for the systematic names
 // (adenylyl-(3'→5')-…-uridine), so the SMILES built here is checked against a structure made another way. Adenosine's
 // is PubChem's (CID 60961): β-D-ribofuranose, (2R,3R,4S,5R).
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 const { nameToSmiles } = await import("./names.ts");
@@ -74,19 +70,8 @@ const t = performance.now(), longest = drawn(`rna: ${"ACGU".repeat(8).slice(0, M
 console.log(`nucleic: a ${MAX_NUCLEOTIDES}-mer of RNA (${longest.atoms.length} atoms) drawn in ${Math.round(performance.now() - t)} ms`);
 
 // Against OPSIN, with OPSIN built: every nucleoside, the 5'- and 3'-phosphates, and the two sequences by name.
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("nucleic: ok (OPSIN comparison skipped, no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+needOpsin("nucleic: ok (OPSIN comparison skipped, no OPSIN build)");
+const opsin = await loadOpsin();
 const named = (name: string) => chem.toInchi(chem.parseStructure(opsin.parseToSmiles(name), false));
 for (const [text, name] of [
   ["rna: A", "adenosine"], ["rna: G", "guanosine"], ["rna: C", "cytidine"], ["rna: U", "uridine"],

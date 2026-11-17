@@ -3,15 +3,10 @@
 // descriptors, the cases Indigo (Octet's labeller before) gets wrong, labels that must not change when a drawing is
 // renumbered or turned, and the time a labelling takes.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { browser, loadOpsin, opsinDir } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { cipOf, importStructure, parseStructure, ready, stereoFacts, stereoLabels } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { cipLabels } = await import("./cip.ts");
@@ -216,19 +211,8 @@ for (const h of [true, false]) {
 }
 
 // ---- Names that carry their descriptors (OPSIN builds the structure) ----
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (existsSync(new URL("opsin.js", dir))) {
-  const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-  for (let p = 0; ; ) {
-    const n = pack.readUInt16BE(p); p += 2;
-    if (!n) break;
-    const name = pack.toString("latin1", p, p + n); p += n;
-    const size = pack.readInt32BE(p); p += 4;
-    files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-  }
-  (globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-  const opsin = await import(new URL("opsin.js", dir).href);
-  opsin.init();
+if (existsSync(new URL("opsin.js", opsinDir))) {
+  const opsin = await loadOpsin();
   // The descriptors a name gives (R, S, E, Z), sorted, against those Octet gives OPSIN's structure.
   const given = (name: string) => [...name.matchAll(/[(,[]\s*(?:\d+[a-zA-Z']*)?([RSEZ])(?=[,)\]])/g)].map((x) => x[1]).sort().join("");
   const NAMES = [

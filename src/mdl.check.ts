@@ -1,15 +1,9 @@
 // Run: node src/mdl.check.ts. Fails loudly if MOL, SDF, RXN or RD files (V3000 and V2000) or reaction SMILES lose
 // enhanced stereo, map numbers or a reaction's arrow (CH-9, CH-10), or if a written label beside a wedge reads wrongly.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { importStructure, parseStructure, ready, toMolfile, toReaction, toSdf, toSmiles } = await import("./chem.ts");
 const { expandGeneric, MOST, MOST_SDF } = await import("./expand.ts");
 type Mol = import("./render.ts").Mol;

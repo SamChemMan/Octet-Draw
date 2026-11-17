@@ -6,7 +6,6 @@
 // structure files. The pictures (SVG, PDF, PNG, EMF and the rest) are made from the canvas in the app, so this check
 // does not see them.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import type { Arrow, Caption, Group, Mol } from "./render.ts";
 import { fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { cdxToXml, isCdx, xmlToCdx } from "./cdx.ts";
@@ -21,6 +20,7 @@ import { lonePlot, placePlot, plotShift, reframe, replot, rescale, type PlotEnv 
 import { energyOfTable, energyRoles, NEW_ENERGY, NEW_RADAR, radarOfRows, radarRoles, rowsOfRadar, type Chart, type EnergyChart, type RadarChart } from "./charts.ts";
 import { toChemfig } from "./chemfig.ts";
 import { model3mf } from "./model3mf.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 type P = [number, number];
 const style = DEFAULT_STYLE, B = style.bond, env: PlotEnv = { captionSize: style.captionSize, bond: B, measure: (t) => widthOf(t, 1) };
@@ -340,16 +340,8 @@ for (const [name, m] of cases) {
 // A state named P or INT1 would read as a label (edit.ts labelable; since 1.2's label fixes TS1 does not). The
 // chart's text has Interpret Chemically off, so it adds nothing to the formula, the mass, the names or a structure
 // file, on the page and after every file.
-const { ready, parseStructure, toCml, toInchi, toMolfile, toSdf, toSmiles } = await (async () => {
-  // chem.ts loads Indigo's wasm as a browser does; these stand in for the browser (as copyas.check.ts does).
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-  return import("./chem.ts");
-})();
+browser();
+const { ready, parseStructure, toCml, toInchi, toMolfile, toSdf, toSmiles } = await import("./chem.ts");
 await ready;
 {
   const e = cases[0][1], asked = e.captions!.filter(labelable).map((c) => c.text);

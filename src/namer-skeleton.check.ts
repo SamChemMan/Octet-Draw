@@ -5,31 +5,13 @@
 // back as the same structure (same standard InChI). Every one must be named, and none may be wrong; with "=", the name
 // must be exactly the one given. Hydrogen counts come from the input (a ring Br with an H is drawn with its H).
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { graphOf } from "./naming.ts";
 import { iupacNameWhy } from "./namer.ts";
 import { cipLabels } from "./cip.ts";
 import type { Mol } from "./render.ts";
+import { namer } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("namer-skeleton.check: skipped (no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
-const convert = (s: string, f: string) => {
-  const o = new indigo.MapStringString();
-  try { return indigo.convert(s, f, o).trim(); } finally { o.delete(); }
-};
+const { opsin, indigo, convert } = await namer("namer-skeleton.check");
 type Ket = { root: { nodes: { $ref: string }[] }; [k: string]: unknown };
 type Frag = { type: string; atoms: { label: string; charge?: number; cip?: string }[]; bonds: { type: number; atoms: [number, number]; cip?: string }[] };
 const frags = (ket: Ket) => ket.root.nodes.map(({ $ref }) => ket[$ref] as Frag).filter((f) => f?.type === "molecule");

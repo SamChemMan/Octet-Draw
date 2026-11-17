@@ -3,14 +3,9 @@
 // formula and masses, the Properties values, stereo labels, a fragmentation cut, and the structure drawing.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { analyse, analyseCompound, chiralFlagOnly, cleanUp, expandWithOrigins, fragmentMasses, importStructure, mapReaction, ready, stereoLabels, structures, toMolfile, toSmiles } = await import("./chem.ts");
 const { hydrogens, render } = await import("./render.ts");
 const { addSymbol } = await import("./edit.ts");
@@ -47,7 +42,6 @@ for (let n = 0; n < 400; n++) {
   tryAll(alone(t));
   tryAll(onEthyl(t));
 }
-console.log("chem.check: no label text stops the chemistry or the drawing");
 
 // Labels read right to left count as the group they are: CH3CH2–HO2C is propanoic acid, H2O2 is hydrogen peroxide.
 const formula = (m: Mol) => analyse(m)?.[0].formula;
@@ -91,7 +85,6 @@ assert.notEqual(formula(feCl3("FeIII")), "Cl3Fe");
 const c13 = (runs?: Mol["atoms"][number]["runs"]): Mol => ({ ...onEthyl("13CH3"), atoms: onEthyl("13CH3").atoms.map((a, i) => (i === 2 ? { ...a, runs } : a)) });
 assert.equal(analyse(c13([{ text: "13", script: "super" }, { text: "CH3" }]))?.[0].exact, analyse(c13())?.[0].exact);
 assert.equal(formula({ ...onEthyl("OH"), atoms: onEthyl("OH").atoms.map((a, i) => (i === 2 ? { ...a, label: "O", runs: [{ text: "OH", script: "super" }] } : a)) }), "C2H6O");
-console.log("chem.check: labels ok");
 
 // An attachment point (wavy, diamond or star) is not an atom: it counts in no formula, mass or analysis, and its bond
 // still takes up its neighbour's valence. C–O–C–N–C with both ends as attachment points is CH3NO (–O–CH2–NH–).
@@ -109,7 +102,6 @@ console.log("chem.check: labels ok");
   }
   assert.equal(formula(chain({ bead: true })), "CH3NO", "a polymer bead is not an atom either");
 }
-console.log("chem.check: attachment points ok");
 
 // IDEA-SCALE-7: Clean Up keeps a structure's own scale: its bonds come out at its scale (the median of its atoms'),
 // not at one bond length.
@@ -118,7 +110,6 @@ console.log("chem.check: attachment points ok");
     bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
   const done = cleanUp(big), lengths = done.bonds.map((b) => Math.hypot(done.atoms[b.atoms[1]].location[0] - done.atoms[b.atoms[0]].location[0], done.atoms[b.atoms[1]].location[1] - done.atoms[b.atoms[0]].location[1]));
   assert.ok(Math.abs([...lengths].sort((a, b) => a - b)[1] - 2) < 1e-9 && lengths.every((l) => Math.abs(l - 2) < 0.04), `bonds at 200%: ${lengths}`);
-  console.log("chem.check: clean up keeps the scale");
 }
 
 // The formula and masses come one entry per structure, in the drawing's order (a lone label and a lone carbon too),
@@ -142,7 +133,6 @@ console.log("chem.check: attachment points ok");
   const first = expandWithOrigins(onEthyl("CO2Me")).mol;
   first.atoms[3].label = "Xx";
   assert.notEqual(expandWithOrigins(onEthyl("CO2Me")).mol.atoms[3].label, "Xx");
-  console.log("chem.check: analysis by structure ok");
 }
 
 // Stereo labels are worked out structure by structure and kept: each copy of a structure gets its own labels, a
@@ -160,7 +150,6 @@ console.log("chem.check: attachment points ok");
   assert.ok(label(two)?.[0] && label(two)?.[0] === label(two)?.[4], "both copies labelled the same");
   assert.deepEqual(label(moved), label(two), "a moved copy keeps its label");
   assert.notEqual(label(other)?.[4], label(other)?.[0], "a hash gives the other label");
-  console.log("chem.check: kept stereo labels ok");
 }
 
 // A label Indigo cannot read, alone, has no entry. A structure Indigo reads as a bad valence (a pyridine N bonded to
@@ -178,7 +167,6 @@ console.log("chem.check: attachment points ok");
     bonds: [{ type: 1, atoms: [1, 0], stereo: 1 }, { type: 1, atoms: [1, 2], stereo: 1 }, { type: 1, atoms: [1, 3], stereo: 6 }] };
   assert.equal(analyse(wedged)?.[0].formula, "C3H8O");
   assert.equal(structures(wedged)?.[0]?.formula, "C3H8O");
-  console.log("chem.check: unreadable structures ok");
 }
 
 // A structure with a quadruple bond (Re2Cl8 drawn as Cl–Re≣Re–Cl) and one with a hydrogen bond keep a formula.
@@ -198,12 +186,10 @@ console.log("chem.check: attachment points ok");
   // V3000 (ChemDraw 26.1's MOL) keeps the hydrogen bond too.
   assert.match(toMolfile(dimer), /V3000/);
   assert.deepEqual(importStructure(toMolfile(dimer)).bonds.map((b) => b.type), [1, 10]);
-  console.log("chem.check: quadruple and hydrogen bonds ok");
   // A label with Interpret Chemically off is text, not chemistry: it adds nothing to the formula.
   const amine: Mol = { atoms: [{ ...at("N", 0), text: "NH2", chemical: false }, at("C", 1)], bonds: [{ type: 1, atoms: [0, 1] }] };
   assert.deepEqual(analyse(amine)?.map((a) => a.formula), ["CH3"]);
   assert.deepEqual(analyse({ ...amine, atoms: [{ ...at("N", 0), text: "NH2" }, at("C", 1)] })?.map((a) => a.formula), ["CH5N"]);
-  console.log("chem.check: labels that are not chemistry ok");
 }
 
 // A molfile keeps its blank first line (the name), so it reads back, in Octet and in other programs.
@@ -216,7 +202,6 @@ console.log("chem.check: attachment points ok");
   const query: Mol = { atoms: [{ label: "Pd", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0] }, { label: "C", location: [2, 0, 0] }, { label: "*", location: [3, 0, 0] }],
     bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
   assert.doesNotMatch(toMolfile(query), /MRV SMA/);
-  console.log("chem.check: molfile ok");
 }
 
 // Settings (CH-34). Automatic reaction mapping keeps the pairs mapped by hand (Indigo's keep mode) and maps the rest.
@@ -243,7 +228,6 @@ console.log("chem.check: attachment points ok");
   assert.ok(chiralFlagOnly("\n  Octet\n\n  1  0  0  0  1  0  0  0  0  0999 V2000\n"));
   assert.ok(!chiralFlagOnly("M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STERAC1 ATOMS=(1 2)\nM  V30 END COLLECTION\n V3000"));
   assert.ok(!chiralFlagOnly("CC(O)CC"));
-  console.log("chem.check: settings ok");
 }
 
 // A lone pair on a carbon with two bonds makes a singlet carbene, as ChemDraw reads a lone pair on a carbon: the
@@ -280,7 +264,6 @@ console.log("chem.check: attachment points ok");
   assert.deepEqual(problems(addSymbol(barred, 1, "pair", true)), []);
   // Methylene on its own keeps two hydrogens (a singlet is one pair, not three electrons).
   assert.equal(hydrogens("C", 0, 0, 3), 2);
-  console.log("chem.check: carbenes and nitrenes ok");
 }
 
 // ---- Time: a structure's SMILES asked for again is kept ----

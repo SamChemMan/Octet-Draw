@@ -1,15 +1,9 @@
 // Run: node src/copyas.check.ts. Fails loudly if Edit > Copy As stops giving ChemDraw's text forms (CH-26): InChI,
 // InChIKey, MOL Text in V3000 (ChemDraw 26.1's) and MOL V2000 Text, and InChI files import.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { importStructure, parseStructure, ready, toInchi, toInchiKey, toMolfile } = await import("./chem.ts");
 await ready;
 

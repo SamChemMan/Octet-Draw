@@ -7,6 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
+import { loadOpsin, opsinDir } from "../checkkit.ts";
 import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
@@ -44,19 +45,9 @@ let loading: Promise<void> | undefined;
 export function load(): Promise<void> {
   loading ??= (async () => {
     await indigoReady;
-    const dir = new URL("../../src/vendor/opsin/", import.meta.url), pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-    for (let p = 0; ; ) {
-      const n = pack.readUInt16BE(p); p += 2;
-      if (!n) break;
-      const name = pack.toString("latin1", p, p + n); p += n;
-      const size = pack.readInt32BE(p); p += 4;
-      files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-    }
-    (globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-    const opsin = await import(new URL("opsin.js", dir).href);
-    opsin.init();
+    const opsin = await loadOpsin();
     const json = (f: string) => JSON.parse(readFileSync(new URL(`../../src/${f}`, import.meta.url), "utf8"));
-    attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), json("nameindex.json"), DRUGS, json("abbreviations.json"));
+    attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), json("nameindex.json"), DRUGS, json("abbreviations.json"));
     await loadDictionary();
   })();
   return loading;
@@ -121,7 +112,6 @@ export function drawing(purpose = "paper", title = "Untitled") {
   };
   let doc = fresh(purpose), past: Mol[] = [], future: Mol[] = [], start: Mol | undefined, undid = false;
   let picked = { atoms: [] as number[], items: [] as number[] };
-  const told: string[] = [];
   const style = (): DocStyle => readStyle(doc.style ?? DEFAULT_STYLE);
   const expPage = () => { const s = style(); return experimentPage(purposeOf({ ownPurposes: [] }, s.purpose)?.kind, s.purpose, doc.annotations); };
   // As the editor's sheetOf.
@@ -319,7 +309,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     picture: async () => undefined,
     restyle: (next) => { set({ ...scaleSizes(doc, next.scale / style().scale), style: next }); },
     experiment: expPage, sheet,
-    said: (text) => { told.push(text); },
+    said: () => {},
     // No window shows that an AI app is drawing.
     working: () => {},
     selection: () => picked,
@@ -338,5 +328,5 @@ export function drawing(purpose = "paper", title = "Untitled") {
     target: async (_session, id) => id === "headless",
     close: async () => "theirs" as const,
   };
-  return { host, told };
+  return { host };
 }

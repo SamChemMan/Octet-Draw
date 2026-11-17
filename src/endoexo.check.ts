@@ -2,26 +2,15 @@
 // name with PubChem's InChIKey for it (5 November 2026). A name with endo or exo alone gives the relative stereo, so
 // either hand of the structure is right for it; a name that also gives (1R) or (1S) has one hand.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { DRUGS } from "./drugs.ts";
 import { attachOpsin, nameToSmiles } from "./names.ts";
+import { loadOpsin, needOpsin, norender, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("endoexo.check: skipped (no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+needOpsin("endoexo.check: skipped (no OPSIN build)");
+const opsin = await loadOpsin();
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
+const indigo = await norender();
 const keyOf = (s: string | undefined) => { if (!s) return undefined; const o = new indigo.MapStringString(); try { return indigo.convert(s, "inchi-key", o).trim() as string; } catch { return undefined; } finally { o.delete(); } };
 const mirror = (s: string) => s.replace(/@@?/g, (x) => (x === "@" ? "@@" : "@"));
 // The structure's InChIKey, and its mirror image's.

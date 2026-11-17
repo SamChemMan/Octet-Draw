@@ -3,16 +3,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { hydrogens } from "./render.ts";
+import { graph } from "../scripts/checkkit.ts";
 import type { Graph } from "./naming.ts";
 import { acsText, codeHash, codes, detailsTable, environment, heavy, hose, multiplicity, predict, quality, readTables, writeTables } from "./nmr.ts";
 
-// A graph from elements and bonds ([a, b, order]), with hydrogens filled in.
-function graph(els: string[], bonds: [number, number, number][]): Graph {
-  const used = els.map(() => 0);
-  for (const [a, b, o] of bonds) { used[a] += o; used[b] += o; }
-  return { atoms: els.map((el, i) => ({ el, charge: 0, h: hydrogens(el, 0, used[i]) })), bonds: bonds.map(([a, b, order]) => ({ a, b, order: order as 1 | 2 | 3 })) };
-}
 // The same graph with its atoms in another order.
 function shuffled(g: Graph, order: number[]): Graph {
   const to = order.map((_, i) => order.indexOf(i));

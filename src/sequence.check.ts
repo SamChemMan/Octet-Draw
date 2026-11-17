@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { sequenceParts, sequenceText } from "./sequence.ts";
 import { peptideSmiles } from "./peptide.ts";
 import { nucleicText } from "./nucleic.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 assert.deepEqual(sequenceParts("peptide: "), { kind: "peptide", codes: "", start: false, end: false });
 assert.deepEqual(sequenceParts("peptide: Ac-ACD-NH2"), { kind: "peptide", codes: "ACD", start: true, end: true });
@@ -32,12 +33,7 @@ assert.ok(n && "smiles" in n && n.smiles.startsWith("OP(=O)(O)OC"), "a 5'-phosph
 // Residue labels: H–Ala–…–OH, or rA–P–rC. Each keeps its atoms, and the bonds say which atom each joins, so the
 // labelled sequence is the same compound as the full structure (InChI, stereo too), at every end, and Expand Label
 // draws a residue out.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 const { residues } = await import("./sequence.ts");

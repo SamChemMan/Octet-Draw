@@ -2,11 +2,9 @@
 // Cp or arene ring in perspective, joined to its metal through a multi-centre point, the near bonds bold and wedged.
 // Clean Up leaves a structure with a multi-centre attachment as drawn. Carbonyls are M=C=O, as common.ts draws them.
 import { addGroupAt, bondTo, pos, setLabel } from "../../src/edit.ts";
+// add, sub, mul and unit take points of any size: these are 2D.
+import { add, deg, mul, r3, sub, unit } from "./perspective.mjs";
 
-const deg = Math.PI / 180;
-const add = (a, b) => [a[0] + b[0], a[1] + b[1]], sub = (a, b) => [a[0] - b[0], a[1] - b[1]], mul = (a, s) => [a[0] * s, a[1] * s];
-const unit = (a) => mul(a, 1 / Math.hypot(a[0], a[1]));
-const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
 
 // A metal on its own: an element, or M (any metal).
 const metal = (label) => ({ atoms: [label === "M" ? { label: "C", text: "M", location: [0, 0, 0] } : { label, location: [0, 0, 0] }], bonds: [] });
