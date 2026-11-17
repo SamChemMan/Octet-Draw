@@ -588,9 +588,6 @@ fn signature(token: &str, method: &str, nonce: &str, body: &[u8]) -> String {
 fn proof(token: &str, nonce: &str) -> String {
     hmac(token.as_bytes(), format!("octet-server\n{nonce}").as_bytes())
 }
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
-}
 thread_local! {
     // This connection's X-Octet-Proof header, once its signed request is checked (each connection has a thread).
     static PROOF: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
@@ -605,7 +602,7 @@ fn signed_ok(head: &[String], body: &[u8], token: &str, seen: &Mutex<HashMap<Str
     let mut parts = sig.split_whitespace();
     let (Some(nonce), Some(code), None) = (parts.next(), parts.next(), parts.next()) else { return false };
     let method = head.first().and_then(|l| l.split(' ').next()).unwrap_or("");
-    let now = now_secs();
+    let now = crate::recovery::now();
     let fresh = nonce.split_once('-').and_then(|(t, r)| t.parse::<u64>().ok().filter(|_| r.len() == 32 && r.bytes().all(|b| b.is_ascii_hexdigit()))).is_some_and(|t| t.abs_diff(now) <= SIGNED_FOR);
     if !fresh || !same(code.as_bytes(), signature(token, method, nonce, body).as_bytes()) {
         return false;
@@ -1296,7 +1293,7 @@ impl Relay {
         let session = session.map(|v| format!("Mcp-Session-Id: {v}\r\n")).unwrap_or_default();
         let length = if method == "POST" { format!("Content-Type: application/json\r\nContent-Length: {}\r\n", body.len()) } else { String::new() };
         // Signed, never the key (signed_ok); and only Octet's answer, with its proof, is taken.
-        let nonce = format!("{}-{}", now_secs(), random_hex(16).map_err(std::io::Error::other)?);
+        let nonce = format!("{}-{}", crate::recovery::now(), random_hex(16).map_err(std::io::Error::other)?);
         let code = signature(&info.token, method, &nonce, body.as_bytes());
         write!(s, "{method} /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Octet {nonce} {code}\r\nAccept: {accept}\r\n{version}{session}{length}Connection: close\r\n\r\n{body}", info.port)?;
         let mut reader = std::io::BufReader::new(s);
@@ -1714,7 +1711,7 @@ mod tests {
             h[2] = format!("Authorization: Octet {n} {}", signature(key, "POST", n, body));
             h
         };
-        let n = nonce(now_secs());
+        let n = nonce(crate::recovery::now());
         PROOF.with(|p| p.borrow_mut().clear());
         assert_eq!(allowed(&signed(&n, KEY, b"{}"), 47681, KEY), Ok(Asked::Post(12)));
         assert!(!signed_ok(&signed(&n, KEY, b"{}"), b"{\"x\":1}", KEY, &seen), "another body");
@@ -1723,7 +1720,7 @@ mod tests {
         assert!(signed_ok(&signed(&n, KEY, b"{}"), b"{}", KEY, &seen));
         assert_eq!(proved(), format!("X-Octet-Proof: {}\r\n", proof(KEY, &n)));
         assert!(!signed_ok(&signed(&n, KEY, b"{}"), b"{}", KEY, &seen), "the same nonce again");
-        let old = nonce(now_secs() - SIGNED_FOR - 5);
+        let old = nonce(crate::recovery::now() - SIGNED_FOR - 5);
         assert!(!signed_ok(&signed(&old, KEY, b"{}"), b"{}", KEY, &seen), "an old time");
         assert!(!signed_ok(&signed("1-2", KEY, b"{}"), b"{}", KEY, &seen), "no random part");
         // HMAC-SHA256 as RFC 4231 test case 2 gives it.
