@@ -609,17 +609,8 @@ function phosphateChainName(n: Namer, chain: { ps: number[]; oh: number }): stri
 // Esters of phosphorothioic acids (P-67.1.3.2): O,O-diethyl O-(4-nitrophenyl) phosphorothioate, O,O,S-trimethyl
 // phosphorodithioate, O,O-diethyl methylphosphonothioate. Each ester group has the locant of its O or S.
 function thiophosphateName(n: Namer, c: Centre, base: string, r: string): string {
-  const groups = new Map<string, { name: Name; locs: string[] }>();
-  c.lig.forEach((j, k) => {
-    const name = n.substituent(n.adj[j].find((y) => y !== c.at)!, j), g = groups.get(name.text) ?? { name, locs: [] };
-    g.locs.push(c.types[k] === "SR" ? "S" : "O");
-    groups.set(name.text, g);
-  });
+  const esters = letterPrefixes(c.lig.map((j, k) => ({ loc: c.types[k] === "SR" ? "S" : "O", name: n.substituent(n.adj[j].find((y) => y !== c.at)!, j) })), " ");
   const ss = c.types.filter((t) => t === "SR").length + c.os.filter((o) => n.el[o] === "S").length;
-  const esters = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text))).map((g) => {
-    const m = g.locs.length, word = m > 1 ? (g.name.compound ? `${MULT_COMPLEX[m]}${enclose(g.name)}` : MULT[m] + g.name.text) : enclose(g.name);
-    return `${g.locs.sort().join(",")}-${word}`;
-  }).join(" ");
   return `${esters} ${r}${base}o${ss > 1 ? MULT[ss] : ""}thioate`;
 }
 // A sulfuric or sulfurous acid derivative with no carbon on S as the parent (P-67.1.2): dimethyl sulfate, ethyl
@@ -822,14 +813,8 @@ export function heteroParentName(n: Namer, kind: string | undefined): string | u
   if (ylides.length === 1) { const x = ylides[0]; return `${substituted(n.adj[x].map((j) => (n.ord(x, j) === 2 ? ylidene(n, j, x) : n.substituent(j, x))))}-λ5-phosphane`; }
   const count = (r: string) => roles.filter((x) => x === r).length;
   const pair = (r: string) => { const a = [...n.het].find(([, v]) => v === r)![0]; return [a, n.adj[a].find((j) => n.het.get(j) === r)!]; };
-  if (count("NN") === 2 && !count("hz") && !count("N=N")) {
-    const [a, b] = pair("NN");
-    return hydrazineName(n, a, b);
-  }
-  if (count("hz") === 2 && !count("NN") && !count("N=N")) {
-    const [a, b] = pair("hz");
-    return hydrazineName(n, a, b);
-  }
+  const hz = count("NN") === 2 && !count("hz") ? "NN" : count("hz") === 2 && !count("NN") ? "hz" : undefined;
+  if (hz && !count("N=N")) return hydrazineName(n, ...(pair(hz) as [number, number]));
   if (count("N=N") === 2 && !count("NN") && !count("hz")) {
     const [a, b] = pair("N=N");
     const subs = [a, b].flatMap((x) => n.adj[x].filter((j) => n.het.get(j) !== "N=N").map((j) => n.substituent(j, x)));
@@ -855,13 +840,14 @@ function hydrazineName(n: Namer, a: number, b: number): string {
   const best = options[0];
   return `${assemblePrefixes(best, best.length === 1)}hydrazine`;
 }
-// Prefixes with letter locants (N, O): N,O-dimethyl, N,N-diethyl, O-benzyl, in alphabetical order.
-function letterPrefixes(list: { loc: string; name: Name }[]): string {
+// Prefixes with letter locants (N, O): N,O-dimethyl, N,N-diethyl, O-benzyl, in alphabetical order, joined by sep
+// (a space between a thiophosphate's ester words).
+function letterPrefixes(list: { loc: string; name: Name }[], sep = "-"): string {
   const groups = new Map<string, { name: Name; locs: string[] }>();
   for (const p of list) { const g = groups.get(p.name.text) ?? { name: p.name, locs: [] }; g.locs.push(p.loc); groups.set(p.name.text, g); }
   return [...groups.values()].sort((x, y) => alphaKey(x.name.text).localeCompare(alphaKey(y.name.text))).map((g) => {
     const m = g.locs.length, word = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text) : enclose(g.name);
     return `${g.locs.sort().join(",")}-${word}`;
-  }).join("-");
+  }).join(sep);
 }
 
