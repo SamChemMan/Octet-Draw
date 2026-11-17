@@ -43,6 +43,12 @@ export function holdCursor(el: Element) {
   addEventListener("pointerup", end);
   addEventListener("pointercancel", end);
 }
+// A drag on the window: move on each pointer move, then up once when the pointer is let go, and neither after.
+export function followDrag(move: (ev: PointerEvent) => void, up: (ev: PointerEvent) => void = () => {}) {
+  const end = (ev: PointerEvent) => { removeEventListener("pointermove", move); removeEventListener("pointerup", end); up(ev); };
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", end);
+}
 
 // The cursors Octet draws itself: Select's arrow, the rotation handle's arrow, the drawing tools' crosshair and the
 // Text tool's I-beam. Windows draws its own crosshair and I-beam by inverting what is under them, which can leave

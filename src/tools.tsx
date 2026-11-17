@@ -15,6 +15,7 @@ import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
+import { followDrag } from "./cursor";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
@@ -732,8 +733,6 @@ export function Palette(p: PaletteProps) {
       setCarry({ key, pin, x: ev.clientX, y: ev.clientY, tilt, over, toList, index, phase: "drag" });
     };
     const up = (ev: PointerEvent) => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       if (!moving) return setCarry(undefined);
       const rest = p.pinned.filter((k) => k !== key);
       if (onList(ev.clientX, ev.clientY)) {
@@ -763,8 +762,7 @@ export function Palette(p: PaletteProps) {
         setLanded((l) => ({ key, n: (l?.n ?? 0) + 1 }));
       }, calm ? 0 : timing().duration);
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   }
   // One column or two: every tool glides from where it was to where it goes, and the toolbar grows or shrinks to
   // match (instant with reduced motion).

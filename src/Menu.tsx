@@ -5,7 +5,7 @@
 // Do not build another menu: extend this one. Pick (below) is the menu as a list of choices from a button.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { holdCursor } from "./cursor";
+import { holdCursor, followDrag } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 import { CaretRight } from "@phosphor-icons/react";
 
@@ -115,13 +115,10 @@ export function Menu(p: Props) {
             let width = start;
             const move = (ev: PointerEvent) => { width = Math.max(menuWidth(1), Math.min(menuWidth(most), start + ev.clientX - startX)); setLive(width); };
             const up = () => {
-              removeEventListener("pointermove", move);
-              removeEventListener("pointerup", up);
               p.onColumns!(Math.min(most, columnsFor(width)));
               setLive(undefined);
             };
-            addEventListener("pointermove", move);
-            addEventListener("pointerup", up);
+            followDrag(move, up);
           }} />
       )}
       {p.children}

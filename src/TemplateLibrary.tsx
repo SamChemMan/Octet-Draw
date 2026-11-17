@@ -23,7 +23,7 @@ import { ART_SETS, isArt, LIBRARY, loadMore, type LibraryItem } from "./library"
 import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
 import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
-import { holdCursor } from "./cursor";
+import { holdCursor, followDrag } from "./cursor";
 import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type TemplateSize, type TemplateTool } from "./templates";
 
 // The tool a library is beside (the Ring tool's Templates row, or the Template tool): a template chosen or added there
@@ -220,16 +220,13 @@ function useOrder(grid: React.RefObject<HTMLElement | null>, onPlace: ((id: stri
       setMark(at(ev.clientX, ev.clientY));
     };
     const up = (ev: PointerEvent) => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       setMark(undefined);
       const to = moved ? at(ev.clientX, ev.clientY) : undefined;
       if (!to || to.before === kind) return;
       glide();
       onPlace(id, to.before && ownId(to.before));
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   };
   // The cell the bar is drawn by: before the one it goes before, or after the last.
   const markOf = (kind: string, last: boolean) => (!mark ? undefined : mark.before === kind ? "insert-before" : last && !mark.before ? "insert-after" : undefined);
@@ -543,14 +540,11 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
       setLive(now);
     };
     const up = () => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       setLive(undefined);
       if (how === "move" && (now.x !== x0 || now.y !== y0)) onMove(Math.max(0, Math.min(now.x, innerWidth - width)), Math.max(0, Math.min(now.y, innerHeight - 40)));
       if (how === "size" && now.columns !== c0) onColumns(now.columns);
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   };
   const item = menu && items.find((t) => t.kind === menu.kind);
   return (
