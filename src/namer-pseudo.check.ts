@@ -124,6 +124,11 @@ const CLASSES: [string, Mol, string | null][] = [
   ["trans-4-methylcyclohexan-1-ol, chair, both equatorial", onChair(onChair(chair(), 0, "OH", false), 3, "CH3", false), "(1r,4r)-4-methylcyclohexan-1-ol"],
   ["trans-4-methylcyclohexan-1-ol, chair, both axial", onChair(onChair(chair(), 0, "OH", true), 3, "CH3", true), "(1r,4r)-4-methylcyclohexan-1-ol"],
   ["cis-4-methylcyclohexan-1-ol, chair", onChair(onChair(chair(), 0, "OH", false), 3, "CH3", true), "(1s,4s)-4-methylcyclohexan-1-ol"],
+  // r and s through bis (each list counts twice), and on centres between Kekulé rings
+  ["three 1,4-cyclohexylene rings", drawn("C[C@H]1CC[C@H](CC1)[C@@H]1CC[C@H](CC1)[C@H]1CC[C@H](CC1)C"), "(1r,4r)-1,4-bis[(1s,4s)-4-methylcyclohexyl]cyclohexane"],
+  ["cis-9,10-dimethyl-9,10-dihydroanthracene", drawn("C[C@@H]1c2ccccc2[C@H](C)c2ccccc12"), "(9s,10s)-9,10-dimethyl-9,10-dihydroanthracene"],
+  ["trans-9,10-dimethyl-9,10-dihydroanthracene", drawn("C[C@@H]1c2ccccc2[C@@H](C)c2ccccc12"), "(9r,10r)-9,10-dimethyl-9,10-dihydroanthracene"],
+  ["cis-10b,10c-dihydropyrene", drawn("C1=CC=C2C=CC3=CC=CC4=CC=C1[C@H]2[C@H]34"), "(10bs,10cs)-10b,10c-dihydropyrene"],
   // Ring fusions
   ["cis-Decalin", libraryItem("lib:cis-Decalin")!.mol, "(4as,8as)-decahydronaphthalene"],
   ["trans-Decalin", libraryItem("lib:trans-Decalin")!.mol, "(4ar,8ar)-decahydronaphthalene"],

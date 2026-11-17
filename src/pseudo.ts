@@ -35,22 +35,32 @@ export function citesPseudo(name: string): boolean {
   return false;
 }
 
-// The name's descriptor lists, in order, and the name without its r and s (a list left empty goes). Undefined for a
-// name Octet does not read this way: relative or racemic stereo (rel-, rac-, R*), or a locant given twice in a list.
-type Parsed = { rs: string[]; lists: string[][]; rest: string };
+// The name's r and s items in order, the r and s the structure has (each list's letters as often as the multiplying
+// prefixes round it say: bis[(1s,4s)-4-methylcyclohexyl] has four s), and the name without its r and s (a list left
+// empty goes). Undefined for a name Octet does not read this way: relative or racemic stereo (rel-, rac-, R*), or a
+// locant given twice in a list.
+const MULTIPLIED: Record<string, number> = { bis: 2, tris: 3, tetrakis: 4, pentakis: 5, hexakis: 6, heptakis: 7, octakis: 8, nonakis: 9, decakis: 10 };
+type Parsed = { rs: string[]; letters: string; rest: string };
 function parse(name: string): Parsed | undefined {
   if (name.length > MOST_PSEUDO_NAME || /\b(?:rel|rac)-|\*/.test(name)) return undefined;
-  const lists: string[][] = [], rs: string[] = [];
+  // How many times each place in the name counts.
+  const times: number[] = [], stack = [1];
+  for (let i = 0; i < name.length; i++) {
+    const c = name[i];
+    if (c === "(" || c === "[" || c === "{") stack.push(stack[stack.length - 1] * (MULTIPLIED[/(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis|nonakis|decakis)$/.exec(name.slice(0, i))?.[1] ?? ""] ?? 1));
+    times.push(stack[stack.length - 1]);
+    if ((c === ")" || c === "]" || c === "}") && stack.length > 1) stack.pop();
+  }
+  const rs: string[] = [], letters: string[] = [];
   let ok = true;
-  const rest = name.replace(LIST, (_, list: string) => {
-    const items = list.split(","), at = items.map((t) => t.slice(0, -1));
-    if (at.some((l, k) => l && at.indexOf(l) !== k)) ok = false;
-    lists.push(items);
-    rs.push(...items.filter((t) => /[rs]$/.test(t)));
+  const rest = name.replace(LIST, (_, list: string, at: number) => {
+    const items = list.split(","), locants = items.map((t) => t.slice(0, -1));
+    if (locants.some((l, k) => l && locants.indexOf(l) !== k)) ok = false;
+    for (const t of items.filter((x) => /[rs]$/.test(x))) { rs.push(t); for (let k = 0; k < times[at]; k++) letters.push(t.slice(-1)); }
     const kept = items.filter((t) => !/[rs]$/.test(t));
     return kept.length ? `(${kept.join(",")})-` : "";
   });
-  return ok && rs.length && rest.trim() ? { rs, lists, rest } : undefined;
+  return ok && rs.length && rest.trim() ? { rs, letters: letters.sort().join(""), rest } : undefined;
 }
 // A name's descriptor lists, and the name without them, lower case: two names alike in both are one name.
 const lists = (name: string) => [...name.matchAll(LIST)].map((m) => m[1]).join(";");
@@ -122,10 +132,23 @@ function readSmiles(s: string): Smiles | undefined {
 }
 
 // Atoms alike in the constitution (element, charge, isotope, hydrogens and bonds, refined over their neighbours until
-// no class splits). Coarse where Kekulé bonds differ, which can only add open centres to try.
+// no class splits). A ring bond between two atoms with double bonds counts as neither single nor double, so the two
+// Kekulé forms of a benzene ring are alike. Coarse where that is not so, which can only add open centres to try.
 function classes(sm: Smiles): number[] {
-  const n = sm.atoms.length, adj: [number, number][][] = sm.atoms.map(() => []);
-  for (const [a, b, o] of sm.bonds) { adj[a].push([b, o]); adj[b].push([a, o]); }
+  const n = sm.atoms.length, adj: [number, number | string][][] = sm.atoms.map(() => []), near: number[][] = sm.atoms.map(() => []);
+  for (const [a, b] of sm.bonds) { near[a].push(b); near[b].push(a); }
+  const sp2 = sm.atoms.map(() => false);
+  for (const [a, b, o] of sm.bonds) if (o === 2) sp2[a] = sp2[b] = true;
+  // Whether a and b are joined other than by their own bond.
+  const inRing = (a: number, b: number) => {
+    const seen = new Set([a]);
+    for (const todo = [a]; todo.length; ) {
+      const v = todo.pop()!;
+      for (const w of near[v]) if (!(v === a && w === b) && !seen.has(w)) { if (w === b) return true; seen.add(w); todo.push(w); }
+    }
+    return false;
+  };
+  for (const [a, b, o] of sm.bonds) { const k = o <= 2 && sp2[a] && sp2[b] && inRing(a, b) ? "a" : o; adj[a].push([b, k]); adj[b].push([a, k]); }
   const rank = (keys: string[]) => { const sorted = [...new Set(keys)].sort(); return keys.map((k) => sorted.indexOf(k)); };
   let cls = rank(sm.atoms.map((a, i) => `${a.el} ${a.charge} ${a.iso} ${a.h} ${adj[i].map(([, o]) => o).sort().join("")}`));
   for (let round = 0; round < n; round++) {
@@ -208,7 +231,7 @@ export function pseudoSmiles(name: string, read: (name: string) => string | unde
   const { base, keep } = l;
   // Each configuration as SMILES, and one of each stereoisomer (by standard InChI): two configurations with one InChI
   // are one structure, with the same labels and name. Labelling (cip.ts) costs more than InChI in a cage.
-  const want = p.rs.map((t) => t.slice(-1)).sort().join(""), isomers = new Map<string, ("@" | "@@")[]>();
+  const want = p.letters, isomers = new Map<string, ("@" | "@@")[]>();
   const smilesOf = (hands: ("@" | "@@")[]) => open.map((i, k) => [i, k]).sort((x, y) => y[0] - x[0]).reduce((s, [i, k]) => {
     const a = sm.atoms[i];
     return `${s.slice(0, a.start)}[${a.el}${hands[k]}${a.h ? "H" : ""}]${s.slice(a.end)}`;
