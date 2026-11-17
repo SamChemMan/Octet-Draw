@@ -1628,7 +1628,8 @@ button.variant.add {
   font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
-.action kbd {
+/* A shortcut beside a command is plain small text. */
+kbd {
   font-family: var(--font-sans);
   font-size: 11px;
   color: var(--ink-faint);
@@ -1802,11 +1803,6 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--link);
   border-radius: var(--radius-2xs);
-}
-.name-suggestion kbd {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--ink-faint);
 }
 .ghost {
   fill: var(--ink);
@@ -2074,6 +2070,7 @@ button.variant.add {
 }
 .tip kbd {
   flex: none;
+  color: inherit;
   font: inherit;
   white-space: nowrap;
   opacity: 0.7;
@@ -3241,11 +3238,6 @@ div.facts {
 .actions-settings span {
   flex: 1;
 }
-.actions-settings kbd {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--ink-faint);
-}
 .actions-home {
   flex: none;
   justify-content: center;
@@ -3777,7 +3769,6 @@ div.facts {
 }
 .command kbd {
   flex: none;
-  color: var(--ink-faint);
   font: 11px var(--font-sans);
 }
 .command-none {
@@ -5754,7 +5745,6 @@ div.facts {
 .home-open kbd,
 .home-caption kbd {
   margin-left: var(--space-1);
-  color: var(--ink-faint);
   font: 11px var(--font-sans);
 }
 .home-grid {
