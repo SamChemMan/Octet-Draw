@@ -28,7 +28,6 @@ naphthalene.bonds[7].halo = "#2BA84A";
   assert.deepEqual(part.fills, [{ atoms: [1, 2, 3, 4, 5, 0], colour: "#E5484D" }]);
   const pasted = insertMol(naphthalene, part).mol;
   assert.deepEqual(pasted.fills?.at(-1), { atoms: [11, 12, 13, 14, 15, 10], colour: "#E5484D" });
-  console.log("fills.check: edits keep each ring's fill");
 }
 
 // Saves: fills and bond highlights come back; an older file's atom fills become a fill for each ring whose atoms all
@@ -44,7 +43,6 @@ naphthalene.bonds[7].halo = "#2BA84A";
   assert.deepEqual([...migrated.fills![0].atoms].sort(), [0, 1, 2, 3, 4, 5]);
   for (const fills of [[{ atoms: [0, 1], colour: "#2F6FED" }], [{ atoms: [0, 1, 99], colour: "#2F6FED" }], [{ atoms: [0, 1, 2], colour: "red" }], [{ atoms: [0, 0, 1], colour: "#2F6FED" }]])
     assert.throws(() => parse(JSON.stringify({ ...JSON.parse(serialize(naphthalene)), fills })), /damaged/);
-  console.log("fills.check: saved and older files ok");
 }
 
 // CDXML: each fill is a ColoredMolecularArea in its fragment (its colour and its ring's bonds), each bond highlight a

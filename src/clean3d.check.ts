@@ -29,7 +29,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
   // Again: it stays a chair (the clean-up improves, it does not undo).
   const again = clean3d(m, all(m));
   assert.ok(again.bonds.every((b) => Math.abs(dist(again, b.atoms[0], b.atoms[1]) - 1) < 0.03));
-  console.log("clean3d.check: cyclohexane chair ok");
 }
 
 // Benzene: flat, and the size it was drawn (its bonds are all of one kind, so they keep their length), however many
@@ -40,7 +39,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
   assert.ok(z.every((x) => Math.abs(x - mean) < 0.03), "benzene stays flat");
   const twice = clean3d(clean3d(m, all(m)), all(m));
   for (const b of m.bonds) assert.ok(Math.abs(dist(m, b.atoms[0], b.atoms[1]) - 1) < 0.01 && Math.abs(dist(twice, b.atoms[0], b.atoms[1]) - 1) < 0.01, "benzene keeps its size");
-  console.log("clean3d.check: benzene ok");
 }
 
 // But-2-ene keeps the cis or trans it is drawn with; a wedged stereocentre keeps its hand.
@@ -61,7 +59,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
   assert.ok(vol(after) < 0, "the hand its wedge draws");
   const hashed = clean3d({ ...centre, bonds: centre.bonds.map((b, k) => (k === 1 ? { ...b, stereo: 6 } : b)) }, all(centre));
   assert.ok(vol(hashed) > 0, "and a hash the other hand");
-  console.log("clean3d.check: double bonds and stereocentres ok");
 }
 
 // Biphenyl drawn flat: its rings twist (the hydrogens the drawing leaves out are in the way), 44° as a gas. Naphthalene
@@ -75,7 +72,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
   const h = Math.sqrt(3) / 2, second = [0, 1, 2, 3].map((k) => ({ label: "C", location: [2 * h + Math.cos(-Math.PI / 2 + (k * Math.PI) / 3), Math.sin(-Math.PI / 2 + (k * Math.PI) / 3), 0] as [number, number, number] }));
   const naphthalene: Mol = { atoms: [...hex(0, Math.PI / 6), ...second], bonds: [[0, 1, 2], [1, 2, 1], [2, 3, 2], [3, 4, 1], [4, 5, 2], [5, 0, 1], [5, 6, 1], [6, 7, 2], [7, 8, 1], [8, 9, 2], [9, 0, 1]].map(([a, b, type]) => ({ type, atoms: [a, b] as [number, number] })) };
   assert.ok(clean3d(naphthalene, all(naphthalene)).atoms.every((a) => a.location[2] === 0), "naphthalene stays in the page");
-  console.log("clean3d.check: biphenyl and naphthalene ok");
 }
 
 // A wedged group on a cyclohexane ring keeps the hand its wedge draws, whichever chair the ring takes: both isomers of
@@ -102,7 +98,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
     const axial = [[0, 6], [3, 7]].filter(([k, c]) => { const v = [0, 1, 2].map((e) => at(done, c)[e] - at(done, k)[e]); return Math.abs(v[0] * n[0] + v[1] * n[1] + v[2] * n[2]) / (Math.hypot(...v) * Math.hypot(...n)) > 0.8; }).length;
     assert.equal(axial, second === 1 ? 1 : 0, `${second === 1 ? "cis: one methyl axial" : "trans: both equatorial"}`);
   }
-  console.log("clean3d.check: wedged groups on a chair ok");
 }
 
 // An allene and a ketene drawn bent come out straight at the middle atom. Propane drawn with its hydrogens keeps a
@@ -117,7 +112,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
   const propane: Mol = { atoms: [A("C", 0, 0), A("C", h, 0.5), A("C", 2 * h, 0), A("H", h, 1.5), A("H", h + 0.6, 1.1)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [1, 3] }, { type: 1, atoms: [1, 4] }] };
   const ccc = angle(clean3d(propane, all(propane)), 0, 1, 2);
   assert.ok(Math.abs(ccc - 111) < 4, `propane with drawn hydrogens: ${ccc.toFixed(0)}°`);
-  console.log("clean3d.check: cumulenes and drawn hydrogens ok");
 }
 
 // A ring of benzene rings ([n]cycloparaphenylene) drawn flat: a hoop, as in its crystal structure. Each benzene ring
@@ -151,7 +145,6 @@ const torsion = (m: Mol, i: number, j: number, k: number, l: number) => {
     const again = clean3d(m, all(m));
     assert.ok(again.atoms.every((a, k) => Math.hypot(...minus(a.location, m.atoms[k].location)) < 0.05), "a second clean-up changes nothing");
   }
-  console.log("clean3d.check: rings of benzene rings ok");
 }
 
 // The largest structure ChemDraw cleans up (500 atoms) takes well under a second or two, and stays where it was.

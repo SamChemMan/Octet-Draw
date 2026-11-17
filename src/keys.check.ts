@@ -117,7 +117,6 @@ assert.equal(actionFor(keymap({}), "mod+;", "none"), "menu.rulers");
   const q = new Map<string, number>();
   for (const at of [0, 50, 100]) assert.equal(feedbackChord(q, "1", at), false);
 }
-console.log("keys.check: ok");
 
 // A button the keyboard moved to takes Space and Return; after a click, Space stays the Select key.
 const button = { tagName: "BUTTON" }, slider = { tagName: "INPUT", type: "range" };
@@ -238,7 +237,6 @@ for (const mac of [true, false]) {
   assert.equal((editor.match(/pressMods\.current = \{ shift: e\.shiftKey/g) ?? []).length, 0, "every Select press counts Ctrl as Shift for its click");
   assert.ok(editor.indexOf("if (MAC && e.ctrlKey) {") < at, "the Mac's Control-click goes to the context menu first");
 }
-console.log("keys.check: Ctrl-click adds to the selection on Windows and Linux ok");
 
 // Issue 60: the circled charges take a key in Settings, over an atom, and have none by default. A charge key on one
 // atom and on a selection both go through keyCharge, and the circled pair mark the charge as the Symbols tool does.

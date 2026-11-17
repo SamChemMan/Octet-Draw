@@ -112,7 +112,6 @@ assert.ok(ownId(templateKind(own.id)), "the copy has an id of its own");
 assert.deepEqual(loadTemplates([null, 3, { id: "a", name: "b", file: "not a file" }]), []);
 assert.deepEqual(loadTemplates("nothing"), []);
 
-console.log("templates: ok");
 
 // ——— Order, Edit and Duplicate (CD-32) ———
 // Five templates: A, B and C in a set, D and E in My templates, mixed in the list as they were added.
@@ -174,7 +173,6 @@ const copy = dup.templates.find((t) => t.name === "B copy")!;
 assert.notEqual(copy.id, made.B);
 assert.equal(copy.set, "Rings");
 assert.equal(duplicateTemplate(o, "nobody"), o);
-console.log("templates: order, Edit and Duplicate ok");
 
 // ——— Floating palettes ———
 // Opened, brought to the front, moved, made wider, closed; kept in the settings (JSON) and read back with checks.
@@ -207,7 +205,6 @@ withPal = renameSet(withPal, "Rings", "My rings");
 assert.deepEqual(withPal.palettes!.map((p) => p.set), ["My rings", "Aromatics"]);
 withPal = removeSet(withPal, "My rings");
 assert.deepEqual(withPal.palettes!.map((p) => p.set), ["Aromatics"]);
-console.log("templates: floating palettes and template sizes ok");
 
 // ——— ChemDraw template files (.ctp, .cts) ———
 // A small template document made here with Octet's own writer (nothing from ChemDraw): a 2 × 3 grid of panes, five
@@ -268,7 +265,6 @@ const r2 = readTemplateFile(xmlToCdx(withHuge), "Big.ctp");
 assert.equal(r2.templates.length, 5);
 assert.equal(r2.left, 1, "a pane too big for a template is left out and counted");
 assert.equal(readTemplateFile(xmlToCdx({ ...templateDoc(), kids: templateDoc().kids.filter((k) => k.name !== "page") }), "New Templates.cts").templates.length, 0, "blank stationery has no templates");
-console.log("templates: ChemDraw template files (.ctp, .cts) ok");
 
 // ——— A set saved as a ChemDraw template file (writeTemplateFile) ———
 // CDX, as ChemDraw writes its template files: the colours and fonts, one page for each pane, row by row, then the
@@ -344,7 +340,6 @@ for (const set of SETS.filter((c) => ["Aromatics", "Metallocenes", "Lab", "Confo
   assert.deepEqual(r.templates.map((x) => x.name), set.items.map((x) => x.name), `${set.name} saved and read back`);
   r.templates.forEach((x, k) => assert.deepEqual(shape(x.mol), shape(set.items[k].mol), `${set.name}: ${x.name}`));
 }
-console.log("templates: a set saved as a ChemDraw template file and read back ok");
 
 // ——— Octet's own template library (library.json, built by tools/library/build.mjs) ———
 // Every built-in template parses, has a name of its own, has the CIP labels of the compound it is meant to be, gets
@@ -410,7 +405,6 @@ console.log(`templates: the labels of all ${items.filter((t) => t.mol.atoms.leng
       ...mol.atoms.flatMap((a, i) => (a.label === "C" && degree(i) === 1 ? [i] : []))];
     assert.ok(back.length && back.every((i) => x(i) < x(n)), `${name}: the other edge on the left`);
   }
-  console.log("templates: the nucleobases face one way (sugar's N down, Watson-Crick edge right) ok");
 }
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
@@ -446,7 +440,6 @@ await chem.ready;
   assert.equal(chem.toSmiles(azide), "CCN=[N+]=[N-]");
   assert.equal(chem.analyse(azide)?.[0].formula, "C2H5N3");
   assert.equal(chem.toInchi(azide), "InChI=1S/C2H5N3/c1-2-4-5-3/h2H2,1H3");
-  console.log("templates: functional groups, heterocycles and ligands placed keep their bonds (azide N=N+=N-, no stray H) ok");
 }
 const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
 for (let p = 0; ; ) {
@@ -604,7 +597,6 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
   const adenosine: Mol = { atoms: [...a.atoms, ...r.atoms], bonds: [...a.bonds, ...r.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + n, b.atoms[1] + n] as [number, number] }))] };
   assert.ok(!legible(adenosine), "adenosine shows the books");
   assert.ok(legible({ atoms: [], bonds: [] }), "a template of arrows or text keeps its own icon");
-  console.log("templates: the Template button's icon reads at toolbar size ok");
 }
 
 // Issue 36: generic stereocentres come first in the Stereocentres set, before the named compounds. Each is a carbon
@@ -634,7 +626,6 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
   assert.deepEqual([down, left, right], [up, up, up], "turned, the same configuration");
   assert.ok((wedge === "R" && hash === "S") || (wedge === "S" && hash === "R"), "mirror images");
   assert.ok(fischer === "R" || fischer === "S", fischer);
-  console.log("templates: generic stereocentres first, each a set stereocentre ok");
 }
 
 // Issue 97: the coordination polyhedra are frames (every corner on three edges or more, the hidden edges dashed), the

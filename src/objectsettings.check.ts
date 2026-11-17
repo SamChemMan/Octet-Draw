@@ -24,7 +24,6 @@ const mol: Mol = {
   const inset = objectSettings(mol, s, new Set([2, 3]), new Set([1]));
   assert.deepEqual(inset, { bond: 9.6, line: 0.4, bold: 1.3333, labelFont: "Arial", labelSize: 6.6667, captionFont: "Arial", captionSize: 10 });
   assert.deepEqual(objectSettings(mol, s, new Set(), new Set([2])), { bond: 14.4, line: 0.6 }, "an arrow: its size and line width");
-  console.log("objectsettings.check: read ok");
 }
 
 // Setting them: each value is the one drawn, kept over the scale; the document's value is no value of its own.
@@ -50,7 +49,6 @@ const mol: Mol = {
   assert.doesNotThrow(() => parse(serialize(wide)));
   const large: Mol = { ...small, atoms: small.atoms.map((a) => ({ ...a, scale: 4 })) };
   assert.equal(withObjectSettings(large, s, new Set([0, 1]), new Set(), { line: 0.01 }).bonds[0].line, 0.005);
-  console.log("objectsettings.check: set ok");
 }
 
 // Drawn: a bond's own line width (times its scale) on the canvas and in every export, which use the same drawing.
@@ -77,7 +75,6 @@ const mol: Mol = {
   assert.ok(Math.abs(bars(circle(ring(1.2)), (o) => o === -1) / bars(circle(ring()), (o) => o === -1) - 2) < 1e-9, "a ring's circle");
   const ligand = (m: Mol) => ({ ...m, bonds: m.bonds.map((b) => ({ ...b, type: 4 })), atoms: m.atoms.map((a) => ({ ...a, circle: undefined })) });
   assert.ok(Math.abs(bars(ligand(ring(1.2)), (o) => o === -100006) / bars(ligand(ring()), (o) => o === -100006) - 2) < 1e-9, "a π ligand's ellipse");
-  console.log("objectsettings.check: drawn ok");
 }
 
 // Saved: Octet's file keeps the widths; CDXML gives ChemDraw every setting of the bond (so it draws it as Octet does)
@@ -94,7 +91,6 @@ const mol: Mol = {
   assert.deepEqual([chemdraw.atoms[0].scale, chemdraw.bonds[0].line, chemdraw.bonds[0].own?.LineWidth], [undefined, undefined, "0.30"]);
   // Without widths of their own, bonds are written as before.
   assert.doesNotMatch(toCdxml(mol, s).match(/<b\s[^>]*\/>/)![0], /LineWidth/);
-  console.log("objectsettings.check: saved ok");
 }
 
 // Sizes in points follow the document's scale and a paste into a drawing of another bond length, as an arrow's do.

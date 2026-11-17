@@ -323,7 +323,6 @@ assert.equal(complexName(drawn("[NH3][Pt]([NH3])(Cl)Cl", "Pt(IV)"), api), undefi
   m.atoms[k] = { ...m.atoms[k], runs: [{ text: "Os" }, { text: "II", script: "super" }] };
   assert.equal(complexName(chem.expandLabels(m), api), "tris(1,10-phenanthroline-κ2N1,N10)osmium(II)", "Os with II raised");
 }
-console.log("namer-complex.check: metals labelled with an oxidation number named with it");
 
 // Configuration at the metal (IR-9.3): the donor atoms placed by hand round the metal, in the order of the metal's
 // bonds. A spot is a direction in the plane, with a wedge (1) or hash (6) from the metal. An octahedron is drawn as

@@ -38,7 +38,6 @@ for (const [x, y] of d.polygons.flat()) {
   assert.ok(Math.hypot(dx, dy) > S.margin - 0.01, "bonds stop outside the label margin");
 }
 assert.equal(d.labels.length, 1);
-console.log("render.check: pyridine ok");
 
 // A hashed wedge has round(length / (Hash Spacing + line width)) marks. Where another bond meets its wide end the last mark is left
 // out, as ChemDraw draws it, so that bond's line takes its place in the count (issue 7).
@@ -76,7 +75,6 @@ const iso = render({
   bonds: [1, 2, 3].map((j) => ({ type: 1, atoms: [0, j] as [number, number] })),
 }, S, ink);
 assert.equal(iso.polygons.filter((poly) => has(poly, [0, 0])).length, 3, "fan shares the centre");
-console.log("render.check: fan ok");
 
 // Acetone: the centred C=O lines run 0.748 pt past the carbonyl carbon (h · cot 120°).
 const acetone = render({
@@ -86,14 +84,12 @@ const acetone = render({
 const co = acetone.polygons.filter((poly) => poly.length === 4 && Math.abs(poly[0][1] - poly[3][1]) > 5);
 assert.equal(co.length, 2, "two C=O lines");
 for (const poly of co) assert.ok(Math.abs(poly[0][1] - 0.748 * pt) < 0.01, "C=O line starts 0.748 pt past the carbon");
-console.log("render.check: carbonyl ok");
 
 // Methylamine drawn left to right: NH2 reads N, H, then a smaller subscript 2, all to the right of the atom.
 const amine = render({ atoms: [{ label: "C", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, ink);
 assert.deepEqual(amine.labels.map((l) => l.text), ["N", "H", "2"]);
 assert.ok(amine.labels[1].x > amine.labels[0].x && amine.labels[2].x > amine.labels[1].x, "H2 follows N");
 assert.ok(amine.labels[2].size < amine.labels[1].size && amine.labels[2].y > amine.labels[1].y, "2 is a subscript");
-console.log("render.check: amine ok");
 
 // Nitro group: N+ and O– get their charge signs; neither gets an H.
 const nitro = render({
@@ -101,7 +97,6 @@ const nitro = render({
   bonds: [{ type: 1, atoms: [0, 1] }, { type: 2, atoms: [1, 2] }, { type: 1, atoms: [1, 3] }],
 }, S, ink);
 assert.deepEqual(nitro.labels.map((l) => l.text).sort(), ["+", "N", "O", "O", "–"].sort());
-console.log("render.check: charges ok");
 
 // Carbocation: no C label, just the + beside the vertex, and the carbon still joins its bonds in a fan.
 const cation = render({
@@ -110,7 +105,6 @@ const cation = render({
 }, S, ink);
 assert.deepEqual(cation.labels.map((l) => l.text), ["+"]);
 assert.equal(cation.polygons.filter((poly) => has(poly, [0, 0])).length, 3, "charged carbon keeps its fan");
-console.log("render.check: carbocation ok");
 
 // Written labels read away from their bond: OMe on a bond from the left reads OMe; from the right, MeO.
 const methoxy = (fromRight: boolean) => render({
@@ -126,7 +120,6 @@ const ester = render({
 }, S, ink);
 assert.deepEqual(ester.labels.map((l) => l.text), ["Et", "O", "2", "C"]);
 assert.ok(ester.labels[2].size < ester.labels[1].size, "2 is a subscript");
-console.log("render.check: written labels ok");
 
 // A label reads the same distance off its atom either way. Read left to right, its first glyph sits centred on the
 // atom. Read right to left, a label that ends with that glyph (HO, MeO, F3C, ⁻O) keeps it centred; one that does not
@@ -241,7 +234,6 @@ console.log("render.check: written labels ok");
   // A charge goes after the attaching line.
   const charged = lined("NMe3\nsalt", [-1, 0], { label: "N", charge: 1 });
   assert.ok(charged.d.labels.some((l) => l.text === "+" && l.y < charged.rows[0][0].y && l.x > charged.rows[0][0].x), "the sign by the first line");
-  console.log("render.check: labels of more than one line ok");
 
   // A stacked H sits 8.35 pt from the N, baseline to baseline, in Arial 10 pt: ChemDraw 22.2's stacked NH, above and
   // below, in Sam's CDXML files (8.35, 8.36 and 8.35 pt). Indole's NH stacks under the N, NH2 stacked by hand puts H2
@@ -261,7 +253,6 @@ console.log("render.check: written labels ok");
     ] as const) assert.ok(Math.abs(g - 8.35) < 0.01, `${name}: stacked 8.35 pt apart (${g.toFixed(3)} pt)`);
     assert.ok(Math.abs(gap({ label: "N", align: "below" }, [[0, 1]], "H", "2") - 0.212 * 10) < 1e-9, "the 2 of a stacked NH2 is a subscript on the H");
   }
-  console.log("render.check: stacked H ok");
 
   // A written label with some characters bold (its runs, styled as it is typed): each piece is drawn in its own style
   // and measured in it (bold here is 10% wider), so what follows a bold piece moves along by its bold width. Read right
@@ -287,7 +278,6 @@ console.log("render.check: written labels ok");
   const hued = render({ atoms: [{ label: "O", text: "OMe", colour: "#1D4E89", runs: [{ text: "O", colour: "#B42323" }, { text: "Me" }], location: [0, 0, 0] }, { label: "C", location: [-1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, wider);
   assert.deepEqual(hued.labels.map((l) => [l.text, l.colour]), [["O", "#B42323"], ["Me", "#1D4E89"]]);
   assert.deepEqual(hued.labels.map((l) => l.x), styledAt("OMe", [-1, 0], undefined).map((l) => l.x));
-  console.log("render.check: labels with styled characters ok");
 }
 
 // Captions: centred on the structure's ink box, baseline 15 pt below it; a second caption stacks one line down.
@@ -305,7 +295,6 @@ console.log("render.check: written labels ok");
   // A free caption stays where it was put, in drawing units.
   const [free] = placeCaptions({ ...pyridine, captions: [{ id: 1, text: "a\nb", x: 2, y: -1, align: "left" }] }, dc, one(10));
   assert.deepEqual([free.lines[0].x, free.lines[0].y, free.lines.length, free.anchor], [2 * dc.scale, dc.scale, 2, "start"]);
-  console.log("render.check: captions ok");
 }
 
 // Arrows: a reaction arrow is a shaft and a head; conditions wider than the arrow lengthen it about its middle.
@@ -315,7 +304,6 @@ console.log("render.check: written labels ok");
   assert.equal(arrowShapes({ ...a, kind: "equilibrium" }, S, S.bond).length, 4, "two shafts, two half heads");
   const [fitted] = fitArrows({ atoms: [], bonds: [], arrows: [a], captions: [{ id: 2, text: "x", x: 0, y: 0, on: { arrow: 1, side: "above" } }] }, S.bond, () => 200);
   assert.ok(fitted.from[0] < 0 && fitted.to[0] > 2 && Math.abs(fitted.from[0] + fitted.to[0] - 2) < 1e-9, "lengthened about its middle");
-  console.log("render.check: arrows ok");
 }
 
 // ChemDraw's head sizes and arrow kinds (CD-14, CD-15). Arrows run along +x at k = S.bond px per bond length.
@@ -415,7 +403,6 @@ console.log("render.check: written labels ok");
   for (const more of [{}, { headSize: headOfLength(22.5) }, { style: "bold" }, { kind: "equilibrium" }, { kind: "resonance" }, { end: "right" }, { start: "left" }, { kind: "nogo" }, { kind: "block" },
     { kind: "curved", bend: sweepBend(270) }, { kind: "fishhook", to: [0.4, 0], bend: sweepBend(120) }, { kind: "fishhook", bend: -sweepBend(90) }, { kind: "double", to: [0.6, 0], bend: sweepBend(180) }] as Partial<Arrow>[])
     assert.ok(arrowShapes({ ...a, ...more }, S, k).every((p) => area(p) < 0), `winding: ${JSON.stringify(more)}`);
-  console.log("render.check: arrow sizes and kinds ok");
 }
 
 // Shapes (CD-18): a turned box's outline is the level one turned about its middle (anticlockwise on the page), a bold
@@ -430,7 +417,6 @@ console.log("render.check: written labels ok");
   const m = markAt({ id: 2, kind: "brackets", from: [0, 0], to: [2, 2], angle: 180 }, k);
   assert.ok(Math.abs(m.x / k - (2 - 2.08)) < 1e-9 && Math.abs(-m.y / k - (2 - 1.9)) < 1e-9, "mark turns with the brackets");
   assert.deepEqual(turnedWith({ kind: "tlc", from: [0, 0], to: [2, 2], angle: 90 }, [0, 0]), [0, 0], "a TLC plate stays level");
-  console.log("render.check: turned and bold shapes ok");
 }
 
 // A turned caption (CD-19) turns about its anchor on the first baseline: its frame is the level box, and its box is
@@ -441,7 +427,6 @@ console.log("render.check: written labels ok");
   assert.ok(Math.hypot(...c.pivot!) === 0);
   const f = c.frame!, b = c.box;
   assert.ok(Math.abs(b[0] - f[1]) < 1e-9 && Math.abs(b[1] - -f[2]) < 1e-9 && Math.abs(b[2] - f[3]) < 1e-9 && Math.abs(b[3] - -f[0]) < 1e-9, "box round the turned frame");
-  console.log("render.check: turned captions ok");
 }
 
 // Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.
@@ -453,7 +438,6 @@ console.log("render.check: written labels ok");
   assert.equal(text({ ...S, terminal: true }), "CH3OH");
   assert.equal(text({ ...S, terminal: true, carbons: true }), "CH3CH2CH2OH");
   assert.equal(text({ ...S, terminal: true, hideH: true }), "CO");
-  console.log("render.check: label options ok");
 }
 
 // Drawing structure by structure gives the same drawing as drawing them all at once, and a structure whose atoms and
@@ -534,7 +518,6 @@ console.log("render.check: written labels ok");
   assert.notEqual(renderParts(wrong, S, ink, S.bond, turning, false).parts[1].drawing, flatOut.parts[1].drawing, "a change of shape is drawn again");
   const settled = renderParts(turn(30), S, ink, S.bond, turning, true);
   assert.ok(settled.parts[1].drawing !== flatOut.parts[1].drawing && settled.parts[1].turn === 0, "drawn again when still");
-  console.log("render.check: structure by structure ok");
 }
 
 // Label cuts: a bond into a label of one glyph stops where every point of the glyph's outline, and of the outline
@@ -558,7 +541,6 @@ console.log("render.check: written labels ok");
     const reach = Math.min(...d.polygons[0].map((q) => q[0] * u[0] + q[1] * u[1]));
     assert.ok(Math.abs(reach - cut) < 1e-9, `bond from ${deg}° stops at the cut`);
   }
-  console.log("render.check: label cuts ok");
 }
 
 // Crossing bonds (ChemDraw's Bond Crossing): the bond later in the list is in front; the one behind has a gap where
@@ -579,7 +561,6 @@ console.log("render.check: written labels ok");
   assert.ok(covered(swapped, [0, 0.5]) && !covered(swapped, [2.45, 0]), "Bring to Front swaps them");
   const parts = renderParts(cross, S, ink, L, { parts: new WeakMap(), last: new Map() } as PartCache);
   assert.equal(parts.parts.length, 1, "crossing structures draw together");
-  console.log("render.check: crossing bonds ok");
 }
 
 // Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
@@ -600,7 +581,6 @@ console.log("render.check: written labels ok");
   const placed = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "H2\nO", x: 0, y: 0, lineHeight: "variable", runs: [{ text: "H" }, { text: "2", script: "sub" }, { text: "\nO" }] }] },
     { ink: [], scale: 19.2 }, (t) => t.length, [], 1, 10, new Map(), undefined, (_, __, r) => (r.script ? [5, 1] : [7, 0]))[0];
   assert.ok(Math.abs(placed.lines[1].y - placed.lines[0].y - (1 + 0.212 * 10 + 7)) < 1e-9, `subscript ink: ${placed.lines.map((l) => l.y)}`);
-  console.log("render.check: line spacing ok");
 }
 
 // A caption with a width wraps to it, and a justified one fills it on every line but the last.
@@ -614,7 +594,6 @@ console.log("render.check: written labels ok");
   assert.equal(full.anchor, "start");
   assert.ok(Math.abs(full.lines[0].spacing! - 1) < 1e-9, "the first line's one space takes the one spare px");
   assert.equal(full.lines[1].spacing, undefined, "the last line is not spread");
-  console.log("render.check: caption width ok");
 }
 
 
@@ -707,7 +686,6 @@ console.log("render.check: written labels ok");
   const y1 = cycleOf(small, 1), y2 = cycleOf(big, 2), l1 = layoutCycles(y1, S.bond, pt, inkOf(y1, 1)), l2 = layoutCycles(y2, S.bond, pt, inkOf(y2, 2));
   l1.arrows.forEach((a, i) => { assert.equal(l2.arrows[i].scale, 2, "a cycle's arrows take its scale"); twice([[a.from, a.to]], [[l2.arrows[i].from, l2.arrows[i].to]], "cycle arrows"); });
   twice([[...l1.anchors.values()].map((x) => [x.x, x.y] as P)], [[...l2.anchors.values()].map((x) => [x.x, x.y] as P)], "cycle text");
-  console.log("render.check: every object at scale 2 ok");
 }
 
 // REL-15: a turned caption turns about its anchor, and its box is the box round the turned text; a bond with its own
@@ -729,7 +707,6 @@ console.log("render.check: written labels ok");
     return Math.max(...ys) - Math.min(...ys);
   };
   assert.ok(Math.abs(height(12) - height() - (0.12 - 0.18) * S.bond) < 1e-6, "the lines 12% of the bond length apart, not 18%");
-  console.log("render.check: turned captions and a bond's own spacing ok");
 }
 
 // REL-15: a rounded box with its own corner radius (from ChemDraw's CornerRadius) draws it; others keep 0.3 bond lengths.

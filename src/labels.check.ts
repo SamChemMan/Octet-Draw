@@ -62,7 +62,6 @@ for (const [t, want] of Object.entries({
 })) assert.equal(runs(t), want, t);
 // A label of more than one line is text: no chemistry reads it (it counts as an unknown atom), and it is no element.
 for (const t of ["Direct,\nNo ISC", "OMe\nCH3", "N\nH"]) assert.ok(labelSmiles(t) === undefined && !isElement(t), JSON.stringify(t));
-console.log("labels.check: ok");
 
 // Issue 44: the counts inside a bracket are subscripts on the canvas and in pictures, as the 2 after it is (and as
 // ChemDraw draws the CDXML). Pieces keep the label's text in order; reading a label for its chemistry is unchanged.
@@ -114,7 +113,6 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
       assert.ok(l.x > fe.x, `III after Fe (${dx > 0 ? "left to right" : "right to left"})`);
     }
   }
-  console.log("labels.check: superscript and subscript in labels ok");
 }
 
 // The labels of the paper corpus (docs/plans/mcp-v2-corpus-faults.md, 11 November 2026). Each family is read by one
@@ -206,7 +204,6 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     assert.ok(least < 300, `${first}${name}${name}… of 20,000 letters: ${least.toFixed(0)} ms`);
     assert.equal(labelSmiles(first + name.repeat(60000 / name.length) + "x"), undefined);
   }
-  console.log("labels.check: hyphens, labels written from the left, diolates, phenyls with positions, isotopes and stand-ins ok");
 }
 
 // The same labels as structures: each on a benzene ring is the compound written in full (its SMILES, from which the

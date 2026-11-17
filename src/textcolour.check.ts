@@ -39,7 +39,6 @@ assert.deepEqual(shareColour([{ text: "a", colour: INK }, { text: "b", colour: I
 // The caption's own colour, with runs that have none of their own, is kept as it is.
 assert.deepEqual(shareColour([{ text: "a" }, { text: "b", bold: true }], BLUE, INK), { colour: BLUE, runs: [{ text: "a" }, { text: "b", bold: true }] });
 assert.deepEqual(shareColour(undefined, BLUE, INK), { colour: BLUE, runs: undefined });
-console.log("textcolour.check: typing ok");
 
 // Save and open: .oct (Octet's JSON and its CDXML), CDXML and CDX keep each run's colour and the caption's.
 const captions: Caption[] = [

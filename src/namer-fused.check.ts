@@ -223,7 +223,6 @@ run("bridged fused", [
   assert.match(withN("smiles:Cc1ccc2c(c1)CN1CN2Cc2cc(C)ccc21", ["R", "R"]).labelled!, /^\(5R,11R\)-/, "Tröger's base keeps R and S on its N");
   assert.match(withN("smiles:C1CC[N]2CCC[C@@H]2C1", ["S"]).labelled!, /\b4S\b/, "an N at a ring fusion keeps its R or S");
 }
-console.log("namer-fused.check: R or S on a bridgehead amine N left out where the other bridgehead sets it ok");
 // Spiro unions with a polycyclic component (P-24.5): components in alphabetical order, the second primed; identical
 // components as spirobi[...]; saturated monocyclic components by their saturated names.
 run("spiro", [

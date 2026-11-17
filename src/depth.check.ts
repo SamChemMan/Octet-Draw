@@ -53,7 +53,6 @@ assert.equal((found as chem.Analysis)[0].formula, "C36H84Si5");
 const [smiles, smilesMs] = timed(() => chem.toSmiles(busy));
 assert.ok(smiles instanceof RangeError, "SMILES past the ceiling fails");
 assert.ok(smilesMs < 11_000, `the SMILES took ${Math.round(smilesMs)} ms`);
-console.log("depth.check: a crowded structure with depth gives its formula and does not stop the editor ok");
 
 // Depth still sets stereochemistry where it is read: L-alanine in 3D is L-alanine.
 const alanine: Mol = {
@@ -63,7 +62,6 @@ const alanine: Mol = {
 };
 assert.equal(chem.toInchi(alanine), "InChI=1S/C3H7NO2/c1-2(4)3(5)6/h2H,4H2,1H3,(H,5,6)/t2-/m0/s1");
 assert.equal(chem.analyse(alanine)?.[0].formula, "C3H7NO2");
-console.log("depth.check: depth still gives a stereocentre its hand ok");
 
 // 3D Clean Up keeps what a structure is. Its SMILES and InChI are the same after one clean-up, after a second, after a
 // turn in 3D (Structure Perspective) and after Flatten: each command keeps the wedges reading as they did (cip.ts
@@ -96,7 +94,6 @@ for (const [name, text] of KEPT) {
   assert.deepEqual(other.bonds.map((b) => b.stereo), all3.bonds.map((b) => b.stereo), "cleaning up the ethanol leaves the menthol's wedges");
   assert.deepEqual(flattenAtoms(all3, new Set(part)).bonds.map((b) => b.stereo), all3.bonds.map((b) => b.stereo), "flattening the ethanol leaves the menthol's wedges");
 }
-console.log("depth.check: a structure reads as the same stereoisomer after 3D Clean Up, a turn in 3D and Flatten ok");
 
 // Shapes 3D Clean Up got wrong (12 November 2026), from the drawings their SMILES give.
 const span = (m: Mol, e: number) => Math.max(...m.atoms.map((a) => a.location[e])) - Math.min(...m.atoms.map((a) => a.location[e]));

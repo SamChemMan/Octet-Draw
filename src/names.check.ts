@@ -335,7 +335,6 @@ assert.equal(wrong.length, 0);
     assert.match(editor, /invoke<string \| null>\("pubchem_structure", \{ text: casNumber\(s\) \?\? s \}\)/, "PubChem gets the number alone, which is the form it knows");
     assert.match(editor, /const own = casNumber\(name\) \? undefined : ownName\(name\);/, "a CAS number draws with no caption");
   }
-  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import, kept CAS numbers) ok");
 }
 
 // ——— [n] families neither OPSIN nor the dictionary reads (familySmiles), against what already reads ———
