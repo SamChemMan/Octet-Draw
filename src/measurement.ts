@@ -6,11 +6,9 @@
 // The Å scale is 3D Clean Up's own unit (clean3d.ts): a bond's real length over a C–C single bond's (its ratio), so
 // a structure's median of (length / ratio) is the length of a 1.52 Å bond. Scaling the drawing or changing the style
 // never changes a value, and a bond reads the length 3D Clean Up gives it.
-import { bondRatios, clean3d, MOST_3D } from "./clean3d.ts";
-import { keepHands } from "./cip.ts";
+import { bondRatios } from "./clean3d.ts";
 import { widthOf } from "./arial.ts";
 import { DEFAULT_STYLE, type DocStyle } from "./docstyle.ts";
-import { addCaption } from "./edit.ts";
 import { ASCENT, DESCENT, HBOND, type Atom, type Bond, type Caption, type Measure, type Mol } from "./render.ts";
 
 export type MeasureKind = "distance" | "angle" | "dihedral";
@@ -154,20 +152,61 @@ export function measureFrame(m: Mol, atoms: number[]): { o: P; u: P; v: P } {
   return { o, u, v: perp(u) };
 }
 
-// Where a label goes when it has not been moved by hand (its middle), for a label w by h (bond lengths). An angle's,
-// inside the angle past its arc. A distance's and a dihedral's, beside the middle of the line (the middle bond), on
-// the side with fewer of the atoms near it; with as many each side, above.
-function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, h: number, near: (i: number) => number[]): P {
+// Where a label goes when it has not been moved by hand (its middle), for a label w by h (bond lengths): the nearest
+// place clear of the bonds, the atoms and the labels placed before it (taken), out along its frame. A distance's and a
+// dihedral's, beside the middle of the line (the middle bond): first on the side with fewer of the atoms near it (with as
+// many each side, above), then the other side, a step further each time. An angle's, inside the angle past its arc, then
+// outside past its middle atom. Where nothing is clear, the place with the fewest in the way.
+type Box = [number, number, number, number];
+const STEP = 0.25, FAR = 3;
+function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, h: number, near: (i: number) => number[], taken: Box[]): P {
   const reach = (d: P) => (Math.abs(d[0]) * w) / 2 + (Math.abs(d[1]) * h) / 2;
-  if (atoms.length === 3) return add(f.o, mul(f.u, ARC + GAP + reach(f.u)));
-  const mine = new Set(atoms), others = new Set<number>();
-  for (const i of atoms) for (const j of near(i)) if (!mine.has(j)) others.add(j);
-  if (atoms.length === 4) { others.add(atoms[0]); others.add(atoms[3]); }
-  let score = 0;
-  for (const j of others) { const s = cross(f.u, sub(at2(m, j), f.o)); if (Math.abs(s) > 1e-6) score += Math.sign(s); }
-  const side = score > 0 ? -1 : score < 0 ? 1 : f.v[1] > 1e-9 || (Math.abs(f.v[1]) <= 1e-9 && f.v[0] < 0) ? 1 : -1;
-  const d = mul(f.v, side);
-  return add(f.o, mul(d, GAP + reach(d)));
+  let ways: { d: P; from: number }[];
+  if (atoms.length === 3) {
+    const out = mul(f.u, -1), vertex = labelled(m.atoms[atoms[1]]) ? 0.35 : 0.1;
+    ways = [{ d: f.u, from: ARC + GAP + reach(f.u) }, { d: out, from: vertex + GAP + reach(out) }];
+  } else {
+    const mine = new Set(atoms), others = new Set<number>();
+    for (const i of atoms) for (const j of near(i)) if (!mine.has(j)) others.add(j);
+    if (atoms.length === 4) { others.add(atoms[0]); others.add(atoms[3]); }
+    let score = 0;
+    for (const j of others) { const s = cross(f.u, sub(at2(m, j), f.o)); if (Math.abs(s) > 1e-6) score += Math.sign(s); }
+    const side = score > 0 ? -1 : score < 0 ? 1 : f.v[1] > 1e-9 || (Math.abs(f.v[1]) <= 1e-9 && f.v[0] < 0) ? 1 : -1;
+    ways = [mul(f.v, side), mul(f.v, -side)].map((d) => ({ d, from: GAP + reach(d) }));
+  }
+  // What could be in the way: the bonds and atoms within reach of every place tried.
+  const r = FAR + Math.max(w, h) + 1, inReach = (q: P) => Math.abs(q[0] - f.o[0]) <= r && Math.abs(q[1] - f.o[1]) <= r;
+  const segs: [P, P][] = [], points: [P, number][] = [];
+  for (const b of m.bonds) { const p = at2(m, b.atoms[0]), q = at2(m, b.atoms[1]); if (inReach(p) || inReach(q)) segs.push([p, q]); }
+  m.atoms.forEach((a, i) => { const p = at2(m, i); if (inReach(p) && !a.centre) points.push([p, labelled(a) ? 0.35 : 0.08]); });
+  const hits = (c: P) => {
+    const bx: Box = [c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2];
+    let n = 0;
+    for (const [p, q] of segs) if (crosses(p, q, bx)) n++;
+    for (const [p, rad] of points) if (p[0] > bx[0] - rad && p[0] < bx[2] + rad && p[1] > bx[1] - rad && p[1] < bx[3] + rad) n++;
+    for (const t of taken) if (t[0] < bx[2] && t[2] > bx[0] && t[1] < bx[3] && t[3] > bx[1]) n += 2;
+    return n;
+  };
+  // An angle tries inside first, a little way, before outside; a line takes its two sides in turn.
+  const order: P[] = [];
+  const along = (k: number, n: number) => { const x = ways[k]; return add(f.o, mul(x.d, x.from + n * STEP)); };
+  const steps = Math.round(FAR / STEP);
+  if (atoms.length === 3) { for (let n = 0; n <= 4; n++) order.push(along(0, n)); for (let n = 0; n <= steps; n++) order.push(along(1, n)); for (let n = 5; n <= steps; n++) order.push(along(0, n)); }
+  else for (let n = 0; n <= steps; n++) order.push(along(0, n), along(1, n));
+  let best = order[0], fewest = Infinity;
+  for (const c of order) { const n = hits(c); if (n < fewest) { [best, fewest] = [c, n]; if (!n) break; } }
+  return best;
+}
+// Whether a line from p to q passes through a box (Liang and Barsky's clip).
+function crosses(p: P, q: P, b: Box): boolean {
+  let t0 = 0, t1 = 1;
+  const d = sub(q, p);
+  for (const [den, num] of [[-d[0], p[0] - b[0]], [d[0], b[2] - p[0]], [-d[1], p[1] - b[1]], [d[1], b[3] - p[1]]]) {
+    if (Math.abs(den) < 1e-12) { if (num < 0) return false; continue; }
+    const t = num / den;
+    if (den < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return t0 < t1;
 }
 // Each atom's bonded neighbours (no hydrogen bonds), for the drawing's bonds.
 const neighbourLists = new WeakMap<Bond[], number[][]>();
@@ -181,7 +220,7 @@ function neighboursOf(m: Mol): (i: number) => number[] {
   return (i) => near![i] ?? [];
 }
 
-const sameAtoms = (a: number[], b: number[]) => a.length === b.length && a.every((x, k) => x === b[k]);
+export const sameAtoms = (a: number[], b: number[]) => a.length === b.length && a.every((x, k) => x === b[k]);
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 // Each measurement after an edit: its value and text worked out from its atoms, and its label placed (or, when the
 // edit moved the label alone, its offset kept). A measurement whose atoms are not 2 to 4 distinct atoms of the
@@ -194,6 +233,7 @@ export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: D
   const k = chemistry(after), memo = new Map<string, number>(), style = docStyle ?? after.style ?? DEFAULT_STYLE, around = neighboursOf(after);
   const was = before?.captions?.some(isMeasure) ? new Map(before.captions.filter(isMeasure).map((c) => [c.id, c])) : undefined;
   let changed = false;
+  const taken: Box[] = [];
   const out = cs.map((c) => {
     if (!c.measure) return c;
     if (!soundMeasure(c.measure, after.atoms.length)) { changed = true; const { measure: _, ...plain } = c; return plain; }
@@ -208,7 +248,9 @@ export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: D
       middle = [c.x + shift, c.y + lift];
       const d = sub(middle, f.o);
       at = [Math.round(dot(d, f.u) * 1e6) / 1e6, Math.round(dot(d, f.v) * 1e6) / 1e6];
-    } else middle = at ? add(f.o, add(mul(f.u, at[0]), mul(f.v, at[1]))) : autoPlace(after, atoms, f, w, (ASCENT + DESCENT) * size, around);
+    } else middle = at ? add(f.o, add(mul(f.u, at[0]), mul(f.v, at[1]))) : autoPlace(after, atoms, f, w, (ASCENT + DESCENT) * size, around, taken);
+    // (The first hundred labels keep clear of each other: a hostile file of thousands costs no more than that.)
+    if (taken.length < 100) taken.push([middle[0] - w / 2, middle[1] - ((ASCENT + DESCENT) * size) / 2, middle[0] + w / 2, middle[1] + ((ASCENT + DESCENT) * size) / 2]);
     const x = middle[0] - shift, y = middle[1] - lift, same = c.text === text && near(c.x, x) && near(c.y, y) && at === c.measure.at && !c.runs && c.chemical === false;
     if (same) return c;
     changed = true;
@@ -269,35 +311,4 @@ export function structuresOf(m: Mol, atoms: number[]): number[][] {
 }
 // A structure drawn flat: no atom has depth, and none has depth shading (3D Clean Up turns it on, so a structure that
 // is flat in 3D, such as anti butane, is not cleaned up again each time).
-const flatAtoms = (m: Mol, g: number[]) => g.every((i) => Math.abs(m.atoms[i].location[2] ?? 0) < 1e-6 && !m.atoms[i].shade);
-
-// The drawing with the structures these atoms are in cleaned up in 3D, as 3D Clean Up does it, where they are drawn
-// flat, so a measurement of them has a real value. A structure of more than MOST_3D atoms stays flat (tooBig).
-export function cleanedFor(m: Mol, atoms: number[]): { mol: Mol; cleaned: number[][]; tooBig: boolean } {
-  let mol = m, tooBig = false;
-  const cleaned: number[][] = [];
-  for (const g of structuresOf(m, atoms)) {
-    if (g.length < 2 || !flatAtoms(m, g)) continue;
-    if (g.length > MOST_3D) { tooBig = true; continue; }
-    mol = keepHands(mol, clean3d(mol, g), g);
-    cleaned.push(g);
-  }
-  return { mol, cleaned, tooBig };
-}
-
-// Makes a measurement of these atoms (2 a distance, 3 an angle, 4 a dihedral), in the order given (order "pick", the
-// Measure tool's) or along their bonds (chainOrder: the menu's and an AI app's). A structure drawn flat is first cleaned
-// up in 3D (cleanedFor). The same measurement asked for again (the same atoms, either way round) is the one there
-// (made false). A string says why there is none.
-export type Made = { mol: Mol; id: number; made: boolean; cleaned: number[][]; tooBig: boolean };
-export function addMeasure(m: Mol, atoms: number[], order: "pick" | "chain" = "chain"): Made | string {
-  if (atoms.length < 2 || atoms.length > 4) return "A measurement takes 2 to 4 atoms.";
-  if (new Set(atoms).size !== atoms.length) return "A measurement takes each atom once.";
-  if (!atoms.every((i) => Number.isInteger(i) && i >= 0 && i < m.atoms.length)) return "That atom is not in the drawing.";
-  const ordered = order === "pick" ? atoms : chainOrder(m, atoms), back = [...ordered].reverse();
-  const there = m.captions?.find((c) => c.measure && (sameAtoms(c.measure.atoms, ordered) || sameAtoms(c.measure.atoms, back)));
-  if (there) return { mol: m, id: there.id, made: false, cleaned: [], tooBig: false };
-  const { mol, cleaned, tooBig } = cleanedFor(m, ordered);
-  const [made, id] = addCaption(mol, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: ordered } });
-  return { mol: settleMeasures(undefined, made), id, made: true, cleaned, tooBig };
-}
+export const flatAtoms = (m: Mol, g: number[]) => g.every((i) => Math.abs(m.atoms[i].location[2] ?? 0) < 1e-6 && !m.atoms[i].shade);

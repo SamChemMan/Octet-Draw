@@ -2,8 +2,8 @@
 // wrong value, loses its atoms in an edit, or is read as chemistry. The plan: docs/plans/issue-85-measurements.md.
 import assert from "node:assert/strict";
 import { clean3d } from "./clean3d.ts";
-import { EMPTY, addCaption, addRing, deleteAtoms, transformParts } from "./edit.ts";
-import { addMeasure, chainOrder, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
+import { EMPTY, addCaption, addMeasure, addRing, deleteAtoms, transformParts } from "./edit.ts";
+import { chainOrder, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ASCENT, DESCENT, type Caption, type Mol } from "./render.ts";
 
@@ -270,4 +270,101 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   try { const opened = parse(JSON.stringify(many)); assert.equal(opened.captions!.filter((c) => c.measure).length, 10000); } catch (e) { assert.match(String(e), /damaged/); }
   assert.ok(performance.now() - t < 5000, "quickly");
   console.log("measurement.check: hostile files ok");
+}
+
+// J2, siblings: every edit that renumbers or copies atoms keeps a measurement with its atoms, or makes it plain text.
+{
+  const { contractLabel, duplicateSelection, extractSelection, insertMol, joinOverlaps, scaleSettings, tidyGroups, labelable, addTemplate, moveAtoms } = await import("./edit.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const base = made(addMeasure(chain(5), [1, 2, 3, 4])).mol, id = base.captions![0].id;
+  const m0 = base.captions![0];
+  // S9: deleting a measured atom removes the measurement in the same step; deleting another atom renumbers it.
+  assert.equal(deleteAtoms(base, new Set([3])).captions!.filter((c) => c.measure).length, 0);
+  const less = deleteAtoms(base, new Set([0]));
+  assert.deepEqual(less.captions![0].measure!.atoms, [0, 1, 2, 3], "renumbered");
+  assert.equal(settleMeasures(base, less).captions![0].text, m0.text, "the same value");
+  // S40: Contract Label over a measured atom ends that measurement; one on the label's own atom stays.
+  const two = made(addMeasure(base, [0, 2])).mol;
+  const contracted = contractLabel(two, 2, new Set([2, 3, 4]), "Pr");
+  assert.equal(contracted.captions!.filter((c) => c.measure).length, 1, "the dihedral went with its atoms");
+  assert.deepEqual(contracted.captions!.find((c) => c.measure)!.measure!.atoms, [0, 2], "the distance to the label's atom stays");
+  // A join: a measured atom dropped on another atom goes on as that atom; two of its atoms made one end it.
+  const apart = { ...base, atoms: [...base.atoms, { label: "C", location: [9, 9, 0] as [number, number, number] }] };
+  const onto = joinOverlaps(moveAtoms(apart, new Set([5]), [base.atoms[4].location[0] - 9, base.atoms[4].location[1] - 9]), new Set([5]));
+  assert.deepEqual(onto.mol.captions![0].measure!.atoms, [1, 2, 3, 4], "a free atom dropped on a measured one: the measurement stays");
+  const merged = joinOverlaps(moveAtoms(base, new Set([4]), [base.atoms[1].location[0] - base.atoms[4].location[0], base.atoms[1].location[1] - base.atoms[4].location[1]]), new Set([4]));
+  assert.equal(merged.mol.captions!.filter((c) => c.measure).length, 0, "two of its atoms made one");
+  // Copy (extractSelection) and paste (insertMol): with its atoms, a measurement of the new atoms (S16); picked without
+  // them, plain text (S17).
+  const all5 = new Set([0, 1, 2, 3, 4]);
+  const part = extractSelection(base, all5, new Set());
+  assert.deepEqual(part.captions![0].measure!.atoms, [1, 2, 3, 4], "copied with its structure");
+  const pasted = insertMol(base, part, [10, 0]).mol, again = settleMeasures(base, pasted);
+  assert.equal(again.captions!.filter((c) => c.measure).length, 2);
+  assert.deepEqual(again.captions![1].measure!.atoms, [6, 7, 8, 9], "the new atoms");
+  assert.equal(again.captions![1].text, m0.text, "the same value");
+  const alone = extractSelection(base, new Set([0, 1, 2]), new Set([id]));
+  assert.equal(alone.captions![0].measure, undefined, "a label copied without its atoms is plain text");
+  assert.equal(alone.captions![0].text, m0.text);
+  // S18: ⌘D (duplicateSelection) gives the copy its own measurement.
+  const dup = duplicateSelection(base, all5, new Set());
+  assert.deepEqual(dup.mol.captions!.map((c) => c.measure?.atoms), [[1, 2, 3, 4], [6, 7, 8, 9]]);
+  const dupAlone = duplicateSelection(base, new Set(), new Set([id]));
+  assert.equal(dupAlone.mol.captions![1].measure, undefined, "the label alone duplicated: plain text");
+  // S39: a template with a measurement, placed twice: each copy measures its own atoms.
+  let placed = addTemplate(EMPTY, base, { point: [0, 0] });
+  placed = addTemplate(placed, base, { point: [10, 0] });
+  const ms = settleMeasures(undefined, placed).captions!.filter((c) => c.measure);
+  assert.equal(ms.length, 2);
+  assert.notDeepEqual(ms[0].measure!.atoms, ms[1].measure!.atoms);
+  assert.ok(ms.every((c) => c.text === m0.text), `each copy measures its own atoms: ${ms.map((c) => c.text)}`);
+  // Copy as CDXML of a selection (cdxml.ts pick): with its atoms, the measurement goes; without, the text alone.
+  const sel = toCdxml(base, DEFAULT_STYLE, { selection: { atoms: all5, items: [id] } });
+  assert.equal(fromCdxml(sel).mol.captions!.filter((c) => c.measure).length, 1);
+  const selAlone = toCdxml(base, DEFAULT_STYLE, { selection: { atoms: [0, 1], items: [id] } });
+  assert.equal(fromCdxml(selAlone).mol.captions!.filter((c) => c.measure).length, 0);
+  // Groups take a measurement with its structure (it is attached text).
+  const grouped = tidyGroups({ ...base, groups: [{ id: 900, atoms: [0, 1, 2, 3, 4], items: [] }, { id: 901, atoms: [], items: [] }] });
+  assert.ok(grouped.groups!.some((g) => g.items.includes(id)), "a group of its structure holds it");
+  // Scale with labels: its text grows when its atoms are scaled.
+  assert.equal(scaleSettings(base, all5, new Set(), 2, 10).captions![0].size, 20);
+  // Never chemistry: no Make element.
+  assert.equal(labelable({ ...m0, text: "C" }), false);
+  console.log("measurement.check: siblings ok");
+}
+
+// S33, S34: a measurement label is not a reaction's conditions, and never joins a catalytic cycle.
+{
+  const { findReaction } = await import("./reaction.ts");
+  const { dropOnCycle } = await import("./cycle.ts");
+  const { addArrow, addCycle, fragments, insertMol } = await import("./edit.ts");
+  // A → B with a measurement of B's atoms whose label sits over the arrow.
+  const a = chain(3), b = { ...chain(3), atoms: chain(3).atoms.map((x) => ({ ...x, location: [x.location[0] + 6, x.location[1], 0] as [number, number, number] })) };
+  let m = insertMol(a, b).mol;
+  [m] = addArrow(m, { kind: "reaction", from: [2.5, 0.2], to: [5, 0.2] });
+  const r0 = made(addMeasure(m, [3, 5]));
+  const lab = r0.mol.captions!.find((c) => c.id === r0.id)!;
+  m = { ...r0.mol, captions: r0.mol.captions!.map((c) => (c.id === r0.id ? { ...c, x: 3.75, y: 0.8, measure: { ...c.measure!, at: [0, 0] as [number, number] } } : c)) };
+  const ink = (atoms: number[]) => { const ps = atoms.map((i) => m.atoms[i].location); return [Math.min(...ps.map((p) => p[0])) - 0.3, Math.min(...ps.map((p) => p[1])) - 0.3, Math.max(...ps.map((p) => p[0])) + 0.3, Math.max(...ps.map((p) => p[1])) + 0.3] as [number, number, number, number]; };
+  const box = (id: number) => { const c = m.captions?.find((x) => x.id === id); return c ? [c.x - 1, c.y - 0.3, c.x + 1, c.y + 0.4] as [number, number, number, number] : undefined; };
+  const arrowId = m.arrows![0].id, read = findReaction(m, arrowId, m.arrows!, ink, box);
+  assert.ok(read, "the reaction reads");
+  assert.ok(!JSON.stringify(read!.steps).includes(`"id":${lab.id}`), "the measurement is not a step or its conditions");
+  const said = (r: NonNullable<typeof read>) => JSON.stringify([r.steps, [...r.conditions.values()]]);
+  assert.ok(!said(read!).includes(`"id":${lab.id}`), "nor its conditions");
+  // The control: plain text in the same place is read as the arrow's conditions.
+  const { measure: _m, ...asText } = m.captions!.find((x) => x.id === lab.id)!;
+  m = { ...m, captions: m.captions!.map((x) => (x.id === lab.id ? asText : x)) };
+  const control = findReaction(m, arrowId, m.arrows!, ink, box);
+  assert.ok(said(control!).includes(`"id":${lab.id}`), "plain text there is read as part of the reaction");
+  // A cycle with a break at its right: plain text dropped there joins it; a measurement label does not.
+  let [c, cid] = addCycle(chain(2), { centre: [20, 0], radius: 3, clockwise: true, nodes: [], at: [] });
+  c = (await import("./cycle.ts")).addStop(c, cid, 0, []);
+  const near: Mol = { ...c, captions: [{ id: 50, text: "1.52 Å", x: 23, y: 0, measure: { atoms: [0, 1] } }] };
+  const opts = { box: (t: Caption) => [t.x - 0.5, t.y - 0.2, t.x + 0.5, t.y + 0.4] as [number, number, number, number], bond: 14.4 };
+  const dropped = dropOnCycle(near, fragments(near), c, opts);
+  assert.equal(dropped.captions![0].cycle, undefined, "a measurement never joins a cycle");
+  const plain = dropOnCycle({ ...near, captions: [{ id: 50, text: "H2O", x: 23, y: 0 }] }, fragments(near), c, opts);
+  assert.ok(plain.captions![0].cycle, "plain text there does (the control)");
+  console.log("measurement.check: not chemistry ok");
 }

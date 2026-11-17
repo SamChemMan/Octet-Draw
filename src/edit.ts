@@ -8,7 +8,8 @@ import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
-import { remapCaption } from "./measurement.ts";
+import { chainOrder, flatAtoms, remapCaption, sameAtoms, settleMeasures, structuresOf } from "./measurement.ts";
+import { clean3d, MOST_3D } from "./clean3d.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -3036,4 +3037,36 @@ export function cutReaction(m: Mol, from: P, to: P, retro: boolean): { mol: Mol;
   const arrow = () => { x += GAP; [out] = addArrow(out, { kind: retro ? "retro" : "reaction", from: [x, level], to: [x + ARROW, level] }); x += ARROW + GAP; };
   if (retro) { place(product); arrow(); row(sorted); } else { row(sorted); arrow(); place(product); }
   return { mol: out, cut: cut.length, aromatic: crossed.length - cut.length, moved: sub(pos(out, product[0]), pos(whole, 0)) };
+}
+
+// Measurements (measurement.ts).
+// The drawing with the structures these atoms are in cleaned up in 3D, as 3D Clean Up does it, where they are drawn
+// flat, so a measurement of them has a real value. A structure of more than MOST_3D atoms stays flat (tooBig).
+export function cleanedFor(m: Mol, atoms: number[]): { mol: Mol; cleaned: number[][]; tooBig: boolean } {
+  let mol = m, tooBig = false;
+  const cleaned: number[][] = [];
+  for (const g of structuresOf(m, atoms)) {
+    if (g.length < 2 || !flatAtoms(m, g)) continue;
+    if (g.length > MOST_3D) { tooBig = true; continue; }
+    mol = keepHands(mol, clean3d(mol, g), g);
+    cleaned.push(g);
+  }
+  return { mol, cleaned, tooBig };
+}
+
+// Makes a measurement of these atoms (2 a distance, 3 an angle, 4 a dihedral), in the order given (order "pick", the
+// Measure tool's) or along their bonds (chainOrder: the menu's and an AI app's). A structure drawn flat is first cleaned
+// up in 3D (cleanedFor). The same measurement asked for again (the same atoms, either way round) is the one there
+// (made false). A string says why there is none.
+export type Made = { mol: Mol; id: number; made: boolean; cleaned: number[][]; tooBig: boolean };
+export function addMeasure(m: Mol, atoms: number[], order: "pick" | "chain" = "chain"): Made | string {
+  if (atoms.length < 2 || atoms.length > 4) return "A measurement takes 2 to 4 atoms.";
+  if (new Set(atoms).size !== atoms.length) return "A measurement takes each atom once.";
+  if (!atoms.every((i) => Number.isInteger(i) && i >= 0 && i < m.atoms.length)) return "That atom is not in the drawing.";
+  const ordered = order === "pick" ? atoms : chainOrder(m, atoms), back = [...ordered].reverse();
+  const there = m.captions?.find((c) => c.measure && (sameAtoms(c.measure.atoms, ordered) || sameAtoms(c.measure.atoms, back)));
+  if (there) return { mol: m, id: there.id, made: false, cleaned: [], tooBig: false };
+  const { mol, cleaned, tooBig } = cleanedFor(m, ordered);
+  const [made, id] = addCaption(mol, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: ordered } });
+  return { mol: settleMeasures(undefined, made), id, made: true, cleaned, tooBig };
 }

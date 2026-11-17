@@ -6,7 +6,7 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
+import { addMeasure, bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
 import { change, labelled, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds, symbolOwners } from "./mixtures.ts";
 import { LIBRARY, loadMore } from "./library.ts";
@@ -28,7 +28,7 @@ import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { plusShapes, type Reaction } from "./reaction.ts";
 import { MOST_3D } from "./clean3d.ts";
-import { addMeasure, kindOf as measureKind, measureValue, UNITS } from "./measurement.ts";
+import { kindOf as measureKind, measureValue, UNITS } from "./measurement.ts";
 import type { Problem } from "./check.ts";
 import { normalise, plainOf, styled, type TextRun } from "./richtext.ts";
 import { liveValues, nameValues, namesShown, PROPERTY_ROWS, propertyRuns, withNames, NO_NAMES, type PropertyValues } from "./proprows.ts";

@@ -352,9 +352,9 @@ export const MapGlyph = () => (
 // Measure: two bonds at an angle, with its arc, and a dashed line across their ends (a distance).
 export const MeasureGlyph = ({ size }: { size?: number }) => (
   <Icon size={size}>
-    <polyline points="40,184 128,72 216,184" />
-    <path d="M100,108A45,45 0 0 0 156,108" />
-    <line x1={56} y1={224} x2={200} y2={224} strokeDasharray="20 18" />
+    <polyline points="40,196 128,60 216,196" />
+    <path d="M101.9,100.3A48,48 0 0 0 154.1,100.3" />
+    <line x1={40} y1={196} x2={216} y2={196} strokeDasharray="8 34" />
   </Icon>
 );
 
