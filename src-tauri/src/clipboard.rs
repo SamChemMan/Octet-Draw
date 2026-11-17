@@ -1026,7 +1026,7 @@ mod tests {
                 8 => miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap(),
                 m => panic!("method {m}"),
             };
-            assert_eq!((data.len(), crate::export::crc32(&data) as usize), (size, crc));
+            assert_eq!((data.len(), crc32fast::hash(&data) as usize), (size, crc));
             out.push((String::from_utf8(zip[at + 46..at + 46 + name_len].to_vec()).unwrap(), data));
             at += 46 + name_len;
         }
@@ -1314,7 +1314,7 @@ mod tests {
                     &|| drop(crate::export::tree(svg).unwrap()),
                     &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
                     &|| drop(crate::vector::with_pdf(&records, &pdf)),
-                    &|| drop(std::hint::black_box(vec![crate::export::crc32(std::hint::black_box(&emf))])),
+                    &|| drop(std::hint::black_box(vec![crc32fast::hash(std::hint::black_box(&emf))])),
                     &|| drop(office_package(crate::vector::size(&tree), &emf)),
                 ];
                 for (list, step) in all.iter_mut().zip(steps) {

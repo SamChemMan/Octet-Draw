@@ -718,9 +718,9 @@ pub(crate) mod tests {
         }
         // No fonts in this picture, so the bytes are the same on every system.
         let emf = make_emf(&tree(SVG), None, None);
-        assert_eq!((emf.len(), crate::export::crc32(&emf)), (752, 0xEE1B_B281), "the EMF without a PDF has changed");
+        assert_eq!((emf.len(), crc32fast::hash(&emf)), (752, 0xEE1B_B281), "the EMF without a PDF has changed");
         let emf = make_emf(&tree(SVG), Some(cdxml), None);
-        assert_eq!((emf.len(), crate::export::crc32(&emf)), (800, 0x420E_C9C5), "the EMF with CDXML and no PDF has changed");
+        assert_eq!((emf.len(), crc32fast::hash(&emf)), (800, 0x420E_C9C5), "the EMF with CDXML and no PDF has changed");
     }
 
     // Windows draws an EMF with the PDF comment as it draws the EMF without it. GDI plays each into a bitmap of its own

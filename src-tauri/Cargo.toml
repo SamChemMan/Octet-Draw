@@ -9,6 +9,7 @@ edition = "2024"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+crc32fast = "1"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -37,7 +38,8 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # The key AI apps connect with (src/mcp.rs, decision 0021): the system's random numbers. Already in the build.
 getrandom = "0.3"
-# The Claude Desktop bundle's zip (src/mcp.rs): its checksums. Already in the build through png.
+# The CRC-32 of each part of a zip (src/export.rs) and of the LibreOffice .oxt (build.rs). Already in the build through
+# png.
 crc32fast = "1"
 # Picture to structure's model files are checked by SHA-256 (src/recognise.rs, decision 0027). Already in the build
 # through Tauri.
