@@ -192,6 +192,12 @@ let pageSheet: CSSStyleSheet | undefined;
 // on each system (REL-3, CH-1). In a browser (dev only), the page uses the browser's clipboard.
 const NATIVE_CLIP = TAURI;
 
+// A Tauri event heard while the editor is open (on: in this kind of window). The handler is the first render's, as in
+// an effect with no dependencies.
+function useListen<T>(event: string, run: (e: { payload: T }) => void, on = TAURI) {
+  useEffect(() => { if (!on) return; const off = listen<T>(event, run); return () => void off.then((f) => f()); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 const L = STYLE.bond; // px per bond length at 100%
 // The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
 // labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
@@ -3098,17 +3104,13 @@ export default function Editor() {
   }, []);
   // The last menu command the page ran from a Ctrl key off the Mac, so the same command from the menu does not run twice.
   const pageRan = useRef<{ id: string; at: number }>(undefined);
-  useEffect(() => {
-    if (!TAURI) return;
-    // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
-    const off = listen<string>("menu", (e) => {
-      // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
-      const ran = pageRan.current;
-      if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
-      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.();
-    });
-    return () => { off.then((f) => f()); };
-  }, []);
+  // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
+  useListen<string>("menu", (e) => {
+    // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
+    const ran = pageRan.current;
+    if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
+    if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.();
+  });
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
   // shows its address and key.
   const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
@@ -3157,11 +3159,7 @@ export default function Editor() {
   // Once an AI app subscribes to this drawing, each change to it (the user's or an AI app's) tells the AI apps that
   // subscribed, at most twice a second.
   const mcpChanged = useRef<number>(undefined), mcpWatched = useRef(false);
-  useEffect(() => {
-    if (!TAURI) return;
-    const off = listen("mcp-watch", () => { mcpWatched.current = true; });
-    return () => { off.then((f) => f()); };
-  }, []);
+  useListen("mcp-watch", () => { mcpWatched.current = true; });
   useEffect(() => {
     if (!mcpWatched.current || mcpChanged.current !== undefined) return;
     mcpChanged.current = window.setTimeout(() => { mcpChanged.current = undefined; void invoke("mcp_changed").catch(() => {}); }, 500);
@@ -3267,39 +3265,21 @@ export default function Editor() {
     officeKept.current.timer = window.setTimeout(() => officeKeep.current(), 500);
     return () => clearTimeout(officeKept.current.timer);
   }, [office, doc]);
-  useEffect(() => {
-    if (!DRAW_WINDOW) return;
-    const offs = [
-      // Word closed the document and Octet gave it the drawing: the window closes with no question.
-      listen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload)),
-      listen<[string, string, string?]>("ole-host", (e) => {
-        const [host, title, app] = e.payload;
-        setOffice((o) => o && { ...o, host, title, app: app || o.app });
-        setFile((f) => ({ ...f, name: title }));
-      }),
-      listen<string>("ole-gone", (e) => {
-        setOffice((o) => o && { ...o, title: e.payload, gone: true });
-        setFile((f) => ({ ...f, name: e.payload }));
-        setNotice(`${officeRef.current?.host ?? "The document"} is closed. Save a copy to keep this drawing.`, "info");
-      }),
-    ];
-    return () => offs.forEach((off) => void off.then((f) => f()));
-  }, []);
+  // Word closed the document and Octet gave it the drawing: the window closes with no question.
+  useListen<[boolean, string]>("ole-closed", (e) => officeClosed.current(e.payload), DRAW_WINDOW);
+  useListen<[string, string, string?]>("ole-host", (e) => {
+    const [host, title, app] = e.payload;
+    setOffice((o) => o && { ...o, host, title, app: app || o.app });
+    setFile((f) => ({ ...f, name: title }));
+  }, DRAW_WINDOW);
+  useListen<string>("ole-gone", (e) => officeClosed.current([false, e.payload]), DRAW_WINDOW);
   // File > Home in a drawing window: Home over this window's drawing (src-tauri/src/windows.rs show_home).
-  useEffect(() => {
-    if (!HOME_WINDOW) return;
-    const offHome = listen("show-home", () => { if (menuRuns("home", { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current.home(); });
-    // Its drawing chosen from a list: Home closes over it.
-    const offDrawing = listen("show-drawing", () => setHome(false));
-    return () => { offHome.then((f) => f()); offDrawing.then((f) => f()); };
-  }, []);
+  useListen("show-home", () => { if (menuRuns("home", { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current.home(); }, HOME_WINDOW);
+  // Its drawing chosen from a list: Home closes over it.
+  useListen("show-drawing", () => setHome(false), HOME_WINDOW);
   // The open drawing windows, kept up to date.
-  useEffect(() => {
-    if (!TAURI) return;
-    void invoke<OpenWindow[]>("window_list").then(setOpenWindows).catch(() => {});
-    const off = listen<OpenWindow[]>("windows", (e) => setOpenWindows(e.payload));
-    return () => { off.then((f) => f()); };
-  }, []);
+  useEffect(() => { if (TAURI) void invoke<OpenWindow[]>("window_list").then(setOpenWindows).catch(() => {}); }, []);
+  useListen<OpenWindow[]>("windows", (e) => setOpenWindows(e.payload));
   // In front: the menu bar takes this window's state again (and Home reads its lists again). Left: a drawing window
   // gives Home its picture.
   const leftWindow = useRef(() => {});
@@ -3622,11 +3602,6 @@ export default function Editor() {
   // with the mouse, the caret stays in the text.
   const [charMap, setCharMap] = useState(false);
   const charKey = useRef(-Infinity), charFocus = useRef(true);
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => { if ((e.code === "Space" || e.key === " ") && e.shiftKey && (e.metaKey || e.ctrlKey)) charKey.current = performance.now(); };
-    addEventListener("keydown", down, true);
-    return () => removeEventListener("keydown", down, true);
-  }, []);
   // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
   const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
   const nicknameBox = useRef<HTMLDivElement>(null);
@@ -3677,10 +3652,14 @@ export default function Editor() {
   const camera = useRef<SVGGElement>(null);
   // A middle-button drag of the view: where the pointer was last (onPointerDown).
   const panFrom = useRef<[number, number]>(undefined), [panning, setPanning] = useState(false);
-  // When a key was last pressed. A view command from a key moves the view at once; from the pointer it glides.
+  // When a key was last pressed. A view command from a key moves the view at once; from the pointer it glides. And when
+  // the Character Map's key was (charKey).
   const keyAt = useRef(-Infinity);
   useEffect(() => {
-    const down = () => { keyAt.current = performance.now(); };
+    const down = (e: KeyboardEvent) => {
+      keyAt.current = performance.now();
+      if ((e.code === "Space" || e.key === " ") && e.shiftKey && (e.metaKey || e.ctrlKey)) charKey.current = keyAt.current;
+    };
     addEventListener("keydown", down, true);
     return () => removeEventListener("keydown", down, true);
   }, []);
