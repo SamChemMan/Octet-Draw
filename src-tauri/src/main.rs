@@ -314,15 +314,10 @@ fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result
 struct Purposes(Mutex<(Vec<String>, String)>);
 
 #[tauri::command]
-fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, current: String) -> Result<(), String> {
+fn set_purposes(app: AppHandle, names: Vec<String>, current: String) -> Result<(), String> {
     let clean = |n: String| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>();
-    let next = (names.into_iter().take(12).map(clean).collect::<Vec<_>>(), clean(current));
-    {
-        let mut held = held.0.lock().unwrap();
-        if *held == next {
-            return Ok(());
-        }
-        *held = next;
+    if !keep_new(&app.state::<Purposes>().0, (names.into_iter().take(12).map(clean).collect(), clean(current))) {
+        return Ok(());
     }
     rebuild(&app)
 }
@@ -335,15 +330,10 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
 struct TemplateSets(Mutex<[Vec<String>; 3]>);
 
 #[tauri::command]
-fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
+fn set_template_sets(app: AppHandle, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
     let clean = |list: Vec<String>| list.into_iter().take(80).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>()).collect::<Vec<_>>();
-    let next = [clean(own), clean(octet), clean(art)];
-    {
-        let mut held = held.0.lock().unwrap();
-        if *held == next {
-            return Ok(());
-        }
-        *held = next;
+    if !keep_new(&app.state::<TemplateSets>().0, [clean(own), clean(octet), clean(art)]) {
+        return Ok(());
     }
     rebuild(&app)
 }
@@ -1112,13 +1102,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         colour_items.push(&sep1);
         colour_items.extend(mine.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
-    colour_items.push(&sep2);
-    colour_items.push(&by_element);
-    colour_items.push(&highlight);
-    colour_items.push(&ringfill);
-    colour_items.push(&sep3);
-    colour_items.push(&pick_colour);
-    colour_items.push(&edit_colours);
+    colour_items.extend([&sep2 as &dyn IsMenuItem<Wry>, &by_element, &highlight, &ringfill, &sep3, &pick_colour, &edit_colours]);
     let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
     // Not ⌥⌘R or ⌥⌘P, which are ChemDraw's (Re-run Script, Paste SMILES).
