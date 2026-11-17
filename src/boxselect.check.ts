@@ -39,11 +39,40 @@ assert.deepEqual(whole, all);
 // Two atoms joined only to each other and to atoms outside: the bond between them.
 const pair = inkOfAtoms(butane, d.ink, d.label, [1, 2], k)!;
 assert.ok(pair[0] <= xs[1] * k && pair[2] >= xs[2] * k && pair[2] < xs[3] * k && pair[0] > xs[0] * k);
+// An atom on the edge of the selection keeps its marks in the frame: a radical ion on the middle carbon of propane,
+// with the first two carbons selected.
+const propane = { ...sprout(sprout(EMPTY, [0, 0]), 1) };
+propane.atoms = propane.atoms.map((a, i) => (i === 1 ? { ...a, charge: -1, radical: 1 } : a));
+const dp = render(propane, S, ink, S.bond), marks = dp.electrons.filter((e) => e.atom === 1);
+assert.ok(marks.length, "the radical ion has marks");
+const edge = inkOfAtoms(propane, dp.ink, dp.label, [0, 1], k, dp.electrons)!;
+for (const { at: [x, y] } of marks) assert.ok(x >= edge[0] && x <= edge[2] && y >= edge[1] && y <= edge[3], "the frame holds the edge atom's marks");
+// The box for one structure looks only at its own bonds: on a page of 400 more rings it takes about as long.
+{
+  let page = { ...butane };
+  const ring = sprout(sprout(sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2), 3), 4);
+  const n = butane.atoms.length, many = { ...butane, atoms: [...butane.atoms], bonds: [...butane.bonds] };
+  for (let r = 0; r < 400; r++) {
+    const o = many.atoms.length;
+    many.atoms.push(...ring.atoms.map((a) => ({ ...a, location: [a.location[0] + 3 * (r % 20) + 10, a.location[1] + 3 * Math.floor(r / 20), 0] as [number, number, number] })));
+    many.bonds.push(...ring.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + o, b.atoms[1] + o] as [number, number] })));
+  }
+  page = many;
+  const dm = render(page, S, ink, S.bond), time = (m: typeof butane, dd: typeof d) => {
+    const t = performance.now();
+    for (let j = 0; j < 400; j++) inkOfAtoms(m, dd.ink, dd.label, [0, 1, 2], k, dd.electrons);
+    return performance.now() - t;
+  };
+  for (let w = 0; w < 3; w++) { time(butane, d); time(page, dm); }
+  const small = Math.min(...[0, 1, 2].map(() => time(butane, d))), big = Math.min(...[0, 1, 2].map(() => time(page, dm)));
+  assert.ok(big < 5 * small + 5, `the box for part of one structure takes ${big.toFixed(1)} ms on a big page against ${small.toFixed(1)} ms alone`);
+  assert.equal(page.atoms.length, n + 400 * ring.atoms.length);
+}
 console.log("boxselect.check: frame round part of a structure ok");
 
 // The editor's box and lasso use this rule.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /case "box": \{[^]*?chooseArea\(atomsInArea\(doc, drag\.base, within\)/);
 assert.match(editor, /case "lasso": \{[^]*?chooseArea\(atomsInArea\(doc, drag\.base, \(q\) => inPolygon\(q, points\)\)/);
-assert.match(editor, /const withCaptions = [^]*?inkOfAtoms\(shown, drawing\.ink, drawing\.label, set, L\)/);
+assert.match(editor, /const withCaptions = [^]*?inkOfAtoms\(shown, drawing\.ink, drawing\.label, set, L, drawing\.electrons\)/);
 console.log("boxselect.check: editor ok");

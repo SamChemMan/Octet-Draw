@@ -863,12 +863,12 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   // The middle of each charge sign drawn (a skeletal carbon's, a label's, a radical ion's), to move it (electrons).
   const signAt: (P | undefined)[] = [];
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
-  // A radical ion (one unpaired electron and a charge that is not circled) draws as one unit, as ChemDraw's Radical
+  // A radical ion (one unpaired electron and a charge of one, not circled) draws as one unit, as ChemDraw's Radical
   // Cation and Radical Anion symbols: the radical's dot, then the sign (•+, •−), the dot level with the middle of the
   // sign's ink and ION_GAP label sizes before it. The unit goes where the sign goes. A radical moved by hand
   // (Atom.angles radical0) stays a mark of its own. ionDot: where each unit's dot is drawn. A drag on its dot or its
   // sign (signAt) moves the unit round its atom (Atom.angles charge), as a drag on any other charge sign does.
-  const isIon = (a: Atom) => a.radical === 1 && !!a.charge && !a.circled && a.angles?.radical0 === undefined;
+  const isIon = (a: Atom) => a.radical === 1 && Math.abs(a.charge ?? 0) === 1 && !a.circled && a.angles?.radical0 === undefined;
   const ionDot: (P | undefined)[] = [];
   // A turned label's sign that is a symbol of its own: its run, its texts, and how far it moves from where it was put
   // to its place clear of the turned label's ink (charged).

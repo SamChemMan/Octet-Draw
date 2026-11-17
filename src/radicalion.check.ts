@@ -165,3 +165,13 @@ console.log("radicalion.check: the dot and the sign draw as one unit ok");
   }
   console.log("radicalion.check: a dragged unit on a label and on a skeletal carbon, CDXML and CDX ok");
 }
+
+// A radical with a charge of 2 or more is not a unit: ChemDraw has a symbol only for •+ and •−, so CDXML writes the
+// dot apart (cdxml.ts radicalIon), and Octet draws it apart too, so the page and the file agree.
+{
+  const src = (await import("node:fs")).readFileSync(new URL("render.ts", import.meta.url), "utf8");
+  assert.match(src, /const isIon = \(a: Atom\) => a\.radical === 1 && Math\.abs\(a\.charge \?\? 0\) === 1 &&/, "render's unit is ±1 only");
+  const cdx = (await import("node:fs")).readFileSync(new URL("cdxml.ts", import.meta.url), "utf8");
+  assert.match(cdx, /Math\.abs\(a\.charge \?\? 0\) === 1/, "as CDXML's");
+  console.log("radicalion.check: a 2+ radical is drawn apart, as CDXML writes it, ok");
+}
