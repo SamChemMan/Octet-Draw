@@ -4198,6 +4198,10 @@ div.facts {
   transform-origin: 0 0;
   transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
 }
+/* A table picked whole: its outline only, so its text stays easy to read. */
+.grid-pick.table-pick {
+  fill: none;
+}
 @starting-style {
   .grid-pick { opacity: 0; }
 }

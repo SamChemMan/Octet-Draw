@@ -4,9 +4,9 @@
 // "NaBH4, MeOH" on its own, their molar mass from the formula or the name. The row names on the left, the amounts
 // worked out from what was typed (stoich.ts). Hidden rows and columns are left out. One module for the editor and for
 // a host with no window (decision 0021, scripts/headless), so the two lay grids out the same.
-import { isNumber, scaleOf, type Box, type Grid, type GridRole, type Mol } from "./render.ts";
-import { sheetSafe } from "./experiment.ts";
-import { coefficient, conditionItems, CONDITIONS, formatAmount, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field, type Solved } from "./stoich.ts";
+import { isNumber, scaleOf, type Arrow, type Box, type Caption, type Grid, type GridRole, type Mol } from "./render.ts";
+import { formulaRuns, sheetSafe } from "./experiment.ts";
+import { coefficient, conditionItems, CONDITIONS, formatAmount, formulaWeight, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field, type Solved } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
 import type { Liquid } from "./liquids.ts";
@@ -16,7 +16,11 @@ import type { Liquid } from "./liquids.ts";
 // coefficient too, as ChemDraw's product column has them. Volume and Density always show for reactants, so a density
 // typed gives the volume to measure out (issue 135). A product's Expected mass can be typed, as the mass wanted, kept
 // as its mass (issue 136). Role shows once a column is not a reactant, and Concentration once one is a solvent.
-export const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
+// own: a row of the user's own (Grid.own). The Compound row (NUMBER_ROW) shows each compound's number, over its formula,
+// once a compound in the table has one.
+export type GridRow = { id: string; name: string; field?: Field; product?: boolean; shown?: Field[]; own?: true };
+export const NUMBER_ROW: GridRow = { id: "number", name: "Compound" };
+export const GRID_ROWS: GridRow[] = [
   { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "role", name: "Role", product: false }, { id: "limiting", name: "Limiting?", product: false },
   { id: "equiv", name: "Equivalents", field: "equiv" }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
   { id: "volume", name: "Volume", field: "volume", product: false }, { id: "density", name: "Density", field: "density", product: false },
@@ -157,6 +161,12 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // limiting reactant unless another is set.
   const made = step?.before;
   if (made) for (const c of all) { const moles = c.product ? undefined : made.solved[`p${c.key.slice(1)}`]?.productMoles; if (moles !== undefined) c.carried = moles; }
+  // A formula typed over a column's is its formula, and gives its MW; a number typed over its MW is its MW (Grid.text).
+  for (const c of all) {
+    const f = g.text?.formula?.[c.key], w = f ? formulaWeight(f) : undefined, mw = Number(g.text?.mw?.[c.key]);
+    if (f && w) { c.formula = f; c.mw = w; }
+    if (mw > 0 && mw < 1e7) c.mw = mw;
+  }
   const limiting = limitingOf(all, keyed.limiting ?? all.find((c) => c.carried !== undefined)?.key)?.key, solved = solve(all, limiting, g.conc);
   // The grid takes its arrow's scale (decision 0007). Columns stand under what they are, a column's width apart.
   const f = scaleOf(m.arrows?.find((a) => a.id === g.arrow) ?? {}), width = 3.4 * f;
@@ -168,6 +178,10 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const roled = (r: GridRole) => cols.some((c) => !c.product && c.role === r);
   const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.id === "role" ? roled("catalyst") || roled("solvent") : row.id === "conc" ? roled("solvent")
     : row.product ? products : row.shown && (!d.experiment || g.layout === "rows") ? row.shown.some(used) : true));
+  // In columns, the Compound row first when a compound has a number. Rows of the user's own after the row each follows
+  // ("^" at the top; one whose row is not shown at the foot).
+  if (g.layout !== "rows" && !hidden.rows?.includes("number") && cols.some((c) => c.atoms && c.label)) rows.unshift(NUMBER_ROW);
+  for (const o of g.own ?? []) { const k = o.after === "^" ? 0 : rows.findIndex((r) => r.id === o.after) + 1; rows.splice(k > 0 || o.after === "^" ? k : rows.length, 0, { id: o.id, name: o.name, own: true }); }
   // Below the components, the numbers under them, and the text under the arrow that makes no column (a yield,
   // "reflux, 4 h").
   const under = [...(m.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => d.captionBox(c.id)?.[1]), ...own.flatMap((st) => st.below.map((p) => p.box[1]))].filter((y): y is number => y !== undefined);
@@ -175,37 +189,50 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const rh = d.captionSize * d.perPt * 0.9 * 1.6 * f, top = Math.min(...cols.map((c) => c.low), ...under, made ? made.bottom - 0.5 * rh + 0.9 * f : Infinity) - 0.9 * f;
   // The row names end a little before the first column; the rules start at the longest name.
   const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = d.captionSize * 0.9 * f;
-  const names = Math.max(...rows.map((row) => d.nameWidth(row.name, size)));
+  const nameOf = (row: GridRow) => g.text?.[row.id]?.["#"] ?? row.name, names = Math.max(...rows.map((row) => d.nameWidth(nameOf(row), size)));
   // Every cell: its component and row, its middle, top and width, for picking and typing in it. As rows (Grid.layout),
   // the reagents each take a row and the products a section of their own under them, each section with its title and
   // the names of its columns; the first column names each component by its compound number or its text.
   type Cell = { key: string; row: string; x: number; y: number; w: number; product: boolean };
   type Text = { text: string; x: number; y: number; anchor: "start" | "middle"; bold?: true; formula?: true };
-  let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined, sections: { title: string; fields: GridRow[]; comps: typeof cols }[] | undefined;
+  let cells: Cell[] = [], texts: Text[] | undefined, rules: [number, number, number][] | undefined, sections: { title: string; product: boolean; fields: GridRow[]; comps: typeof cols }[] | undefined;
+  // Each line by its id, so one can be taken out (Grid.hidden.lines): in columns, top and bottom; as rows, each
+  // section's three (a over its names, b under them, c at its foot).
+  const rulings: { id: string; a: number; b: number; y: number }[] = [];
   if (g.layout === "rows") {
     const wide = (t: string, bold = false) => d.nameWidth(t, size, bold);
     // A product's row: what it is, its expected mass, the mass measured and the yield; its equivalents only when typed.
     const ownEquiv = cols.some((c) => c.product && c.typed.equiv !== undefined), fits = (row: (typeof rows)[number], product: boolean) => row.product !== !product && !(product && (row.id === "expectedMoles" || (row.id === "equiv" && !ownEquiv)));
     sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
-    const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(c.label ?? ""))])) + 0.4 * f;
+    const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(g.text?.name?.[c.key] ?? c.label ?? ""))])) + 0.4 * f;
     let y = top;
     texts = []; rules = [];
     for (const sec of sections) {
       let x = x0 + nameW;
-      const at = sec.fields.map((row) => { const w = Math.max(width, wide(row.name) + 0.4 * f); x += w; return [x - w / 2, w]; });
+      const at = sec.fields.map((row) => { const w = Math.max(width, wide(nameOf(row)) + 0.4 * f); x += w; return [x - w / 2, w]; });
+      const s = sections.indexOf(sec);
       rules.push([x0, x, y]);
-      texts.push({ text: sec.title, x: x0, y, anchor: "start", bold: true }, ...sec.fields.map((row, j) => ({ text: row.name, x: at[j][0], y, anchor: "middle" as const })));
+      rulings.push({ id: `${s}a`, a: x0, b: x, y });
+      // The section's title, then each quantity's name (a cell of its own, key "#" and the section, to type over or delete).
+      texts.push({ text: sec.title, x: x0, y, anchor: "start", bold: true });
+      cells.push(...sec.fields.map((row, j) => ({ key: `#${s}`, row: row.id, x: at[j][0], y, w: at[j][1], product: sec.product })));
       y -= rh;
       rules.push([x0, x, y]);
+      rulings.push({ id: `${s}b`, a: x0, b: x, y });
       for (const c of sec.comps) {
-        texts.push({ text: c.label ?? "", x: x0, y, anchor: "start", formula: true });
         cells.push({ key: c.key, row: "name", x: x0 + nameW / 2, y, w: nameW, product: c.product }, ...sec.fields.map((row, j) => ({ key: c.key, row: row.id, x: at[j][0], y, w: at[j][1], product: c.product })));
         y -= rh;
       }
       rules.push([x0, x, y]);
+      rulings.push({ id: `${s}c`, a: x0, b: x, y });
       y -= 0.5 * rh;
     }
-  } else cells = rows.flatMap((row, k) => cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product })));
+  } else {
+    // Each row's name is a cell too (key "#"), from where the names start to the first column.
+    const nameW = names + 0.2 * f, x1 = Math.max(...cols.map((c) => c.x)) + width / 2;
+    cells = rows.flatMap((row, k) => [{ key: "#", row: row.id, x: left - nameW / 2, y: top - k * rh, w: nameW, product: false }, ...cols.map((c) => ({ key: c.key, row: row.id, x: c.x, y: top - k * rh, w: width, product: c.product }))]);
+    rulings.push({ id: "top", a: left - nameW, b: x1, y: top }, { id: "bottom", a: left - nameW, b: x1, y: top - rows.length * rh });
+  }
   // The conditions block, right of the table: a line for each condition with a value (Temperature, Time, Atmosphere,
   // Other), its name and then its value. On an experiment page the first table's Temperature and Time are the page's
   // own (its details block), so they show once, there.
@@ -215,7 +242,9 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const block = lines.length ? { lines, at, valueAt, right: valueAt + Math.max(...lines.map((l) => d.nameWidth(l.value, size))) } : undefined;
   // The table's foot: its last rule (as rows), or its last row; or the block's last line when that is lower.
   const bottom = Math.min(rules ? rules[rules.length - 1]?.[2] ?? top : top - rows.length * rh, ...lines.map((l) => l.y - rh));
-  return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, roles, taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length), cells, texts, rules, sections };
+  return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, roles, taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour,
+    hiding: !!(hidden.rows?.length || hidden.cols?.length || hidden.lines?.length || Object.keys(hidden.cells ?? {}).length), cells, texts, rules, sections, rulings,
+    text: g.text, own: g.own, gone: hidden.cells, goneLines: hidden.lines, free: g.free };
 }
 
 export type GridView = NonNullable<ReturnType<typeof layGrid>>;
@@ -225,6 +254,25 @@ export const anchorOf = (m: Mol, arrow: number) => m.arrows?.find((a) => a.id ==
 function placed(m: Mol, g: Grid, v: GridView): GridView {
   const a = g.at && anchorOf(m, g.arrow);
   return a ? shiftView(v, [a[0] + g.at![0] * v.f - v.start, a[1] + g.at![1] * v.f - v.top]) : v;
+}
+// A table in the selection: its id among the picked objects (Editor.tsx picked), from its arrow's. Ids of objects are 0
+// or more, so a table's is below 0.
+export const TABLE = (arrow: number) => -1 - arrow;
+export const tableOf = (id: number) => (id < 0 ? -1 - id : undefined);
+// A table moved by hand (Grid.free) keeps its place on the page when its reaction moves: when an edit moves its arrow's
+// tail and leaves Grid.at as it was (the same array), Grid.at takes the move back. An edit that moves the table with its
+// arrow gives it a new Grid.at.
+export function keepPlace(before: Mol, after: Mol): Mol {
+  if (!after.grids?.some((g) => g.free && g.at)) return after;
+  let changed = false;
+  const grids = after.grids.map((g) => {
+    const was = g.free && g.at && before.grids?.find((x) => x.arrow === g.arrow), a = was && was.at === g.at ? anchorOf(before, g.arrow) : undefined, b = a && anchorOf(after, g.arrow);
+    if (!a || !b || (a[0] === b[0] && a[1] === b[1])) return g;
+    const f = scaleOf(after.arrows?.find((x) => x.id === g.arrow) ?? {});
+    changed = true;
+    return { ...g, at: [g.at![0] - (b[0] - a[0]) / f, g.at![1] - (b[1] - a[1]) / f] as [number, number] };
+  });
+  return changed ? { ...after, grids } : after;
 }
 // The table's Grid.at once moved by d (drawing units) from where it is drawn.
 export const movedAt = (m: Mol, v: GridView, d: [number, number]): [number, number] | undefined => {
@@ -243,7 +291,7 @@ function fitted(v: GridView, fit?: number): GridView {
 export function shiftView(v: GridView, [dx, dy]: [number, number]): GridView {
   if (!dx && !dy) return v;
   const xy = <T extends { x: number; y: number }>(c: T) => ({ ...c, x: c.x + dx, y: c.y + dy });
-  return { ...v, cols: v.cols.map((c) => ({ ...c, x: c.x + dx })), cells: v.cells.map(xy), texts: v.texts?.map(xy), rules: v.rules?.map(([a, b, h]): [number, number, number] => [a + dx, b + dx, h + dy]),
+  return { ...v, cols: v.cols.map((c) => ({ ...c, x: c.x + dx })), cells: v.cells.map(xy), texts: v.texts?.map(xy), rules: v.rules?.map(([a, b, h]): [number, number, number] => [a + dx, b + dx, h + dy]), rulings: v.rulings.map((l) => ({ ...l, a: l.a + dx, b: l.b + dx, y: l.y + dy })),
     block: v.block && { ...v.block, at: v.block.at + dx, valueAt: v.block.valueAt + dx, right: v.block.right + dx, lines: v.block.lines.map((l) => ({ ...l, y: l.y + dy })) },
     top: v.top + dy, bottom: v.bottom + dy, left: v.left + dx, start: v.start + dx };
 }
@@ -279,7 +327,6 @@ export function keptGrid(g: Grid, v: GridView): Grid {
   return { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting,
     ...(v.roles ? { roles: own(v.roles) } : {}), ...(v.taken ? { taken: own(v.taken) } : {}) };
 }
-type GridRow = (typeof GRID_ROWS)[number];
 // A cell's text, and whether it was typed (typed values show bold, worked-out ones plain, as ChemDraw's grid does).
 // taken: the amount measured out, a reactant's Mass or Volume (Grid.taken), drawn red and underlined.
 export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow): { text: string; typed?: boolean; taken?: true } {
@@ -287,6 +334,8 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
   const fd = row.id === "mass" || row.id === "volume" ? row.id : undefined;
   if (fd && !c.product && v.taken?.[c.key] === fd) return { text: formatAmount(s?.[fd], fd), typed: c.typed[fd] !== undefined, taken: true };
   if (row.id === "formula") return { text: c.formula };
+  if (row.id === "number") return { text: c.atoms ? c.label ?? "" : "" };
+  if (row.own) return { text: v.own?.find((o) => o.id === row.id)?.values?.[c.key] ?? "" };
   if (row.id === "role") return { text: c.product ? "Product" : ROLE_NAMES[c.role ?? "reactant"] };
   if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
   if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
@@ -300,18 +349,56 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
   if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
   return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
 }
+// A cell as shown: blank when hidden (Grid.hidden.cells), else the text typed over it (Grid.text), a row's name (a key
+// starting "#"), a component's name as rows (row "name"), a row of the user's own, the compound's number, or the value
+// worked out (cellText). formula: drawn as a formula (subscript counts); bold: drawn bold, as a typed value is.
+export const NAME_ROW: GridRow = { id: "name", name: "" };
+export const rowOf = (v: Pick<GridView, "rows">, id: string): GridRow | undefined => v.rows.find((r) => r.id === id) ?? (id === "name" ? NAME_ROW : GRID_ROWS.find((r) => r.id === id));
+export function shownCell(v: GridView, key: string, row: GridRow): { text: string; typed?: boolean; taken?: true; bold?: true; formula?: true } {
+  const head = key[0] === "#";
+  if (v.gone?.[row.id]?.includes(head ? "#" : key)) return { text: "" };
+  if (head) return { text: row.own ? row.name : v.text?.[row.id]?.["#"] ?? row.name };
+  const typed = v.text?.[row.id]?.[key];
+  if (typed !== undefined) return { text: typed, typed: true, ...(row.id === "formula" || row.id === "name" ? { formula: true as const } : {}) };
+  const c = v.cols.find((x) => x.key === key);
+  if (!c) return { text: "" };
+  if (row.id === "name") return { text: c.label ?? c.formula, formula: true };
+  return { ...cellText(v, c, row), ...(row.id === "formula" ? { formula: true as const } : {}), ...(row.id === "number" ? { bold: true as const } : {}) };
+}
+// Make static: the table as ordinary text and lines where it is drawn, each its own object to pick and delete alone (Sam,
+// 13 November 2026: no group), and its grids go (for a table of
+// the whole reaction, every one of the reaction's arrows: arrows). Each text as drawn: a row's name right-aligned, a
+// component's name as rows from the left, the rest centred, bold where it is bold, formulas with their subscripts.
+// size: the document's caption size (pt); perPt: drawing units in a point; id: the first free object id.
+export function staticTable(m: Mol, v: GridView, d: { size: number; perPt: number; id: number; arrows: number[] }): Mol {
+  const pt = d.size * 0.9 * v.f, baseline = (top: number) => top - 0.5 * v.rh - 0.35 * pt * d.perPt;
+  let id = d.id;
+  const captions: Caption[] = [], lines: Arrow[] = [], tint = v.colour ? { colour: v.colour } : {};
+  const write = (text: string, x: number, y: number, align: Caption["align"], bold?: boolean, formula?: boolean) => {
+    if (text) captions.push({ id: id++, text, x, y: baseline(y), align, size: pt, ...(bold ? { bold: true } : {}), ...tint, ...(formula ? { runs: formulaRuns([{ text, ...(bold ? { bold: true } : {}) }]) } : {}) });
+  };
+  for (const l of v.rulings) if (!v.goneLines?.includes(l.id)) lines.push({ id: id++, kind: "line", from: [l.a, l.y], to: [l.b, l.y], ...tint, ...(v.f !== 1 ? { scale: v.f } : {}) });
+  for (const t of v.texts ?? []) write(t.text, t.x, t.y, t.anchor === "start" ? "left" : "centre", t.bold);
+  for (const c of v.cells) {
+    const row = rowOf(v, c.row), s = row && shownCell(v, c.key, row), head = c.key === "#";
+    if (s) write(s.text, head ? v.left : c.row === "name" ? c.x - c.w / 2 : c.x, c.y, head ? "right" : c.row === "name" ? "left" : "centre", !!(s.typed || s.bold), !!s.formula);
+  }
+  for (const l of v.block?.lines ?? []) { write(l.name, v.block!.at, l.y, "left"); write(l.value, v.block!.valueAt, l.y, "left", false, true); }
+  const g = m.grids?.find((x) => x.arrow === v.arrow);
+  return { ...m, captions: [...(m.captions ?? []), ...captions], arrows: [...(m.arrows ?? []), ...lines], grids: m.grids?.filter((x) => x !== g && (g?.step || x.step || !d.arrows.includes(x.arrow))) };
+}
 // Copy table: the table as shown, as tab-separated text for a spreadsheet or a document. In columns, a row naming the
 // components (compound number, text or formula), then a row for each row shown; as rows, each section's title and
 // quantities, then a row for each component. Then the conditions, a line each (lines: name and value). Hidden rows and
 // columns are left out. Each value is one line, sheetSafe.
 export function gridTsv(v: GridView, lines: [string, string][] = v.block?.lines.map((l) => [l.name, l.value]) ?? []): string {
-  const name = (c: GridView["cols"][number]) => c.label ?? c.formula;
+  const name = (c: GridView["cols"][number]) => shownCell(v, c.key, NAME_ROW).text;
   const table = v.sections
-    ? v.sections.flatMap((sec, k) => [...(k ? [[]] : []), [sec.title, ...sec.fields.map((row) => row.name)], ...sec.comps.map((c) => [name(c), ...sec.fields.map((row) => cellText(v, c, row).text)])])
-    : [["", ...v.cols.map(name)], ...v.rows.map((row) => [row.name, ...v.cols.map((c) => cellText(v, c, row).text)])];
+    ? v.sections.flatMap((sec, k) => [...(k ? [[]] : []), [sec.title, ...sec.fields.map((row) => shownCell(v, "#", row).text)], ...sec.comps.map((c) => [name(c), ...sec.fields.map((row) => shownCell(v, c.key, row).text)])])
+    : [["", ...v.cols.map(name)], ...v.rows.map((row) => [shownCell(v, "#", row).text, ...v.cols.map((c) => shownCell(v, c.key, row).text)])];
   const all: string[][] = [...table, ...(lines.length ? [[], ...lines] : [])];
   return all.map((r) => r.map((x) => sheetSafe(x.replace(/[\t\r\n]+/g, " "))).join("\t")).join("\n") + "\n";
 }
 // Hide empty rows: the rows shown with no value in any column shown.
-export const emptyRows = (v: GridView) => v.rows.filter((row) => !v.cols.some((c) => cellText(v, c, row).text)).map((row) => row.id);
+export const emptyRows = (v: GridView) => v.rows.filter((row) => !row.own && !v.cols.some((c) => shownCell(v, c.key, row).text)).map((row) => row.id);
 

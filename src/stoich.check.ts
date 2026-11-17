@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { coefficient, conditionItems, GRID_ROW_IDS, inert, keyColumns, liquidNamed, liquidOf, readGrid, formatAmount, formulaWeight, parseAmount, reagentEquiv, reagentFormula, reagentName, solve } from "./stoich.ts";
 import { LIQUIDS } from "./liquids.ts";
-import { cellText, emptyRows, gridTsv, gridViews, keptGrid, movedAt, setRole, stepGrids, type GridDeps } from "./gridview.ts";
+import { cellText, emptyRows, gridTsv, gridViews, keepPlace, keptGrid, movedAt, rowOf, setRole, shownCell, staticTable, stepGrids, type GridDeps, type GridView } from "./gridview.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import type { Mol } from "./render.ts";
+import type { Grid, Mol } from "./render.ts";
 
 const near = (a: number | undefined, b: number, what: string) => assert.ok(a !== undefined && Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b)), `${what}: ${a} for ${b}`);
 // Benzaldehyde (106.12) 1.06 g is 10 mmol and limiting; NaBH4 (37.83) at 1.5 eq is 15 mmol, 567 mg; benzyl alcohol
@@ -44,7 +44,8 @@ near(parseAmount("98%", "purity"), 0.98, "%");
 assert.equal(parseAmount("lots", "mass"), undefined);
 assert.equal(parseAmount("5 mL", "mass"), undefined, "a volume is not a mass");
 assert.equal(parseAmount("1e999", "mass"), undefined, "an amount too large to be a number");
-assert.equal(formatAmount(0.25, "mass"), "250 mg");
+assert.equal(formatAmount(0.25, "mass"), "250.0 mg");
+assert.equal(formatAmount(0.1465, "mass"), "146.5 mg", "one decimal from 10 up, so a small scale reads as weighed");
 assert.equal(formatAmount(0.0125, "moles"), "12.5 mmol");
 assert.equal(formatAmount(0.9, "yield"), "90.0%");
 // Formulas written as text.
@@ -322,7 +323,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   const redrawnGrid = { arrow: 9, typed: { "r:S0": { moles: 0.01 }, "r:S7": { mass: 0.1 } }, roles: { "r:S7": "catalyst" as const }, taken: { "r:S7": "mass" as const } };
   const redrawn = grid([0, "+", 1, "→", 2], redrawnGrid.typed, "r:S0", [], undefined, { roles: redrawnGrid.roles, taken: redrawnGrid.taken });
   assert.equal(redrawn.v.all.find((c) => c.key === "r:S1")!.role, "catalyst");
-  assert.deepEqual(cellText(redrawn.v, redrawn.v.cols[1], redrawn.v.rows.find((r) => r.id === "mass")!), { text: "100 mg", typed: true, taken: true });
+  assert.deepEqual(cellText(redrawn.v, redrawn.v.cols[1], redrawn.v.rows.find((r) => r.id === "mass")!), { text: "100.0 mg", typed: true, taken: true });
   const keptRedrawn = keptGrid(redrawnGrid, redrawn.v);
   assert.deepEqual([keptRedrawn.roles, keptRedrawn.taken], [{ "r:S1": "catalyst" }, { "r:S1": "mass" }]);
   // 1 mmol in 5 mL of THF is 0.20 M; 0.1 M typed gives 10 mL; a catalyst's 0.05 eq. is 5.00 mol%.
@@ -470,7 +471,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   const old = '{"format":"octet","version":1,"app":"1.1.1","structure":{"atoms":[],"bonds":[]},"arrows":[{"kind":"reaction","x1":0,"y1":0,"x2":3,"y2":0}],"grids":[{"arrow":0,"typed":{"r:C2H6O":{"mass":0.25},"r:\\"K2CO3\\"":{"equiv":2},"p:C4H8O2":{"measured":0.3}},"limiting":"r:C2H6O"}]}';
   const g = parse(old).grids![0];
   assert.deepEqual(g.typed, { "r:C2H6O": { mass: 0.25 }, 'r:"K2CO3"': { equiv: 2 }, "p:C4H8O2": { measured: 0.3 } });
-  assert.equal(formatAmount(g.typed["r:C2H6O"].mass, "mass"), "250 mg");
+  assert.equal(formatAmount(g.typed["r:C2H6O"].mass, "mass"), "250.0 mg");
 }
 // Issue 136: a product's Expected mass typed is the mass wanted, kept as its mass. With no reactant amount it sets the
 // scale: 5 g of C (MW 50) is 0.1 mol, so 0.1 mol of A (10 g) and B at 2 eq. (0.8 g/mL: 2 g, 2.5 mL); by A → 2 C,
@@ -491,7 +492,7 @@ for (const [text, want] of [["K2CO3 (2 eq.)", 2], ["K2CO3 (2 equiv)", 2], ["1.5 
   assert.deepEqual(fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.grids![0].typed, { "p:C": { mass: 5 } }, "and in CDXML");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(readFileSync(new URL("gridview.ts", import.meta.url), "utf8"), /if \(row\.id === "expected"\) return \{ text: formatAmount\(s\?\.expectedMass, "mass"\), typed: c\.typed\.mass !== undefined \};/, "shown bold when typed");
-  assert.match(editor, /\(gc\.row !== "expected" \|\| gc\.product\)/, "a product's Expected mass can be typed in");
+  assert.match(editor, /\(!\["expected", "expectedMoles", "yield"\]\.includes\(gc\.row\) \|\| gc\.product\)/, "a product's Expected mass, Expected moles and Yield can be typed in");
   // One value sets the scale: a mass wanted clears the reactants' amounts and every other product's mass wanted.
   assert.match(editor, /filter\(\(\[fd\]\) => \(k\[0\] === "p" \? fd !== "mass" : !target \|\| !amount\(fd\)\)\)/, "one value sets the scale");
 }
@@ -525,8 +526,84 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
 }
 {
   // A reagent table moves when you drag any part of it with Select: a cell, its row names, its lines or a gap (Sam,
-  // 13 November 2026). A press on a cell also picks the cell.
+  // 13 November 2026). A press on a line or a cell picks it; on a gap, the table is picked whole (TABLE). It snaps as
+  // any object does, and once moved by hand it keeps its place (Grid.free).
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /gridViews\.find\(\(v\) => \{ const \[x0, y0, x1, y1\] = tableSpan\(v\);[^\n]*\n\s*if \(table\) \{\n\s*choose\(\[\], \[\]\);\n\s*setGridPick\(undefined\);\n\s*return setDrag\(\{ kind: "grid", arrow: table\.arrow/);
+  assert.match(editor, /if \(table\) \{\n\s*choose\(\[\], \[TABLE\(table\.arrow\)\]\);\n\s*setGridPick\(undefined\);\n\s*return grabTable\(table\.arrow\);/);
+  assert.match(editor, /snapBoxes\(boxes\.moving, boxes\.targets, raw, 6 \/ \(views\.get\(\)\.zoom \* L\)\)/, "the table's drag snaps");
+  assert.match(editor, /changeGrid\(drag\.arrow, \(\) => \(\{ at, free: true \}\)\)/, "and is free once dropped");
+  assert.match(editor, /mol = keepPlace\(doc, /, "every edit keeps a free table's place");
+  // The Text tool types in a cell, as ChemDraw's does in its grid.
+  assert.match(editor, /if \(gc && \(gridTypes\(gc\) \|\| gridWrites\(gc\)\)\) return editGridCell\(gc\);\n\s*return startWriting/);
+}
+// 1.2's hand edits (docs/plans/reagent-table-1-2.md).
+{
+  const box = (k: number) => [3 * k, -0.5, 3 * k + 1, 0.5];
+  const row = [{ kind: "structure", atoms: [0], box: box(0) }, { kind: "arrow", id: 9, box: box(1) }, { kind: "structure", atoms: [1], box: box(2) }];
+  const steps = [{ arrow: 9, reactants: [row[0]], products: [row[2]], above: [], below: [] }];
+  const deps: GridDeps = {
+    reaction: () => ({ steps: row, arrows: [9], atoms: [0, 1], captions: [], carried: [], conditions: new Map() }) as never, steps: () => steps as never,
+    structure: (atoms) => ({ formula: `S${atoms[0]}`, weight: 100 + 10 * atoms[0] }), reagent: () => undefined, captionBox: () => undefined, nameWidth: () => 1, captionSize: 10, perPt: 0.05, experiment: true,
+  };
+  const arrow = { id: 9, kind: "reaction" as const, from: [3, 0] as [number, number], to: [4, 0] as [number, number] };
+  const mol = (g: Partial<Grid>, more: Partial<Mol> = {}) => ({ atoms: [], bonds: [], arrows: [arrow], grids: [{ arrow: 9, typed: { "r:S0": { mass: 1 } }, ...g }], ...more }) as Mol;
+  const view = (g: Partial<Grid>, more?: Partial<Mol>) => gridViews(mol(g, more), deps)[0];
+  const plain = view({}), rowIds = (v: GridView) => v.rows.map((r) => r.id);
+  const show = (v: GridView, row: string, key: string) => shownCell(v, key, rowOf(v, row)!);
+  // Job 4: a numbered compound gives the table a Compound row on top, its number bold, the formula under it.
+  const numbered = view({}, { captions: [{ id: 50, text: "1", x: 0, y: -1, under: [0], bold: true }] });
+  assert.deepEqual(rowIds(numbered).slice(0, 2), ["number", "formula"]);
+  assert.deepEqual(show(numbered, "number", "r:S0"), { text: "1", bold: true });
+  assert.equal(show(numbered, "number", "p:S1").text, "", "a compound with no number is blank there");
+  assert.equal(rowIds(plain)[0], "formula", "no numbers, no Compound row");
+  assert.equal(rowIds(view({ hidden: { rows: ["number"] } }, { captions: [{ id: 50, text: "1", x: 0, y: -1, under: [0] }] }))[0], "formula", "it hides as any row does");
+  // Job 2: text over any cell. A number over MW is the MW the maths uses; over Formula it shows as typed (bold).
+  const mw = view({ text: { mw: { "r:S0": "200" }, formula: { "r:S0": "C6H6" }, mass: { "#": "Weighed" } } });
+  near(mw.solved["r:S0"].moles, 1 / 200, "the MW typed is the MW used");
+  assert.deepEqual(show(mw, "formula", "r:S0"), { text: "C6H6", typed: true, formula: true });
+  assert.equal(show(mw, "mass", "#").text, "Weighed", "a row's name typed over");
+  // A formula typed over gives the MW, and the moles follow; an MW typed too wins.
+  const formula = view({ text: { formula: { "r:S0": "C6H6" } } });
+  assert.equal(show(formula, "mw", "r:S0").text, "78.11");
+  near(formula.solved["r:S0"].moles, 1 / 78.114, "the formula's MW is used");
+  assert.equal(show(view({ text: { formula: { "r:S0": "C6H5R" } } }), "mw", "r:S0").text, "100.00", "a formula with no weight leaves the MW");
+  // Job 3: rows of your own, after the row each names, with text under each column.
+  const own = view({ own: [{ id: "u1", name: "Supplier", after: "mw", values: { "r:S0": "Sigma" } }, { id: "u2", name: "Lot", after: "^" }, { id: "u3", name: "Notes", after: "gone" }] });
+  assert.deepEqual(rowIds(own).slice(0, 4), ["u2", "formula", "mw", "u1"]);
+  assert.equal(rowIds(own).at(-1), "u3", "one whose row is not shown goes at the foot");
+  assert.equal(show(own, "u1", "r:S0").text, "Sigma");
+  assert.equal(show(own, "u1", "#").text, "Supplier");
+  assert.ok(own.cells.some((c) => c.row === "u1" && c.key === "#"), "its name is a cell to type in");
+  // Job 5: a cell shown blank keeps its value in the maths; a line taken out is still laid out (the table keeps its size).
+  const blank = view({ hidden: { cells: { mass: ["r:S0"] }, lines: ["top"] } });
+  assert.equal(show(blank, "mass", "r:S0").text, "");
+  near(blank.solved["r:S0"].moles, 1 / 100, "its value still used");
+  assert.deepEqual(blank.goneLines, ["top"]);
+  assert.deepEqual(blank.rulings.map((l) => l.id), ["top", "bottom"]);
+  assert.ok(blank.hiding, "Show all is offered");
+  assert.deepEqual(view({ layout: "rows" }).rulings.map((l) => l.id), ["0a", "0b", "0c", "1a", "1b", "1c"]);
+  // Files: .oct and CDXML keep it all; a damaged entry is left out, the table kept.
+  const all: Partial<Grid> = { free: true, at: [1, -2], own: [{ id: "u1", name: "Supplier", after: "mw", values: { "r:S0": "Sigma" } }], text: { mw: { "r:S0": "200" }, mass: { "#": "Weighed" } }, hidden: { rows: ["number"], cells: { mass: ["r:S0"] }, lines: ["top", "1c"] } };
+  const kept = (m: Mol) => { const { arrow: _, ...g } = m.grids![0]; return g; };
+  assert.deepEqual(kept(parse(serialize(mol(all)))), kept(mol(all)), ".oct keeps the hand edits");
+  assert.deepEqual(kept(fromCdxml(toCdxml(mol(all), DEFAULT_STYLE)).mol), kept(mol(all)), "CDXML keeps them as Octet's own data");
+  const odd = readGrid({ typed: {}, own: [{ id: "x1", name: "a" }, { id: "u1", name: "b\nc", values: { "r:S0": 5 } }], text: { nonsense: { "r:S0": "x" }, mw: { "r:S0": "" } }, hidden: { cells: { mass: [1, "r:S0"] }, lines: ["middle", "top"] }, free: "yes" }, 9);
+  assert.deepEqual(odd, { arrow: 9, typed: {}, own: [{ id: "u1", name: "b c" }], hidden: { cells: { mass: ["r:S0"] }, lines: ["top"] } });
+  // Job 6: a table moved by hand keeps its place when its reaction moves (keepPlace); one that moves with its arrow
+  // (a new Grid.at) or is not free follows it.
+  const before = mol({ at: [1, -2], free: true }), moved = (g: Grid) => ({ ...before, arrows: [{ ...arrow, from: [5, 1] as [number, number], to: [6, 1] as [number, number] }], grids: [g] }) as Mol;
+  const placedAt = (m: Mol) => gridViews(m, deps)[0].start;
+  near(placedAt(keepPlace(before, moved(before.grids![0]))), placedAt(before), "stays on the page");
+  near(placedAt(keepPlace(before, moved({ ...before.grids![0], at: [1, -2] }))), placedAt(before) + 2, "goes with a selection that took it");
+  const attached = mol({ at: [1, -2] });
+  near(placedAt(keepPlace(attached, { ...moved(attached.grids![0]) })), placedAt(attached) + 2, "attached, it follows");
+  // Make static: plain text and lines where the table was; the table goes.
+  const flat = staticTable(mol({ hidden: { lines: ["bottom"] } }), view({ hidden: { lines: ["bottom"] } }), { size: 10, perPt: 0.05, id: 100, arrows: [9] });
+  assert.equal(flat.grids?.length, 0);
+  assert.equal(flat.arrows!.filter((a) => a.kind === "line").length, 1, "a line taken out stays out");
+  assert.ok(flat.captions!.some((c) => c.text === "Formula" && c.align === "right") && flat.captions!.some((c) => c.text === "1.00 g" && c.bold), "names right-aligned, typed values bold");
+  assert.equal(flat.groups, undefined, "each its own object, to delete one by one");
+  // Copy table follows what shows.
+  assert.match(gridTsv(own), /^Supplier\tSigma\t/m);
 }
 console.log("stoich.check: ok");

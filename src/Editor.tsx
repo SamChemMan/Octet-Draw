@@ -127,7 +127,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { formulaCaption, formulaRuns } from "./labels";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
-import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, withCaptionAtoms } from "./edit";
+import { nextId, captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
 import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
@@ -146,7 +146,7 @@ import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
-import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, movedAt, setRole, shiftView, stepGrids } from "./gridview";
+import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, keepPlace, movedAt, staticTable, rowOf as gridRowOf, setRole, shiftView, shownCell, stepGrids, TABLE, tableOf } from "./gridview";
 import { logError } from "./crashlog";
 import { handle as handleMcp, TOOL_TABLE, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
@@ -258,7 +258,7 @@ type Drag =
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean }
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
@@ -286,7 +286,7 @@ type Drag =
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
   // A reagent table moved on its own with Select, by d (drawing units) from where it is drawn.
-  | { kind: "grid"; arrow: number; from: P; start: [number, number]; d: P; moved: boolean }
+  | { kind: "grid"; arrow: number; from: P; start: [number, number]; d: P; moved: boolean; guides: Guide[]; snap: () => { moving: number[]; targets: number[][] } | undefined }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
@@ -1072,7 +1072,8 @@ export default function Editor() {
     // A page spectrum's label moved takes its leader with it (followLeaders), and a number or a name typed over a
     // chart's is the chart's data (followCharts), in the same step. Hydrogens set by hand
     // that are no longer fewer than usual go (settleHydrogens).
-    mol = settleHydrogens(followCharts(doc, followLeaders(doc, mol), plotEnv()));
+    // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
+    mol = keepPlace(doc, settleHydrogens(followCharts(doc, followLeaders(doc, mol), plotEnv())));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
@@ -2641,7 +2642,7 @@ export default function Editor() {
       }
       // Everything, as ChemDraw's Select All: structures, text, arrows, orbitals, shapes, brackets and cycles.
       setSelection(new Set(doc.atoms.map((_, i) => i)));
-      setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
+      setPicked(new Set([...[...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id), ...gridViews.map((v) => TABLE(v.arrow))]));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     snap_grid: () => setSettings((s) => ({ ...s, snapGrid: !s.snapGrid })),
@@ -4520,6 +4521,15 @@ export default function Editor() {
     const shift = <T extends { id: number; from: [number, number]; to: [number, number] }>(a: T): T => (arrowIds.has(a.id) ? { ...a, from: [a.from[0] + d[0], a.from[1] + d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] } : a);
     const shiftCurve = (x: Arrow): Arrow => (arrowIds.has(x.id) && x.curve ? { ...shift(x), curve: { ...x.curve, points: x.curve.points.map((q) => ({ at: [q.at[0] + d[0], q.at[1] + d[1]], ...(q.c1 ? { c1: [q.c1[0] + d[0], q.c1[1] + d[1]] as P } : {}), ...(q.c2 ? { c2: [q.c2[0] + d[0], q.c2[1] + d[1]] as P } : {}) })) } } : shift(x));
     if (arrowIds.size) m = { ...m, arrows: m.arrows?.map(shiftCurve), shapes: m.shapes?.map(shift) };
+    // A table picked moves too: with its arrow when that moves (a new Grid.at, so keepPlace leaves it), else on its own,
+    // and from then on it keeps its place on the page (Grid.free).
+    const tables = new Set([...picked].map(tableOf).filter((x) => x !== undefined));
+    if (tables.size) m = { ...m, grids: m.grids?.map((g) => {
+      if (!tables.has(g.arrow)) return g;
+      if (arrowIds.has(g.arrow)) return g.at ? { ...g, at: [...g.at] as [number, number] } : g;
+      const v = gridViews.find((x) => x.arrow === g.arrow), at = v && movedAt(base, v, d);
+      return at ? { ...g, at, free: true as const } : g;
+    }) };
     if (!captions.size) return m;
     // A side arrow's text: its end goes where it is dragged, and the text follows its end.
     for (const [id, from] of captions) {
@@ -4954,6 +4964,32 @@ export default function Editor() {
     }
     return { captions, arrowIds, cycleIds };
   };
+  // Snapping (snap.ts): the box of everything moving, drawn (atoms with their labels, text as placed, arrows and shapes
+  // by their ends, tables by their span), and every other object's, as they were at the press. Copies snap to their
+  // originals. A table that goes with a moving arrow is neither.
+  const objectBoxes = (atoms0: Set<number>, picks0: Set<number>, copies = false) => {
+    const up = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+    const ends = (a: { from: P; to: P; curve?: { points: { at: P }[] }; angle?: number }): Box => {
+      if (a.angle) return shapeBounds(a);
+      const ps = [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])];
+      return [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
+    };
+    const ink = (g: Iterable<number>) => { const b = withCaptions(g); return b && up(b); };
+    const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
+    const moves = (id: number) => {
+      const c = textOf.get(id);
+      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
+    };
+    const things = [...arrows.filter((a) => !isOrbital(a)), ...(doc.shapes ?? [])], span = (v: GridView) => tableSpan(v) as Box;
+    const movingBox = union([...(atoms0.size ? [ink(atoms0)] : []), ...placed.filter((c) => c.id !== DRAFT && moves(c.id)).map((c) => up(c.box)), ...things.filter((a) => picks0.has(a.id)).map(ends), ...gridViews.filter((v) => picks0.has(TABLE(v.arrow))).map(span)].filter((b): b is Box => !!b));
+    const targets = movingBox ? [
+      ...fragments(doc).filter((g) => copies || !g.some((i) => atoms0.has(i))).map(ink),
+      ...placed.filter((c) => c.id !== DRAFT && (copies || !moves(c.id))).map((c) => up(c.box)),
+      ...things.filter((a) => copies || !picks0.has(a.id)).map(ends),
+      ...gridViews.filter((v) => copies || (!picks0.has(TABLE(v.arrow)) && !picks0.has(v.arrow))).map(span),
+    ].filter((b): b is Box => !!b) : [];
+    return movingBox ? { moving: movingBox, targets } : undefined;
+  };
   // alone: the atoms move without becoming the selection (a bond tool's Shift-drag).
   const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false, alone = false) => {
     // Option-drag moves copies, made now and kept only if the pointer moves.
@@ -4970,29 +5006,7 @@ export default function Editor() {
     // shapes by their ends), and every other object's, as they were at the press. Copies snap to their originals.
     // They are worked out at the first move and kept for the rest of the drag.
     let boxes: ReturnType<Extract<Drag, { kind: "move" }>["snap"]> | null = null;
-    const snap = () => {
-      if (boxes !== null) return boxes;
-      const up = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
-      const ends = (a: { from: P; to: P; curve?: { points: { at: P }[] }; angle?: number }): Box => {
-        if (a.angle) return shapeBounds(a);
-        const ps = [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])];
-        return [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
-      };
-      const ink = (g: Iterable<number>) => { const b = withCaptions(g); return b && up(b); };
-      const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
-      const moves = (id: number) => {
-        const c = textOf.get(id);
-        return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
-      };
-      const things = [...arrows.filter((a) => !isOrbital(a)), ...(doc.shapes ?? [])];
-      const movingBox = union([...(atoms0.size ? [ink(atoms0)] : []), ...placed.filter((c) => c.id !== DRAFT && moves(c.id)).map((c) => up(c.box)), ...things.filter((a) => picks0.has(a.id)).map(ends)].filter((b): b is Box => !!b));
-      const targets = movingBox ? [
-        ...fragments(doc).filter((g) => copies || !g.some((i) => atoms0.has(i))).map(ink),
-        ...placed.filter((c) => c.id !== DRAFT && (copies || !moves(c.id))).map((c) => up(c.box)),
-        ...things.filter((a) => copies || !picks0.has(a.id)).map(ends),
-      ].filter((b): b is Box => !!b) : [];
-      return (boxes = movingBox ? { moving: movingBox, targets } : undefined);
-    };
+    const snap = () => (boxes !== null ? boxes : (boxes = objectBoxes(atoms0, picks0, !!copies)));
     setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its parts (cycleParts, and the rest of an integral group it is
@@ -5078,19 +5092,28 @@ export default function Editor() {
       setPicked(gi);
       return startMove(p, screen, t, gi, ga, copy);
     }
-    // A press on a reagent table picks its cell and grabs the table, which moves on its own (Grid.at).
-    const gc = !shift && Object.values(t).every((v) => v === undefined) ? gridCellAt(p) : undefined;
-    if (gc) {
+    // A press on a reagent table picks the line or the cell under it and grabs the table, which moves on its own
+    // (Grid.at, Grid.free). It snaps as any object does.
+    const empty = Object.values(t).every((v) => v === undefined), gl = empty && !shift ? gridLineAt(p) : undefined, gc = empty && !shift && !gl ? gridCellAt(p) : undefined;
+    const table = empty ? gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; }) : undefined;
+    // A table in a wider selection (Select All, an area) moves the whole selection.
+    if (table && !shift && picked.has(TABLE(table.arrow)) && (selection.size || picked.size > 1)) return startMove(p, screen, t);
+    const grabTable = (arrow: number) => {
+      let boxes: ReturnType<typeof objectBoxes> | null = null;
+      return setDrag({ kind: "grid", arrow, from: p, start: screen, d: [0, 0], moved: false, guides: [], snap: () => (boxes !== null ? boxes : (boxes = objectBoxes(new Set(), new Set([TABLE(arrow)])))) });
+    };
+    if (gl || gc) {
       choose([], []);
-      setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
-      return setDrag({ kind: "grid", arrow: gc.arrow, from: p, start: screen, d: [0, 0], moved: false });
+      setGridPick(gl ? { arrow: gl.arrow, key: "", row: "", line: gl.line } : { arrow: gc!.arrow, key: gc!.key, row: gc!.row });
+      return grabTable((gl ?? gc)!.arrow);
     }
-    // A press on the rest of a reagent table (its row names, its lines, a gap) grabs it too, with no cell picked.
-    const table = !shift && Object.values(t).every((v) => v === undefined) ? gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; }) : undefined;
+    // A press on the rest of a reagent table (a gap, its conditions) picks the table whole, as an object (Shift adds it
+    // to the selection or takes it out), and grabs it.
+    if (table && shift) { const id = TABLE(table.arrow), next = new Set(picked); if (!next.delete(id)) next.add(id); return setPicked(next); }
     if (table) {
-      choose([], []);
+      choose([], [TABLE(table.arrow)]);
       setGridPick(undefined);
-      return setDrag({ kind: "grid", arrow: table.arrow, from: p, start: screen, d: [0, 0], moved: false });
+      return grabTable(table.arrow);
     }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
@@ -5119,7 +5142,9 @@ export default function Editor() {
     setStepPick(undefined);
     setBranchPick(bs.length === 1 ? { cycle: bs[0].cycle, branch: bs[0].branch } : undefined);
     if (bs.length === 1) return choose([], [bs[0].cycle]);
-    choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1])]);
+    // A table the area takes in whole.
+    const tables = gridViews.filter((v) => { const [x0, y0, x1, y1] = tableSpan(v); return ([[x0, y0], [x1, y0], [x1, y1], [x0, y1]] as P[]).every(inside); }).map((v) => TABLE(v.arrow));
+    choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1]), ...tables]);
   };
   // A selection area: a box, or a lasso, as the Select tool is set.
   function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
@@ -5853,9 +5878,19 @@ export default function Editor() {
         for (const g of groupsOf(doc, new Set([...atoms, ...[...bonds].flatMap((i) => doc.bonds[i].atoms)]), captions)) if (g.integral) { g.atoms.forEach((i) => atoms.add(i)); g.items.forEach((id) => captions.add(id)); }
         return setDrag({ ...drag, trail: [...drag.trail, p], bonds, atoms, captions, moved: true });
       }
-      case "grid":
+      case "grid": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        return setDrag({ ...drag, d: [p[0] - drag.from[0], p[1] - drag.from[1]], moved: true });
+        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
+        const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L)) : { d: raw, guides: [] as Guide[] };
+        // Snap to Grid, on each axis an object snap left free: the nearest corner or middle of the table.
+        const b = snapGrid && !e.metaKey ? drag.snap()?.moving : undefined;
+        if (b) {
+          const nudge = gridNudge(snapGrid!, [b[0], (b[0] + b[2]) / 2, b[2]].flatMap((x) => [b[1], (b[1] + b[3]) / 2, b[3]].map((y): P => [x + snapped.d[0], y + snapped.d[1]])), views.get().zoom * L, 6);
+          const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
+          snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
+        }
+        return setDrag({ ...drag, d: snapped.d, guides: snapped.guides, moved: true });
+      }
       case "box": {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
@@ -5895,7 +5930,7 @@ export default function Editor() {
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current) });
+        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d: snapped.d });
       }
     }
   }
@@ -6403,7 +6438,7 @@ export default function Editor() {
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "part" && featurePick) { const pl = doc.shapes?.find((x) => x.id === featurePick.map)?.plasmid; return { value: (featurePick.region !== undefined ? pl?.regions[featurePick.region] : pl?.markers[featurePick.marker!])?.colour ?? "#000000" }; }
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
-    if (context.kind === "grid") return { value: doc.grids?.find((g) => g.arrow === gridPick?.arrow)?.colour ?? "#000000" };
+    if (context.kind === "grid") return { value: doc.grids?.find((g) => g.arrow === (gridPick?.arrow ?? tableOf([...picked][0] ?? 0)))?.colour ?? "#000000" };
     // A bond alone takes its own colour (the colour action sets the bond only), so its row shows the bond's.
     if (context.kind === "bond") return { value: doc.bonds.find((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1]))?.colour ?? "#000000" };
     // A cycle's side arrow picked: its own colour, else its cycle's.
@@ -6574,12 +6609,24 @@ export default function Editor() {
     }
     return undefined;
   };
+  // The table line under a point (drawing units): within 3 px of one that shows.
+  const gridLineAt = (p: P) => {
+    const tol = 3 / (views.get().zoom * L);
+    for (const v of gridViews) {
+      const l = v.rulings.find((x) => !v.goneLines?.includes(x.id) && p[0] >= x.a && p[0] <= x.b && Math.abs(p[1] - x.y) < tol);
+      if (l) return { arrow: v.arrow, line: l.id };
+    }
+    return undefined;
+  };
   const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; value: string }>();
   type GridCell = Omit<NonNullable<typeof gridEdit>, "value">;
-  // A cell takes typing unless it is worked out (Formula, MW, Expected moles, Yield, a reactant's Expected mass), a
-  // name, or Limiting? (which a click or Return sets).
+  // A cell takes an amount unless it is Formula, MW, a name, or Limiting? (which a click or Return sets). A product's
+  // Expected moles and Yield take one too, and set what gives them (its Expected mass, its Measured mass).
   const gridCol = (gc: { arrow: number; key: string }) => gridViews.find((x) => x.arrow === gc.arrow)?.cols.find((x) => x.key === gc.key);
-  const gridTypes = (gc: GridCell) => !["name", "formula", "mw", "expectedMoles", "yield", "limiting", "role"].includes(gc.row) && (gc.row !== "expected" || gc.product) && (gc.row !== "conc" || gridCol(gc)?.role === "solvent");
+  const gridTypes = (gc: GridCell) => gc.key[0] !== "#" && !!GRID_ROWS.find((r) => r.id === gc.row) && !["formula", "mw", "limiting", "role"].includes(gc.row) && (!["expected", "expectedMoles", "yield"].includes(gc.row) || gc.product) && (gc.row !== "conc" || gridCol(gc)?.role === "solvent");
+  // Every other cell but Limiting? and Role takes text typed over it, as text (Grid.text): a name, the formula, the MW (a
+  // number there is the MW used), a value worked out, a row of the user's own.
+  const gridWrites = (gc: GridCell) => !gridTypes(gc) && ((gc.row !== "limiting" && gc.row !== "role") || gc.key[0] === "#");
   // Limiting? sets the limiting reactant (a column with the Reactant role); Role goes to the next role: Reactant, Catalyst,
   // Solvent.
   const gridToggle = (gc: GridCell) => {
@@ -6591,33 +6638,94 @@ export default function Editor() {
   // Type in a cell: what was typed there, or the key that started it (a key over a picked cell types over it, as in a
   // spreadsheet). The cell stays picked, so the keys carry on from it.
   const editGridCell = (gc: GridCell, start?: string) => {
-    const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
+    const v = gridViews.find((x) => x.arrow === gc.arrow), row = v && gridRowOf(v, gc.row);
+    if (!v || !row) return;
     setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
-    const t = gridText(v, c, row);
-    setGridEdit({ ...gc, value: start ?? (t.typed ? t.text : "") });
+    const t = shownCell(v, gc.key, row);
+    setGridEdit({ ...gc, value: start ?? (gridTypes(gc) ? (t.typed ? t.text : "") : t.text) });
+  };
+  // Text typed over a cell that is not an amount (gridWrites): a row's name (its own row's name), a value in a row of
+  // the user's own, or text over the value worked out. Empty takes it off, and the value worked out shows again.
+  const writeGridCell = (w: GridCell, typed: string) => {
+    const text = oneLine(typed).trim();
+    // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too, so the
+    // scheme and the table say the same.
+    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
+    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
+    if (cap && text && isNumber({ ...cap, text })) {
+      const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest } }; });
+      return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
+    }
+    changeGrid(w.arrow, (g) => {
+      const own = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#";
+      if (own && head) return { own: g.own!.map((o) => (o === own ? { ...o, name: text } : o)) };
+      if (own) { const { [w.key]: _, ...rest } = own.values ?? {}; return { own: g.own!.map((o) => (o === own ? { ...o, values: text ? { ...rest, [w.key]: text } : rest } : o)) }; }
+      const k = head ? "#" : w.key, { [k]: _, ...rest } = g.text?.[w.row] ?? {}, cells = text ? { ...rest, [k]: text } : rest;
+      const { [w.row]: _r, ...rows } = g.text ?? {};
+      return { text: Object.keys(cells).length ? { ...rows, [w.row]: cells } : rows };
+    });
+  };
+  // A cell shown again once something is typed in it (Grid.hidden.cells).
+  const unhide = (g: Grid, w: { row: string; key: string }): Partial<Grid> => {
+    const k = w.key[0] === "#" ? "#" : w.key, list = g.hidden?.cells?.[w.row];
+    if (!list?.includes(k)) return {};
+    const { [w.row]: _, ...cells } = g.hidden!.cells!, left = list.filter((x) => x !== k);
+    return { hidden: { ...g.hidden, cells: left.length ? { ...cells, [w.row]: left } : cells } };
+  };
+  // Delete on a picked part of a table: a line goes (Grid.hidden.lines); a row's name takes its row (a row of the user's
+  // own goes, one of Octet's is hidden); as rows, a component's name takes its row (its column, hidden); a cell with
+  // something typed in it or over it is cleared; any other cell shows blank (Grid.hidden.cells), its value still used.
+  const deleteGridPart = (pick: { arrow: number; key: string; row: string; line?: string }) => {
+    const v = gridViews.find((x) => x.arrow === pick.arrow), g = doc.grids?.find((x) => x.arrow === pick.arrow);
+    if (!v || !g) return;
+    if (pick.line) { const line = pick.line; setGridPick(undefined); return changeGrid(pick.arrow, (h) => ({ hidden: { ...h.hidden, lines: [...(h.hidden?.lines ?? []), line] } })); }
+    const row = gridRowOf(v, pick.row), gc = v.cells.find((x) => x.key === pick.key && x.row === pick.row);
+    if (!row || !gc) return;
+    const cell: GridCell = { arrow: v.arrow, key: gc.key, row: gc.row, x: gc.x, y: gc.y, w: gc.w, product: gc.product };
+    const next = gridStep(v.cells, gc, "down"), stay = () => setGridPick(next && next !== gc ? { arrow: v.arrow, key: next.key, row: next.row } : undefined);
+    if (pick.key[0] === "#") {
+      stay();
+      if (row.own) return changeGrid(v.arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row.id) }));
+      return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, rows: [...(h.hidden?.rows ?? []), row.id] } }));
+    }
+    if (pick.row === "name" && !g.text?.name?.[pick.key]) { stay(); return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, cols: [...(h.hidden?.cols ?? []), pick.key] } })); }
+    const t = shownCell(v, pick.key, row);
+    if (!t.text) return;
+    if (gridTypes(cell) && t.typed) return commitGridCell("", cell);
+    if (g.text?.[pick.row]?.[pick.key] !== undefined || (row.own && t.text)) return writeGridCell(cell, "");
+    changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, cells: { ...h.hidden?.cells, [pick.row]: [...(h.hidden?.cells?.[pick.row] ?? []), pick.key] } } }));
   };
   // The keys on a picked cell, as Numbers, Excel and Google Sheets have them: the arrows and Tab move, Return types in
   // it (or moves down past a worked-out one), a character types over it, and Delete clears what was typed there. Delete
   // never takes the grid (the panel's Delete and Remove stoichiometry do), so arrowing about and clearing is safe.
   const gridKeyDown = (e: KeyboardEvent) => {
+    if (gridPick?.line && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); deleteGridPart(gridPick); return true; }
     const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
     if (!v || !c) return false;
     const gc: GridCell = { arrow: v.arrow, key: c.key, row: c.row, x: c.x, y: c.y, w: c.w, product: c.product };
     const move = (dir: Parameters<typeof gridStep>[2]) => { const n = gridStep(v.cells, c, dir)!; setGridPick({ arrow: v.arrow, key: n.key, row: n.row }); };
     const arrowKey = ({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" } as const)[e.key as "ArrowLeft"];
-    const typed = () => { const col = v.cols.find((x) => x.key === c.key), row = GRID_ROWS.find((r) => r.id === c.row); return !!(col && row && gridText(v, col, row).typed); };
     if (arrowKey) move(arrowKey);
     else if (e.key === "Tab") move(e.shiftKey ? "back" : "next");
-    else if (e.key === "Enter" && (c.row === "limiting" || c.row === "role")) gridToggle(gc);
-    else if (e.key === "Enter") { if (gridTypes(gc)) editGridCell(gc); else move(e.shiftKey ? "up" : "down"); }
-    else if (e.key === "Backspace" || e.key === "Delete") { if (gridTypes(gc) && typed()) commitGridCell("", gc); }
-    else if (e.key.length === 1 && e.key.trim() && gridTypes(gc)) editGridCell(gc, e.key);
+    else if (e.key === "Enter" && !gridWrites(gc) && (c.row === "limiting" || c.row === "role")) gridToggle(gc);
+    else if (e.key === "Enter") { if (gridTypes(gc) || gridWrites(gc)) editGridCell(gc); else move(e.shiftKey ? "up" : "down"); }
+    else if (e.key === "Backspace" || e.key === "Delete") deleteGridPart(gridPick!);
+    else if (e.key.length === 1 && e.key.trim() && (gridTypes(gc) || gridWrites(gc))) editGridCell(gc, e.key);
     else return false;
     e.preventDefault();
     return true;
   };
   // A grid cell clicked with Select: picked, for the grid's actions (Set as limiting, Hide row and column, colour).
-  const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string }>();
+  // line: one of its lines picked instead (key and row empty).
+  const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string; line?: string }>();
+  // A row just added (Add row above or below): its name opens to type in once the table is laid out with it.
+  const newRow = useRef<{ arrow: number; row: string; rows: boolean }>(undefined);
+  useEffect(() => {
+    const n = newRow.current, v = n && gridViews.find((x) => x.arrow === n.arrow), c = v?.cells.find((x) => x.row === n!.row && x.key[0] === "#");
+    if (!n || !c) return;
+    newRow.current = undefined;
+    editGridCell({ arrow: v!.arrow, key: c.key, row: c.row, x: c.x, y: c.y, w: c.w, product: c.product });
+  }, [gridViews]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (selection.size || picked.size) setGridPick(undefined); }, [selection, picked]);
   // A scheme of several arrows: whether its tables are one for each step (join: One table for the scheme) or not
   // (split: One table for each step).
@@ -6632,7 +6740,7 @@ export default function Editor() {
     if (!g || !v) return;
     const now = keptGrid(g, v);
     set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...now, ...change(now, v) } : x)) }, true);
-  };
+  }, changeGridNow = changeGrid;
   // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
   // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
   // others (they are four ways to say how much); a product's equivalents are its coefficient. Limiting? sets the
@@ -6643,6 +6751,9 @@ export default function Editor() {
     const w = cell, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
+    if (!gridTypes(w)) return gridWrites(w) ? writeGridCell(w, text) : undefined;
+    // A hidden cell typed in shows again, in the same step.
+    const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => changeGridNow(arrow, (g, v) => { const r = change(g, v); return Object.keys(r).length ? { ...unhide(g, w), ...r } : r; });
     const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
     if (row.id === "limiting") return role !== "reactant" ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
     // Concentration: the grid's, for the solvent with no amount; typed here, this solvent's amount goes, so it is that one.
@@ -6651,6 +6762,16 @@ export default function Editor() {
       const conc = parseAmount(text, "molarity");
       if (!conc || conc > 1000) return setNotice("Type a concentration, such as 0.1 M or 100 mM.", "info");
       return changeGrid(w.arrow, (g) => { const { mass: _m, moles: _n, volume: _v, equiv: _e, ...rest } = g.typed[w.key] ?? {}; return { conc, typed: { ...g.typed, [w.key]: rest } }; });
+    }
+    // A product's Expected moles is the amount wanted, kept as its Expected mass; its Yield gives its Measured mass. So
+    // every cell they touch follows, as when the mass is typed.
+    if (row.id === "expectedMoles" || row.id === "yield") {
+      const mass = row.id === "yield" ? "measured" : "expected";
+      if (!text.trim()) return commitGridCell("", { ...w, row: mass });
+      const s = gridViews.find((x) => x.arrow === w.arrow)?.solved[w.key], value = parseAmount(text, row.id === "yield" ? "purity" : "moles");
+      if (value === undefined || !col?.mw) return setNotice(row.id === "yield" ? "Type a yield, such as 85%." : "Type an amount, such as 1.2 mmol.", "info");
+      if (row.id === "yield" && !s?.expectedMoles) return setNotice("Type an amount for the limiting reactant first.", "info");
+      return commitGridCell(`${row.id === "yield" ? (value * s!.expectedMoles! * col.mw) / s!.purity : value * col.mw} g`, { ...w, row: mass });
     }
     if (!row.field) return;
     const field0 = row.field;
@@ -6776,9 +6897,12 @@ export default function Editor() {
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
     }
-    // A stoichiometry grid's cell picked.
+    // A table picked whole, or one of its cells, row names or lines.
+    const wholeTable = picked.size === 1 && !selection.size ? tableOf([...picked][0]) : undefined, wholeGrid = wholeTable !== undefined ? gridViews.find((v) => v.arrow === wholeTable) : undefined;
+    if (wholeGrid) return { kind: "grid", table: true, product: false, limiting: false, hidden: wholeGrid.hiding, rows: !!wholeGrid.texts, empty: emptyRows(wholeGrid).length > 0, free: !!wholeGrid.free, ...gridSteps(wholeGrid.arrow) };
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow),
+    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow) };
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     const risk = expPage && !riskGroup(doc);
@@ -8124,8 +8248,32 @@ export default function Editor() {
     // with them. Black is the document's ink, so it clears the colour. Only text being typed (or the Text tool's next
     // text) takes the colour as a text style.
     // A picked grid cell: ChemDraw's Set Limiting, Hide Row, Hide Column and Show All, and removing the grid.
-    if (command.startsWith("grid.") && gridPick) {
-      const what = command.slice(5), { arrow, key, row } = gridPick;
+    // The table's actions act on the cell, row name or line picked, or on the table picked whole.
+    const pickedTable = gridPick ?? (picked.size === 1 && !selection.size && tableOf([...picked][0]) !== undefined ? { arrow: tableOf([...picked][0])!, key: "", row: "" } : undefined);
+    if (command.startsWith("grid.") && pickedTable) {
+      const what = command.slice(5), { arrow, key, row } = pickedTable;
+      // These act on a cell (its column or its row): none with the table picked whole or a line.
+      if (!key && /^(limiting|taken|untaken|role\.|hide\.(row|col)|row\.)/.test(what)) return;
+      // Add row above or below: a row of the user's own, named as it is typed (its name cell opens); Delete row takes it.
+      if (what === "row.above" || what === "row.below") {
+        const v = gridViews.find((x) => x.arrow === arrow), k = v ? v.rows.findIndex((r) => r.id === row) : -1;
+        if (!v || k < 0) return;
+        const g = doc.grids?.find((x) => x.arrow === arrow), used = new Set(g?.own?.map((o) => o.id)), id = `u${Array.from({ length: 99 }, (_, n) => n + 1).find((n) => !used.has(`u${n}`)) ?? 99}`;
+        if (used.size >= 20) return setNotice("A table has room for 20 rows of your own.", "info");
+        const after = what === "row.below" ? row : k ? v.rows[k - 1].id : "^";
+        newRow.current = { arrow, row: id, rows: !!v.texts };
+        return changeGrid(arrow, (h) => ({ own: [...(h.own ?? []), { id, name: "", after }] }));
+      }
+      if (what === "row.delete") return changeGrid(arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row) }));
+      // Attach to reaction: back under its reaction, following it again.
+      if (what === "attach") return changeGrid(arrow, () => ({ at: undefined, free: undefined }));
+      // Make static: the table as plain text and lines in a group, in one step (⌘Z brings the table back).
+      if (what === "static") {
+        const v = gridViews.find((x) => x.arrow === arrow);
+        if (!v) return;
+        setGridPick(undefined);
+        return set(staticTable(doc, v, { size: style.captionSize, perPt: pt / L, id: nextId(doc), arrows: reactionOf(arrow)?.arrows ?? [arrow] }));
+      }
       if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
       // Mark as measured: the picked Mass or Volume is the amount measured out (one for each column); Clear takes it off.
       if (what === "taken") return changeGrid(arrow, (g) => ({ taken: { ...g.taken, [key]: row as "mass" | "volume" } }));
@@ -8150,6 +8298,7 @@ export default function Editor() {
       // Every grid of the reaction goes (an experiment page gives each of its arrows one), as Analyse Stoichiometry takes it off.
       if (what === "remove") { const r = reactionOf(arrow)?.arrows ?? [arrow]; return set({ ...doc, grids: doc.grids?.filter((g) => !r.includes(g.arrow)) }, true); }
     }
+    if (command === "delete" && context.kind === "grid" && gridPick?.line) { deleteGridPart(gridPick); return; }
     if (command === "delete" && context.kind === "grid") return runAction("grid.remove");
     if (command.startsWith("colour.")) {
       // A colour changed in the picker (.drag) is one step to undo, as a highlight's is.
@@ -8162,7 +8311,8 @@ export default function Editor() {
         if (s === e || (!s && e >= editing.value.length)) return tintLabel(hex);
         return styleLabel((st) => ({ ...st, colour: hex.toLowerCase() === own?.toLowerCase() ? undefined : hex }));
       }
-      if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
+      const tableArrow = gridPick?.arrow ?? (picked.size === 1 ? tableOf([...picked][0]) : undefined);
+      if (context.kind === "grid" && tableArrow !== undefined) return changeGrid(tableArrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true, merge);
       if (context.kind === "part" && featurePick) return set(editPart(featurePick, (x) => ({ ...x, colour: ink })), true, merge);
@@ -8605,7 +8755,8 @@ export default function Editor() {
     // Select: a click on part of a wider selection keeps that part alone (a whole integral group; a cycle keeps the
     // intermediates its press picked).
     if (tool === "select") {
-      const gc = Object.values(t).every((v) => v === undefined) ? gridCellAt(at) : undefined;
+      const gl = Object.values(t).every((v) => v === undefined) ? gridLineAt(at) : undefined, gc = gl ? undefined : Object.values(t).every((v) => v === undefined) ? gridCellAt(at) : undefined;
+      if (gl) { choose([], []); return setGridPick({ arrow: gl.arrow, key: "", row: "", line: gl.line }); }
       if (gc) { choose([], []); return setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row }); }
       setGridPick(undefined);
       // A second click on a picked cycle's arc picks that step on its own.
@@ -8719,6 +8870,11 @@ export default function Editor() {
       if (textElement && Object.values(t).every((v) => v === undefined)) { const [m, i] = withAtom(doc, at); return set(keyElement(m, i, textElement)); }
       // Option-click repeats the last label typed, as in ChemDraw.
       if (t.atom !== undefined) return pressAlt.current && lastLabel.current ? set(setLabel(doc, t.atom, lastLabel.current)) : editLabel(t.atom);
+      // A click on a reagent table's cell types in it, as ChemDraw's Text tool does in its grid (Limiting? and Role
+      // change at once).
+      const gc = t.caption === undefined && Object.values(t).every((v) => v === undefined) ? gridCellAt(at) : undefined;
+      if (gc && !gridWrites(gc) && (gc.row === "limiting" || gc.row === "role")) return gridToggle(gc);
+      if (gc && (gridTypes(gc) || gridWrites(gc))) return editGridCell(gc);
       return startWriting(t.caption !== undefined ? { id: t.caption } : { at });
     }
   }
@@ -8853,8 +9009,9 @@ export default function Editor() {
       case "tableedge":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "grid": {
+        // Moved by hand, the table keeps its place on the page from now on (Grid.free), until Attach to reaction.
         const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.d);
-        return at && changeGrid(drag.arrow, () => ({ at }));
+        return at && changeGrid(drag.arrow, () => ({ at, free: true }));
       }
       case "pen":
         setPenAt(drag.at);
@@ -9093,7 +9250,7 @@ export default function Editor() {
       // Enter on a picked caption types into it, as Enter on an atom types its label. On a picked peak label (both its
       // lines), into the line under the pointer, else its top line.
       const lines = picked.size === 2 && !selection.size ? labelLines(doc, [...picked][0]) : [];
-      if (e.key === "Enter" && (picked.size === 1 || (lines.length === 2 && lines.every((id) => picked.has(id)))) && !selection.size && hovers.get().atom === undefined) {
+      if (e.key === "Enter" && (picked.size === 1 || (lines.length === 2 && lines.every((id) => picked.has(id)))) && !selection.size && hovers.get().atom === undefined && ![...picked].some((id) => id < 0)) {
         e.preventDefault();
         const over = hovers.get().caption, top = () => doc.captions!.filter((c) => picked.has(c.id)).reduce((a, b) => (b.y > a.y ? b : a)).id;
         return startWriting({ id: picked.size === 1 ? [...picked][0] : over !== undefined && picked.has(over) ? over : top() });
@@ -9424,10 +9581,18 @@ export default function Editor() {
   };
   // The grid cell picked, marked as a selection is.
   const gridPickMark = () => {
-    const v = gridPick && drawnGrids.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row);
-    // A unit square moved and sized by its transform, so it glides from cell to cell (editor.css).
-    // It goes with its table, not after it, while the table is dragged.
-    return v && c ? <rect className="grid-pick" aria-hidden width={1} height={1} style={{ transform: `translate(${(c.x - c.w / 2) * L}px, ${-c.y * L}px) scale(${c.w * L}, ${v.rh * L})`, ...(drag?.kind === "grid" || drag?.kind === "move" ? { transition: "none" } : {}) }} /> : null;
+    const v = gridPick && drawnGrids.find((x) => x.arrow === gridPick.arrow), c = v?.cells.find((x) => x.key === gridPick!.key && x.row === gridPick!.row), l = gridPick?.line ? v?.rulings.find((x) => x.id === gridPick.line) : undefined;
+    // A unit square moved and sized by its transform, so it glides from cell to cell (editor.css). A line picked: a thin
+    // band along it. A table picked whole: its span. Each goes with its table, not after it, while the table is dragged.
+    const still = drag?.kind === "grid" || drag?.kind === "move" ? { transition: "none" } : {}, band = 0.12 * L;
+    const box = (key: string, x: number, y: number, w: number, h: number, whole = false) => { const style = { transform: `translate(${x}px, ${y}px) scale(${w}, ${h})`, ...still }; return whole ? <rect key={key} className="grid-pick table-pick" aria-hidden width={1} height={1} style={style} /> : <rect key={key} className="grid-pick" aria-hidden width={1} height={1} style={style} />; };
+    return (
+      <>
+        {v && c && box("cell", (c.x - c.w / 2) * L, -c.y * L, c.w * L, v.rh * L)}
+        {v && l && box("line", l.a * L, -l.y * L - band / 2, (l.b - l.a) * L, band)}
+        {drawnGrids.filter((t) => picked.has(TABLE(t.arrow))).map((t) => { const [x0, y0, x1, y1] = tableSpan(t), pad = 0.12; return box(`t${t.arrow}`, (x0 - pad) * L, -(y1 + pad) * L, (x1 - x0 + 2 * pad) * L, (y1 - y0 + 2 * pad) * L, true); })}
+      </>
+    );
   };
   // A typed amount works the others out again: each value that changed settles in, so the eye sees what it moved.
   const gridTexts = useRef(new Map<string, string>());
@@ -9755,13 +9920,15 @@ export default function Editor() {
   // The reagent tables as drawn: one dragged on its own goes with the pointer. While the selection is dragged, a table
   // goes with its arrow when the drop will put it there: it was moved on its own (Grid.at), or its whole reaction moves.
   const dragged = drag?.kind === "move" && drag.moved ? drag.atoms ?? selection : undefined;
-  const carried = useMemo(() => new Set(dragged ? gridViews.filter((v) => doc.grids?.some((g) => g.arrow === v.arrow && g.at) || reactionOf(v.arrow)?.atoms.every((i) => dragged.has(i))).map((v) => v.arrow) : []), [dragged, gridViews]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A table picked goes with the drag; one moved by hand (Grid.free) stays where it is.
+  const carried = useMemo(() => new Set(dragged ? gridViews.filter((v) => picked.has(TABLE(v.arrow)) || doc.grids?.some((g) => g.arrow === v.arrow && g.at && !g.free) || (!doc.grids?.some((g) => g.arrow === v.arrow && g.free) && reactionOf(v.arrow)?.atoms.every((i) => dragged.has(i)))).map((v) => v.arrow) : []), [dragged, gridViews, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   const drawnGrids = useMemo(() => {
     if (drag?.kind === "grid") return gridViews.map((v) => (v.arrow === drag.arrow ? shiftView(v, drag.d) : v));
     if (drag?.kind !== "move" || !carried.size) return gridViews;
     return gridViews.map((v) => {
       const a = doc.arrows?.find((x) => x.id === v.arrow), b = drag.working.arrows?.find((x) => x.id === v.arrow);
-      return a && b && carried.has(v.arrow) ? shiftView(v, [b.from[0] - a.from[0], b.from[1] - a.from[1]]) : v;
+      if (!a || !b || !carried.has(v.arrow)) return v;
+      return shiftView(v, b.from[0] === a.from[0] && b.from[1] === a.from[1] && drag.d ? drag.d : [b.from[0] - a.from[0], b.from[1] - a.from[1]]);
     });
   }, [gridViews, drag, carried]); // eslint-disable-line react-hooks/exhaustive-deps
   const gridKey = drawnGrids.length ? drawnGrids : undefined;
@@ -9830,9 +9997,8 @@ export default function Editor() {
       {drawnGrids.map((v) => {
         // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
         // The amount measured out is red with a line under it, so it does not rest on colour alone (BRAND.md).
-        const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
-        const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L, ink = v.colour ? textInk(v.colour) : "var(--ink)";
-        // As rows: its rules, its titles and names, then each cell's amount as gridText gives it.
+        const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, ink = v.colour ? textInk(v.colour) : "var(--ink)";
+        // A cell's baseline, from its top.
         const baseline = (top: number) => -(top - 0.5 * v.rh) * L + 0.35 * size;
         // The conditions block: each name, then its value, its counts as subscripts as in conditions over an arrow (N2).
         const block = v.block?.lines.map((l) => (
@@ -9841,37 +10007,25 @@ export default function Editor() {
             <text x={v.block!.valueAt * L} y={baseline(l.y)}>{formula(l.value, size)}</text>
           </Fragment>
         ));
-        if (v.texts && v.rules) return (
+        // Every cell as shown (gridview.ts shownCell): a row's name right-aligned before the first column, a component's
+        // name as rows from the left, the rest centred. The lines not taken out (Grid.hidden.lines).
+        const cellInk = (cell: GridView["cells"][number]) => {
+          const row = gridRowOf(v, cell.row), t = row && shownCell(v, cell.key, row);
+          if (!t?.text || (gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row)) return null;
+          const head = cell.key === "#", x = head ? v.left * L : cell.row === "name" ? (cell.x - cell.w / 2) * L : cell.x * L, at = baseline(cell.y);
+          return (
+            <Fragment key={`${cell.row}|${cell.key}`}>
+              <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={x} y={at} textAnchor={head ? "end" : cell.row === "name" ? "start" : "middle"} fontWeight={t.typed || t.bold ? 700 : 400} className={t.taken && "taken"}>{t.formula ? formula(t.text, size) : t.text}</text>
+              {t.taken && takenLine(x, at, t.text, size, !!t.typed, v.f)}
+            </Fragment>
+          );
+        };
+        return (
           <g key={`grid${v.arrow}`} className="stoich" fill={ink} style={{ font }}>
             {block}
-            {v.rules.map(([a, b, h], k) => <line key={`r${k}`} x1={a * L} x2={b * L} y1={-h * L} y2={-h * L} stroke={ink} strokeWidth={frame.line * v.f} />)}
-            {v.texts.map((t, k) => <text key={`t${k}`} x={t.x * L} y={baseline(t.y)} textAnchor={t.anchor} fontWeight={t.bold ? 700 : undefined}>{t.formula ? formula(t.text, size) : t.text}</text>)}
-            {v.cells.map((cell) => {
-              const c = v.cols.find((x) => x.key === cell.key), row = GRID_ROWS.find((x) => x.id === cell.row), t = c && row ? gridText(v, c, row) : undefined;
-              return t?.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row) ? (
-                <Fragment key={`${cell.row}${cell.key}`}>
-                  <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={cell.x * L} y={baseline(cell.y)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{cell.row === "formula" ? formula(t.text, size) : t.text}</text>
-                  {t.taken && takenLine(cell.x * L, baseline(cell.y), t.text, size, !!t.typed, v.f)}
-                </Fragment>
-              ) : null;
-            })}
-          </g>
-        );
-        return (
-          <g key={`grid${v.arrow}`} className="stoich" fill={v.colour ? textInk(v.colour) : "var(--ink)"} style={{ font }}>
-            {block}
-            <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
-            <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
-            {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
-            {v.rows.flatMap((row, k) => v.cols.map((c) => {
-              const t = gridText(v, c, row);
-              return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
-                <Fragment key={`${row.id}${c.key}`}>
-                  <text data-cell={`${v.arrow} ${row.id} ${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400} className={t.taken && "taken"}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
-                  {t.taken && takenLine(c.x * L, y(k), t.text, size, !!t.typed, v.f)}
-                </Fragment>
-              ) : null;
-            }))}
+            {v.rulings.filter((l) => !v.goneLines?.includes(l.id)).map((l) => <line key={l.id} x1={l.a * L} x2={l.b * L} y1={-l.y * L} y2={-l.y * L} stroke={ink} strokeWidth={frame.line * v.f} />)}
+            {v.texts?.map((t, k) => <text key={`t${k}`} x={t.x * L} y={baseline(t.y)} textAnchor={t.anchor} fontWeight={t.bold ? 700 : undefined}>{t.formula ? formula(t.text, size) : t.text}</text>)}
+            {v.cells.map(cellInk)}
           </g>
         );
       })}
@@ -10021,9 +10175,9 @@ export default function Editor() {
           const t = hit(toDoc(e.clientX, e.clientY));
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
-          // Limiting? and Role change at once (gridToggle); the amounts open to type in.
-          if (gc && (gc.row === "limiting" || gc.row === "role")) return gridToggle(gc);
-          if (gc && gridTypes(gc)) return editGridCell(gc);
+          // Limiting? and Role change at once (gridToggle); the amounts and every other cell open to type in.
+          if (gc && !gridWrites(gc) && (gc.row === "limiting" || gc.row === "role")) return gridToggle(gc);
+          if (gc && (gridTypes(gc) || gridWrites(gc))) return editGridCell(gc);
           // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
           const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (plate) {
@@ -10254,7 +10408,7 @@ export default function Editor() {
             );
           })()}
           <Live store={brushes}>{(brush) => tool === "erase" && brush && <circle className="brush" cx={brush[0] * L} cy={-brush[1] * L} r={settings.eraser * L} vectorEffect="non-scaling-stroke" />}</Live>
-          {drag?.kind === "move" && drag.guides.map((g, i) => {
+          {(drag?.kind === "move" || drag?.kind === "grid") && drag.guides.map((g, i) => {
             // A space made equal: a line across it with a tick at each end.
             const tick = 4 / view.zoom, ends = g.gap ? [g.from, g.to] : [];
             return g.axis === "x"
