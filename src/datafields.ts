@@ -68,13 +68,6 @@ export function remapData(data: DataField[] | undefined, at: (i: number) => numb
   }
   return out.length ? out : undefined;
 }
-// The fields whose caption is still in the drawing: deleting a field's text deletes the field.
-export function keptData(m: Mol): Mol {
-  if (!m.data?.some((f) => f.caption !== undefined)) return m;
-  const ids = new Set((m.captions ?? []).map((c) => c.id)), data = m.data.filter((f) => f.caption === undefined || ids.has(f.caption));
-  return data.length === m.data.length ? m : { ...m, data: data.length ? data : undefined };
-}
-
 // One row of Attach Data's dialog: a field's name, value and whether it is shown. key: the field's place in the list,
 // for a row that was there when the dialog opened.
 export type DataRow = { name: string; value: string; show: boolean; key?: number };
@@ -87,7 +80,7 @@ export const rowsOf = (m: Mol, atoms: Iterable<number>): DataRow[] => fieldsOn(m
 export function setRows(m: Mol, structure: number[], rows: DataRow[]): Mol {
   const s = new Set(structure);
   const clean = rows.flatMap((r) => {
-    const name = cleanName(r.name).slice(0, MAX_NAME), value = cleanValue(r.value) ?? r.value.slice(0, MAX_VALUE);
+    const name = cleanName(r.name).slice(0, MAX_NAME), value = cleanValue(r.value) ?? cleanValue(r.value.slice(0, MAX_VALUE)) ?? "";
     return name ? [{ ...r, name, value, show: r.show && value.length <= MAX_SHOWN }] : [];
   }).slice(0, MAX_EACH);
   const now = rowsOf(m, s);

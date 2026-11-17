@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Tag, SelectionPlus,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Paperclip, SelectionBackground,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -8172,7 +8172,7 @@ export default function Editor() {
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
-    attach_data: ["Attach data…", "", <Tag size={18} />], select_linked: ["Select linked objects", "", <SelectionPlus size={18} />],
+    attach_data: ["Attach data…", "", <Paperclip size={18} />], select_linked: ["Select linked objects", "", <SelectionBackground size={18} />],
     chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_jablonski: ["Jablonski diagram", "", <JablonskiGlyph />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],

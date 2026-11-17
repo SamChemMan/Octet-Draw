@@ -11,7 +11,7 @@ import {
   ArrowUUpLeft, ClipboardText, CopySimple, CodeBlock, Quotes, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
-  EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
+  EyeSlash, Angle, Resize, Unite, SelectionPlus, SelectionBackground, Paperclip, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
 } from "@phosphor-icons/react";
@@ -458,7 +458,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(small({ ...it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"), short: context.structures > 1 ? "Number compounds" : undefined }), ...numerals(context.roman),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
-        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Tag size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
+        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
         ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
@@ -488,7 +488,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.convertible) items.push(toStructure);
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.values) items.push(names(context.values));
-      if (context.field) items.push(it(<Tag size={18} />, "Edit attached data…", "attach_data"), it(<SelectionPlus size={18} />, "Select linked objects", "select_linked"));
+      if (context.field) items.push(it(<Paperclip size={18} />, "Edit attached data…", "attach_data"), it(<SelectionBackground size={18} />, "Select linked objects", "select_linked"));
       if (context.cycleSide) items.push(...sideItems(context.cycleSide));
       if (context.cycleName?.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));

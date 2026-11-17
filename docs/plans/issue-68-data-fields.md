@@ -135,18 +135,25 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
 ### J7. The UI
 
 - Attach data… opens a dialog for the selected structure: a grid of Name, Value and Show, one row for each field, and
-  one empty row to type the next. It reuses Add Chart's grid (`Cells` in `src/ChartDialog.tsx`, moved where both can
-  use it): Up and Down move between rows, a table pasted from a spreadsheet fills from the cell pasted in, a row left
-  empty is left out. Shift+Return and Option+Return add a line to a value, as in Experiment details. Return saves.
-  Escape cancels. Nothing changes the drawing until Save, and Save is one undo step.
+  one empty row to type the next. It reuses Add Chart's grid (`Cells`, moved from `src/ChartDialog.tsx` to
+  `src/Cells.tsx`): Up and Down move between rows, a table pasted from a spreadsheet fills from the cell pasted in, a
+  row left empty is left out. Shift+Return and Option+Return add a line to a value. Return saves. Escape cancels.
+  Nothing changes the drawing until Save, and Save is one undo step.
+- Built (17 November): a value's field is as high as every other field, with the caret's line in view. A field that
+  grew with its lines failed `npm run look` (every `.unit-field` is `--size-control` high). Column names Name, Value
+  and Show stand over the grid; the empty row has no placeholder text.
 - Show puts the value under the structure as text tied to it, in the document's caption style, stacked with its
   number and captions. The text is the value. Typing over it changes the value. Deleting it deletes the field. Show
   off keeps the field and removes the text.
 - On a field's text: Edit attached data… (the dialog, at that row) and Select linked objects (the structures it
   belongs to, and the text).
 - Where: Object > Attach Data… (after Show Atom Numbers), the Actions panel and context menu for a structure, the
-  command palette. Icons: Phosphor `Tag` and `SelectionPlus`.
+  command palette. Icons: Phosphor `Paperclip` and `SelectionBackground`. Built: the plan's `Tag` is a step name's
+  and `SelectionPlus` is Select structure's, and look.check.ts holds one icon to one command.
 - Make element, Convert to structure and Interpret chemically are not offered on a field's text.
+- Built: Select linked objects with no field's text picked (the palette, the MCP) says "Select attached data first."
+- Built: a field shared by two pieces of a split structure, changed on one piece, stays shown on the piece its text is
+  tied under (its first atom). The other piece gets its own text when Show stays on, as the dialog showed it.
 - Done: `npm run look` with the dialog in `scripts/look/sweep.js`, both themes, no `look:` errors; `dialog.check.ts`
   rules hold for the new dialog.
 
@@ -154,9 +161,10 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
 
 - `read`: each structure with fields has `data: [{ name, value, shown? }]`. A summary cuts a value at 200 characters
   and lists 100 fields at most, saying how many more; `detail: full` gives every field whole.
-- `change` > `edit` on a structure id (s3 or its number): `data: [{ name, value, show }]`, at most 100. A string value
-  sets the first field of that name (adding one if there is none). `null` removes every field of that name. `show`
-  shows or hides it. On several ids it sets each.
+- `change` > `edit` on a structure id (s3 or its number): `data: [{ name, value, show, remove }]`, at most 100. A
+  value sets the first field of that name (adding one if there is none). `remove: true` removes every field of that
+  name. `show` shows or hides it. On several ids it sets each. Changed in the build from `value: null`: the MCP's
+  schema has no null type (`src/mcp.ts` Prop), and a boolean needs no new kind of argument.
 - `run_command`: `attach_data` (opens the dialog; refused with no window, as other dialogs are) and `select_linked`
   (on a field's text, t5).
 - `file` with sdf and `drawings new` with SD text carry fields through J5 and J6.
@@ -271,7 +279,7 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | S2 | SD file just under 300,000 characters: 250 records, 10 fields each | Opens; each structure has its 10 fields in file order; time within 10% of the same file with no fields |
 | S3 | Values with line breaks, CRLF, empty lines inside, trailing empty lines, tabs | .oct, CDXML, CDX keep the lines (CR dropped, tab a space). SDF leaves out empty lines; read back the same as written |
 | S4 | `<` and `>` in names: typed, `> <a<b>` in SDF, a CDXML keyword | Taken out of the name everywhere; every SDF header reads back |
-| S5 | Two fields named ID on one structure | Both kept in order, both written to SDF, both read back. MCP `value` sets the first; `null` removes both |
+| S5 | Two fields named ID on one structure | Both kept in order, both written to SDF, both read back. MCP `value` sets the first; `remove: true` removes both |
 | S6 | Empty values | Kept as an empty field; SDF writes the header and a blank line; read back empty |
 | S7 | Empty names | A dialog row with no name is left out. A file's field with no name is called Data |
 | S8 | Unicode: α, °C, 日本, 🧪 (two UTF-16 units), Arabic | Kept in every format. A value over the limit is left out whole, so nothing splits a character |
@@ -325,6 +333,22 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
   interleaved runs: 40 paclitaxels and the 500-residue peptide, delete a bond, drag, Undo, open, SDF export.
 - With fields: the same steps on the same drawings with 10 fields on each structure, against no fields. The check
   fails when the median is more than 15% slower; a failure is run again alone before it counts (the machine is busy).
+- Built: the with-fields check compares 400 fields (2 of 10 shown on each paclitaxel) with the same drawing holding
+  the same 80 texts and no fields, so it times the fields alone (the texts cost what any text under a structure
+  costs). Its bound is 15% plus 0.5 ms, as a sub-millisecond edit varies by more than 15% on a busy machine. Fields made
+  together share one atom list, which an edit renumbers once.
+
+Measured 17 November 2026 (busy machine, median of 25 interleaved runs, no fields), this branch against v1.1.2:
+
+| Drawing | Delete a bond | Drag | Copy and paste | Open .oct | Open CDXML | SDF export |
+| --- | --- | --- | --- | --- | --- | --- |
+| 40 paclitaxels | 1.25 / 1.22 ms | 10.5 / 21.7 ms | 0.14 / 0.13 ms | 2.29 / 1.98 ms | 104 / 100 ms | 276 / 287 ms |
+| 5 x 100-residue peptides (3,705 atoms) | 1.23 / 1.26 ms | 364 / 386 ms | 0.66 / 0.65 ms | 3.12 / 1.87 ms | 158 / 153 ms | 254 / 280 ms |
+
+Open .oct run again alone, three ways interleaved (60 runs): this branch 2.50 ms, b30f413 2.75 ms, v1.1.2 2.37 ms. The
+first run's gap was the order of the runs. With 400 fields against their texts alone (datafields.check.ts): delete a
+bond 1.41 / 1.31 ms, delete atoms 1.90 / 1.46 ms, copy and paste 0.43 / 0.36 ms; 241 SD records of 10 fields open in
+315 ms, 353 ms with none.
 
 ## Cut from this item
 
@@ -352,6 +376,24 @@ a file both dialogs use). Changed: `src/render.ts` (type), `src/edit.ts`, `src/f
 
 `fix/1.2-bugs-int` changes `src/edit.ts` (`erase`), `src/cdxml.ts`, `src/render.ts`, `src/Editor.tsx` and `main.rs`.
 None of its hunks is in the functions above, so a merge should be clean; the build checks it.
+
+## Octet 1.1.2 with a 1.2 file (S19), run 17 November
+
+From the v1.1.2 tag in a scratch folder, Octet 1.1.2's own readers on a drawing with three fields on aspirin (one
+shown, two lines) and one shown field on ethanol:
+
+- `parse` (.oct JSON) opens it with no error: the two shown values are text. Its `serialize`, read by this branch,
+  gives both shown fields back, with their names. The hidden ones are gone, as planned.
+- `readOct` on the .oct file (CDXML with the drawing inside) opens it, nothing left out.
+- `fromCdxml` on the CDXML opens it, says it left out 2 annotations (the hidden fields), and keeps both texts with
+  property type 23; its save, read by this branch, has both shown fields.
+
+## ChemDraw 22.2 with Octet's files (S18), 17 November
+
+Not done. ChemDraw 22.2 (running since 10:29, started by another session) opened no file this run: not Octet's CDXML
+with fields, not its CDX, and not a plain two-atom CDXML. `open -g -a` returned at once and the AppleScript `open`
+timed out, while `name of every document` still answered ("Untitled ACS Document 1996-1"). ChemDraw seems to wait on
+a dialog that only the screen shows. The files are ready to check once ChemDraw opens files again.
 
 ## Open for Sam
 
