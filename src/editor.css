@@ -4131,7 +4131,7 @@ div.facts {
   user-select: text;
 }
 /* Mapping an atom: rings on the two atoms and a dashed line between, in brand blue. */
-.mapping circle, .mapping line {
+.mapping circle, .mapping line, .mapping polyline {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.4px;

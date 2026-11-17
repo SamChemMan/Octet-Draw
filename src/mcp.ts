@@ -27,6 +27,8 @@ import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notat
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { plusShapes, type Reaction } from "./reaction.ts";
+import { MOST_3D } from "./clean3d.ts";
+import { addMeasure, kindOf as measureKind, measureValue, UNITS } from "./measurement.ts";
 import type { Problem } from "./check.ts";
 import { normalise, plainOf, styled, type TextRun } from "./richtext.ts";
 import { liveValues, nameValues, namesShown, PROPERTY_ROWS, propertyRuns, withNames, NO_NAMES, type PropertyValues } from "./proprows.ts";
@@ -289,7 +291,7 @@ const MENU_COMMANDS = [
   "undo", "redo", "cut", "copy", "paste", "select_all", "invert_selection", "select_structure", "repeat", "join", "group", "ungroup", "group_integral", "centre_page", "bring_front", "send_back",
   "clean_up", "clean_reaction", "map_reaction", "clear_reaction_map", "flip_h", "flip_v", "mirror_h", "mirror_v", "structure_perspective", "flatten", "clean_3d",
   "expand_label", "contract_label", "hydrogen_display", "aromatic_display", "show_stereo", "atom_numbers", "stereo_clear", "stereo_abs", "stereo_or", "stereo_and", "name_to_structure", "structure_to_name", "make_element", "interpret",
-  "add_multicentre", "add_variable", "define_rgroup", "expand_generic", "check_structure", "stoichiometry", "properties", "predict_1h", "predict_13c", "insert_peptide", "insert_rna", "insert_dna",
+  "add_multicentre", "add_variable", "measure", "measure_distance", "measure_angle", "measure_dihedral", "define_rgroup", "expand_generic", "check_structure", "stoichiometry", "properties", "predict_1h", "predict_13c", "insert_peptide", "insert_rna", "insert_dna",
   "predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf",
   "arrange_left", "arrange_centre", "arrange_right", "arrange_top", "arrange_middle", "arrange_bottom", "arrange_across", "arrange_down",
   "text_bold", "text_italic", "text_underline", "text_plain", "text_sub", "text_super", "text_formula", "text_markup", "align_left", "align_centre", "align_right", "align_justify", "align_above", "align_auto", "colour_by_element",
@@ -509,8 +511,8 @@ const OPS: Op[] = [
   },
   {
     name: "text", title: "Add text", hints: ADD, outputSchema: CHANGE, done: "added text",
-    description: "Adds text (a title, caption or note), or with id replaces a caption's text. size (pt), font, bold, italic, underline, colour and text_align set it all; runs style parts (bold, italic, colour, sub, super); plain text gets chemistry formatting (H2SO4). arrow (a7) with side puts it on that arrow as its conditions, as Add conditions above or below do: Octet centres it on the arrow, it moves with the arrow, and Clean Up Reaction lays it out. width wraps lines to it (bond lengths); line_height is auto, variable or pt; angle turns it (degrees, anticlockwise)." + PLACE_NOTE,
-    inputSchema: obj({ text: str(2000), runs: RUNS, id: str(12), ...TEXT_STYLE, text_align: pick(["left", "centre", "right", "justify"]), width: num(0.5, 300), line_height: LINE_HEIGHT, angle: num(-360, 360), arrow: str(12), side: pick(["above", "below"]), ...placing("at") }),
+    description: "Adds text (a title, caption or note), or with id replaces a caption's text. size (pt), font, bold, italic, underline, colour and text_align set it all; runs style parts (bold, italic, colour, sub, super); plain text gets chemistry formatting (H2SO4). arrow (a7) with side puts it on that arrow as its conditions, as Add conditions above or below do: Octet centres it on the arrow, it moves with the arrow, and Clean Up Reaction lays it out. width wraps lines to it (bond lengths); line_height is auto, variable or pt; angle turns it (degrees, anticlockwise). measure (2 to 4 atom ids in order, s3.2) adds a measurement instead: the distance between 2 atoms (Å), the angle at the middle one of 3, or the dihedral across 4 (degrees), from the atoms in 3D; a structure drawn flat is cleaned up in 3D first. Its text follows the atoms; the style arguments style it." + PLACE_NOTE,
+    inputSchema: obj({ text: str(2000), runs: RUNS, id: str(12), ...TEXT_STYLE, text_align: pick(["left", "centre", "right", "justify"]), width: num(0.5, 300), line_height: LINE_HEIGHT, angle: num(-360, 360), arrow: str(12), side: pick(["above", "below"]), measure: list(str(40), 4, 2), ...placing("at") }),
     run: addText, place: true,
   },
   {
@@ -1471,7 +1473,7 @@ function respaced(before: Mol, was: Mol, m: Mol, products: number[][]): Mol {
     ...m,
     atoms: m.atoms.map((a, i) => { const d = i < before.atoms.length ? 0 : own.get(i) ?? dx(a.location[0]); return far(d) ? { ...a, location: [a.location[0] + d, a.location[1], a.location[2] ?? 0] } : a; }),
     arrows: m.arrows?.map((x) => { const d = x.id > old ? dx(Math.min(x.from[0], x.to[0])) : 0; return far(d) ? { ...x, from: [x.from[0] + d, x.from[1]], to: [x.to[0] + d, x.to[1]] } : x; }),
-    captions: m.captions?.map((c) => { const d = c.id > old && !c.under && !c.on && !c.cycle ? dx(c.x) : 0; return far(d) ? { ...c, x: c.x + d } : c; }),
+    captions: m.captions?.map((c) => { const d = c.id > old && !c.under && !c.on && !c.cycle && !c.measure ? dx(c.x) : 0; return far(d) ? { ...c, x: c.x + d } : c; }),
   };
 }
 // What of a scheme, or of a route's schemes (each its box as drawn, down to what goes under it), does not fit the
@@ -1734,13 +1736,36 @@ async function remove(host: Host, a: { ids: string[] }): Promise<Result> {
   return { text: `Deleted ${a.ids.join(", ")}.${UNDO}` };
 }
 
-type TextIn = { text?: string; runs?: RunIn[]; id?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; text_align?: Caption["align"]; width?: number; line_height?: "auto" | "variable" | number; angle?: number; arrow?: string; side?: "above" | "below" };
+type TextIn = { text?: string; runs?: RunIn[]; id?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; text_align?: Caption["align"]; width?: number; line_height?: "auto" | "variable" | number; angle?: number; arrow?: string; side?: "above" | "below"; measure?: string[] };
 // A text's style as the Text menu sets it, for a caption.
 const textStyle = (a: TextIn): Partial<Caption> => ({
   ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.size ? { size: a.size } : {}), ...(a.font ? { font: clean(a.font) } : {}),
   ...(a.colour && a.colour !== "none" ? { colour: a.colour } : {}), ...(a.width ? { width: a.width } : {}), ...(a.line_height !== undefined && a.line_height !== "auto" ? { lineHeight: a.line_height } : {}), ...(a.angle ? { angle: a.angle } : {}),
 });
+// A measurement (measurement.ts) of 2 to 4 atoms, by their ids in order: the text tool's measure, and run_command's
+// measure (and measure_distance, measure_angle, measure_dihedral), as Structure > Measure makes one.
+async function addMeasurement(host: Host, ids: string[], a: TextIn = {}): Promise<Result> {
+  if (a.text !== undefined || a.runs || a.id || a.arrow) return { text: "measure makes its own text: give measure without text, runs, id or arrow.", error: true };
+  if (ids.length < 2 || ids.length > 4) return { text: "measure takes 2 to 4 atom ids in order (s3.2): 2 for a distance, 3 for an angle, 4 for a dihedral.", error: true };
+  if (a.colour !== undefined && a.colour !== "none" && !COLOUR.test(a.colour)) return { text: `colour: give #rrggbb, not ${a.colour}.`, error: true };
+  const m = host.doc(), atoms: number[] = [];
+  for (const id of ids) {
+    const i = atomOf(m, id.trim(), host);
+    if (i === undefined) return { text: `${id} is not an atom. measure takes atom ids (s3.2), as read gives them with atoms: true.`, error: true };
+    atoms.push(i);
+  }
+  const r = addMeasure(m, atoms);
+  if (typeof r === "string") return { text: `Octet added nothing. ${r}`, error: true };
+  if (!r.made) return { text: `Those atoms have that measurement already: t${r.id} (${r.mol.captions!.find((c) => c.id === r.id)!.text}).` };
+  const style = textStyle(a), mol = Object.keys(style).length ? { ...r.mol, captions: r.mol.captions!.map((c) => (c.id === r.id ? { ...c, ...style } : c)) } : r.mol;
+  host.set(mol);
+  await host.settle();
+  const c = host.doc().captions?.find((x) => x.id === r.id), cleaned = r.cleaned.map((g) => sid(host.doc(), g)).filter((x) => x);
+  const kind = measureKind(atoms.length)!;
+  return { text: `Added the ${kind} t${r.id}: ${c?.text ?? ""}.${cleaned.length ? ` Octet cleaned up ${andList(cleaned as string[])} in 3D first, so the value is a 3D one.` : ""}${r.tooBig ? ` A structure of more than ${MOST_3D} atoms stays flat: the value is from the flat drawing.` : ""}${UNDO}` };
+}
 async function addText(host: Host, a: TextIn): Promise<Result> {
+  if (a.measure) return addMeasurement(host, a.measure, a);
   let m = host.doc();
   if ((a.text === undefined) === (a.runs === undefined)) return { text: "Give text or runs (one of them).", error: true };
   const r = a.runs ? runsOf(a.runs) : undefined;
@@ -2159,13 +2184,14 @@ async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ct
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's
-// text) goes with them as the renderer places it.
+// text, a measurement whose atoms all move) goes with them as the renderer places it. A measurement moved alone keeps
+// its new place by its atoms (measurement.ts settleMeasures).
 function shift(m: Mol, atoms: Set<number>, items: Set<number>, d: P): Mol {
   const by = (p: [number, number]): [number, number] => [p[0] + d[0], p[1] + d[1]];
   m = moveAtoms(m, atoms, d);
   return {
     ...m, arrows: m.arrows?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to), ...(x.curve ? { curve: { ...x.curve, points: x.curve.points.map((q) => ({ ...q, at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : x)),
-    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !(c.measure && c.measure.atoms.every((i) => atoms.has(i))) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: by(c.centre) } : c)), shapes: m.shapes?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
   };
 }
@@ -2757,6 +2783,13 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   }
   // A reagent table's actions take its id (g5): the table is picked whole, as a click on it picks it.
   const tables = id.startsWith("grid.") ? (a.ids ?? []).filter((x) => /^g\d+$/.test(x) && host.doc().grids?.some((g) => g.arrow === Number(x.slice(1)))) : [];
+  // Structure > Measure on atoms given in order: their ids, as the text tool's measure takes them.
+  if (id === "measure" || id.startsWith("measure_")) {
+    const want = { measure_distance: 2, measure_angle: 3, measure_dihedral: 4 }[id];
+    if (!a.ids) return { text: `${id} takes the atoms' ids in order (s3.2).`, error: true };
+    if (want && a.ids.length !== want) return { text: `${id} takes ${want} atom ids; measure takes 2 to 4.`, error: true };
+    return addMeasurement(host, a.ids);
+  }
   if (tables.length) { host.select([], tables.map((x) => TABLE(Number(x.slice(1))))); await host.settle(); }
   else if (a.ids) {
     const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
@@ -2907,7 +2940,7 @@ async function runOp(tool: Op, host: Host, a: any, ctx: Ctx): Promise<Result> {
 
 // Text that belongs to something (a number, conditions, a cycle's text), by id: it is in that object's box and moves
 // with it, so it is not a top-level object.
-const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under || c.on || c.cycle).map((c) => `t${c.id}`));
+const ownedText = (m: Mol) => new Set((m.captions ?? []).filter((c) => c.under || c.on || c.cycle || c.measure).map((c) => `t${c.id}`));
 // Each structure a call made, as the reply that ends a job lists it (plan 19.2): its number, its id and its formula,
 // so the AI app sees how Octet read every compound with no read.
 // Octet's name follows where a name was given and Octet's name for it is another (as readAs says them), so the AI app
@@ -3184,7 +3217,8 @@ function placedOf(host: Host, m: Mol): Placed[] {
   const out: Placed[] = [];
   for (const s of structuresOf(m)) { const b = host.ink(s.atoms); if (b) out.push({ id: s.id, label: `structure ${s.id}`, box: b }); }
   for (const c of m.captions ?? []) {
-    const b = host.textBox(c.id);
+    // A measurement sits on its structure by design (an angle's value inside its ring): it is no overlap.
+    const b = c.measure ? undefined : host.textBox(c.id);
     if (b && c.text.trim()) out.push({ id: `t${c.id}`, label: `the text "${short(c.text, 30)}" (t${c.id})`, box: b, of: c.under ? sid(m, c.under) : c.on ? `a${c.on.arrow}` : c.cycle ? `c${c.cycle.cycle}` : undefined });
   }
   for (const a of m.arrows ?? []) if (straightArrow(a)) out.push({ id: `a${a.id}`, label: `arrow a${a.id}`, box: [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]) - 0.05, Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1]) + 0.05] });
@@ -3492,19 +3526,24 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
         route: [...r.steps.map((st) => `${by(st.before).join(" + ")} ${SIGNS[m.arrows!.find((x) => `a${x.id}` === st.arrow)!.kind] ?? "->"}`), by(r.products).join(" + ")].join(" ").trim(),
         conditions: Object.fromEntries(r.steps.map((st) => [st.arrow, by([...st.above, ...st.below]).join("; ")])),
       })),
-      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200) }))),      arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id) && !charted.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),      shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, ...(x.symbol ? { symbol: x.symbol } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}) }))),
+      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200), ...(c.measure ? { measure: measureKind(c.measure.atoms.length) } : {}) }))),      arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id) && !charted.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),      shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, ...(x.symbol ? { symbol: x.symbol } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}) }))),
       selected: some(selected), check: Object.keys(mine).length ? mine : "clean",
       // The first warnings, each at its atom or structure.
       warnings: warnings.slice(0, MOST_WARNINGS).map(({ message, structure, atom, fix }) => ({ message, at: atom ?? structure, fix })), ...(warnings.length > MOST_WARNINGS ? { more: { warnings: warnings.length - MOST_WARNINGS } } : {}),
     };
     return withAtoms ? data : fit(data);
   }
-  const captions = (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), ...(liveSetting(c) ? { values: liveSetting(c) } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) }));
+  // A measurement: its kind, its atoms in order, and its value (as its text shows it) and unit.
+  const measureOf = (c: Caption) => {
+    const atoms = c.measure!.atoms, kind = measureKind(atoms.length)!, v = measureValue(m, atoms);
+    return { kind, atoms: atoms.map((i) => atomId(i) ?? `atom ${i}`), value: v === undefined ? null : Number(v.toFixed(kind === "distance" ? 2 : 1)), unit: UNITS[kind] };
+  };
+  const captions = (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), ...(liveSetting(c) ? { values: liveSetting(c) } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.measure ? { of: sid(m, groups.find((g) => g.includes(c.measure!.atoms[0])) ?? []), measure: measureOf(c) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) }));
   const page = (() => { const [w, h] = pageSize(s), k = 72 / 25.4 / s.bond; return [-w / 2 * k, -h / 2 * k, w / 2 * k, h / 2 * k].map((v) => Math.round(v * 10) / 10); })();
   const shapes = (m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, box: box([Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])]), ...(x.mark ? { mark: x.mark } : {}), ...(x.symbol ? { symbol: x.symbol, size: Math.round(symbolSize(x) * host.style().bond * 10) / 10 } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}), ...(x.fill ? { fill: x.fill } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.dashed ? { dashed: true } : {}), ...(x.angle ? { angle: Math.round(x.angle) } : {}), ...(x.table ? { table: x.table.cells } : {}), ...(x.tlc ? { tlc: { lanes: x.tlc.lanes, spots: x.tlc.spots.map((s) => ({ lane: s.lane, rf: s.rf })) } } : {}) }));
   return {
     ...head, pageBox: page, captions, units: "bond lengths, y up", experiment: details, reagentTables: grids, ...(riskAssessment ? { riskAssessment } : {}), structures, reactions, cycles, ...(charts.length ? { charts } : {}),
-    text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)] })),
+    text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)], ...(c.measure ? { measure: measureKind(c.measure.atoms.length) } : {}) })),
     arrows: (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) })),
     ...(shapes.length ? { shapes } : {}), selected, warnings,
   };

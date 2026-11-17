@@ -17,7 +17,7 @@ import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
 import { followDrag } from "./cursor";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "measure" | "text" | "erase";
 
 // The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
 export { ARROWS, BONDS, SHAPES, type BondKind };
@@ -95,7 +95,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -349,6 +349,15 @@ export const MapGlyph = () => (
   </Icon>
 );
 
+// Measure: two bonds at an angle, with its arc, and a dashed line across their ends (a distance).
+export const MeasureGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <polyline points="40,184 128,72 216,184" />
+    <path d="M100,108A45,45 0 0 0 156,108" />
+    <line x1={56} y1={224} x2={200} y2={224} strokeDasharray="20 18" />
+  </Icon>
+);
+
 // Mass fragmentation: a chain cut by a dashed line.
 export const FragmentGlyph = () => (
   <Icon>
@@ -403,7 +412,7 @@ export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
 // The specialist tools' names and icons.
 const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, gel: { name: "Gel", icon: <GelGlyph /> }, plasmid: { name: "Plasmid map", icon: <PlasmidGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
   massspec: { name: "Mass spec analysis", icon: <MassSpecGlyph /> },
-  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
+  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> }, measure: { name: "Measure", icon: <MeasureGlyph /> } };
 
 // A curved arrow's icon: its arc at its true sweep, bulging up, with a head at the right-hand end (both ends for a
 // double-headed arrow, and one barb on the outside for a fishhook).

@@ -271,11 +271,24 @@ export function structuresOf(m: Mol, atoms: number[]): number[][] {
 // is flat in 3D, such as anti butane, is not cleaned up again each time).
 const flatAtoms = (m: Mol, g: number[]) => g.every((i) => Math.abs(m.atoms[i].location[2] ?? 0) < 1e-6 && !m.atoms[i].shade);
 
+// The drawing with the structures these atoms are in cleaned up in 3D, as 3D Clean Up does it, where they are drawn
+// flat, so a measurement of them has a real value. A structure of more than MOST_3D atoms stays flat (tooBig).
+export function cleanedFor(m: Mol, atoms: number[]): { mol: Mol; cleaned: number[][]; tooBig: boolean } {
+  let mol = m, tooBig = false;
+  const cleaned: number[][] = [];
+  for (const g of structuresOf(m, atoms)) {
+    if (g.length < 2 || !flatAtoms(m, g)) continue;
+    if (g.length > MOST_3D) { tooBig = true; continue; }
+    mol = keepHands(mol, clean3d(mol, g), g);
+    cleaned.push(g);
+  }
+  return { mol, cleaned, tooBig };
+}
+
 // Makes a measurement of these atoms (2 a distance, 3 an angle, 4 a dihedral), in the order given (order "pick", the
 // Measure tool's) or along their bonds (chainOrder: the menu's and an AI app's). A structure drawn flat is first cleaned
-// up in 3D, as 3D Clean Up does it, so the value is a real one; one of more than MOST_3D atoms is measured flat
-// (tooBig). The same measurement asked for again (the same atoms, either way round) is the one there (made false).
-// A string says why there is none.
+// up in 3D (cleanedFor). The same measurement asked for again (the same atoms, either way round) is the one there
+// (made false). A string says why there is none.
 export type Made = { mol: Mol; id: number; made: boolean; cleaned: number[][]; tooBig: boolean };
 export function addMeasure(m: Mol, atoms: number[], order: "pick" | "chain" = "chain"): Made | string {
   if (atoms.length < 2 || atoms.length > 4) return "A measurement takes 2 to 4 atoms.";
@@ -284,14 +297,7 @@ export function addMeasure(m: Mol, atoms: number[], order: "pick" | "chain" = "c
   const ordered = order === "pick" ? atoms : chainOrder(m, atoms), back = [...ordered].reverse();
   const there = m.captions?.find((c) => c.measure && (sameAtoms(c.measure.atoms, ordered) || sameAtoms(c.measure.atoms, back)));
   if (there) return { mol: m, id: there.id, made: false, cleaned: [], tooBig: false };
-  let mol = m, tooBig = false;
-  const cleaned: number[][] = [];
-  for (const g of structuresOf(m, ordered)) {
-    if (g.length < 2 || !flatAtoms(m, g)) continue;
-    if (g.length > MOST_3D) { tooBig = true; continue; }
-    mol = keepHands(mol, clean3d(mol, g), g);
-    cleaned.push(g);
-  }
+  const { mol, cleaned, tooBig } = cleanedFor(m, ordered);
   const [made, id] = addCaption(mol, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: ordered } });
   return { mol: settleMeasures(undefined, made), id, made: true, cleaned, tooBig };
 }

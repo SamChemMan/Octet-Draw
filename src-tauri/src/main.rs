@@ -897,6 +897,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
     ])?;
+    let measure = Submenu::with_items(app, "Measure", true, &[
+        &item("measure_distance", "Distance", "")?,
+        &item("measure_angle", "Angle", "")?,
+        &item("measure_dihedral", "Dihedral", "")?,
+    ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
     let structure = Submenu::with_items(app, "&Structure", true, &[
@@ -920,6 +925,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("add_multicentre", "Add Multi-Centre Attachment", "")?,
         &item("add_variable", "Add Variable Attachment", "")?,
         &item("rlogic", "R-Logic Query…", "")?,
+        // Measurements of the selected atoms (issue 85), where ChemDraw has Add 3D Property: no shortcut, as ChemDraw.
+        &measure,
         &enhanced,
         &sep()?,
         &item("map_reaction", "Map Reaction Atoms", "")?,

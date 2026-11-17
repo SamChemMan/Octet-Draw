@@ -34,7 +34,7 @@ import { followDrag } from "./cursor";
 import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
 import { FREE_SYMBOL_NAMES } from "./kinds";
 import { AI } from "./features";
-import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, FreeSymbolGlyph, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
+import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, FreeSymbolGlyph, MassSpecGlyph, MeasureGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
 
 // Each pick's choices (arrowPicks lists them) drawn as themselves, for the Actions panel and the right-click menu alike.
 const choices = (p: ArrowPick, c: Context) => p.options.map(([id, name]) => ({ id, name, glyph: pickGlyph(p, id, c) }));
@@ -466,6 +466,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       // Query and Markush structures (ChemDraw's Structure menu): attachments on the selected atoms, and an R-group
       // definition round the selected structures.
       if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
+      // A measurement of 2, 3 or 4 selected atoms (Structure > Measure).
+      const measure = (["distance", "angle", "dihedral"] as const)[context.atoms - 2];
+      if (measure) items.push(small(it(<MeasureGlyph size={18} />, `Measure ${measure}`, `measure_${measure}`)));
       items.push(small(it(<BracketsSquare size={18} />, "Make an R-group definition", "define_rgroup")));
       items.push(...mirrors, ...objects, ...frames, del);
       break;
