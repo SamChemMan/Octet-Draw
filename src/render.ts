@@ -847,6 +847,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const newman = new Map<number, number>();
   for (const back of endOn.values()) if (!labelled[back]) newman.set(back, 0.4 * zOf(scaleOf(mol.atoms[back])).L);
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
+  // A label of atom i.
+  const say = (l: Label, i: number) => { labels.push(l); labelAtom.set(l, i); };
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const skeletalSign: (P | undefined)[] = []; // where a skeletal carbon's charge is drawn, to move it (electrons)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -894,8 +896,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
           : ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
         const c = add(pts[i], mul(d, 0.6 * S));
         skeletalSign[i] = c;
-        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: S * SUB, colour: a.colour });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: S * SUB, colour: a.colour }, i);
         marks[i] = m.outline.map(([px, py]) => [c[0] - (m.width * SUB) / 2 + px * SUB, c[1] + (m.ascent * SUB) / 2 + py * SUB]);
       }
       return [];
@@ -956,8 +957,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     const run = (text: string, x: number, y: number, f = 1, line = 0, at?: number): Run | undefined => {
       let px = x;
       for (const p of stylePieces(text, at, f)) {
-        labels.push({ text: p.text, x: px, y: y + p.dy, size: S * f * p.k, colour: a.colour, ...p.look });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text: p.text, x: px, y: y + p.dy, size: S * f * p.k, colour: a.colour, ...p.look }, i);
         px += p.m.width * f * p.k;
       }
       const m = Mx(text, at, f);
@@ -1219,8 +1219,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
         if (q > 1) {
           const sign = `${q}${a.charge! > 0 ? '+' : '−'}`, m = grown(measure(sign), ratio[i]), size = Math.min(SUB, (1.35 * R) / m.width, (1.1 * R) / m.ascent);
           const x = c[0] - (m.width * size) / 2, y = c[1] + (m.ascent * size) / 2;
-          labels.push({ text: sign, x, y, size: z * size, colour: a.colour });
-          labelAtom.set(labels[labels.length - 1], i);
+          say({ text: sign, x, y, size: z * size, colour: a.colour }, i);
         } else {
           const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
           bar([1, 0]);
@@ -1229,8 +1228,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       }
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
-        labels.push({ text, x, y, size: z * SUB, colour: a.colour });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text, x, y, size: z * SUB, colour: a.colour }, i);
         for (const [px, py] of ink.outline) marks[i].push([x + px * SUB, y + py * SUB]);
       }
     });
@@ -1918,11 +1916,8 @@ export type Placed = {
   order?: number; // the caption's draw order (order.ts)
   angle?: number; pivot?: P; frame?: Box;
 };
-// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down).
-export function turnPx(q: P, pivot: P, degrees: number): P {
-  const r = (degrees * Math.PI) / 180, dx = q[0] - pivot[0], dy = q[1] - pivot[1];
-  return [pivot[0] + dx * Math.cos(r) + dy * Math.sin(r), pivot[1] - dx * Math.sin(r) + dy * Math.cos(r)];
-}
+// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down): turnPoint the other way.
+export const turnPx = (q: P, pivot: P, degrees: number): P => turnPoint(q, pivot, -degrees);
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
 // in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text
