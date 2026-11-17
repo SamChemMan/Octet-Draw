@@ -52,7 +52,7 @@ assert.doesNotMatch(scrollbars, /setHas\(\(h\)/);
 // The pills measure the page only when there is a pill to place.
 assert.match(pills, /if \(!el \|\| !free\?\.length\) return;\n\s+const room = el\.getBoundingClientRect\(\)/);
 // The key map is made once for each change in Settings, never in hint (once for each button, each time).
-assert.match(editor, /const userKeys = useMemo\(\(\) => keymap\(settings\.keys\), \[settings\.keys\]\);/);
+assert.match(editor, /const userKeys = useMemo\(\(\) => keymap\(settings\.keys\), \[settings\.keys, menuKeysVersion\(\)\]\);/);
 const hint = editor.slice(editor.indexOf("  const hint = (command: string) => {"), editor.indexOf("\n  };\n", editor.indexOf("  const hint = (command: string) => {")));
 assert.ok(hint.length > 100 && !hint.includes("keymap("), "hint uses userKeys");
 
@@ -75,3 +75,15 @@ for (let k = 0; k < 3; k++) {
 assert.ok(best < 0.5, `sameSet takes ${best.toFixed(3)} ms on 2000 atoms`);
 
 console.log(`dragspeed: ok (sameSet ${best.toFixed(3)} ms on 2000 atoms)`);
+
+// The Actions panel's key hints read a key map kept between draws. It is made again when Settings change and when
+// the menu registers its keys (registerMenu changes DEFAULT_KEYS after the first draw), so a hint never shows an old key.
+{
+  const { DEFAULT_KEYS, keymap, menuKeysVersion, registerMenu } = await import("./keys.ts");
+  const before = menuKeysVersion();
+  registerMenu([["check_hint", "Check hint", "Test", "CmdOrCtrl+Shift+9"]]);
+  assert.ok(menuKeysVersion() > before, "registering the menu changes the version");
+  assert.deepEqual(keymap({})["menu.check_hint"], DEFAULT_KEYS["menu.check_hint"]);
+  const editorSrc = (await import("node:fs")).readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editorSrc, /const userKeys = useMemo\(\(\) => keymap\(settings\.keys\), \[settings\.keys, menuKeysVersion\(\)\]\)/, "the key map follows the menu's keys");
+}

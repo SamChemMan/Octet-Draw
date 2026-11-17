@@ -39,7 +39,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, DIALOGS, MENU_READ, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -7975,9 +7975,9 @@ export default function Editor() {
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
-  // The keys as the user has them, made once for each change in Settings: hint runs for every button of the Actions
-  // panel each time the editor draws.
-  const userKeys = useMemo(() => keymap(settings.keys), [settings.keys]);
+  // The keys as the user has them, made once for each change in Settings or in the menu's own keys (registerMenu):
+  // hint runs for every button of the Actions panel each time the editor draws.
+  const userKeys = useMemo(() => keymap(settings.keys), [settings.keys, menuKeysVersion()]); // eslint-disable-line react-hooks/exhaustive-deps
   const hint = (command: string) => {
     // A menu command's shortcut as the user has it (Settings), else as the menu has it.
     const own = menuReady ? userKeys[`menu.${command}`] : undefined;
