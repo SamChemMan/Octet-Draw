@@ -41,7 +41,6 @@ const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
 export const ELLIPSES = ["ellipse-cw", "ellipse-ccw"];
 // Straight arrows, in the order of ChemDraw's Arrows palette. An unbalanced equilibrium has a ratio of 3.
 export const STRAIGHT = ["reaction", "equilibrium", "unbalanced", "resonance", "retro", "nogo", "hash", "dipole", "block"];
-export const DEFAULT_CURVED = ["curved-120", "fishhook-120"];
 // A straight arrow's variant can name its size after a space ("reaction large"). Unnamed is Small, ChemDraw's
 // default, except for a block arrow, whose sizes are Large (unnamed) and Medium.
 export type ArrowPick = { kind: ArrowKind; sweep?: number; size?: Exclude<ArrowSize, "small">; ratio?: number; ellipse?: "cw" | "ccw" };

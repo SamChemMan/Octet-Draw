@@ -109,10 +109,6 @@ export type AtomQuery = {
   abundance?: "any" | "natural" | "enriched" | "deficient" | "nonnatural";
   valence?: true;
 };
-// ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or Double, Single or Aromatic,
-// Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring or Chain. rxn: Reaction
-// Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
-export type BondQuery = Pick<Bond, "query" | "topology" | "rxn">;
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
@@ -121,6 +117,9 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // Where two bonds cross, the later one in the list is in front, and the one behind has a gap cut in it.
 // halo: #rrggbb highlight, a band behind the bond as an atom's halo is a disc (ChemDraw's highlightColor on a bond).
 // ignoreWarnings: Display Warnings off for this bond (ChemDraw's IgnoreWarnings): its problems are not marked.
+// query, topology and rxn: ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or
+// Double, Single or Aromatic, Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring
+// or Chain. rxn: Reaction Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
 export type Bond = {
   type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; ignoreWarnings?: true;
   query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
@@ -249,7 +248,6 @@ export const sizeOf = (a: Pick<Arrow, "kind" | "headSize" | "style">): ArrowSize
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
 export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double"];
-export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
 export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
 // Arrows that carry reaction conditions and make up reactions: straight ones with heads.
 export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut" && a.kind !== "curve";
