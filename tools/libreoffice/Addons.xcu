@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Insert > Octet Drawing, after Insert > Image, in Writer, Impress and Draw (octet_draw.py, Octet.trigger). -->
+<!-- Insert > Octet Drawing, after Insert > Image, in Writer, Impress, Draw and Calc (octet_draw.py, Octet.trigger). -->
 <oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:name="Addons" oor:package="org.openoffice.Office">
   <node oor:name="AddonUI">
     <node oor:name="OfficeMenuBarMerging">
@@ -8,7 +8,7 @@
           <prop oor:name="MergePoint"><value>.uno:InsertMenu\.uno:InsertGraphic</value></prop>
           <prop oor:name="MergeCommand"><value>AddAfter</value></prop>
           <prop oor:name="MergeFallback"><value>AddPath</value></prop>
-          <prop oor:name="MergeContext"><value>com.sun.star.text.TextDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value></prop>
+          <prop oor:name="MergeContext"><value>com.sun.star.text.TextDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.sheet.SpreadsheetDocument</value></prop>
           <node oor:name="MenuItems">
             <node oor:name="OctetDrawing" oor:op="replace">
               <prop oor:name="URL"><value>service:io.github.samchemman.octet.LibreOffice?insert</value></prop>

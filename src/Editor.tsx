@@ -2602,6 +2602,9 @@ export default function Editor() {
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
     connect_ai: () => setSettingsOpen("ai"),
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
+    // Settings > General > Add to LibreOffice (libreoffice.rs), on every system: LibreOffice's Extension Manager asks
+    // the user, so an AI app's run_command gets it as a dialog.
+    add_to_libreoffice: () => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
@@ -7915,7 +7918,7 @@ export default function Editor() {
     close: async (session, drawing) => (TAURI && session ? invoke<"closed" | "unsaved" | "theirs" | "none">("mcp_close", { session, drawing, edited: unsaved && drawing === getCurrentWindow().label }) : "theirs"),
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
-    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),
+    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id) || id === "add_to_libreoffice",
     opens: async (text) => {
       if (!isDrawingText(text)) await ready;
       try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
@@ -10765,7 +10768,7 @@ export default function Editor() {
           onCheckUpdates={() => checkUpdates(true)}
           mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on, mcpChosen: true })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
           aiApps={aiApps} onAiApp={(id, on) => (on ? connectAi([id]) : disconnectAi(id))}
-          onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
+          onAddToLibreOffice={() => commands.current.add_to_libreoffice()}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>

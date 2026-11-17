@@ -12,7 +12,7 @@ fn main() {
 }
 
 // LibreOffice's Octet extension (tools/libreoffice) as one .oxt file: a zip of these files, stored, with Octet's
-// version in its description.xml. Linux builds bundle it (tauri.linux.conf.json) for Settings > General > Add to
+// version in its description.xml. Every build bundles it (tauri.conf.json) for Settings > General > Add to
 // LibreOffice. The file changes only when what goes in it changes.
 const OXT: [&str; 5] = ["META-INF/manifest.xml", "description.xml", "octet_draw.py", "Jobs.xcu", "Addons.xcu"];
 

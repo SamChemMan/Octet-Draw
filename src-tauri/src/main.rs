@@ -34,6 +34,8 @@ mod eyedropper;
 #[cfg(feedback)]
 mod feedback;
 mod home;
+// Settings > General > Add to LibreOffice, on every system (libreoffice.rs, decision 0025).
+mod libreoffice;
 // Octet from an AppImage, and the programs Octet starts on Linux (linux.rs).
 #[cfg(target_os = "linux")]
 mod linux;
@@ -565,20 +567,6 @@ fn reveal_file(picked: State<'_, Picked>, exported: State<'_, export::Exported>,
 async fn open_licences(app: AppHandle) -> Result<(), String> {
     let path = app.path().resolve("licences/third-party.txt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
     open_external(&path).map_err(|e| e.to_string())
-}
-
-// Settings > General > Add to LibreOffice (Linux): Octet's extension for LibreOffice (tools/libreoffice) in
-// LibreOffice's Extension Manager, which asks the user to confirm. `unopkg gui` shows the manager on its own when
-// LibreOffice is closed, so no restart is needed, and in LibreOffice when it is open. The .oxt opened as a file
-// starts a closed LibreOffice with the file as its argument, and the restart after the install opens it again: a
-// second install prompt. A Flatpak Octet has no unopkg and opens the file through the system's portal. Octet writes
-// its path again for the extension (linux::note_path).
-#[cfg(target_os = "linux")]
-#[tauri::command]
-async fn add_to_libreoffice(app: AppHandle) -> Result<(), String> {
-    let path = app.path().resolve("libreoffice/octet-draw.oxt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
-    linux::note_path(&app);
-    linux::spawn(std::process::Command::new("unopkg").arg("gui").arg(&path)).or_else(|_| open_external(&path)).map_err(|e| e.to_string())
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
@@ -1355,7 +1343,7 @@ fn main() {
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, #[cfg(target_os = "linux")] add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
