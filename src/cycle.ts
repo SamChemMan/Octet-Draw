@@ -490,7 +490,7 @@ export function dropOnCycle(m: Mol, frags: number[][], was?: Mol, opts: DropOpts
   // fresh: added by this edit. A cycle's text counts only when it was there before.
   const had = (t: Caption) => !!was?.captions?.some((x) => x.id === t.id);
   const items: { atoms?: number[]; text?: number; fresh: boolean }[] = [...frags.filter((fr) => fr.every(moved) && whole(fr)).map((atoms) => ({ atoms, fresh: !opts.placed && !!was && atoms.every((i) => i >= was.atoms.length) })),
-    ...(m.captions ?? []).filter((t) => !t.under && !t.on && (!t.cycle || (had(t) && (t.cycle.side === "node" || isSide(t.cycle)))) && textMoved(t)).map((t) => ({ text: t.id, fresh: !opts.placed && !!was && !had(t) }))];
+    ...(m.captions ?? []).filter((t) => !t.under && !t.on && !t.measure && (!t.cycle || (had(t) && (t.cycle.side === "node" || isSide(t.cycle)))) && textMoved(t)).map((t) => ({ text: t.id, fresh: !opts.placed && !!was && !had(t) }))];
   // The cycles laid out with a bond length as 1 (px, y down), for the arcs' spans and the side arrows' ends. Kept until
   // the drawing changes.
   let laid: [Mol, CycleLayout] | undefined;

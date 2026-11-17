@@ -198,3 +198,76 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.equal(deleteAtoms({ ...chain(3), captions: [c] }, new Set([0])).captions?.length, 0);
   console.log("measurement.check: remap ok");
 }
+
+// J5: files. .oct (its JSON, and its CDXML when another program changed it), CDXML and CDX keep the measurements;
+// the lines are written for ChemDraw and skipped when Octet reads its own file back (not doubled).
+{
+  const { writeOct, readOct, writeCdx, readCdx } = await import("./oct.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const { parse, serialize } = await import("./file.ts");
+  let m = chain(6);
+  for (const atoms of [[0, 5], [0, 1, 2], [1, 2, 3, 4], [0, 2, 4]]) m = made(addMeasure(m, atoms)).mol;
+  // One moved by hand, one coloured and bold.
+  const ids = m.captions!.map((c) => c.id);
+  m = settleMeasures(m, { ...m, captions: m.captions!.map((c) => (c.id === ids[0] ? { ...c, x: c.x + 0.7, y: c.y - 0.4 } : c.id === ids[1] ? { ...c, colour: "#C00000", bold: true } : c)) });
+  const style = DEFAULT_STYLE;
+  const same = (back: Mol, what: string) => {
+    const got = back.captions!.filter((c) => c.measure), want = m.captions!.filter((c) => c.measure);
+    assert.equal(got.length, want.length, `${what}: every measurement`);
+    for (const w of want) {
+      // CDXML keeps places to 0.01 pt, so a value read back from it may differ in its last place.
+      const value = (t: string) => Number(t.replace("−", "-").replace(/[^\d.-]/g, ""));
+      const g = got.find((c) => JSON.stringify(c.measure!.atoms) === JSON.stringify(w.measure!.atoms));
+      assert.ok(g && Math.abs(value(g.text) - value(w.text)) <= 0.15 && g.text.slice(-1) === w.text.slice(-1), `${what}: ${w.text} on ${w.measure!.atoms}: ${g?.text}`);
+      near(g.x, w.x, 0.02, `${what} x`);
+      near(g.y, w.y, 0.02, `${what} y`);
+      assert.equal(!!g.measure!.at, !!w.measure!.at, `${what}: a label moved by hand stays so`);
+      assert.equal(g.colour, w.colour);
+      assert.equal(!!g.bold, !!w.bold);
+    }
+    assert.equal(back.arrows?.length ?? 0, 0, `${what}: the lines are not read back as lines`);
+  };
+  same(parse(serialize(m)), ".oct JSON");
+  same(readOct(writeOct(m, style), true).mol, ".oct");
+  const cdxml = toCdxml(m, style);
+  assert.match(cdxml, /LineType="Dashed"/, "the lines are written for ChemDraw");
+  assert.match(cdxml, /GraphicType="Arc"/, "and the angle's arc");
+  assert.match(cdxml, /InterpretChemically="no"/);
+  same(fromCdxml(cdxml).mol, "CDXML");
+  same(readCdx(writeCdx(m, style)).mol, "CDX");
+  // .oct with its CDXML changed by another program: read from the CDXML.
+  const oct = writeOct(m, style), changed = oct.replace("<CDXML ", "<CDXML Changed=\"1\" ");
+  same(readOct(changed, true).mol, ".oct read from its CDXML");
+  // As ChemDraw saves it: the Octet data gone. Text and dashed lines, nothing left out.
+  const chemdraw = cdxml.replace(/ Octet="[^"]*"/g, "");
+  const r = fromCdxml(chemdraw);
+  assert.equal(r.mol.captions!.filter((c) => c.measure).length, 0, "ChemDraw's file: plain text");
+  assert.ok(r.mol.captions!.some((c) => c.text === m.captions![0].text), "with the values as text");
+  assert.ok((r.mol.arrows ?? []).filter((a) => a.style === "dashed").length >= 3, "and the dashed lines");
+  assert.deepEqual(r.lost, {}, "nothing left out");
+  console.log("measurement.check: files ok");
+}
+
+// S23, S24: hostile files open, and each unsound measurement is plain text.
+{
+  const { parse, serialize } = await import("./file.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const base = made(addMeasure(chain(4), [0, 3])).mol, json = JSON.parse(serialize(base));
+  for (const bad of [{ atoms: [-1, 2] }, { atoms: [0, 99999] }, { atoms: [0] }, { atoms: [0, 1, 2, 3, 0] }, { atoms: [0, 1, 2, 3, 2] }, { atoms: [1, 1] }, { atoms: ["0", "1"] }, { atoms: [0, null] }, { atoms: [0, 1], at: [1e9, 0] }, "x", 7, null, []]) {
+    const doc = { ...json, captions: json.captions.map((c: Record<string, unknown>) => ({ ...c, measure: bad })) };
+    const back = parse(JSON.stringify(doc));
+    assert.equal(back.captions![0].measure, undefined, JSON.stringify(bad));
+    assert.equal(back.captions![0].text, base.captions![0].text);
+  }
+  // CDXML with Octet data naming nodes that are not there.
+  const cdxml = toCdxml(base, DEFAULT_STYLE).replace(/&quot;measure&quot;:\{&quot;atoms&quot;:\[[^\]]*\]/, "&quot;measure&quot;:{&quot;atoms&quot;:[999999,888888]");
+  assert.ok(cdxml.includes("999999"), "the test file names missing nodes");
+  const back = fromCdxml(cdxml).mol;
+  assert.equal(back.captions!.filter((c) => c.measure).length, 0, "missing nodes: plain text");
+  // 10,000 measurement captions in a JSON file: within the reader's limits, it opens (or is refused as damaged).
+  const many = { ...json, captions: Array.from({ length: 10000 }, () => json.captions[0]) };
+  const t = performance.now();
+  try { const opened = parse(JSON.stringify(many)); assert.equal(opened.captions!.filter((c) => c.measure).length, 10000); } catch (e) { assert.match(String(e), /damaged/); }
+  assert.ok(performance.now() - t < 5000, "quickly");
+  console.log("measurement.check: hostile files ok");
+}

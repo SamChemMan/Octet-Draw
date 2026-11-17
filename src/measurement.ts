@@ -9,7 +9,7 @@
 import { bondRatios, clean3d, MOST_3D } from "./clean3d.ts";
 import { keepHands } from "./cip.ts";
 import { widthOf } from "./arial.ts";
-import { DEFAULT_STYLE } from "./docstyle.ts";
+import { DEFAULT_STYLE, type DocStyle } from "./docstyle.ts";
 import { addCaption } from "./edit.ts";
 import { ASCENT, DESCENT, HBOND, type Atom, type Bond, type Caption, type Measure, type Mol } from "./render.ts";
 
@@ -186,11 +186,12 @@ const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 // Each measurement after an edit: its value and text worked out from its atoms, and its label placed (or, when the
 // edit moved the label alone, its offset kept). A measurement whose atoms are not 2 to 4 distinct atoms of the
 // drawing becomes plain text. before: the drawing the edit started from (none when a drawing is opened or pasted).
-// Returns after itself when nothing changes, and at once when it has no measurement.
-export function settleMeasures(before: Mol | undefined, after: Mol): Mol {
+// docStyle: the document's style, when the drawing does not carry it (a file being read). Returns after itself when
+// nothing changes, and at once when it has no measurement.
+export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: DocStyle): Mol {
   const cs = after.captions;
   if (!cs?.some(isMeasure)) return after;
-  const k = chemistry(after), memo = new Map<string, number>(), style = after.style ?? DEFAULT_STYLE, around = neighboursOf(after);
+  const k = chemistry(after), memo = new Map<string, number>(), style = docStyle ?? after.style ?? DEFAULT_STYLE, around = neighboursOf(after);
   const was = before?.captions?.some(isMeasure) ? new Map(before.captions.filter(isMeasure).map((c) => [c.id, c])) : undefined;
   let changed = false;
   const out = cs.map((c) => {
@@ -237,6 +238,8 @@ export function measureInk(m: Mol, atoms: number[], trim: (i: number) => number 
   const start = Math.atan2(ua[1], ua[0]), sweep = Math.atan2(cross(ua, uc), dot(ua, uc));
   return { lines, arc: { centre: o, r: Math.max(ARC, trim(atoms[1]) + 0.1), start, sweep } };
 }
+// Whether an atom shows a label, which a measurement's line stops short of.
+export const labelled = (a: Atom) => a.label !== "C" || !!a.text || !!a.shown;
 // An arc as points along it.
 export const arcPoints = (a: NonNullable<MeasureInk["arc"]>, n = 24): P[] =>
   Array.from({ length: n + 1 }, (_, k) => { const t = a.start + (a.sweep * k) / n; return [a.centre[0] + a.r * Math.cos(t), a.centre[1] + a.r * Math.sin(t)]; });
