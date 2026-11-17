@@ -147,7 +147,8 @@ Proof. There is no Windows computer on the Mac where this was built.
   fills it, keeps the EMF+ bytes through a save and a load, and prints what it cached), `ole_plus_labels` and
   `ole_plus_zoom` (0.25 to 40 px a pt). Not run yet: Sam runs Actions > Windows and Linux > Run workflow.
 - Where MS-EMFPLUS is silent, a CI test decides. Fill mode: a nonzero fill sets `PathPointFlags` bit 0x2000, as GDI+
-  writes a path with winding fill (`ole_plus_fill_mode`). Size: a 500-residue peptide's bonds are one path object of
+  writes a path with winding fill (`ole_plus_fill_mode`). It matters: Octet's bond outlines overlap a little where
+  bonds meet, and drawn even-odd, 42 of L-proline's 4,918 ink pixels at 4 px a pt would be white. Size: a 500-residue peptide's bonds are one path object of
   about 230 KB in one record (`ole_plus_large_path` also prints whether GDI+ takes it continued over records). If
   either fails, the fallbacks are in `docs/plans/issue-166-word-paste-sharp.md` ("If CI says no").
 - By hand on Windows: `docs/testing/ole-manual.md`, test 16.
