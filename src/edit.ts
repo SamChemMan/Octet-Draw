@@ -2018,7 +2018,7 @@ export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" |
 let floor = 0;
 export const keepIdsAbove = (n: number) => { floor = Math.max(floor, n); };
 export const startIds = () => { floor = 0; }; // a new drawing
-const nextId = (m: Mol) => Math.max(floor, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
+export const nextId = (m: Mol) => Math.max(floor, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
 export function addCycle(m: Mol, c: Omit<Cycle, "id">): [Mol, number] {
   const id = nextId(m);
   return [{ ...m, cycles: [...(m.cycles ?? []), { ...c, id }] }, id];
@@ -2493,7 +2493,8 @@ export const deleteGraphics = (m: Mol, ids: Set<number>, at?: (c: Caption) => P 
   arrows: m.arrows?.filter((a) => !ids.has(a.id)),
   shapes: m.shapes?.filter((x) => !ids.has(x.id)),
   cycles: m.cycles?.filter((c) => !ids.has(c.id)).map((c) => keepAngles(m, c)),
-  ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow)) } : {}),
+  // A table goes with its arrow, or when it is picked itself (its id below 0, gridview.ts TABLE).
+  ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow) && !ids.has(-1 - g.arrow)) } : {}),
 });
 // Delete, Clear and the Eraser: the atoms, bonds and objects chosen go, and nothing else that shows. Text that belongs to
 // a structure that goes (a compound number), and was not chosen itself, stays as free text where and as it is drawn (at,

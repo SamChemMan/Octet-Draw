@@ -13,6 +13,7 @@ import {
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
+  AnchorSimple, Snowflake, MinusSquare,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -96,7 +97,9 @@ export type Context =
   // of the grid's rows or columns are hidden, whether it shows as rows, and whether a row shown has nothing in it.
   // role: a reactant column's role. mark: its Mass or Volume picked can be marked as measured; marked: it has a mark.
   // steps: a scheme of several arrows, with a table for each step (join) or one for the scheme (split).
-  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join" }
+  // table: the table picked whole (no cell). own: the cell's row is one of the user's own. free: the table was moved by
+  // hand and keeps its place (Attach to reaction puts it back under its reaction).
+  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join"; table?: boolean; own?: boolean; free?: boolean }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
@@ -459,13 +462,21 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         ...(context.role && context.role !== "solvent" ? [it(<Drop size={18} />, "Set as solvent", "grid.role.solvent")] : []),
         // The amount measured out: marked red with a line under it.
         ...(context.mark ? [it(<Scales size={18} />, "Mark as measured", "grid.taken")] : []), ...(context.marked ? [it(<XSquare size={18} />, "Clear measured mark", "grid.untaken")] : []),
-        it(<ArrowsInLineVertical size={18} />, "Hide row", "grid.hide.row"), it(<EyeClosed size={18} />, "Hide column", "grid.hide.col"),
+        // Rows of the user's own: one added above or below the cell's (as rows, a column left or right of it), named
+        // as it is typed. One's own row is deleted; Octet's are hidden.
+        ...(context.table ? [] : [
+          it(context.rows ? <ColumnsPlusLeft size={18} /> : <RowsPlusTop size={18} />, context.rows ? "Add column left" : "Add row above", "grid.row.above"),
+          it(context.rows ? <ColumnsPlusRight size={18} /> : <RowsPlusBottom size={18} />, context.rows ? "Add column right" : "Add row below", "grid.row.below"),
+          context.own ? it(<MinusSquare size={18} />, context.rows ? "Delete column" : "Delete row", "grid.row.delete") : it(<ArrowsInLineVertical size={18} />, "Hide row", "grid.hide.row"),
+          it(<EyeClosed size={18} />, "Hide column", "grid.hide.col")]),
         // As rows, the quantities are the columns.
         ...(context.empty ? [it(<FunnelSimple size={18} />, context.rows ? "Hide empty columns" : "Hide empty rows", "grid.hide.empty")] : []),
-        ...(context.hidden ? [it(<Eye size={18} />, "Show all rows and columns", "grid.show")] : []),
+        ...(context.hidden ? [it(<Eye size={18} />, "Show all", "grid.show")] : []),
         // The table as tab-separated text; then a reagent on each row and the products under them, or a column for
         // each (issue 34).
         it(<Thermometer size={18} />, "Conditions…", "grid.conditions"),
+        // A table moved by hand back under its reaction; the table as plain text and lines.
+        ...(context.free ? [it(<AnchorSimple size={18} />, "Attach to reaction", "grid.attach")] : []), it(<Snowflake size={18} />, "Make static", "grid.static"),
         ...(context.steps ? [{ ...it(<ArrowsSplit size={18} />, context.steps === "split" ? "One table for each step" : "One table for the scheme", "grid.steps"), short: context.steps === "split" ? "Table for each step" : "One table for all" }] : []), it(<Clipboard size={18} />, "Copy table", "grid.copy"), it(context.rows ? <Columns size={18} /> : <Rows size={18} />, context.rows ? "Show as columns" : "Show as rows", "grid.layout"), inWindow, del);
       break;
     case "cycle":
