@@ -350,9 +350,10 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
   };
   // A bond chemfig does not draw, from atom u to a point p (or to atom v): what places a separate structure.
   const hop = (u: number, p: P, v?: number) => {
-    // (Its angle to 3 places when it is long, so a structure far off stays within a fiftieth of a bond of its place.)
+    // (Its angle to 3 places when it is long, so a structure far off stays within a fiftieth of a bond of its place;
+    // never shorter than a hundredth, so two copies on one spot do not give chemfig a bond of no length.)
     const x = p[0] - at(u)[0], y = p[1] - at(u)[1], l = Math.hypot(x, y);
-    return `-${fieldsOf([`:${num(degreesOf([x, y]), l > 20 ? 3 : 2)}`, num(l, 3), letter(u), v === undefined ? "" : letter(v), "draw=none"])}`;
+    return `-${fieldsOf([`:${num(degreesOf([x, y]), l > 20 ? 3 : 2)}`, num(Math.max(l, 0.01), 3), letter(u), v === undefined ? "" : letter(v), "draw=none"])}`;
   };
 
   // Rings in ring syntax, and those the page draws with a circle (Toggle Aromatic Display): **6(------).

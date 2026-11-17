@@ -415,6 +415,7 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
     ["a pair and a sign moved by hand", { atoms: [A("C", 0, 0, { charge: -1, pairs: 1, angles: { charge: 250, pair0: 100 } }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }, 0],
     ["a radical cation on a label", { atoms: [A("N", 0, 0, { charge: 1, radical: 1 }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }, 0],
     ["a radical cation, skeletal", { atoms: [A("C", 0, 0, { charge: 1, radical: 1 }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }, 0],
+    ["a label's sign moved by hand", { atoms: [A("N", 0, 0, { charge: 1, angles: { charge: 200 } }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }, 0],
     ["coloured marks", { atoms: [A("O", 0, 0, { pairs: 2, colour: "#1f77b4", charge: -1, circled: true }), A("C", 1, 0)], bonds: [B(0, 1)] }, 0],
   ];
   for (const [name, mol, atom] of cases) {
@@ -472,6 +473,29 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   assert.equal(say({}, [B(0, 1, 2, { display: "either" })]), "The code shows crossed double bonds as double bonds.");
   assert.equal(say({}, [B(0, 1, 2, { display: "dashed" })]), "The code shows dashed double bonds with both lines dashed.");
   assert.equal(chemfig({ atoms: [A("C", 0, 0, { number: "1", halo: "#ff0000", map: 3 }), A("C", 1, 0)], bonds: one }, S, ink).notice, "The code does not have the highlights, atom numbers and map numbers.");
+}
+
+// ---- Odd drawings (S16, S25, S26, S12) ----
+{
+  // Toggle Hydrogen Display and Hide implicit H: a hidden H and its bond are not written; H counts as the page shows.
+  const water = [A("O", 0, 0), A("H", 1, 0, { hidden: true }), A("H", -c30, s30)];
+  assert.equal(compact(water, [B(0, 1), B(0, 2)]), "\\chemfig{H-[:-30,,,1]OH}");
+  assert.equal(toChemfig({ atoms: [A("N", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)] }, { ...S, hideH: true }, ink, { compact: true }), "\\chemfig{N-[:0]}");
+  // Two copies of a structure on one spot: the second hangs off the first by a bond of (almost) no length.
+  const two = check("two on one spot", { atoms: [A("C", 0, 0), A("O", 1, 0), A("C", 0, 0), A("O", 1, 0)], bonds: [B(0, 1), B(2, 3)] });
+  assert.match(two.compact, /draw=none/);
+  // A multi-centre attachment (an η5 ring to Fe) and a variable attachment: drawn as the page draws the atoms.
+  const R5 = 1 / (2 * Math.sin(Math.PI / 5)), cp = Array.from({ length: 5 }, (_, k) => A("C", R5 * Math.cos((90 + 72 * k) * RAD), R5 * Math.sin((90 + 72 * k) * RAD)));
+  const ferrocene: Mol = { atoms: [...cp, A("C", 0, 0, { centre: { atoms: [0, 1, 2, 3, 4] } }), A("Fe", 0, -1.5)], bonds: [...[0, 1, 2, 3, 4].map((k) => B(k, (k + 1) % 5, k % 2 ? 1 : 2)), B(5, 6)] };
+  check("η5 ring on Fe", ferrocene);
+  check("variable attachment", { atoms: [...hex, A("C", 0, 0, { centre: { atoms: [0, 1, 2], variable: true } }), A("Cl", 0, -1.5)], bonds: [...kekule, B(6, 7)] });
+  // Colour on everything: labels, bonds, marks, a coloured bond in a ring and on a hook.
+  const coloured = check("colours", { atoms: [...hex.map((a, k) => ({ ...a, colour: k % 2 ? "#ff0000" : undefined, label: k === 1 ? "N" : "C" })), A("O", 2 * c30, -1, { colour: "#00ff00", pairs: 3, charge: -1 })], bonds: [...kekule.map((b, k) => ({ ...b, colour: k === 2 ? "#0000ff" : undefined })), B(5, 6, 1, { colour: "#123456" })] });
+  assert.match(coloured.compact, /color=\{rgb,255:red,18;green,52;blue,86\}/);
+  // A query bond, a bond to itself and a bond to a missing atom are not written; nothing throws.
+  check("odd bonds", { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1, 5, { query: "any" }), B(0, 0)] });
+  // A label of every kind of run, raised and lowered, and an empty label.
+  check("runs", { atoms: [A("C", 0, 0), A("C", 1, 0, { text: "R1'", runs: [{ text: "R" }, { text: "1", script: "sub" }, { text: "'", script: "super" }] }), A("C", -1, 0, { text: "" })], bonds: [B(0, 1), B(0, 2)] });
 }
 
 // ---- Long and large drawings: no stack overflow, nesting held, time (S3–S6) ----
