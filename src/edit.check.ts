@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
 import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
@@ -24,11 +24,6 @@ assert.equal(joined.atoms.length, 4);
 assert.equal(joined.bonds.length, 4);
 console.log("edit.check: join ok");
 
-// Clicking a bond cycles 1 → 2 → 3 → 1.
-let c = cycleBond(m, 0); assert.equal(c.bonds[0].type, 2);
-c = cycleBond(c, 0); assert.equal(c.bonds[0].type, 3);
-c = cycleBond(c, 0); assert.equal(c.bonds[0].type, 1);
-console.log("edit.check: bond cycle ok");
 
 // Benzene on empty canvas: six atoms, three double bonds, no atom with two.
 const benzene = addRing(EMPTY, 6, true, { point: [0, 0] });
@@ -441,6 +436,20 @@ console.log("edit.check: align ok");
 }
 
 
+// A bond is in a ring when its ends stay connected without it.
+function inRing(m: typeof EMPTY, k: number): boolean {
+  const [from, to] = m.bonds[k].atoms, seen = new Set([from]), queue = [from];
+  while (queue.length) {
+    const i = queue.pop()!;
+    for (const [x, b] of m.bonds.entries()) {
+      if (x === k || !b.atoms.includes(i)) continue;
+      const j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
+      if (j === to) return true;
+      if (!seen.has(j)) { seen.add(j); queue.push(j); }
+    }
+  }
+  return false;
+}
 // Ring bonds found in one walk agree with inRing for every bond, and map numbers and stereo flags still go in the
 // widest gap (outside a ring when the atom has a bond out of it), as they did when each atom asked inRing per bond.
 {

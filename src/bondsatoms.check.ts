@@ -7,7 +7,7 @@ import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { DEFAULT_STYLE, darkColour, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems, showWarnedHydrogens } from "./check.ts";
-import { addSymbol, markNear, moveMark, lowerBond, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens, toggleLonePairs } from "./edit.ts";
+import { addSymbol, markNear, moveMark, lowerBond, atomAt, bondAt, bondOrders, clickBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens, toggleLonePairs } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -31,7 +31,7 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   const text = toCdxml(m, DEFAULT_STYLE);
   assert.match(text, /<b\s[^>]*Order="4"/);
   assert.equal(roundTrip(m).bonds[0].type, QUADRUPLE);
-  assert.equal(cycleBond(m, 0).bonds[0].type, 1, "a click with the single bond tool makes it single");
+  assert.equal(clickBond(m, 0, { type: 1 }, [0, 0]).bonds[0].type, 1, "a click with the single bond tool makes it single");
 }
 // A hydrogen bond is dotted, adds nothing to valence, and is ChemDraw 26's DottedHydrogen display.
 {
@@ -46,7 +46,7 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   // The spec's hydrogen order and an older dotted bond read as hydrogen bonds too.
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Order="hydrogen"')).mol.bonds[1].type, HBOND);
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Display="Dot"')).mol.bonds[1].type, HBOND);
-  assert.equal(cycleBond(m, 1).bonds[1].type, HBOND, "a hydrogen bond stays one");
+  assert.equal(clickBond(m, 1, { type: 1 }, [0, 0]).bonds[1].type, HBOND, "a hydrogen bond stays one");
   // No bond becomes a hydrogen bond (ChemDraw's tool only joins two atoms); a hydrogen bond can become another bond.
   assert.equal(setBondSpec(m, 0, { type: HBOND }), m);
   assert.equal(setBondSpec(m, 1, { type: 1 }).bonds[1].type, 1);

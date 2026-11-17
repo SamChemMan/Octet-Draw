@@ -22,7 +22,7 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { ligandEllipse } from "./render.ts";
+import { cross, len, ligandEllipse, sub } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -290,9 +290,6 @@ function turnedBox(b: Box, p: P, degrees = 0): Box {
 }
 // A text's RotationAngle: degrees clockwise on the page, times 65536; Octet's turns are anticlockwise.
 const rotationAngle = (degrees?: number) => (degrees ? Math.round((((-degrees % 360) + 360) % 360) * 65536) || undefined : undefined);
-const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
-const len = (a: P) => Math.hypot(a[0], a[1]);
-const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
 // The circle through three points, or undefined when they are in a line.
 function circle(S: P, M: P, T: P): { O: P; r: number } | undefined {
   const d = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1]));

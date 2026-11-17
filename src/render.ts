@@ -541,14 +541,14 @@ export type Drawing = {
 // An object's scale: its own, or 1.
 export const scaleOf = (x: { scale?: number }) => x.scale ?? 1;
 
-const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
-const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
-const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
-const len = (a: P) => Math.hypot(a[0], a[1]);
+export const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+export const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
+export const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
+export const len = (a: P) => Math.hypot(a[0], a[1]);
 const unit = (a: P): P => mul(a, 1 / len(a));
 const perp = (a: P): P => [-a[1], a[0]];
-const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
-const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
+export const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
+export const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
 const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (len(a) * len(b)))));
 
 // Label type: subscripts 75% and 0.212 em down, charges 75% and 0.33 em up. A stacked line (indole NH, a label stacked
