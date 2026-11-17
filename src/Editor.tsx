@@ -6505,9 +6505,6 @@ export default function Editor() {
   // A reagent's name is read by one reader while Octet's names and the user's own stay the same, so it is read once
   // (stoich.ts reagentFormula).
   const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
-  // While a drag changes what is drawn, the tables stay as they were at the press (drawnGrids moves the ones that go
-  // with the drag), so a pointer move does not work them out again, nor the Actions panel that reads them.
-  const dragHeld = !!drag && shown !== doc;
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
     reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
     structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)),
@@ -6516,7 +6513,7 @@ export default function Editor() {
     captionBox,
     nameWidth: (t, size, bold = false) => formulaWidth(t, size * pt, bold, false, fontStack(style.captionFont)) / L,
     captionSize: style.captionSize, perPt: pt / L, experiment: expPage, fit: expPage ? (schemeSpan(m)?.[2] ?? Infinity) - 1 : undefined,
-  }) : []; }, [loaded, namesLoaded, doc, !dragHeld && drawing, !dragHeld && placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }) : []; }, [loaded, namesLoaded, doc, drawing, placed, exporting, expPage]); // eslint-disable-line react-hooks/exhaustive-deps
   type GridView = (typeof gridViews)[number];
   // A reagent table's box: from its row names to its last column, from its top to its last row.
   function tableSpan(v: GridView): number[] {

@@ -78,7 +78,11 @@ function readItem(item: string) {
 // one table for each step instead, in the scheme's order, each under the one before; a grid of the whole reaction is
 // then not drawn, and an arrow added to the scheme since (an experiment page gives it a grid) is a step with its grid.
 // A table moved on its own (Grid.at) is laid out as before, then put with its corner that far from its arrow's tail.
+// A drawing with no tables always gets the same empty list, so a drag on it does not make the Actions panel work
+// again on each pointer move (issue 37).
+const NO_VIEWS: GridView[] = [];
 export function gridViews(m: Mol, d: GridDeps) {
+  if (!m.grids?.length) return NO_VIEWS;
   const seen = new Set<number>(), out: GridView[] = [];
   for (const g of m.grids ?? []) {
     const r = d.reaction(g.arrow);

@@ -36,11 +36,11 @@ export function Pills({ pills, views, scale }: { pills: Pill[]; views: Store<{ x
   // keeps its pill in view, at the nearest edge of the canvas (above the strip: --dock).
   const place = useRef(() => {});
   place.current = () => {
-    const v = views.get(), el = layer.current, pills = el?.querySelectorAll<HTMLElement>(".pill:not(.docked)");
+    const v = views.get(), el = layer.current, free = el?.querySelectorAll<HTMLElement>(".pill:not(.docked)");
     // With no pill to place, no measure: it would make the browser lay out the page again after every change.
-    if (!el || !pills?.length) return;
+    if (!el || !free?.length) return;
     const room = el.getBoundingClientRect(), dock = parseFloat(getComputedStyle(el).getPropertyValue("--dock")) || 0;
-    for (const pill of pills) {
+    for (const pill of free) {
       const x = v.x + Number(pill.dataset.x) * v.zoom + 8, y = v.y + Number(pill.dataset.y) * v.zoom + Number(pill.dataset.row) * 28;
       pill.style.left = `${Math.max(72, Math.min(room.width - pill.offsetWidth - 16, x))}px`;
       pill.style.top = `${Math.max(16, Math.min(room.height - dock - 40, y))}px`;
