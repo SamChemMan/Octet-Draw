@@ -13,7 +13,7 @@ const VALENCE: Record<string, number[]> = {
   Li: [1], Na: [1], K: [1], Mg: [2], Zn: [2], Al: [3], Hg: [2],
 };
 // Groups a formula writes that have no single valence reading.
-const SPECIAL: Record<string, string> = { NO2: "[N+](=O)[O-]", N3: "N=[N+]=[N-]" };
+const SPECIAL: Record<string, string> = { NO2: "[N+](=O)[O-]", N3: "N=[N+]=[N-]", O2N: "[N+](=O)[O-]" };
 // Groups written as formulas: phenyl, ethyl and cyclohexyl. C3H7 and C4H9 have more than one structure and are not read.
 const WRITTEN: [RegExp, string][] = [[/C6H5(?!\d)/g, "Ph"], [/C2H5(?!\d)/g, "Et"], [/C6H11(?!\d)/g, "Cy"]];
 
@@ -40,28 +40,35 @@ export function condensedSmiles(text: string): string | undefined {
 // whole formula with the bond to the drawing as one more substituent of its first atom, so every valence is used:
 // N3 and NO2 are azide and nitro, SO2 a sulfone, a short bond along the chain a double or triple bond.
 // last: the bond is on the label's last atom, for a label written from the left (CH3CO is acetyl, CH3O methoxy).
-export function condensedLabel(text: string, last = false): string | undefined {
-  if (text.length > 40 || !/^[A-Z][A-Za-z0-9()]*$/.test(text)) return undefined;
-  const tokens = tokenise(text), star: Token = { t: "group", smiles: "[*]" };
-  if (!tokens?.length || tokens[0].t !== "atom") return undefined;
+export const condensedLabel = (text: string, last = false) => condensedRoot(text, last)?.smiles;
+// The same reading with the hydrogens on the attachment atom (h): a label read with its bond on its last atom writes
+// them there (HOCH2 2, CH3CO 0), and the structure check counts them.
+export function condensedRoot(text: string, last = false): { smiles: string; h: number } | undefined {
+  if (text.length > 40 || !/^[A-Z(][A-Za-z0-9()]*$/.test(text)) return undefined;
+  const tokens = tokenise(text, 0, last), star: Token = { t: "group", smiles: "[*]" };
+  if (!tokens?.length || (!last && tokens[0].t !== "atom")) return undefined;
   const g = assemble(last ? [...tokens, star] : [star, ...tokens], 0);
   // A label leaves out what a chemist takes as read (SiOMe, SCMe, CCO2H): a double or triple bond only where the group
   // written always has one, C=O, N=O, P=O, S=O, C=S and P=S, and C≡N, C≡C or C=N along the chain, and never O–O.
   // Others are read left to right instead (labelSmiles).
   const el = (i: number) => g!.nodes[i].el ?? "", pair = (a: number, b: number) => el(a) + el(b);
   const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
+  // Read from its last atom, a label keeps the hydrogens it writes, so a bond along the chain takes what is left
+  // (CH2CH is vinyl, NHN diazenyl, PhCC phenylethynyl, NCCH2CH2 cyanoethyl).
   if (!g?.bonds.every(fine)) return undefined;
   const at = g.bonds.find((b) => g.nodes[b.a].smiles === "[*]" || g.nodes[b.b].smiles === "[*]"), root = at && (g.nodes[at.a].el ? at.a : at.b);
   const smiles = root === undefined ? undefined : smilesOf(g, root);
   if (!smiles?.startsWith(`[${g.nodes[root!].el}`)) return undefined;
   // The bond to the drawing goes; hydrogens are left to valence, as the rest of Octet's label SMILES has them.
   const out = smiles.replace(/\(\[\*\]\)|\[\*\]/, "").replace(/\[(Cl|Br|[BCNOPSFI])(?:H\d*)?\]/g, "$1");
-  return out.includes("*") ? undefined : out;
+  return out.includes("*") ? undefined : { smiles: out, h: g.nodes[root!].h };
 }
 
 // The text as tokens: atoms with their hydrogens, groups, brackets (inner tokens, repeated by the count after them) and
 // bonds. Undefined for anything that is not a formula.
-function tokenise(text: string, depth = 0): Token[] | undefined {
+// last: the text is read from its last atom. A nitro group is then written first, as NO2 or O2N (O2NCH2). NO2 after
+// that is none: its O2 is on the atom after it (H2NO2S, Me2NO2S).
+function tokenise(text: string, depth = 0, last = false): Token[] | undefined {
   if (depth > 3) return undefined;
   const out: Token[] = [];
   let i = 0, leadH = 0;
@@ -88,8 +95,8 @@ function tokenise(text: string, depth = 0): Token[] | undefined {
       continue;
     }
     if (c === "-" || c === "=" || c === "≡") { out.push({ t: "bond", order: c === "-" ? 1 : c === "=" ? 2 : 3 }); i++; continue; }
-    const special = Object.keys(SPECIAL).find((k) => text.startsWith(k, i) && !/^[a-z0-9]/.test(text[i + k.length] ?? ""));
-    if (special) { i += special.length; out.push({ t: "group", smiles: SPECIAL[special] }); continue; }
+    const group = (last ? (i ? ["N3"] : ["NO2", "N3", "O2N"]) : ["NO2", "N3"]).find((k) => text.startsWith(k, i) && !/^[a-z0-9]/.test(text[i + k.length] ?? ""));
+    if (group) { i += group.length; out.push({ t: "group", smiles: SPECIAL[group] }); continue; }
     // One unit of an atom label: an element or group and its count.
     const [u] = units(text.slice(i).match(/^[a-z]?[A-Z][a-z]*\d*/)?.[0] ?? "");
     if (!u) return undefined;

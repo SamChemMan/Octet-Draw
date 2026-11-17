@@ -2,17 +2,19 @@
 // places in the picture, scaled so the median bond is one bond length (14.4 pt in ACS 1996). A label it read (OMe,
 // Ph, CO2Et, R1) stays a written label, as the author drew it; Octet's own chemistry expands it as it expands any
 // label typed by hand.
-import { ELEMENTS, labelSmiles } from "./labels.ts";
+import { ELEMENTS, givenLabel, labelSmiles } from "./labels.ts";
 import type { Graph } from "./recognise-models.ts";
 import type { Mol } from "./render.ts";
 
 type Atom = Mol["atoms"][number];
 
-// Condensed formulas old drawings write out, as the abbreviation Octet's chemistry reads (Octet 1.1.1 reads "OC2H5" as
-// O(CH3)2 and "C6H5" as a chain): ethyl, phenyl and acetyl, alone or in an ester or ether.
+// Condensed formulas a picture writes from the left (CH3CO–R), as the abbreviation from its attachment atom. Octet's
+// label reader reads them right (issue 142), but a label is kept from its attachment atom and turned round when its
+// bond comes from the right, so CH3CO kept as written would show as OCH3C. One written from the attachment atom
+// (OC2H5, C6H5, COCH3) stays as written. Any other label is kept from its attachment atom as an AI app's label is
+// (MeO as OMe, EtO2C as CO2Et: labels.ts givenLabel).
 const CONDENSED: Record<string, string> = {
-  C2H5: "Et", H5C2: "Et", OC2H5: "OEt", C2H5O: "EtO", COOC2H5: "CO2Et", CO2C2H5: "CO2Et", C2H5OOC: "EtO2C", C2H5O2C: "EtO2C",
-  C6H5: "Ph", H5C6: "Ph", OC6H5: "OPh", C6H5O: "PhO", CH3CO: "Ac", COCH3: "Ac", OCOCH3: "OAc", CH3COO: "AcO", CH3CO2: "AcO",
+  H5C2: "Et", C2H5O: "OEt", C2H5OOC: "CO2Et", C2H5O2C: "CO2Et", H5C6: "Ph", C6H5O: "OPh", CH3CO: "Ac", CH3COO: "OAc", CH3CO2: "OAc",
 };
 
 // One atom as MolScribe writes it: C, c (aromatic), Cl, [NH+], [13CH3], [O-], [H], or a label in brackets ([OMe]).
@@ -28,7 +30,7 @@ export function readSymbol(symbol: string): Pick<Atom, "label" | "text" | "charg
       return { label: el, ...(charge ? { charge } : {}), ...(m[1] ? { isotope: +m[1] } : {}) };
     }
   }
-  return { label: "C", text: inner === "*" ? "R" : CONDENSED[inner] ?? inner };
+  return { label: "C", text: inner === "*" ? "R" : CONDENSED[inner] ?? givenLabel(inner) };
 }
 
 const STEREO_ELEMENTS = new Set(["C", "N", "P", "S", "Si", "Ge", "Sn", "B", "As", "Se"]);
@@ -39,6 +41,8 @@ export function graphMol(g: Graph): Mol {
   const atoms: Atom[] = g.atoms.map((a) => ({ ...readSymbol(a.symbol), location: [a.x, a.y, 0] }));
   const degree = atoms.map(() => 0);
   for (const b of g.bonds) { degree[b.a]++; degree[b.b]++; }
+  // A picture's NC is the nitrile left of its bond (NC–Ar) and the isocyanide right of it (Ar–NC).
+  for (const b of g.bonds) for (const [i, j] of [[b.a, b.b], [b.b, b.a]]) if (atoms[i].text === "CN" && /^\[?NC\]?$/.test(g.atoms[i].symbol) && degree[i] === 1 && g.atoms[j].x < g.atoms[i].x) atoms[i].text = "NC";
   const lengths = g.bonds.map((b) => Math.hypot(g.atoms[b.a].x - g.atoms[b.b].x, g.atoms[b.a].y - g.atoms[b.b].y)).sort((p, q) => p - q);
   const unit = lengths.length ? lengths[lengths.length >> 1] || 1 : 30;
   const cx = g.atoms.reduce((s, a) => s + a.x, 0) / Math.max(1, g.atoms.length), cy = g.atoms.reduce((s, a) => s + a.y, 0) / Math.max(1, g.atoms.length);
