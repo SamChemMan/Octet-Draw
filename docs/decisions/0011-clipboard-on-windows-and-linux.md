@@ -52,7 +52,8 @@ On Windows, Copy also puts an Octet Drawing object first ("Embed Source" and "Ob
 clipboard, so Word, PowerPoint and Excel paste an object that opens in Octet. It goes on only with the picture, only
 while Settings > Import and export > Copy > Office object is on (the default), and only when Octet's class is
 registered for the user. Every format in the table above stays, in its order, after the object. Paste reads Octet's
-own object after Octet's JSON. The Mac and Linux are not changed.
+own object after Octet's JSON. The Mac and Linux are not changed. With the object, the EMF also holds the picture as
+EMF+ records, which Word draws anti-aliased (issue 166, decision 0023); every other EMF Octet makes is unchanged.
 
 ## Office's copy of the picture on the Mac (12 November 2026, release 1.1.2)
 

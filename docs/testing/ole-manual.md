@@ -53,6 +53,10 @@ Written for Windows and type-checked, not run:
   `IPersistStorage`, hostile storages (no stream, wrong class, not UTF-8, 65 MB, deep nesting passed on as text), the
   object's EMF, WMF and storage through `IDataObject`, the clipboard data object's order, paste from a flattened
   compound file.
+- The object's picture (issue 166, decision 0023 "The object's picture"): `src-tauri/src/vector_plus_tests.rs`
+  (`ole_plus_*`: GDI and GDI+ draw the EMF+ picture) and `ole_cache_keeps_the_plus_picture` in `ole_windows.rs`
+  (Windows' OLE cache keeps it). The job runs them with `--nocapture`: read what they print (the formats the cache
+  holds, whether GDI+ takes a large path continued over records).
 - The container harness `src-tauri/tests/ole_container.rs` (`OleCreate`, `OleRun`, `DoVerb`, `OleSave`, `OleLoad`,
   hostile storages through the real server, the server ending), and the job "Office objects (Windows)" in
   `.github/workflows/platforms.yml`, which also installs and uninstalls the NSIS build silently and checks the keys.
@@ -183,6 +187,22 @@ Write down for each test: pass or fail, what you saw, and the time where a time 
 
 15. Quit with object windows open (R14). Open two objects from two documents, change both, then File > Exit in Octet.
     Both documents get the changes; Octet ends; no question for the object windows.
+
+16. Smooth picture (issue 166). Draw L-proline and a dashed curved arrow in Octet. Copy, paste into Word with
+    Ctrl+V (an object). Paste again with Paste Special > Picture (Enhanced Metafile).
+    - At 100% and at 400% zoom, the object's bonds and labels have smooth grey edges, as the plain picture's do. With
+      the Snipping Tool, zoom into a diagonal bond: there are grey pixels along its edge. _____
+    - Print to Microsoft Print to PDF, and File > Save As > PDF: in each PDF, the bonds are vector and the labels are
+      text (select a label with the text tool). _____
+    - Save as `smooth.docx`. Unzip it: in `word/media/image1.emf` (or the first `.emf`), the 4 bytes at offset 120 are
+      `EMF+` (PowerShell, in the unzipped folder: `[Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$PWD\word\media\image1.emf")[120..123])`).
+      If the picture is a `.wmf`, write that down. _____
+    - The same in PowerPoint and Excel: smooth at 100% and 400%, and in PowerPoint's slideshow. _____
+    - An object pasted with 1.1.2 (keep a document from before): jagged when opened. Double-click it, Ctrl+S (File >
+      Update), close: now smooth. Open and close it with no change: the document is not changed (Word does not ask to
+      save). _____
+    - Settings > Import and export > Copy > Office object off: Ctrl+V gives a plain picture, smooth.
+    - Open `smooth.docx` in Word for Mac: the picture shows, smooth. _____
 
 ## For Prof. Schramm: ChemDraw 25.5 side by side (Q7)
 
