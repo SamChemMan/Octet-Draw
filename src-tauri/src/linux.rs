@@ -6,7 +6,8 @@
 //
 // An AppImage's runtime and launcher set variables for Octet's own libraries, and most name its mount ($APPDIR):
 // LD_LIBRARY_PATH, PATH, PYTHONHOME, GTK_PATH, GIO_MODULE_DIR, XDG_DATA_DIRS and others. The programs Octet starts
-// (unopkg, xdg-open) get the session's environment instead, as AppImage-aware apps give theirs.
+// (unopkg, xdg-open) get the session's environment instead, as AppImage-aware apps give theirs. Octet's launcher
+// (src-tauri/linux/AppRun) can add the system's library folders to LD_LIBRARY_PATH, so it keeps the session's value.
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,9 @@ use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
 // The variables an AppImage sets that name no folder in its mount: the runtime's own, and its launcher's.
-const OWN: [&str; 5] = ["APPIMAGE", "ARGV0", "OWD", "GTK_THEME", "PYTHONDONTWRITEBYTECODE"];
+const OWN: [&str; 6] = ["APPIMAGE", "ARGV0", "OWD", "GTK_THEME", "PYTHONDONTWRITEBYTECODE", SESSION_LIBS];
+// The session's LD_LIBRARY_PATH, which Octet's launcher keeps. Empty when the session has none.
+const SESSION_LIBS: &str = "OCTET_SESSION_LD_LIBRARY_PATH";
 
 // The AppImage's file and its mount ($APPIMAGE and $APPDIR, which its runtime sets), when Octet runs from one: its
 // program is in the mount. A program started from another AppImage has that one's variables. The mount by both its
@@ -75,12 +78,18 @@ pub fn spawn(c: &mut Command) -> std::io::Result<()> {
 
 // The changes that give the session's environment back, from Octet's in an AppImage mounted at `mount` (None removes
 // the variable): each list of folders loses the ones in the mount, a variable left with none goes, and so do OWN.
+// LD_LIBRARY_PATH gets the session's value back when Octet's launcher kept it.
 fn session_env(vars: impl IntoIterator<Item = (OsString, OsString)>, mount: &[PathBuf]) -> Vec<(OsString, Option<OsString>)> {
     let inside = |p: &&[u8]| mount.iter().any(|m| Path::new(OsStr::from_bytes(p)).starts_with(m));
+    let vars: Vec<(OsString, OsString)> = vars.into_iter().collect();
+    let libs = vars.iter().find(|(key, _)| key == SESSION_LIBS).map(|(_, v)| v.clone());
     vars.into_iter()
         .filter_map(|(key, value)| {
             if OWN.iter().any(|k| key == *k) {
                 return Some((key, None));
+            }
+            if let (true, Some(libs)) = (key == "LD_LIBRARY_PATH", &libs) {
+                return Some((key, (!libs.is_empty()).then(|| libs.clone())));
             }
             let parts: Vec<&[u8]> = value.as_bytes().split(|b| *b == b':').collect();
             if !parts.iter().any(inside) {
@@ -135,6 +144,20 @@ mod tests {
         .map(|(k, v)| (OsString::from(k), v.map(OsString::from)))
         .collect();
         assert_eq!(got, want, "HOME, DISPLAY and a folder beside the mount stay as they are");
+    }
+
+    // Octet's launcher adds the system's library folders to LD_LIBRARY_PATH and keeps the session's value: the
+    // programs get the session's value back, or no LD_LIBRARY_PATH when the session had none.
+    #[test]
+    fn programs_get_the_sessions_library_folders() {
+        let m = "/tmp/.mount_OctetD1x2";
+        for (session, want) in [("", None), ("/opt/mine", Some("/opt/mine"))] {
+            let libs = format!("{session}{}/usr/lib64:/lib64:/usr/lib:/lib", if session.is_empty() { "" } else { ":" });
+            let vars = [("LD_LIBRARY_PATH", libs.as_str()), (SESSION_LIBS, session), ("HOME", "/home/u")];
+            let got = session_env(vars.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))), &[m.into()]);
+            let want = vec![(OsString::from("LD_LIBRARY_PATH"), want.map(OsString::from)), (OsString::from(SESSION_LIBS), None)];
+            assert_eq!(got, want, "session {session:?}");
+        }
     }
 
     // The path file: only the path, mode 0600, in a folder of mode 0700 that it makes, and written again in one step.

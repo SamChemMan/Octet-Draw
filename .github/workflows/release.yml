@@ -63,6 +63,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-liberation
+      - name: The AppImage's launcher (issue 37)
+        # Tauri takes the AppImage's AppRun from its tools folder, and downloads AppImageKit's only when none is there.
+        # Octet's launcher uses the system's WebKitGTK when it has one (src-tauri/linux/AppRun).
+        if: matrix.platform == 'ubuntu-22.04'
+        run: install -Dm755 src-tauri/linux/AppRun "${XDG_CACHE_HOME:-$HOME/.cache}/tauri/AppRun-x86_64"
       - run: npm ci
 
       - name: The tag is the version in package.json
@@ -171,6 +176,41 @@ jobs:
           updaterJsonPreferNsis: true
           uploadWorkflowArtifacts: true
           args: ${{ matrix.args }} --config ci-build.conf.json
+
+      - name: The AppImage uses the system's WebKitGTK when it has one (issue 37)
+        # The job stops if a new Tauri or linuxdeploy changes what the launcher needs: Octet's launcher as AppRun.wrapped,
+        # started after the GTK hook; a RUNPATH (which LD_LIBRARY_PATH comes before), not an RPATH; and each variable
+        # the GTK hook sets is one that the launcher knows or keeps. The runner has WebKitGTK 4.1, so the loader must take it
+        # from the system with the launcher's LD_LIBRARY_PATH, and from the AppImage without.
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE"/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract > /dev/null
+          app=squashfs-root
+          cmp "$app/AppRun.wrapped" "$GITHUB_WORKSPACE/src-tauri/linux/AppRun"
+          grep -qx 'source "$this_dir"/apprun-hooks/"linuxdeploy-plugin-gtk.sh"' "$app/AppRun"
+          grep -qx 'exec "$this_dir"/AppRun.wrapped "$@"' "$app/AppRun"
+          readelf -d "$app/usr/bin/octet" > dynamic.txt
+          grep -q '(RUNPATH).*\$ORIGIN/../lib' dynamic.txt
+          if grep -q '(RPATH)' dynamic.txt; then echo "::error::Octet has an RPATH, which comes before LD_LIBRARY_PATH."; exit 1; fi
+          grep -qxF 'export XDG_DATA_DIRS="$APPDIR/usr/share:/usr/share:$XDG_DATA_DIRS" # g_get_system_data_dirs() from GLib' "$app/apprun-hooks/linuxdeploy-plugin-gtk.sh"
+          for v in $(sed -n 's/^[[:space:]]*export[[:space:]]\{1,\}\([A-Za-z_0-9]*\)=.*/\1/p' "$app/apprun-hooks/linuxdeploy-plugin-gtk.sh"); do
+            case $v in
+              APPDIR | XDG_DATA_DIRS | GTK_THEME) ;;
+              LD_LIBRARY_PATH) echo "::error::The GTK hook sets LD_LIBRARY_PATH, which the launcher takes as the session's."; exit 1 ;;
+              *) sed 's/#.*//' "$app/AppRun.wrapped" | grep -qw "$v" || { echo "::error::The GTK hook sets $v, which src-tauri/linux/AppRun does not unset."; exit 1; } ;;
+            esac
+          done
+          lib=/usr/lib/x86_64-linux-gnu
+          /lib64/ld-linux-x86-64.so.2 --list "$app/usr/bin/octet" > libs.txt
+          grep -q "libwebkit2gtk-4.1.so.0 => [^ ]*/$app/usr/" libs.txt
+          LD_LIBRARY_PATH=$lib /lib64/ld-linux-x86-64.so.2 --list "$app/usr/bin/octet" > libs.txt
+          for l in libwebkit2gtk-4.1 libjavascriptcoregtk-4.1 libgtk-3 libgdk-3 libepoxy; do
+            grep -q "$l.so.0 => $lib/" libs.txt || { echo "::error::$l does not come from the system."; cat libs.txt; exit 1; }
+          done
+          rm -rf "$app" dynamic.txt libs.txt
 
       - name: Notarise the disk image
         # Tauri notarises the app but not the .dmg around it, and macOS can block a signed .dmg that is not notarised.
