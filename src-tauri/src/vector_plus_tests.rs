@@ -36,6 +36,55 @@ fn photo_drawings() -> Vec<(&'static str, String)> {
     vec![("a picture", picture_svg()), ("a picture turned 30 degrees", turned)]
 }
 
+// A drawing as Octet's export writes one (as PROLINE): in a group scaled 0.75, each structure one path of its bonds'
+// outlines, and each atom label a text of one letter in Arial 13.3333px, all in rgb(15, 23, 42). A structure here is
+// `bonds` bonds in a zig-zag of rows `per_row` bonds long: a single bond is a 5-point outline, every eighth a double bond
+// (two 4-point outlines), and every twelfth a hashed wedge (6 hashes of 4 points); and a label every
+// `bonds / labels` bonds. `count` structures in a grid. For the speed test: L-proline is PROLINE; paclitaxel 69 bonds
+// and 20 labels; a 500-residue peptide one structure of 3,500 bonds and 1,500 labels, one path of about 25,000 points.
+pub(crate) fn octet_drawing(count: usize, bonds: usize, labels: usize, per_row: usize) -> String {
+    let (bond, rise, gap) = (20.0f32, 11.0f32, 26.0f32);
+    let rows = bonds.div_ceil(per_row);
+    let (sw, sh) = (per_row as f32 * bond * 0.87 + 40.0, rows as f32 * (rise + gap) + 40.0);
+    let across = (count as f32).sqrt().ceil() as usize;
+    let (pw, ph) = (across as f32 * sw, count.div_ceil(across) as f32 * sh);
+    let mut svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" fill="rgb(0, 0, 0)" width="{}pt" height="{}pt" viewBox="0 0 {} {}"><g transform="scale(0.75)">"#, pw * 0.75, ph * 0.75, pw * 0.75, ph * 0.75);
+    let n = |v: f32| format!("{:.2}", v);
+    for s in 0..count {
+        let (ox, oy) = ((s % across) as f32 * sw + 20.0, (s / across) as f32 * sh + 20.0);
+        let mut d = String::new();
+        let mut text = String::new();
+        let every = (bonds / labels.max(1)).max(1);
+        for b in 0..bonds {
+            let (row, col) = (b / per_row, b % per_row);
+            let x0 = ox + col as f32 * bond * 0.87;
+            let y0 = oy + row as f32 * (rise + gap) + if col % 2 == 0 { 0.0 } else { rise };
+            let (x1, y1) = (x0 + bond * 0.87, y0 + if col % 2 == 0 { rise } else { -rise });
+            let (dx, dy) = ((x1 - x0) / bond, (y1 - y0) / bond);
+            let (nx, ny) = (-dy * 0.4, dx * 0.4);
+            if b % 12 == 11 {
+                for h in 1..=6 {
+                    let t = h as f32 / 7.0;
+                    let (cx, cy, w) = (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 1.0 + 5.0 * t);
+                    d += &format!("M{} {}L{} {}L{} {}L{} {}Z", n(cx - nx * w - dx * 0.4), n(cy - ny * w - dy * 0.4), n(cx + nx * w - dx * 0.4), n(cy + ny * w - dy * 0.4), n(cx + nx * w + dx * 0.4), n(cy + ny * w + dy * 0.4), n(cx - nx * w + dx * 0.4), n(cy - ny * w + dy * 0.4));
+                }
+            } else {
+                d += &format!("M{} {}L{} {}L{} {}L{} {}L{} {}Z", n(x0 - nx), n(y0 - ny), n(x0 + nx), n(y0 + ny), n(x1 + nx), n(y1 + ny), n(x1 + dx * 0.3), n(y1 + dy * 0.3), n(x1 - nx), n(y1 - ny));
+                if b % 8 == 7 {
+                    let (ex, ey) = (nx * 9.0, ny * 9.0);
+                    d += &format!("M{} {}L{} {}L{} {}L{} {}Z", n(x0 + ex - nx), n(y0 + ey - ny), n(x0 + ex + nx), n(y0 + ey + ny), n(x1 + ex + nx), n(y1 + ey + ny), n(x1 + ex - nx), n(y1 + ey - ny));
+                }
+            }
+            if b % every == 0 && text.matches("<text").count() < labels {
+                let letter = ["O", "N", "H", "O", "S"][(b / every) % 5];
+                text += &format!(r#"<text x="{}" y="{}" fill="rgb(15, 23, 42)" font-family="Arial, Helvetica, sans-serif" font-size="13.3333px">{letter}</text>"#, n(x1 - 4.5), n(y1 + 4.8));
+            }
+        }
+        svg += &format!(r#"<path d="{d}" fill="rgb(15, 23, 42)"/><g>{text}</g>"#);
+    }
+    svg + "</g></svg>"
+}
+
 fn u16_at(b: &[u8], k: usize) -> u16 {
     u16::from_le_bytes([b[k], b[k + 1]])
 }

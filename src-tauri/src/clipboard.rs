@@ -1395,6 +1395,67 @@ mod tests {
         }
     }
 
+    // No step back (decision 0024, issue 166): Copy on Windows with the Office object makes the EMF with EMF+ on a thread
+    // beside the bitmap, so it takes no longer than 1.1.2's Copy (the EMF, then the bitmap): a tenth more and 2 ms at
+    // most. For L-proline, 40 paclitaxels and a 500-residue peptide at 600 dpi (Settings' default), the middle of 9 runs
+    // of each, taken in turn. It prints Copy without the object too, the object window's picture (make_office_emf
+    // against make_emf, which runs after each change, off the main thread: at most twice make_emf's time, and 15 ms for
+    // 40 paclitaxels), and the EMFs' sizes (the EMF+ one at most 3 times the other).
+    // A clock on a busy computer can fail it, so it runs only when asked, and it judges only a release build:
+    // cargo test --release --bin octet windows_copy_time -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn windows_copy_time() {
+        use crate::vector::plus_tests::octet_drawing;
+        let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
+        let time = |f: &dyn Fn()| {
+            let t = std::time::Instant::now();
+            f();
+            t.elapsed()
+        };
+        let middle = |mut v: Vec<std::time::Duration>| {
+            v.sort();
+            v[v.len() / 2]
+        };
+        let drawings = [
+            ("L-proline", crate::vector::tests::PROLINE.to_string()),
+            ("40 paclitaxels", octet_drawing(40, 69, 20, 12)),
+            ("a 500-residue peptide", octet_drawing(1, 3_500, 1_500, 70)),
+        ];
+        for (name, svg) in &drawings {
+            let tree = crate::export::tree(svg).unwrap();
+            let mut all: [Vec<std::time::Duration>; 6] = Default::default();
+            for _ in 0..9 {
+                let steps: [&dyn Fn(); 6] = [
+                    // 1.1.2's Copy on Windows: the SVG read, the EMF, then the bitmap.
+                    &|| {
+                        let tree = crate::export::tree(svg).unwrap();
+                        drop(crate::vector::make_emf(&tree, Some(x), None));
+                        drop(crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap());
+                    },
+                    &|| drop(types(System::Windows, true, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap()),
+                    &|| drop(types(System::Windows, false, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap()),
+                    &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
+                    &|| drop(crate::vector::make_office_emf(&tree, Some(x))),
+                    &|| drop(crate::export::tree(svg).unwrap()),
+                ];
+                for (list, step) in all.iter_mut().zip(steps) {
+                    list.push(time(step));
+                }
+            }
+            let [before, object, plain, emf, office, read] = all.map(middle);
+            let (gdi, plus) = (crate::vector::make_emf(&tree, Some(x), None).len(), crate::vector::make_office_emf(&tree, Some(x)).len());
+            eprintln!("{name}: Copy with the object {object:?}, without it {plain:?}; 1.1.2's Copy {before:?}. The object's picture: make_office_emf {office:?}, make_emf {emf:?} (reading the SVG {read:?}). The EMF is {plus} bytes with EMF+, {gdi} without ({:.2} times).", plus as f64 / gdi as f64);
+            let slack = before / 10 + std::time::Duration::from_millis(2);
+            assert!(cfg!(debug_assertions) || (object <= before + slack && plain <= before + slack), "{name}: Copy takes {object:?} with the object and {plain:?} without; 1.1.2's took {before:?}");
+            assert!(cfg!(debug_assertions) || office <= 2 * emf + std::time::Duration::from_millis(1), "{name}: make_office_emf takes {office:?}, make_emf {emf:?}");
+            if *name == "40 paclitaxels" {
+                assert!(cfg!(debug_assertions) || office <= std::time::Duration::from_millis(15), "{name}: make_office_emf takes {office:?}");
+            }
+            assert!(plus <= 3 * gdi, "{name}: {plus} bytes, {gdi} without EMF+");
+        }
+    }
+
     // No step back (decision 0024): Copy on Linux makes the PDF while it draws the PNG, so it takes no longer than 1.1.1's
     // PNG and SVG. A drawing the size of aspirin with its labels; the middle of 9 runs of each, taken in turn, so
     // other tests running at the same time slow both alike.

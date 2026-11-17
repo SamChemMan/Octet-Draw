@@ -1278,4 +1278,4 @@ pub(crate) mod tests {
 // The Office object's EMF, read back by MS-EMFPLUS, and drawn by GDI and GDI+ on Windows (issue 166).
 #[cfg(test)]
 #[path = "vector_plus_tests.rs"]
-mod plus_tests;
+pub(crate) mod plus_tests;
