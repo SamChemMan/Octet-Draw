@@ -694,7 +694,63 @@ rect.mark {
   background: var(--brand-mist);
   color: var(--link);
 }
-.variant-action:focus-visible {
+/* Keyboard focus: the focus ring on every control (BRAND.md, Controls). */
+.variant-action:focus-visible,
+.variant:focus-visible,
+.palette-toggle:focus-visible,
+.tool:focus-visible,
+.fold-title:focus-visible,
+.tray-button:focus-visible,
+.action:focus-visible,
+.chip:focus-visible,
+.actions-close:focus-visible,
+.actions-reopen:focus-visible,
+.problem-hide:focus-visible,
+.more-problems:focus-visible,
+.segmented button:focus-visible,
+.swatch:focus-visible,
+.switch:focus-visible,
+.text-button:focus-visible,
+.facts:focus-visible,
+.problem-buttons button:focus-visible,
+.palette-add:focus-visible,
+.key-chip > button:focus-visible,
+.key-add:focus-visible,
+.search-clear:focus-visible,
+.page-option:focus-visible,
+.module:focus-visible,
+.actions-home:focus-visible,
+.actions-settings:focus-visible,
+.library-keep:focus-visible,
+.floating-size:focus-visible,
+.floating-item:focus-visible,
+.library-category:focus-visible,
+.library-item:focus-visible,
+.paper-choice:focus-visible,
+.picker-square:focus-visible,
+.picker-hue:focus-visible,
+.slider input[type="range"]:focus-visible,
+.dialog-button:focus-visible,
+.prop-value:focus-visible,
+.prop-link:focus-visible,
+.prop-check:focus-visible,
+.prop-add:focus-visible,
+.close-x:focus-visible,
+.spectrum-button:focus-visible,
+.export-button:focus-visible,
+.feedback-link:focus-visible,
+.home-heading:focus-visible,
+.home-open:focus-visible,
+.home-remove:focus-visible,
+.home-act:focus-visible,
+.home-back:focus-visible,
+.home-more:focus-visible,
+.home-cell-open:focus-visible,
+.home-sort:focus-visible,
+.feedback-note:focus-visible,
+.ruler-corner:focus-visible,
+.notes:focus-visible,
+.pill-open:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
@@ -864,10 +920,6 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--link);
 }
-.variant:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* Live count of bonds while the Chain tool drags. */
 .count {
@@ -916,10 +968,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.palette-toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 .tool {
   width: var(--size-tool);
@@ -949,11 +997,6 @@ button.variant.add {
   color: var(--link);
 }
 
-
-.tool:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* While Select is Structure perspective (a drag turns the structure in 3D), its button has a soft red glow that pulses
    slowly, active or not. The glow fades in and out with the mode. Reduced motion: the glow stays still. */
@@ -1874,10 +1917,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.fold-title:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .fold-body {
   display: grid;
   grid-template-rows: 1fr;
@@ -1934,10 +1973,6 @@ button.variant.add {
   .tray-button.delete:hover {
     color: var(--error);
   }
-}
-.tray-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .tray-button:active {
   transform: scale(var(--press));
@@ -2193,13 +2228,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.action:focus-visible,
-.chip:focus-visible,
-.actions-close:focus-visible,
-.actions-reopen:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .action:active,
 .variant:active,
 .module:active,
@@ -2315,10 +2343,6 @@ div.facts {
 .library-keep:active {
   transform: scale(var(--press-small));
 }
-.problem-hide:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .problem > svg {
   margin-top: 1px;
   color: var(--error);
@@ -2370,10 +2394,6 @@ div.facts {
   .more-problems:hover {
     color: var(--ink);
   }
-}
-.more-problems:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .action small {
   display: block;
@@ -2690,19 +2710,6 @@ div.facts {
   transform: translateX(12px);
   background: var(--on-brand);
 }
-.segmented button:focus-visible,
-.swatch:focus-visible,
-.switch:focus-visible,
-.text-button:focus-visible,
-.facts:focus-visible,
-.problem-buttons button:focus-visible,
-.palette-add:focus-visible,
-.key-chip > button:focus-visible,
-.key-add:focus-visible,
-.search-clear:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .swatches {
   display: flex;
   flex-wrap: wrap;
@@ -2907,10 +2914,6 @@ div.facts {
   color: var(--link);
   background: color-mix(in oklab, var(--brand-bright) 12%, transparent);
 }
-.page-option:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .page-custom {
   display: flex;
   align-items: center;
@@ -3083,10 +3086,6 @@ div.facts {
 }
 .module[data-dim] {
   opacity: 0.45;
-}
-.module:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .module-count {
   min-width: 18px;
@@ -3307,11 +3306,6 @@ div.facts {
 .actions-home:active {
   transform: scale(var(--press));
 }
-.actions-home:focus-visible,
-.actions-settings:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .page-menu .grip {
   right: 3px;
   bottom: 3px;
@@ -3414,10 +3408,6 @@ div.facts {
   color: var(--ink-muted);
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
-.library-keep:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 @media (hover: hover) and (pointer: fine) {
   .library-keep:hover {
     background: var(--surface-sunken);
@@ -3498,11 +3488,6 @@ div.facts {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
-}
-.floating-size:focus-visible,
-.floating-item:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .floating-grid {
   display: grid;
@@ -3597,10 +3582,6 @@ div.facts {
   background: var(--brand-mist);
   color: var(--link);
 }
-.library-category:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* The templates at the library's template size (--thumb, a thumbnail's side), as many across as fit. */
 .library-grid {
   display: grid;
@@ -3644,10 +3625,6 @@ div.facts {
 }
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
-}
-.library-item:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
@@ -4119,10 +4096,6 @@ div.facts {
   border-color: var(--brand-bright);
   background: var(--brand-mist);
 }
-.paper-choice:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .paper-choice.white span { background: #FFFFFF; }
 /* #000B24: the dark theme's --canvas, which dark paper takes. */
 .paper-choice.dark span { background: #000B24; }
@@ -4334,11 +4307,6 @@ div.facts {
   border-radius: var(--radius-pill);
   box-shadow: 0 0 0 1px var(--swatch-edge), var(--shadow-knob);
   pointer-events: none;
-}
-.picker-square:focus-visible,
-.picker-hue:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .picker-hex {
   width: 96px;
@@ -4563,10 +4531,6 @@ div.facts {
 .slider input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.1);
 }
-.slider input[type="range"]:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* Octet's one dialog (Dialog.tsx): a small card, its title, its fields one to a row, Cancel and the action. */
 .dialog {
@@ -4710,11 +4674,6 @@ div.facts {
 }
 .dialog-button:active:not(:disabled) {
   transform: scale(var(--press));
-}
-/* Disabled: faded, with no hover or press. */
-.dialog-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* Reduced motion: a dialog, and the bin on a shortcut pulled off the toolbar, fade in without moving. After their
    own rules, so these win. */
@@ -4955,13 +4914,6 @@ div.facts {
     background: var(--surface-sunken);
   }
 }
-.prop-value:focus-visible,
-.prop-link:focus-visible,
-.prop-check:focus-visible,
-.prop-add:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 @media (prefers-reduced-motion: reduce) {
   .properties {
     animation: none;
@@ -5057,10 +5009,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.close-x:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .spectrum > .panel-controls {
   position: absolute;
@@ -5359,10 +5307,6 @@ div.facts {
   user-select: text;
   overflow-wrap: anywhere;
 }
-.spectrum-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 @media (prefers-reduced-motion: reduce) {
   .spectrum {
     animation: none;
@@ -5597,10 +5541,6 @@ div.facts {
 .export-button:active:not(:disabled) {
   transform: scale(var(--press));
 }
-.export-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .strip.export-menu {
   top: calc(100% + 6px);
   right: 0;
@@ -5705,10 +5645,6 @@ div.facts {
 }
 .feedback-link:active {
   transform: scale(var(--press));
-}
-.feedback-link:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 @media (prefers-reduced-motion: reduce) {
   .feedback-link,
@@ -5894,10 +5830,6 @@ div.facts {
 .home-heading:active {
   transform: scale(var(--press-large));
 }
-.home-heading:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* A folded section is its heading alone. */
 .home-section.folded .home-row {
   margin-bottom: 0;
@@ -5964,10 +5896,6 @@ div.facts {
 }
 .home-open:active {
   transform: scale(var(--press));
-}
-.home-open:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .home-grid {
   display: grid;
@@ -6188,10 +6116,6 @@ div.facts {
 .home-slot:hover .home-remove,
 .home-slot:focus-within .home-remove {
   opacity: 1;
-}
-.home-remove:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* A thumbnail of the user's own (a photo) fills its tile; a drawing's picture sits inside it. */
 .home-thumb img.fill {
@@ -6414,10 +6338,6 @@ div.facts {
 .home-act:active {
   transform: scale(var(--press));
 }
-.home-act:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* A drawing on its way into a folder: a copy of its picture, over everything, that flies to the folder (Home.tsx). */
 .home-fly {
   position: fixed;
@@ -6604,11 +6524,6 @@ div.facts {
 .home-more:active {
   transform: scale(var(--press));
 }
-.home-back:focus-visible,
-.home-more:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .home-title-row {
   display: flex;
   align-items: center;
@@ -6698,11 +6613,6 @@ div.facts {
   display: block;
   color: var(--ink);
   font-weight: 500;
-}
-.home-cell-open:focus-visible,
-.home-sort:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .home-table .home-remove.home-cell-remove {
   position: static;
@@ -7087,10 +6997,6 @@ div.facts {
   font: 13px/1.5 var(--font-sans);
   resize: vertical;
 }
-.feedback-note:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .feedback-picture {
   width: 100%;
   max-height: 200px;
@@ -7206,10 +7112,6 @@ div.facts {
     color: var(--brand);
   }
 }
-.ruler-corner:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* The choice after a citation is pasted into a caption: plain (as it went in) or with its formatting. It rises in from
    the caption box, quickly, and only fades with reduced motion. */
@@ -7241,10 +7143,6 @@ div.facts {
   overflow-y: auto;
   font-size: 13px;
   line-height: 18px;
-}
-.notes:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .notes p {
   margin: 0 0 var(--space-2);
@@ -7566,10 +7464,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.pill-open:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .pill-open:active {
   transform: scale(var(--press));
