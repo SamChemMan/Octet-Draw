@@ -185,7 +185,8 @@ import { isPlate, turns } from "./render.ts";
   // because an oval that holds gel data is a damaged file. Boxes, ovals, highlights and brackets all take one.
   assert.deepEqual((["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "gel", "plasmid", "table", "picture"] as const).filter((kind) => !turns({ kind })), ["tlc", "gel", "plasmid", "table", "picture"]);
   assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...gel, kind: "oval" }] })), /damaged/);
-  assert.match(editor, /return each\(\(x\) => \(turns\(x\) \? \{ kind: arg as ShapeKind, [^\n]* : \{\}\)\);/);
+  // (A free symbol turns, and keeps its kind too: it is no box.)
+  assert.match(editor, /return each\(\(x\) => \(turns\(x\) && x\.kind !== "symbol" \? \{ kind: arg as ShapeKind, [^\n]* : \{\}\)\);/);
   // The plate actions change plates only: a plasmid map or box picked with a gel is given no lanes or spots.
   assert.deepEqual([isPlate(gel), isPlate({ kind: "tlc" }), isPlate(map), isPlate({ kind: "box" })], [true, true, false, false]);
   assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...map, tlc: { rf: true } as never }] })), /damaged/);

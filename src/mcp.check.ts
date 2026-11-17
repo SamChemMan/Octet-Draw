@@ -2855,4 +2855,48 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.match(text(await call("change", { operations: [{ op: "replace", structure: "70", text: "C/C=C\\C" }] })), /^Replaced 70 with C4H8 \(Z\), which keeps its number 70\./);
 }
 
+// Free symbols (issue 164): change's shape op adds one (kind symbol) at a point, beside brackets (a complex's total
+// charge) or in a box, edit changes its kind, size, colour and turn, and read reports it. It is never chemistry.
+{
+  fresh();
+  const made = await call("draw", { lines: "[NH4+] (1)" });
+  assert.ok(!made.isError, text(made));
+  const sid = sids(made)[0], before = (await call("read", {})).structuredContent.structures[0].formula;
+  let o = await call("change", { operations: [{ op: "shape", kind: "symbol", symbol: "circledPlus", at: [5, 5] }] });
+  assert.ok(!o.isError, text(o));
+  let sh = m.shapes!.find((x) => x.kind === "symbol")!;
+  // An atom's charge sign's size (7.5 pt at 10 pt labels), its middle where asked.
+  assert.equal(sh.symbol, "circledPlus");
+  assert.ok(Math.abs((sh.from[0] + sh.to[0]) / 2 - 5) < 1e-9 && Math.abs((sh.from[1] + sh.to[1]) / 2 - 5) < 1e-9);
+  assert.ok(Math.abs(Math.abs(sh.to[1] - sh.from[1]) - (0.99 * 7.5) / 14.4) < 1e-6, JSON.stringify(sh));
+  assert.equal((await call("read", {})).structuredContent.structures[0].formula, before);
+  const id = `b${sh.id}`;
+  // edit: a new kind keeps the size and middle; a size (pt) and a colour and a turn; a fill is not taken.
+  o = await call("change", { operations: [{ op: "edit", ids: [id], symbol: "radicalCation", size: 15, colour: "#cc0000", rotate: 30, fill: "solid" }] });
+  assert.ok(!o.isError && /takes no fill/.test(text(o)), text(o));
+  sh = m.shapes!.find((x) => x.id === sh.id)!;
+  assert.deepEqual([sh.symbol, sh.colour, sh.angle, sh.fill], ["radicalCation", "#cc0000", 30, undefined]);
+  assert.ok(Math.abs(Math.abs(sh.to[1] - sh.from[1]) - (0.5 * 15) / 14.4) < 1e-6 && Math.abs((sh.from[0] + sh.to[0]) / 2 - 5) < 1e-9, JSON.stringify(sh));
+  // move takes it as any object.
+  assert.ok(!(await call("change", { operations: [{ op: "move", ids: [id], dx: 1, dy: -1 }] })).isError);
+  assert.ok(Math.abs((m.shapes!.find((x) => x.id === sh.id)!.from[0] + m.shapes!.find((x) => x.id === sh.id)!.to[0]) / 2 - 6) < 1e-9);
+  // read gives its kind and size.
+  const listed = (await call("read", { detail: "full" })).structuredContent.shapes.find((x: { id: string }) => x.id === id);
+  assert.deepEqual([listed.kind, listed.symbol, listed.size], ["symbol", "radicalCation", 15]);
+  // Beside brackets: at their top right, outside them.
+  o = await call("change", { operations: [{ op: "shape", kind: "brackets", around: [sid] }, { op: "shape", kind: "symbol", symbol: "plus", around: ["$1.made"] }] });
+  assert.ok(!o.isError, text(o));
+  const br = m.shapes!.find((x) => x.kind === "brackets")!, plus = m.shapes!.filter((x) => x.kind === "symbol").at(-1)!;
+  assert.ok(Math.min(plus.from[0], plus.to[0]) > Math.max(br.from[0], br.to[0]) && Math.abs((plus.from[1] + plus.to[1]) / 2 - Math.max(br.from[1], br.to[1])) < 1e-9, JSON.stringify([br, plus]));
+  assert.equal((await call("read", {})).structuredContent.structures[0].formula, before);
+  // In a box; one place only; at goes with a symbol only.
+  assert.ok(!(await call("change", { operations: [{ op: "shape", kind: "symbol", symbol: "pair", box: [0, 0, 1, 0.3] }] })).isError);
+  assert.deepEqual(m.shapes!.at(-1)!.from, [0, 0.3]);
+  assert.ok((await call("change", { operations: [{ op: "shape", kind: "symbol", at: [0, 0], box: [0, 0, 1, 1] }] })).isError);
+  assert.ok((await call("change", { operations: [{ op: "shape", kind: "box", at: [0, 0] }] })).isError);
+  // The Actions panel's kind chips, by run_command.
+  assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "shape.symbol.minus", ids: [id] } })).isError);
+  fresh();
+}
+
 console.log("mcp: protocol, argument checks and tools pass.");

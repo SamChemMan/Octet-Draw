@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type SymbolKind } from "./edit";
-import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind, type ArrowSize, type FreeSymbol, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, legible, MY_SET, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
@@ -234,6 +234,9 @@ export function SymbolGlyph({ kind }: { kind: SymbolKind }) {
     case "bead": return <Icon><line x1={40} y1={216} x2={116} y2={140} /><circle cx={164} cy={92} r={56} fill="currentColor" fillOpacity={0.35} stroke="none" /><circle cx={146} cy={74} r={16} fill="var(--surface-raised)" stroke="none" /></Icon>;
   }
 }
+
+// A free symbol's icon: its mark, and a lone pair bar as a short heavy bar.
+export const FreeSymbolGlyph = ({ kind }: { kind: FreeSymbol }) => (kind === "bar" ? <Icon><line x1={84} y1={128} x2={172} y2={128} strokeWidth={36} /></Icon> : <SymbolGlyph kind={kind} />);
 
 // Shape icons: the shape itself.
 export function ShapeGlyph({ kind }: { kind: ShapeKind }) {

@@ -99,7 +99,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, type FreeSymbol } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -3982,10 +3982,11 @@ export default function Editor() {
   const arrowEndAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && [a.from, a.to].some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.2))?.id;
   // The orbital whose lobes a point is in.
   const orbitalAt = (p: P) => [...arrows].reverse().find((a) => isOrbital(a) && lobesOf(a, L).some((l) => inPolygon([p[0] * L, -p[1] * L], l.path)))?.id;
-  // The shape whose line is under a point; with the Select tool, also a highlight the point is inside.
+  // The shape whose line is under a point; with the Select tool, also a highlight the point is inside. A free symbol is
+  // hit anywhere in its box, with every tool.
   const shapeAt = (p: P) => {
     const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => 5 / views.get().zoom + frame.line * 2 * scaleOf(sh);
-    return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
+    return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : (sh.kind === "symbol" && inShape(sh, p)) || nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
   };
   // A highlight, picture or filled shape a point is inside, as drawn: a press anywhere on it picks it (Sam, 28 October
   // 2026: a shaded circle drags from its middle, as from its line).
@@ -6835,7 +6836,7 @@ export default function Editor() {
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
-        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
+        kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
         ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
@@ -8367,10 +8368,12 @@ export default function Editor() {
       if (what === "kind") {
         setSettings((s) => ({ ...s, variants: { ...s.variants, shape: arg } }));
         // A colour made for a highlight's fill (or an outline) does not carry over between the two. A plate, plasmid
-        // map, table or picture picked with the shape keeps its kind: its data is no box's or oval's.
-        return each((x) => (turns(x) ? { kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) } : {}));
+        // map, table, picture or free symbol picked with the shape keeps its kind: its data is no box's or oval's.
+        return each((x) => (turns(x) && x.kind !== "symbol" ? { kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) } : {}));
       }
       if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
+      // A free symbol's kind: the new one at the same size, in the same place.
+      if (what === "symbol" && (FREE_SYMBOLS as string[]).includes(arg)) return each((x) => (x.kind === "symbol" ? (({ from, to }) => ({ symbol: arg as FreeSymbol, from, to }))(freeSymbol(arg as FreeSymbol, [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2], symbolSize(x))) : {}));
       // A shadow's depth, softness and opacity (in hundredths), from the Actions sliders: a drag is one undo step.
       if (what === "depth" || what === "blur" || what === "opacity") {
         const value = Number(arg) / 100;
@@ -8418,8 +8421,8 @@ export default function Editor() {
       });
       if (what === "clear") return each((x) => clearTable(x));
       if (what === "fit") return each((x) => fitTable(x, cellWidth(x), style.captionSize));
-      // One style at a time: plain, dashed, shaded, filled or with a shadow.
-      if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
+      // One style at a time: plain, dashed, shaded, filled or with a shadow (not on a free symbol, which is its ink).
+      if (what === "style") return each((x) => (x.kind === "symbol" ? {} : { dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
       if (what === "boldline") return each((x) => ({ boldLine: !x.boldLine || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
       if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
@@ -8544,6 +8547,9 @@ export default function Editor() {
         const runs = (a: Atom) => { if (!a.runs || what === "size" || what === "font" || what === "align") return {}; const r = without(a.runs, what === "plain" ? ["bold", "italic", "underline"] : [what]); return { runs: styled(r) ? r : undefined }; };
         return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change), ...runs(a) } : a)) }, true);
       }
+      // On picked free symbols, a size is the symbol's size (pt), about its middle.
+      const symbols = !writing && !selection.size && what === "size" && Number(arg) > 0 ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && x.kind === "symbol") : [];
+      if (symbols.length) { const ids = new Set(symbols.map((x) => x.id)); return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...resizeSymbol(x, Number(arg) / style.bond) } : x)) }, true); }
       // On picked tables, plates and plasmid maps, the same styles set their text (the cells, Rf values, sizes or
       // names), as in ChemDraw.
       const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || isPlate(x) || x.kind === "plasmid")) : [];
@@ -8759,7 +8765,18 @@ export default function Editor() {
     }
     if (tool === "chain") return chainClick(t.atom ?? at, false);
     // Option-click with the lone pair draws the atom's lone pairs as bars (or as dots again), as in ChemDraw.
-    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind, pressAlt.current, settings.pairBars)) : undefined;
+    if (tool === "symbol") {
+      if (t.atom !== undefined) return set(addSymbol(doc, t.atom, symbolKind, pressAlt.current, settings.pairBars));
+      // Away from an atom and a bond, the symbol goes on the page by itself (ChemDraw's unattached symbol), its middle
+      // where clicked, at the size of an atom's charge sign; Option-click or Lone pairs as bars gives a lone pair bar. A
+      // click on a free symbol makes it this one, at its size. The marks that need an atom do nothing here.
+      const free = symbolKind === "pair" && (pressAlt.current || settings.pairBars) ? "bar" : (FREE_SYMBOLS as string[]).includes(symbolKind) ? (symbolKind as FreeSymbol) : undefined;
+      if (!free || t.bond !== undefined) return;
+      const on = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && x.kind === "symbol") : undefined;
+      if (on) { const { from, to } = freeSymbol(free, [(on.from[0] + on.to[0]) / 2, (on.from[1] + on.to[1]) / 2], symbolSize(on)); return set(updateShape(doc, on.id, { symbol: free, from, to })); }
+      // It is not picked, as ChemDraw leaves it, so the next click places another.
+      return set(addShape(doc, freeSymbol(free, at, (0.75 * style.labelSize) / style.bond))[0]);
+    }
     if (tool === "bracket" && "mark" in bracketPick) {
       // A dagger goes on a bracket clicked (again takes it off), or stands alone where clicked.
       const sh = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && isBracket(x)) : undefined;

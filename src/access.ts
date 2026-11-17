@@ -5,7 +5,7 @@
 // give its atoms and how they join) and the tools blind chemists use (NavMol): a structure's checked name, else its
 // formula and rings; an atom's element, charge, hydrogens and neighbours, each neighbour at its clock direction, so the
 // arrow keys that walk the bonds (edit.ts walkHot) can be chosen by ear.
-import { ARROWS, BONDS, SHAPES } from "./kinds.ts";
+import { ARROWS, BONDS, FREE_SYMBOL_NAMES, SHAPES } from "./kinds.ts";
 import { atomAt, bondAt, fragments, pos, type BondSpec } from "./edit.ts";
 import { HBOND, bandSize, curved, hydrogens, isBracket, orderOf, sizeText, straightArrow, type Arrow, type Atom, type Bond, type Box, type Group, type Mol, type Shape } from "./render.ts";
 import { plotName } from "./pageplot.ts";
@@ -175,6 +175,7 @@ function arrowText(m: Mol, a: Arrow, s: Sources): { role: string; name: string }
 function shapeText(sh: Shape): { name: string; more?: string } {
   const base = SHAPES[sh.kind], dashed = sh.dashed ? ", dashed" : "";
   if (sh.rgroup) return { name: `R-group definition ${sh.rgroup.name}` };
+  if (sh.kind === "symbol") return { name: FREE_SYMBOL_NAMES[sh.symbol ?? "plus"] };
   // A gel by its lanes' names and the sizes of the bands it draws (in its range), largest first; a plasmid map by its
   // length, regions and markers.
   if (sh.kind === "gel" && sh.tlc) {
@@ -286,7 +287,7 @@ const nounOf = (m: Mol, id: number): string | undefined => {
   const a = m.arrows?.find((x) => x.id === id);
   if (a) return a.kind === "line" || a.kind === "arc" || a.kind === "curve" || a.kind === "cut" || a.kind === "orbital" ? lower(ARROWS[a.kind]) : `${lower(ARROWS[a.kind])} arrow`;
   const sh = m.shapes?.find((x) => x.id === id);
-  if (sh) return lower(SHAPES[sh.kind]);
+  if (sh) return lower(sh.kind === "symbol" ? FREE_SYMBOL_NAMES[sh.symbol ?? "plus"] : SHAPES[sh.kind]);
   return m.cycles?.some((c) => c.id === id) ? "catalytic cycle" : undefined;
 };
 const graphics = (m: Mol) => new Map<number, object>([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => [x.id, x]));

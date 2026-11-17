@@ -25,11 +25,12 @@ import { colourOptions, PICK } from "./colours";
 import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
-import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
+import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind, FREE_SYMBOLS, type FreeSymbol } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
 import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
-import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
+import { FREE_SYMBOL_NAMES } from "./kinds";
+import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, FreeSymbolGlyph, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
 
 // Each pick's choices (arrowPicks lists them) drawn as themselves, for the Actions panel and the right-click menu alike.
 const choices = (p: ArrowPick, c: Context) => p.options.map(([id, name]) => ({ id, name, glyph: pickGlyph(p, id, c) }));
@@ -83,7 +84,8 @@ export type Context =
   | { kind: "arrow"; chart?: ChartLook; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
+  // symbol and symbolPt: a free symbol's kind and size (pt).
+  | { kind: "shape"; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
       ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean; unit?: string } // a TLC plate's side ticks and transparency, whether a lane is picked, and a gel's unit
   // step: one step of the cycle is picked; reversible, balance, shaped and hidden are that step's (shaped: it has a lead,
@@ -762,7 +764,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
     spot: context.kind === "spot" && context.unit ? "Band" : "TLC spot",
     part: context.kind === "part" && context.region ? "Region" : "Marker",
-    shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
+    shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? (context.symbol ? FREE_SYMBOL_NAMES[context.symbol] : SHAPES[context.shape]) : "Shape",
     line: "Line",
   }[context.kind];
   // The formula and mass rows: structures (a lone atom or bond that is a whole molecule too), and captions that count
@@ -970,7 +972,16 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
 
-      {context.kind === "shape" && !["tlc", "gel", "plasmid", "table", "picture"].includes(context.shape) && (
+      {context.kind === "shape" && context.shape === "symbol" && (
+        // A free symbol: its kind, each drawn as the symbol, and its size.
+        <div className="chips arrows" role="group" aria-label="Symbol">
+          {FREE_SYMBOLS.map((k) => (
+            <button key={k} className="chip" aria-pressed={context.symbol === k} aria-label={FREE_SYMBOL_NAMES[k]} data-tip={FREE_SYMBOL_NAMES[k]} onClick={() => run(`shape.symbol.${k}`)}><FreeSymbolGlyph kind={k} /></button>
+          ))}
+          {context.symbolPt !== undefined && <SizeButton size={context.symbolPt} sizes={sizes} run={run} />}
+        </div>
+      )}
+      {context.kind === "shape" && !["tlc", "gel", "plasmid", "table", "picture", "symbol"].includes(context.shape) && (
         <div className="chips arrows" role="group" aria-label="Shape">
           {(isBracket({ kind: context.shape }) ? ["brackets", "parens", "braces"] as ShapeKind[] : ["box", "rounded", "oval", "highlight"] as ShapeKind[]).map((kind) => (
             <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} data-tip={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
@@ -979,7 +990,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {context.kind === "shape" && !isBracket({ kind: context.shape }) && !["highlight", "tlc", "gel", "plasmid", "table", "picture"].includes(context.shape) && (() => {
+      {context.kind === "shape" && !isBracket({ kind: context.shape }) && !["highlight", "tlc", "gel", "plasmid", "table", "picture", "symbol"].includes(context.shape) && (() => {
         // The shape's style, drawn as the shape itself in each style.
         const row = context.shape === "oval" ? "oval" : context.shape === "rounded" ? "rounded" : "box";
         return (
@@ -1110,7 +1121,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {g.picks.map((p) => <PickButton key={p.command} label={p.label} value={p.value} onPick={(v) => run(`${p.command}.${v}`)} options={choices(p, context)} />)}
         </div>
       ))}
-      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow" || context.kind === "cycle" || (context.kind === "selection" && context.width !== undefined)) && (
+      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.shape !== "symbol" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow" || context.kind === "cycle" || (context.kind === "selection" && context.width !== undefined)) && (
         // The width of the lines, for every object drawn in lines, and for lines picked together (a table's is with its
         // lines, above).
         <div className="sliders" role="group" aria-label="Lines">

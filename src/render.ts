@@ -339,7 +339,8 @@ export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 18
 // fill: shaded (lit from the top left) or solid in the colour. shadow: a grey shadow down and to the right, with the
 // shape filled white over it. side: one bracket only. mark: a sign at a bracket's top right (‡, †, a charge, n).
 // picture: a picture from a ChemDraw file (its embedded PNG, PDF, TIFF and so on), drawn in its box and written back.
-export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "gel" | "plasmid" | "table" | "picture";
+// symbol: a free symbol (Shape.symbol), drawn to fill its box.
+export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "gel" | "plasmid" | "table" | "picture" | "symbol";
 // A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
 // rules only) or a full grid.
 // widths and heights: every column's width and every row's height once a border has been dragged (bond lengths; a
@@ -400,7 +401,31 @@ export type Shape = {
   // fragments R1 stands for, and its R-Logic (occurrence, Rest H, and the R-group that must then be present too).
   rgroup?: { name: string; occur?: string; restH?: true; then?: string };
   scale?: number; // the shape's size against the document style (decision 0007); unset is 1
+  symbol?: FreeSymbol; // a free symbol's kind (kind "symbol")
 };
+// A free symbol: a charge, radical or lone pair that is on the page by itself, as ChemDraw's unattached chemical symbol
+// (a Symbols tool click away from an atom). It is not chemistry: no formula, mass, name or SMILES counts it. Its box
+// (from, to) is its ink, and the symbol is drawn stretched to fill it, so a resize handle sizes it as it does a box.
+export type FreeSymbol = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "bar" | "radicalCation" | "radicalAnion";
+export const FREE_SYMBOLS: FreeSymbol[] = ["plus", "minus", "circledPlus", "circledMinus", "radicalCation", "radicalAnion", "pair", "bar", "radical"];
+// Each free symbol's box, in units of its size: ChemDraw's symbol size, the size of the font its sign is drawn in, which
+// is 0.75 of the label size (an atom's charge sign). The proportions are the marks Octet draws round an atom.
+export const SYMBOL_BOX: Record<FreeSymbol, [number, number]> = {
+  plus: [0.5, 0.5], minus: [0.5, 0.5], circledPlus: [0.99, 0.99], circledMinus: [0.99, 0.99], radical: [0.27, 0.27],
+  pair: [0.75, 0.24], bar: [0.75, 0.24], radicalCation: [0.89, 0.5], radicalAnion: [0.89, 0.5],
+};
+// A free symbol's size (bond lengths): its box's height over the height of its kind's box.
+export const symbolSize = (sh: Pick<Shape, "from" | "to" | "symbol">) => Math.abs(sh.to[1] - sh.from[1]) / SYMBOL_BOX[sh.symbol ?? "plus"][1];
+// A free symbol of this kind and size (bond lengths), its middle at c, upright.
+export function freeSymbol(symbol: FreeSymbol, c: [number, number], size: number): Omit<Shape, "id"> {
+  const [w, h] = SYMBOL_BOX[symbol];
+  return { kind: "symbol", symbol, from: [c[0] - (w * size) / 2, c[1] + (h * size) / 2], to: [c[0] + (w * size) / 2, c[1] - (h * size) / 2] };
+}
+// A free symbol at a new size (bond lengths) about its middle, keeping its proportions.
+export function resizeSymbol(sh: Shape, size: number): Pick<Shape, "from" | "to"> {
+  const k = size / (symbolSize(sh) || size), c = middleOf(sh), at = (q: [number, number]): [number, number] => [c[0] + (q[0] - c[0]) * k, c[1] + (q[1] - c[1]) * k];
+  return { from: at(sh.from), to: at(sh.to) };
+}
 // A bracket's usage, ChemDraw's Bracket Usage: SRU (n), monomer, mer, copolymer (and its alternating, random and block
 // kinds), crosslink, graft, modification, component, unordered and ordered mixture, multiple group (#), generic,
 // anypolymer, and parameterizable (a label, count or range, or a molecular weight). label: an SRU's label (unset is n),
@@ -452,6 +477,8 @@ export function inDrawn(sh: Pick<Shape, "from" | "to" | "angle" | "kind">, p: [n
 export function settleShape(sh: Shape): Shape {
   const { angle: _, ...rest } = sh;
   if (!turns(sh)) return rest;
+  // A free symbol keeps its turn: its box is drawn upright, so swapping corners would not turn what is drawn.
+  if (sh.kind === "symbol") { const a = Math.round(((((((sh.angle ?? 0) + 180) % 360) + 360) % 360) - 180) * 1e6) / 1e6; return Math.abs(a) < 1e-6 ? rest : { ...rest, angle: a }; }
   const near = (a: number, b: number) => Math.abs(a - b) < 1e-6, c = middleOf(sh);
   const half = (s: Shape): Shape => ({ ...s, from: s.to, to: s.from, ...(s.side ? { side: s.side === "left" ? "right" as const : "left" as const } : {}) });
   const quarter = (s: Shape, sign: number): Shape => {
@@ -464,7 +491,7 @@ export function settleShape(sh: Shape): Shape {
   if (!isBracket(sh) && near(Math.abs(a), 90)) return quarter(out, Math.sign(a));
   return { ...out, angle: Math.round(a * 1e6) / 1e6 };
 }
-export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "gel", "plasmid", "table", "picture"];
+export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "gel", "plasmid", "table", "picture", "symbol"];
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
@@ -2446,10 +2473,51 @@ export function polymerLabelsAt(sh: Shape, k: number): { label: { x: number; y: 
   return { label: at(x1 + 0.08, y0 + 0.05), tags: at(x1 + 0.08, y1 - (sh.mark ? 0.45 : 0.1)) };
 }
 
+// A free symbol's ink as filled polygons (px, y down, at k px per bond length), one winding as the bonds': its kind
+// drawn in its own box (SYMBOL_BOX, units of its size, y down), stretched to the shape's box and turned with it. Signs
+// have the weight of an Arial sign; a ring, a bar and the dots have the weight of an atom's marks.
+export function symbolInk(sh: Shape, k: number): P[][] {
+  const kind = sh.symbol ?? "plus", [W, H] = SYMBOL_BOX[kind], out: P[][] = [];
+  const rect = (x0: number, y0: number, x1: number, y1: number) => out.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+  const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 24) => out.push(Array.from({ length: n }, (_, j): P => [cx + rx * Math.cos((2 * Math.PI * j) / n), cy + ry * Math.sin((2 * Math.PI * j) / n)]));
+  // A sign of width w at x, across the box's middle: a minus, and a plus's upright bar too. Stroke 0.07 of the size.
+  const sign = (x: number, w: number, plus: boolean, t = 0.07, arm = w / 2) => {
+    const cx = x + w / 2, cy = H / 2;
+    rect(cx - arm, cy - t / 2, cx + arm, cy + t / 2);
+    if (plus) rect(cx - t / 2, cy - arm, cx + t / 2, cy + arm);
+  };
+  switch (kind) {
+    case "plus": case "minus": sign(0, W, kind === "plus"); break;
+    case "circledPlus": case "circledMinus": {
+      // A ring the weight of a line (0.08), its middle 0.455 out, with the sign inside at 0.58 of that, as an atom's.
+      const R = 0.455, t = 0.08, n = 48;
+      for (let j = 0; j < n; j++) {
+        const a0 = (2 * Math.PI * j) / n, a1 = (2 * Math.PI * (j + 1)) / n, ro = R + t / 2, ri = R - t / 2;
+        out.push([[W / 2 + ri * Math.cos(a0), H / 2 + ri * Math.sin(a0)], [W / 2 + ro * Math.cos(a0), H / 2 + ro * Math.sin(a0)], [W / 2 + ro * Math.cos(a1), H / 2 + ro * Math.sin(a1)], [W / 2 + ri * Math.cos(a1), H / 2 + ri * Math.sin(a1)]]);
+      }
+      sign(W / 2 - R, 2 * R, kind === "circledPlus", t, 0.58 * R);
+      break;
+    }
+    case "radical": ellipse(W / 2, H / 2, W / 2, H / 2); break;
+    case "pair": ellipse(H / 2, H / 2, H / 2, H / 2); ellipse(W - H / 2, H / 2, H / 2, H / 2); break;
+    case "bar": rect(0, H / 2 - 0.04, W, H / 2 + 0.04); break;
+    // The dot, a gap of ION_GAP label sizes (0.12 of the size), then the sign, as an atom's radical ion.
+    case "radicalCation": case "radicalAnion": ellipse(0.133, H / 2, 0.133, 0.133); sign(W - 0.5, 0.5, kind === "radicalCation"); break;
+  }
+  // Into the box (px), turned about its middle as shapePaths turns a shape, each polygon wound one way.
+  const x0 = Math.min(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k, sx = (Math.abs(sh.to[0] - sh.from[0]) * k) / W, sy = (Math.abs(sh.to[1] - sh.from[1]) * k) / H;
+  const r = ((sh.angle ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), c = middleOf(sh), cx = c[0] * k, cy = -c[1] * k;
+  return out.map((poly) => {
+    const q = poly.map(([u, v]): P => { const x = x0 + u * sx, y = y0 + v * sy; return r ? [cx + (x - cx) * cs + (y - cy) * sn, cy - (x - cx) * sn + (y - cy) * cs] : [x, y]; });
+    return q.reduce((sum, a, j) => sum + cross(a, q[(j + 1) % q.length]), 0) > 0 ? q.reverse() : q;
+  });
+}
+
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
 // asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline. A picture has none.
 export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
   if (sh.kind === "highlight" || sh.kind === "picture") return [];
+  if (sh.kind === "symbol") return symbolInk(sh, k);
   const f = scaleOf(sh), hw = ((sh.boldLine ? s.bold : s.line) / 2) * f, out: P[][] = [], dash = 0.2 * s.bond * f;
   const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
   for (const path of shapePaths(sh, k, s.bond)) {

@@ -1,7 +1,7 @@
 // The names of the bond, arrow and shape kinds, as the palette, the Actions panel, the command palette and the canvas
 // for screen readers (access.ts) give them. tools.tsx draws the palette from these.
 import type { BondSpec } from "./edit.ts";
-import { HBOND, QUADRUPLE, type ArrowKind, type ShapeKind } from "./render.ts";
+import { HBOND, QUADRUPLE, type ArrowKind, type FreeSymbol, type ShapeKind } from "./render.ts";
 
 export const BONDS = {
   single: { name: "Single", spec: { type: 1 } },
@@ -30,5 +30,10 @@ export const ARROWS: Record<ArrowKind, string> = {
 };
 
 export const SHAPES: Record<ShapeKind, string> = {
-  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", gel: "Gel", plasmid: "Plasmid map", table: "Table", picture: "Picture",
+  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", gel: "Gel", plasmid: "Plasmid map", table: "Table", picture: "Picture", symbol: "Symbol",
+};
+// A free symbol by its kind, as the Symbols tool names it.
+export const FREE_SYMBOL_NAMES: Record<FreeSymbol, string> = {
+  plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative", radical: "Radical", pair: "Lone pair", bar: "Lone pair bar",
+  radicalCation: "Radical cation", radicalAnion: "Radical anion",
 };
