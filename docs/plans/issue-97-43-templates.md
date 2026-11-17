@@ -386,3 +386,19 @@ Small commits, one per job where it stands alone.
 7. **Name to Structure for "β-cyclodextrin" or "cucurbit[7]uril" typed in the Name box:** OPSIN reads neither name.
    The library search finds both.
 8. **The repeat-unit drawing of CB[n]** (a glycoluril in brackets with n): Octet would read it as a polymer.
+
+## Results (17 November, build)
+
+| Check | Result |
+| --- | --- |
+| `node src/hosts.check.ts` (new) | passes: the 7 InChIs equal PubChem's and the build's references; formulas exact; monoisotopic masses within 0.00002 Da; every drawing rule; placing, on an atom, on a bond, flip, turn, delete, undo chain, 20 fast placings, paste 10 times, every format, .ctp |
+| `node src/templates.check.ts` | passes: 558 templates; 100 with stereo are their compounds (the 3 cyclodextrins by the first-principles reference); the cyclodextrins named and read back; the cucurbiturils in `UNNAMED` and `CROWDED` |
+| `node src/photochem.check.ts` | passes: 18 templates; Energy transfer is Intersystem crossing's objects with EnT |
+| `node src/mcp.check.ts` | passes: the 3 new names, 6 words, 6 bad calls, two calls at once |
+| `node src/lab.check.ts` | passes, unchanged |
+| Set-by-set comparison | `library.json` byte-identical; Supramolecules 15 → 22 (7 added at the end), Photochemistry 17 → 18 (1 added at 9); every other item byte-identical |
+| Octet 1.1.2 (`git archive v1.1.2`) reading our .oct, CDXML and CDX | all three: same InChI and formulas for all 543 atoms, 42 wedges and 63 hashes, places within 0.001, the wavy arrow with its head, EnT on it |
+| ChemDraw 22.2 by file commands | not done: ChemDraw opened no file (not even a one-arrow CDXML) by `open -g -a`, and AppleScript `open` timed out after 40 s; its only document stayed "Untitled ACS Document 1996-1". Another session's round trip did not come back either. It looks like a dialog waits in ChemDraw, which may not be driven by screen. |
+| Speed (medians of interleaved runs; load average 120 to 162) | `library-more.json` +41,683 bytes, parse 4.9 ms against 4.7 ms (noise). Drawing a page of 40 paclitaxels with γ-cyclodextrin 101 ms against 109 ms with Pillar[5]arene. Placing (addTemplate) by those 2,480 atoms: γ-cyclodextrin 53 ms, Pillar[5]arene 23 ms (88 atoms and 98 bonds against 55 and 60; the Template tool's own cost per atom). By 4,008 atoms of peptide: β-cyclodextrin 248 ms, Pillar[5]arene 241 ms. A drag frame over 50 β-cyclodextrins: 204 ms against 302 ms for 350 α-D-glucopyranoses (1.1.2's template: the same rings, wedges and OH labels). Background name, once per new shape: α 0.65×, β 1.2 to 1.5×, γ 1.8 to 1.9× Pillar[5]arene's; a cucurbituril 10 to 15 ms (no name). Library search per keystroke: 0.4 ms against 0.2 ms for "e" over all 558 templates. |
+| Browser preview, port 1464 | Supramolecules lists the 7 at the end with thumbnails, in light and dark; search as stress 18; command palette lists the cyclodextrins; γ-cyclodextrin kept in the Ring menu comes back after a reload and places (C48H80O40, 1297.13 g/mol); ⌘A, Convert structure to name, turning Energy transfer; Clean up structure not marked for the placed hosts; console clean |
+| `npm run look -- http://localhost:1464/` | every control matches; the sweep did not reach Home, as on the base (a fresh profile now goes from the welcome page to a drawing; this branch changes no UI) |
