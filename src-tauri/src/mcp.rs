@@ -90,17 +90,21 @@ pub fn closed(app: &AppHandle, label: &str) {
     let Some(mcp) = app.try_state::<Mcp>() else { return };
     mcp.shared.ready.lock().unwrap().remove(label);
     mcp.shared.heard.lock().unwrap().remove(label);
-    mcp.shared.pending.lock().unwrap().retain(|_, p| {
-        if p.window == label {
-            p.unask();
-            let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The drawing closed before the call finished.")));
-        }
-        p.window != label
-    });
+    end_calls(&mcp.shared, label, "The drawing closed before the call finished.");
     for s in mcp.shared.sessions.lock().unwrap().values_mut() {
         s.subs.retain(|u| drawing_uri_label(u) != Some(label));
         s.opened.remove(label);
     }
+}
+// The calls a window was answering end now, with why.
+fn end_calls(shared: &Shared, label: &str, why: &str) {
+    shared.pending.lock().unwrap().retain(|_, p| {
+        if p.window == label {
+            p.unask();
+            let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, why)));
+        }
+        p.window != label
+    });
 }
 fn drawing_uri_label(uri: &str) -> Option<&str> {
     uri.strip_prefix("octet://drawing/").map(|r| r.split('/').next().unwrap_or(""))
@@ -391,13 +395,7 @@ pub fn mcp_ready(window: Window, mcp: State<'_, Mcp>, page: String, listener: u3
     mcp.shared.heard.lock().unwrap().entry(label.clone()).and_modify(|n| *n = (*n).max(listener)).or_insert(listener);
     let was = mcp.shared.ready.lock().unwrap().insert(label.clone(), page.chars().take(64).collect());
     if was.is_some_and(|w| w != page) {
-        mcp.shared.pending.lock().unwrap().retain(|_, p| {
-            if p.window == label {
-                p.unask();
-                let _ = p.tx.send(Msg::Done(error_reply(Some(&p.rid), -32603, "The Octet window started again. Try again.")));
-            }
-            p.window != label
-        });
+        end_calls(&mcp.shared, &label, "The Octet window started again. Try again.");
     }
     // Whether an AI app subscribes to this drawing: a page that started again says each change from then on.
     mcp.shared.sessions.lock().unwrap().values().any(|s| s.subs.iter().any(|u| drawing_uri_label(u) == Some(label.as_str())))
@@ -1180,20 +1178,17 @@ impl Relay {
                 if self.off() {
                     let off = serde_json::json!({ "initialize": { "instructions": OFF }, "tools/list": { "tools": [] } });
                     self.say(&if method == "tools/call" { error_reply(Some(id), -32603, OFF) } else { closed_answer(method, id, message, Some(off)) });
-                    if self.state.lock().unwrap().hello.is_some() {
-                        self.watch();
+                } else {
+                    if method == "tools/call" && self.wake() {
+                        let session = self.state.lock().unwrap().session.clone();
+                        let got = self.info().and_then(|i| self.post(&i, line, session.as_deref(), |m| self.say(m)).ok()).filter(|g| g.status == 200);
+                        if let Some(r) = got.and_then(|g| g.reply).filter(|r| !r.trim().is_empty()) {
+                            self.listen();
+                            return self.say(&r);
+                        }
                     }
-                    return;
+                    self.say(&closed_answer(method, id, message, self.kept()));
                 }
-                if method == "tools/call" && self.wake() {
-                    let session = self.state.lock().unwrap().session.clone();
-                    let got = self.info().and_then(|i| self.post(&i, line, session.as_deref(), |m| self.say(m)).ok()).filter(|g| g.status == 200);
-                    if let Some(r) = got.and_then(|g| g.reply).filter(|r| !r.trim().is_empty()) {
-                        self.listen();
-                        return self.say(&r);
-                    }
-                }
-                self.say(&closed_answer(method, id, message, self.kept()));
                 if self.state.lock().unwrap().hello.is_some() {
                     self.watch();
                 }
