@@ -243,4 +243,13 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
   assert.match(editor, /restyle\(\(\) => \(\{ size: Number\(arg\) === style\.captionSize \? undefined : Number\(arg\) \}\), \{ shapes \}\)/);
 }
 
+// A free symbol picked alone is text, as a caption is: its frame has corners only, and a corner drag sizes it with
+// Labels and lines off and with Ctrl held too.
+{
+  const editor = (await import("node:fs")).readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const textAlone = \(\) => !selection\.size && picked\.size > 0 && \[\.\.\.picked\]\.every\(\(id\) => doc\.captions\?\.some\(\(c\) => c\.id === id\) \|\| doc\.shapes\?\.some\(\(sh\) => sh\.id === id && sh\.kind === "symbol"\)\)/);
+  assert.match(editor, /const scalesText = \(\) => settings\.scaleLabels \|\| textAlone\(\);/);
+  assert.match(editor, /corners: !grown && textAlone\(\)/);
+}
+
 console.log("freesymbol.check: free symbols place, draw, size, save and read back as ChemDraw's.");

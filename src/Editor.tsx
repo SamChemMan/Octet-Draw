@@ -4867,7 +4867,9 @@ export default function Editor() {
   };
   // Text alone (captions and nothing else). Scale… and the handles always scale its size, as ChemDraw scales the text
   // of one label whatever its checkbox says, so Labels and lines counts as on for it.
-  const textAlone = () => !selection.size && picked.size > 0 && [...picked].every((id) => doc.captions?.some((c) => c.id === id));
+  // Only text picked: captions and free symbols (charges, radicals and lone pairs placed on their own). Their frame
+  // has corners only, and a corner drag always sizes them, as a caption's does (#164).
+  const textAlone = () => !selection.size && picked.size > 0 && [...picked].every((id) => doc.captions?.some((c) => c.id === id) || doc.shapes?.some((sh) => sh.id === id && sh.kind === "symbol"));
   const scalesText = () => settings.scaleLabels || textAlone();
   // Each free caption's middle, from its laid-out box (drawing units).
   const captionMiddles = () => new Map(placed.filter((c) => c.id !== DRAFT).map((c) => [c.id, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L] as P]));
