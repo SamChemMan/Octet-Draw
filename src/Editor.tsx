@@ -6876,10 +6876,11 @@ export default function Editor() {
     }
     return molecule ?? structureOf();
   };
-  // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
-  // the Pen (the drawing and the captions' places change then, and the context follows them when what is shown is the
-  // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
-  // below).
+  // The panel's context, worked out again only when something it reads changes. During a drag or the Pen, the list of
+  // reagent tables (gridViews) is made again on each frame, so the context is too, and the panel follows what is drawn
+  // (a caption dragged under a structure gets Tie to structure). A box or lasso that takes in the same things again
+  // keeps the selection's sets (choose), so the side arrow or step it picks (branchPick, stepPick) is a dependency of
+  // its own. While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions below).
   const settled = shown === doc;
   // While a glide runs, only the canvas works (decision 0024): the side panels keep what they last drew and catch up
   // when it ends, and work for them (the panel's context, the screen reader's names) waits. A panel a moment late is
@@ -6893,7 +6894,7 @@ export default function Editor() {
     stillPanels.current.set(name, made);
     return made;
   };
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
