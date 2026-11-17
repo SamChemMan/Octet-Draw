@@ -274,8 +274,10 @@ jobs:
           key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
       - run: npm ci
-      - name: The object's own tests (storages in memory, the data objects, the clipboard's order)
-        run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole
+      # Also the object's picture (issue 166): GDI and GDI+ draw it, and Windows' OLE cache keeps it. --nocapture shows
+      # what those tests print (the cache's formats, the large path's layouts, the edge pixels).
+      - name: The object's own tests (storages in memory, the data objects, the clipboard's order, the picture in GDI+)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole -- --nocapture
       - name: Build Octet with its page, and keep a copy for the harness
         shell: pwsh
         run: |
