@@ -18,8 +18,8 @@ import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, t
 import { buildRisk, isSignificant, riskGroup, riskLayout, significantOf, ticked, TICKS, MAX_TEXT as RISK_TEXT } from "./riskassess.ts";
 import { withDetails, detailsOf, markupCaption, oneLine, FIELDS, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
 import { readPlasmid } from "./cdxml.ts";
-import { emptyRows, movedAt, setRole, stepGrids, type GridView } from "./gridview.ts";
-import { conditionItems, conditionKind, parseAmount, ROLES, type Field } from "./stoich.ts";
+import { emptyRows, GRID_ROWS, movedAt, NUMBER_ROW, setRole, stepGrids, TABLE, type GridView } from "./gridview.ts";
+import { conditionItems, conditionKind, parseAmount, ROLES, solve, type Field } from "./stoich.ts";
 import { stereoFacts, stereoLabels } from "./chem.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
@@ -294,8 +294,8 @@ const ACTIONS = new RegExp(["^(halo|ringfill|colour)\\.(none|#[0-9a-fA-F]{6})$",
   "^arrow\\.(kind\\.[a-z0-9-]{1,30}|size\\.(large|medium|small)|sweep\\.\\d{1,3}|reverse|start\\.(none|full|left|right)|end\\.(none|full|left|right)|head\\.(solid|hollow|angled)|closed|fill\\.(none|solid|shaded|faded)|style\\.(plain|dashed|bold|wavy|doubled|membrane)|flip|point|weight\\.\\d{1,4}|above|below)$",
   "^shape\\.(kind\\.(box|rounded|oval|highlight|brackets|parens|braces)|symbol\\.(plus|minus|circledPlus|circledMinus|radical|pair|bar|radicalCation|radicalAnion)|dashed|boldline|depth\\.\\d{1,3}|blur\\.\\d{1,3}|opacity\\.\\d{1,3}|lanes\\.(-1|1|copy)|rf|ticks|transparent|hide\\.(origin|front|border|names|scale)|spots\\.(filled|hollow|shaded|dashed|bold|doubled)|(row|col)\\.(before|after|delete)|lines\\.(journal|grid|box|none|top|bottom|left|right|header|rows|cols)|align\\.(left|centre|right)|clear|fit|style\\.(plain|dashed|shaded|solid|faded|shadow)|side\\.(left|right|both)|mark\\..{1,12}|colour\\.#[0-9a-fA-F]{6}|front|back)$",
   "^orbital\\.(shape\\.(s|oval|lobe|hybrid|p|d|dz2)|phase\\.(plain|shaded|filled|phased)|swap)$", "^lines\\.weight\\.\\d{1,4}$", "^cycle\\.[a-z.]{1,30}(\\.-?\\d{1,4})?$", "^spot\\.(style\\.[a-z]{1,8}|w\\.\\d{1,4}|h\\.\\d{1,4}|tail\\.\\d{1,4}|rf|delete)$",
-  "^grid\\.(limiting|show|layout|remove|hide\\.(row|col))$", "^risk\\.(add|update|hazards|remove)$", "^opacity\\.\\d{1,3}$", "^align\\.(row|column|spread-row)$"].join("|"));
-const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled|membrane (a line as a lipid bilayer), arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with change's text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.symbol.X (a free symbol's kind; caption.size.N sizes it), shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border (a gel: origin|border|names|scale), shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; grid.limiting|show|layout|remove|hide.row|hide.col; on an experiment page, risk.add (its risk assessment, page 2, with the reagent tables' substances; a new page has one), risk.update (the substances as the tables have them now), risk.hazards (each substance's GHS pictograms, signal word and H codes from PubChem, when the user has Online search on in Settings; read shows them once found), risk.remove; align.row|column|spread-row; opacity.N (percent: the selected atoms of a 3D structure with depth shading); reaction.map, reaction.unmap. Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
+  "^grid\\.(limiting|show|layout|remove|attach|static|steps|hide\\.(row|col))$", "^risk\\.(add|update|hazards|remove)$", "^opacity\\.\\d{1,3}$", "^align\\.(row|column|spread-row)$"].join("|"));
+const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled|membrane (a line as a lipid bilayer), arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with change's text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.symbol.X (a free symbol's kind; caption.size.N sizes it), shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border (a gel: origin|border|names|scale), shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; on a reagent table's id (g<n>): grid.show (every part hidden shows again), grid.layout, grid.remove, grid.steps, grid.attach (a table moved by hand goes back under its reaction and follows it again), grid.static (the table becomes plain text and lines in a group; its amounts no longer work themselves out); grid.limiting|hide.row|hide.col need a cell picked by the user; on an experiment page, risk.add (its risk assessment, page 2, with the reagent tables' substances; a new page has one), risk.update (the substances as the tables have them now), risk.hazards (each substance's GHS pictograms, signal word and H codes from PubChem, when the user has Online search on in Settings; read shows them once found), risk.remove; align.row|column|spread-row; opacity.N (percent: the selected atoms of a 3D structure with depth shading); reaction.map, reaction.unmap. Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
 const PURPOSE_PAGES = Object.keys(PAGES) as PageName[];
 // A figure (F4): an item in a row, and a panel.
 const ITEM = obj({
@@ -514,12 +514,15 @@ const OPS: Op[] = [
   },
   {
     name: "fill_experiment", title: "Fill in the experiment page", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "filled in the experiment page",
-    description: `On an experiment page: sets its details (${FIELDS.map(([, n]) => n).join(", ")}) and the reagent table's amounts for a reaction already drawn. of names a compound (its name, SMILES, number or the reagent's text). Amounts take units: '6.0 g', '100 mmol', '1.2 eq', '5.7 mL', '98%'. Give one of mass, moles or volume for each (Octet works out the rest), and the product's mass as measured, for the yield. A volume needs a density or a molarity. Each compound the conditions name (solvents and the atmosphere's gas too) has a column, and one with no amount counts as 1.00 eq. role: reactant, catalyst (equivalents in mol%) or solvent; measure: which amount of a reactant was measured out (mass or volume). concentration: the reaction's, for the solvent with no amount ('0.1 M'). conditions: the table's Temperature, Time, Atmosphere and Other. steps: true gives each step of a scheme a table of its own, false one table for the scheme. hide_empty: true hides the rows with nothing in them, false shows every row and column again. risk fills in the page's risk assessment (read gives its keys, riskAssessment): tick and untick boxes by key (${TICKS.join(", ")}), significant: the significant-hazards answer, text: [{key, text}], what to type at each key (a substance's CAS number cas<n> or exposure exp<n>, a place to type, or a text of Octet's such as head:waste to type over; an empty text takes it back), remove: parts by key (sec:waste, sub:<n>, pic:<n>:GHS07), as Delete removes them.`,
+    description: `On an experiment page: sets its details (${FIELDS.map(([, n]) => n).join(", ")}) and the reagent table's amounts for a reaction already drawn. of names a compound (its name, SMILES, number or the reagent's text). Amounts take units: '6.0 g', '100 mmol', '1.2 eq', '5.7 mL', '98%'. Give one of mass, moles or volume for each (Octet works out the rest), and the product's mass as measured, for the yield (or its yield, '85%', which gives the measured mass). A product's moles or mass is the amount wanted. A volume needs a density or a molarity. Each compound the conditions name (solvents and the atmosphere's gas too) has a column, and one with no amount counts as 1.00 eq. role: reactant, catalyst (equivalents in mol%) or solvent; measure: which amount of a reactant was measured out (mass or volume). concentration: the reaction's, for the solvent with no amount ('0.1 M'). conditions: the table's Temperature, Time, Atmosphere and Other. steps: true gives each step of a scheme a table of its own, false one table for the scheme. hide_empty: true hides the rows with nothing in them, false shows every row and column again. risk fills in the page's risk assessment (read gives its keys, riskAssessment): tick and untick boxes by key (${TICKS.join(", ")}), significant: the significant-hazards answer, text: [{key, text}], what to type at each key (a substance's CAS number cas<n> or exposure exp<n>, a place to type, or a text of Octet's such as head:waste to type over; an empty text takes it back), remove: parts by key (sec:waste, sub:<n>, pic:<n>:GHS07), as Delete removes them. table changes the reagent table by hand, as the user does: rows: rows of your own [{name, after (the row it goes under), values: [{of, text}]}]; text: [{row, of, text}] types over a cell (of left out: the row's name; a number over MW is the MW used; '' takes it back); hide: rows, cells [{row, of}] and lines (top, bottom; as rows 0a, 0b, 0c, 1a…) (a row of your own is deleted; hide_empty false shows the rest again); attach: true puts a table moved by hand back under its reaction. A row is its name as the table shows it (MW, Mass, Compound) or a row of your own's name.`,
     inputSchema: obj({
       details: obj(Object.fromEntries(FIELDS.map(([k]) => [k, str(200)]))),
-      amounts: list(obj({ of: str(MAX_STRUCTURE), mass: str(40), moles: str(40), equiv: str(40), volume: str(40), density: str(40), molarity: str(40), purity: str(40), measured: str(40), limiting: { type: "boolean" }, role: pick(ROLES), measure: pick(["mass", "volume"]) }, ["of"]), 40),
+      amounts: list(obj({ of: str(MAX_STRUCTURE), mass: str(40), moles: str(40), equiv: str(40), volume: str(40), density: str(40), molarity: str(40), purity: str(40), measured: str(40), yield: str(40), limiting: { type: "boolean" }, role: pick(ROLES), measure: pick(["mass", "volume"]) }, ["of"]), 40),
       concentration: str(40), conditions: obj({ temperature: str(200), time: str(200), atmosphere: str(200), other: str(200) }), steps: yes(), hide_empty: yes(),
       risk: obj({ tick: list(str(60), 60), untick: list(str(60), 60), significant: { type: "boolean" }, text: list(obj({ key: str(60), text: str(2000) }, ["key", "text"]), 100), remove: list(str(60), 100) }),
+      table: obj({ rows: list(obj({ name: str(200), after: str(200), values: list(obj({ of: str(MAX_STRUCTURE), text: str(200) }, ["of", "text"]), 40) }, ["name"]), 20),
+        text: list(obj({ row: str(200), of: str(MAX_STRUCTURE), text: str(200) }, ["row", "text"]), 100),
+        hide: obj({ rows: list(str(200), 30), cells: list(obj({ row: str(200), of: str(MAX_STRUCTURE) }, ["row", "of"]), 100), lines: list(str(10), 40) }), attach: yes() }),
     }),
     run: fillExperiment,
   },
@@ -1862,7 +1865,7 @@ async function setBrief(host: Host, a: BriefIn, ctx: Ctx): Promise<Result> {
   return { text: `${terse ?? `${told}${kept ? " The drawing has work in it, so it keeps its own style and page." : ""} The drawing ${restyled ? "now uses" : "uses"} ${now}.`}${own && journal ? ` The style is the user's own, in place of ${journal.preset}'s.` : ""}${advice}${brief.emphasis || brief.layout ? " Follow its emphasis and layout as you draw." : ""}${restyled ? UNDO : ""}\n${json}`, data: { brief } };
 }
 
-async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ of: string; limiting?: boolean; role?: GridRole; measure?: "mass" | "volume" } & Partial<Record<Field, string>>)[]; concentration?: string; conditions?: GridConditions; steps?: boolean; hide_empty?: boolean; risk?: RiskFill }): Promise<Result> {
+async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ of: string; limiting?: boolean; role?: GridRole; measure?: "mass" | "volume"; yield?: string } & Partial<Record<Field, string>>)[]; concentration?: string; conditions?: GridConditions; steps?: boolean; hide_empty?: boolean; risk?: RiskFill; table?: TableFill }): Promise<Result> {
   if (!host.experiment()) return { text: "This drawing is not an experiment page. Ask the user to choose File > New For > Experiment.", error: true };
   let m = host.doc();
   const said: string[] = [];
@@ -1877,7 +1880,7 @@ async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ o
     said.push(`set ${[...Object.keys(a.details ?? {}), ...Object.keys(filled).map((k) => `${k} (from the reaction)`)].join(", ")}`);
   }
   let arrows: number[] = [];
-  if (a.amounts?.length || a.concentration !== undefined || a.conditions || a.steps !== undefined || a.hide_empty !== undefined) {
+  if (a.amounts?.length || a.concentration !== undefined || a.conditions || a.steps !== undefined || a.hide_empty !== undefined || a.table) {
     // The newest reaction's reagent table, made for it when it has none (as Analyse Stoichiometry makes one: known
     // solvents start as solvents).
     const last = [...(m.arrows ?? [])].reverse().find((x) => straightArrow(x) && host.reaction(x.id));
@@ -1890,6 +1893,7 @@ async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ o
     // solvent a reactant, and a solvent is never the limiting reagent), and the amount measured out (Mark as measured).
     const view = host.tables().find((t) => t.arrow === grid.arrow)?.view, taken = { ...grid.taken }, own: Partial<Grid> = {};
     let limiting = grid.limiting, roles = grid.roles;
+    const yields: [string, string, string][] = [];
     for (const x of a.amounts ?? []) {
       const key = await keyOf(host, m, r, clean(x.of));
       if (!key) { problems.push(`"${x.of}" is not in the reaction`); continue; }
@@ -1898,9 +1902,13 @@ async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ o
       const values = { ...(typed[key] ?? {}) };
       for (const f of ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"] as Field[]) {
         if (x[f] === undefined) continue;
-        const v = parseAmount(x[f]!, f);
-        if (v === undefined) problems.push(`${f} "${x[f]}" for ${x.of}`); else values[f] = v;
+        const v = parseAmount(x[f]!, f), mw = view?.all.find((c) => c.key === key)?.mw;
+        if (v === undefined) problems.push(`${f} "${x[f]}" for ${x.of}`);
+        // A product's moles are the amount wanted, kept as its mass, as its Expected moles cell does.
+        else if (f === "moles" && key.startsWith("p:")) { if (mw) values.mass = v * mw; else problems.push(`moles for ${x.of}, which has no MW`); }
+        else values[f] = v;
       }
+      if (x.yield !== undefined) yields.push([key, x.yield, x.of]);
       typed[key] = values;
       if (x.limiting) limiting = key;
       if (x.role) { if (key.startsWith("p:")) problems.push(`a role for the product ${x.of}`); else { const got = setRole({ ...grid, roles }, { all: view?.all ?? [], limiting }, key, x.role); roles = got.roles; if ("limiting" in got) limiting = undefined; } }
@@ -1911,7 +1919,17 @@ async function fillExperiment(host: Host, a: { details?: Details; amounts?: ({ o
       const conc = a.concentration.trim() ? parseAmount(a.concentration, "molarity") : undefined;
       if (a.concentration.trim() && (!conc || conc > 1000)) problems.push(`concentration "${a.concentration}" (give it as 0.1 M or 100 mM)`); else own.conc = conc;
     }
+    // A product's yield gives its measured mass, from its expected moles with the amounts above, as its Yield cell does.
+    if (yields.length) {
+      const solved = solve((view?.all ?? []).map((c) => ({ ...c, typed: typed[c.key] ?? {} })), limiting, "conc" in own ? own.conc : grid.conc);
+      for (const [key, y, of] of yields) {
+        const v = parseAmount(y, "purity"), s = solved[key], mw = view?.all.find((c) => c.key === key)?.mw;
+        if (v === undefined || !key.startsWith("p:") || !s?.expectedMoles || !mw) problems.push(`yield "${y}" for ${of} (a product's, once the limiting reactant has an amount)`);
+        else typed[key] = { ...typed[key], measured: (v * s.expectedMoles * mw) / s.purity };
+      }
+    }
     if (a.conditions) own.conditions = Object.fromEntries(Object.entries({ ...grid.conditions, ...a.conditions }).map(([k, v]) => [k, oneLine(v ?? "")]).filter(([, v]) => v));
+    if (a.table) Object.assign(own, await tableByHand(host, m, r, grid, a.table, problems));
     m = { ...m, grids: m.grids!.map((g) => (g === grid ? { ...((({ limiting: _, ...rest }) => rest)(g)), typed, ...(limiting ? { limiting } : {}), ...own, ...(roles ? { roles } : {}), ...(Object.keys(taken).length ? { taken } : {}) } : g)) };
     // One table for each step of a scheme, or one for the scheme (Analyse Stoichiometry's).
     if (a.steps !== undefined && arrows.length < 2) problems.push("steps: the reaction has one step");
@@ -1978,6 +1996,39 @@ function fillRisk(m: Mol, a: RiskFill, sheet: Sheet): { m: Mol; did: string[] } 
 }
 
 // The grid key ("r:C2H4O2", 'r:"H2SO4"', "p:…") of the compound `of` names in reaction r.
+// The reagent table by hand, as the user changes it (1.2, docs/plans/reagent-table-1-2.md): rows of the user's own (a
+// name, the row it goes under, and text under compounds), text typed over a cell (of left out: over the row's name; ''
+// takes it back), parts hidden (rows, cells and lines; a row of the user's own is deleted), and attach (back under its
+// reaction). A row is named by its id or by its name as the table shows it (MW, Mass, Compound, or a row's own name).
+type TableFill = { rows?: { name: string; after?: string; values?: { of: string; text: string }[] }[]; text?: { row: string; of?: string; text: string }[]; hide?: { rows?: string[]; cells?: { row: string; of: string }[]; lines?: string[] }; attach?: boolean };
+async function tableByHand(host: Host, m: Mol, r: Reaction | undefined, grid: Grid, t: TableFill, problems: string[]): Promise<Partial<Grid>> {
+  let own = [...(grid.own ?? [])];
+  const text: NonNullable<Grid["text"]> = Object.fromEntries(Object.entries(grid.text ?? {}).map(([k, v]) => [k, { ...v }]));
+  const hidden = { ...grid.hidden, rows: [...(grid.hidden?.rows ?? [])], cells: Object.fromEntries(Object.entries(grid.hidden?.cells ?? {}).map(([k, v]) => [k, [...v]])), lines: [...(grid.hidden?.lines ?? [])] };
+  const rowId = (x: string) => { const low = x.trim().toLowerCase(); return [NUMBER_ROW, ...GRID_ROWS].find((q) => q.id.toLowerCase() === low || q.name.toLowerCase() === low)?.id ?? own.find((o) => o.id === x.trim() || o.name.toLowerCase() === low)?.id; };
+  const column = async (of: string) => { const k = await keyOf(host, m, r, clean(of)); if (!k) problems.push(`"${of}" is not in the reaction`); return k; };
+  for (const row of t.rows ?? []) {
+    const n = Array.from({ length: 99 }, (_, k) => `u${k + 1}`).find((x) => !own.some((o) => o.id === x));
+    if (!n || own.length >= 20) { problems.push("more than 20 rows of your own"); break; }
+    const after = row.after ? rowId(row.after) : undefined, values: Record<string, string> = {};
+    if (row.after && !after) problems.push(`no row "${row.after}" to put "${row.name}" under`);
+    for (const v of row.values ?? []) { const k = await column(v.of); if (k && oneLine(v.text)) values[k] = oneLine(v.text); }
+    own.push({ id: n, name: oneLine(row.name), ...(after ? { after } : {}), ...(Object.keys(values).length ? { values } : {}) });
+  }
+  for (const x of t.text ?? []) {
+    const row = rowId(x.row), k = x.of === undefined ? "#" : await column(x.of), value = oneLine(x.text);
+    if (!row) { problems.push(`no row "${x.row}"`); continue; }
+    if (!k) continue;
+    const o = own.find((q) => q.id === row);
+    if (o) { own = own.map((q) => (q !== o ? q : k === "#" ? { ...q, name: value } : { ...q, values: Object.fromEntries(Object.entries({ ...q.values, [k]: value }).filter(([, v]) => v)) })); continue; }
+    if (value) (text[row] ??= {})[k] = value; else if (text[row]) { delete text[row][k]; if (!Object.keys(text[row]).length) delete text[row]; }
+  }
+  for (const x of t.hide?.rows ?? []) { const row = rowId(x); if (!row) problems.push(`no row "${x}" to hide`); else if (own.some((o) => o.id === row)) own = own.filter((o) => o.id !== row); else if (!hidden.rows.includes(row)) hidden.rows.push(row); }
+  for (const x of t.hide?.cells ?? []) { const row = rowId(x.row), k = await column(x.of); if (!row) problems.push(`no row "${x.row}"`); else if (k && !hidden.cells[row]?.includes(k)) (hidden.cells[row] ??= []).push(k); }
+  for (const x of t.hide?.lines ?? []) { if (/^(?:top|bottom|\d[abc])$/.test(x)) { if (!hidden.lines.includes(x)) hidden.lines.push(x); } else problems.push(`no line "${x}" (top and bottom; as rows 0a, 0b, 0c for the first section, 1a to 1c for the next)`); }
+  return { own: own.length ? own : undefined, text: Object.keys(text).length ? text : undefined, hidden: { ...(hidden.rows.length ? { rows: hidden.rows } : {}), ...(grid.hidden?.cols ? { cols: grid.hidden.cols } : {}), ...(Object.keys(hidden.cells).length ? { cells: hidden.cells } : {}), ...(hidden.lines.length ? { lines: hidden.lines } : {}) },
+    ...(t.attach ? { at: undefined, free: undefined } : {}) };
+}
 async function keyOf(host: Host, m: Mol, r: Reaction | undefined, of: string): Promise<string | undefined> {
   if (!r) return undefined;
   const products = new Set(r.steps.slice(r.steps.map((s) => s.kind).lastIndexOf("arrow") + 1).flatMap((s) => (s.kind === "structure" ? s.atoms : [])));
@@ -2105,7 +2156,8 @@ async function move(host: Host, a: { ids: string[]; dx?: number; dy?: number } &
   const d: P = by ? [a.dx ?? 0, a.dy ?? 0] : target(host, m, box!, a);
   const moved = new Map(views.map((t) => [t.arrow, movedAt(m, t.view, d)]));
   m = shift(m, atoms, items, d);
-  if (moved.size) m = { ...m, grids: m.grids!.map((g) => { const at = moved.get(g.arrow); return at ? { ...g, at } : g; }) };
+  // Moved on its own, a table keeps its place on the page from then on (grids[].free), as a drag of it does.
+  if (moved.size) m = { ...m, grids: m.grids!.map((g) => { const at = moved.get(g.arrow); return at ? { ...g, at, free: true as const } : g; }) };
   m = host.set(m);
   return { text: `Moved ${a.ids.filter((id) => !own.includes(id)).join(", ")} by ${Math.round(d[0] * 100) / 100}, ${Math.round(d[1] * 100) / 100}.${tied}${UNDO}` };
 }
@@ -2597,7 +2649,10 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
   if (id.startsWith("risk.") && id !== "risk.add" && !riskGroup(host.doc())) return { text: `This page has no risk assessment. run_command risk.add adds one.`, error: true };
   if (id === "risk.add" && riskGroup(host.doc())) return { text: "This page has a risk assessment already: read gives it (riskAssessment), and fill_experiment's risk fills it in." };
   if (dialog && host.windowless()) return { text: `${NO_DIALOG} Octet did not run ${id}.`, error: true };
-  if (a.ids) {
+  // A reagent table's actions take its id (g5): the table is picked whole, as a click on it picks it.
+  const tables = id.startsWith("grid.") ? (a.ids ?? []).filter((x) => /^g\d+$/.test(x) && host.doc().grids?.some((g) => g.arrow === Number(x.slice(1)))) : [];
+  if (tables.length) { host.select([], tables.map((x) => TABLE(Number(x.slice(1))))); await host.settle(); }
+  else if (a.ids) {
     const { atoms, items, unknown } = idsOf(host, host.doc(), a.ids);
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     host.select([...atoms], [...items]);

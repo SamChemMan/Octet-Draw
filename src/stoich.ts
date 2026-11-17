@@ -9,7 +9,7 @@
 // solvents give the concentration of the limiting reactant, and a concentration typed gives the volume of the solvent
 // with none.
 
-import type { Grid, GridConditions, GridRole } from "./render.ts";
+import type { Grid, GridConditions, GridOwnRow, GridRole } from "./render.ts";
 import { oneLine } from "./experiment.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 import { LIQUIDS, type Liquid } from "./liquids.ts";
@@ -114,11 +114,11 @@ export function parseAmount(text: string, field: Field, mass: "g" | "mg" = "g"):
   const k = unit === "" ? units[plain[field]] : units[unit];
   return k === undefined || !(value >= 0) || !Number.isFinite(value * k) ? undefined : value * k;
 }
-// An amount for the grid in the unit that reads best (250 mg, 1.25 mmol, 0.50 mL), three significant figures.
-// A catalyst's equivalents ("mol%") in mol%: 0.05 is 5.00 mol%.
+// An amount for the grid in the unit that reads best (250.0 mg, 1.25 mmol, 0.50 mL): two decimals under 10, else one,
+// so 146.5 mg shows as weighed (Sam, 16 Nov 2026). A catalyst's equivalents ("mol%") in mol%: 0.05 is 5.00 mol%.
 export function formatAmount(value: number | undefined, field: Field | "mw" | "yield" | "mol%"): string {
   if (value === undefined || !Number.isFinite(value)) return "";
-  const sig = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
+  const sig = (v: number) => v.toFixed(Math.abs(v) >= 10 ? 1 : 2);
   if (field === "mw") return value.toFixed(2);
   if (field === "mol%") return `${(value * 100).toFixed(2)} mol%`;
   if (field === "yield" || field === "purity") return `${sig(value * 100)}%`;
@@ -311,6 +311,33 @@ const reactantKeyed = <T extends string>(x: unknown, values: readonly T[]): Reco
   const list = Object.entries(x);
   return list.length <= 60 && list.every(([k, v]) => KEY.test(k) && k[0] === "r" && values.includes(v)) ? Object.fromEntries(list) : undefined;
 };
+// 1.2's hand edits (render.ts Grid): rows of the user's own (at most 20, ids u1 to u99), text typed over cells and cells
+// shown blank (by a row Octet has, "number" or "name", then a column key or "#", at most 400 in all), and the lines
+// taken out (top, bottom, and 0a to 9c for each section as rows). Each text one line, as a page value is. Any entry
+// that is wrong is left out.
+const OWN = /^u\d{1,2}$/, LINE = /^(?:top|bottom|\d[abc])$/, CELL_ROWS = [...GRID_ROW_IDS, "number", "name"];
+const cellKey = (k: string) => k === "#" || KEY.test(k);
+function readOwn(x: unknown): GridOwnRow[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  const out: GridOwnRow[] = [];
+  for (const r of x.slice(0, 20) as Record<string, unknown>[]) {
+    if (!r || typeof r.id !== "string" || !OWN.test(r.id) || typeof r.name !== "string" || out.some((o) => o.id === r.id)) continue;
+    const after = typeof r.after === "string" && (r.after === "^" || CELL_ROWS.includes(r.after) || OWN.test(r.after)) ? r.after : undefined;
+    const values = r.values && typeof r.values === "object" && !Array.isArray(r.values) ? Object.entries(r.values).filter(([k, v]) => KEY.test(k) && typeof v === "string" && oneLine(v)).slice(0, 60).map(([k, v]) => [k, oneLine(v as string)]) : [];
+    out.push({ id: r.id, name: oneLine(r.name), ...(after ? { after } : {}), ...(values.length ? { values: Object.fromEntries(values) } : {}) });
+  }
+  return out.length ? out : undefined;
+}
+function readCells<T>(x: unknown, read: (v: unknown) => T | undefined): Record<string, Record<string, T>> | undefined {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  let n = 0;
+  const out: Record<string, Record<string, T>> = {};
+  for (const [row, cells] of Object.entries(x)) {
+    if (!(CELL_ROWS.includes(row) || OWN.test(row)) || !cells || typeof cells !== "object" || Array.isArray(cells)) continue;
+    for (const [k, v] of Object.entries(cells)) { const got = read(v); if (cellKey(k) && got !== undefined && n++ < 400) (out[row] ??= {})[k] = got; }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 function readConditions(x: unknown): GridConditions | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const list = Object.entries(x);
@@ -323,15 +350,20 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   if (!g || typeof typed !== "object" || !typed || Array.isArray(typed) || Object.keys(typed).length > 60) return undefined;
   if (!Object.entries(typed).every(([k, v]) => KEY.test(k) && typeof v === "object" && v && !Array.isArray(v) && Object.entries(v).every(([f, x]) => FIELDS.includes(f) && typeof x === "number" && Number.isFinite(x) && x >= 0 && x < 1e9))) return undefined;
   if (g.limiting !== undefined && !(typeof g.limiting === "string" && KEY.test(g.limiting) && g.limiting.startsWith("r"))) return undefined;
-  const h = g.hidden as { rows?: unknown; cols?: unknown } | undefined;
-  const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && GRID_ROW_IDS.includes(x)).slice(0, 20) : [];
+  const h = g.hidden as { rows?: unknown; cols?: unknown; cells?: unknown; lines?: unknown } | undefined;
+  const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && (GRID_ROW_IDS.includes(x) || x === "number")).slice(0, 20) : [];
+  const own = readOwn(g.own), text = readCells(g.text, (v) => (typeof v === "string" && oneLine(v) ? oneLine(v) : undefined));
+  const cells = readCells(h?.cells && !Array.isArray(h.cells) ? Object.fromEntries(Object.entries(h.cells as Record<string, unknown>).map(([r, ks]) => [r, Array.isArray(ks) ? Object.fromEntries(ks.map((k) => [k, true])) : undefined])) : undefined, (v) => (v === true ? true : undefined));
+  const lines = Array.isArray(h?.lines) ? [...new Set((h!.lines as unknown[]).filter((x): x is string => typeof x === "string" && LINE.test(x)))].slice(0, 40) : [];
+  const gone = { ...(cells ? { cells: Object.fromEntries(Object.entries(cells).map(([r, ks]) => [r, Object.keys(ks)])) } : {}), ...(lines.length ? { lines } : {}) };
   const cols = Array.isArray(h?.cols) ? (h!.cols as unknown[]).filter((x): x is string => typeof x === "string" && KEY.test(x)).slice(0, 60) : [];
   const colour = typeof g.colour === "string" && /^#[0-9a-f]{6}$/i.test(g.colour) ? g.colour : undefined;
   const roles = reactantKeyed(g.roles, ROLES), taken = reactantKeyed(g.taken, ["mass", "volume"] as const), conditions = readConditions(g.conditions);
   const conc = typeof g.conc === "number" && Number.isFinite(g.conc) && g.conc > 0 && g.conc <= 1000 ? g.conc : undefined;
   const at = Array.isArray(g.at) && g.at.length === 2 && g.at.every((x) => typeof x === "number" && Number.isFinite(x) && Math.abs(x) < 1e4) ? [g.at[0], g.at[1]] as [number, number] : undefined;
-  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
-    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}), ...(at ? { at } : {}) };
+  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length || Object.keys(gone).length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}), ...gone } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
+    ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}), ...(at ? { at } : {}),
+    ...(g.free === true ? { free: true as const } : {}), ...(own ? { own } : {}), ...(text ? { text } : {}) };
 }
 
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what
