@@ -1,5 +1,5 @@
 // The library's Photochemistry set: a Jablonski diagram and its transitions, light, a photochemical and a thermal step,
-// an excited state, singlet and triplet oxygen, state labels and a sensitiser. Each is made of Octet's own objects
+// energy transfer, an excited state, singlet and triplet oxygen, state labels and a sensitiser. Each is made of Octet's own objects
 // (lines and arrows, text with subscripts and superscripts, brackets), so every part stays editable. Lines take the
 // document's line width and text the document's caption style, with no colour of their own, as the Lab group's
 // drawings do. As IUPAC draws a Jablonski diagram, radiative transitions are straight arrows and radiationless ones
@@ -98,6 +98,10 @@ export const PHOTOCHEM = [
   transition("Phosphorescence", "hv, emission, radiative transition, Jablonski", [HV, SUB("P")], { down: true }),
   transition("Intersystem crossing", "ISC, radiationless transition, wavy arrow, Jablonski", [{ text: "ISC" }], { wavy: true }),
   transition("Internal conversion", "IC, radiationless transition, wavy arrow, Jablonski", [{ text: "IC" }], { wavy: true, down: true }),
+  // Energy transfer from one species or state to another (EnT in photocatalysis, apart from SET, electron transfer):
+  // radiationless, so wavy, as intersystem crossing is.
+  transition("Energy transfer", "EnT, ET, triplet energy transfer, TTET, sensitisation, sensitization, Dexter, Förster, FRET, radiationless transition, wavy arrow, Jablonski",
+    [{ text: "EnT" }], { wavy: true }),
   excited(),
   label("Singlet oxygen", "1O2, ¹O₂, dioxygen, photooxygenation", [SUP("1"), { text: "O" }, SUB("2")]),
   label("Triplet oxygen", "3O2, ³O₂, dioxygen, ground state oxygen", [SUP("3"), { text: "O" }, SUB("2")]),
