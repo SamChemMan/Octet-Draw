@@ -215,7 +215,12 @@ export const DIALOGS = new Set<string>();
 // Once the menu's commands are registered (with no window, mcp_ready waits for it).
 let registered = () => {};
 export const MENU_READ = new Promise<void>((done) => { registered = done; });
+// How many times the menu's commands were registered: a key map kept from before (Editor's userKeys) is made again
+// when this changes, as registerMenu changes DEFAULT_KEYS.
+let menuVersion = 0;
+export const menuKeysVersion = () => menuVersion;
 export function registerMenu(items: [string, string, string, string][]) {
+  menuVersion++;
   // A command no longer in the menu (the Search menu, with Online search off) leaves the list.
   const ids = new Set(items.map(([id]) => `menu.${id}`));
   for (let k = ACTIONS.length - 1; k >= 0; k--) if (ACTIONS[k].id.startsWith("menu.") && !ids.has(ACTIONS[k].id)) ACTIONS.splice(k, 1);
