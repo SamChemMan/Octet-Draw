@@ -8,7 +8,7 @@
 // structure's standard InChIKey.
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const BY_NAME: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/property/SMILES/TXT";
 const BY_NAME_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/property/InChIKey/TXT";
@@ -60,10 +60,7 @@ pub fn cas_in(synonyms: &str) -> Option<String> {
 // Runs only when the user presses Return (or ⇧⌘N) on text nothing offline reads.
 #[tauri::command]
 pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<String>, String> {
-    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
-        return Err("Online search is off in Settings.".into());
-    }
-    lookup(text.trim(), &app.package_info().version.to_string()).await
+    lookup(text.trim(), &crate::search::online(&app)?).await
 }
 
 // The risk assessment's substances written as text nothing offline reads (decision 0008): PubChem's standard
@@ -71,10 +68,7 @@ pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<St
 // reads PubChem's structure again its own way (a lone [Mg] would gain hydrogens).
 #[tauri::command]
 pub async fn pubchem_key(app: AppHandle, text: String) -> Result<Option<String>, String> {
-    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
-        return Err("Online search is off in Settings.".into());
-    }
-    key_lookup(text.trim(), &app.package_info().version.to_string()).await
+    key_lookup(text.trim(), &crate::search::online(&app)?).await
 }
 
 async fn key_lookup(text: &str, version: &str) -> Result<Option<String>, String> {
@@ -98,10 +92,7 @@ pub fn key_of(answer: &str) -> Option<String> {
 // Runs for the Properties panel, once for each structure the dictionary has no CAS number for.
 #[tauri::command]
 pub async fn pubchem_cas(app: AppHandle, key: String) -> Result<Option<String>, String> {
-    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
-        return Err("Online search is off in Settings.".into());
-    }
-    cas_lookup(&key, &app.package_info().version.to_string()).await
+    cas_lookup(&key, &crate::search::online(&app)?).await
 }
 
 // The client that asks PubChem. version: Octet's, for the user agent.
@@ -171,10 +162,7 @@ pub fn cid_of(answer: &str) -> Option<&str> {
 // Runs only when the user presses Find hazards in the Properties panel.
 #[tauri::command]
 pub async fn pubchem_hazards(app: AppHandle, key: String) -> Result<Option<String>, String> {
-    if !*app.state::<crate::search::Online>().0.lock().unwrap() {
-        return Err("Online search is off in Settings.".into());
-    }
-    hazards(&key, &app.package_info().version.to_string()).await
+    hazards(&key, &crate::search::online(&app)?).await
 }
 
 // The GHS classification PubChem has for a compound's standard InChIKey, as PubChem's JSON, which the page reads as
