@@ -37,6 +37,7 @@ input:disabled,
 @media (hover: hover) and (pointer: fine) {
   .variant-action:hover,
   .key-remove:hover,
+  .home-remove:hover,
   .name-forget:hover {
     background: var(--surface-sunken);
     color: var(--ink);
@@ -662,15 +663,15 @@ rect.mark {
   display: grid;
   min-width: 0;
 }
-.variant-action {
+/* The small round button on an item (remove, keep): shown on hover or focus. */
+.variant-action,
+.key-remove,
+.home-remove {
   position: absolute;
-  top: 50%;
-  right: var(--space-1);
   display: grid;
   place-items: center;
   width: var(--size-action);
   height: var(--size-action);
-  margin-top: calc(var(--size-action) / -2);
   padding: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -679,6 +680,11 @@ rect.mark {
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
   box-sizing: border-box;
+}
+.variant-action {
+  top: 50%;
+  right: var(--space-1);
+  margin-top: calc(var(--size-action) / -2);
 }
 /* In a list (the user's own colours in a colour menu) the name keeps clear of the button, so it never runs under it. */
 .strip.list .variant-cell:has(> .variant-action) > .variant {
@@ -821,7 +827,8 @@ button.variant.add {
   transform: translate(-50%, -50%) scale(0.8);
   transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
-.strip.carrying {
+.strip.carrying,
+.library.carrying {
   opacity: 0.35;
   pointer-events: none;
   transition: opacity var(--motion-fast) var(--ease-out);
@@ -1551,20 +1558,24 @@ button.variant.add {
     transform: scale(0.97);
   }
 }
-.actions header {
+.actions header,
+.properties header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
 }
-.actions h2 {
+.actions h2,
+.properties h2,
+.spectrum h2 {
   margin: 0;
   font-size: 13px;
   line-height: 18px;
   font-weight: 600;
   color: var(--ink);
 }
-.actions-close {
+.actions-close,
+.floating-size {
   display: grid;
   place-items: center;
   width: var(--size-control-sm);
@@ -1649,7 +1660,9 @@ button.variant.add {
   font-size: 13px;
 }
 .chip[aria-pressed="true"],
-.chip[aria-checked="true"] {
+.chip[aria-checked="true"],
+.name-kinds button[aria-checked="true"],
+.name-options > button[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
   color: var(--link);
@@ -1693,23 +1706,37 @@ button.variant.add {
 .name-field::placeholder {
   color: var(--ink-faint);
 }
-/* The suggested name, just under the field: the letters it adds or changes are marked. */
-.name-suggestion {
+/* Under the name field: the suggested name, a sequence's choices and the names drawn before. */
+.name-suggestion,
+.name-options,
+.name-history {
   position: absolute;
   top: calc(var(--space-4) + 44px);
   left: 50%;
   z-index: var(--z-strip);
+  width: 360px;
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+}
+.name-options,
+.name-history {
+  margin-left: -180px;
+  padding: var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  transform-origin: top center;
+  animation: strip-in var(--motion-fast) var(--ease-out);
+}
+/* The suggested name: the letters it adds or changes are marked. */
+.name-suggestion {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  width: 360px;
   margin: 0 0 0 -180px;
   padding: var(--space-1) var(--space-3);
-  box-sizing: border-box;
   border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -1719,23 +1746,9 @@ button.variant.add {
    Residue labels (each on or off). The field keeps
    the focus. A choice on shows in the brand's mist, as a pressed chip does. */
 .name-options {
-  position: absolute;
-  top: calc(var(--space-4) + 44px);
-  left: 50%;
-  z-index: var(--z-strip);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-1);
-  width: 360px;
-  margin-left: -180px;
-  padding: var(--space-1);
-  box-sizing: border-box;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  transform-origin: top center;
-  animation: strip-in var(--motion-fast) var(--ease-out);
 }
 .name-kinds {
   grid-column: 1 / -1;
@@ -1761,16 +1774,6 @@ button.variant.add {
 .name-options > button {
   border-color: var(--hairline);
 }
-.name-kinds button[aria-checked="true"] {
-  border-color: transparent;
-  background: var(--brand-mist);
-  color: var(--link);
-}
-.name-options > button[aria-pressed="true"] {
-  border-color: transparent;
-  background: var(--brand-mist);
-  color: var(--link);
-}
 @media (hover: hover) and (pointer: fine) {
   .name-options > button:hover:not([aria-pressed="true"]),
   .name-kinds button:hover:not([aria-checked="true"]) {
@@ -1780,7 +1783,8 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.name-suggestion.lower {
+.name-suggestion.lower,
+.name-history.lower {
   top: calc(var(--space-4) + 118px);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2465,7 +2469,8 @@ div.facts {
   justify-content: space-between;
   margin-bottom: var(--space-3);
 }
-.modal h2 {
+.modal h2,
+.settings-main h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -3081,7 +3086,8 @@ div.facts {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.settings-main {
+.settings-main,
+.library-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -3092,12 +3098,6 @@ div.facts {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-6) var(--space-2);
-}
-.settings-main h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 .settings-body {
   flex: 1;
@@ -3189,21 +3189,8 @@ div.facts {
   }
 }
 .key-remove {
-  position: absolute;
   top: -7px;
   right: -7px;
-  display: grid;
-  place-items: center;
-  width: var(--size-action);
-  height: var(--size-action);
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-  box-sizing: border-box;
 }
 .key-chip:hover .key-remove,
 .key-remove:focus-visible {
@@ -3326,11 +3313,6 @@ div.facts {
   transform-origin: left top;
   animation: strip-in var(--motion-fast) var(--ease-out);
 }
-.library.carrying {
-  opacity: 0.35;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
 .library-side {
   display: flex;
   flex-direction: column;
@@ -3352,12 +3334,6 @@ div.facts {
   overflow-y: auto;
 }
 /* The open set's name over its templates, and Keep open, which tears the set off into a floating palette. */
-.library-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
 .library-head {
   display: flex;
   flex: none;
@@ -3456,18 +3432,6 @@ div.facts {
   font: 500 11px var(--font-sans);
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-/* The template size button on the bar: the look of the panel controls (.actions-close), as the palette's X beside it. */
-.floating-size {
-  display: grid;
-  place-items: center;
-  width: var(--size-control-sm);
-  height: var(--size-control-sm);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-muted);
 }
 .floating-grid {
   display: grid;
@@ -3807,7 +3771,8 @@ div.facts {
   width: 18px;
   height: 18px;
 }
-.command-name {
+.command-name,
+.name-text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -3839,28 +3804,9 @@ div.facts {
 }
 
 
-/* Names drawn before, under the name field: five, or all of them in a taller list. */
-.name-history {
-  position: absolute;
-  top: calc(var(--space-4) + 44px);
-  left: 50%;
-  z-index: var(--z-strip);
-  width: 360px;
-  margin-left: -180px;
-  padding: var(--space-1);
-  box-sizing: border-box;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  transform-origin: top center;
-  animation: strip-in var(--motion-fast) var(--ease-out);
-}
+/* Names drawn before: five, or all of them in a taller list. */
 .name-history.below {
   top: calc(var(--space-4) + 84px);
-}
-.name-history.lower {
-  top: calc(var(--space-4) + 118px);
 }
 .name-history.below.lower {
   top: calc(var(--space-4) + 158px);
@@ -3899,13 +3845,6 @@ div.facts {
 .name-thumb .thumb {
   width: 36px;
   height: 36px;
-}
-.name-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .name-forget {
   display: grid;
@@ -3970,7 +3909,8 @@ div.facts {
   stroke-width: 1.25;
   transition: fill var(--motion-fast) var(--ease-out);
 }
-.turn-handle path {
+.turn-handle path,
+.turn-centre {
   fill: none;
   stroke: var(--brand);
   stroke-width: 1.4;
@@ -3985,12 +3925,6 @@ div.facts {
 }
 .editor[data-select] .canvas[data-theme="dark"] :is(.resize-handle.hot, .turn-handle.hot circle) {
   fill: color-mix(in srgb, var(--select) 30%, var(--canvas));
-}
-.turn-centre {
-  fill: none;
-  stroke: var(--brand);
-  stroke-width: 1.4;
-  stroke-linecap: round;
 }
 .turn-angle {
   fill: var(--link);
@@ -4635,7 +4569,8 @@ div.facts {
   box-sizing: border-box;
   white-space: nowrap;
 }
-.dialog-button.primary {
+.dialog-button.primary,
+.export-button.primary:not(:disabled) {
   border-color: var(--brand);
   background: var(--brand);
   color: var(--on-brand);
@@ -4644,7 +4579,8 @@ div.facts {
   .dialog-button:hover:not(:disabled) {
     background: var(--surface-sunken);
   }
-  .dialog-button.primary:hover:not(:disabled) {
+  .dialog-button.primary:hover:not(:disabled),
+  .export-button.primary:hover:not(:disabled) {
     border-color: var(--brand-hover);
     background: var(--brand-hover);
   }
@@ -4705,20 +4641,6 @@ div.facts {
 .properties header button,
 .spectrum header button {
   cursor: default;
-}
-.properties header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
-}
-.properties h2,
-.spectrum h2 {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
-  color: var(--ink);
 }
 .prop-list {
   display: grid;
@@ -5474,11 +5396,6 @@ div.facts {
   display: flex;
   gap: var(--space-2);
 }
-.export-button.primary:not(:disabled) {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: var(--on-brand);
-}
 .export-button {
   display: flex;
   align-items: center;
@@ -5506,10 +5423,6 @@ div.facts {
 @media (hover: hover) and (pointer: fine) {
   .export-button:hover:not(:disabled) {
     background: var(--surface-sunken);
-  }
-  .export-button.primary:hover:not(:disabled) {
-    border-color: var(--brand-hover);
-    background: var(--brand-hover);
   }
 }
 .strip.export-menu {
@@ -6053,27 +5966,8 @@ div.facts {
   opacity: 0.5;
 }
 .home-remove {
-  position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  display: grid;
-  place-items: center;
-  width: var(--size-action);
-  height: var(--size-action);
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-  box-sizing: border-box;
-}
-@media (hover: hover) and (pointer: fine) {
-  .home-remove:hover {
-    background: var(--surface-sunken);
-    color: var(--ink);
-  }
 }
 .home-remove:active {
   transform: scale(var(--press-small));
@@ -6083,7 +5977,8 @@ div.facts {
   opacity: 1;
 }
 /* A thumbnail of the user's own (a photo) fills its tile; a drawing's picture sits inside it. */
-.home-thumb img.fill {
+.home-thumb img.fill,
+.folder .paper img.fill {
   inset: 0;
   width: 100%;
   height: 100%;
@@ -6098,7 +5993,8 @@ div.facts {
   aspect-ratio: 4 / 3;
   border-radius: var(--radius-md);
 }
-.folder-back {
+.folder-back,
+.folder-lines {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -6133,12 +6029,6 @@ div.facts {
   height: 52%;
   object-fit: contain;
   object-position: center top;
-}
-.folder .paper img.fill {
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .folder-front {
   position: absolute;
@@ -6224,13 +6114,6 @@ div.facts {
   display: grid;
   place-items: center;
   color: var(--brand);
-}
-.folder-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
 }
 .folder-lines :is(path, rect) {
   fill: none;

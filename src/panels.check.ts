@@ -122,11 +122,11 @@ for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-
 // pill's and tab's X (18 px), and the X on a notice and on a floating template palette, which are a panel's Close.
 {
   const radius = (sel: string) => new RegExp(`\\n${sel} \\{[^}]*\\n  border-radius: ([^;]+);`).exec(css)?.[1];
-  assert.equal(radius("\\.actions-close"), "var(--radius-sm)");
-  assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close"), "a pill's or tab's X has the panel controls' corners");
+  assert.equal(radius("\\.actions-close,\\n\\.floating-size"), "var(--radius-sm)");
+  assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close,\\n\\.floating-size"), "a pill's or tab's X has the panel controls' corners");
   assert.match(read("./NoticeBar.tsx"), /<button className="actions-close" aria-label="Close" data-tip="Close" onClick=\{onGone\}><X size=\{12\} \/><\/button>/);
   assert.match(read("./TemplateLibrary.tsx"), /<button className="actions-close" aria-label=\{`Close \$\{palette\.set\}`\} data-tip="Close" onClick=\{onClose\}>/);
-  assert.match(css, /\n\.floating-size \{[^}]*\n  width: var\(--size-control-sm\);\n  height: var\(--size-control-sm\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
+  assert.match(css, /\n\.actions-close,\n\.floating-size \{[^}]*\n  width: var\(--size-control-sm\);\n  height: var\(--size-control-sm\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
   assert.doesNotMatch(css + read("./NoticeBar.tsx") + read("./TemplateLibrary.tsx"), /notice-close|floating-close/, "no second panel X");
 }
 // The + that adds a spectrum is a small action at the brand's 12 px, as the X beside it.
