@@ -5,9 +5,6 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <teavm.version>0.16.0</teavm.version>
-    <teavm.target>JAVASCRIPT</teavm.target>
-    <teavm.out>${project.build.directory}/js</teavm.out>
-    <teavm.file>opsin.js</teavm.file>
     <teavm.minify>true</teavm.minify>
   </properties>
   <dependencies>
@@ -23,10 +20,10 @@
         <groupId>org.teavm</groupId><artifactId>teavm-maven-plugin</artifactId><version>${teavm.version}</version>
         <executions><execution><id>tea</id><goals><goal>compile</goal></goals><phase>process-classes</phase>
           <configuration>
-            <targetType>${teavm.target}</targetType>
+            <targetType>JAVASCRIPT</targetType>
             <mainClass>octet.OpsinJs</mainClass>
-            <targetDirectory>${teavm.out}</targetDirectory>
-            <targetFileName>${teavm.file}</targetFileName>
+            <targetDirectory>${project.build.directory}/js</targetDirectory>
+            <targetFileName>opsin.js</targetFileName>
             <jsModuleType>ES2015</jsModuleType>
             <minifying>${teavm.minify}</minifying>
             <optimizationLevel>FULL</optimizationLevel>
