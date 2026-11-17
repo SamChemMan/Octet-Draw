@@ -4505,7 +4505,7 @@ div.facts {
 .unit-field textarea {
   width: 100%;
   min-width: 0;
-  height: 18px;
+  height: 1lh;
   overflow: hidden;
   padding: 0;
   border: 0;
