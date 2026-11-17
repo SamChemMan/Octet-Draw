@@ -44,8 +44,11 @@ pub const FILE_URL: &str = "public.file-url";
 pub const DIB: &str = "CF_DIB";
 pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
 pub const ENHMETAFILE: &str = "CF_ENHMETAFILE";
-// LibreOffice's own copy of a picture on Linux, under its full name.
+// LibreOffice's own copy of a picture, under its full name on Linux and the Mac. LibreOffice's table of Mac names spells
+// it svbx: paste on the Mac reads both. Windows has the format by its registered name.
 pub const SVXB: &str = "application/x-openoffice-svxb;windows_formatname=\"SVXB (StarView Bitmap/Animation)\"";
+pub const SVBX: &str = "application/x-openoffice-svbx;windows_formatname=\"SVXB (StarView Bitmap/Animation)\"";
+pub const SVXB_WINDOWS: &str = "SVXB (StarView Bitmap/Animation)";
 
 const MAX_TYPE: usize = 64 << 20;
 const MAX_TEXT: usize = 64 << 10;
@@ -106,7 +109,8 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Bitmap => &["public.tiff"],
             FileUrl => &[FILE_URL],
             Office => &["com.microsoft.Art--GVML-ClipFormat"],
-            Object | Svxb => &[],
+            Svxb => &[SVXB, SVBX],
+            Object => &[],
             // A prefix: mac::read gives the first such type that holds a PDF.
             Keynote => &["com.apple.iWork.TSPData."],
             Svg | Emf => &[],
@@ -123,7 +127,8 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Text => &[UNICODE_TEXT],
             Office => &["Art::GVML ClipFormat"],
             Object => &[crate::ole::EMBED_SOURCE, crate::ole::EMBEDDED_OBJECT],
-            Pdf | Svg | FileUrl | Keynote | Svxb => &[],
+            Svxb => &[SVXB_WINDOWS],
+            Pdf | Svg | FileUrl | Keynote => &[],
         },
         System::Linux => match k {
             Png => &["image/png"],
@@ -952,6 +957,17 @@ pub(crate) mod tests {
             assert_eq!(svxb_picture(&svxb[..k]), None, "cut at {k}");
         }
         assert_eq!(svxb_picture(&[&svxb[..12], &[0xff; 4][..], &svxb[16..]].concat()), None, "fields past the end");
+        // The Mac (under both spellings) and Windows (under the registered name) read LibreOffice's copy too: one that
+        // holds the PDF (pasted on the Mac or Linux), and one that holds the EMF (pasted on Windows, issue 48).
+        let svxb_emf = [&b"NAT5\x01\x00\0\0\0\0\x02\x00\x33\0\0\0\x0c\x00"[..], &(emf.len() as u32).to_le_bytes(), &[0; 45], &emf, &[0; 9]].concat();
+        for (s, name) in [(System::Mac, SVXB), (System::Mac, SVBX), (System::Windows, SVXB_WINDOWS), (System::Linux, SVXB)] {
+            for (b, want) in [(&svxb, doc.as_str()), (&svxb_emf, x)] {
+                let png = crate::export::clipboard_pictures(svg, false, 600.0, None).unwrap().0;
+                assert_eq!(clip(s, |n| if n == name { Some(b.clone()) } else { names(s, Kind::Png).contains(&n).then(|| png.clone()) }).cdxml.as_deref(), Some(want), "{s:?} {name}");
+            }
+            assert!(readable(s).contains(&name) || s == System::Mac, "{s:?} asks for {name}");
+        }
+        assert_eq!(clip(System::Windows, |n| (n == SVXB).then(|| svxb.clone())).cdxml, None, "Windows has no MIME names");
         // A PDF or PNG file copied in Finder (its path) or the file manager (a file:// list).
         let dir = std::env::temp_dir().join(format!("octet-copied-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

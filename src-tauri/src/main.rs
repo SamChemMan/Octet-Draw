@@ -1483,9 +1483,10 @@ fn main() {
         .build(context)
         .expect("error while running Octet")
         .run(|_app, event| match event {
-            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
+            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon). A picture that
+            // LibreOffice's extension opened is an object (objects::marked).
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Opened { urls } => open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None),
+            tauri::RunEvent::Opened { urls } => open::offer(_app, objects::opened(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok())), None),
             // A window closed: it leaves Home's list, and a quit that waits goes on to the next window (quit.rs).
             // After a quit from the Dock or a logout, AppKit ends Octet, so Tauri does not end it first.
             tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => {
