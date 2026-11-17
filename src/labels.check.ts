@@ -45,6 +45,8 @@ const formulas: Record<string, string> = {
   CH2CH3: "CC", CH3CH2: "CC", CO2C2H5: "C(=O)OCC", OCOCH3: "OC(=O)C", CH3CO2: "OC(C)=O", NHC6H5: "Nc1ccccc1", OC6H5: "Oc1ccccc1",
   CH2C6H5: "Cc1ccccc1", C6H5CH2: "Cc1ccccc1", "N(C2H5)2": "N(CC)CC", C2H5O: "OCC", CH3O: "OC", C2H5OOC: "C(OCC)=O",
   CH2CO2C2H5: "CC(=O)OCC", OCOC6H5: "OC(=O)c1ccccc1", "P(C6H11)2": "P(C1CCCCC1)C1CCCCC1", "4-BrC6H4": "c3ccc(Br)cc3",
+  // Unsaturated, written from the left: the hydrogens written leave a double bond (no E or Z, so not in the table below).
+  CH3CHCH: "C=CC", CH3NN: "N=NC",
 };
 for (const [label, smiles] of Object.entries(formulas)) assert.equal(labelSmiles(label), smiles, label);
 for (const label of ["C6H4", "CH2C6H4Br", "C6H4CH3", "C2H3", "C3H5", "C10H7", "C6H6"]) assert.equal(labelSmiles(label), undefined, label);
@@ -323,6 +325,15 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["OSO2NH2 H2NO2SO", "NS(=O)(=O)Oc1ccccc1", "C6H7NO3S"],
     ["CH2SO2NH2 H2NO2SCH2", "NS(=O)(=O)Cc1ccccc1", "C7H9NO2S"],
     ["CO2H COOH HO2C HOOC", "OC(=O)c1ccccc1", "C7H6O2"],
+    // Read from its last atom, a label keeps the hydrogens it writes: a bond along the chain takes what is left.
+    ["CH2CH H2CCH", "C=Cc1ccccc1", "C8H8"],
+    ["CH2CCH3 CH2C(CH3)", "CC(=C)c1ccccc1", "C9H10"],
+    ["CH2N H2CN", "C=Nc1ccccc1", "C7H7N"],
+    ["NHCH", "N=Cc1ccccc1", "C7H7N"],
+    ["NHN", "N=Nc1ccccc1", "C6H6N2"],
+    ["HCC", "C#Cc1ccccc1", "C8H6"],
+    ["PhCC", "c1ccc(cc1)C#Cc1ccccc1", "C14H10"],
+    ["NCCH2CH2 CH2CH2CN", "N#CCCc1ccccc1", "C9H9N"],
   ];
   for (const [labels, full, want, apart] of table) for (const label of labels.split(" ")) {
     const m = labelled("*c1ccccc1", [label]), e = expandLabels(m), whole = parseStructure(label === "T" ? full.replace("[2H]", "[3H]") : full);

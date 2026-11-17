@@ -53,8 +53,9 @@ export function condensedRoot(text: string, last = false): { smiles: string; h: 
   // Others are read left to right instead (labelSmiles).
   const el = (i: number) => g!.nodes[i].el ?? "", pair = (a: number, b: number) => el(a) + el(b);
   const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
-  // Read from its last atom, a label makes no double or triple bond along the chain (NCCC is no C≡C–C≡N).
-  if (!g?.bonds.every((b) => fine(b) && !(last && !b.fixed && b.order > 1))) return undefined;
+  // Read from its last atom, a label keeps the hydrogens it writes, so a bond along the chain takes what is left
+  // (CH2CH is vinyl, NHN diazenyl, PhCC phenylethynyl, NCCH2CH2 cyanoethyl).
+  if (!g?.bonds.every(fine)) return undefined;
   const at = g.bonds.find((b) => g.nodes[b.a].smiles === "[*]" || g.nodes[b.b].smiles === "[*]"), root = at && (g.nodes[at.a].el ? at.a : at.b);
   const smiles = root === undefined ? undefined : smilesOf(g, root);
   if (!smiles?.startsWith(`[${g.nodes[root!].el}`)) return undefined;

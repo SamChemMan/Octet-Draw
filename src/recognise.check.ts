@@ -147,6 +147,11 @@ for (const b of ibuprofen.bonds.filter((b) => b.stereo)) assert.equal(ibuprofen.
 // The picture's MeO is left of its bond: it is kept as OMe, which Octet draws there as MeO.
 const boc = graphMol(readings.find((r) => r.file === "drawn/drawn-27.png")!.graph);
 assert.deepEqual(boc.atoms.flatMap((a) => (a.text ? [a.text] : [])).sort(), ["OMe", "tBu"]);
+// A picture's NC left of its bond is the nitrile, kept as CN; right of it, the isocyanide, kept as NC.
+for (const [x, want] of [[0, "CN"], [60, "NC"]] as const) {
+  const nc = graphMol({ atoms: [{ symbol: "[NC]", x, y: 0, score: 1 }, { symbol: "C", x: 30, y: 0, score: 1 }], bonds: [{ a: 0, b: 1, kind: 1, score: 1 }], confidence: 1, text: "" });
+  assert.equal(nc.atoms[0].text, want, `NC at x ${x}`);
+}
 
 // Weighing: MolScribe's answer, however confident OCSRGlyph is, and sure only when both agree. When MolScribe reads
 // nothing Octet can use, OCSRGlyph's.

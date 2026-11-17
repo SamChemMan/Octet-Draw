@@ -12,7 +12,7 @@ type Atom = Mol["atoms"][number];
 // label reader reads them right (issue 142), but a label is kept from its attachment atom and turned round when its
 // bond comes from the right, so CH3CO kept as written would show as OCH3C. One written from the attachment atom
 // (OC2H5, C6H5, COCH3) stays as written. Any other label is kept from its attachment atom as an AI app's label is
-// (MeO as OMe, EtO2C as CO2Et, NC as the nitrile CN: labels.ts givenLabel).
+// (MeO as OMe, EtO2C as CO2Et: labels.ts givenLabel).
 const CONDENSED: Record<string, string> = {
   H5C2: "Et", C2H5O: "OEt", C2H5OOC: "CO2Et", C2H5O2C: "CO2Et", H5C6: "Ph", C6H5O: "OPh", CH3CO: "Ac", CH3COO: "OAc", CH3CO2: "OAc",
 };
@@ -41,6 +41,8 @@ export function graphMol(g: Graph): Mol {
   const atoms: Atom[] = g.atoms.map((a) => ({ ...readSymbol(a.symbol), location: [a.x, a.y, 0] }));
   const degree = atoms.map(() => 0);
   for (const b of g.bonds) { degree[b.a]++; degree[b.b]++; }
+  // A picture's NC is the nitrile left of its bond (NC–Ar) and the isocyanide right of it (Ar–NC).
+  for (const b of g.bonds) for (const [i, j] of [[b.a, b.b], [b.b, b.a]]) if (atoms[i].text === "CN" && /^\[?NC\]?$/.test(g.atoms[i].symbol) && degree[i] === 1 && g.atoms[j].x < g.atoms[i].x) atoms[i].text = "NC";
   const lengths = g.bonds.map((b) => Math.hypot(g.atoms[b.a].x - g.atoms[b.b].x, g.atoms[b.a].y - g.atoms[b.b].y)).sort((p, q) => p - q);
   const unit = lengths.length ? lengths[lengths.length >> 1] || 1 : 30;
   const cx = g.atoms.reduce((s, a) => s + a.x, 0) / Math.max(1, g.atoms.length), cy = g.atoms.reduce((s, a) => s + a.y, 0) / Math.max(1, g.atoms.length);

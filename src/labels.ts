@@ -320,7 +320,16 @@ function onRing(text: string): string | undefined {
 // reversed: when its reverse is a formula above, or by fromEnd (MeO, AcOH: acetic acid, not C(C)=OO), and then as the
 // same label from its attachment atom.
 // A phenyl written with what is on it and where is that ring, and n- before a formula is the formula (RING, STRAIGHT).
+// Kept by the label, as the drawing and its captions read each label on every change.
+const read = new Map<string, string | undefined>();
 export function labelSmiles(label: string): string | undefined {
+  if (read.has(label)) return read.get(label);
+  const smiles = readLabel(label);
+  if (read.size >= 1000) read.clear();
+  read.set(label, smiles);
+  return smiles;
+}
+function readLabel(label: string): string | undefined {
   if (SPELT[label]) return GROUPS[SPELT[label]];
   if (label[1] === "-" || label[1] === ",") {
     const ring = RING.exec(label);
