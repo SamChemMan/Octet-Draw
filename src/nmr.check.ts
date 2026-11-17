@@ -149,20 +149,16 @@ assert.equal(at(4).code, codeHash("1H", hose(environment(ester), 4)[5]).toString
 // A hydrogen on O, N or S moves with the solvent and the concentration, so its shift is rated rough.
 for (const s of predict(ethanol, "1H", "CDCl₃")!.signals) assert.equal(quality(s, "1H") === "rough", s.group === "OH", s.group);
 
-// A version 1 table (no solvent tables, no ¹⁹F or ³¹P) still reads; the shipped file is read again after. Octet
-// writes version 3, whose parts name their nucleus and scale, so ¹⁹F and ³¹P shifts past ±327 ppm keep their value.
-const v1 = new Uint8Array(16 + 20), v1view = new DataView(v1.buffer);
-v1.set([..."ONMR"].map((c) => c.charCodeAt(0)));
-[1, 1, 1].forEach((v, i) => v1view.setUint32(4 + 4 * i, v, true));
-for (const at of [16, 26]) { v1view.setUint32(at, 5, true); v1view.setInt16(at + 4, 100, true); v1view.setUint16(at + 6, 1, true); v1view.setUint16(at + 8, 1, true); }
-readTables(v1);
-assert.throws(() => readTables(v1.slice(0, 20)));
+// Octet writes version 3, whose parts name their nucleus and scale, so ¹⁹F and ³¹P shifts past ±327 ppm keep their
+// value. It reads no other version; the shipped file is read again after.
 const wide = { hash: new Uint32Array([7]), shift: new Int16Array([-4570]), sd: new Uint16Array([10]), n: new Uint16Array([2]), scale: 10 };
 const far = { ...wide, shift: new Int16Array([8000]) }, one = { hash: new Uint32Array([5]), shift: new Int16Array([100]), sd: new Uint16Array([1]), n: new Uint16Array([1]) };
 const v3 = writeTables({ "13C": one, "1H": one, "19F": wide, "31P": far });
 assert.equal(new DataView(v3.buffer).getUint32(4, true), 3);
 readTables(v3);
 assert.throws(() => readTables(v3.slice(0, v3.length - 1)), /cut short/);
+const v1 = v3.slice(); new DataView(v1.buffer).setUint32(4, 1, true);
+assert.throws(() => readTables(v1), /Not a shift table/);
 const badScale = v3.slice(); new DataView(badScale.buffer).setUint16(14, 7, true);
 assert.throws(() => readTables(badScale), /Not a shift table/);
 const badNucleus = v3.slice(); badNucleus[12] = 9;

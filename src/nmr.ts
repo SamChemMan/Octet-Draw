@@ -229,12 +229,10 @@ export function codeHash(nucleus: Nucleus, code: string): number {
 
 // A table: sorted code hashes, each with the median shift, the spread (standard deviation) and how many measured
 // shifts it holds; shifts and spreads are stored × scale (100 for ¹H and ¹³C, 10 for ¹⁹F and ³¹P, whose shifts run
-// past ±327 ppm). Version 1 of the file holds the ¹³C table, then the ¹H one: "ONMR", version, the two counts, then
-// per table the hashes (u32), shifts (i16, ppm × 100), spreads (u16, ppm × 100) and counts (u16). Version 2 adds the
-// solvent tables, ¹³C then ¹H (four counts, four tables): codes measured in one solvent (solventCode) whose shifts
-// there differ from the shifts in every solvent. Version 3 names its parts: "ONMR", 3, the number of parts, then for
-// each part its nucleus (u8, NUCLEUS_LIST's order), whether it is a solvent table (u8), its scale (u16) and its count
-// (u32), then the parts' tables as before.
+// past ±327 ppm). A solvent table holds codes measured in one solvent (solventCode) whose shifts there differ from the
+// shifts in every solvent. The file (version 3): "ONMR", 3, the number of parts, then for each part its nucleus (u8,
+// NUCLEUS_LIST's order), whether it is a solvent table (u8), its scale (u16) and its count (u32), then per part the
+// hashes (u32), shifts (i16), spreads (u16) and counts (u16).
 export type Table = { hash: Uint32Array; shift: Int16Array; sd: Uint16Array; n: Uint16Array; scale?: number };
 export type Tables = Partial<Record<Nucleus, Table>> & { solvent?: Partial<Record<Nucleus, Table>> };
 const tables: Partial<Record<Nucleus, Table>> = {}, solventTables: Partial<Record<Nucleus, Table>> = {};
@@ -242,24 +240,15 @@ const MAX_PARTS = 32;
 
 export function readTables(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), version = bytes.length >= 8 ? view.getUint32(4, true) : 0;
-  if (bytes.length < 12 || String.fromCharCode(...bytes.slice(0, 4)) !== "ONMR" || version < 1 || version > 3) throw new Error("Not a shift table");
+  if (bytes.length < 12 || String.fromCharCode(...bytes.slice(0, 4)) !== "ONMR" || version !== 3) throw new Error("Not a shift table");
   // Each part: its nucleus, solvent table or not, scale and count.
   const parts: { nucleus: Nucleus; solvent: boolean; scale: number; count: number }[] = [];
-  let head: number;
-  if (version === 3) {
-    const k = view.getUint32(8, true);
-    head = 12 + 8 * k;
-    if (k > MAX_PARTS || bytes.length < head) throw new Error("Shift table is cut short");
-    for (let i = 0; i < k; i++) {
-      const at = 12 + 8 * i, nucleus = NUCLEUS_LIST[bytes[at]], solvent = bytes[at + 1], scale = view.getUint16(at + 2, true);
-      if (!nucleus || solvent > 1 || (scale !== 10 && scale !== 100)) throw new Error("Not a shift table");
-      parts.push({ nucleus, solvent: solvent === 1, scale, count: view.getUint32(at + 4, true) });
-    }
-  } else {
-    const k = version === 2 ? 4 : 2;
-    head = 8 + 4 * k;
-    if (bytes.length < head) throw new Error("Shift table is cut short");
-    for (let i = 0; i < k; i++) parts.push({ nucleus: i % 2 ? "1H" : "13C", solvent: i >= 2, scale: 100, count: view.getUint32(8 + 4 * i, true) });
+  const k = view.getUint32(8, true), head = 12 + 8 * k;
+  if (k > MAX_PARTS || bytes.length < head) throw new Error("Shift table is cut short");
+  for (let i = 0; i < k; i++) {
+    const at = 12 + 8 * i, nucleus = NUCLEUS_LIST[bytes[at]], solvent = bytes[at + 1], scale = view.getUint16(at + 2, true);
+    if (!nucleus || solvent > 1 || (scale !== 10 && scale !== 100)) throw new Error("Not a shift table");
+    parts.push({ nucleus, solvent: solvent === 1, scale, count: view.getUint32(at + 4, true) });
   }
   let at = head;
   const read: [Partial<Record<Nucleus, Table>>, Partial<Record<Nucleus, Table>>] = [{}, {}];
