@@ -3091,6 +3091,16 @@ export default function Editor() {
   }, []);
   // The last menu command the page ran from a Ctrl key off the Mac, so the same command from the menu does not run twice.
   const pageRan = useRef<{ id: string; at: number }>(undefined);
+  // ChemDraw's text keys in a label or caption box. The box takes them first (in the app too: the web view gets the
+  // keystroke before the Text menu does), and marks them in pageRan. A label takes only the Text menu's styles.
+  const textKeys = (e: React.KeyboardEvent, label: boolean) => {
+    if (!(TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey)) return;
+    const command = textKey(e, label);
+    if (!command || (label && !command.startsWith("caption."))) return;
+    e.preventDefault();
+    if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
+    runAction(command);
+  };
   // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
   useListen<string>("menu", (e) => {
     // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
@@ -8367,13 +8377,13 @@ export default function Editor() {
     }
     if (command.startsWith("caption.")) {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
+      const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
+      const script = (to: "sub" | "super") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, script: all.script === to ? undefined : to });
       // The label being typed: Bold, Italic, Underline and Plain on its characters (as a caption's), a font or size on
       // all of it (a label has one).
       // Subscript and Superscript on part of a label too (issue 44, ChemDraw's Fe with III raised).
       const toggles: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
-        bold: (s, all) => ({ ...s, bold: all.bold ? undefined : true }), italic: (s, all) => ({ ...s, italic: all.italic ? undefined : true }),
-        underline: (s, all) => ({ ...s, underline: all.underline ? undefined : true }), plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined }),
-        sub: (s, all) => ({ ...s, script: all.script === "sub" ? undefined : "sub" }), super: (s, all) => ({ ...s, script: all.script === "super" ? undefined : "super" }),
+        bold: toggle("bold"), italic: toggle("italic"), underline: toggle("underline"), sub: script("sub"), super: script("super"), plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined }),
       };
       if (editing && labelOpen.current) {
         if (toggles[what]) return styleLabel(toggles[what]!);
@@ -8409,18 +8419,13 @@ export default function Editor() {
         return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...change(x) } : x)) }, true);
       }
       // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
-      const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
-      const script = (to: "sub" | "super") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, script: all.script === to ? undefined : to });
       const patches: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
-        bold: toggle("bold"), italic: toggle("italic"), underline: toggle("underline"), sub: script("sub"), super: script("super"),
-        plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined, script: undefined }),
+        ...toggles, plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined, script: undefined }),
         font: (s) => ({ ...s, font: arg === style.captionFont ? undefined : arg }),
       };
       if (what === "formula") return formulaText();
       if (patches[what] && (writing || what === "sub" || what === "super" || what === "plain" || what === "font")) return styleText(patches[what]!, what);
-      if (what === "bold") return restyle((c) => ({ bold: !c.bold }));
-      if (what === "italic") return restyle((c) => ({ italic: !c.italic }));
-      if (what === "underline") return restyle((c) => ({ underline: !c.underline }));
+      if (what === "bold" || what === "italic" || what === "underline") return restyle((c) => ({ [what]: !c[what] }));
       if (what === "size" && writing && richApi.current?.range()?.[0] !== richApi.current?.range()?.[1]) return styleText((s) => ({ ...s, size: Number(arg) }), what);
       if (what === "size") return restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }));
       if (what === "align" && arg !== "above" && arg !== "auto") return restyle(() => ({ align: arg as Caption["align"] }));
@@ -10235,16 +10240,8 @@ export default function Editor() {
               if (e.key === "Escape") { e.preventDefault(); commit(); }
               // ⇧⌘N in the browser (the app's menu does it there): the label's text as a name.
               if (!TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); commands.current.name_to_structure(); }
-              // ChemDraw's text keys, as in a caption: the box takes them first, and marks them so the Text menu's own
-              // command from the same key does not run again.
-              else if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
-                const command = textKey(e, true);
-                if (command?.startsWith("caption.")) {
-                  e.preventDefault();
-                  if (TAURI) pageRan.current = { id: `text_${command.slice(8)}`, at: performance.now() };
-                  runAction(command);
-                }
-              }
+              // ChemDraw's text keys, as in a caption.
+              else textKeys(e, true);
             }}
             onBlur={commit}
           />
@@ -10376,16 +10373,7 @@ export default function Editor() {
               else if (e.key === "Tab" && !e.shiftKey && tabSide()) e.preventDefault();
               else if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
-              // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
-              // the Text menu does), and marks them so the same command from the menu does not run twice.
-              if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
-                const command = textKey(e, false);
-                if (command) {
-                  e.preventDefault();
-                  if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
-                  runAction(command);
-                }
-              }
+              textKeys(e, false);
             }}
             onBlur={() => commitWriting()}
           />
