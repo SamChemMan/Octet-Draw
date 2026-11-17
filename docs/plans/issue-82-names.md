@@ -315,3 +315,40 @@ types (`Editor.tsx:3752`, and `nameToSmiles` in render at 10578 and 10593), and 
 Draw in ChemDraw 26.1 (or 22.2) and run Convert Structure to Name: xylitol, ribitol, trans- and cis-tranexamic acid,
 cis- and trans-decalin, tropine, hyoscyamine, the 3D cubane and a 3D amantadine. Octet's names are in the stress
 list. A difference in r or s, or in the numbering, is a finding for this item.
+
+## Build notes (17 November 2026)
+
+What changed from the plan while building, and why.
+
+- J3, the reader. Each configuration of the open centres is turned into SMILES and grouped by standard InChI first;
+  only one configuration of each stereoisomer is labelled. In a cage, labelling costs far more than InChI (3D
+  cubane-1,4-dicarboxylic acid: 9 labellings, not 64). With no configuration in the SMILES, half the configurations
+  are enough: a mirror image is every open centre turned. The rule for which reading to keep is as planned, put
+  exactly: the name is Octet's own name for one stereoisomer with the name's r and s; or exactly one stereoisomer has
+  them and Octet's name for it cites them at the same locants.
+- J3, two things the stress list did not have. A list inside bis[...] counts its r and s twice
+  ((1r,4r)-1,4-bis[(1s,4s)-4-methylcyclohexyl]cyclohexane). Atoms alike in a benzene ring are alike in either Kekulé
+  form, so a centre between two rings is open ((9s,10s)-9,10-dimethyl-9,10-dihydroanthracene). Both came from the CIP
+  validation suite (scripts/namer-suite.ts).
+- J3, lowercase on a centre that is not pseudoasymmetric. OPSIN reads "(2s)-butan-2-ol" as (2S). A name with r or s
+  goes to Octet's reader alone, so that name gives no structure now, as stress 7 asks for "(1r,3r)-...".
+- J4 is per bridgehead, not per structure. A 3D amantadine has labels (3s,5s,7s) and an InChI that also sets C1
+  from the atoms' places; the name's InChI leaves C1 open. So the comparison leaves open only the /t atoms that are
+  locked bridgeheads with no CIP label, and compares every other atom and /m as they are. With no /m (not chiral),
+  InChI may give the name's structure with every sign turned, and that counts as the same.
+- Stress 22: a 3D cubane-1,4-dicarboxylic acid is named (2r,3r,5r,6r,7r,8r)-cubane-1,4-dicarboxylic acid, not
+  cubane-1,4-dicarboxylic acid. Octet's labeller gives its six CH atoms r (as Show Stereochemistry shows), and decision
+  7 cites every label. The same holds for other cages after 3D Clean Up: (1s,4s)-bicyclo[2.2.1]heptane,
+  (1r,3r,5r,7r)-adamantan-2-one, (1r,4r)-bicyclo[2.1.1]hexane. Flat drawings keep their plain names. This is the
+  decision 7 question for Sam.
+- Four carbon polyhedra in the template library, drawn in 3D, are now named as their hydrocarbons: Cube (cubane),
+  Tetrahedrane (tricyclo[1.1.0.0²,⁴]butane), Trigonal bipyramid and Square pyramid. templates.check.ts names them.
+- Checks: the chair-drawn rings and inositols are in namer-pseudo.check.ts, not chair.check.ts. File round trips are
+  in namer-pseudo-files.check.ts; the AI apps' tools in namer-pseudo-mcp.check.ts. The headless host has no
+  structure_to_name command (it never had); read gives each structure's name there, and the app's Convert structure
+  to name was checked in the dev app.
+- Names: Octet writes pentane-1,2,3,4,5-pentaol (its style before this item); the published pentol reads as the same
+  structure.
+- ChemDraw 22.2 (AppleScript round trip): its saved CDXML labels the atoms of xylitol, trans-tranexamic acid and
+  tropine as Octet does (AS r on four atoms, R on two, S on two). A larger file of 25 structures did not open by
+  AppleScript; it was not tried again.
