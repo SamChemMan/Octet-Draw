@@ -54,6 +54,7 @@ input:disabled,
   -webkit-touch-callout: none;
   font-family: var(--font-sans);
   color: var(--ink);
+  --ruler: 0px;
 }
 
 /* The canvas stays white in dark mode (data-theme="light" on the element), for print fidelity. Its cursors are
@@ -559,10 +560,6 @@ rect.mark {
   border-bottom: 4px solid currentColor;
   opacity: 0.5;
 }
-.tool {
-  position: relative;
-}
-
 /* The variant strip opens beside its tool and grows out from it. */
 .strip {
   position: absolute;
@@ -580,6 +577,7 @@ rect.mark {
   box-shadow: var(--shadow-float);
   transform-origin: left center;
   animation: strip-in var(--motion-fast) var(--ease-out);
+  transition: width var(--motion) var(--ease-out);
 }
 
 @keyframes strip-in {
@@ -590,16 +588,8 @@ rect.mark {
 }
 
 /* Resizing: the width follows the grip, then eases to a whole column when it is let go. */
-.strip {
-  transition: width var(--motion) var(--ease-out);
-}
 .strip.resizing {
   transition: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .strip {
-    transition: none;
-  }
 }
 /* Its options scroll when the menu is taller than the window; its sub-menus sit outside the scrolling part. */
 .menu-body {
@@ -977,6 +967,7 @@ button.variant.add {
 }
 
 .tool {
+  position: relative;
   width: var(--size-tool);
   height: var(--size-tool);
   display: grid;
@@ -1503,6 +1494,7 @@ button.variant.add {
   }
   .strip {
     animation: fade-in var(--motion-fast) var(--ease-out);
+    transition: none;
   }
 }
 
@@ -1548,6 +1540,21 @@ button.variant.add {
   }
 }
 .actions-reopen {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-tool);
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink-muted);
   transform-origin: bottom right;
   animation: panel-in var(--motion-fast) var(--ease-out);
   font: 500 13px/18px var(--font-sans);
@@ -2195,23 +2202,6 @@ button.variant.add {
   .strip.list {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
-}
-.actions-reopen {
-  position: absolute;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  z-index: var(--z-panel);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: var(--size-tool);
-  box-sizing: border-box;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  color: var(--ink-muted);
 }
 @media (hover: hover) and (pointer: fine) {
   .action:hover,
@@ -2880,14 +2870,12 @@ div.facts {
 .page-option-name {
   text-align: center;
   line-height: 15px;
+  white-space: nowrap;
 }
 .page-option-size {
   color: var(--ink-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.page-option-name {
   white-space: nowrap;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -4839,8 +4827,10 @@ div.facts {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 26px;
   margin-right: calc(-1 * var(--space-1));
   padding: var(--space-1);
+  padding-right: calc(3 * var(--size-control-sm) + var(--space-3));
 }
 .spectrum.minimised {
   display: none;
@@ -4910,10 +4900,6 @@ div.facts {
   position: absolute;
   top: calc(var(--space-1) + 2px);
   right: var(--space-1);
-}
-.spectrum header {
-  min-height: 26px;
-  padding-right: calc(3 * var(--size-control-sm) + var(--space-3));
 }
 /* A session's spectra as tabs (Spectrum.tsx Tabs), each with its close button on hover or focus, and + to add one. */
 /* The tabs are one width, and the + at their end is as wide as a tab: the tab list has equal columns, and the control
@@ -5230,17 +5216,13 @@ div.facts {
 }
 /* A row of small setting buttons (the arrow's line, ends, heads, curve and fill), each opening its choices. */
 .picks {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 2px;
   padding: 0 var(--space-1) var(--space-1);
 }
 .pick {
   position: relative;
-}
-.picks {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
 }
 .pick-button {
   display: flex;
@@ -6070,12 +6052,10 @@ div.facts {
 @media (prefers-reduced-motion: no-preference) {
   .folder .paper {
     transition: transform var(--motion) var(--ease-out);
+    transition-delay: calc(var(--k) * 20ms);
   }
   .folder-front {
     transition: transform var(--motion) var(--ease-out), background-color var(--motion) var(--ease-out), box-shadow var(--motion) var(--ease-out);
-  }
-  .folder .paper {
-    transition-delay: calc(var(--k) * 20ms);
   }
   @media (hover: hover) and (pointer: fine) {
     .home-tile.project:hover .folder-front {
@@ -6858,9 +6838,6 @@ div.facts {
 
 /* Rulers (View > Show Rulers): along the top and left of the window, under the floating panels, which move in to
    clear them. The unit is in the corner where they meet. */
-.editor {
-  --ruler: 0px;
-}
 .editor.with-rulers {
   --ruler: var(--space-6);
 }
