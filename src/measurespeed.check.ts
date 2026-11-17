@@ -89,7 +89,10 @@ const frame = (from: Mol, atom: number, d: number) => () => {
     prev = c;
   }
   const flat: Mol = { atoms, bonds };
-  const t = performance.now(), r = addMeasure(flat, [0, 1, 3, 5]), ms = performance.now() - t;
+  // The best of three, each on a fresh copy of the bonds (so nothing is known of the structure yet): a busy machine
+  // slows one run, not all three.
+  let ms = Infinity, r: ReturnType<typeof addMeasure> = "";
+  for (let k = 0; k < 3; k++) { const t = performance.now(); r = addMeasure({ ...flat, bonds: flat.bonds.map((b) => ({ ...b })) }, [0, 1, 3, 5]); ms = Math.min(ms, performance.now() - t); }
   assert.ok(typeof r !== "string" && r.tooBig && !r.cleaned.length, "too big to clean up: measured flat");
   assert.ok(typeof r !== "string" && r.mol.atoms === flat.atoms, "the drawing's atoms are as they were");
   console.log(`measurespeed.check: Measure on a flat 4000-atom peptide: ${ms.toFixed(1)} ms`);

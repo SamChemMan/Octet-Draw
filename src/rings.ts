@@ -14,11 +14,11 @@ const neighbours = (g: Graph) => {
 export function rings(g: Graph): number[][] {
   const adj = neighbours(g), out = new Map<string, number[]>();
   g.bonds.forEach((b, k) => {
-    const back = new Map<number, number>([[b.a, -1]]), depth = new Map<number, number>([[b.a, 0]]), queue = [b.a];
+    // depth[q]: how many bonds queue[q] is from b.a.
+    const back = new Map<number, number>([[b.a, -1]]), queue = [b.a], depth = [0];
     for (let q = 0; q < queue.length && !back.has(b.b); q++) {
-      const d = depth.get(queue[q])!;
-      if (d >= 19) continue;
-      for (const e of adj[queue[q]]) if (e.k !== k && !back.has(e.to)) { back.set(e.to, queue[q]); depth.set(e.to, d + 1); queue.push(e.to); }
+      if (depth[q] >= 19) break;
+      for (const e of adj[queue[q]]) if (e.k !== k && !back.has(e.to)) { back.set(e.to, queue[q]); queue.push(e.to); depth.push(depth[q] + 1); }
     }
     if (!back.has(b.b)) return;
     const ring: number[] = [];
