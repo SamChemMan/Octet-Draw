@@ -2796,6 +2796,8 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   const low = (t: string) => t.trim().toLowerCase(), sets = a.set ? LIBRARY.filter((c) => low(c.name) === low(a.set!)) : LIBRARY;
   if (!sets.length) return { text: `The library has no set ${a.set}. Its sets: ${LIBRARY.map((c) => c.name).join(", ")}.`, error: true };
   const items = sets.flatMap((c) => c.items), want = low(a.name);
+  // A blank name is no template: said so, not answered with the library's first names.
+  if (!want) return { text: "Give the name of a template, or a word it is found by.", error: true };
   const item = items.find((t) => low(t.name) === want) ?? items.find((t) => t.also?.split(",").some((w) => low(w) === want));
   if (!item) {
     const near = items.filter((t) => low(t.name).includes(want) || t.also?.toLowerCase().includes(want)).slice(0, 8).map((t) => t.name);

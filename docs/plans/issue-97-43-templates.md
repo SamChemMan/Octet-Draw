@@ -124,7 +124,8 @@ Each job is done only when its last line holds.
   the commonest member: "cyclodextrin" is β-cyclodextrin, "cucurbituril" is cucurbit[6]uril (the first one made, and
   what the word meant before the homologues).
 - **R8. Nothing else changes.** No other template, and no app code: the change is template data, its build, checks and
-  docs. `src/mcp.ts` does not change.
+  docs. `src/mcp.ts` does not change. (Changed 17 November, build: stress 19 found that a blank name got "The library
+  has no template . Near: Glycine, Alanine, …"; `placeTemplate` now says to give a name. One line.)
 
 ## Design
 
@@ -177,7 +178,7 @@ splay to 0.5; label gap CB[6] and CB[7] 0.67, CB[8] 0.88 bond lengths). So the s
 cannot keep the last R4 limit in any flat drawing: a ring offset by d is 2πd longer, so the outer rim, at the same
 number of bonds as the inner, cannot also reach round the five inner C=O. Its fallback, decided by the build and the
 check: every other limit, the outer rings flatter (bonds 1.2, N splay 0.6), the five inner O 0.71 bond lengths apart
-and their labels 0.10 bond lengths apart (clear, not touching). The check holds those numbers.
+and their labels 0.096 bond lengths apart (clear, not touching). The check holds those numbers.
 
 **D6. No wedges on a cucurbituril.** Its 2n methine CH pairs are cis-fused, every H out. PubChem's standard InChI for
 CB[5] to CB[8] has no stereo layer, and papers draw it without wedges; 4n wedges would bury the drawing. A flat
@@ -249,8 +250,9 @@ checked for the new templates as stated.
 
 ## MCP
 
-- No code change. `place_template` already looks in every set by name, by an exact also word, and with `set` and `on`
-  (`mcp.ts:2574-2597`). `read` reports each placed host's formula as for any structure.
+- No code change but one line: `place_template` already looks in every set by name, by an exact also word, and with
+  `set` and `on` (`mcp.ts:2574-2597`). `read` reports each placed host's formula as for any structure. A blank name now
+  gets "Give the name of a template, or a word it is found by." (stress 19).
 - Its description names examples (ATP, ferrocene, Round-bottom flask); it does not need the new names, and another
   session is reviewing that file, so it stays.
 - `mcp.check.ts`: the loop at line 2177 that places one template from each later set gets `["β-Cyclodextrin",
@@ -317,7 +319,9 @@ Intersystem crossing today, checked side by side.
     cucurbiturils. "cucurbituril": the 4. "[6]": Cucurbit[6]uril. "EnT" and "energy transfer": Energy transfer.
     "energy": Energy transfer and the Jablonski diagram.
 19. **MCP with bad arguments.** `place_template` with name "", "   ", "CB[9]", 10,000 characters, a right name with
-    `set: "Photochemistry"`, or `on: "s99.1"`: an error that names what was wrong, the drawing unchanged, no undo step.
+    `set: "Photochemistry"`, or `on: "s99.1"`: an error that names what was wrong, the drawing unchanged, no undo step
+    (the editor makes a step only when the drawing changes; the check's stand-in counts the calls, so it checks the
+    drawing).
 20. **Two AI sessions.** Two `place_template` calls sent at once: both placed, two undo steps, different ids, neither
     on top of the other.
 21. **Ring strip.** γ-Cyclodextrin kept in the Ring strip, the window reloaded: the strip shows it (the books) once

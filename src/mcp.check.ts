@@ -2127,10 +2127,40 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const added = ["predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf", "insert_file", "image_to_structure", "recognise_structures", "opacity.40", "arrow.style.membrane"];
   for (const c of added) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
   assert.deepEqual([...new Set(commands)], added);
-  for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"]]) {
+  for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"],
+    ["β-Cyclodextrin", "Supramolecules"], ["Cucurbit[7]uril", "Supramolecules"], ["Energy transfer", "Photochemistry"]]) {
     fresh();
     r = await call("advanced", { tool: "place_template", args: { name } });
-    assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name} from ${set}\\.`));
+    assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name.replace(/[[\]]/g, "\\$&")} from ${set}\\.`));
+  }
+  // 1.2's hosts and energy transfer (issues 97 and 43), by the word a chemist types: one general word picks the
+  // commonest host. A wrong name, a blank one, one too long, the wrong set or no such atom is an error that says so,
+  // and leaves the drawing as it was.
+  {
+    for (const [word, name] of [["cyclodextrin", "β-Cyclodextrin"], ["cucurbituril", "Cucurbit[6]uril"], ["CB[8]", "Cucurbit[8]uril"], ["alpha-CD", "α-Cyclodextrin"], ["EnT", "Energy transfer"], ["energy transfer", "Energy transfer"]]) {
+      fresh();
+      r = await call("advanced", { tool: "place_template", args: { name: word } });
+      assert.ok(!r.isError && text(r).startsWith(`Placed ${name} from`), `${word}: ${text(r)}`);
+    }
+    assert.deepEqual([m.arrows?.[0].style, m.captions?.map((c) => [c.text, !!c.on])], ["wavy", [["EnT", true]]], "Energy transfer: a wavy arrow with EnT on it");
+    fresh();
+    await call("advanced", { tool: "place_template", args: { name: "Cucurbit[6]uril" } });
+    const before = { m };
+    for (const args of [{ name: "" }, { name: "   " }, { name: "CB[9]" }, { name: "x".repeat(10_000) }, { name: "β-Cyclodextrin", set: "Photochemistry" }, { name: "β-Cyclodextrin", on: "s99.1" }]) {
+      r = await call("advanced", { tool: "place_template", args });
+      assert.ok(r.isError && text(r).length < 2000, `${JSON.stringify(args).slice(0, 60)}: ${text(r).slice(0, 200)}`);
+      // (The editor makes an undo step only when the drawing changes.)
+      assert.ok(m === before.m, `${JSON.stringify(args).slice(0, 60)}: the drawing as it was`);
+    }
+    for (const name of ["", "   "]) assert.equal(text(await call("advanced", { tool: "place_template", args: { name } })), "Give the name of a template, or a word it is found by.");
+    assert.equal(text(await call("advanced", { tool: "place_template", args: { name: "CB[9]" } })), "The library has no template CB[9].");
+    // Two sent at once (two AI sessions): both placed, one undo step each, side by side.
+    fresh();
+    const both = await Promise.all([call("advanced", { tool: "place_template", args: { name: "β-Cyclodextrin" } }, "s-1"), call("advanced", { tool: "place_template", args: { name: "Cucurbit[5]uril" } }, "s-2")]);
+    assert.ok(both.every((x) => !x.isError) && steps.length === 2 && m.atoms.length === 77 + 60, both.map(text).join(" "));
+    const box = (atoms: Mol["atoms"]) => [Math.min(...atoms.map((a) => a.location[0])), Math.min(...atoms.map((a) => a.location[1])), Math.max(...atoms.map((a) => a.location[0])), Math.max(...atoms.map((a) => a.location[1]))];
+    const [b1, b2] = [box(m.atoms.slice(0, 77)), box(m.atoms.slice(77))];
+    assert.ok(b1[2] < b2[0] || b2[2] < b1[0] || b1[3] < b2[1] || b2[3] < b1[1], "neither on top of the other");
   }
   fresh();
   r = await callOk("change", { operations: [{ op: "shape", kind: "gel", box: [0, 0, 6, 6], gel: { unit: "bp", lanes: 3, names: ["L", "A"], range: [5000, 100], bands: [{ lane: 1, size: 500 }, { lane: 2, size: 2000 }, { lane: 7, size: 50 }] } }] });

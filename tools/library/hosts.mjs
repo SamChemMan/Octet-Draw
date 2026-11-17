@@ -159,7 +159,9 @@ function flatCyclodextrin(n, D, turn, way, w6 = 300) {
     p.o2 = at(120, p.c2); p.o3 = at(60, p.c3); p.c6 = at(w6, p.c5); p.o6 = at(w6 + turn, p.c6);
     const c1 = A("C", p.c1), c2 = A("C", p.c2), c3 = A("C", p.c3), c4 = A("C", p.c4), c5 = A("C", p.c5), o5 = A("O", p.o5);
     const o2 = A("O", p.o2, u === 0), o3 = A("O", p.o3), c6 = A("C", p.c6), o6 = A("O", p.o6);
-    B(c1, c2); B(c2, c3); B(c3, c4); B(c4, c5); B(c5, o5); B(o5, c1);
+    // C2–C3 first: the bond a click on a bond fuses (edit.ts addTemplate takes the first ring bond), which leaves no
+    // wedge between two stereocentres.
+    B(c2, c3); B(c1, c2); B(c3, c4); B(c4, c5); B(c5, o5); B(o5, c1);
     B(c2, o2, 1); B(c3, o3, 2); B(c5, c6, 4); B(c6, o6);
     units.push({ c1, c4 });
   }
@@ -267,13 +269,16 @@ export function flatCucurbituril(n, { R, bo, so, k, si }) {
     const f = 90 * deg + (2 * Math.PI * u) / n, r = [Math.cos(f), Math.sin(f)], t = [-Math.sin(f), Math.cos(f)];
     const at = (rad, along) => [r[0] * rad + t[0] * along, r[1] * rad + t[1] * along, 0];
     const c1 = d.atom("C", at(R, -0.5)), c2 = d.atom("C", at(R, 0.5));
-    d.bond(c1, c2);
     const ring = (sign, b, s, h, H, o) => {
       const na = d.atom("N", at(R + sign * h, -0.5 - s)), nb = d.atom("N", at(R + sign * h, 0.5 + s)), c = d.atom("C", at(R + sign * H, 0));
       d.bond(c1, na).bond(c2, nb).bond(na, c).bond(nb, c).bond(c, d.atom("O", at(R + sign * (H + o), 0)), 2);
       return [na, nb];
     };
-    rims.push([ring(1, bo, so, ho, Ho, 1), ring(-1, k, si, hi, Hi, k)]);
+    // The inner ring first, so the first bond (the one a click on a bond fuses) is a methine C to an inner N: the
+    // fused drawing then has no warning.
+    const inner = ring(-1, k, si, hi, Hi, k);
+    rims.push([ring(1, bo, so, ho, Ho, 1), inner]);
+    d.bond(c1, c2);
   }
   // Each bridge's CH2 out from the middle of the two N atoms (in, on the inner rim), its bonds as long as needed for an
   // angle of 150° at most, and no shorter than the rim's bonds.
@@ -291,7 +296,7 @@ const angleAt = (m, i, a, b) => {
   const [p, u, v] = [i, a, b].map((j) => m.atoms[j].location), x = sub(u, p).slice(0, 2), y = sub(v, p).slice(0, 2);
   return Math.acos(Math.max(-1, Math.min(1, (x[0] * y[0] + x[1] * y[1]) / Math.hypot(...x) / Math.hypot(...y)))) / deg;
 };
-// The angles of the top unit's two urea rings (its atoms are 0 to 9: C, C, then N, N, C, O outside and inside) and
+// The angles of the top unit's two urea rings (its atoms are 0 to 9: C, C, then N, N, C, O inside and outside) and
 // of every bridge's CH2.
 export function cucurbiturilAngles(m, n) {
   const rings = [[0, 2, 1], [1, 3, 0], [2, 0, 4], [3, 1, 4], [4, 2, 3], [0, 6, 1], [1, 7, 0], [6, 0, 8], [7, 1, 8], [8, 6, 7]].map(([i, a, b]) => angleAt(m, i, a, b));
