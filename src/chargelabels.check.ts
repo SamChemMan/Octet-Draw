@@ -141,3 +141,38 @@ console.log("chargelabels.check: a stand-in label's sign moves ok");
   }
 }
 console.log("chargelabels.check: a sign round a turned label ok");
+
+// CDXML counts a label's whole ink when it places the sign, as render.ts does: a stacked H (NH2 with H2 below the N), a
+// written label's other lines, and a count's subscript. So the symbol goes where Octet draws it, never on the H row,
+// and a ChemDraw file brings it back there. Arial's metrics, as CDXML takes them.
+{
+  const { arialInk } = await import("./cdxml.ts");
+  const arial = arialInk(S.size), way = (q: number[], o: number[]) => (Math.atan2(-(q[1] - o[1]), q[0] - o[0]) * 180) / Math.PI;
+  const off = (p: number, q: number) => Math.abs((((p - q) % 360) + 540) % 360 - 180);
+  const drawn = (m: Mol, i: number) => {
+    const q = render(m, S, arial).electrons.filter((e) => e.atom === i && e.key === "charge"), X: P = [m.atoms[i].location[0] * L, -m.atoms[i].location[1] * L];
+    const at = q.reduce<P>((s, e) => [s[0] + e.at[0] / q.length, s[1] + e.at[1] / q.length], [0, 0]);
+    return { deg: way(at, X), r: Math.hypot(at[0] - X[0], at[1] - X[1]) };
+  };
+  const ring = Array.from({ length: 6 }, (_, k) => { const t = -Math.PI / 2 + (k * Math.PI) / 3; return A(k ? "C" : "N", Math.cos(t), Math.sin(t), k ? {} : { charge: 1 }); });
+  const up = (more: Partial<Atom>): Mol => ({ atoms: [A("C", -0.87, 0.5), A("N", 0, 0, more), A("C", 0.87, 0.5)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }] });
+  const cases: [string, Mol, number][] = [
+    ["piperidinium, N at the bottom", { atoms: ring, bonds: ring.map((_, k) => ({ type: 1 as const, atoms: [k, (k + 1) % 6] as [number, number] })) }, 0],
+    ["NH2+ stacked below", up({ charge: 1 }), 1],
+    ["NH2+ dragged below", up({ charge: 1, angles: { charge: -90 } }), 1],
+    ["NH2 radical cation", up({ charge: 1, radical: 1 }), 1],
+    ["N, Me on two lines, dragged below", up({ text: "N\nMe", charge: 1, angles: { charge: -90 } }), 1],
+    ["NH3+ turned 90, dragged up", { atoms: [A("C", 0, 0), A("N", 1, 0, { charge: 1, labelAngle: 90, angles: { charge: 90 } })], bonds: [{ type: 1, atoms: [0, 1] }] }, 1],
+  ];
+  for (const [what, m, i] of cases) {
+    const d = drawn(m, i), xml = toCdxml(m, DEFAULT_STYLE), flat = xml.replace(/\n/g, " ");
+    const p = [...flat.matchAll(/<n\s[^>]*?p="([\d.-]+) ([\d.-]+)"/g)].map((x) => [Number(x[1]), Number(x[2])])[i];
+    const g = /BoundingBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"[^>]*SymbolType="(\w+)"/.exec(flat)!;
+    assert.ok(g, `${what}: a symbol`);
+    const c = g[5].startsWith("Radical") ? [(+g[1] + +g[3]) / 2, (+g[2] + +g[4]) / 2] : [+g[1], +g[2]], deg = way(c, p), r = Math.hypot(c[0] - p[0], c[1] - p[1]) * pt;
+    assert.ok(off(deg, d.deg) < 15 && Math.abs(r - d.r) < 3, `${what}: CDXML writes the symbol where it is drawn (${deg.toFixed(0)}° ${r.toFixed(1)} px against ${d.deg.toFixed(0)}° ${d.r.toFixed(1)} px)`);
+    const back = drawn(fromCdxml(xml.replace(/ Octet="[^"]*"/g, "")).mol, i);
+    assert.ok(off(back.deg, d.deg) < 15 && Math.abs(back.r - d.r) < 3, `${what}: ChemDraw's file draws it where it was (${back.deg.toFixed(0)}° against ${d.deg.toFixed(0)}°)`);
+  }
+}
+console.log("chargelabels.check: a sign clear of the whole label in CDXML ok");
