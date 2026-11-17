@@ -308,3 +308,30 @@ Checks are in `src/measurement.check.ts` (new) unless named.
 - Setting a value to move atoms (a dihedral typed to turn a bond).
 - ChemDraw's Info window (distance and angle of a drag or a selection on the page): a different, 2D feature.
 - Measurements in 3MF models and in MOL V3000 3D blocks.
+
+## Changes while building (17 November 2026)
+
+What the build changed in this plan, and why:
+
+- `addMeasure` and `cleanedFor` are in `edit.ts`, not `measurement.ts`. They need `addCaption` (edit.ts), and
+  edit.ts needs `measurement.ts`; the two importing each other broke Vite's hot reload.
+- Label place (D4): the automatic place is the nearest one clear of bonds, atoms and the measurement labels placed
+  before it (the first hundred), out along the measurement's frame: both sides of a line in turn, inside an angle
+  first and then outside it. The first build put a 1,4 distance's label on the ring's far bonds.
+- A settle works out again only the measurements whose structures the edit changed, or whose label it changed. A drag
+  frame of 40 paclitaxels with 120 measurements went from 30 ms to 0.4 ms.
+- A file opens with each label where Octet saved it (`settleMeasures` with `kept`): only the values are worked out
+  again, so a drawing opens as it was saved.
+- "Flat" (J4) is no depth and no depth shading. 3D Clean Up turns shading on, so a structure that is flat in 3D (anti
+  butane) is not cleaned up again at each new measurement.
+- The arc is a solid line; the lines between atoms are dashed.
+- Structure > Measure's items are always on, as Add Multi-Centre Attachment's are (native menu items here have no
+  enabled state). With the wrong number of atoms selected, a notice says how many to select.
+- Each command has its own icon (look.check: one icon for one command): Measure distance two atoms and a dashed line,
+  Measure angle an angle sign, Measure dihedral a Newman projection. The Measure tool's icon is an angle with a dashed
+  line across its ends.
+- The command palette lists Measure distance, angle and dihedral. It lists no specialist tool (Atom map, TLC plate),
+  so the Measure tool is not there either.
+- Speed: the ring search (rings.ts) stops at 19 bonds from each bond, as rings of more than 20 atoms were left out
+  already, and 3D Clean Up's typing lists each atom's bonds once. Results are the same; Measure on a flat 4000-atom
+  peptide went from 3.8 s to 60 ms.
