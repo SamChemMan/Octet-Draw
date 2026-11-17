@@ -18,24 +18,11 @@ static LAST: Mutex<String> = Mutex::new(String::new());
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Info {
-    label: String,
-    name: String,
+    pub(crate) label: String,
+    pub(crate) name: String,
     path: Option<String>,
-    edited: bool,
+    pub(crate) edited: bool,
     picture: Option<String>, // the drawing as an SVG, as a recent drawing's (400,000 characters at most)
-}
-
-#[cfg(feature = "smoke")]
-impl Info {
-    pub fn edited(&self) -> bool {
-        self.edited
-    }
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
 }
 
 // What each new window is to open, until its page takes it, and what each drawing window shows.
@@ -178,6 +165,11 @@ pub fn menus(app: &AppHandle) {
 // Octet with no window (`--headless` and `--convert`, main.rs): its drawing windows are made hidden and stay hidden.
 pub static HEADLESS: AtomicBool = AtomicBool::new(false);
 
+// A window of Octet's size, with its page and title.
+fn window_builder<'a>(app: &'a AppHandle, label: &str, page: &str, title: &str) -> WebviewWindowBuilder<'a, Wry, AppHandle> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into())).title(title).inner_size(1200.0, 800.0).min_inner_size(800.0, 620.0)
+}
+
 // A new drawing window, a little below and right of the window in front, with what it opens (64 MB at most).
 // The commands that make or show windows are async: on Windows, making a window in a synchronous command (which runs
 // on the main thread) deadlocks, and the app hangs with a white window.
@@ -196,11 +188,7 @@ pub fn open(app: &AppHandle, start: serde_json::Value, session: Option<&str>) ->
     windows.starts.lock().unwrap().insert(label.clone(), start);
     // With no window, the page is told so (it keeps no recovery copy and saves no settings) and is never shown.
     let headless = HEADLESS.load(Ordering::Relaxed);
-    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App((if headless { "index.html?window&headless" } else { "index.html?window" }).into()))
-        .title("Octet Draw")
-        .inner_size(1200.0, 800.0)
-        .min_inner_size(800.0, 620.0)
-        .visible(!headless);
+    let mut builder = window_builder(app, &label, if headless { "index.html?window&headless" } else { "index.html?window" }, "Octet Draw").visible(!headless);
     let from = front(app).and_then(|l| app.get_webview_window(&l));
     if let Some((pos, scale)) = from.and_then(|w| Some((w.outer_position().ok()?, w.scale_factor().ok()?))) {
         let pos = pos.to_logical::<f64>(scale);
@@ -256,11 +244,7 @@ pub async fn open_object(app: AppHandle, label: String, start: serde_json::Value
     app.state::<Windows>().starts.lock().unwrap().insert(label.clone(), start);
     app.state::<Windows>().hosts.lock().unwrap().insert(label.clone(), host.clone());
     let menu = crate::object_menu(&app, &host).map_err(|e| e.to_string())?;
-    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
-        .title(title)
-        .inner_size(1200.0, 800.0)
-        .min_inner_size(800.0, 620.0)
-        .center();
+    let builder = window_builder(&app, &label, "index.html?window", &title).center();
     #[cfg(not(target_os = "macos"))]
     let builder = builder.menu(menu);
     let window = builder.build().map_err(|e| {
@@ -382,12 +366,7 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
     let window = match app.get_webview_window("main") {
         Some(w) => w,
         None => {
-            let w = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Octet Draw")
-                .inner_size(1200.0, 800.0)
-                .min_inner_size(800.0, 620.0)
-                .center()
-                .build()?;
+            let w = window_builder(app, "main", "index.html", "Octet Draw").center().build()?;
             #[cfg(windows)]
             crate::access_keys::install(&w);
             w
