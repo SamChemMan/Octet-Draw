@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, bandRf, bandSize, GEL, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
+import { AROMATIC, add, bandRf, bandSize, cross, dot, GEL, HBOND, H_FIRST, hydrogens, len, lonePairs, mul, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, sub, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -12,14 +12,8 @@ import { keepHands } from "./cip.ts";
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
 
-const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
-const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
-const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
-const len = (a: P) => Math.hypot(a[0], a[1]);
-const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
 const unit = (a: P): P => mul(a, 1 / (len(a) || 1));
 const rot = (a: P, t: number): P => [a[0] * Math.cos(t) - a[1] * Math.sin(t), a[0] * Math.sin(t) + a[1] * Math.cos(t)];
-const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
 const deg = Math.PI / 180;
 
 export const pos = (m: Mol, i: number): P => [m.atoms[i].location[0], m.atoms[i].location[1]];
@@ -548,11 +542,6 @@ export function reach(at: number[][], i: number, not: number, most = Infinity): 
   while (todo.length && seen.size <= most) for (const j of at[todo.pop()!]) if (j !== not && !seen.has(j)) { seen.add(j); todo.push(j); }
   return seen;
 }
-export const cycleBond = (m: Mol, i: number) => {
-  const b = m.bonds[i];
-  return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
-};
-export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
 // Delete or Backspace over a bond of more than one line (Sam, 31 October 2026): one line fewer, so a double becomes a
 // single and a triple a double. An aromatic or delocalised bond becomes a single. Undefined for a single bond (or a
 // hydrogen bond), which Delete takes away.
@@ -1596,7 +1585,7 @@ export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
       // bond) and a methyl, and the hotspot moves to the methyl.
       if (degree(i) !== 1) { const o = drop(i, { type: 2 }); m = setElement(m, o, "O"); return [m, i]; }
       const [o, me] = upright(i, drop(i), drop(i));
-      m = setElement(setBond(m, bondIndex(m, i, o), 2), o, "O");
+      m = setElement(setBondSpec(m, bondIndex(m, i, o), { type: 2 }), o, "O");
       return [m, me];
     }
     case "methylidene": {
@@ -2046,16 +2035,15 @@ export const updateArrow = (m: Mol, id: number, change: Partial<Arrow>): Mol =>
   ({ ...m, arrows: m.arrows?.map((a) => (a.id === id ? { ...a, ...change } : a)) });
 // Editing a pen curve (ChemDraw's Edit Curve tool). Segment i runs from point i to the next (a closed curve's last
 // segment back to its first point). A segment with no handles at either end is straight.
-type Q = [number, number];
-const lerp = (a: Q, b: Q, t: number): Q => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+const lerp = (a: P, b: P, t: number): P => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 const segments = (c: Curve) => (c.closed && c.points.length > 2 ? c.points.length : c.points.length - 1);
-function segment(c: Curve, i: number): [Q, Q, Q, Q] {
+function segment(c: Curve, i: number): [P, P, P, P] {
   const a = c.points[i], b = c.points[(i + 1) % c.points.length];
   return [a.at, a.c2 ?? a.at, b.c1 ?? b.at, b.at];
 }
-const bezier = ([p0, p1, p2, p3]: [Q, Q, Q, Q], t: number): Q => lerp(lerp(lerp(p0, p1, t), lerp(p1, p2, t), t), lerp(lerp(p1, p2, t), lerp(p2, p3, t), t), t);
+const bezier = ([p0, p1, p2, p3]: [P, P, P, P], t: number): P => lerp(lerp(lerp(p0, p1, t), lerp(p1, p2, t), t), lerp(lerp(p1, p2, t), lerp(p2, p3, t), t), t);
 // The place on a curve nearest a point: its segment, how far along it (0 to 1) and the distance (drawing units).
-export function nearestOnCurve(c: Curve, p: Q): { seg: number; t: number; d: number } {
+export function nearestOnCurve(c: Curve, p: P): { seg: number; t: number; d: number } {
   let best = { seg: 0, t: 0, d: Infinity };
   for (let i = 0; i < segments(c); i++) {
     const s = segment(c, i);
@@ -2086,8 +2074,8 @@ export function splitCurve(c: Curve, seg: number, t: number): Curve {
 }
 // A point moved: its anchor (its handles move with it), or one handle. A smooth point's other handle turns to stay
 // opposite, keeping its own length, unless free (Option) breaks the point into a corner.
-export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p: Q, free = false): Curve {
-  const q = c.points[i], d: Q = [p[0] - q.at[0], p[1] - q.at[1]], shift = (h?: Q): Q | undefined => h && [h[0] + d[0], h[1] + d[1]];
+export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p: P, free = false): Curve {
+  const q = c.points[i], d: P = [p[0] - q.at[0], p[1] - q.at[1]], shift = (h?: P): P | undefined => h && [h[0] + d[0], h[1] + d[1]];
   let next: CurvePoint;
   if (part === "at") next = { at: p, ...(q.c1 ? { c1: shift(q.c1) } : {}), ...(q.c2 ? { c2: shift(q.c2) } : {}) };
   else {
@@ -2103,7 +2091,7 @@ export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p:
 }
 // A point taken out (a curve keeps at least two), or one added at the end (a straight segment to it).
 export const removeCurvePoint = (c: Curve, i: number): Curve => (c.points.length <= 2 ? c : { ...c, points: c.points.filter((_, k) => k !== i), ...(c.points.length <= 3 ? { closed: undefined } : {}) });
-export const appendCurvePoint = (c: Curve, p: Q): Curve => ({ ...c, points: [...c.points, { at: p }] });
+export const appendCurvePoint = (c: Curve, p: P): Curve => ({ ...c, points: [...c.points, { at: p }] });
 // A curve arrow with new points: its ends follow its first and last points.
 export const withCurve = (c: Curve): Partial<Arrow> => ({ curve: c, from: c.points[0].at, to: c.points[c.points.length - 1].at });
 export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
@@ -2473,7 +2461,6 @@ export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number
 // Size To Fit Contents: each column as wide as its text and each row the least height.
 export function fitTable(sh: Shape, measure?: (text: string) => number, caption?: number): Partial<Shape> {
   const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure, caption);
-  void _w; void _h;
   return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh, caption)], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
@@ -2527,8 +2514,8 @@ export function nextNumber(m: Mol): string {
   return String(Math.max(0, ...used) + 1);
 }
 
-// Every bond's ring flag at once (inRing for each bond): a bond is in a ring unless it is a bridge, found in one
-// depth-first walk (Tarjan's bridges).
+// Every bond's ring flag at once: a bond is in a ring unless it is a bridge, found in one depth-first walk (Tarjan's
+// bridges).
 export function ringBonds(m: Mol): boolean[] {
   const near: [number, number][][] = m.atoms.map(() => []);
   m.bonds.forEach((b, k) => { near[b.atoms[0]].push([b.atoms[1], k]); near[b.atoms[1]].push([b.atoms[0], k]); });
@@ -2557,20 +2544,6 @@ export function ringBonds(m: Mol): boolean[] {
   });
   return ring;
 }
-// A bond is in a ring when its ends stay connected without it.
-export function inRing(m: Mol, k: number): boolean {
-  const [from, to] = m.bonds[k].atoms, seen = new Set([from]), queue = [from];
-  while (queue.length) {
-    const i = queue.pop()!;
-    for (const [x, b] of m.bonds.entries()) {
-      if (x === k || !b.atoms.includes(i)) continue;
-      const j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
-      if (j === to) return true;
-      if (!seen.has(j)) { seen.add(j); queue.push(j); }
-    }
-  }
-  return false;
-}
 
 // Places a template (a structure drawn at bond length 1): fused along a clicked bond, on the open side; sharing a
 // clicked atom (the template's first atom), pointing away from that atom's bonds; or centred on a point. On a bond
@@ -2585,7 +2558,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   // Where each point of the template goes (f), and whether it is mirrored.
   let f = (q: P): P => q, mirrored = false, scale = 1;
   // Fuse along a ring bond on the template's outside edge (the rest of it on one side), so nothing overlaps.
-  const ring = t.bonds.filter((_, k) => inRing(t, k));
+  const rb = ringBonds(t), ring = t.bonds.filter((_, k) => rb[k]);
   const edge = ring.find((b) => {
     const a = at0[b.atoms[0]], n: P = [-(at0[b.atoms[1]][1] - a[1]), at0[b.atoms[1]][0] - a[0]], sides = at0.map((q) => dot(sub(q, a), n));
     return sides.every((d) => d > -1e-6) || sides.every((d) => d < 1e-6);

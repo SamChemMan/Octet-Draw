@@ -22,7 +22,7 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { ligandEllipse } from "./render.ts";
+import { cross, len, ligandEllipse, sub } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -290,9 +290,6 @@ function turnedBox(b: Box, p: P, degrees = 0): Box {
 }
 // A text's RotationAngle: degrees clockwise on the page, times 65536; Octet's turns are anticlockwise.
 const rotationAngle = (degrees?: number) => (degrees ? Math.round((((-degrees % 360) + 360) % 360) * 65536) || undefined : undefined);
-const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
-const len = (a: P) => Math.hypot(a[0], a[1]);
-const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
 // The circle through three points, or undefined when they are in a line.
 function circle(S: P, M: P, T: P): { O: P; r: number } | undefined {
   const d = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1]));
@@ -1487,9 +1484,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     count();
     switch (x.name) {
       case "group":
-        if (p?.kind === "table") return readTableGroup(x, p, group);
+        if (p?.kind === "table" || p?.kind === "gel" || p?.kind === "plasmid") return readOwnGroup(x, p, group);
         if (p?.kind === "membrane") return readMembrane(x, p, group);
-        if (p?.kind === "gel" || p?.kind === "plasmid") return readObjectGroup(x, p, group);
         { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
@@ -2357,21 +2353,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     for (const k of x.kids) if (k !== title) visit(k, group);
   }
 
-  // A table Octet wrote: the table from Octet's data, its box from the group's.
-  function readTableGroup(x: Xml, p: Record<string, unknown>, group?: G) {
-    const table = readTable(p.table), box = reals(x.attrs.BoundingBox, 4), colour = colourOf(x.attrs.color);
-    if (!table || !box) return lose("table");
-    const sh: Shape & { z: number } = { id: newId(x), kind: "table", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), table, z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
-    if (p.dashed === true) sh.dashed = true;
-    if (colour) sh.colour = colour;
-    addShape(sh, x, group);
-  }
-
-  // A gel or plasmid map Octet wrote: the object from Octet's data, its box from the group's.
-  function readObjectGroup(x: Xml, p: Record<string, unknown>, group?: G) {
-    const gel = p.kind === "gel", tlc = gel ? readPlate(p.tlc, true) : undefined, plasmid = gel ? undefined : readPlasmid(p.plasmid), box = reals(x.attrs.BoundingBox, 4), colour = colourOf(x.attrs.color);
-    if (!(tlc ?? plasmid) || !box) return lose(gel ? "gel" : "plasmid map");
-    const sh: Shape & { z: number } = { id: newId(x), kind: gel ? "gel" : "plasmid", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), ...(tlc ? { tlc } : { plasmid }), z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
+  // A table, gel or plasmid map Octet wrote: the object from Octet's data, its box from the group's.
+  function readOwnGroup(x: Xml, p: Record<string, unknown>, group?: G) {
+    const kind = p.kind as "table" | "gel" | "plasmid", box = reals(x.attrs.BoundingBox, 4), colour = colourOf(x.attrs.color);
+    const own = kind === "table" ? { table: readTable(p.table) } : kind === "gel" ? { tlc: readPlate(p.tlc, true) } : { plasmid: readPlasmid(p.plasmid) };
+    if (!Object.values(own)[0] || !box) return lose(kind === "plasmid" ? "plasmid map" : kind);
+    const sh: Shape & { z: number } = { id: newId(x), kind, from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), ...own, z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
+    if (kind === "table" && p.dashed === true) sh.dashed = true;
     if (colour) sh.colour = colour;
     addShape(sh, x, group);
   }

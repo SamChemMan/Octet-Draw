@@ -8,7 +8,7 @@
 import type { Arrow, Caption, CurvePoint, Group, Mol } from "./render.ts";
 import { groupSelection } from "./edit.ts";
 import { addTitle, GREY, SMALL, spectrumFigure, traceColumns, type Figure, type LabelTurn } from "./spectrumplot.ts";
-import { chartFigure, chartName, isChart, readChart, retyped, type Chart } from "./charts.ts";
+import { chartFigure, chartName, fin as num, hex as colour, isChart, pair, readChart, retyped, str, type Chart } from "./charts.ts";
 import { keyOf, levels, measuredFigure, nameOf, xAt, type Analysed, type Analysis, type Measured } from "./measured.ts";
 import type { Kind } from "./jcamp.ts";
 import { frequency, isNucleus, NUCLEI, type Nucleus, type Signal } from "./nmr.ts";
@@ -385,10 +385,7 @@ export function rescale(m: Mol, gid: number, f: (q: P) => P, size: P, text: numb
 
 // --- Reading ------------------------------------------------------------------------------------------------------
 // A record or a role from a file, if it is sound: anything else is left out, and the group or part stays plain.
-const num = (v: unknown, lo = -1e6, hi = 1e6) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
-const str = (v: unknown, most = 200) => typeof v === "string" && v.length <= most && !/[\u0000-\u001f]/.test(v);
-const pair = (v: unknown, lo?: number, hi?: number): v is P => Array.isArray(v) && v.length === 2 && v.every((x) => num(x, lo, hi));
-const colour = (v: unknown) => v === undefined || (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
+// (The checks are charts.ts's: each text here is given its own limit.)
 const KINDS: Kind[] = ["nmr", "ir", "uv", "ms", "other"];
 export function readPart(v: unknown): PlotPart | undefined {
   const o = v as Record<string, unknown> | undefined;

@@ -147,7 +147,8 @@ const clearFor = Math.max(...frames.filter((f) => f.opacity === "0" && f.at < 0.
 assert.ok(gone && Number(gone[1]) * step >= turnMs && Number(gone[1]) * step + parseFloat(json.motion.tokens.find((t) => t.name === "motion-fast")!.value) <= turnMs + clearFor, "mcp-gone starts as a turn ends, and ends while the loop is still clear");
 assert.match(mcpFrames[1][2], /^\s*to \{\s*opacity: 0;\s*\}$/);
 assert.match(rule(".mcp-mol"), /animation: mcp-life [\d.]+s ease-in-out infinite;/, "mcp-life is the one animation on .mcp-mol");
-assert.match(magic, /<div key=\{turn\} className="mcp-mol" onAnimationIteration=\{\(\) => setTurn\(turn \+ 1\)\}>\s*<div className="mcp-parts"/);
+assert.match(magic, /<div key=\{turn\} className="mcp-mol" onAnimationIteration=\{\(\) => setTurn\(turn \+ 1\)\}>\s*<MarkParts \/>/);
+assert.match(magic, /export const MarkParts = \(\) => \(\s*<div className="mcp-parts"/);
 // It leaves softly: an opacity and a small scale, no turn.
 assert.match(mcpFrames[0][2], /to \{\s*opacity: 0;\s*transform: scale\(0\.98\);\s*\}/);
 

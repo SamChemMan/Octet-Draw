@@ -8,6 +8,9 @@ import { gunzipSync } from "node:zlib";
 import { commonKey } from "./common.ts";
 import { NameTable } from "./nametable.ts";
 
+// The names forGram visits for a trigram, in order.
+const withGram = (t: NameTable, g: string) => { const out: number[] = []; t.forGram(g, (i) => out.push(i)); return out; };
+
 // The tables as strings, as Octet 1.1.0 kept them.
 function strings(text: string) {
   const smiles: string[] = [], names = new Map<string, number>(), first = new Map<string, number>(), cas = new Map<string, number>(), keys = new Map<string, number>();
@@ -43,7 +46,7 @@ async function same(text: string, what: string) {
   for (const [k, n] of s.keys) assert.equal(t.smiles(t.keyCompound(k)), s.smiles[n], `${what}: InChIKey ${k}`);
   assert.equal(t.size, s.shown.length, `${what}: names for suggestions`);
   s.shown.forEach(([name, n], i) => { assert.equal(t.written(i), name); assert.equal(t.lower(i), s.lower[i]); assert.equal(t.compound(i), n); });
-  for (const [g, list] of s.grams) assert.deepEqual([...t.withGram(g)], list, `${what}: trigram "${g}"`);
+  for (const [g, list] of s.grams) assert.deepEqual(withGram(t, g), list, `${what}: trigram "${g}"`);
   return t;
 }
 
@@ -70,7 +73,7 @@ assert.equal(t.smiles(t.casCompound("64-17-5")), "CCO", "the first compound keep
 assert.equal(t.casCompound("1-1-1"), -1, "a line with no SMILES is left out");
 assert.equal(t.nameCompound(commonKey("no such name")), -1);
 assert.equal(t.nameCompound(""), -1);
-assert.equal([...t.withGram(" ba")].length, 3, "banana banana has the trigram twice, BANANA once");
+assert.equal(withGram(t, " ba").length, 3, "banana banana has the trigram twice, BANANA once");
 
 // The real dictionary: the same answers as strings, and read in less than half their time (both measured now).
 const file = new URL("../data/names/dictionary.tsv.gz", import.meta.url);

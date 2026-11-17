@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ArrowClockwise, Selection } from "@phosphor-icons/react";
+import { lightTheme } from "./docstyle.ts";
 
 // The glyph's path data, read from the real icon component (no copied paths).
 function glyphPaths(icon: typeof Selection = Selection): string[] {
@@ -16,14 +17,7 @@ function glyphPaths(icon: typeof Selection = Selection): string[] {
 }
 
 // The light theme's ink, the cursors' black.
-function lightInk() {
-  const probe = document.createElement("div");
-  probe.dataset.theme = "light";
-  document.body.append(probe);
-  const ink = getComputedStyle(probe).getPropertyValue("--ink").trim() || "#0F172A";
-  probe.remove();
-  return ink;
-}
+const lightInk = () => lightTheme((css) => css.getPropertyValue("--ink").trim() || "#0F172A");
 
 async function png(svg: string, scale: number): Promise<string> {
   const img = new Image();
@@ -48,6 +42,12 @@ export function holdCursor(el: Element) {
   const end = () => { dragCursor(); removeEventListener("pointerup", end); removeEventListener("pointercancel", end); };
   addEventListener("pointerup", end);
   addEventListener("pointercancel", end);
+}
+// A drag on the window: move on each pointer move, then up once when the pointer is let go, and neither after.
+export function followDrag(move: (ev: PointerEvent) => void, up: (ev: PointerEvent) => void = () => {}) {
+  const end = (ev: PointerEvent) => { removeEventListener("pointermove", move); removeEventListener("pointerup", end); up(ev); };
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", end);
 }
 
 // The cursors Octet draws itself: Select's arrow, the rotation handle's arrow, the drawing tools' crosshair and the

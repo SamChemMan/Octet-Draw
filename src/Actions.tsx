@@ -28,6 +28,7 @@ import { NumberField } from "./Fields";
 import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
+import { followDrag } from "./cursor";
 import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
 
@@ -798,8 +799,6 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       setCarry({ command, x: ev.clientX, y: ev.clientY, to });
     };
     const up = () => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       setCarry(undefined);
       if (!moving || !to) return;
       const rest = items.map((i) => i.command).filter((c) => c !== command);
@@ -809,8 +808,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       setSettled(command);
       setTimeout(() => setSettled(undefined), 300);
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   }
 
   return (

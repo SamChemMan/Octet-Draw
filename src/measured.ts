@@ -32,13 +32,8 @@ export const keyOf = (m: { kind: Kind; nucleus?: string }) => (m.kind === "nmr" 
 // Its name, as the panel's title and the text line give it: ¹H NMR, ¹³C NMR, IR, UV-Vis, MS.
 const SUP: Record<string, string> = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
 export const nucleusText = (n: string) => n.replace(/^\d+/, (d) => [...d].map((c) => SUP[c]).join(""));
-export function nameOf(key: string): string {
-  if (key === "ir") return "IR";
-  if (key === "uv") return "UV-Vis";
-  if (key === "ms") return "MS";
-  if (key === "other") return "Spectrum";
-  return `${nucleusText(key)} NMR`;
-}
+const NAMES: Record<string, string> = { ir: "IR", uv: "UV-Vis", ms: "MS", other: "Spectrum" };
+export const nameOf = (key: string): string => NAMES[key] ?? `${nucleusText(key)} NMR`;
 // NMR and IR run from high to low, left to right.
 export const reversed = (m: { kind: Kind }) => m.kind === "nmr" || m.kind === "ir";
 
@@ -294,14 +289,10 @@ function autoPer(areas: number[]): number {
 // New groups for a new threshold. A new group keeps the id of an old one inside it, so its atoms stay linked; ranges
 // the user drew stay as they were. `next`: the first free id.
 export function regroup(m: Measured, threshold: number, next: number): Measured {
-  const manual = m.groups.filter((g) => g.manual), olds = m.groups.filter((g) => !g.manual), used = new Set<number>();
+  const manual = m.groups.filter((g) => g.manual), olds = m.groups.filter((g) => !g.manual);
   const fresh = autoGroups({ ...m, threshold }, pickPeaks(m, threshold)).filter((g) => !manual.some((x) => x.lo <= g.hi && g.lo <= x.hi));
-  const groups = fresh.map((g) => {
-    const old = olds.find((o) => !used.has(o.id) && (o.lo + o.hi) / 2 >= g.lo && (o.lo + o.hi) / 2 <= g.hi);
-    if (old) used.add(old.id);
-    return { ...g, id: old ? old.id : next++ };
-  });
-  return { ...m, threshold, groups: [...manual, ...groups].sort((a, b) => b.lo - a.lo) };
+  const kept = keepIds({ ...m, groups: fresh as Group[] }, { ...m, groups: olds }, next);
+  return { ...m, threshold, groups: [...manual, ...kept.groups].sort((a, b) => b.lo - a.lo) };
 }
 // A spectrum opened over one of its kind keeps the old one's ids for the multiplets it still has (an old multiplet's
 // middle inside a new one's range), so its atoms stay linked. `next`: the first free id.

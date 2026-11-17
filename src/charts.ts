@@ -346,10 +346,10 @@ export const NEW_RADAR: Pick<RadarChart, "kind" | "title" | "axes" | "min" | "ma
 
 // --- Reading ------------------------------------------------------------------------------------------------------
 // A chart's record from a file, if it is sound: anything else is left out, and the group stays a plain group.
-const fin = (v: unknown, lo = -1e6, hi = 1e6): v is number => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
-const str = (v: unknown, most = 80): v is string => typeof v === "string" && v.length <= most && !/[\u0000-\u001f]/.test(v);
-const pair = (v: unknown, lo?: number, hi?: number): v is P => Array.isArray(v) && v.length === 2 && v.every((x) => fin(x, lo, hi));
-const hex = (v: unknown): v is string | undefined => v === undefined || (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
+export const fin = (v: unknown, lo = -1e6, hi = 1e6): v is number => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+export const str = (v: unknown, most = 80): v is string => typeof v === "string" && v.length <= most && !/[\u0000-\u001f]/.test(v);
+export const pair = (v: unknown, lo?: number, hi?: number): v is P => Array.isArray(v) && v.length === 2 && v.every((x) => fin(x, lo, hi));
+export const hex = (v: unknown): v is string | undefined => v === undefined || (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
 const list = <T>(v: unknown, n: number, ok: (x: unknown) => x is T): v is T[] => Array.isArray(v) && v.length === n && v.every(ok);
 const orNull = <T>(ok: (x: unknown) => x is T) => (x: unknown): x is T | null => x === null || ok(x);
 export function readChart(v: unknown): Chart | undefined {

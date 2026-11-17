@@ -13,11 +13,7 @@ export const MAX_INPUT = 32 << 20, MAX_SIDE = 16384, MAX_PIXELS = 40e6, MAX_OUTP
 export const INPUT_TOO_LARGE = "It is larger than 32 MB.";
 
 // Why a file cannot be a thumbnail, from its first bytes and its size (never its name), or undefined.
-export function inputProblem(bytes: Uint8Array): string | undefined {
-  if (!kindOf(bytes)) return NOT_PICTURE;
-  if (bytes.length > MAX_INPUT) return INPUT_TOO_LARGE;
-  return undefined;
-}
+export const inputProblem = (bytes: Uint8Array) => (!kindOf(bytes) ? NOT_PICTURE : bytes.length > MAX_INPUT ? INPUT_TOO_LARGE : undefined);
 // Why a picture of this size cannot be decoded for a thumbnail, or undefined.
 export const sizeProblem = (w: number, h: number) => (!w || !h ? NOT_PICTURE : w > MAX_SIDE || h > MAX_SIDE || w * h > MAX_PIXELS ? TOO_MANY_PIXELS : undefined);
 

@@ -272,7 +272,7 @@ assert.match(home, /<rect className="box" /, "the Select tool's box");
 const sweep = home.slice(home.indexOf("const sweep = "), home.indexOf("// ——— The sections as modules"));
 const boxEscape = sweep.slice(sweep.indexOf("const escape = "), sweep.indexOf("\n    addEventListener(", sweep.indexOf("const escape = ")));
 assert.ok(boxEscape.includes("setChosen(before)") && !boxEscape.includes("end("), "Escape puts the selection back and leaves the release to end the box");
-assert.match(sweep, /addEventListener\("pointercancel", away\)/, "a press taken for a scroll ends the box");
+assert.match(sweep, /addEventListener\("pointercancel", away[,)]/, "a press taken for a scroll ends the box");
 // Remove N does what Delete does, and is a real button with the drawings in its name.
 assert.match(home, /aria-label=\{`Remove \$\{drawings\(pickedCount\)\}`\} onClick=\{\(\) => removePicked\(\)\}/);
 console.log("projects.check: ok");

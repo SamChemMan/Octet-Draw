@@ -30,11 +30,13 @@ export function pickPage(s: Pick<DocStyle, "page" | "landscape">, page: PageName
 // of the user's own (#rrggbb, ChemDraw's document background colour). On a dark or blue page, or a dark colour, the
 // structures and text are drawn white.
 export type Background = "white" | "dark" | "system" | "blueprint" | `#${string}`;
-// A colour that black text does not read on as well as white text does (WCAG relative luminance below 0.179).
-export const darkColour = (hex: string) => {
+// A #rrggbb colour's WCAG relative luminance.
+export const luminance = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map((k) => { const c = parseInt(hex.slice(k, k + 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.179;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
+// A colour that black text does not read on as well as white text does (relative luminance below 0.179).
+export const darkColour = (hex: string) => luminance(hex) < 0.179;
 export const BACKGROUNDS: [Background, string][] = [["white", "White"], ["dark", "Dark"], ["system", "Match the system"], ["blueprint", "Engineering paper"]];
 // The grid's step: the document's bond length (a line each bond length, a lighter one at each half), or a step in
 // mm (US pages offer 1/8, 1/4 and 1/2 in, held in mm). Only these: a file cannot ask for a grid of a million lines.
@@ -156,18 +158,20 @@ export const HIGHLIGHT_COLOURS: [string, string][] = [["Blue", "#2F6FED"], ["Sky
   ["Purple", "#8E4EC6"], ["Violet", "#6E56CF"], ["Indigo", "#3E4BA8"], ["Brown", "#9C6B3F"], ["Grey", "#8B8D98"], ["Slate", "#5B6B7F"]];
 export const RING_FILLS: [string, string][] = [...HIGHLIGHT_COLOURS, ["Mint", "#3DD68C"], ["Peach", "#FFB380"], ["Lavender", "#B4A7F5"], ["Sand", "#D9C38A"], ["Olive", "#808A2E"]];
 
+// What read takes from the light theme's CSS, with an element that has it for a moment.
+export function lightTheme<T>(read: (css: CSSStyleDeclaration) => T): T {
+  const probe = document.createElement("div");
+  probe.dataset.theme = "light";
+  document.body.append(probe);
+  const out = read(getComputedStyle(probe));
+  probe.remove();
+  return out;
+}
 // Colour by element (ChemDraw's Colors > By Element): each heteroatom label takes its atom-* token, as the light
 // theme gives it, since the page is white. Carbon and the rest stay ink. Settings > Colours lists the same colours.
 const METALS = "Li Na K Rb Cs Be Mg Ca Sr Ba Al Ga In Tl Sn Pb Bi Sc Ti V Cr Mn Fe Co Ni Cu Zn Y Zr Nb Mo Ru Rh Pd Ag Cd Hf Ta W Re Os Ir Pt Au Hg La Ce Sm Eu Gd Yb Lu U".split(" ");
 export function elementColours(token?: (name: string) => string): Record<string, string> {
-  if (!token) {
-    const probe = document.createElement("div");
-    probe.dataset.theme = "light";
-    document.body.append(probe);
-    const css = getComputedStyle(probe), values = elementColours((name) => css.getPropertyValue(`--atom-${name}`).trim());
-    probe.remove();
-    return values;
-  }
+  if (!token) return lightTheme((css) => elementColours((name) => css.getPropertyValue(`--atom-${name}`).trim()));
   const by: Record<string, string> = { N: token("n"), O: token("o"), S: token("s"), Se: token("s"), P: token("p") };
   for (const e of ["F", "Cl"]) by[e] = token("halogen");
   for (const e of ["Br", "I", "B", "Si"]) by[e] = token(e.toLowerCase());
