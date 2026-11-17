@@ -1826,7 +1826,6 @@ kbd {
   }
 }
 
-/* The end of a long actions list: small buttons in one row, each naming itself on hover. */
 /* The small buttons, set by set. Each set has a small title over its buttons, and space (no line) between it and the
    next, so the main rows read first and the sets below them read as smaller sections. */
 .tray {
@@ -2393,9 +2392,6 @@ div.facts {
 .chips.groups {
   grid-template-columns: repeat(4, 1fr);
 }
-.chips.groups .chip {
-  font-size: 13px;
-}
 .chips.rings {
   grid-template-columns: repeat(6, 1fr);
 }
@@ -2548,8 +2544,8 @@ div.facts {
   -webkit-user-select: text;
   user-select: text;
 }
-/* A field that does not apply now (Scale to the document's bond length): its value shows, faint. */
-/* The field is dimmed as one: its input does not dim a second time. */
+/* A field that does not apply now (Scale to the document's bond length) is dimmed as one: its input does not dim a
+   second time. */
 .unit-field[aria-disabled] {
   opacity: var(--disabled);
 }
@@ -2609,7 +2605,6 @@ div.facts {
     border-color: var(--outline);
   }
 }
-/* Orientation: two small pages. */
 /* The segments of one control have one width, the widest's: equal columns (BRAND.md, Controls). */
 .segmented {
   display: inline-grid;
@@ -2647,7 +2642,7 @@ div.facts {
 .segmented button:active {
   transform: scale(var(--press));
 }
-/* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
+/* Orientation: two small pages. */
 .page-glyph {
   width: 9px;
   height: 12px;
@@ -2908,9 +2903,8 @@ div.facts {
 .page-custom .times {
   color: var(--ink-faint);
 }
-/* Settings > Document > For: one button for each purpose, on more lines when there are many. */
-/* The purposes go onto more lines when the user has added their own, so each has one set width; a long name is cut
-   short with an ellipsis. */
+/* Settings > Document > For: one button for each purpose. They go onto more lines when the user has added their own,
+   so each has one set width; a long name is cut short with an ellipsis. */
 .segmented.purposes {
   display: flex;
   flex-wrap: wrap;
@@ -3659,8 +3653,7 @@ div.facts {
   .library-add:hover .library-add-mark {
     border-color: var(--ink-muted);
   }
-  .library-item:hover,
-  .library-category:not([aria-pressed="true"]):hover {
+  .library-item:hover {
     background: var(--surface-sunken);
   }
   .library-category:not([aria-pressed="true"]):hover {
@@ -3808,7 +3801,6 @@ div.facts {
 .name-recent.show-all {
   height: 32px;
   color: var(--ink-muted);
-  font-size: 13px;
 }
 .name-recent[aria-selected="true"] {
   background: var(--brand-mist);
@@ -4585,7 +4577,6 @@ div.facts {
   fill-opacity: 0.08;
 }
 
-/* The Properties panel: the Actions panel's look, at the top right. */
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in
    columns. Both panels move by their headers (movable.ts). */
 .properties {
@@ -5858,7 +5849,6 @@ div.facts {
   gap: var(--space-4) var(--space-4);
 }
 .home-grid.purposes .home-thumb {
-  position: relative;
   background: var(--surface-sunken);
 }
 .home-thumb svg {
