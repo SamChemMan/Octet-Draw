@@ -4172,7 +4172,10 @@ export default function Editor() {
   // A reaction around an arrow, from what is drawn now: structures' and captions' boxes in drawing units.
   const inkBox = (atoms: number[]): Box | undefined => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; };
   const captionBox = (id: number): Box | undefined => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; };
-  const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows, inkBox, captionBox);
+  // Each arrow's reaction is found once while what it reads (the drawing as drawn) stays the same. On each move of a
+  // drag, the reagent tables, the tables that go with the drag and the Actions panel ask for the same reactions.
+  const reactionsFound = useMemo(() => new Map<number, Reaction | undefined>(), [doc, arrows, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reactionOf = (arrowId: number) => { if (!reactionsFound.has(arrowId)) reactionsFound.set(arrowId, findReaction(doc, arrowId, arrows, inkBox, captionBox)); return reactionsFound.get(arrowId); };
   // Every reaction in the drawing, each once, with its steps as Octet reads them (interpret.ts).
   const reactions = () => {
     const out: { r: Reaction; steps: RoleStep[] }[] = [], seen = new Set<number>();
@@ -6506,7 +6509,7 @@ export default function Editor() {
   // (stoich.ts reagentFormula).
   const readName = useMemo(() => (t: string) => (namesLoaded ? nameToSmiles(t) : undefined), [namesLoaded, settings.dictionary]);
   const gridViews = useMemo(() => { const m = exporting ?? doc; return loaded ? gridViewsOf(m, {
-    reaction: (id) => findReaction(m, id, arrows, inkBox, captionBox), steps: (r) => interpret(m, r, captionBox),
+    reaction: (id) => (exporting ? findReaction(m, id, arrows, inkBox, captionBox) : reactionOf(id)), steps: (r) => interpret(m, r, captionBox),
     structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)),
     // A reagent's formula: as written with its groups written out, else as Name to Structure reads it (stoich.ts).
     reagent: (item) => reagentFormula(item, readName, labelSmiles, smilesWeight),
@@ -6876,12 +6879,12 @@ export default function Editor() {
     }
     return molecule ?? structureOf();
   };
-  // The panel's context, worked out again only when something it reads changes. During a drag or the Pen, the list of
-  // reagent tables (gridViews) is made again on each frame, so the context is too, and the panel follows what is drawn
-  // (a caption dragged under a structure gets Tie to structure). A box or lasso that takes in the same things again
-  // keeps the selection's sets (choose), so the side arrow or step it picks (branchPick, stepPick) is a dependency of
-  // its own. While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions below).
-  const settled = shown === doc;
+  // The panel's context, worked out again only when something it reads changes. It reads what is drawn (drawing,
+  // placed: a caption dragged under a structure gets Tie to structure, a reaction's Clean up), so during a drag or the
+  // Pen it is worked out again on each frame and the panel follows the drag. A box or lasso that takes in the same
+  // things again keeps the selection's sets (choose), so the side arrow or step it picks (branchPick, stepPick) is a
+  // dependency of its own. While text is typed, the caret changes it too, so the panel works it out as it draws (see
+  // Actions below).
   // While a glide runs, only the canvas works (decision 0024): the side panels keep what they last drew and catch up
   // when it ends, and work for them (the panel's context, the screen reader's names) waits. A panel a moment late is
   // fine; a glide that stutters is not.
@@ -6894,7 +6897,7 @@ export default function Editor() {
     stillPanels.current.set(name, made);
     return made;
   };
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
