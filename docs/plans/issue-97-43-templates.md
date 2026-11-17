@@ -115,7 +115,7 @@ Each job is done only when its last line holds.
 - **R4. Clear.** No clash (`tools/library/clashes.mjs`, as Octet draws it at the default style). Not messy
   (`src/check.ts` `messy`: every bond 0.75 to 1.3 of the median, no two bonds crossing, no two atoms within 0.35), so
   the Actions panel does not offer Clean Up for a template as placed. No two labelled atoms that are not bonded closer
-  than 1.0 bond length.
+  than 1.0 bond length. (Changed 17 November, build: Cucurbit[5]uril cannot keep the last limit; see D5.)
 - **R5. Symmetric.** Every unit is the same drawing turned by 360°/n about the middle.
 - **R6. Stereo as chemists read it.** Wedges and hashes only on bonds out of a ring, the narrow end at the
   stereocentre and the wide end never at another stereocentre (ChemDraw marks a wedge between two stereocentres).
@@ -135,6 +135,10 @@ primary rim, so seen from the wide rim the CH2OH groups are the inner ring, as d
 secondary OH crowd the middle and two neighbours' OH meet (worked out for α: 0.14 bond lengths apart). The prototype
 (17 November) has no clash, every bond 1.00 to 1.11, and is not messy, for n = 6, 7 and 8. Indigo's layout with Clean
 Up was tried first: it is irregular and its inner OH labels touch.
+*Changed in the build (17 November):* the prototype's α drawing had straight glycosidic bonds (C–O–C 180°, bonds
+1.11). The build searches the n-gon's size, the lean of each C5–C6 (±30° from straight out) and the turn of each O6,
+keeps every bond 1.00 and each C–O–C angle 105° to 150°, and takes the drawing whose labels are furthest apart (gap
+between their ink: α 0.34, β 0.48, γ 0.48 bond lengths; C–O–C α 147°, β 134°, γ 122°).
 
 **D2. Cyclodextrin stereo picked, not typed.** The build tries all 32 ways of putting a wedge or a hash on the five
 bonds out of each ring (C1–O, C2–O2, C3–O3, C4–O, C5–C6, the same on every unit) and keeps the one whose InChI is the
@@ -165,15 +169,28 @@ drawing that meets every limit: R4, every bridge angle at CH2 150° or less, eve
 pentagon's. Fallback, decided by the check and not by eye: a size whose outer bridges cannot bend within the limits
 shows those bridge carbons as CH2 (a shown carbon), which reads right when straight. Either way the chemistry is the
 same.
+*Changed in the build (17 November):* with only the inner rings smaller, no size of CB[5] or CB[6] met the limits: the
+inner C=O meet in the middle unless the circle grows, and then the outer bridges stretch past 1.3. Scaling the whole
+inner rim (its rings, its C=O and its bridges, k = 0.76 to 1 bond length), as the far portal looks smaller, and letting
+the inner N atoms splay too, CB[6] to CB[8] keep every limit with bent bridges on both rims (outer bonds 1.0 to 1.1, N
+splay to 0.5; label gap CB[6] and CB[7] 0.67, CB[8] 0.88 bond lengths). So the shown-CH2 fallback is not needed. CB[5]
+cannot keep the last R4 limit in any flat drawing: a ring offset by d is 2πd longer, so the outer rim, at the same
+number of bonds as the inner, cannot also reach round the five inner C=O. Its fallback, decided by the build and the
+check: every other limit, the outer rings flatter (bonds 1.2, N splay 0.6), the five inner O 0.71 bond lengths apart
+and their labels 0.10 bond lengths apart (clear, not touching). The check holds those numbers.
 
 **D6. No wedges on a cucurbituril.** Its 2n methine CH pairs are cis-fused, every H out. PubChem's standard InChI for
 CB[5] to CB[8] has no stereo layer, and papers draw it without wedges; 4n wedges would bury the drawing. A flat
 drawing does not tell CB[n] from the inverted iCB[n], and neither do those records.
 
 **D7. The first atom.** Placed on an atom, a template's first atom becomes that atom (`edit.ts:2604-2608`). A
-cyclodextrin's first atom is the top unit's O6, so a click on an atom puts the cyclodextrin there through C6: the
-6-substituted cyclodextrins are the ones chemists make most. A cucurbituril's first atom is a methine carbon, as the
-other hosts' first atom is a ring atom.
+cyclodextrin's first atom is the top unit's O2, so a click on an atom puts the cyclodextrin there through C2 (on
+methanol's O: 2-O-methyl-β-cyclodextrin). A cucurbituril's first atom is a methine carbon, as the other hosts' first
+atom is a ring atom.
+*Changed in the build (17 November):* the plan had the top unit's O6. Placing turns the template so its middle is on
+the clicked atom's free side; O6 is inside the ring, so the top glucose landed on the atoms behind the click (stress 4:
+methanol's C 0.4 bond lengths from C6, messy, a "very close" warning). O2 is on the outside, so the cyclodextrin lies
+clear of what is clicked.
 
 **D8. Energy transfer is a transition arrow, not a reaction arrow.** It is a photophysical step between two species
 or states, drawn as intersystem crossing is: a wavy line with a head (radiationless, IUPAC). A reaction arrow would
@@ -267,7 +284,7 @@ Intersystem crossing today, checked side by side.
 3. **Fast repeated clicks.** 20 clicks with the Template tool 0.5 bond lengths apart: 20 undo steps, no exception, no
    coordinate that is not a number. A click that lands on an atom or bond of the last host fuses, as 1.1.2.
 4. **On an atom.** β-Cyclodextrin clicked onto methanol's O: one structure C43H72O35, InChI that of
-   6-O-methyl-β-cyclodextrin built by SMILES (D7).
+   2-O-methyl-β-cyclodextrin built by SMILES (D7), not messy, no warning.
 5. **On a bond, mirrored.** β-Cyclodextrin on a C–C bond of cyclohexane, on the side that makes Octet mirror it:
    wedges swap (`edit.ts:2639-2640`), and every stereocentre the host brings keeps its CIP label.
 6. **Flip.** Flip Horizontally on β-cyclodextrin gives its mirror image (InChI `/m0`, as ChemDraw's Flip does); a
