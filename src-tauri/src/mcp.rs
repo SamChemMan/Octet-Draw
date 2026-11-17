@@ -491,82 +491,6 @@ pub fn mcp_changed(window: Window, mcp: State<'_, Mcp>) {
     }
 }
 
-// Settings > AI apps > Claude Desktop > Install (D17): writes the Claude Desktop bundle (an .mcpb, a zip) and opens it,
-// so Claude Desktop installs it. The bundle's server (mcpb.cjs, CommonJS, which every Node runs) starts this Octet's relay. tools: each tool's name and
-// description, for Claude Desktop to show.
-#[derive(Deserialize, Serialize)]
-pub struct BundleTool {
-    name: String,
-    description: String,
-}
-#[tauri::command]
-pub fn mcp_bundle(tools: Vec<BundleTool>) -> Result<(), String> {
-    let path = std::env::temp_dir().join("Octet Draw.mcpb");
-    std::fs::write(&path, bundle(tools)?).map_err(|e| e.to_string())?;
-    crate::open_external(&path).map_err(|e| e.to_string())
-}
-fn bundle(tools: Vec<BundleTool>) -> Result<Vec<u8>, String> {
-    if tools.len() > 64 || tools.iter().any(|t| t.name.len() > 64 || t.description.len() > 2000) {
-        return Err("Octet cannot make the bundle.".into());
-    }
-    let manifest = serde_json::json!({
-        "manifest_version": "0.3",
-        "name": "octet-draw",
-        "display_name": "Octet Draw",
-        "version": app_version(),
-        "description": "Draws and reads chemical structures, reactions, schemes and catalytic cycles in Octet Draw on this computer.",
-        "author": { "name": "Sam Ellis", "url": "https://octet.software" },
-        "homepage": "https://octet.software",
-        "support": "https://github.com/SamChemMan/Octet-Draw/issues",
-        "license": "Apache-2.0",
-        "icon": "icon.png",
-        "server": { "type": "node", "entry_point": "server/index.cjs", "mcp_config": { "command": "node", "args": ["${__dirname}/server/index.cjs"] } },
-        "tools": tools,
-        "prompts_generated": true,
-        "keywords": ["chemistry", "chemical structures", "reactions", "drawing"],
-        "compatibility": { "platforms": ["darwin", "win32"], "runtimes": { "node": ">=16.0.0" } },
-    });
-    // The bundle's server reads the file of the Octet that made it: a dev build's bundle starts the dev build's relay.
-    let server = include_str!("mcpb.cjs").replace("mcp.json", INFO);
-    let files: [(&str, &[u8]); 3] = [
-        ("manifest.json", &serde_json::to_vec_pretty(&manifest).unwrap()),
-        ("server/index.cjs", server.as_bytes()),
-        ("icon.png", include_bytes!("../icons/icon.png")),
-    ];
-    Ok(stored_zip(&files))
-}
-
-// A zip of files stored as they are (no compression): all a bundle needs.
-fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
-    let (mut out, mut central) = (Vec::new(), Vec::new());
-    for (name, data) in files {
-        let (crc, size, at) = (crc32fast::hash(data), data.len() as u32, out.len() as u32);
-        // version 20, no flags, stored, no time (1980-01-01)
-        let common = [&20u16.to_le_bytes()[..], &0u16.to_le_bytes(), &0u16.to_le_bytes(), &0u16.to_le_bytes(), &0x21u16.to_le_bytes(), &crc.to_le_bytes(), &size.to_le_bytes(), &size.to_le_bytes(), &(name.len() as u16).to_le_bytes(), &0u16.to_le_bytes()].concat();
-        out.extend_from_slice(&0x04034b50u32.to_le_bytes());
-        out.extend_from_slice(&common);
-        out.extend_from_slice(name.as_bytes());
-        out.extend_from_slice(data);
-        central.extend_from_slice(&0x02014b50u32.to_le_bytes());
-        central.extend_from_slice(&20u16.to_le_bytes()); // made by
-        central.extend_from_slice(&common);
-        central.extend_from_slice(&[0u8; 6]); // comment length, disk, internal attributes
-        central.extend_from_slice(&0u32.to_le_bytes()); // external attributes
-        central.extend_from_slice(&at.to_le_bytes());
-        central.extend_from_slice(name.as_bytes());
-    }
-    let (start, length, count) = (out.len() as u32, central.len() as u32, files.len() as u16);
-    out.extend_from_slice(&central);
-    out.extend_from_slice(&0x06054b50u32.to_le_bytes());
-    out.extend_from_slice(&[0u8; 4]);
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&length.to_le_bytes());
-    out.extend_from_slice(&start.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out
-}
-
 // A PNG of the drawing (an SVG at true size), as base64, for the AI app to see what Octet drew.
 #[tauri::command]
 pub async fn mcp_png(svg: String, dpi: f32) -> Result<String, String> {
@@ -1558,29 +1482,6 @@ mod tests {
         relay.handle(line, &serde_json::from_str(line).unwrap());
     }
 
-    #[test]
-    fn the_bundle_has_its_manifest() {
-        let zip = bundle(vec![BundleTool { name: "advanced".into(), description: "Other tools".into() }]).unwrap();
-        let text = String::from_utf8_lossy(&zip);
-        assert!(text.contains(r#""entry_point": "server/index.cjs""#) && text.contains("advanced") && text.contains("server/index.cjs") && text.contains("icon.png"));
-        assert!(bundle((0..65).map(|k| BundleTool { name: format!("t{k}"), description: String::new() }).collect()).is_err());
-        if let Some(out) = std::env::var_os("OCTET_BUNDLE_OUT") {
-            std::fs::write(out, zip).unwrap();
-        }
-    }
-
-    #[test]
-    fn the_bundle_is_a_zip() {
-        let zip = stored_zip(&[("manifest.json", b"{}"), ("server/index.js", b"//")]);
-        let path = std::env::temp_dir().join("octet-test.mcpb");
-        std::fs::write(&path, &zip).unwrap();
-        let listed = std::process::Command::new("python3").args(["-c", "import sys,zipfile;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print(' '.join(z.namelist()), z.read('manifest.json').decode())"]).arg(&path).output();
-        if let Ok(o) = listed {
-            assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "manifest.json server/index.js {}", "{}", String::from_utf8_lossy(&o.stderr));
-        }
-        let _ = std::fs::remove_file(path);
-    }
-
     // Home asks for the server each time it opens: the one that runs stays, with its sessions and port. A new key, or
     // off, is a change.
     #[test]
@@ -1712,44 +1613,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // The bundle's server on Linux finds mcp.json where Octet keeps it when XDG_DATA_HOME is empty or relative, and
-    // starts the program it names (here echo, which says --mcp).
-    #[cfg(unix)]
-    #[test]
-    fn the_bundle_server_ignores_a_relative_xdg_data_home() {
-        let home = std::env::temp_dir().join(format!("octet-mcpb-home-{}", std::process::id()));
-        let dir = home.join(".local/share/io.github.samchemman.octet-draw");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mcp.json"), r#"{"program":"/bin/echo"}"#).unwrap();
-        let server = home.join("server.cjs");
-        std::fs::write(&server, include_str!("mcpb.cjs")).unwrap();
-        for xdg in ["", "relative"] {
-            let run = std::process::Command::new("node")
-                .args(["-e", "Object.defineProperty(process, 'platform', { value: 'linux' }); require(process.argv[1])"])
-                .arg(&server)
-                .env("HOME", &home)
-                .env("XDG_DATA_HOME", xdg)
-                .stdin(std::process::Stdio::null())
-                .output();
-            if let Ok(o) = run {
-                assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "--mcp", "XDG_DATA_HOME={xdg:?} {}", String::from_utf8_lossy(&o.stderr));
-            }
-        }
-        // A Flatpak's program comes with what goes before --mcp, and is found on the PATH.
-        std::fs::write(dir.join("mcp.json"), r#"{"program":"echo","args":["run","--command=octet","io.x"]}"#).unwrap();
-        let run = std::process::Command::new("node")
-            .args(["-e", "Object.defineProperty(process, 'platform', { value: 'linux' }); require(process.argv[1])"])
-            .arg(&server)
-            .env("HOME", &home)
-            .env_remove("XDG_DATA_HOME")
-            .stdin(std::process::Stdio::null())
-            .output();
-        if let Ok(o) = run {
-            assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "run --command=octet io.x --mcp", "{}", String::from_utf8_lossy(&o.stderr));
-        }
-        let _ = std::fs::remove_dir_all(home);
-    }
-
     // `printf '<initialize>\n<call>\n' | octet --mcp`: the relay ends at the end of its input only once Octet's slow
     // reply to the call is written.
     #[test]
@@ -1774,10 +1637,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // Test plan R11: a dev build and the installed Octet share the data folder. Each reads only its own file, has its
-    // own port, and makes a bundle whose server reads that file. Both builds' names and ports are checked in every
-    // build. What the relay reads and what the bundle holds are checked for the build under test: for the installed
-    // Octet that is cargo test --release.
+    // Test plan R11: a dev build and the installed Octet share the data folder. Each reads only its own file and has its
+    // own port. Both builds' names and ports are checked in every build. What the relay reads is checked for the build
+    // under test: for the installed Octet that is cargo test --release.
     #[test]
     fn a_dev_build_and_the_installed_octet_keep_apart() {
         let dev = cfg!(debug_assertions);
@@ -1791,9 +1653,6 @@ mod tests {
         assert_eq!(token().as_deref(), Some(if dev { "dev" } else { "installed" }));
         assert_eq!((own(false), own(true)), (("mcp.json", 47681), ("mcp-dev.json", 47682)));
         assert_eq!((INFO, PORT), own(dev));
-        let server = String::from_utf8_lossy(&bundle(vec![]).unwrap()).into_owned();
-        assert_eq!(server.contains(r#"join(dir, "mcp-dev.json")"#), dev);
-        assert_eq!(server.contains(r#"join(dir, "mcp.json")"#), !dev);
         let _ = std::fs::remove_dir_all(dir);
     }
     const KEY: &str = "k3y";

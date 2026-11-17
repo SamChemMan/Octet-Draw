@@ -184,7 +184,7 @@ The MCP is used by more than Claude Desktop. Each app sends arguments its own wa
 
 | ID | Client | Why |
 |---|---|---|
-| A1 | Claude Desktop (the `.mcpb` install), Mac and Windows | Main target; elicitation support to check |
+| A1 | Claude Desktop (connected by `aiapps.rs`; the `.mcpb` install was removed), Mac and Windows | Main target; elicitation support to check |
 | A2 | Claude Code (CLI) | Developers; different context handling |
 | A3 | Other MCP clients: ChatGPT (where it supports MCP), Cursor, VS Code Copilot, Cline, Gemini CLI | Different argument styles; no elicitation in some |
 | A4 | Models: a large model, a fast cheap one, and an older one | A small model shows where the tools are unclear. A good MCP works for all of them |
@@ -242,7 +242,7 @@ Run on Sam's Mac and on a slow machine (GitHub's runners, which are about 3 time
 
 | ID | Test |
 |---|---|
-| X1 | Setup from zero on a clean Mac, Windows and Linux: install Octet, turn on AI apps, install the bundle, first drawing. Time it and count the steps |
+| X1 | Setup from zero on a clean Mac, Windows and Linux: install Octet, turn on AI apps, connect Claude Desktop, first drawing. Time it and count the steps |
 | X2 | The overlay: starts on the first call, stays through thinking, shows progress, Stop works, goes when work ends; reduced motion; light and dark; two windows |
 | X3 | Undo after an AI job: one step takes back the whole job |
 | X4 | Notices: the user always knows what the AI did ("Claude drew a scheme"), with Undo |

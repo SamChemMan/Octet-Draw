@@ -710,7 +710,7 @@ const LISTED_COMPOUND: Schema = { ...obj({
 }), description: "number is bold under it, caption under the number. up, down, left, right: an atom that points that way from the middle (a label, an element, or #n, the n-th atom of the SMILES from 0); a second at right angles sets the side. rotate: degrees, anticlockwise" };
 const COMPOUNDS = list({ $ref: "#/$defs/compound" }, MOST_STRUCTURES);
 const KIND = open({ kind: pick(KINDS) }, ["kind"]);
-// (A tool's description is 2,000 characters at most: mcp.rs puts it in Claude Desktop's bundle, which takes no more.
+// (A tool's description is 2,000 characters at most, the most Claude Desktop's .mcpb bundle took when Octet made one.
 // So what each operation takes is said on the argument.)
 const OPERATIONS = obj({ operations: { ...list(open({ op: pick(["draw", ...CHANGE_OPS, ...ALSO_OPS]), ids: list(str(40), 500) }, ["op"]), MOST_STEPS, 1), description: `Each is an op with its arguments beside it.
 edit: ids, and any property of what they name: colour, highlight (#rrggbb or none), rotate, scale; an atom's label, charge; a bond's bond (single, double, wedge and more); a structure's structure (a name or SMILES), changes, flip, ring_fill; text's text, bold, size; an arrow's kind, style; a shape's fill.

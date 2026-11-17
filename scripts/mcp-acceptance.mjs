@@ -12,7 +12,6 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const headless = process.argv[2] === "--headless" ? process.argv[3] : undefined;
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
@@ -113,7 +112,7 @@ async function events(r, onEvent) {
   }
 }
 
-// An AI app that starts a program and talks to it on standard input and output (the relay, or the bundle's server).
+// An AI app that starts a program and talks to it on standard input and output (the relay).
 function stdio(command, args, env = {}) {
   const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"], env: { ...process.env, ...env } });
   let n = 0, rest = "";
@@ -328,7 +327,7 @@ const CASES = {
     check(updated.includes(`octet://drawing/${d}`), "a subscribed drawing tells the app it changed", JSON.stringify(updated));
   },
   async 18() {
-    console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
+    console.log("18. Through the relay (Octet Draw --mcp)");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
     check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("make ONE draw call with lines"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
@@ -364,16 +363,6 @@ const CASES = {
     const later = (await c.ask("tools/list")).result?.tools ?? [];
     check(changed && ["draw", "change", "read"].every((n) => later.some((t) => t.name === n)), "Octet found: the list changed and the tools are there", `${changed} ${later.map((t) => t.name)}`);
     c.stop();
-    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. A dev build's bundle has mcp-dev.json in
-    // place of mcp.json (bundle in mcp.rs). It runs in the real home, so the folder it works out must be the folder
-    // Octet wrote to.
-    const server = join(home, "index.cjs");
-    writeFileSync(server, readFileSync(fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url)), "utf8").replaceAll("mcp.json", "mcp-dev.json"));
-    const b = stdio(process.execPath, [server]);
-    await b.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-bundle", version: "1" } });
-    const read = await b.ask("tools/call", { name: "drawings", arguments: { action: "list" } });
-    check(!read.result?.isError && read.result?.structuredContent, "the bundle's server reaches Octet", JSON.stringify(read).slice(0, 160));
-    b.stop();
     rmSync(home, { recursive: true, force: true });
   },
   async 11(a) {

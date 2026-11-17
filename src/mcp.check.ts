@@ -199,8 +199,8 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
 assert.ok(tools.find((t) => t.name === "read")!.annotations.readOnlyHint && !tools.find((t) => t.name === "draw")!.annotations.readOnlyHint);
 // The tool table (D11): names of 64 characters at most from A-Z a-z 0-9 _ - ., a title, a closed input schema, an
 // output schema, all four hints said outright and openWorldHint false; a read-only tool is never destructive.
-// A description is 2,000 bytes at most: Claude Desktop's bundle lists each tool with its description, and mcp.rs
-// (bundle) makes no bundle with a longer one. (Three of the 26 tools of v1 were longer.)
+// A description is 2,000 bytes at most, the most Claude Desktop's .mcpb bundle took when Octet made one. (Three of the
+// 26 tools of v1 were longer.)
 for (const t of tools as unknown as { name: string; title: string; description: string; inputSchema: { additionalProperties: boolean }; outputSchema?: object; annotations: Record<string, boolean> }[]) {
   assert.match(t.name, /^[A-Za-z0-9_.-]{1,64}$/);
   assert.ok(Buffer.byteLength(t.description) <= 2000, `${t.name}: a description of ${Buffer.byteLength(t.description)} bytes`);

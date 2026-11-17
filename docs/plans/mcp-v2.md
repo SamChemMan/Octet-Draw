@@ -844,7 +844,8 @@ Built on 11 November 2026 (`coerce` in `mcp.ts`, before each `check`):
 ### 7.1 What stays
 
 Streamable HTTP on 127.0.0.1, the bearer key, the Origin and Host checks, the rate limits, sessions, the relay for
-Claude Desktop (`--mcp`), and `.mcpb` install. All of it is good and tested.
+Claude Desktop (`--mcp`). All of it is good and tested. (The `.mcpb` install was removed later: `aiapps.rs` connects
+Claude Desktop by writing its `claude_desktop_config.json`.)
 
 ### 7.2 What changes
 
