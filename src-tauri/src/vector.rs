@@ -530,47 +530,56 @@ fn argb(c: [u8; 3]) -> u32 {
     0xFF00_0000 | (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])
 }
 
+// A path's points (x, y in px) and their kinds, as EMF+ has them: 0 a figure's start, 1 a line, 3 a Bézier point, with
+// 0x80 on the point that closes a figure.
+#[derive(Default)]
+struct Figures {
+    points: Vec<f32>,
+    kinds: Vec<u8>,
+    start: [f32; 2],
+    open: bool,
+}
+impl Figures {
+    fn to(&mut self, x: f32, y: f32, kind: u8) {
+        let p = [x * PX, y * PX];
+        if kind == 0 {
+            self.start = p;
+        } else if !self.open {
+            // A line or curve after a close starts a new figure where the last one started, as in GDI.
+            self.points.extend(self.start);
+            self.kinds.push(0);
+        }
+        self.open = true;
+        self.points.extend(p);
+        self.kinds.push(kind);
+    }
+    fn close(&mut self) {
+        if let (true, Some(k)) = (self.open, self.kinds.last_mut()) {
+            *k |= 0x80;
+        }
+        self.open = false;
+    }
+}
+
 // A shape as EMF+: its outline as a path object, then filled with its colour (EmfPlusFillPath) and drawn with a pen
 // object (EmfPlusDrawPath). Points are floats; each figure starts with a start point and a closed one has the close
 // flag on its last point. A nonzero fill sets PathPointFlags 0x2000, as GDI+ writes a path with winding fill (MS-EMFPLUS
 // names no fill mode; the Windows CI test ole_plus_fill_mode checks it). None for a shape with no points or no paint.
 fn plus_shape(sh: &Shape) -> Option<Plus> {
-    let (mut points, mut types) = (Vec::new(), Vec::<u8>::new());
-    let (mut start, mut open) = ([0.0f32; 2], false);
-    let add = |p: [f32; 2], kind: u8, points: &mut Vec<f32>, types: &mut Vec<u8>, open: &mut bool, start: [f32; 2]| {
-        if !*open {
-            // A line or curve after a close starts a new figure where the last one started, as in GDI.
-            points.extend(start);
-            types.push(0);
-            *open = true;
-        }
-        points.extend(p);
-        types.push(kind);
-    };
+    let mut f = Figures::default();
     for seg in &sh.segs {
         match *seg {
-            Seg::Move(x, y) => {
-                start = [x * PX, y * PX];
-                points.extend(start);
-                types.push(0);
-                open = true;
-            }
-            Seg::Line(x, y) => add([x * PX, y * PX], 1, &mut points, &mut types, &mut open, start),
+            Seg::Move(x, y) => f.to(x, y, 0),
+            Seg::Line(x, y) => f.to(x, y, 1),
             Seg::Curve(a, b, c, d, x, y) => {
-                for p in [[a, b], [c, d], [x, y]] {
-                    add([p[0] * PX, p[1] * PX], 3, &mut points, &mut types, &mut open, start);
-                }
+                f.to(a, b, 3);
+                f.to(c, d, 3);
+                f.to(x, y, 3);
             }
-            Seg::Close => {
-                if open {
-                    if let Some(t) = types.last_mut() {
-                        *t |= 0x80;
-                    }
-                }
-                open = false;
-            }
+            Seg::Close => f.close(),
         }
     }
+    let (points, types) = (f.points, f.kinds);
     if types.is_empty() || (sh.fill.is_none() && sh.stroke.is_none()) {
         return None;
     }

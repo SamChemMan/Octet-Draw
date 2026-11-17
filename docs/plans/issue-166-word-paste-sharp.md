@@ -398,6 +398,21 @@ Prof. Schramm.
 - Refreshing a 1.1.2 object's picture without Update (D10).
 - LibreOffice reading Octet's EMF+ (no LibreOffice here; the LibreOffice item, issue 48, owns it).
 
+## Build notes (17 November 2026)
+
+Built as planned. Details the plan did not fix:
+
+- The SVG's miter join is GDI+'s LineJoinMiterClipped (a bevel past the limit, as SVG). GDI+ has no square dash cap,
+  so with square caps each dash is a pen width longer and starts half a width earlier. A dash or gap is at least
+  1/20 pt, as in the GDI pen.
+- T1 and T4 assert on GDI+ drawing into a DC (as Word draws); the same on a GDI+ bitmap is printed. T6's continued
+  layouts are an ignored test of their own (`ole_plus_large_path_continued`), run by a CI step that may fail, so a
+  part GDI+ misreads cannot end the asserted tests' process.
+- Octet's bond outlines overlap a little where bonds meet: drawn even-odd, 42 of L-proline's 4,918 ink pixels at 4 px a
+  pt would be white. So T5 matters; its fallback stays as above.
+- J4's paclitaxel and peptide are a generator (`octet_drawing` in `vector_plus_tests.rs`) with Octet's export's
+  shapes and counts, not exports from the dev server.
+
 ## What's New lines (for the release session)
 
 - When you paste a drawing into Word, PowerPoint or Excel for Windows, its bonds and labels are smooth at all zoom
