@@ -5,7 +5,7 @@ import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addSymbol, atomCaption, captionAtom, chemicalCaption, keyCharge, markNear, moveMark, standInCaption } from "./edit.ts";
-import { render, type Atom, type Caption, type Ink, type Mol } from "./render.ts";
+import { render, turnPx, type Atom, type Caption, type Ink, type Mol } from "./render.ts";
 import { actionFor, keymap } from "./keys.ts";
 import { readFileSync } from "node:fs";
 
@@ -96,3 +96,48 @@ console.log("chargelabels.check: ok");
   }
 }
 console.log("chargelabels.check: a stand-in label's sign moves ok");
+
+// On a turned label (labelAngle) a sign or radical ion that is not after the label is a symbol of its own: it draws
+// level, out from the atom the way it was dragged on the page (not turned with the label), clear of the label's ink.
+// CDXML writes the symbol where it is drawn, and a ChemDraw file brings it back there. An undragged radical ion is a
+// symbol too, so it goes to the file where Octet draws it.
+{
+  const way = (q: number[], o: number[]) => (Math.atan2(-(q[1] - o[1]), q[0] - o[0]) * 180) / Math.PI;
+  const off = (p: number, q: number) => Math.abs((((p - q) % 360) + 540) % 360 - 180);
+  const X: P = [L, 0];
+  const markOf = (m: Mol) => {
+    const r = render(m, S, ink), marks = r.electrons.filter((e) => e.atom === 1 && e.key === "charge");
+    return { r, at: marks.reduce<P>((s, e) => [s[0] + e.at[0] / marks.length, s[1] + e.at[1] / marks.length], [0, 0]) };
+  };
+  const cases: [Partial<Atom>, number | undefined][] = [
+    [{ charge: 1, labelAngle: 90, angles: { charge: 90 } }, 90],
+    [{ charge: 1, labelAngle: 45, angles: { charge: -90 } }, -90],
+    [{ charge: 1, radical: 1, labelAngle: 90, angles: { charge: 90 } }, 90],
+    [{ charge: -1, radical: 1, labelAngle: 45, angles: { charge: 90 } }, 90],
+    [{ charge: 1, radical: 1, labelAngle: 90 }, undefined],
+  ];
+  for (const [more, deg] of cases) {
+    const what = JSON.stringify(more), m: Mol = { atoms: [A("C", 0, 0), A("N", 1, 0, more)], bonds: [{ type: 1, atoms: [0, 1] }] };
+    const { r, at } = markOf(m), drawn = way(at, X);
+    if (deg !== undefined) assert.ok(off(drawn, deg) < 10, `${what}: drawn the way it was dragged (${drawn.toFixed(0)}°)`);
+    // The sign stays level; the label turns.
+    const t = (more.charge! > 0 ? "+" : "–"), sign = r.labels.find((l) => l.text === t)!, n = r.labels.find((l) => l.text === "N")!;
+    assert.ok(!sign.angle && n.angle === more.labelAngle, `${what}: the sign is level, the label turned`);
+    // Clear of the label's ink: no corner of a turned glyph's box is inside the sign's box.
+    const k = 0.75, sx = [sign.x, sign.x + 9.6 * k], sy = [sign.y - 9.5 * k, sign.y];
+    for (const l of r.labels.filter((x) => x.angle)) {
+      const f = l.size / S.size, w = 9.6 * f * [...l.text].length;
+      for (const q of ([[l.x, l.y], [l.x + w, l.y], [l.x, l.y - 9.5 * f], [l.x + w, l.y - 9.5 * f]] as P[]).map((q) => turnPx(q, l.pivot!, l.angle!)))
+        assert.ok(q[0] < sx[0] || q[0] > sx[1] || q[1] < sy[0] || q[1] > sy[1], `${what}: the sign is clear of ${l.text}`);
+    }
+    const xml = toCdxml(m, DEFAULT_STYLE).replace(/\n/g, " "), p = [...xml.matchAll(/<n\s[^>]*?p="([\d.-]+) ([\d.-]+)"/g)].map((x) => [Number(x[1]), Number(x[2])])[1];
+    const g = /BoundingBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"[^>]*SymbolType="(\w+)"/.exec(xml)!;
+    assert.ok(g, `${what}: a symbol`);
+    const c = g[5].startsWith("Radical") ? [(+g[1] + +g[3]) / 2, (+g[2] + +g[4]) / 2] : [+g[1], +g[2]], file = way(c, p);
+    assert.ok(off(file, drawn) < 20, `${what}: CDXML writes the symbol the way it is drawn (${file.toFixed(0)}° against ${drawn.toFixed(0)}°)`);
+    const back = fromCdxml(xml.replace(/ Octet="[^"]*"/g, "")).mol, again = way(markOf(back).at, X);
+    assert.equal(back.atoms[1].labelAngle, more.labelAngle, `${what}: the label comes back turned`);
+    assert.ok(off(again, drawn) < 20, `${what}: ChemDraw's file draws it where it was (${again.toFixed(0)}° against ${drawn.toFixed(0)}°)`);
+  }
+}
+console.log("chargelabels.check: a sign round a turned label ok");

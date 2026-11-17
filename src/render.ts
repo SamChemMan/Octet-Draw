@@ -870,6 +870,9 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   // sign (signAt) moves the unit round its atom (Atom.angles charge), as a drag on any other charge sign does.
   const isIon = (a: Atom) => a.radical === 1 && !!a.charge && !a.circled && a.angles?.radical0 === undefined;
   const ionDot: (P | undefined)[] = [];
+  // A turned label's sign that is a symbol of its own: its run, its texts, and how far it moves from where it was put
+  // to its place clear of the turned label's ink (charged).
+  const loose: ({ run: Run; texts: Label[]; place: (ink: P[]) => P } | undefined)[] = [];
   // A diamond or star attachment point, ChemDraw's size: three quarters of the label size and two line widths across.
   const pointR = (0.75 * s.size + 2 * s.line) / 2;
   const pointOutline = (st: "diamond" | "star"): P[] => st === "diamond"
@@ -1006,11 +1009,17 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       // charge) goes out that way.
       const R = 0.1 * S, g = ION_GAP * S, [x0, y0, x1, y1] = outlineBox(ink), lead = isIon(a) ? 2 * g + 2 * R - x0 : 0, dy = (y0 + y1) / 2;
       const unit = lead ? [[g, dy - R], [g + 2 * R, dy + R], ...ink.map(([px, py]): P => [px + lead, py])] as P[] : ink;
-      const deg = a.angles?.charge;
-      const { at } = signSpot(pts[i], bonds, rings, left, right, base - RISE * S, lead + m.width * SUB, unit, rtl, placedPoints(shape), S, deg === undefined ? undefined : (-deg * Math.PI) / 180);
-      run(t, at[0] + lead, at[1], SUB, -1);
+      const deg = a.angles?.charge, place = (ink: P[], turn?: number) => signSpot(pts[i], bonds, rings, left, right, base - RISE * S, lead + m.width * SUB, unit, rtl, ink, S, turn);
+      const { at, after } = place(placedPoints(shape), deg === undefined ? undefined : (-deg * Math.PI) / 180), from = labels.length, r = run(t, at[0] + lead, at[1], SUB, -1);
       signAt[i] = [at[0] + lead + (x0 + x1) / 2, at[1] + dy];
       if (lead) ionDot[i] = [at[0] + g + R, at[1] + dy];
+      // On a turned label, a sign that is not after the label (dragged, a radical ion, or moved off a bond) is a symbol
+      // of its own, as ChemDraw keeps it: it stays level and goes out from the atom on the page, clear of the turned
+      // label and of the atom (which a label turned about its end may leave bare), the way it was dragged or else the way
+      // it is from the atom before the label turns.
+      if (!a.labelAngle || !r || (after && !lead && deg === undefined)) return;
+      const [u0, v0, u1, v1] = outlineBox(unit), way = deg === undefined ? Math.atan2(at[1] + (v0 + v1) / 2 - pts[i][1], at[0] + (u0 + u1) / 2 - pts[i][0]) : (-deg * Math.PI) / 180;
+      loose[i] = { run: r, texts: labels.slice(from), place: (ink: P[]) => sub(place(ink, way).at, at) };
     };
     // A text's ink, left and right of where it starts; and how far left of the middle of a glyph its ink starts.
     const inkOf = (t: string): [number, number] => { const o = M(t).outline; if (!o.length) return [0, 0]; const b = outlineBox(o); return [b[0], b[2]]; };
@@ -1150,16 +1159,19 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   });
   // A turned label (labelAngle) turns about its anchor, as ChemDraw turns a text about its p: the middle of its first
   // line when centred, else the end of its first line that the atom is nearer (where it starts, or ends read right to
-  // left). Its glyph outlines turn with it.
+  // left). Its glyph outlines turn with it, but not a sign that is a symbol of its own (charged).
   const turned = mol.atoms.map((a, i) => {
-    const runs = runsAt[i];
+    const sym = loose[i], runs = runsAt[i].filter((r) => r !== sym?.run);
     if (!a.labelAngle || !runs.length) return false;
     const line = runs.filter((r) => r.line <= 0), x = pts[i][0], start = Math.min(...line.map((r) => r.p.x)), end = Math.max(...line.map((r) => r.p.x + r.width * r.p.f));
     const pivot: P = [a.align === "centre" ? x : x - start <= end - x ? start : end, runs.find((r) => r.line === 0 && r.p.f === 1)?.p.y ?? runs[0].p.y];
     for (const { p } of runs) Object.assign(p, { pts: p.pts.map(([px, py]) => turnPx([p.x + px * p.f, p.y + py * p.f], pivot, a.labelAngle!)), x: 0, y: 0, f: 1 });
-    if (ionDot[i]) ionDot[i] = turnPx(ionDot[i]!, pivot, a.labelAngle);
-    for (const l of labels) if (labelAtom.get(l) === i) Object.assign(l, { angle: a.labelAngle, pivot });
-    if (signAt[i]) signAt[i] = turnPx(signAt[i]!, pivot, a.labelAngle);
+    for (const l of labels) if (labelAtom.get(l) === i && !sym?.texts.includes(l)) Object.assign(l, { angle: a.labelAngle, pivot });
+    if (!sym) { if (signAt[i]) signAt[i] = turnPx(signAt[i]!, pivot, a.labelAngle); return true; }
+    const [dx, dy] = sym.place([...runs.flatMap((r) => r.p.pts), pts[i]]), by = (q?: P): P | undefined => q && [q[0] + dx, q[1] + dy];
+    sym.run.p.x += dx; sym.run.p.y += dy;
+    for (const l of sym.texts) { l.x += dx; l.y += dy; }
+    signAt[i] = by(signAt[i]); ionDot[i] = by(ionDot[i]);
     return true;
   });
   if (only) return { label: shapes.map((shape) => around(shape.map(pieceBox))), scale: k };

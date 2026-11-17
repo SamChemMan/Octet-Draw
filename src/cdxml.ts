@@ -12,7 +12,7 @@ import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, ION_GAP, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -735,7 +735,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // sign) is placed the same way as one: the middle between its dot and its sign, after the label too.
   // The label's attaching line (text, after a mass number isoW wide) starts left of the atom by half its first glyph,
   // or read right to left ends at end.
-  function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number): P | undefined {
+  // turned: a turned label's p and turn. There the sign is a symbol of its own that stays level (render.ts charged): it
+  // goes out from the atom the way it was dragged, or else the way it is from the atom with the label not turned, until
+  // it is clear of the turned label and of the atom (which a label turned about its end may leave bare).
+  function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number, turned?: { p: P; angle: number }): P | undefined {
     const a = mol.atoms[i], f = scaleOf(a), s = 0.75 * size, t = (a.charge ?? 0) > 0 ? "+" : "–", [w, l, r] = arialGlyph(t).map((n) => (n * s) / 1000);
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = rtl ? X[0] + end - isoW - textW : X[0] - advance(text[0], size) / 2 - isoW;
     const edge = (b: Box): P[] => Array.from({ length: 9 }, (_, k): P[] => { const g = k / 8, x = b[0] + (b[2] - b[0]) * g, yy = b[1] + (b[3] - b[1]) * g; return [[x, b[1]], [x, b[3]], [b[0], yy], [b[2], yy]]; }).flat();
@@ -747,7 +750,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const { bonds, rings } = signBonds(i, seen, covalent, bondOf, shownAt, page, z);
     const R = 0.1 * size, g = ION_GAP * size, lead = radicalIon(a) ? 2 * g + 2 * R - l : 0, turn = a.angles?.charge === undefined ? undefined : (-a.angles.charge * Math.PI) / 180;
     const unit = lead ? [...edge([g, c[1] - R, g + 2 * R, c[1] + R]), ...ink.map(([px, py]): P => [px + lead, py])] : ink;
-    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, lead + w, unit, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size, turn);
+    const place = (around: P[], t?: number) => signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, lead + w, unit, rtl, around, size, t), label = edge([left, y - 0.716 * size, left + isoW + textW, y]);
+    let { at, after } = place(label, turn);
+    if (turned && (lead || !after)) {
+      const xs = unit.map((q) => q[0]), ys = unit.map((q) => q[1]), way = turn ?? Math.atan2(at[1] + (Math.min(...ys) + Math.max(...ys)) / 2 - X[1], at[0] + (Math.min(...xs) + Math.max(...xs)) / 2 - X[0]);
+      ({ at, after } = place([...label.map((q) => turnPx(q, turned.p, turned.angle)), X], way));
+    }
     if (lead) return [at[0] + (g + R + lead + c[0]) / 2, at[1] + c[1]];
     return after ? undefined : [at[0] + c[0], at[1] + c[1]];
   }
@@ -790,6 +798,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
     const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
+    if (a.labelAngle && signs.has(i)) signs.set(i, signAt(i, X, size, text, isoW, wide(stack && u ? u.text + (u.count ?? "") : text), a.align ? a.align === "right" : right, end, { p: [x, y], angle: a.labelAngle })!);
     // A turned label turns about p, as a caption does.
     const box = turnedBox([left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)], [x, y], a.labelAngle);
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
@@ -821,6 +830,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       if (at) { signs.set(i, at); sign = ""; }
     }
     const x = just === "Center" ? X[0] : just === "Right" ? end : start, last = rows[rows.length - 1];
+    if (a.labelAngle && signs.has(i)) signs.set(i, signAt(i, X, size, own, 0, ws[k0], just === "Right", end - X[0], { p: [x, y0], angle: a.labelAngle })!);
     const box = turnedBox([Math.min(...rows.map((_, j) => from(j))), y0 - 0.716 * size, Math.max(...rows.map((_, j) => from(j) + ws[j] + (j === k0 ? widthOf(sign, 0.75 * size) : 0))),
       y0 + (rows.length - 1) * pitch + (/\d/.test(last) ? 0.15 * size : 0)], [x, y0], a.labelAngle);
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
