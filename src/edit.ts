@@ -8,6 +8,7 @@ import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
+import { keptData, remapData } from "./datafields.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -1010,9 +1011,11 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   // A cycle keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.map((c) => ({ ...keepAngles(m, mapBranches(c, (i) => map.get(i))), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }));
   const keptCycles = new Set(cycles?.map((c) => c.id));
-  return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
+  // Data fields follow their atoms too, and go when they all go or their shown text goes (datafields.ts).
+  const out = tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
     shapes: m.shapes?.map(kept),
-    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
+    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map), ...(m.data ? { data: remapData(m.data, (i) => map.get(i)) } : {}) });
+  return out.data ? keptData(out) : out;
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
 const refill = (fills: Mol["fills"], map: Map<number, number>) => {
@@ -1305,6 +1308,8 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
     atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
     ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
+    // Its data fields come too, not shown (its text does not come).
+    ...(frag.data?.length ? { data: [...(m.data ?? []), ...remapData(frag.data, (i) => i + base, () => undefined, (id) => frag.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
 }
 
@@ -1552,7 +1557,9 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     seen.add(key);
     return true;
   });
-  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}) }, new Set(into.keys())), joined: true };
+  // A data field's joined atom is the atom it joined.
+  const data = m.data?.map((f) => ({ ...f, atoms: [...new Set(f.atoms.map((k) => into.get(k) ?? k))] }));
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(data ? { data } : {}) }, new Set(into.keys())), joined: true };
 }
 
 // Object > Join (⌘J), as ChemDraw's. One atom in each of two structures:
@@ -2599,6 +2606,8 @@ export const deleteGraphics = (m: Mol, ids: Set<number>, at?: (c: Caption) => P 
   cycles: m.cycles?.filter((c) => !ids.has(c.id)).map((c) => keepAngles(m, c)),
   // A table goes with its arrow, or when it is picked itself (its id below 0, gridview.ts TABLE).
   ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow) && !ids.has(-1 - g.arrow)) } : {}),
+  // Deleting a data field's text deletes the field (datafields.ts).
+  ...(m.data?.some((f) => f.caption !== undefined && ids.has(f.caption)) ? { data: m.data.filter((f) => f.caption === undefined || !ids.has(f.caption)) } : {}),
 });
 // Delete, Clear and the Eraser: the atoms, bonds and objects chosen go, and nothing else that shows. Text that belongs to
 // a structure that goes (a compound number), and was not chosen itself, stays as free text where and as it is drawn (at,
@@ -2727,7 +2736,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
 // atoms as ids gives them, moved by f (k: how much f grows them).
 function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, mirrored: boolean): Mol {
   const objects = [...(t.captions ?? []), ...(t.arrows ?? []), ...(t.shapes ?? []), ...(t.cycles ?? []), ...(t.groups ?? [])];
-  if (!objects.length && !t.fills?.length) return m;
+  if (!objects.length && !t.fills?.length && !t.data?.length) return m;
   let id = nextId(m);
   const to = new Map<number, number>(), atom = (i: number) => ids[i];
   for (const x of objects) to.set(x.id, id++);
@@ -2740,6 +2749,7 @@ function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, m
     ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...mapBranches(c, atom), id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
     ...(t.groups?.length ? { groups: [...(m.groups ?? []), ...t.groups.map((g) => ({ ...g, id: to.get(g.id)!, atoms: g.atoms.map(atom), items: g.items.map((x) => to.get(x) ?? x) }))] } : {}),
     ...(t.fills?.length ? { fills: [...(m.fills ?? []), ...t.fills.map((x) => ({ ...x, atoms: x.atoms.map(atom) }))] } : {}),
+    ...(t.data?.length ? { data: [...(m.data ?? []), ...remapData(t.data, atom, (id) => to.get(id), (id) => t.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
   return transformParts(out, new Set(), new Set(to.values()), f, [k, k], undefined, 1, mirrored ? "across" : undefined);
 }
@@ -2923,6 +2933,8 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
     fills: refill(m.fills, map),
     grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
+    // A data field comes when any of its atoms does; when its text stays behind, the copy holds its value, not shown.
+    ...(m.data ? { data: remapData(m.data, (i) => map.get(i), (id) => (ids.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) } : {}),
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the
@@ -2954,6 +2966,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
     ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
+    ...(add.data?.length ? { data: [...(m.data ?? []), ...remapData(add.data, at, (id) => ids.get(id), (id) => add.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }

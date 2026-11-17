@@ -22,7 +22,8 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { cross, len, ligandEllipse, sub } from "./render.ts";
+import { cross, len, ligandEllipse, sub, type DataField } from "./render.ts";
+import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, withProperties } from "./datafields.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -120,9 +121,9 @@ export function parseXml(src: string): Xml {
       if (e < 0) fail();
       const raw = src.slice(i + 1, e);
       if (raw.includes("<") || key in el.attrs) fail();
-      // A line break in an attribute is a space (XML's rule), but in Comment (ChemDraw's document comment, which
-      // ChemDraw writes with its line breaks as they are) it is a line feed.
-      el.attrs[key] = decode(key === "Comment" ? raw.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : raw.replace(/\r\n|[\r\n\t]/g, " "));
+      // A line break in an attribute is a space (XML's rule), but in Comment (ChemDraw's document comment) and in an
+      // annotation's Content, which ChemDraw writes with their line breaks as they are, it is a line feed.
+      el.attrs[key] = decode(key === "Comment" || key === "Content" ? raw.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : raw.replace(/\r\n|[\r\n\t]/g, " "));
       i = e + 1;
     }
   }
@@ -313,7 +314,10 @@ const turn = (x: number) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
 // The drawing (or the part selected) as a CDXML document ChemDraw 22 to 26 opens.
 export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): string {
-  const mol = opts.selection ? pick(input, opts.selection) : input;
+  // A shown data field's text carries ChemDraw's attached-data property (datafields.ts).
+  const mol = withProperties(opts.selection ? pick(input, opts.selection) : input);
+  // Each data field's place in the list, as Octet's own data on what it writes, so the order reads back.
+  const datumOf = new Map((mol.data ?? []).flatMap((f, k) => (f.caption === undefined ? [] : [[f.caption, k] as const])));
   // The page's size as written, so the reader finds the same centre.
   const B = style.bond, line = style.line, [W, H] = printable(style).map((v) => Number(fmt(v))), [cx, cy] = [middle(W), middle(H)];
   const at = (q: readonly number[]): P => [cx + q[0] * B, cy - q[1] * B];
@@ -652,6 +656,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return el("graphic", { id: fresh(), BoundingBox: `${pt(major)} ${pt(c)}`, Z: Z(), color: colour(mol.atoms[mol.atoms[i].centre!.atoms[0]].colour), GraphicType: "Oval",
       Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
   }).join("");
+  // Data fields not shown, as ChemDraw keeps a structure's annotations: in each fragment they touch.
+  const fieldNotes = new Map<number, string>();
+  (mol.data ?? []).forEach((f, k) => {
+    if (f.caption !== undefined) return;
+    for (const frag of new Set(f.atoms.map((i) => fragId.get(i)).filter((x) => x !== undefined))) fieldNotes.set(frag, (fieldNotes.get(frag) ?? "") + el("annotation", { Keyword: f.name, Content: f.value ?? "", Octet: priv({ datum: k }) }));
+  });
   for (const atoms of frags) {
     zOrder = mol.atoms[atoms[0]].order;
     let xml = "";
@@ -671,6 +681,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const ring = f.atoms.map((i, k) => bondsAt[i].find((n) => mol.bonds[n].atoms.includes(f.atoms[(k + 1) % f.atoms.length])));
       if (ring.every((k) => k !== undefined)) xml += el("ColoredMolecularArea", { id: fresh(), bgcolor: colour(f.colour), BasisObjects: ring.map((k) => bondId[k!]).join(" ") });
     }
+    xml += fieldNotes.get(fragId.get(atoms[0])!) ?? "";
     const box = union(boxes)!, host = hostOf.get(atoms);
     if (host !== undefined) {
       // An R-group's fragment attaches through a connection point; one Octet draws none for (Cl, OMe) attaches
@@ -1146,13 +1157,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
-      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false || datumOf.has(c.id) ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
         align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
     if (c.property && !live) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
-      if (atoms.size) kept.push(el("chemicalproperty", { id: fresh(), ChemicalPropertyDisplayID: idOf.get(c.id), ...c.property.attrs, PositioningType: "absolute", PositioningOffset: pt(p), BasisObjects: basis(atoms) }));
+      if (atoms.size) kept.push(el("chemicalproperty", { id: fresh(), ChemicalPropertyDisplayID: idOf.get(c.id), ...c.property.attrs, PositioningType: "absolute", PositioningOffset: pt(p), BasisObjects: basis(atoms), Octet: datumOf.has(c.id) ? priv({ datum: datumOf.get(c.id) }) : undefined }));
     }
   }
   // Reaction schemes: each reaction Octet finds (structures, plus signs and arrows in a row) as a scheme with a step
@@ -1267,7 +1278,9 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
   const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) }));
   const fills = (m.fills ?? []).filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: keep(f.atoms) }));
-  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)).map((a) => renumberCentre(a, map)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}) });
+  // A data field comes with any of its atoms; when its text does not come, it holds its value, not shown.
+  const data = remapData(m.data, (i) => map.get(i), (id) => (ids.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text);
+  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)).map((a) => renumberCentre(a, map)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}), ...(data ? { data } : {}) });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1578,7 +1591,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       case "scheme": steps.push(...x.kids.filter((k) => k.name === "step")); return;
       case "step": steps.push(x); return;
       // Keyword and content pairs on the page or a group: not drawn, kept and written back (REL-28).
-      case "annotation": return atoms ? lose("annotation") : keepNote(x, group);
+      // In a structure: a data field (datafields.ts).
+      case "annotation": return atoms ? keepField(x, atoms) : keepNote(x, group);
       // A bracketed group's meaning is on its brackets (ChemDraw reads it from there); its counts and labels fill in.
       case "bracketedgroup": bracketed.push(x); return;
       case "altgroup": return readAltGroup(x, group);
@@ -1598,6 +1612,36 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (keyword.length > MAX_KEYWORD || content.length > MAX_CONTENT || list.length >= MAX_ANNOTATIONS) return lose("annotation");
     list.push({ keyword, content });
   };
+  // A structure's annotation: a data field of its atoms, not shown. One Octet cannot hold is counted as lost.
+  const fieldsRead: { name: string; value: string; atoms: number[]; datum?: number }[] = [], perFragment = new Map<number[], number>();
+  const keepField = (x: Xml, atoms: number[]) => {
+    const value = cleanValue(x.attrs.Content ?? ""), name = cleanName(x.attrs.Keyword ?? ""), n = perFragment.get(atoms) ?? 0, datum = priv(x)?.datum;
+    if (value === undefined || name.length > MAX_NAME || n >= MAX_EACH || fieldsRead.length >= MAX_DATA || !atoms.length) return lose("data field");
+    perFragment.set(atoms, n + 1);
+    fieldsRead.push({ name: name || NO_NAME, value, atoms, ...(Number.isInteger(datum) ? { datum: datum as number } : {}) });
+  };
+  // The data fields read: annotations in structures (not shown) and texts with attached data (shown, ChemDraw's
+  // property type 23, which the caption then loses). In Octet's own files they go back in their order, and one field
+  // written in several structures is one field again.
+  function readFields(ix: (i: number) => number) {
+    type Read = DataField & { datum?: number };
+    const shown: Read[] = (mol.captions ?? []).flatMap((c) => (c.property?.attrs.ChemicalPropertyType === ATTACHED
+      ? [{ name: cleanName(c.property.attrs.Name ?? "").slice(0, MAX_NAME) || NO_NAME, atoms: c.property.atoms, caption: c.id, ...(shownDatum.has(c.id) ? { datum: shownDatum.get(c.id) } : {}) }] : []));
+    let list: Read[] = [...fieldsRead.map((f) => ({ name: f.name, value: f.value, atoms: f.atoms.map(ix), ...(f.datum !== undefined ? { datum: f.datum } : {}) })), ...shown];
+    if (!list.length) return;
+    if (octet) {
+      list = list.map((f, k) => [f, k] as const).sort((p, q) => (p[0].datum ?? Infinity) - (q[0].datum ?? Infinity) || p[1] - q[1]).map(([f]) => f);
+      list = list.filter((f, k) => {
+        const first = f.datum === undefined || f.caption !== undefined ? undefined : list.slice(0, k).find((g) => g.datum === f.datum && g.caption === undefined && g.name === f.name && g.value === f.value);
+        if (first) first.atoms = [...new Set([...first.atoms, ...f.atoms])];
+        return !first;
+      });
+    }
+    if (list.length > MAX_DATA) lose("data field", list.length - MAX_DATA);
+    const ids = new Set(shown.map((f) => f.caption));
+    mol.captions = mol.captions?.map((c) => { if (!ids.has(c.id)) return c; const { property: _, ...rest } = c; return rest; });
+    mol.data = remapData(list.slice(0, MAX_DATA).map(({ datum: _, ...f }) => f), (i) => i);
+  }
   const newGroup = (x: Xml, parent?: G): G => {
     const plot = readPlot(priv(x)?.plot), risk = priv(x)?.risk === undefined ? undefined : readRisk(priv(x)?.risk);
     const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}), ...(plot ? { plot } : {}), ...(risk ? { risk } : {}), parent };
@@ -2219,12 +2263,14 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   }
   // Live property text: on its caption, with the atoms it is for (CH-12). One whose caption or atoms Octet did not
   // read is counted as lost.
+  const shownDatum = new Map<number, number>();
   function readKept() {
     const atomsIn = (ids?: string) => [...new Set(idList(ids).flatMap((id) => { const i = atomOf.get(id); return i === undefined ? [] : [i]; }))].slice(0, MAX_ATOMS);
     const keep = (x: Xml, names: string[]) => Object.fromEntries(names.filter((k) => x.attrs[k] !== undefined).map((k) => [k, cleanText(x.attrs[k]).replace(/\n/g, " ").slice(0, 200)]));
     for (const x of properties) {
       const c = captions.find((y) => y.id === objectOf.get(int(x.attrs.ChemicalPropertyDisplayID) ?? -1)), atoms = atomsIn(x.attrs.BasisObjects);
       if (c && atoms.length) c.property = { attrs: keep(x, PROPERTY_ATTRS), atoms }; else lose("property link");
+      if (c && atoms.length && Number.isInteger(priv(x)?.datum)) shownDatum.set(c.id, priv(x)!.datum as number);
     }
   }
   function addShape(sh: Shape & { z: number }, x: Xml, group?: G) {
@@ -2777,6 +2823,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));
   if (octet && top!.guides !== undefined) mol.guides = readGuides(top!.guides);
   if (octet && top!.fields === 1) mol.fields = true;
+  readFields(ix);
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
   return { mol: settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, lost };
