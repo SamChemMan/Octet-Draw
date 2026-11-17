@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { HBOND } from "../../src/render.ts";
 import { browser, loadOpsin, norender } from "../../scripts/checkkit.ts";
 import { LAB, TLC } from "./lab.mjs";
-import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel, PADDLEWHEELS, stereocentres } from "./perspective.mjs";
+import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel, PADDLEWHEELS, r3, stereocentres } from "./perspective.mjs";
 import { clashes } from "./clashes.mjs";
 import { CP_RINGS, DPPF, METALLOCENES } from "./organometallics.mjs";
 import { CARBON, POLYHEDRA } from "./polyhedra.mjs";
@@ -153,7 +153,6 @@ const FISCHER = [
 const opts = new indigo.MapStringString();
 opts.set("output-content-type", "application/json");
 opts.set("dearomatize-on-load", "true");
-const r3 = (n) => Math.round(n * 1000) / 1000 + 0;
 const failed = [];
 const smilesOf = (source) => { if (source.startsWith("smiles:")) return source.slice(7); try { return opsin.parseToSmiles(source) || ""; } catch { return ""; } };
 const inchiOf = (s) => { try { return chem.toInchi(s); } catch { return undefined; } };

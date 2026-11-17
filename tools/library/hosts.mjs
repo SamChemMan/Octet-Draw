@@ -4,13 +4,8 @@
 // built from rings placed by simple geometry, then relaxed so every bond is one bond length and every angle near its
 // ideal (120° at an aromatic atom, 109.5° otherwise), with atoms that are not bonded kept apart, and seen from the
 // clearest side. Nothing comes from another program's files.
-import { Drawing } from "./perspective.mjs";
+import { add, deg, Drawing, len, mul, rotX, rotY, sub } from "./perspective.mjs";
 
-const deg = Math.PI / 180;
-const add = (a, b) => a.map((v, k) => v + b[k]), sub = (a, b) => a.map((v, k) => v - b[k]), mul = (a, s) => a.map((v) => v * s);
-const len = (a) => Math.hypot(...a);
-const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)];
-const rotY = ([x, y, z], t) => [x * Math.cos(t) + z * Math.sin(t), y, -x * Math.sin(t) + z * Math.cos(t)];
 
 // A molecule being built: atoms ([label, place]) and bonds ([a, b, order]).
 export class Build {

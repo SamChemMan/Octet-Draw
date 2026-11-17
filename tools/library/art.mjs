@@ -7,6 +7,11 @@ import { item, join, LIQUID, LIQUID_LIGHT, reverse } from "./lab.mjs";
 // The tints a drawing may fill with: the Lab group's two at the logo's hue. Only small parts are filled (a liquid, an
 // organelle, a head group), so a drawing still reads on a dark page, where its lines are light.
 export const TINT = { blue: LIQUID, light: LIQUID_LIGHT };
+// A drawing's size as 40 units to a bond length; a number to 2 decimals, and a point as path data; a degree.
+export const PER = { per: 40 };
+export const f = (v) => Math.round(v * 100) / 100;
+export const P = (x, y) => `${f(x)} ${f(y)}`;
+export const deg = Math.PI / 180;
 
 // SVG path data as subpaths of points in Octet's curve form ({ at, c1, c2 }), still in the drawing's units, y down.
 export function subpaths(d) {

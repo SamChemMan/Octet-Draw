@@ -1,9 +1,8 @@
 // The library's Lab equipment set: instruments, plasticware and tools, in the Lab group's line style (art.mjs path
 // data, 40 units to a bond length, y down). Every drawing here is Octet's own.
-import { art, circle, ellipse, fill, fine, ink, rect, seg, solid } from "./art.mjs";
+import { art, circle, ellipse, fill, fine, ink, PER, rect, seg, solid } from "./art.mjs";
 import { nozzle } from "./glassware.mjs";
 
-const PER = { per: 40 };
 
 // Microscope: a foot, a curved arm, the stage, the objectives and an eyepiece tube leaning back.
 function microscope() {
