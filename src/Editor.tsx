@@ -3962,7 +3962,7 @@ export default function Editor() {
     const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
     return t.gel ? undefined : Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
   };
-  const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
+  const spotAt = (sh: Shape, p: P, copy: boolean, size: boolean) => {
     reselect(new Set(), new Set([sh.id]));
     setLanePick({ plate: sh.id, lane: laneOf(sh, p) });
     const t = tlcLayout(sh), spots = sh.tlc?.spots ?? [], hit = spotHit(sh, p);
@@ -3972,10 +3972,8 @@ export default function Editor() {
     }
     const line = lineHit(sh, p);
     if (line) return setDrag({ kind: "tlcline", plate: sh.id, which: line, base: doc, working: doc });
-    const lane = Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width)));
-    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { lane, rf: t.snap(p[1]) }] } }), true);
+    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { lane: laneOf(sh, p), rf: t.snap(p[1]) }] } }), true);
     setSpotPick({ plate: sh.id, index: spots.length });
-    void screen;
   };
   // A plasmid map's region or marker picked on it, for its colour, Edit and Delete, as a spot on its plate.
   const [featurePick, setFeaturePick] = useState<{ map: number; region?: number; marker?: number }>();
@@ -4004,9 +4002,7 @@ export default function Editor() {
   // A gel's lane name under a point: in the strip over its lane, as tall as a name turned.
   const laneNameAt = (p: P) => {
     const sh = [...(shown.shapes ?? [])].reverse().find((x) => { if (x.kind !== "gel" || x.tlc?.hide?.includes("names")) return false; const t = tlcLayout(x); return p[0] >= t.x0 && p[0] <= t.x1 && p[1] > t.y1 && p[1] < t.y1 + 1.2 * t.f; });
-    if (!sh) return undefined;
-    const t = tlcLayout(sh);
-    return { plate: sh, lane: Math.min(t.lanes - 1, Math.floor((p[0] - t.x0) / t.width)) };
+    return sh && { plate: sh, lane: laneOf(sh, p) };
   };
   // The part of a plasmid map under a point: a region (its arrow or name), a marker (its tick or name), or its middle.
   const plasmidPart = (sh: Shape, p: P): { region?: number; marker?: number; centre?: true } => {
@@ -4741,9 +4737,6 @@ export default function Editor() {
   const editPress = useRef<number>(undefined); // the curve Edit curve had picked when the press went down
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
-  // Select tool press: on something selected, move the selection; on something else, select it and move it;
-  // on empty canvas, start a selection box. Shift adds to the selection.
-  // picks: the captions that will be picked once this press's state updates land.
   // The selected things for Align and Distribute: each structure, group, cycle and object, with its box in drawing
   // units (y up: [left, bottom, right, top]) and what moves with it. A group is one thing when it is all selected; the
   // members of a group selected in part line up one by one. A picked cycle is one thing with its intermediates.
@@ -5008,6 +5001,8 @@ export default function Editor() {
     startMove(p, screen, t, picks, atoms, copy);
   }
 
+  // Select tool press: on something selected, move the selection; on something else, select it and move it;
+  // on empty canvas, start a selection box. Shift adds to the selection.
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t), its = itemsOf(t);
     // A risk assessment (riskassess.ts): a press on one of its parts picks that part, so Delete removes it, and a drag
@@ -5435,7 +5430,7 @@ export default function Editor() {
     // With the TLC or Gel tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if ((tool === "tlc" || tool === "gel") && plateAt(p)) {
       const sh = plateAt(p)!;
-      if (spotHit(sh, p) >= 0 || lineHit(sh, p)) spotAt(sh, p, screen, e.altKey, e.shiftKey);
+      if (spotHit(sh, p) >= 0 || lineHit(sh, p)) spotAt(sh, p, e.altKey, e.shiftKey);
       else setDrag({ kind: "click", at: p, start: screen, target: t });
       return startHold(p, t, screen);
     }
@@ -8576,7 +8571,7 @@ export default function Editor() {
     }
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
-    if ((tool === "tlc" || tool === "gel") && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
+    if ((tool === "tlc" || tool === "gel") && plateAt(at)) return spotAt(plateAt(at)!, at, false, false);
     // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
     // round; one like it but changed goes back to the tool's own; any other becomes the tool's kind.
     const clicked = tool === "arrow" && t.arrow !== undefined ? doc.arrows?.find((a) => a.id === t.arrow && (straightArrow(a) || curved(a)) && a.kind !== "arc") : undefined;
