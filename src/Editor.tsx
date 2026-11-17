@@ -2033,10 +2033,7 @@ export default function Editor() {
     if (!b) return;
     // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
     const r = insertMol(now.current, add, at ? [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2] : landing(add, undefined, b));
-    set(r.mol, true, undefined, at ? "placed" : true);
-    revealNext.current = true;
-    setSelection(r.atoms);
-    setPicked(r.items);
+    landPart(r, at ? "placed" : true);
     sayLost(lost);
   }
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
@@ -2192,10 +2189,7 @@ export default function Editor() {
         // proportion to this drawing (fitSizes).
         const { mol: read, lost } = readOct(picked[1]), add = asOpened(read, "", true);
         const r = insertMol(doc, { ...(add.style ? fitSizes(add, add.style, style) : add), style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
-        set(r.mol, true);
-        revealNext.current = true;
-        setSelection(r.atoms);
-        setPicked(r.items);
+        landPart(r);
         return sayLost(lost);
       }
       place(asOpened(importStructure(ct ? fromCt(picked[1]) : picked[1]), picked[1], true));
@@ -4312,6 +4306,8 @@ export default function Editor() {
   // the bottom). Bigger than that room, it is centred. Objects named in place of true come into view without being
   // selected (Add to drawing > Key, Shifts beside atoms, and the Properties panel's).
   const revealNext = useRef<boolean | Set<number>>(false);
+  // A part just inserted (insertMol's result) lands: one undo step, selected, and in view.
+  const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { set(r.mol, true, undefined, drop); revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
   const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
   // What the scroll bars span: the drawing (drawnBox, with every object) and its pages, drawing px at 100%, y down.
   const scrollBox = useMemo((): Span => {
@@ -9134,10 +9130,7 @@ export default function Editor() {
         const { mol: add, lost } = read();
         if (!add.atoms.length && !add.arrows?.length && !add.captions?.length && !add.shapes?.length) return false;
         const r = insertMol(doc, { ...(add.style ? fitSizes(add, add.style, style) : add), style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
-        set(r.mol, true);
-        revealNext.current = true;
-        setSelection(r.atoms);
-        setPicked(r.items);
+        landPart(r);
         sayLost(lost);
         return true;
       } catch {
@@ -9149,11 +9142,13 @@ export default function Editor() {
     const pastePicture = async (bytes: Uint8Array) => {
       const m = await pictureDrawing(bytes, style.bond, MAX_PICTURE - pictureBytes(now.current), "Octet cannot paste this picture.");
       if (!m) return;
-      const r = insertMol(now.current, m, toDoc(innerWidth / 2, innerHeight / 2));
-      set(r.mol, true);
-      revealNext.current = true;
-      setSelection(r.atoms);
-      setPicked(r.items);
+      landPart(insertMol(now.current, m, toDoc(innerWidth / 2, innerHeight / 2)));
+    };
+    // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
+    const pasteOwn = (json: string) => {
+      let add: Mol;
+      try { add = parse(json); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
+      landPart(insertMol(doc, add.style ? fitSizes(add, add.style, style) : add, [0.8, -0.8]));
     };
     // The picture file the webview gives a paste, if any (a browser; the app reads the clipboard itself).
     const imageFile = (e: ClipboardEvent) => [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
@@ -9171,16 +9166,7 @@ export default function Editor() {
           const text = given || clip.text || undefined;
           if (clip.spectrum) return openSpectrumText(clip.spectrum[1], clip.spectrum[0]);
           if (text && isJcamp(text)) return openSpectrumText(text, "the clipboard");
-          if (clip.octet) {
-            let add: Mol;
-            try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
-            const r = insertMol(doc, add.style ? fitSizes(add, add.style, style) : add, [0.8, -0.8]);
-            set(r.mol, true);
-            revealNext.current = true;
-            setSelection(r.atoms);
-            setPicked(r.items);
-            return;
-          }
+          if (clip.octet) return pasteOwn(clip.octet);
           // An Octet Drawing copied out of Word: the whole drawing from its storage (decision 0023).
           if (clip.oct && pasteRead(() => { const read = readOct(clip.oct!, true); return { mol: read.mol, lost: read.lost }; })) return;
           // ChemDraw's (or Word's copy of ChemDraw's) drawing; otherwise the molfile or SMILES.
@@ -9209,19 +9195,9 @@ export default function Editor() {
         }).catch((err) => setNotice(failure("Octet cannot read the clipboard.", err)));
         return;
       }
-      // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
+      // Octet's own copy.
       const own = e.clipboardData?.getData(OCTET_CLIP);
-      if (own) {
-        e.preventDefault();
-        let add: Mol;
-        try { add = parse(own); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
-        const r = insertMol(doc, add.style ? fitSizes(add, add.style, style) : add, [0.8, -0.8]);
-        set(r.mol, true);
-        revealNext.current = true;
-        setSelection(r.atoms);
-        setPicked(r.items);
-        return;
-      }
+      if (own) { e.preventDefault(); return pasteOwn(own); }
       const text = e.clipboardData?.getData("text/plain"), file = imageFile(e), named = !!text?.trim() && loaded;
       // A spectrum file (JCAMP-DX as text, SPC as its bytes in the app's form), or JCAMP-DX text.
       const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp|spc)$/i.test(f.name));

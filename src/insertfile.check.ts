@@ -33,8 +33,8 @@ assert.ok(!/stamp|recent::note|picked/.test(command), "an inserted file is not t
 assert.match(body(editor, "  async function insertFile(", "\n  }\n"), /invoke<OpenedFile \| null>\("insert_file"\);\n\s*if \(f\?\.error\) setNotice\(f\.error\);\n\s*else if \(f\) await dropFiles\(\[f\]\);/);
 const drop = body(editor, "  async function dropFiles(", "\n  }\n");
 assert.match(drop, /at = files\[0\]\.at && toDoc\(\.\.\.files\[0\]\.at\)/);
-assert.match(drop, /insertMol\(now\.current, add, at \? \[at\[0\] - \(b\[0\] \+ b\[2\]\) \/ 2, at\[1\] - \(b\[1\] \+ b\[3\]\) \/ 2\] : landing\(add, undefined, b\)\);\n\s*set\(r\.mol, true, undefined, at \? "placed" : true\);/);
-assert.match(drop, /revealNext\.current = true;\n\s*setSelection\(r\.atoms\);\n\s*setPicked\(r\.items\);/);
+assert.match(drop, /insertMol\(now\.current, add, at \? \[at\[0\] - \(b\[0\] \+ b\[2\]\) \/ 2, at\[1\] - \(b\[1\] \+ b\[3\]\) \/ 2\] : landing\(add, undefined, b\)\);\n\s*landPart\(r, at \? "placed" : true\);/);
+assert.match(editor, /const landPart = \(r: [^\n]*, drop: boolean \| "placed" = true\) => \{ set\(r\.mol, true, undefined, drop\); revealNext\.current = true; setSelection\(r\.atoms\); setPicked\(r\.items\); \};/);
 assert.match(drop, /mols\.push\(\{ \.\.\.\(r\.mol\.style \? fitSizes\(r\.mol, r\.mol\.style, style\) : r\.mol\), style: undefined \}\);/);
 assert.equal((editor.match(/await dropFiles\(/g) ?? []).length, 2, "drops and File > Insert… share dropFiles");
 
