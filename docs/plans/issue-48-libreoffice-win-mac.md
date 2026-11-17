@@ -412,3 +412,20 @@ document; a cropped picture.
   double-click the structure in Writer, Impress, Draw or Calc.
 - When you paste a structure from Octet into LibreOffice on Windows, you can double-click it to edit it in Octet.
 - To put an Octet structure into a LibreOffice spreadsheet, choose Insert > Octet Drawing in Calc.
+
+## 14. Changes during the build (17 November 2026)
+
+What the build found that the plan did not say, each with the requirement it serves:
+
+- J3, S7: AppKit can send a picture that starts Octet before Octet's setup has made the menu bar. `objects::opened`
+  keeps such a picture and `objects::ready` (called at the end of setup) opens it, as an `--object` start waits on
+  Linux and Windows.
+- S7: Octet drops a request for a file whose window is opening (`objects::OPENING`), so ten fast double-clicks open
+  one window on every system, not only one session in LibreOffice.
+- S9: the extension marks a file as seen only once it could read it. On Windows a read can meet Octet's rename; that
+  file is read again at the next look (a quarter of a second later).
+- S5: a NUL in a document's name is dropped before Octet is started (no system passes one to a program).
+- `has_drawing` keeps the PDF search for every picture that is not an EMF (as in 1.1.2), so the Linux tests are
+  unchanged.
+- `cargo check --target x86_64-pc-windows-msvc` needs stand-in C and resource tools on the Mac (ring's C, and the
+  Windows resource file); `cargo check` compiles neither, as `docs/testing/ole-manual.md` notes.
