@@ -320,7 +320,10 @@ const cyclodextrins = () => CYCLODEXTRINS.map(([n, name, also]) => {
 
 // Cucurbit[5]uril to cucurbit[8]uril (issue 97), drawn in hosts.mjs, each the structure written there atom by atom
 // (cucurbiturilGraph).
-const CUCURBITURILS = [[5, "Cucurbit[5]uril", "CB[5], CB5"], [6, "Cucurbit[6]uril", "cucurbituril, CB[6], CB6"], [7, "Cucurbit[7]uril", "CB[7], CB7"], [8, "Cucurbit[8]uril", "CB[8], CB8"]];
+// "cucurbituril" alone is cucurbit[6]uril (the first made, and what the word meant before its homologues); the others
+// are found by "cucurbiturils", which the library's search also finds for "cucurbituril".
+const CUCURBITURILS = [[5, "Cucurbit[5]uril", "CB[5], CB5, cucurbiturils"], [6, "Cucurbit[6]uril", "cucurbituril, CB[6], CB6"], [7, "Cucurbit[7]uril", "CB[7], CB7, cucurbiturils"],
+  [8, "Cucurbit[8]uril", "CB[8], CB8, cucurbiturils"]];
 const cucurbiturils = () => CUCURBITURILS.map(([n, name, also]) => {
   const found = cucurbituril(n, clashes, messy) ?? fail(`${name}: no drawing keeps the limits`);
   const want = inchiOf(cucurbiturilGraph(n));

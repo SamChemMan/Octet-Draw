@@ -125,7 +125,10 @@ Each job is done only when its last line holds.
   what the word meant before the homologues).
 - **R8. Nothing else changes.** No other template, and no app code: the change is template data, its build, checks and
   docs. `src/mcp.ts` does not change. (Changed 17 November, build: stress 19 found that a blank name got "The library
-  has no template . Near: Glycine, Alanine, …"; `placeTemplate` now says to give a name. One line.)
+  has no template . Near: Glycine, Alanine, …"; `placeTemplate` now says to give a name. One line. Stress 18 found
+  that "EnT" listed Energy transfer 42nd, after every name with "ent" in it, and "cucurbituril" found Cucurbit[6]uril
+  only; the library's search now puts a template with an other word exactly as typed first, as `place_template` takes
+  it (one line in `src/TemplateLibrary.tsx`), and the other cucurbiturils have the word "cucurbiturils".)
 
 ## Design
 
@@ -317,7 +320,8 @@ Intersystem crossing today, checked side by side.
     Pillar[5]arenes on the base, measured the same way.
 18. **Library search.** "cyclodextrin": the 3 cyclodextrins. "beta-cyclodextrin": β only. "CB[": the 4
     cucurbiturils. "cucurbituril": the 4. "[6]": Cucurbit[6]uril. "EnT" and "energy transfer": Energy transfer.
-    "energy": Energy transfer and the Jablonski diagram.
+    "energy": Energy transfer and the Jablonski diagram. (The search also lists structures it reads by name, such as
+    "Cyclodextrin B" from the drug names; they come after the library's own.)
 19. **MCP with bad arguments.** `place_template` with name "", "   ", "CB[9]", 10,000 characters, a right name with
     `set: "Photochemistry"`, or `on: "s99.1"`: an error that names what was wrong, the drawing unchanged, no undo step
     (the editor makes a step only when the drawing changes; the check's stand-in counts the calls, so it checks the

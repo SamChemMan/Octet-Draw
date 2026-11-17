@@ -84,10 +84,11 @@ for (const [name, cid, ref, exact, weight] of PUBCHEM) {
   assert.ok(Math.abs(a.exact - exact) < 0.001, `${name}: monoisotopic mass ${a.exact}, PubChem ${exact}`);
   assert.ok(Math.abs(a.weight - weight) < 0.06, `${name}: molecular weight ${a.weight}, PubChem ${weight}`);
 }
-// Found by the words a chemist types; one general word picks the commonest (R7).
+// Found by the words a chemist types; one general word picks the commonest (R7), and the library's search finds the
+// other cucurbiturils for "cucurbituril" too (by "cucurbiturils").
 for (const [name, words] of [["α-Cyclodextrin", ["alpha-cyclodextrin", "α-CD", "alpha-CD", "cyclomaltohexaose", "cyclohexaamylose"]], ["β-Cyclodextrin", ["cyclodextrin", "beta-cyclodextrin", "β-CD", "beta-CD", "cyclomaltoheptaose", "cycloheptaamylose"]],
-  ["γ-Cyclodextrin", ["gamma-cyclodextrin", "γ-CD", "gamma-CD", "cyclomaltooctaose", "cyclooctaamylose"]], ["Cucurbit[5]uril", ["CB[5]", "CB5"]], ["Cucurbit[6]uril", ["cucurbituril", "CB[6]", "CB6"]],
-  ["Cucurbit[7]uril", ["CB[7]", "CB7"]], ["Cucurbit[8]uril", ["CB[8]", "CB8"]]] as const)
+  ["γ-Cyclodextrin", ["gamma-cyclodextrin", "γ-CD", "gamma-CD", "cyclomaltooctaose", "cyclooctaamylose"]], ["Cucurbit[5]uril", ["CB[5]", "CB5", "cucurbiturils"]], ["Cucurbit[6]uril", ["cucurbituril", "CB[6]", "CB6"]],
+  ["Cucurbit[7]uril", ["CB[7]", "CB7", "cucurbiturils"]], ["Cucurbit[8]uril", ["CB[8]", "CB8", "cucurbiturils"]]] as const)
   assert.deepEqual(also(name), words, name);
 console.log("hosts: 3 cyclodextrins and 4 cucurbiturils are their PubChem compounds (InChI, formula, masses), as the build's references are ok");
 

@@ -52,6 +52,9 @@ assert.ok(item("Light").captions![0].italic, "h and ν are quantities: italic");
   assert.deepEqual([a.kind, a.end, a.from[1], a.to[1], a.to[0] > a.from[0]], ["line", "full", 0, 0, true]);
   assert.deepEqual(c.map((x) => [plain(x), x.on?.arrow === a.id, x.on?.side, !!x.italic]), [["EnT", true, "above", false]]);
   assert.equal(len(a), len(arrow("Intersystem crossing")), "as long as the other lone transitions");
+  // The same objects as Intersystem crossing but its text, so it turns, flips, moves, deletes and saves as that one does.
+  const isc = item("Intersystem crossing"), ent = item("Energy transfer");
+  assert.deepEqual({ ...ent, captions: ent.captions!.map(({ text: _, ...rest }) => rest) }, { ...isc, captions: isc.captions!.map(({ text: _, ...rest }) => rest) });
   assert.ok(set.indexOf(set.find((t) => t.name === "Energy transfer")!) === set.indexOf(set.find((t) => t.name === "Internal conversion")!) + 1, "after Internal conversion");
   for (const w of ["EnT", "triplet energy transfer", "Dexter", "FRET", "sensitisation"]) assert.ok(set.find((t) => t.name === "Energy transfer")!.also!.split(", ").includes(w), w);
 }
