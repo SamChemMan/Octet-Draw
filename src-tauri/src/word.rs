@@ -272,13 +272,13 @@ fn document(mark: &str) -> String {
 
 // The selected picture's drawing, with BUSY held. new: Word's cursor with nothing selected gives a new drawing.
 fn read(new: bool) -> Result<Option<Found>, Fail> {
-    let pb = clip::general();
+    let pb = objc2_app_kit::NSPasteboard::generalPasteboard();
     let (saved, before) = (clip::save(&pb), pb.changeCount());
     let answer = run(EDIT, &[]);
     // Word copied the picture: paste's reader takes it, and the user's clipboard goes back. It goes back even if the
     // clipboard changed again while Octet read it: Word may write twice, and the user rarely copies in that moment.
     let copied = pb.changeCount() != before;
-    let oct = if copied { clip::drawing(&pb) } else { None };
+    let oct = if copied { clip::read(&pb).cdxml } else { None };
     if copied {
         clip::restore(&pb, &saved);
     }
@@ -343,7 +343,7 @@ fn types(picture: &[u8]) -> Option<Vec<(&str, &[u8])>> {
 // and the user's clipboard goes back after.
 pub fn put(mark: &str, placed: bool, picture: &[u8]) -> Result<String, Fail> {
     let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
-    let pb = clip::general();
+    let pb = objc2_app_kit::NSPasteboard::generalPasteboard();
     let saved = clip::save(&pb);
     if !types(picture).is_some_and(|t| clip::write(&pb, &t).is_ok()) {
         clip::restore(&pb, &saved);
@@ -686,7 +686,7 @@ mod tests {
                 assert!(pb.dataForType(&NSString::from_str(name)).unwrap().to_vec() == *bytes, "{name}");
             }
             // Edit Picture from Word reads the drawing from such a copy.
-            assert!(clip::drawing(&pb).is_some_and(|d| d.contains("<fragment>")));
+            assert!(clip::read(&pb).cdxml.is_some_and(|d| d.contains("<fragment>")));
             pb.clearContents();
         }
         // The PDF alone when Octet can make no Office copy: one type, then the mark.

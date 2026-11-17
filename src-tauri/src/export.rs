@@ -90,12 +90,7 @@ pub struct Info {
 // stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet). With `info`, the document
 // information gets the title, author and keywords that are set.
 pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    pdf_of(&tree(svg)?, cdxml, info)
-}
-
-// make_pdf for an SVG that is read already, so Copy on the Mac reads it once for the PDF and for Office's copy.
-pub fn pdf_of(tree: &usvg::Tree, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    pdf_pages(&[tree], cdxml, info)
+    pdf_pages(&[&tree(svg)?], cdxml, info)
 }
 
 // The pages Octet sends for a PDF of several pages (an experiment page and its risk assessment), at most MAX_PAGES.
@@ -108,8 +103,9 @@ pub fn make_pdf_pages(svgs: &[String], cdxml: Option<&str>, info: Option<&Info>)
     pdf_pages(&trees.iter().collect::<Vec<_>>(), cdxml, info)
 }
 
-// A PDF with a page for each SVG, each page the SVG's box.
-fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
+// A PDF with a page for each SVG, each page the SVG's box. Copy on the Mac reads its SVG once for the PDF and for
+// Office's copy, and gives that tree here.
+pub(crate) fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
     let mut alloc = Ref::new(1);
     let [catalog, pages, meta] = [(); 3].map(|_| alloc.bump());
     // usvg measures in CSS px (96 to the inch); PDF in points (72). Rounded, so 86 pt stays 86, not 85.99999.
@@ -293,14 +289,7 @@ fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
 // A Windows bitmap (BMP) of the SVG at `dpi`, on white: a file header, then the bitmap as the clipboard holds it (dib).
 pub fn make_bmp(svg: &str, dpi: f32) -> Result<Vec<u8>, String> {
     let dpi = dpi_of(dpi);
-    let dib = dib(&draw(&tree(svg)?, dpi, false)?, dpi);
-    let mut out = Vec::with_capacity(14 + dib.len());
-    out.extend(b"BM");
-    out.extend(((14 + dib.len()) as u32).to_le_bytes());
-    out.extend([0u8; 4]); // reserved
-    out.extend(54u32.to_le_bytes()); // where the pixels start: after this header and the dib's
-    out.extend(dib);
-    Ok(out)
+    crate::clipboard::bmp_file(&dib(&draw(&tree(svg)?, dpi, false)?, dpi)).ok_or_else(|| "This drawing is too large to export.".to_string())
 }
 
 // A 3MF file (3D Manufacturing Format): a zip of the 3D model the page made (src/model3mf.ts), with the two parts every
@@ -1371,28 +1360,11 @@ mod tests {
         assert_eq!((file.len(), crc32fast::hash(&file)), (926, 0x2F1C_8E8F), "the 3MF file has changed");
         let model = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"/>\n";
         let zip = make_3mf(model).unwrap();
-        let (u16_at, u32_at) = (|k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize, |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize);
-        let end = zip.len() - 22;
-        assert_eq!(u32_at(end), 0x0605_4b50);
-        assert_eq!((u16_at(end + 8), u16_at(end + 10)), (3, 3));
-        let (mut at, mut names) = (u32_at(end + 16), Vec::new());
-        for _ in 0..3 {
-            assert_eq!(u32_at(at), 0x0201_4b50);
-            let (crc, packed, size, name_len, local) = (u32_at(at + 16), u32_at(at + 20), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
-            let name = std::str::from_utf8(&zip[at + 46..at + 46 + name_len]).unwrap().to_string();
-            assert_eq!(u32_at(local), 0x0403_4b50);
-            assert_eq!(zip[local + 4..local + 30], zip[at + 6..at + 32], "the local header agrees with the directory");
-            let start = local + 30 + name_len;
-            let data = miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap();
-            assert_eq!((data.len(), crc32fast::hash(&data) as usize), (size, crc));
-            if name == "3D/3dmodel.model" {
-                assert_eq!(data, model.as_bytes());
-            }
-            names.push(name);
-            at += 46 + name_len;
-        }
-        assert_eq!(names, ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"]);
-        assert_eq!(at, end, "the directory ends where the end record starts");
+        // Each part deflated, read back against its size and CRC-32 (clipboard.rs's tests read Office's zip the same way).
+        assert_eq!((&zip[zip.len() - 14..zip.len() - 10], crate::clipboard::tests::methods(&zip)), (&[3, 0, 3, 0][..], vec![8, 8, 8]));
+        let parts = crate::clipboard::tests::unzip(&zip);
+        assert_eq!(parts.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"]);
+        assert_eq!(parts[2].1, model.as_bytes());
         assert!(make_3mf(&" ".repeat(MAX_SVG + 1)).unwrap_err().contains("too large"));
     }
 
