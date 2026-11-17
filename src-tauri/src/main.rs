@@ -993,6 +993,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
+        // ChemDraw's Attach Data: named fields on the selected structure (src/datafields.ts). No key, as in ChemDraw.
+        &item("attach_data", "Attach Data…", "")?,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,

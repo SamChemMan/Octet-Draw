@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Tag, SelectionPlus,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -56,6 +56,8 @@ import { centreIn, dropClear, panInto, roomOf, type Span } from "./reveal";
 import { chartAction, followCharts, followLeaders, followLevels, jablonskiPick, labelLines, lonePlot, placePlot, plotFigure, plotName, plotShift, plotsIn, plotTop, reframe, replot, rescale, signalKeys, traceOf, type PlotEnv, type Replot, type SpectrumPlot } from "./pageplot";
 import { figureBox, isChart, kindOf as transitionKind, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, type Chart } from "./charts";
 import { ChartDialog, type ChartData } from "./ChartDialog";
+import { DataDialog } from "./DataDialog";
+import { fieldCaptions, fieldOfCaption, leftOf, linked, rowsOf, setRows, type DataRow } from "./datafields";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
@@ -1310,8 +1312,12 @@ export default function Editor() {
     if (lines && isOwnFormat(s)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); } }
     const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s, smiles);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
-    // A MOL file keeps its first line, which is often blank (the name).
-    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); }
+    // A MOL file keeps its first line, which is often blank (the name). One with data items (an SD file's text) is read
+    // as Import reads it, so its items are data fields (datafields.ts).
+    try {
+      if (lines && /^M {2}END/m.test(s) && /^>.*</m.test(s)) { const m = importStructure(text); if (m.atoms.length) sayLost(leftOf(m)); return m.atoms.length ? asOpened(m, text, true) : undefined; }
+      const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined;
+    } catch (err) { return why(err); }
   };
   // Octet's own names that begin as typed (TREN and Tris for "TR"). Drawing one takes a few milliseconds, so while typing
   // (read false) only the ones drawn before come; once typing pauses (read true), all of them and the name as typed, or
@@ -2037,7 +2043,7 @@ export default function Editor() {
         continue;
       }
       try {
-        if (!isDrawingText(f.text!)) { mols.push(importStructure(f.text!)); continue; }
+        if (!isDrawingText(f.text!)) { const m = importStructure(f.text!); mols.push(m); for (const [what, n] of Object.entries(leftOf(m))) lost[what] = (lost[what] ?? 0) + n; continue; }
         const r = readOct(f.text!);
         mols.push({ ...(r.mol.style ? fitSizes(r.mol, r.mol.style, style) : r.mol), style: undefined });
         for (const [what, n] of Object.entries(r.lost)) lost[what] = (lost[what] ?? 0) + n;
@@ -2104,7 +2110,7 @@ export default function Editor() {
     try { mol = importStructure(text); } catch (e) { throw refusal(e) ? e : new Error("Octet cannot read the structures in this file."); }
     const b = bounds(mol);
     if (!b) throw new Error("There are no structures in this file.");
-    return { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
+    return { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: leftOf(mol) };
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
@@ -2210,7 +2216,9 @@ export default function Editor() {
         landPart(r);
         return sayLost(lost);
       }
-      place(asOpened(importStructure(ct ? fromCt(picked[1]) : picked[1]), picked[1], true));
+      const read = importStructure(ct ? fromCt(picked[1]) : picked[1]);
+      place(asOpened(read, picked[1], true));
+      sayLost(leftOf(read));
     } catch (e) {
       setNotice(failure("Octet cannot read this file.", e));
     }
@@ -2841,6 +2849,21 @@ export default function Editor() {
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i), true),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
+    // Object > Attach Data… (and Edit attached data… on a field's text): the selected structure's data fields in a
+    // dialog (datafields.ts). One structure at a time.
+    attach_data: () => {
+      const k = [...picked].map((id) => fieldOfCaption(doc, id)).find((x) => x >= 0), f = k === undefined ? undefined : doc.data![k];
+      const groups = fragments(doc), atoms = f ? groups.find((g) => g.some((i) => f.atoms.includes(i))) : ((gs) => (gs.length === 1 ? gs[0] : undefined))(groups.filter((g) => g.some((i) => selection.has(i))));
+      if (!atoms) return setNotice("Select a structure first.", "info");
+      setDialog({ kind: "data", atoms: [...atoms].sort((p, q) => p - q), rows: rowsOf(doc, atoms), data: doc.data, focus: k });
+    },
+    // Select Linked Objects (ChemDraw's, on a field's text): the structures its field belongs to, and the text.
+    select_linked: () => {
+      const id = [...picked].find((x) => fieldOfCaption(doc, x) >= 0), l = id === undefined ? undefined : linked(doc, id);
+      if (!l) return setNotice("Select attached data first.", "info");
+      setSelection(new Set(l.atoms));
+      setPicked(new Set(l.items));
+    },
     // Object > Add Chart: the chart's data in a dialog, then the chart on the page. Edit Data: the picked chart's.
     chart_energy: () => setDialog({ kind: "chart", chart: NEW_ENERGY }),
     chart_radar: () => setDialog({ kind: "chart", chart: NEW_RADAR }),
@@ -3608,6 +3631,8 @@ export default function Editor() {
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "chart"; chart: ChartData; group?: number }
+    // Attach Data: a structure's data fields (datafields.ts), from the list as it was when the dialog opened.
+    | { kind: "data"; atoms: number[]; rows: DataRow[]; data: Mol["data"]; focus?: number }
     | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string }
     | { kind: "bands"; plate: number; lane: number; value: string } | { kind: "range"; plate: number; low: string; high: string } | { kind: "lane"; plate: number; lane: number; value: string }
     | { kind: "plasmid"; shape: number; name: string; bp: string } | { kind: "region"; shape: number; index?: number; name: string; start: string; end: string; dir: "" | "reverse" | "none" }
@@ -6941,12 +6966,14 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
+        // A data field's text is text only: it is never made an element or a structure, nor read as chemistry.
+        const shows = fieldCaptions(doc), field = cs.some((x) => shows.has(x.id));
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: !field && cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: !field && cs.some((x) => labelable(x) || standInCaption(x)), ...(field && cs.length === 1 ? { field: true } : {}),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           ...valuesPicked(),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
-          ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
+          ...(!field && style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
     }
     // A table picked whole, or one of its cells, row names or lines.
@@ -8145,6 +8172,7 @@ export default function Editor() {
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
+    attach_data: ["Attach data…", "", <Tag size={18} />], select_linked: ["Select linked objects", "", <SelectionPlus size={18} />],
     chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_jablonski: ["Jablonski diagram", "", <JablonskiGlyph />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
@@ -9411,8 +9439,9 @@ export default function Editor() {
           for (const source of [clip.molfile, clip.smiles]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = asOpened(importStructure(source), source); } catch (err) { frag = undefined; const why = refusal(err); if (why) refused(why); }
-            if (frag?.atoms.length) return place(frag);
+            let read: Mol | undefined;
+            try { read = importStructure(source); frag = asOpened(read, source); } catch (err) { frag = undefined; const why = refusal(err); if (why) refused(why); }
+            if (frag?.atoms.length) { place(frag); return read && sayLost(leftOf(read)); }
           }
           if (text?.trim()) {
             // The names engine loads only for text, so no other paste waits for it.
@@ -11113,6 +11142,14 @@ export default function Editor() {
           onAction={() => { const gel = doc.shapes?.find((x) => x.id === dialog.plate); if (gel?.tlc) set(updateShape(doc, gel.id, { tlc: { ...gel.tlc, names: Array.from({ length: gel.tlc.lanes }, (_, k) => (k === dialog.lane ? oneLine(dialog.value) : gel.tlc!.names?.[k] ?? "")) } }), true); setDialog(undefined); }}>
           <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.value} maxLength={40} spellCheck={false} onChange={(e) => setDialog({ ...dialog, value: e.target.value })} /></span></label>
         </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "data" && (
+        <DataDialog rows={dialog.rows} focus={dialog.focus} onClose={() => setDialog(undefined)} onSave={(rows) => {
+          // The drawing as it is now. When its fields changed while the dialog was open (an AI app), the rows are new.
+          const m = now.current, same = m.data === dialog.data;
+          if (dialog.atoms.every((i) => i < m.atoms.length)) { const next = setRows(m, dialog.atoms, same ? rows : rows.map(({ key: _, ...r }) => r)); if (next !== m) set(next, true); }
+          setDialog(undefined);
+        }} />
       )}</Exit>
       <Exit>{dialog?.kind === "chart" && (
         <ChartDialog chart={dialog.chart} adding={dialog.group === undefined} onClose={() => setDialog(undefined)} onDone={(change, rename) => { applyChart(dialog.group === undefined ? { ...dialog.chart, ...change } as Partial<Chart> : change, dialog.group, { rename }); setDialog(undefined); }} />

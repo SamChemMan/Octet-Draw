@@ -463,11 +463,11 @@ export function parseCell(text: string): { value: number; second?: number; name?
 export const cellText = (value: number | null | undefined, second: number | null | undefined, name: string | null | undefined, places: number) =>
   value == null ? "" : [shown(value, places), second == null ? "" : `(${shown(second, places)})`, name ?? ""].filter(Boolean).join(" ");
 // Text copied from a spreadsheet as rows of cells.
-export function pastedRows(text: string): string[][] {
+export function pastedRows(text: string, most = MAX_STATES + 1, wide = MAX_PATHS + 1, chars = 200): string[][] {
   // Cut first: no more text than the largest table holds is looked at.
-  const lines = text.slice(0, (MAX_STATES + 1) * (MAX_PATHS + 1) * 202).replace(/\r\n?/g, "\n").split("\n");
+  const lines = text.slice(0, most * wide * (chars + 2)).replace(/\r\n?/g, "\n").split("\n");
   while (lines.length && !lines[lines.length - 1]) lines.pop();
-  const rows = lines.slice(0, MAX_STATES + 1).map((r) => r.split("\t").slice(0, MAX_PATHS + 1).map((x) => cut(plain(x), 200)));
+  const rows = lines.slice(0, most).map((r) => r.split("\t").slice(0, wide).map((x) => cut(plain(x), chars)));
   return rows.length > 1 || (rows[0]?.length ?? 0) > 1 ? rows : [];
 }
 // An energy diagram's table: the paths' names, and a row for each state (its name, then a cell for each path).

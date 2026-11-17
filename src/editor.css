@@ -4493,6 +4493,34 @@ div.facts {
   width: auto;
   min-width: 0;
 }
+/* A column's name over its fields (Attached data's Name, Value and Show). */
+.chart-table .cell-title {
+  padding: 0 var(--space-2);
+}
+.chart-table .cell-switch {
+  display: flex;
+  justify-content: center;
+}
+/* A field of lines of text (a data field's value): as tall as its lines, up to six. */
+.unit-field.lines {
+  height: auto;
+  min-height: var(--size-control);
+  padding-block: 4px;
+  align-self: start;
+}
+.unit-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+  -webkit-user-select: text;
+  user-select: text;
+}
 /* An energy diagram's joins in the Actions panel: three chips. */
 .chips.joins {
   grid-template-columns: repeat(3, 1fr);

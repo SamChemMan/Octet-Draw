@@ -45,17 +45,24 @@ export function fieldsOn(m: Pick<Mol, "data">, atoms: Iterable<number>): number[
   return m.data.flatMap((f, k) => (f.atoms.some((i) => s.has(i)) ? [k] : []));
 }
 
-// The fields with their atoms renumbered (an atom at mapped to undefined is gone) and their captions' ids renumbered
-// (one mapped to undefined is gone, and its field shows no longer: it takes the text it showed, from text). A field
-// with no atom left goes. Undefined for an empty list.
+// The fields with their atoms renumbered (an atom `at` maps to undefined is gone; `at` never maps two atoms to one)
+// and their captions' ids renumbered (one mapped to undefined is gone, and its field shows no longer: it takes the text
+// it showed, from text). A field with no atom left goes. Undefined for an empty list.
 export function remapData(data: DataField[] | undefined, at: (i: number) => number | undefined, caption?: (id: number) => number | undefined, text?: (id: number) => string | undefined): DataField[] | undefined {
   if (!data?.length) return undefined;
-  const out: DataField[] = [];
+  // Fields made together share their atom list, which is renumbered once (an edit's cost is one pass over the lists).
+  const out: DataField[] = [], done = new Map<number[], number[]>();
   for (const f of data) {
-    const atoms: number[] = [];
-    for (const i of f.atoms) { const j = at(i); if (j !== undefined && !atoms.includes(j)) atoms.push(j); }
+    let atoms = done.get(f.atoms);
+    if (!atoms) {
+      const next: number[] = [];
+      let same = true;
+      for (const i of f.atoms) { const j = at(i); if (j !== undefined) next.push(j); if (j !== i) same = false; }
+      atoms = same ? f.atoms : next;
+      done.set(f.atoms, atoms);
+    }
     if (!atoms.length) continue;
-    if (f.caption === undefined || !caption) { out.push(atoms.length === f.atoms.length && atoms.every((i, k) => i === f.atoms[k]) ? f : { ...f, atoms }); continue; }
+    if (f.caption === undefined || !caption) { out.push(atoms === f.atoms ? f : { ...f, atoms }); continue; }
     const id = caption(f.caption);
     out.push(id !== undefined ? { name: f.name, atoms, caption: id } : { name: f.name, atoms, value: text?.(f.caption) ?? "" });
   }
@@ -140,7 +147,7 @@ export function withProperties(m: Mol): Mol {
   return { ...m, captions: m.captions?.map((c) => { const f = shown.get(c.id); return f ? { ...c, property: { attrs: { ChemicalPropertyType: ATTACHED, Name: f.name }, atoms: f.atoms } } : c; }) };
 }
 // As read from a file: a caption with an attached-data property is a shown field (one no field names comes after the
-// others), and the property itself is the field's, so the caption loses it.
+// others), and the property itself is the field's, so the caption loses it. A field's text is never chemistry.
 export function fromProperties(m: Mol): Mol {
   const attached = (c: Caption) => c.property?.attrs.ChemicalPropertyType === ATTACHED;
   if (!m.captions?.some(attached)) return m;
@@ -149,7 +156,7 @@ export function fromProperties(m: Mol): Mol {
     if (!attached(c)) return c;
     if (!named.has(c.id) && data.length < MAX_DATA) data.push({ name: cleanName(c.property!.attrs.Name ?? "").slice(0, MAX_NAME) || NO_NAME, atoms: [...c.property!.atoms], caption: c.id });
     const { property: _, ...rest } = c;
-    return rest;
+    return { ...rest, chemical: false as const };
   });
   return { ...m, captions, data: data.length ? data : undefined };
 }
@@ -263,3 +270,42 @@ export function fieldsFromRecords(records: SdRecord[], sizes: number[]): { data?
 const leftOut = new WeakMap<Mol, number>();
 export const markLeft = (m: Mol, n: number) => { if (n > 0) leftOut.set(m, n); return m; };
 export const leftOf = (m: Mol): Record<string, number> => { const n = leftOut.get(m); return n ? { "data field": n } : {}; };
+
+// An AI app's change to a structure's fields (mcp.ts edit's data), checked whole before anything changes: a name sets
+// the first field of that name (a new field when there is none) with its value and whether it is shown; remove takes
+// every field of that name off. Gives the drawing, or why nothing changed.
+export type DataChange = { name: string; value?: string; show?: boolean; remove?: boolean };
+export function changeData(m: Mol, structure: number[], changes: DataChange[]): Mol | string {
+  if (changes.length > 100) return "give at most 100 data fields at once";
+  let rows = rowsOf(m, structure);
+  for (const c of changes) {
+    const name = cleanName(c.name);
+    if (!name || name !== c.name.trim() || name.length > MAX_NAME) return `a data field's name has 1 to ${MAX_NAME} characters on one line, with no < or >: not ${JSON.stringify(c.name.slice(0, 40))}`;
+    if (c.remove) {
+      if (!rows.some((r) => r.name === name)) return `it has no data field ${name}`;
+      rows = rows.filter((r) => r.name !== name);
+      continue;
+    }
+    const value = c.value === undefined ? undefined : cleanValue(c.value);
+    if (c.value !== undefined && value === undefined) return `${name}'s value is over ${MAX_VALUE.toLocaleString("en-GB")} characters`;
+    const k = rows.findIndex((r) => r.name === name), was = k >= 0 ? rows[k] : undefined, row = { ...(was ?? { name, value: "", show: false }), ...(value !== undefined ? { value } : {}), ...(c.show !== undefined ? { show: c.show } : {}) };
+    if (row.show && row.value.length > MAX_SHOWN) return `${name}'s value is over ${MAX_SHOWN.toLocaleString("en-GB")} characters, too long to show`;
+    if (k >= 0) rows = rows.map((r, j) => (j === k ? row : r));
+    else if (rows.length >= MAX_EACH) return `a structure has at most ${MAX_EACH.toLocaleString("en-GB")} data fields`;
+    else rows = [...rows, row];
+  }
+  return setRows(m, structure, rows);
+}
+// A structure's fields as an AI app reads them: name, value, and shown when it is. A summary cuts each value at 200
+// characters and lists 100 fields at most.
+export function readFields(m: Mol, structure: number[], full: boolean): { data?: { name: string; value: string; shown?: true }[]; data_more?: number } {
+  const ks = fieldsOn(m, structure);
+  if (!ks.length) return {};
+  const list = (full ? ks : ks.slice(0, 100)).map((k) => { const f = m.data![k], v = valueOf(m, f); return { name: f.name, value: full || v.length <= 200 ? v : `${v.slice(0, 199)}…`, ...(f.caption !== undefined ? { shown: true as const } : {}) }; });
+  return { data: list, ...(ks.length > list.length ? { data_more: ks.length - list.length } : {}) };
+}
+// A structure's fields moved to the structure that replaced it (mcp.ts replaceStructure), a shown one with its text
+// (captions: each old caption's id, now).
+export function movedFields(m: Mol, from: number[], to: number[], captions: Map<number, number>): DataField[] {
+  return fieldsOn(m, from).map((k) => { const f = m.data![k], id = f.caption === undefined ? undefined : captions.get(f.caption); return id !== undefined ? { name: f.name, atoms: to, caption: id } : { name: f.name, atoms: to, value: valueOf(m, f) }; });
+}

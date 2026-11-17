@@ -8,7 +8,7 @@ import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
-import { keptData, remapData } from "./datafields.ts";
+import { remapData } from "./datafields.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -1011,11 +1011,14 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   // A cycle keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.map((c) => ({ ...keepAngles(m, mapBranches(c, (i) => map.get(i))), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }));
   const keptCycles = new Set(cycles?.map((c) => c.id));
-  // Data fields follow their atoms too, and go when they all go or their shown text goes (datafields.ts).
   const out = tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
     shapes: m.shapes?.map(kept),
-    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map), ...(m.data ? { data: remapData(m.data, (i) => map.get(i)) } : {}) });
-  return out.data ? keptData(out) : out;
+    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
+  if (!m.data) return out;
+  // Data fields follow their atoms too, and go when they all go. One whose text went with its structure, and that is
+  // on another structure too (a split), holds its value there (datafields.ts).
+  const left = new Set(out.captions?.map((c) => c.id));
+  return { ...out, data: remapData(m.data, (i) => map.get(i), (id) => (left.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) };
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
 const refill = (fills: Mol["fills"], map: Map<number, number>) => {
@@ -2607,7 +2610,7 @@ export const deleteGraphics = (m: Mol, ids: Set<number>, at?: (c: Caption) => P 
   // A table goes with its arrow, or when it is picked itself (its id below 0, gridview.ts TABLE).
   ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow) && !ids.has(-1 - g.arrow)) } : {}),
   // Deleting a data field's text deletes the field (datafields.ts).
-  ...(m.data?.some((f) => f.caption !== undefined && ids.has(f.caption)) ? { data: m.data.filter((f) => f.caption === undefined || !ids.has(f.caption)) } : {}),
+  ...(m.data?.some((f) => f.caption !== undefined && ids.has(f.caption)) ? { data: ((d) => (d.length ? d : undefined))(m.data.filter((f) => f.caption === undefined || !ids.has(f.caption))) } : {}),
 });
 // Delete, Clear and the Eraser: the atoms, bonds and objects chosen go, and nothing else that shows. Text that belongs to
 // a structure that goes (a compound number), and was not chosen itself, stays as free text where and as it is drawn (at,
@@ -2624,7 +2627,8 @@ export function deleteChosen(m: Mol, atoms: Set<number>, ids: Set<number>, bonds
 }
 // The next compound number in the drawing: one more than the highest bold number already there.
 export function nextNumber(m: Mol): string {
-  const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text)).map((c) => Number(c.text));
+  const shown = new Set((m.data ?? []).flatMap((f) => (f.caption === undefined ? [] : [f.caption])));
+  const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text) && !shown.has(c.id)).map((c) => Number(c.text));
   return String(Math.max(0, ...used) + 1);
 }
 

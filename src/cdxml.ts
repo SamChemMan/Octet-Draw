@@ -1639,7 +1639,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     }
     if (list.length > MAX_DATA) lose("data field", list.length - MAX_DATA);
     const ids = new Set(shown.map((f) => f.caption));
-    mol.captions = mol.captions?.map((c) => { if (!ids.has(c.id)) return c; const { property: _, ...rest } = c; return rest; });
+    mol.captions = mol.captions?.map((c) => { if (!ids.has(c.id)) return c; const { property: _, ...rest } = c; return { ...rest, chemical: false as const }; });
     mol.data = remapData(list.slice(0, MAX_DATA).map(({ datum: _, ...f }) => f), (i) => i);
   }
   const newGroup = (x: Xml, parent?: G): G => {
