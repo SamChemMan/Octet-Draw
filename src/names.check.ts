@@ -8,27 +8,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { citable, COMMON, commonKey } from "./common.ts";
 import { DRUGS } from "./drugs.ts";
 import { abbreviationOf, attachOpsin, knownName, looksLikeSmiles, nameToSmiles, namesStarting } from "./names.ts";
+import { loadOpsin, needOpsin, norender, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("names.check: skipped (no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+needOpsin("names.check: skipped (no OPSIN build)");
+const opsin = await loadOpsin();
 const index: Record<string, string> = JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8"));
 const cites: Record<string, string> = JSON.parse(readFileSync(new URL("./abbreviations.json", import.meta.url), "utf8"));
 // Before the engine loads, the search has common.ts alone.
 assert.deepEqual(namesStarting("tren"), ["TREN"]);
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index, DRUGS, cites);
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), index, DRUGS, cites);
+const indigo = await norender();
 const options = (kv: Record<string, string> = {}) => { const o = new indigo.MapStringString(); for (const [k, v] of Object.entries(kv)) o.set(k, v); return o; };
 // What the app draws for SMILES, and its standard InChI (tools/names/index.mjs: Indigo's layout, and an atom bonded
 // to a metal keeps the hydrogens Octet draws).

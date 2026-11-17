@@ -12,17 +12,11 @@
 //   margin), and nothing comes closer to a label than that floor; each of its lines starts and ends where the others do;
 // - the bonds with an unlabelled end are drawn as long as before that rule (every line's length, summed per structure).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { arialGlyph } from "./cdxml.ts";
 import { hydrogens, orderOf, render, type Drawing, type Ink, type Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { cleanUp, parseStructure, ready } = await import("./chem.ts");
 await ready;
 

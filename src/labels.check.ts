@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { anchorElement, attachmentFirst, chemicalText, formulaRuns, isElement, labelSmiles, pieces, standsIn, units } from "./labels.ts";
 import { render, type Ink } from "./render.ts";
 import { widthOf } from "./arial.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 assert.deepEqual(units("CO2Et").map((u) => [u.text, u.count ?? ""]), [["C", ""], ["O", "2"], ["Et", ""]]);
 assert.deepEqual(units("NHBoc").map((u) => u.text), ["N", "H", "Boc"]);
@@ -210,13 +211,7 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
 // InChIKey is worked out, and its formula, written here by hand), and read_drawing's SMILES marks no radical on a
 // group's first atom.
 {
-  const { readFileSync } = await import("node:fs");
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  browser();
   const { analyse, expandLabels, parseStructure, ready, toInchiKey, toSmiles } = await import("./chem.ts");
   const { problems } = await import("./check.ts");
   await ready;

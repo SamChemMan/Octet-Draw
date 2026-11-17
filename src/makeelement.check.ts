@@ -4,7 +4,6 @@
 // makes a caption that reads as a label an atom, in the caption's style and in its groups. ChemDraw's CDXML keeps
 // both switches: InterpretChemically on the document and on the text.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { onCaptions } from "./check.ts";
@@ -12,6 +11,7 @@ import { DEFAULT_STYLE, readStyle } from "./docstyle.ts";
 import { addCaption, captionAtom, captionsToAtoms, chemicalCaption, labelable, labelWords, sprout, withCaptionAtoms } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import type { Caption, Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 const cap = (text: string, more: Partial<Caption> = {}): Caption => ({ id: 1, text, x: 0, y: 0, ...more });
 // Elements, labels and formulas read as chemistry; words, numbers and text tied to a structure, an arrow or a cycle do not.
@@ -98,12 +98,7 @@ assert.equal(bonded.bonds.length, 1, "a bond from Bi");
 
 // With Indigo: the formula, mass, SMILES and warnings of chemical captions, as for any structure. chem.ts loads
 // Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { analyse, ready, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 await ready;

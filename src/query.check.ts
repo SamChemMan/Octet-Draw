@@ -14,6 +14,7 @@ import {
 import { labelSmiles } from "./labels.ts";
 import { messy, problems } from "./check.ts";
 import type { Atom, Bond, Mol, Shape } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, atoms: [i, j], ...more });
@@ -259,12 +260,7 @@ assert.equal(placeless(writeV3000(back)), placeless(mol), "a second round trip i
 // Chemistry (Indigo, as chem.check.ts loads it): polymers count their repeat units, attachments their atoms, and a
 // query structure's molfile is Octet's V3000, which reads back as a query.
 {
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  browser();
   const { analyse, importStructure, ready, structures, toMolfile } = await import("./chem.ts");
   await ready;
   const pe: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 2, 0), A("C", 3, 0)], bonds: [b(0, 1), b(1, 2), b(2, 3)], shapes: [{ id: 1, kind: "brackets", from: [0.5, 0.6], to: [2.5, -0.6], polymer: { usage: "sru" } }] };

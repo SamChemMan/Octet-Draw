@@ -4,8 +4,8 @@
 // Octet tidies a crowded layout and places the wedges: src/natural.check.ts).
 // The structures run in a worker thread, so a layout that never ends stops the check instead of hanging it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { Worker, isMainThread, parentPort } from "node:worker_threads";
+import { browser, norender } from "../scripts/checkkit.ts";
 
 const BOUND = 2000; // ms for each structure
 const ph = "c1ccccc1", pph3 = "P(c1ccccc1)(c1ccccc1)c1ccccc1", on = (group: string, n: number) => `(${group})`.repeat(n);
@@ -73,18 +73,12 @@ if (isMainThread) {
   });
   worker.on("error", (e) => { clearTimeout(timer); console.error(e); process.exitCode = 1; });
 } else {
-  // chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  browser();
   const { cipOf, indigoLayout, parseStructure, ready, stereoFacts, toInchi } = await import("./chem.ts");
   const { problems, WARNING_TYPES } = await import("./check.ts");
   const shown = new Set(WARNING_TYPES.filter((w) => w.on).map((w) => w.id));
   // A second Indigo, for the layout with no cap.
-  const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+  const indigo = await norender();
   await ready;
   const post = (m: object) => parentPort!.postMessage(m);
   const timed = (name: string, run: () => string) => {

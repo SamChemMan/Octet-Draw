@@ -1,12 +1,12 @@
 // Run: node src/ligand.check.ts. Fails loudly if ChemDraw's j and Shift+J π ligands, or the multi-centre points they
 // are joined through, stop working: drawing, deleting, copying, CDXML and chemistry.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { EMPTY, addGroupAt, bondTo, clickBond, deleteAtoms, dragBond, extractSelection, fragments, insertMol, moveAtoms, neighbours, placeCentres, pos, sandwich, sprout, toFront } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ligandEllipse, render, type Ink, type Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 const iron: Mol = { atoms: [{ label: "Fe", location: [0, 0, 0] }], bonds: [] };
 const centres = (m: Mol) => m.atoms.flatMap((a, i) => (a.centre ? [i] : []));
@@ -167,12 +167,7 @@ const onTop = (x: Mol, metal: number, point: number, edge: number[]) => {
 }
 
 // Chemistry: the points are not atoms; ferrocene is one compound, C10H10Fe, as ChemDraw gives it (chem.ts analyse).
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { analyse, expandLabels, parseStructure, ready, stereoFacts, toInchi, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { sandwichIons } = await import("./metals.ts");

@@ -5,15 +5,9 @@
 // that joins two stereocentres. The stereochemistry must not change: the same standard InChI as the SMILES, and the
 // same CIP labels as Indigo's own drawing.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { indigoLayout, parseStructure, ready, stereoFacts, toInchi } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { cipLabels } = await import("./cip.ts");

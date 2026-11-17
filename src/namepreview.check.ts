@@ -6,13 +6,10 @@
 // InChI), as one undo step, cancelled by an edit or Escape.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { browser, loadOpsin, opsinDir } from "../scripts/checkkit.ts";
 
+browser();
 const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { fullMol, parseStructure, quickMol, ready, toInchi } = await import("./chem.ts");
 const { sandwich } = await import("./edit.ts");
 const { fullLayout, isSequence, laterSmiles, PREVIEW_ATOMS, PREVIEW_PAUSE, quickLayout } = await import("./namepreview.ts");
@@ -98,21 +95,10 @@ assert.deepEqual(rnaAfter, fullMol(RNA_SMILES), "30-nt RNA: the same drawing");
 assert.equal(toInchi(rnaAfter), toInchi(rnaBefore), "30-nt RNA: the same InChI");
 const pepAfter = (await fullLayout([laterSmiles(PEPTIDE_60, undefined)!], true).result)![0];
 assert.equal(pepAfter.atoms.length, quickMol(laterSmiles(PEPTIDE_60, undefined)!)!.atoms.length, "60-residue peptide: every atom");
-const opsinDir = new URL("./vendor/opsin/", import.meta.url);
 if (existsSync(new URL("opsin.js", opsinDir))) {
   const { DRUGS } = await import("./drugs.ts");
   const { attachOpsin, nameToSmiles } = await import("./names.ts");
-  const pack = readFileSync(new URL("opsin-data.bin", opsinDir)), files = new Map<string, Int8Array>();
-  for (let p = 0; ; ) {
-    const n = pack.readUInt16BE(p); p += 2;
-    if (!n) break;
-    const name = pack.toString("latin1", p, p + n); p += n;
-    const size = pack.readInt32BE(p); p += 4;
-    files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-  }
-  g.opsinResource = (name: string) => files.get(name) ?? null;
-  const opsin = await import(new URL("opsin.js", opsinDir).href);
-  opsin.init();
+  const opsin = await loadOpsin();
   attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
   const pepBefore = sandwich(parseStructure(nameToSmiles(PEPTIDE_60)!));
   assert.equal(toInchi(pepAfter), toInchi(pepBefore), "60-residue peptide: the same InChI as through OPSIN");

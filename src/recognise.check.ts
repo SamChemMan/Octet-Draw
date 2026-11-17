@@ -6,14 +6,10 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mock } from "node:test";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
+browser();
 const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { ready } = await import("./chem.ts");
 const { blank, crop, decodePng, glyphInput, inkBox, molscribeInput, pad, resizeLinear, resizeSmooth } = await import("./recognise-image.ts");
 const { FIND_LIMIT, findScheme, TOO_BUSY } = await import("./recognise-find.ts");
