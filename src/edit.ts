@@ -8,6 +8,7 @@ import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
+import { remapCaption } from "./measurement.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -376,7 +377,7 @@ export function interpretLabels(m: Mol, ids: Iterable<number>, on: boolean, hide
 // cycle. Make element makes it an atom.
 export function labelable(c: Caption): boolean {
   const t = c.text.trim();
-  return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t));
+  return !c.on && !c.under && !c.cycle && !c.measure && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t));
 }
 // A caption that counts as chemistry (ChemDraw's Interpret Chemically, Sam, 21 October 2026): the document's
 // Interpret chemically is on (on), the caption's own is not off, and the caption reads as a label. It stays a caption,
@@ -1000,9 +1001,10 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
   const atoms = m.atoms.filter((_, i) => !gone.has(i)).map((a) => renumberCentre(a, map));
   // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go. Kept ChemDraw data (a
-  // live property) follows its atoms too, and goes when they all go.
+  // live property) follows its atoms too, and goes when they all go. A measurement goes when any of its atoms goes.
   const kept = <T extends Caption | Shape>(x: T): T => remapKept(x, (i) => map.get(i));
   const captions = m.captions?.flatMap((c) => {
+    if (c.measure) { const r = remapCaption(c, (i) => map.get(i)); return r.measure ? [r] : []; }
     if (!c.under) return [kept(c)];
     const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
     return under.length ? [kept({ ...c, under })] : [];
@@ -1045,7 +1047,7 @@ const sizeOf = (g: Grouped) => g.atoms.length + g.items.length;
 const inside = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.every((i) => s.atoms.has(i)) && g.items.every((id) => s.items.has(id));
 const meets = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.some((i) => s.atoms.has(i)) || g.items.some((id) => s.items.has(id));
 // Whether a caption belongs to a structure, arrow or cycle among these members.
-const attached = (c: Caption, s: Members) => (c.under?.length ? c.under.every((i) => s.atoms.has(i)) : c.on ? s.items.has(c.on.arrow) : !!c.cycle && s.items.has(c.cycle.cycle));
+const attached = (c: Caption, s: Members) => (c.under?.length ? c.under.every((i) => s.atoms.has(i)) : c.measure ? c.measure.atoms.every((i) => s.atoms.has(i)) : c.on ? s.items.has(c.on.arrow) : !!c.cycle && s.items.has(c.cycle.cycle));
 // Groups by size, the largest first (of two the same size, the first first).
 const bySize = (gs: Grouped[]) => gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q);
 // One key for each atom (its index) and each object (-1 - its id).
@@ -1119,7 +1121,7 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
   // Each such text is found by the first atom or object it belongs to.
   const listed = new Set(m.groups.flatMap((g) => g.items)), free = new Map<number, Caption[]>();
   for (const c of m.captions ?? []) {
-    const key = listed.has(c.id) ? undefined : c.under?.length ? c.under[0] : c.on ? -1 - c.on.arrow : c.cycle ? -1 - c.cycle.cycle : undefined;
+    const key = listed.has(c.id) ? undefined : c.under?.length ? c.under[0] : c.measure ? c.measure.atoms[0] : c.on ? -1 - c.on.arrow : c.cycle ? -1 - c.cycle.cycle : undefined;
     const list = key === undefined ? undefined : free.get(key);
     if (list) list.push(c); else if (key !== undefined) free.set(key, [c]);
   }
@@ -1138,7 +1140,7 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     return kids[k].length + new Set(gs[k].atoms.filter((i) => !held.atoms.has(i)).map((i) => of.get(i) ?? -1 - i)).size + gs[k].items.filter((id) => !held.items.has(id)).length;
   };
   const captions = new Map((m.captions ?? []).map((c) => [c.id, c])), inGroups = membersOf({ atoms: gs.flatMap((g) => g.atoms), items: gs.flatMap((g) => g.items) });
-  const ownText = (g: Grouped) => { const c = !g.atoms.length && g.items.length === 1 ? captions.get(g.items[0]) : undefined; return !!c && (c.under?.length ? inGroups.atoms.has(c.under[0]) : c.on ? inGroups.items.has(c.on.arrow) : !!c.cycle && inGroups.items.has(c.cycle.cycle)); };
+  const ownText = (g: Grouped) => { const c = !g.atoms.length && g.items.length === 1 ? captions.get(g.items[0]) : undefined; return !!c && (c.under?.length ? inGroups.atoms.has(c.under[0]) : c.measure ? inGroups.atoms.has(c.measure.atoms[0]) : c.on ? inGroups.items.has(c.on.arrow) : !!c.cycle && inGroups.items.has(c.cycle.cycle)); };
   const integral = gs.map((g) => !!g.integral), gone = new Set<number>();
   for (const k of gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q)) {
     const n = things(k);
@@ -1552,7 +1554,9 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     seen.add(key);
     return true;
   });
-  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}) }, new Set(into.keys())), joined: true };
+  // A measurement goes on with the atom a measured atom joined; one with two of its atoms joined into one goes.
+  const captions = m.captions?.some((c) => c.measure) ? m.captions.map((c) => (c.measure ? remapCaption(c, (k) => into.get(k) ?? k) : c)).filter((c, k) => !m.captions![k].measure || c.measure) : m.captions;
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(captions ? { captions } : {}) }, new Set(into.keys())), joined: true };
 }
 
 // Object > Join (⌘J), as ChemDraw's. One atom in each of two structures:
@@ -2236,7 +2240,7 @@ export const lineWidth = (x: Arrow | Shape | Cycle, line: number) => (("table" i
 // the chosen captions and of the captions that go with them (under those atoms, on those arrows, in those cycles).
 // captionSize: the document's caption size, for captions that have none of their own. Positions move elsewhere.
 export function scaleSettings(m: Mol, atoms: Set<number>, items: Set<number>, k: number, captionSize: number): Mol {
-  const goes = (c: Caption) => items.has(c.id) || (!!c.under?.length && c.under.every((i) => atoms.has(i))) || (!!c.on && items.has(c.on.arrow)) || (!!c.cycle && items.has(c.cycle.cycle));
+  const goes = (c: Caption) => items.has(c.id) || (!!c.under?.length && c.under.every((i) => atoms.has(i))) || (!!c.measure && c.measure.atoms.every((i) => atoms.has(i))) || (!!c.on && items.has(c.on.arrow)) || (!!c.cycle && items.has(c.cycle.cycle));
   return {
     ...m,
     atoms: m.atoms.map((a, i) => (atoms.has(i) ? scaled(a, k) : a)),
@@ -2286,7 +2290,8 @@ export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f
   return {
     ...m,
     atoms: m.atoms.map((a, i) => (atoms.has(i) ? { ...a, location: [...f([a.location[0], a.location[1]]), (a.location[2] ?? 0) * mean] as [number, number, number] } : a)),
-    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle ? caption(c) : c)),
+    // A measurement's label follows its atoms (settleMeasures), as a compound number follows its structure.
+    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !c.measure ? caption(c) : c)),
     arrows: m.arrows?.map((a) => (items.has(a.id) ? { ...a, from: f(a.from), to: f(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: f(q.at), ...(q.c1 ? { c1: f(q.c1) } : {}), ...(q.c2 ? { c2: f(q.c2) } : {}) })) } } : {}),
       ...(mirror && a.bend ? { bend: -a.bend } : {}), ...(mirror && a.start ? { start: over(a.start) } : {}), ...(mirror && a.end ? { end: over(a.end) } : {}) } : a)),
     shapes: m.shapes?.map((x) => {
@@ -2733,8 +2738,8 @@ function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, m
   for (const x of objects) to.set(x.id, id++);
   const out: Mol = {
     ...m,
-    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => remapKept({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
-      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }, atom))] } : {}),
+    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => remapCaption(remapKept({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
+      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }, atom), atom))] } : {}),
     ...(t.arrows?.length ? { arrows: [...(m.arrows ?? []), ...t.arrows.map((a) => ({ ...a, id: to.get(a.id)! }))] } : {}),
     ...(t.shapes?.length ? { shapes: [...(m.shapes ?? []), ...t.shapes.map((x) => ({ ...x, id: to.get(x.id)! }))] } : {}),
     ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...mapBranches(c, atom), id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
@@ -2901,7 +2906,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
   const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
   // A caption tied to atoms, an arrow or a cycle comes with them, or on its own when it is picked: then it is free text
   // where it was (lined up as drawn), since what it was tied to stays behind.
-  const tied = (c: Caption) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : false);
+  const tied = (c: Caption) => (c.under ? c.under.every((i) => map.has(i)) : c.measure ? c.measure.atoms.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : false);
   const captions = (m.captions ?? []).filter((c) => tied(c) || keep.has(c.id));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
   // Kept ChemDraw data comes with its caption only when all its atoms come too.
@@ -2913,8 +2918,8 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
     atoms: sel.map((i) => renumberCentre({ ...m.atoms[i] }, map)),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
     captions: captions.map((c) => {
-      if (tied(c)) return copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) });
-      const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y], lined = align?.(c);
+      if (tied(c)) return remapCaption(copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) }), (i) => map.get(i));
+      const { under: _u, on: _o, cycle: _c, placed: _p, measure: _m, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y], lined = align?.(c);
       return copied({ ...free, x, y, ...(lined ? { align: lined } : {}) });
     }),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
@@ -2950,7 +2955,9 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     captions: [...(m.captions ?? []), ...(add.captions ?? []).map(plain).map((c) => remapKept({
       ...c, id: ids.get(c.id)!, x: c.x + offset[0], y: c.y + offset[1], ...(c.under ? { under: c.under.map(at) } : {}),
       ...(c.on ? { on: { ...c.on, arrow: ids.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}),
-    }, at))],
+      // A measurement pasted with atoms of its own measures them; one that names atoms the paste does not have is text.
+      ...(c.measure ? { measure: { ...c.measure, atoms: c.measure.atoms.map((i) => (i < add.atoms.length ? at(i) : -1)) } } : {}),
+    }, at))].map((c) => (c.measure?.atoms.includes(-1) ? remapCaption(c, () => undefined) : c)),
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
     ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
@@ -2977,7 +2984,7 @@ export function inRow(mols: Mol[]): Mol {
 // copies' atoms and ids, and each original id's copy.
 export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number>) {
   const part = extractSelection(m, atoms, items), had = new Set(part.captions?.map((c) => c.id));
-  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, property: _p, ...c }) => c);
+  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, property: _p, measure: _m, ...c }) => c);
   const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
   return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
 }

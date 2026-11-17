@@ -56,18 +56,15 @@ function levelled(m: Mol, ids: number[]): { mol: Mol; back: (r: Mol) => Mol } | 
   };
 }
 
-// ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on
-// (as ChemDraw turns it on after 3D Clean Up). An atom keeps an opacity set by hand.
-export function clean3d(m: Mol, ids: number[]): Mol {
+// What 3D Clean Up knows of each atom and bond of these atoms (whole structures): the bonds among them (by their
+// place in ids), each atom's neighbours, element and hybridisation, the rings, and each bond's real length over a
+// C–C single bond's (ratio). Measurements (measurement.ts) take their Å scale from the same ratios.
+function typed(m: Mol, ids: number[]) {
   const n = ids.length, local = new Map(ids.map((g, k) => [g, k]));
-  if (n < 2) return m;
-  const turned = levelled(m, ids);
-  if (turned) return turned.back(clean3d(turned.mol, ids));
-  const bonds = m.bonds.filter((b) => b.type !== HBOND && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ a: local.get(b.atoms[0])!, b: local.get(b.atoms[1])!, type: b.type, stereo: b.stereo, from: b.atoms[0] }));
+  const bonds = m.bonds.flatMap((b, k) => (b.type !== HBOND && local.has(b.atoms[0]) && local.has(b.atoms[1]) ? [{ a: local.get(b.atoms[0])!, b: local.get(b.atoms[1])!, type: b.type, stereo: b.stereo, from: b.atoms[0], k }] : []));
   const nei: number[][] = ids.map(() => []);
   for (const b of bonds) { nei[b.a].push(b.b); nei[b.b].push(b.a); }
   const el = ids.map((g) => (m.atoms[g].text ? "C" : m.atoms[g].label));
-  const p2 = ids.map((g): V => [m.atoms[g].location[0], m.atoms[g].location[1], m.atoms[g].location[2] ?? 0]);
 
   // Each atom's hybridisation: sp (a triple bond, or two double bonds), sp2 (a double or aromatic bond, an aromatic
   // ring, N or O next to one: amides, anilines, esters; or boron with three neighbours), or sp3; and its ideal angle.
@@ -98,6 +95,24 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     const ring = aromatic[b.a] && aromatic[b.b] && (b.type === 1 || b.type === 2) && inRing.has(key(b.a, b.b)), f = b.type === AROMATIC || ring ? 0.91 : b.type === 3 ? 0.78 : b.type === 2 ? 0.87 : hyb[b.a] === 2 && hyb[b.b] === 2 ? 0.97 : 1;
     return (((RADIUS[el[b.a]] ?? 0.76) + (RADIUS[el[b.b]] ?? 0.76)) * f) / CC;
   };
+  return { bonds, nei, el, graph, aromatic, cycles, hyb, ideal, M, key, inRing, ratio };
+}
+// Each bond's real length over a C–C single bond's, by its place in m.bonds, for the bonds among these atoms.
+export function bondRatios(m: Mol, ids: number[]): Map<number, number> {
+  const t = typed(m, ids), out = new Map<number, number>();
+  t.bonds.forEach((b) => out.set(b.k, t.ratio(b)));
+  return out;
+}
+
+// ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on
+// (as ChemDraw turns it on after 3D Clean Up). An atom keeps an opacity set by hand.
+export function clean3d(m: Mol, ids: number[]): Mol {
+  const n = ids.length, local = new Map(ids.map((g, k) => [g, k]));
+  if (n < 2) return m;
+  const turned = levelled(m, ids);
+  if (turned) return turned.back(clean3d(turned.mol, ids));
+  const { bonds, nei, el, graph, aromatic, cycles, hyb, ideal, M, key, inRing, ratio } = typed(m, ids);
+  const p2 = ids.map((g): V => [m.atoms[g].location[0], m.atoms[g].location[1], m.atoms[g].location[2] ?? 0]);
   const flat = p2.every((q) => Math.abs(q[2]) < 1e-6);
   const drawn = bonds.map((b) => lenV(sub(p2[b.a], p2[b.b])) / ratio(b)).sort((x, y) => x - y);
   const unit = drawn[Math.floor(drawn.length / 2)] || 1;
