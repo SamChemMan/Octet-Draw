@@ -88,7 +88,6 @@ export function letterHeight(all: Piece[], p: Pixels): number {
   return small.length >= 3 ? small[small.length >> 1] : Math.max(8, Math.min(p.width, p.height) / 15);
 }
 
-
 // A reaction arrow in the picture (pixels): from its tail to its head, and the lines of text above and below it (its
 // conditions), nearest the arrow first. kind: reaction (one head), resonance (a head at each end), equilibrium (two
 // half-headed arrows, the upper one's way).

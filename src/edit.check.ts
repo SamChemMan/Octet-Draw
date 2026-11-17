@@ -408,7 +408,6 @@ assert.ok(Math.abs(cy(row, 0, 1) - cy(row, 2, 3)) < 1e-9, "centres share one y")
   assert.equal(back.atoms[1].text, "OMe");
 }
 
-
 // A bond is in a ring when its ends stay connected without it.
 function inRing(m: typeof EMPTY, k: number): boolean {
   const [from, to] = m.bonds[k].atoms, seen = new Set([from]), queue = [from];

@@ -548,9 +548,6 @@ function Panel(p: Props) {
   );
 }
 
-// A session's spectra as tabs (B1.8): the arrow keys move between them. With two or more, each has a close button in
-// room of its own beside its name, shown on hover or focus; Delete or Backspace on a tab closes it. One spectrum alone
-// closes with the panel's Close. children: the + that adds a spectrum, the last segment of the same control.
 // A peak's colour: one of PEAKS, or none.
 function Swatches({ value, pick }: { value?: string; pick: (c: string | undefined) => void }) {
   return (
@@ -560,6 +557,9 @@ function Swatches({ value, pick }: { value?: string; pick: (c: string | undefine
     </span>
   );
 }
+// A session's spectra as tabs (B1.8): the arrow keys move between them. With two or more, each has a close button in
+// room of its own beside its name, shown on hover or focus; Delete or Backspace on a tab closes it. One spectrum alone
+// closes with the panel's Close. children: the + that adds a spectrum, the last segment of the same control.
 function Tabs({ keys, value, onKey, onClose, children }: { keys: string[]; value: string; onKey: (k: string) => void; onClose: (k: string) => void; children?: React.ReactNode }) {
   const closable = keys.length > 1;
   return (

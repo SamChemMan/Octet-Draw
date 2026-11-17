@@ -10130,10 +10130,10 @@ export default function Editor() {
           <g className="pages" aria-hidden ref={pagesEl}>
             {/* An experiment page's risk assessment starts the page under it (riskassess.ts): that page and any after it to the risk assessment's foot, the same size. */}
             {style.edges && [...pages.map(([name, w, h]): [string, string, number, number, number] => [name, name, w, h, 0]),
-              ...(riskLay ? Array.from({ length: Math.min(63, Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2]))) }, (_, j): [string, string, number, number, number] => [`page${j}`, `Page ${j + 2}`, pages[0][1], pages[0][2], (j + 1) * pages[0][2] * mm * L]) : [])].map(([key, name, w, h, dy]) => {
+              ...(riskLay ? Array.from({ length: Math.min(63, Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2]))) }, (_, j): [string, string, number, number, number] => [`risk${j}`, `Page ${j + 2}`, pages[0][1], pages[0][2], (j + 1) * pages[0][2] * mm * L]) : [])].map(([key, name, w, h, dy]) => {
               const [x, y, t] = [(w / 2) * mm * L, (h / 2) * mm * L, 10 / view.zoom];
               return (
-                <g key={key} className={pageHover === name ? "page hovered" : "page"}>
+                <g key={key} className={!dy && pageHover === name ? "page hovered" : "page"}>
                   <rect className="page-edge" x={-x} y={dy - y} width={2 * x} height={2 * y} vectorEffect="non-scaling-stroke" />
                   {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => (
                     <path key={`${sx}${sy}`} d={`M${sx * x - sx * t} ${dy + sy * y}H${sx * x}V${dy + sy * y - sy * t}`} vectorEffect="non-scaling-stroke" />

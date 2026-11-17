@@ -12,7 +12,7 @@ import { attachDictionary, casProblem, casValid, dictionarySmiles, nameList, pep
 import { condensedSmiles } from "./condensed.ts";
 import { loadOpsin, norender, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url), table = new URL("../data/names/dictionary.tsv.gz", import.meta.url);
+const table = new URL("../data/names/dictionary.tsv.gz", import.meta.url);
 if (!existsSync(new URL("opsin.js", opsinDir)) || !existsSync(table)) { console.log("dictionary.check: skipped (no OPSIN build or no dictionary)"); process.exit(0); }
 const opsin = await loadOpsin();
 attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
