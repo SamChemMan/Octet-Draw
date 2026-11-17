@@ -2802,5 +2802,5 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (octet && top!.fields === 1) mol.fields = true;
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
-  return { mol: settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style), style, lost };
+  return { mol: settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), style, lost };
 }

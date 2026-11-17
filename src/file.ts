@@ -387,7 +387,7 @@ export function parse(text: string): Mol {
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each. Cycles
   // as this version keeps them, and π rings from 1.0.x as ligand() orders them. Hydrogens set by hand only where they
   // are fewer than usual (settleHydrogens).
-  return settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(out) : out))));
+  return settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(out) : out))), undefined, true);
 }
 
 // Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them.

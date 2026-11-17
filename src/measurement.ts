@@ -57,7 +57,7 @@ export const isMeasure = (c: Caption): c is Caption & { measure: Measure } => !!
 // What the values need of each structure, worked out once for its bonds and elements: each atom's structure (its
 // bonds, and a multi-centre point's atoms) and each bond's ratio. A drag or a turn changes only the atoms' places, so
 // it finds the same entry (the bonds list is the same, and each atom is the same element).
-type Known = { atoms: Atom[]; comp: Int32Array; ratio: Float64Array };
+type Known = { atoms: Atom[]; comp: Int32Array; ratio: Float64Array; byComp: Map<number, number[]> };
 const known = new WeakMap<Bond[], Known>();
 const sameKind = (a: Atom, b: Atom) => a === b || (a.label === b.label && a.charge === b.charge && a.implicitHCount === b.implicitHCount && !a.text === !b.text && a.centre === b.centre);
 function chemistry(m: Mol): Known {
@@ -70,7 +70,10 @@ function chemistry(m: Mol): Known {
   m.atoms.forEach((a, i) => { for (const j of a.centre?.atoms ?? []) join(i, j); });
   const comp = Int32Array.from({ length: n }, (_, i) => find(i)), ratio = new Float64Array(m.bonds.length).fill(NaN);
   for (const [b, r] of bondRatios(m, m.atoms.map((_, i) => i))) ratio[b] = r;
-  const out = { atoms: m.atoms, comp, ratio };
+  // Each structure's bonds (by their place in m.bonds), so a value reads only its own structures' bonds.
+  const byComp = new Map<number, number[]>();
+  m.bonds.forEach((b, n) => { if (ratio[n] > 0 && comp[b.atoms[0]] !== undefined) { const c = comp[b.atoms[0]]; const l = byComp.get(c); if (l) l.push(n); else byComp.set(c, [n]); } });
+  const out = { atoms: m.atoms, comp, ratio, byComp };
   known.set(m.bonds, out);
   return out;
 }
@@ -80,15 +83,28 @@ function unitOf(m: Mol, atoms: number[], k: Known, memo?: Map<string, number>): 
   const comps = [...new Set(atoms.map((i) => k.comp[i]))].sort((p, q) => p - q), key = comps.join(" ");
   const had = memo?.get(key);
   if (had !== undefined) return had;
-  const mine = new Set(comps), out: number[] = [];
-  m.bonds.forEach((b, n) => {
-    const r = k.ratio[n];
-    if (r > 0 && mine.has(k.comp[b.atoms[0]])) out.push(len3(sub3(at3(m, b.atoms[0]), at3(m, b.atoms[1]))) / r);
-  });
-  out.sort((p, q) => p - q);
-  const u = out.length ? out[Math.floor(out.length / 2)] || 1 : m.atoms[atoms[0]].scale ?? 1;
+  const out: number[] = [];
+  for (const c of comps) for (const n of k.byComp.get(c) ?? []) { const b = m.bonds[n].atoms; out.push(len3(sub3(at3(m, b[0]), at3(m, b[1]))) / k.ratio[n]); }
+  const u = out.length ? middleOf(out) || 1 : m.atoms[atoms[0]].scale ?? 1;
   memo?.set(key, u);
   return u;
+}
+// The value in the middle of a list (the upper of two), as a sort would put it there: Hoare's select, which takes time
+// in step with the list's length, not its length times its log.
+export function middleOf(v: number[]): number {
+  const want = Math.floor(v.length / 2);
+  let lo = 0, hi = v.length - 1;
+  while (lo < hi) {
+    const pivot = v[(lo + hi) >> 1];
+    let i = lo, j = hi;
+    while (i <= j) {
+      while (v[i] < pivot) i++;
+      while (v[j] > pivot) j--;
+      if (i <= j) { [v[i], v[j]] = [v[j], v[i]]; i++; j--; }
+    }
+    if (want <= j) hi = j; else if (want >= i) lo = i; else break;
+  }
+  return v[want];
 }
 // A measurement's value: Å for a distance, degrees for an angle (0 to 180) and a dihedral (−180 to 180, by IUPAC's
 // sign: positive when the near bond turns clockwise onto the far one, seen along the middle bond). Undefined for an
@@ -160,6 +176,8 @@ export function measureFrame(m: Mol, atoms: number[]): { o: P; u: P; v: P } {
 type Box = [number, number, number, number];
 const STEP = 0.25, FAR = 3;
 function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, h: number, near: (i: number) => number[], taken: Box[]): P {
+  let fewest = Infinity;
+  const space = spaceOf(m, f.o, FAR + Math.max(w, h) + 1);
   const reach = (d: P) => (Math.abs(d[0]) * w) / 2 + (Math.abs(d[1]) * h) / 2;
   let ways: { d: P; from: number }[];
   if (atoms.length === 3) {
@@ -174,18 +192,12 @@ function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, 
     const side = score > 0 ? -1 : score < 0 ? 1 : f.v[1] > 1e-9 || (Math.abs(f.v[1]) <= 1e-9 && f.v[0] < 0) ? 1 : -1;
     ways = [mul(f.v, side), mul(f.v, -side)].map((d) => ({ d, from: GAP + reach(d) }));
   }
-  // What could be in the way: the bonds and atoms within reach of every place tried.
-  const r = FAR + Math.max(w, h) + 1, inReach = (q: P) => Math.abs(q[0] - f.o[0]) <= r && Math.abs(q[1] - f.o[1]) <= r;
-  const segs: [P, P][] = [], points: [P, number][] = [];
-  for (const b of m.bonds) { const p = at2(m, b.atoms[0]), q = at2(m, b.atoms[1]); if (inReach(p) || inReach(q)) segs.push([p, q]); }
-  m.atoms.forEach((a, i) => { const p = at2(m, i); if (inReach(p) && !a.centre) points.push([p, labelled(a) ? 0.35 : 0.08]); });
+  // How much is in the way at a place: counted only as far as the fewest found so far.
   const hits = (c: P) => {
     const bx: Box = [c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2];
     let n = 0;
-    for (const [p, q] of segs) if (crosses(p, q, bx)) n++;
-    for (const [p, rad] of points) if (p[0] > bx[0] - rad && p[0] < bx[2] + rad && p[1] > bx[1] - rad && p[1] < bx[3] + rad) n++;
-    for (const t of taken) if (t[0] < bx[2] && t[2] > bx[0] && t[1] < bx[3] && t[3] > bx[1]) n += 2;
-    return n;
+    for (const t of taken) if (t[0] < bx[2] && t[2] > bx[0] && t[1] < bx[3] && t[3] > bx[1] && (n += 2) >= fewest) return n;
+    return n + space.count(bx, fewest - n);
   };
   // An angle tries inside first, a little way, before outside; a line takes its two sides in turn.
   const order: P[] = [];
@@ -193,9 +205,29 @@ function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, 
   const steps = Math.round(FAR / STEP);
   if (atoms.length === 3) { for (let n = 0; n <= 4; n++) order.push(along(0, n)); for (let n = 0; n <= steps; n++) order.push(along(1, n)); for (let n = 5; n <= steps; n++) order.push(along(0, n)); }
   else for (let n = 0; n <= steps; n++) order.push(along(0, n), along(1, n));
-  let best = order[0], fewest = Infinity;
+  let best = order[0];
   for (const c of order) { const n = hits(c); if (n < fewest) { [best, fewest] = [c, n]; if (!n) break; } }
   return best;
+}
+// The bonds and atoms of a drawing within r of a point (bond lengths, each way), so a label tried near it tests only
+// what is near: how many bonds cross a box, and how many atoms (with a label's room round them) are in it, counted as
+// far as most.
+type Space = { count: (b: Box, most?: number) => number };
+function spaceOf(m: Mol, o: P, r: number): Space {
+  const segs: number[] = [], points: number[] = [], inside = (x: number, y: number) => Math.abs(x - o[0]) <= r && Math.abs(y - o[1]) <= r;
+  for (const b of m.bonds) {
+    const p = m.atoms[b.atoms[0]]?.location, q = m.atoms[b.atoms[1]]?.location;
+    if (p && q && (inside(p[0], p[1]) || inside(q[0], q[1]))) segs.push(p[0], p[1], q[0], q[1]);
+  }
+  for (const a of m.atoms) if (!a.centre && inside(a.location[0], a.location[1])) points.push(a.location[0], a.location[1], labelled(a) ? 0.35 : 0.08);
+  return {
+    count: (bx, most = Infinity) => {
+      let n = 0;
+      for (let k = 0; k < points.length; k += 3) { const x = points[k], y = points[k + 1], e = points[k + 2]; if (x > bx[0] - e && x < bx[2] + e && y > bx[1] - e && y < bx[3] + e && ++n >= most) return n; }
+      for (let k = 0; k < segs.length; k += 4) if (crosses([segs[k], segs[k + 1]], [segs[k + 2], segs[k + 3]], bx) && ++n >= most) return n;
+      return n;
+    },
+  };
 }
 // Whether a line from p to q passes through a box (Liang and Barsky's clip).
 function crosses(p: P, q: P, b: Box): boolean {
@@ -208,14 +240,15 @@ function crosses(p: P, q: P, b: Box): boolean {
   }
   return t0 < t1;
 }
-// Each atom's bonded neighbours (no hydrogen bonds), for the drawing's bonds.
-const neighbourLists = new WeakMap<Bond[], number[][]>();
-function neighboursOf(m: Mol): (i: number) => number[] {
-  let near = neighbourLists.get(m.bonds);
+// Each atom's bonded neighbours, for the drawing's bonds: without hydrogen bonds, or with them (all).
+const neighbourLists = [new WeakMap<Bond[], number[][]>(), new WeakMap<Bond[], number[][]>()];
+function neighboursOf(m: Mol, all = false): (i: number) => number[] {
+  const cache = neighbourLists[all ? 1 : 0];
+  let near = cache.get(m.bonds);
   if (!near || near.length < m.atoms.length) {
     near = m.atoms.map(() => []);
-    for (const b of m.bonds) if (b.type !== HBOND && near[b.atoms[0]] && near[b.atoms[1]]) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
-    neighbourLists.set(m.bonds, near);
+    for (const b of m.bonds) if ((all || b.type !== HBOND) && near[b.atoms[0]] && near[b.atoms[1]]) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
+    cache.set(m.bonds, near);
   }
   return (i) => near![i] ?? [];
 }
@@ -225,18 +258,42 @@ const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 // Each measurement after an edit: its value and text worked out from its atoms, and its label placed (or, when the
 // edit moved the label alone, its offset kept). A measurement whose atoms are not 2 to 4 distinct atoms of the
 // drawing becomes plain text. before: the drawing the edit started from (none when a drawing is opened or pasted).
-// docStyle: the document's style, when the drawing does not carry it (a file being read). Returns after itself when
-// nothing changes, and at once when it has no measurement.
-export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: DocStyle): Mol {
+// docStyle: the document's style, when the drawing does not carry it (a file being read). kept: a drawing read from a
+// file, whose labels stay where the file has them (where Octet placed them when it saved), so it opens as it was
+// saved; only their values are worked out again. Returns after itself when nothing changes, and at once when it has no
+// measurement.
+export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: DocStyle, kept = false): Mol {
   const cs = after.captions;
   if (!cs?.some(isMeasure)) return after;
   const k = chemistry(after), memo = new Map<string, number>(), style = docStyle ?? after.style ?? DEFAULT_STYLE, around = neighboursOf(after);
   const was = before?.captions?.some(isMeasure) ? new Map(before.captions.filter(isMeasure).map((c) => [c.id, c])) : undefined;
   let changed = false;
   const taken: Box[] = [];
+  // The structures with an atom the edit changed. A measurement settled before whose structures it left alone, and
+  // whose label it did not touch, stays as it is (a drag frame works out only the measurements it moves).
+  const touched = before && before.bonds === after.bonds && before.atoms.length === after.atoms.length && before.style === after.style ? new Set<number>() : undefined;
+  if (touched) after.atoms.forEach((a, i) => { if (a !== before!.atoms[i]) touched.add(k.comp[i]); });
+  const box = (c: Caption, text: string): Box => {
+    const size = (c.size ?? style.captionSize) / style.bond, w = widthOf(text, size), h = (ASCENT + DESCENT) * size, shift = c.align === "left" || c.align === "justify" ? w / 2 : c.align === "right" ? -w / 2 : 0;
+    const m: P = [c.x + shift, c.y + ((ASCENT - DESCENT) / 2) * size];
+    return [m[0] - w / 2, m[1] - h / 2, m[0] + w / 2, m[1] + h / 2];
+  };
   const out = cs.map((c) => {
     if (!c.measure) return c;
     if (!soundMeasure(c.measure, after.atoms.length)) { changed = true; const { measure: _, ...plain } = c; return plain; }
+    const p = was?.get(c.id);
+    if (touched && p === c && c.chemical === false && !c.runs && c.measure.atoms.every((i) => !touched.has(k.comp[i]))) {
+      if (taken.length < 100) taken.push(box(c, c.text));
+      return c;
+    }
+    if (kept) {
+      const text = measureText(kindOf(c.measure.atoms.length)!, measureValue(after, c.measure.atoms, unitOf(after, c.measure.atoms, k, memo)));
+      if (taken.length < 100) taken.push(box(c, text));
+      if (text === c.text && c.chemical === false && !c.runs) return c;
+      changed = true;
+      const { runs: _r, ...rest } = c;
+      return { ...rest, text, chemical: false as const };
+    }
     const atoms = c.measure.atoms, kind = kindOf(atoms.length)!, text = measureText(kind, measureValue(after, atoms, unitOf(after, atoms, k, memo)));
     const size = (c.size ?? style.captionSize) / style.bond, w = widthOf(text, size), lift = ((ASCENT - DESCENT) / 2) * size;
     // The label's middle from its anchor, and back, by its alignment.
@@ -265,12 +322,10 @@ export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: D
 // the other, the short way). The value and the label are the caption's.
 export type MeasureInk = { lines: [P, P][]; arc?: { centre: P; r: number; start: number; sweep: number } };
 export function measureInk(m: Mol, atoms: number[], trim: (i: number) => number = () => 0): MeasureInk {
-  const bonded = new Set<string>(), mine = new Set(atoms);
-  for (const b of m.bonds) if (mine.has(b.atoms[0]) && mine.has(b.atoms[1])) { bonded.add(`${b.atoms[0]} ${b.atoms[1]}`); bonded.add(`${b.atoms[1]} ${b.atoms[0]}`); }
-  const lines: [P, P][] = [];
+  const near = neighboursOf(m, true), lines: [P, P][] = [];
   for (let k = 1; k < atoms.length; k++) {
     const [i, j] = [atoms[k - 1], atoms[k]];
-    if (bonded.has(`${i} ${j}`) || i >= m.atoms.length || j >= m.atoms.length) continue;
+    if (i >= m.atoms.length || j >= m.atoms.length || near(i).includes(j)) continue;
     const s = at2(m, i), t = at2(m, j), u = unit(sub(t, s)), a = trim(i), b = trim(j), l = len(sub(t, s));
     if (u && l - a - b > 1e-6) lines.push([add(s, mul(u, a)), sub(t, mul(u, b))]);
   }

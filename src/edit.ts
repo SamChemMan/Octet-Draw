@@ -3068,5 +3068,5 @@ export function addMeasure(m: Mol, atoms: number[], order: "pick" | "chain" = "c
   if (there) return { mol: m, id: there.id, made: false, cleaned: [], tooBig: false };
   const { mol, cleaned, tooBig } = cleanedFor(m, ordered);
   const [made, id] = addCaption(mol, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: ordered } });
-  return { mol: settleMeasures(undefined, made), id, made: true, cleaned, tooBig };
+  return { mol: settleMeasures(m, made), id, made: true, cleaned, tooBig };
 }

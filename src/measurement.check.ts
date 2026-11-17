@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { clean3d } from "./clean3d.ts";
 import { EMPTY, addCaption, addMeasure, addRing, deleteAtoms, transformParts } from "./edit.ts";
-import { chainOrder, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
+import { chainOrder, middleOf, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ASCENT, DESCENT, type Caption, type Mol } from "./render.ts";
 
@@ -53,6 +53,18 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.equal(measureText("angle", undefined), "–");
   assert.equal(measureText("distance", NaN), "–");
   console.log("measurement.check: values ok");
+}
+
+// The median the Å scale takes (middleOf): the value a sort puts in the middle, duplicates and all.
+{
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let t = 0; t < 300; t++) {
+    const v = Array.from({ length: 1 + Math.floor(rnd() * 60) }, () => (rnd() < 0.3 ? 1 : Math.round(rnd() * 20) / 4));
+    const sorted = [...v].sort((p, q) => p - q);
+    assert.equal(middleOf([...v]), sorted[Math.floor(v.length / 2)], JSON.stringify(v));
+  }
+  console.log("measurement.check: median ok");
 }
 
 // Degenerate geometry never gives NaN or Infinity (S15).

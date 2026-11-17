@@ -349,12 +349,34 @@ export const MapGlyph = () => (
   </Icon>
 );
 
-// Measure: two bonds at an angle, with its arc, and a dashed line across their ends (a distance).
+// Measure: an angle with its arc, and a dashed line across the ends of its two bonds (a distance).
 export const MeasureGlyph = ({ size }: { size?: number }) => (
   <Icon size={size}>
-    <polyline points="40,196 128,60 216,196" />
-    <path d="M101.9,100.3A48,48 0 0 0 154.1,100.3" />
-    <line x1={40} y1={196} x2={216} y2={196} strokeDasharray="8 34" />
+    <polyline points="200,200 48,200 160,72" />
+    <path d="M120,200A72,72 0 0 0 95.4,145.8" />
+    <line x1={200} y1={200} x2={160} y2={72} strokeDasharray="8 30" />
+  </Icon>
+);
+// Measure distance: two atoms and the dashed line between them.
+export const DistanceGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx={52} cy={128} r={20} />
+    <circle cx={204} cy={128} r={20} />
+    <line x1={92} y1={128} x2={164} y2={128} strokeDasharray="8 24" />
+  </Icon>
+);
+// Measure angle: two bonds at an angle, with its arc.
+export const AngleGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <polyline points="200,200 48,200 160,72" />
+    <path d="M120,200A72,72 0 0 0 95.4,145.8" />
+  </Icon>
+);
+// Measure dihedral: a Newman projection, the near bonds from the middle and the far bonds out from the circle.
+export const DihedralGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx={128} cy={128} r={52} />
+    <path d="M128,128V24M128,128L218.1,180M128,128L37.9,180M173,102L218.1,76M128,180V232M83,102L37.9,76" />
   </Icon>
 );
 
