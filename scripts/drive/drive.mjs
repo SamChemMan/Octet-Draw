@@ -51,6 +51,14 @@ function run(cmd, args, input, timeout = 30_000) {
 const PS = ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", path.join(HERE, "windows.ps1")];
 const ps = (...args) => run("powershell.exe", [...PS, ...args]);
 
+// xclip stays to serve the clipboard, so it is not waited for.
+const xclip = (data, ...format) => {
+  const args = ["-selection", "clipboard", ...format, "-i"];
+  if (DRY) return void run("xclip", args);
+  const x = spawn("xclip", args, { stdio: ["pipe", "ignore", "ignore"], detached: true });
+  x.stdin.end(data);
+  x.unref();
+};
 const system = WIN
   ? {
       setText: (text) => run("powershell.exe", [...PS, "clip-set"], text),
@@ -67,19 +75,8 @@ const system = WIN
       uiaOpen: () => run("powershell.exe", [...PS, "uia-open"], undefined, 90_000).toString().split(/\r?\n/).filter(Boolean),
     }
   : {
-      // xclip stays to serve the clipboard, so it is not waited for.
-      setText: (text) => {
-        if (DRY) return void run("xclip", ["-selection", "clipboard", "-i"]);
-        const x = spawn("xclip", ["-selection", "clipboard", "-i"], { stdio: ["pipe", "ignore", "ignore"], detached: true });
-        x.stdin.end(text);
-        x.unref();
-      },
-      setData: (format, bytes) => {
-        if (DRY) return void run("xclip", ["-selection", "clipboard", "-t", format, "-i"]);
-        const x = spawn("xclip", ["-selection", "clipboard", "-t", format, "-i"], { stdio: ["pipe", "ignore", "ignore"], detached: true });
-        x.stdin.end(Buffer.from(bytes));
-        x.unref();
-      },
+      setText: (text) => xclip(text),
+      setData: (format, bytes) => xclip(Buffer.from(bytes), "-t", format),
       formats: () => run("xclip", ["-selection", "clipboard", "-o", "-t", "TARGETS"]).toString().split("\n").filter(Boolean),
       read: (format) => run("xclip", ["-selection", "clipboard", "-o", "-t", format]),
       menu: (...names) => run("python3", [path.join(HERE, "linux-menu.py"), pid(), ...names]),
@@ -176,6 +173,14 @@ const drag = ([x, y], [x2, y2]) => wd("POST", `/session/${session}/actions`, { a
   { type: "pointerMove", duration: 0, origin: "viewport", x: Math.round(x), y: Math.round(y) }, { type: "pointerDown", button: 0 },
   ...Array.from({ length: 20 }, (_, k) => ({ type: "pointerMove", duration: 25, origin: "viewport", x: Math.round(x + ((x2 - x) * (k + 1)) / 20), y: Math.round(y + ((y2 - y) * (k + 1)) / 20) })),
   { type: "pointerUp", button: 0 }] }] });
+// The text on the clipboard, then Edit > Paste.
+const pasteText = async (text) => { system.setText(text); await sleep(500); system.menu("Edit", "Paste"); };
+// Don't Save in the question a closing window asks.
+const dontSave = async () => {
+  const b = "[...document.querySelectorAll('button')].find((b) => /Don.t Save/.test(b.textContent))";
+  await until("the question", () => page(`return !!${b}`));
+  await page(`${b}.click()`);
+};
 // Edit > Copy, and Octet's own copy it put on the clipboard (the drawing as a .oct file holds it). The clipboard is
 // cleared first, so the copy read is the new one.
 async function copied() {
@@ -230,9 +235,7 @@ const steps = [
     await toWindow(drawing);
   }],
   ["Edit > Paste pastes SMILES text from the clipboard", async () => {
-    system.setText("CCO");
-    await sleep(500);
-    system.menu("Edit", "Paste");
+    await pasteText("CCO");
     await pasted(1);
   }],
   ["Edit > Select All, then Edit > Copy puts Octet's formats on the clipboard", async () => {
@@ -305,9 +308,7 @@ const steps = [
   // Octet's own (a .oct file's) and as CDXML. Octane-3,5-dione's ¹H quartet at 2.42 is the label.
   ["Each part of a page spectrum can be picked alone, nudged, typed over and coloured, and the edits are kept as .oct and CDXML", async () => {
     const LABEL = "2.40 (q, 2H)", RED = "#B42323", PT = 1 / 14.4;
-    system.setText("CCCC(=O)CC(=O)CC");
-    await sleep(500);
-    system.menu("Edit", "Paste");
+    await pasteText("CCCC(=O)CC(=O)CC");
     await until("octane-3,5-dione in the drawing", async () => (await oxygens()) === 2);
     system.menu("Structure", "Predict*");
     const add = `document.querySelector('section.spectrum button[aria-label="Add to drawing"]')`, item = `document.querySelector('[role=menu] [data-item="spectrum"]')`;
@@ -389,9 +390,7 @@ const steps = [
     check(all.groups?.length === 1 && !all.groups[0].integral && parts > 10, `groups: ${JSON.stringify(all.groups?.map((g) => [g.items.length, !!g.integral]))}`);
     system.menu("Edit", "Paste");
     await until("the copy pasted", async () => (await labels(LABEL)) === 2);
-    system.setText(cdxml);
-    await sleep(500);
-    system.menu("Edit", "Paste");
+    await pasteText(cdxml);
     await until("the CDXML pasted", async () => (await labels(LABEL)) === 3);
     system.menu("Edit", "Select All");
     const back = await copied(), edited = (back.captions ?? []).filter((c) => c.text === LABEL);
@@ -400,9 +399,7 @@ const steps = [
     // The window closes without saving; the first drawing stays.
     const before = await handles();
     system.menu("File", CLOSE);
-    const dontSave = "[...document.querySelectorAll('button')].find((b) => /Don.t Save/.test(b.textContent))";
-    await until("the question", () => page(`return !!${dontSave}`));
-    await page(`${dontSave}.click()`);
+    await dontSave();
     await until("the window to close", async () => (await handles()).length === before.length - 1);
     await toWindow(drawing);
   }],
@@ -410,24 +407,18 @@ const steps = [
   ["File > Close Window on the first drawing shows Home in its window, and Quick start opens a drawing there again", async () => {
     const before = await handles();
     system.menu("File", CLOSE);
-    const dontSave = "[...document.querySelectorAll('button')].find((b) => /Don.t Save/.test(b.textContent))";
-    await until("the question", () => page(`return !!${dontSave}`));
-    await page(`${dontSave}.click()`);
+    await dontSave();
     await until("Home in the first drawing's window", () => page("return !!document.querySelector('main.home .home-tile.new')"));
     if (!DRY && (await handles()).length !== before.length) throw new Error("Close Window closed Home's window");
     await page("document.querySelector('main.home .home-tile.new').click()");
     await until("the drawing", () => page("return !document.querySelector('main.home') && !!document.querySelector('svg.canvas')"));
-    system.setText("CCO");
-    await sleep(500);
-    system.menu("Edit", "Paste");
+    await pasteText("CCO");
     await pasted(1);
   }],
   ["File > Exit asks about the unsaved drawing, and Don't Save ends Octet", async () => {
     system.menu("File", "Exit");
     await toWindow(drawing);
-    const dontSave = "[...document.querySelectorAll('button')].find((b) => /Don.t Save/.test(b.textContent))";
-    await until("the question", () => page(`return !!${dontSave}`));
-    await page(`${dontSave}.click()`);
+    await dontSave();
     await until("Octet to end", () => !system.running(), 15_000);
     session = undefined;
   }],
