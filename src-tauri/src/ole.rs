@@ -386,7 +386,11 @@ mod tests {
         let views = "    SetRegView 64\n    !insertmacro OCTET_OLE_REMOVE\n    SetRegView 32\n    !insertmacro OCTET_OLE_REMOVE\n    SetRegView default\n";
         assert!(nsh.contains("  SetRegView 64\n  !insertmacro OCTET_OLE_KEYS\n  SetRegView 32\n  !insertmacro OCTET_OLE_KEYS\n  SetRegView default\n"), "install writes both views");
         assert!(nsh.contains(views), "uninstall removes both views");
-        assert_eq!(nsh.matches("WriteRegStr").count(), keys(Path::new("x")).len(), "every key is written once per view, through the macro");
+        // The .oct file icon (OCTET_DOCUMENT_ICON) is the one other key the installer writes.
+        let ole = &nsh[nsh.find("!macro OCTET_OLE_KEYS").unwrap()..];
+        let ole = &ole[..ole.find("!macroend").unwrap()];
+        assert_eq!(ole.matches("WriteRegStr").count(), keys(Path::new("x")).len(), "every key is written once per view, through the macro");
+        assert_eq!(nsh.matches("WriteRegStr").count(), keys(Path::new("x")).len() + 1, "and nothing else but the .oct icon");
     }
 
     #[test]
