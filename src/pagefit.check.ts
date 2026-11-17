@@ -18,6 +18,6 @@ assert.ok(fit < down.indexOf("return pressSelect("), "onPointerDown fits the pag
 const move = editor.slice(editor.indexOf("function onPointerMove("));
 assert.match(move.slice(0, move.indexOf("switch (drag.kind)")), /\bpage: edgePage\(p, t\)\?\.\[0\],/);
 assert.match(editor, /pageHover && !drag \? \{ cursor: "zoom-in" \}/);
-assert.match(editor, /className=\{pageHover === name \? "page hovered" : "page"\}/);
+assert.match(editor, /className=\{!dy && pageHover === name \? "page hovered" : "page"\}/);
 
 console.log("pagefit: ok");
