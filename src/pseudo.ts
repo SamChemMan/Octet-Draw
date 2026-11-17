@@ -2,13 +2,13 @@
 // methylcyclohexan-1-ol, (4ar,8ar)-decahydronaphthalene, (1R,3r,5S)-8-methyl-8-azabicyclo[3.2.1]octan-3-ol. OPSIN reads
 // no r or s. Octet takes them out of the name and has OPSIN read the rest, which sets the constitution and every R, S,
 // E and Z. The centres left open (an sp3 carbon with two ligands alike in the constitution, and stereo in them) are
-// then tried in each configuration: Octet's own labeller (cip.ts) labels each one, and the ones with the name's r and
-// s are kept. They must all be one structure (one standard InChI), or there is no reading.
+// then tried in each configuration, one try for each stereoisomer (by standard InChI). Octet's own labeller (cip.ts)
+// labels each, and those with the name's r and s are kept.
 //
-// Which of those is the name's: one whose Octet name is the name itself (Octet's own names, as Structure to Name reads
-// them back); otherwise every configuration with the name's r and s must be one structure, whichever atoms the name's
-// locants are on, and Octet's name for it must cite them at the same locants. So a name that numbers the structure
-// another way still reads, and one that could mean two structures never does.
+// The reading is the one whose Octet name is the name itself (Octet's own names, as Structure to Name reads them
+// back). Any other name reads only where one stereoisomer has its r and s, whichever atoms its locants are on, and
+// Octet's name for it cites them at the same locants. So a name that numbers the structure another way still reads,
+// and one that could mean two structures never does.
 import { stereoMarks } from "./cip.ts";
 import type { Mol } from "./render.ts";
 

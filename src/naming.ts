@@ -83,7 +83,7 @@ function stereoLayers(inchi: string | undefined): Layers | undefined {
 const withoutStereo = (inchi: string) => inchi.split("/").filter((l, k) => k < 2 || !/^[tms]/.test(l)).join("/");
 const signs = (t: string | undefined) => new Map((t ? t.split(",") : []).map((x) => [x.slice(0, -1), x.slice(-1)]));
 export function lockedAtoms(m: Mol, aux: (m: Mol) => string | undefined, labels?: Cip): Set<string> | undefined {
-  if (m.atoms.length > 200 || m.atoms.some((a) => a.text)) return undefined;
+  if (m.atoms.length > 200 || m.atoms.some((a) => a.text) || !m.atoms.some((a) => a.location[2])) return undefined;
   const [line, info] = (aux(m) ?? "").split("\n"), layers = stereoLayers(line);
   const order = /\/N:([\d,]+)(?:\/|$)/.exec(info ?? "")?.[1].split(",").map((x) => Number(x) - 1);
   if (!layers?.t || !order || line.split("/")[1]?.includes(".")) return undefined;
