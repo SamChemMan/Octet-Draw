@@ -448,10 +448,12 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false, bars
       const off = n > (a.radical === 3 ? free : Math.max(1, free));
       return setAtom(m, i, { pairs: off ? undefined : n, ...(off && a.radical === 3 ? { radical: undefined } : {}), ...style });
     }
-    // A radical ion: one unpaired electron and a charge, together. Clicking one again takes both off.
+    // A radical ion: one unpaired electron and a charge, together. Clicking one again takes both off. The dot goes
+    // with the sign as one unit (render.ts), so a radical moved by hand before loses its own place.
     case "radicalCation": case "radicalAnion": {
       const charge = kind === "radicalCation" ? 1 : -1, on = a.radical === 1 && a.charge === charge;
-      return trimPairs(setAtom(m, i, { radical: on ? undefined : 1, charge: on ? undefined : charge, circled: undefined }), i);
+      const { radical0: _, radical1: __, ...angles } = a.angles ?? {};
+      return trimPairs(setAtom(m, i, { radical: on ? undefined : 1, charge: on ? undefined : charge, circled: undefined, angles: Object.keys(angles).length ? angles : undefined }), i);
     }
     case "hDot": case "hDash": { const h = kind === "hDot" ? "dot" : "dash"; return setAtom(m, i, { hmark: a.hmark === h ? undefined : h }); }
     // An attachment point in ChemDraw's three styles: wavy (true), diamond and star. Its own style again takes it off.
