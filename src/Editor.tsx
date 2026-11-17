@@ -300,7 +300,7 @@ type Drag =
   // Resizing the selection by one of its frame's handles (resize.ts): the frame at the press (drawing units), what is
   // scaled, each free caption's middle, the stops, the factors and the point they scale about now. whole: the whole
   // drawing with Labels and lines, which a scale in proportion only zooms (it shows the drawing as it is, scaled).
-  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; labels: boolean; lines: boolean; working: Mol; plot?: number }
+  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; labels: boolean; lines: boolean; text: boolean; working: Mol; plot?: number }
   // Moving the crosshair (View > Show Crosshair): from where it was, to where it is now.
   | { kind: "crosshair"; from: P; at: P };
 
@@ -4865,11 +4865,15 @@ export default function Editor() {
     const [atoms, items] = none ? [new Set(doc.atoms.map((_, i) => i)), new Set([...(doc.captions ?? []), ...objects].map((x) => x.id))] : withGroups(selection, picked);
     return { atoms, items, whole: none || (atoms.size === doc.atoms.length && objects.every((x) => items.has(x.id))) };
   };
-  // Text alone (captions and nothing else). Scale… and the handles always scale its size, as ChemDraw scales the text
-  // of one label whatever its checkbox says, so Labels and lines counts as on for it.
-  // Only text picked: captions and free symbols (charges, radicals and lone pairs placed on their own). Their frame
-  // has corners only, and a corner drag always sizes them, as a caption's does (#164).
-  const textAlone = () => !selection.size && picked.size > 0 && [...picked].every((id) => doc.captions?.some((c) => c.id === id) || doc.shapes?.some((sh) => sh.id === id && sh.kind === "symbol"));
+  // Text alone: captions and free symbols (charges, radicals and lone pairs placed on their own; #164) and nothing else,
+  // with their groups, as Scale… and the handles act on them. Scale… and the handles always scale its size, as
+  // ChemDraw scales the text of one label whatever its checkbox says, so Labels and lines counts as on for it, Control
+  // does not turn it off, and the frame has corners only.
+  const textAlone = () => {
+    if (selection.size || !picked.size) return false;
+    const { atoms, items } = chosen();
+    return !atoms.size && [...items].every((id) => doc.captions?.some((c) => c.id === id) || doc.shapes?.some((sh) => sh.id === id && sh.kind === "symbol"));
+  };
   const scalesText = () => settings.scaleLabels || textAlone();
   // Each free caption's middle, from its laid-out box (drawing units).
   const captionMiddles = () => new Map(placed.filter((c) => c.id !== DRAFT).map((c) => [c.id, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L] as P]));
@@ -5451,7 +5455,7 @@ export default function Editor() {
     const side = resizeAt(p);
     if (side) {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms), plot = lonePlot(doc, atoms, items);
-      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc, ...(plot ? { plot: plot.id } : {}) });
+      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), text: textAlone(), working: doc, ...(plot ? { plot: plot.id } : {}) });
     }
     // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
     editPress.current = editCurve ? pickedCurve()?.id : undefined;
@@ -5793,9 +5797,9 @@ export default function Editor() {
       }
       case "resize": {
         // ⌘ turns the soft stops off, as it turns snapping off while moving. Control turns Labels and lines over for
-        // this drag, as ChemDraw's Ctrl does on its handles. A moved centre mark is the point it scales about.
+        // this drag, as ChemDraw's Ctrl does on its handles, except for text alone (text), which always sizes. A moved centre mark is the point it scales about.
         const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey, about: pivot }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
-        const lines = drag.labels !== e.ctrlKey;
+        const lines = drag.text || drag.labels !== e.ctrlKey;
         if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1] && lines === drag.lines) return;
         // A page spectrum alone: its plot grows by what its frame grows, and its text keeps its size (pageplot.ts).
         if (drag.plot !== undefined) {

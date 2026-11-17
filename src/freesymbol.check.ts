@@ -247,7 +247,10 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
 // Labels and lines off and with Ctrl held too.
 {
   const editor = (await import("node:fs")).readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /const textAlone = \(\) => !selection\.size && picked\.size > 0 && \[\.\.\.picked\]\.every\(\(id\) => doc\.captions\?\.some\(\(c\) => c\.id === id\) \|\| doc\.shapes\?\.some\(\(sh\) => sh\.id === id && sh\.kind === "symbol"\)\)/);
+  assert.match(editor, /const \{ atoms, items \} = chosen\(\);\n    return !atoms\.size && \[\.\.\.items\]\.every\(\(id\) => doc\.captions\?\.some\(\(c\) => c\.id === id\) \|\| doc\.shapes\?\.some\(\(sh\) => sh\.id === id && sh\.kind === "symbol"\)\)/, "text alone is judged with its groups");
+  // Control does not stop text alone from sizing: there is nothing else for it to keep.
+  assert.match(editor, /const lines = drag\.text \|\| drag\.labels !== e\.ctrlKey;/);
+  assert.match(editor, /lines: scalesText\(\), text: textAlone\(\),/);
   assert.match(editor, /const scalesText = \(\) => settings\.scaleLabels \|\| textAlone\(\);/);
   assert.match(editor, /corners: !grown && textAlone\(\)/);
 }
