@@ -1423,6 +1423,11 @@ fn main() {
                 // An object in a file (--object, objects.rs), once its window can have a menu bar.
                 objects::open_file(handle, file, host, program);
             }
+            // The Mac: pictures from LibreOffice that came while Octet started open now (objects::opened).
+            #[cfg(target_os = "macos")]
+            if !headless {
+                objects::ready(handle);
+            }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
             // window with unsaved changes (quit.rs).

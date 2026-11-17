@@ -408,18 +408,36 @@ fn uid() -> u32 {
 }
 
 // Files opened from Finder or by `open` (RunEvent::Opened): each picture LibreOffice's extension marked opens as an
-// object; the others are given back, for open::offer.
+// object; the others are given back, for open::offer. A picture that started Octet can come before Octet's setup
+// (AppKit sends it while it launches): it waits for `ready`, as an --object start waits on Linux and Windows. Both run
+// on the main thread.
 #[cfg(target_os = "macos")]
 pub fn opened(app: &AppHandle, paths: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
     paths
         .filter_map(|p| match marked(&p) {
             Some((host, program)) => {
-                open_file(app, p, host, program);
+                match EARLY.lock().unwrap().as_mut() {
+                    Some(early) => early.push((p, host, program)),
+                    None => open_file(app, p, host, program),
+                }
                 None
             }
             None => Some(p),
         })
         .collect()
+}
+
+// The objects asked for before setup; None once setup is done.
+#[cfg(target_os = "macos")]
+static EARLY: Mutex<Option<Vec<(PathBuf, String, String)>>> = Mutex::new(Some(Vec::new()));
+
+// Setup is done (the menu bar is there): the objects that came first open now.
+#[cfg(target_os = "macos")]
+pub fn ready(app: &AppHandle) {
+    let early = EARLY.lock().unwrap().take().unwrap_or_default();
+    for (p, host, program) in early {
+        open_file(app, p, host, program);
+    }
 }
 
 // What the user hears when a file does not open. Nothing for a file that is gone: after an update Octet starts again
