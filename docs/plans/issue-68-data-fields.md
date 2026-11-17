@@ -393,7 +393,8 @@ shown, two lines) and one shown field on ethanol:
 Not done. ChemDraw 22.2 (running since 10:29, started by another session) opened no file this run: not Octet's CDXML
 with fields, not its CDX, and not a plain two-atom CDXML. `open -g -a` returned at once and the AppleScript `open`
 timed out, while `name of every document` still answered ("Untitled ACS Document 1996-1"). ChemDraw seems to wait on
-a dialog that only the screen shows. The files are ready to check once ChemDraw opens files again.
+a dialog that only the screen shows. Tried again at 12:28 with the lock: the same. The files are ready to check once
+ChemDraw opens files again (Octet's CDXML and CDX with three fields on aspirin, one shown, and two on ethanol).
 
 ## Open for Sam
 
