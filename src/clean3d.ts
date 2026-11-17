@@ -75,8 +75,12 @@ function typed(m: Mol, ids: number[]) {
   const graph = { atoms: ids.map((g, k) => ({ el: el[k], charge: m.atoms[g].charge ?? 0, h: m.atoms[g].implicitHCount ?? hydrogens(el[k], m.atoms[g].charge ?? 0, used[k]) })), bonds: bonds.map((b) => ({ a: b.a, b: b.b, order: (b.type === 2 || b.type === 3 ? b.type : 1) as 1 | 2 | 3 })) };
   const aromatic = aromaticAtoms(graph), cycles = rings(graph).filter((r) => r.length <= 8); // not a ring of rings
   for (const b of bonds) if (b.type === AROMATIC) aromatic[b.a] = aromatic[b.b] = true; // rings drawn with delocalised bonds
+  // Each atom's own bonds, in the bonds' order (a list each, so a large structure's measurement costs its size, not its
+  // size squared).
+  const own: (typeof bonds)[] = ids.map(() => []);
+  for (const b of bonds) { own[b.a].push(b); if (b.b !== b.a) own[b.b].push(b); }
   const hyb = ids.map((_, k) => {
-    const mine = bonds.filter((b) => b.a === k || b.b === k);
+    const mine = own[k];
     if (!aromatic[k] && !"C N O B".split(" ").includes(el[k])) return 3;
     if (mine.some((b) => b.type === 3) || mine.filter((b) => b.type === 2).length > 1) return 1;
     if (mine.some((b) => b.type === 2 || b.type === AROMATIC) || aromatic[k] || (el[k] === "B" && mine.length <= 3)) return 2;

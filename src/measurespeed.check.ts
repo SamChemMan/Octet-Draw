@@ -12,7 +12,7 @@ g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { parseStructure, ready } = await import("./chem.ts");
-const { EMPTY, insertMol, moveAtoms } = await import("./edit.ts");
+const { EMPTY, addMeasure, insertMol, moveAtoms } = await import("./edit.ts");
 const { measureInk, settleMeasures } = await import("./measurement.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -74,4 +74,24 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   const [withM, without] = interleaved(frame(measured, 52, 0.3), frame(peptide, 52, 0.3));
   console.log(`measurespeed.check: 4000-atom peptide, 10 dihedrals: a drag frame ${withM.toFixed(3)} ms, without measurements ${without.toFixed(3)} ms`);
   assert.ok(withM - without <= 2, `a frame costs ${(withM - without).toFixed(2)} ms more with 10 dihedrals (budget 2 ms)`);
+}
+
+// S7: a flat 4000-atom peptide: Measure is not cleaned up in 3D (over 500 atoms, as 3D Clean Up), says so, and takes
+// the value from the flat drawing, in well under 100 ms.
+{
+  const atoms: Mol["atoms"] = [], bonds: Mol["bonds"] = [];
+  const add = (label: string, x: number, y: number) => atoms.push({ label, location: [x, y, 0] }) - 1;
+  let prev = -1;
+  for (let r = 0; r < 800; r++) {
+    const x = r * 2.6, nAt = add("N", x, 0), ca = add("C", x + 0.87, 0.5), cb = add("C", x + 0.87, 1.5), c = add("C", x + 1.73, 0), o = add("O", x + 1.73, -1);
+    if (prev >= 0) bonds.push({ type: 1, atoms: [prev, nAt] });
+    bonds.push({ type: 1, atoms: [nAt, ca] }, { type: 1, atoms: [ca, cb] }, { type: 1, atoms: [ca, c] }, { type: 2, atoms: [c, o] });
+    prev = c;
+  }
+  const flat: Mol = { atoms, bonds };
+  const t = performance.now(), r = addMeasure(flat, [0, 1, 3, 5]), ms = performance.now() - t;
+  assert.ok(typeof r !== "string" && r.tooBig && !r.cleaned.length, "too big to clean up: measured flat");
+  assert.ok(typeof r !== "string" && r.mol.atoms === flat.atoms, "the drawing's atoms are as they were");
+  console.log(`measurespeed.check: Measure on a flat 4000-atom peptide: ${ms.toFixed(1)} ms`);
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
 }
