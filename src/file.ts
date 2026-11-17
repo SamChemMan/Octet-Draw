@@ -25,8 +25,10 @@ const HEADS: Head[] = ["none", "full", "left", "right"];
 // wedge or hash). At most 256 atoms and 512 bonds, as a ChemDraw file's.
 const innerOut = (m: Mol) => ({ atoms: m.atoms.map((x) => ({ label: x.label, x: round(x.location[0]), y: round(x.location[1]), ...(x.charge ? { charge: x.charge } : {}) })),
   bonds: m.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}) })) });
+// A finite number of sensible size, and a whole number from lo to hi.
+const num = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1e6;
+const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
 function innerIn(v: unknown): Mol | undefined {
-  const num = (x: unknown) => typeof x === "number" && Number.isFinite(x) && Math.abs(x) < 1e6, int = (x: unknown, lo: number, hi: number) => Number.isInteger(x) && (x as number) >= lo && (x as number) <= hi;
   const o = v as { atoms?: unknown; bonds?: unknown } | undefined;
   if (!o || !Array.isArray(o.atoms) || !Array.isArray(o.bonds) || !o.atoms.length || o.atoms.length > 256 || o.bonds.length > 512) return undefined;
   const atoms = (o.atoms as Record<string, unknown>[]).map((x) => (typeof x?.label === "string" && /^[A-Z][a-z]{0,2}$/.test(x.label) && num(x.x) && num(x.y) && (x.charge === undefined || int(x.charge, -9, 9))
@@ -157,6 +159,10 @@ function readTable(v: unknown): Table | undefined {
     ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as CellAlign[] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
   };
 }
+// Copies each of these fields of a checked object that is set (not 0, "" or false), in this order.
+function copySet(to: object, from: Record<string, unknown>, keys: string[]) {
+  for (const k of keys) if (from[k]) (to as Record<string, unknown>)[k] = from[k];
+}
 // Throws an Error with a message for the user if the file is not a drawing this version can read.
 export function parse(text: string): Mol {
   let data: unknown;
@@ -166,11 +172,9 @@ export function parse(text: string): Mol {
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
   if (!Array.isArray(atoms) || !Array.isArray(bonds) || atoms.length > MAX_ATOMS || bonds.length > MAX_ATOMS * 4) throw new Error("This drawing is damaged.");
-  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1e6;
   const badColour = (v: unknown) => v !== undefined && !(typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
   // A line width, in points: 0.05 to 20, at document scales from 10% to 1000% (decision 0007).
   const badWidth = (v: unknown) => v !== undefined && !(typeof v === "number" && v >= 0.005 && v <= 200);
-  const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
   const out: Mol = { atoms: [], bonds: [] };
   const legacy = new Map<number, string>(); // older files: a fill on each atom of a ring
   for (const a of atoms as Record<string, unknown>[]) {
@@ -186,28 +190,14 @@ export function parse(text: string): Mol {
     // depth: false (older files: a 3D structure drawn flat) is how such a structure is drawn now.
     // opacity: an opacity set by hand (the atom's shade), written beside shade: true so that older Octets still read it.
     if (a.shade) atom.shade = (a.opacity as number | undefined) ?? true;
-    if (a.charge) atom.charge = a.charge as number;
-    if (a.text) atom.text = a.text as string;
+    copySet(atom, a, ["charge", "text"]);
     if (a.runs) atom.runs = readRuns(a.runs, a.text as string);
-    if (a.radical) atom.radical = a.radical as number;
-    if (a.isotope) atom.isotope = a.isotope as number;
-    if (a.pairs) atom.pairs = a.pairs as number;
-    if (a.circled) atom.circled = true;
-    if (a.partial) atom.partial = a.partial as "+" | "-";
-    if (a.hmark) atom.hmark = a.hmark as "dot" | "dash";
+    copySet(atom, a, ["radical", "isotope", "pairs", "circled", "partial", "hmark"]);
     if (a.attach) atom.attach = a.attach === "diamond" || a.attach === "star" ? a.attach : true;
-    if (a.bead) atom.bead = true;
-    if (a.map) atom.map = a.map as number;
-    if (a.enhanced) atom.enhanced = a.enhanced as string;
-    if (a.colour) atom.colour = a.colour as string;
-    if (a.cip) atom.cip = true;
-    if (a.halo) atom.halo = a.halo as string;
+    copySet(atom, a, ["bead", "map", "enhanced", "colour", "cip", "halo", "circle", "shown"]);
     if (a.fill) legacy.set(out.atoms.length, a.fill as string);
-    if (a.circle) atom.circle = true;
-    if (a.shown) atom.shown = true;
     if (int(a.implicitHCount, 0, 14)) atom.implicitHCount = a.implicitHCount as number;
-    if (a.number) atom.number = a.number as string;
-    if (a.hiddenNumber) atom.hiddenNumber = a.hiddenNumber as string;
+    copySet(atom, a, ["number", "hiddenNumber"]);
     // Measured multiplets by id: kept when the drawing's spectra have them (below).
     if (Array.isArray(a.peaks) && a.peaks.length <= 64 && a.peaks.every((k) => int(k, 1, 1e9))) atom.peaks = [...new Set(a.peaks as number[])];
     if (a.ignoreWarnings === true) atom.ignoreWarnings = true;
@@ -251,13 +241,7 @@ export function parse(text: string): Mol {
     const bond: Bond = { type: b.type as number, atoms: [ends[0] as number, ends[1] as number] };
     if (b.halo) bond.halo = b.halo as string;
     if (b.spacing !== undefined) bond.spacing = b.spacing as number;
-    if (b.line) bond.line = b.line as number;
-    if (b.bold) bond.bold = b.bold as number;
-    if (b.own) bond.own = b.own as Record<string, string>;
-    if (b.stereo) bond.stereo = b.stereo as number;
-    if (b.display) bond.display = b.display as Display;
-    if (b.position) bond.position = b.position as Bond["position"];
-    if (b.colour) bond.colour = b.colour as string;
+    copySet(bond, b, ["line", "bold", "own", "stereo", "display", "position", "colour"]);
     if (b.ignoreWarnings === true) bond.ignoreWarnings = true;
     if (Array.isArray(b.peaks) && b.peaks.length <= 64 && b.peaks.every((k) => int(k, 1, 1e9))) bond.peaks = [...new Set(b.peaks as number[])];
     // The kept atom each end joins, at a label that keeps its atoms (-1: none).
@@ -361,7 +345,7 @@ export function parse(text: string): Mol {
         ...(readPolymer(x.polymer) && isBracket({ kind: x.kind as ShapeKind }) ? { polymer: readPolymer(x.polymer) } : {}), ...(x.bracketed === true && isBracket({ kind: x.kind as ShapeKind }) ? { bracketed: true as const } : {}), ...(readRgroup(x.rgroup) ? { rgroup: readRgroup(x.rgroup) } : {}), ...scaled(x as { scale?: number }) };
     });
   }
-  if (d.captions !== undefined) readCaptions(d.captions, out, num, int);
+  if (d.captions !== undefined) readCaptions(d.captions, out);
   if (d.grids !== undefined) {
     // Each grid's arrow by its place among the file's arrows; what it holds read by readGrid (stoich.ts).
     const saved = (out.arrows ?? []).slice(0, Array.isArray(d.arrows) ? d.arrows.length : 0);
@@ -411,10 +395,9 @@ function readAnnotations(v: unknown): Annotation[] {
 }
 
 // Captions, checked and read into the drawing (their ids come first, from 1).
-function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int: (v: unknown, lo: number, hi: number) => boolean) {
-  const d = { captions: raw };
-  if (!Array.isArray(d.captions) || d.captions.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
-  out.captions = (d.captions as Record<string, unknown>[]).map((c, k) => {
+function readCaptions(raw: unknown, out: Mol) {
+  if (!Array.isArray(raw) || raw.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
+  out.captions = (raw as Record<string, unknown>[]).map((c, k) => {
     const under = c?.under as unknown[] | undefined, on = c?.on as { arrow?: unknown; side?: unknown } | undefined;
     const cyc = c?.cycle as { cycle?: unknown; step?: unknown; side?: unknown; branch?: unknown; at?: unknown; reach?: unknown; off?: unknown; through?: unknown; meet?: unknown; tail?: unknown } | undefined, placed = c?.placed as { at?: unknown; arrow?: unknown } | undefined;
     const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(num);
@@ -434,13 +417,9 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
       || (c.angle !== undefined && !(num(c.angle) && Math.abs(c.angle as number) <= 360))
       || (c.property !== undefined && !readKept(c.property, [...PROPERTY_ATTRS, ...LIVE_ATTRS], out.atoms.length))) throw new Error("This drawing is damaged.");
     const caption: Caption = { id: k + 1, text: c.text, x: c.x as number, y: c.y as number };
-    if (c.bold) caption.bold = true;
-    if (c.italic) caption.italic = true;
-    if (c.underline) caption.underline = true;
+    copySet(caption, c, ["bold", "italic", "underline"]);
     if (c.size !== undefined) caption.size = c.size as number;
-    if (c.align) caption.align = c.align as Caption["align"];
-    if (c.colour) caption.colour = c.colour as string;
-    if (c.font) caption.font = c.font as string;
+    copySet(caption, c, ["align", "colour", "font"]);
     if (c.runs) caption.runs = readRuns(c.runs, c.text);
     if (c.angle) caption.angle = c.angle as number;
     if (c.property) caption.property = readKept(c.property, [...PROPERTY_ATTRS, ...LIVE_ATTRS], out.atoms.length);
@@ -461,5 +440,4 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
       ...(num(cyc.meet) && (cyc.meet as number) >= 0 && (cyc.meet as number) <= 1 ? { meet: cyc.meet as number } : {}), ...(pair(cyc.tail) && (cyc.tail as number[])[0] >= 0 && (cyc.tail as number[])[0] <= 1 && Math.abs((cyc.tail as number[])[1]) <= 1000 ? { tail: cyc.tail as [number, number] } : {}) } as CycleText;
     return caption;
   });
-  return out;
 }
