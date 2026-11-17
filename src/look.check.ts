@@ -23,6 +23,8 @@ for (const [file, text] of code) {
 const rust = readdirSync(new URL("../src-tauri/src/", src)).filter((f) => f.endsWith(".rs")).map((f) => [f, read(`../src-tauri/src/${f}`)] as const);
 for (const [file, text] of [...code, ...rust]) {
   for (const s of strings(text)) {
+    // The one exception is Sam's own words for a substance with no GHS data in the risk assessment (16 November 2026).
+    if (s === '"Could not find, please go manual!"') continue;
     assert.ok(!/\b(can't|couldn't|won't|doesn't|isn't|don't|didn't|could not)\b/i.test(s), `${file}: contraction or "could not" in ${s}`);
   }
   assert.ok(!/setNotice\(["`]Pick /.test(text), `${file}: a notice says Pick, not Select`);

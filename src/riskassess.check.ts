@@ -152,11 +152,18 @@ assert.equal(withCas(m, { DCM: "75-09-2" }, sheet).captions!.find((c) => c.field
 const dcm: Ghs = { cid: 6344, pictograms: ["GHS07", "GHS08"], signal: "Warning", hazards: ["H315: Causes skin irritation", "H351: Suspected of causing cancer"], precautions: [] };
 m = withHazards(m, { DCM: dcm, ETOH: null }, sheet);
 const r = riskGroup(m)!.risk;
-assert.deepEqual(r.substances.map((x) => [x.pictograms, x.signal, x.codes, x.found]), [[undefined, undefined, undefined, true], [["GHS07", "GHS08"], "Warning", ["H315", "H351"], true]]);
+assert.deepEqual(r.substances.map((x) => [x.pictograms, x.signal, x.codes, x.found]), [[undefined, undefined, undefined, "none"], [["GHS07", "GHS08"], "Warning", ["H315", "H351"], true]]);
+// No GHS data on PubChem is not "Not classified": the row says so and points to the SDS (Sam, 16 November 2026). A
+// classification that says "Not classified" is still said that way, and an older file's found with no codes reads as
+// no data.
+assert.ok(m.captions!.some((c) => c.runs?.some((x) => x.text === "Could not find, please go manual!" && x.bold)), "no data is said in bold, in Sam's words");
+assert.ok(!m.captions!.some((c) => c.text === "Not classified"));
+const nc = riskGroup(withHazards(m, { ETOH: { cid: 702, pictograms: [], hazards: ["Not classified"], precautions: [] } }, sheet))!.risk;
+assert.equal(nc.substances[0].found, "unclassified");
+assert.equal(readRisk({ substances: [{ id: 1, key: "X", name: "x", formula: "C", role: "reactant", found: true }], ticks: [] })?.substances[0].found, "none");
 assert.equal((m.arrows ?? []).filter((a) => a.colour === "#B42323").length, 2, "a diamond for each pictogram");
 assert.ok(isSignificant(r));
 assert.ok(m.captions!.some((c) => c.text.includes("dichloromethane (H351)")), "names the substance that makes it Yes");
-assert.ok(m.captions!.some((c) => c.text === "Not classified"));
 m = toggleRisk(m, "significant", sheet);
 assert.equal(isSignificant(riskGroup(m)!.risk), false, "the user's answer");
 

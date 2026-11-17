@@ -122,6 +122,26 @@ export const COMMON: Record<string, string> = {
   SeO2: "smiles:O=[Se]=O", I2: "smiles:II", Br2: "smiles:BrBr", Cl2: "smiles:ClCl", H2: "smiles:[HH]", O2: "smiles:O=O", N2: "smiles:N#N",
   O3: "smiles:[O-][O+]=O", CO2: "smiles:O=C=O", SO2: "smiles:O=S=O", SO3: "smiles:O=S(=O)=O", CS2: "smiles:S=C=S",
   N2O: "smiles:[N-]=[N+]=O", COCl2: "smiles:O=C(Cl)Cl", BCl3: "smiles:ClB(Cl)Cl", SF6: "smiles:FS(F)(F)(F)(F)F",
+  // More bench reagents by formula, each the same compound as PubChem's for its name (checked 16 November 2026), so
+  // the risk assessment finds its CAS number and hazards: oxidants, salts and buffers.
+  Na2S2O8: "smiles:[Na+].[Na+].[O-]S(=O)(=O)OOS(=O)(=O)[O-]", K2S2O8: "smiles:[K+].[K+].[O-]S(=O)(=O)OOS(=O)(=O)[O-]",
+  "(NH4)2S2O8": "smiles:[NH4+].[NH4+].[O-]S(=O)(=O)OOS(=O)(=O)[O-]", KHSO5: "smiles:[K+].OOS(=O)(=O)[O-]",
+  KHSO4: "smiles:[K+].OS(=O)(=O)[O-]", NaHSO4: "smiles:[Na+].OS(=O)(=O)[O-]", K2HPO4: "smiles:[K+].[K+].OP([O-])([O-])=O",
+  KH2PO4: "smiles:[K+].OP(O)([O-])=O", Na2HPO4: "smiles:[Na+].[Na+].OP([O-])([O-])=O", NaH2PO4: "smiles:[Na+].OP(O)([O-])=O",
+  CsOAc: "smiles:[Cs+].CC([O-])=O", Li2CO3: "smiles:[Li+].[Li+].[O-]C([O-])=O", Rb2CO3: "smiles:[Rb+].[Rb+].[O-]C([O-])=O",
+  Na2SO3: "smiles:[Na+].[Na+].[O-]S([O-])=O", Na2S2O5: "smiles:[Na+].[Na+].[O-]S(=O)S(=O)(=O)[O-]", NH4OH: "smiles:[NH4+].[OH-]",
+  "(NH4)2SO4": "smiles:[NH4+].[NH4+].[O-]S([O-])(=O)=O", NaClO2: "smiles:[Na+].[O-]Cl=O", NaClO4: "smiles:[Na+].[O-]Cl(=O)(=O)=O",
+  LiClO4: "smiles:[Li+].[O-]Cl(=O)(=O)=O", H5IO6: "smiles:OI(O)(O)(O)(O)=O", HIO3: "smiles:OI(=O)=O", KIO3: "smiles:[K+].[O-]I(=O)=O",
+  NaBrO3: "smiles:[Na+].[O-]Br(=O)=O", KBrO3: "smiles:[K+].[O-]Br(=O)=O",
+  Na2Cr2O7: "smiles:[Na+].[Na+].[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-]", K2Cr2O7: "smiles:[K+].[K+].[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-]",
+  RuCl3: "smiles:Cl[Ru](Cl)Cl", RuO4: "smiles:O=[Ru](=O)(=O)=O", Ag2SO4: "smiles:[Ag+].[Ag+].[O-]S([O-])(=O)=O",
+  AgOTf: "smiles:[Ag+].[O-]S(=O)(=O)C(F)(F)F", FeSO4: "smiles:[Fe+2].[O-]S([O-])(=O)=O",
+  "Fe(NO3)3": "smiles:[Fe+3].[O-][N+]([O-])=O.[O-][N+]([O-])=O.[O-][N+]([O-])=O",
+  CAN: "smiles:[NH4+].[NH4+].[Ce+4].[O-][N+]([O-])=O.[O-][N+]([O-])=O.[O-][N+]([O-])=O.[O-][N+]([O-])=O.[O-][N+]([O-])=O.[O-][N+]([O-])=O",
+  "(NH4)2Ce(NO3)6": "=CAN", "Ce(NH4)2(NO3)6": "=CAN", "t-BuOOH": "smiles:CC(C)(C)OO",
+  "NaBH(OAc)3": "=STAB", "9-BBN": "smiles:C1CC2CCCC(C1)B2",
+  // Bare metals (Zn, Mg, Fe, Cu) are not here: Octet gives a lone metal atom its hydrogens (Mg would be MgH2), so the
+  // risk assessment asks PubChem for them by name.
   // Metal catalysts, with the bonds to the metal drawn
   "Pd(PPh3)4": "smiles:[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
   "Pd(OAc)2": "smiles:CC(=O)O[Pd]OC(C)=O", PdCl2: "smiles:Cl[Pd]Cl",

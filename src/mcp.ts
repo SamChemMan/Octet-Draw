@@ -3224,7 +3224,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     const r = rg.risk, lay = riskLayout(m, host.sheet()), gone = new Set(r.removed), typed = new Map((m.captions ?? []).filter((c) => riskItems.has(c.id) && c.field?.startsWith("risk:")).map((c) => [c.field!.slice(5), c.text]));
     const own = [...typed].filter(([k]) => !/^(cas|exp)\d+$/.test(k)), by = significantOf(r);
     return {
-      substances: r.substances.filter((x) => !gone.has(`sub:${x.id}`)).map((x) => ({ key: `sub:${x.id}`, name: x.name, formula: x.formula, role: x.role, cas: typed.get(`cas${x.id}`), exposure: typed.get(`exp${x.id}`), pictograms: x.pictograms, signal: x.signal, codes: x.codes, ...(x.found ? {} : { hazards: "not looked up (run_command risk.hazards)" }) })),
+      substances: r.substances.filter((x) => !gone.has(`sub:${x.id}`)).map((x) => ({ key: `sub:${x.id}`, name: x.name, formula: x.formula, role: x.role, cas: typed.get(`cas${x.id}`), exposure: typed.get(`exp${x.id}`), pictograms: x.pictograms, signal: x.signal, codes: x.codes, ...(!x.found ? { hazards: "not looked up (run_command risk.hazards)" } : x.found === "none" ? { hazards: "no GHS data on PubChem, which does not mean safe: check the supplier's SDS" } : x.found === "unclassified" ? { hazards: "not classified" } : {}) })),
       ticked: TICKS.filter((k) => ticked(r, k)), significant: isSignificant(r), ...(by.length ? { significantBy: by } : {}),
       ...(own.length ? { typed: Object.fromEntries(own) } : {}), places: lay?.slots.map((x) => x.field.slice(5)).filter((k) => !typed.has(k)),
       ...(r.removed?.length ? { removed: r.removed } : {}), ...(r.texts && Object.keys(r.texts).length ? { typedOver: Object.keys(r.texts) } : {}),

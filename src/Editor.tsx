@@ -338,6 +338,15 @@ function calc(s: Structure, g: Graph) {
 }
 // PubChem's CAS number for each InChIKey the Properties panel has asked for, once a session (null: none, or asking).
 const pubchemCas = new Map<string, string | null>();
+// The InChIKey PubChem read from a reagent's text, once a session (undefined: none, or more than one).
+const pubchemNamed = new Map<string, string | undefined>();
+// A reagent's text without the amount or note written after it in brackets: "H2SO4 (1 equiv)", "DMF (cat.)" and
+// "Pd(PPh3)4 (5 mol%)" are read as H2SO4, DMF and Pd(PPh3)4. Its quotes (a reagent table key's) go too.
+export const bareReagent = (s: string) => {
+  let t = s.replace(/^"|"$/g, "").trim();
+  for (let was = ""; was !== t; ) { was = t; t = t.replace(/\s+\((?:[^()]*\d[^()]*|cat\.?|catalyst|excess|xs)\)$/i, "").trim(); }
+  return t.slice(0, 300);
+};
 // A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
 // of colour or fill, and undo find them again at once. Kept by the bonds themselves too (which atoms each joins), so a
 // command that makes a new bond list with the same bonds (Rotate 180°, Flip) finds them at once: for 885 atoms that
@@ -6560,7 +6569,7 @@ export default function Editor() {
   tableSpans.current = gridViews.map(tableSpan);
   // An experiment page's risk assessment (riskassess.ts). Its substances: every compound in the page's reagent tables.
   const smilesKey = (smiles?: string) => { try { return smiles ? toInchiKey(parseStructure(smiles, false)) || undefined : undefined; } catch { return undefined; } };
-  const riskSubstances = () => substancesOf(gridViews, (atoms) => nameFor(atoms), (c) => (c.atoms ? drawnInchiKey(subset(chem.mol, new Set(c.atoms))) : smilesKey(readName(c.what.replace(/^"|"$/g, "")))));
+  const riskSubstances = () => substancesOf(gridViews, (atoms) => nameFor(atoms), (c) => (c.atoms ? drawnInchiKey(subset(chem.mol, new Set(c.atoms))) : smilesKey(readName(bareReagent(c.what)))));
   // The CAS numbers Octet has offline (its list and the user's dictionary), by substance key.
   const offlineCas = (list: { key: string; inchi?: string }[]) => Object.fromEntries(list.flatMap((x) => { const c = x.inchi && dictionaryCas(x.inchi); return c ? [[x.key, c]] : []; }));
   // Add risk assessment: on the page under the experiment (under anything drawn lower), with the substances and the
@@ -6583,6 +6592,7 @@ export default function Editor() {
     set(withRiskCas(withSubstances(doc, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s), true);
     if (TAURI && settings.onlineSearch) void riskOnline(false, list);
   }
+  const riskAsked = useRef(new Set<string>());
   // A risk assessment fills itself (Sam, 13 November 2026): a moment after an edit changes the page's reagent tables,
   // its substances follow them, as Update substances does, in the edit's own undo step; with Online search on, Octet
   // finds the CAS numbers and hazards of the new ones. A drawing opened is left as it is. Never during a drag or typing.
@@ -6592,13 +6602,18 @@ export default function Editor() {
     const t = setTimeout(() => {
       const m = now.current, g = riskGroup(m);
       if (!g || m !== lastSet.current) return;
-      const list = riskSubstances(), s = sheetOf(style), had = new Set(g.risk.substances.map((x) => x.key));
+      const list = riskSubstances(), s = sheetOf(style), had = new Map(g.risk.substances.map((x) => [x.key, x]));
       const same = list.length === g.risk.substances.length && list.every((x, k) => { const o = g.risk.substances[k]; return o.key === x.key && o.name === x.name && o.formula === x.formula && o.role === x.role; });
-      if (same) return;
-      const next = withRiskCas(withSubstances(m, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s), fresh = list.filter((x) => !had.has(x.key));
-      lastSet.current = next;
-      dispatch({ type: "amend", mol: next });
-      if (TAURI && settings.onlineSearch && fresh.length) void riskOnline(true, fresh, true);
+      // Online, every substance not yet looked up is looked up: a new one, and one that was not (Online search was
+      // off, or nothing read it then). Each once a session for what it is read as now (riskAsked).
+      const want = TAURI && settings.onlineSearch ? list.filter((x) => !had.get(x.key)?.found && !riskAsked.current.has(`${x.key} ${x.inchi ?? ""}`)) : [];
+      want.forEach((x) => riskAsked.current.add(`${x.key} ${x.inchi ?? ""}`));
+      if (!same) {
+        const next = withRiskCas(withSubstances(m, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s);
+        lastSet.current = next;
+        dispatch({ type: "amend", mol: next });
+      }
+      if (want.length) void riskOnline(true, want, true);
     }, 300);
     return () => clearTimeout(t);
   }, [gridViews, namesLoaded, drag, writing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -6611,7 +6626,11 @@ export default function Editor() {
     const cas: Record<string, string> = {}, found: Record<string, Ghs | null> = {};
     let failed = 0;
     for (const x of list) {
-      const key = x.inchi;
+      // A reagent written as text that nothing offline reads (Na2S2O8 before 16 November 2026, a trade name) is read
+      // by PubChem from its text, as Name to Structure's online step does: then its CAS and hazards are found too.
+      const text = bareReagent(x.name);
+      if (!x.inchi && !x.key.startsWith("p:") && text && !pubchemNamed.has(text)) await invoke<string | null>("pubchem_key", { text }).then((key) => void pubchemNamed.set(text, key ?? undefined), () => void pubchemNamed.set(text, undefined));
+      const key = x.inchi ?? (text ? pubchemNamed.get(text) : undefined);
       if (!key) continue;
       if (!dictionaryCas(key)) {
         if (!pubchemCas.has(key)) await invoke<string | null>("pubchem_cas", { key }).then((c) => void pubchemCas.set(key, c), () => { failed++; });

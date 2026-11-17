@@ -394,7 +394,12 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.match(editor, /setNotice\("Octet adds a risk assessment on page 2\. To remove it, select it and choose Remove risk assessment\.", "info", \{ label: "Open Settings", run: \(\) => setSettingsOpen\("document"\) \}\);\n\s+setSettings\(\(s\) => \(\{ \.\.\.s, riskNoted: true \}\)\);/);
   assert.match(editor, /if \(!expPage \|\| home \|\| settings\.experimentNoted \|\| notice \|\| riskFirst\) return;/);
   assert.ok(editor.indexOf("const riskFirst") < editor.indexOf("settings.experimentNoted || notice"), "the risk notice first");
-  assert.match(editor, /const next = withRiskCas\(withSubstances\(m, list\.map\(\(\{ inchi: _, \.\.\.x \}\) => x\), s\), offlineCas\(list\), s\), fresh = list\.filter\(\(x\) => !had\.has\(x\.key\)\);\n\s+lastSet\.current = next;\n\s+dispatch\(\{ type: "amend", mol: next \}\);\n\s+if \(TAURI && settings\.onlineSearch && fresh\.length\) void riskOnline\(true, fresh, true\);/);
+  // The edit's own undo step; online, every substance not yet looked up is looked up, once a session for what it is
+  // read as (Sam, 16 November 2026: Na2S2O8 was never looked up).
+  assert.match(editor, /const next = withRiskCas\(withSubstances\(m, list\.map\(\(\{ inchi: _, \.\.\.x \}\) => x\), s\), offlineCas\(list\), s\);\n\s+lastSet\.current = next;\n\s+dispatch\(\{ type: "amend", mol: next \}\);/);
+  assert.match(editor, /const want = TAURI && settings\.onlineSearch \? list\.filter\(\(x\) => !had\.get\(x\.key\)\?\.found && !riskAsked\.current\.has\(`\$\{x\.key\} \$\{x\.inchi \?\? ""\}`\)\) : \[\];/);
+  assert.match(editor, /if \(want\.length\) void riskOnline\(true, want, true\);/);
+  assert.match(editor, /invoke<string \| null>\("pubchem_key", \{ text \}\)/, "a reagent nothing offline reads is read by PubChem, as a key");
   assert.match(editor, /const part = !shift && selectKind !== "perspective" && riskLay && its\.some\(\(x\) => riskItems\.has\(x\)\) \? partAt\(riskLay, p\) : undefined;/);
   assert.match(editor, /if \(id === "edit\.delete"\) \{\n\s+if \(riskDelete\(\)\) return;/);
   assert.match(editor, /if \(command === "delete" && riskDelete\(\)\) return;/);
