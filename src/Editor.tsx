@@ -6140,7 +6140,8 @@ export default function Editor() {
         const mol = deleteChosen(doc, new Set([atom]), new Set(), undefined, drawnAt, drawnAlign), back = neighbours(doc, atom).map((j) => atomAt(mol, pos(doc, j), 1e-6)).find((j) => j !== undefined);
         return keyEdit(mol, back === undefined ? undefined : { atom: back }, { atom });
       }
-      // A double (or triple) bond under the pointer loses a line; a single bond goes.
+      // A double (or triple) bond under the pointer loses a line; a single bond goes. A bond in an integral group goes
+      // with the whole group (removeAt), as the hover mark shows.
       const lower = atom === undefined && bond !== undefined ? lowerBond(doc, bond) : undefined;
       if (lower) return set(lower);
       // Any other object under the pointer goes too (ChemDraw deletes a hovered arrow), with its integral group.
@@ -8944,9 +8945,13 @@ export default function Editor() {
       case "ring":
         return drag.to ? set(ringDrop(drag), false, undefined, !chairFree(drag) && "placed") : click(drag.target, drag.at, drag.alt, { meta: drag.meta, shift: drag.shift });
       case "erase": {
-        // A click removes the atom, bond or object under the pointer; a rub removes everything it marked.
+        // A click removes the atom, bond or object under the pointer; a rub removes everything it marked. As in
+        // ChemDraw, a click on a double or triple bond takes one line off (lowerBond), as Delete does. In an integral
+        // group the click removes the whole group.
         const t = drag.target;
         if (drag.moved) return set(deleteChosen(doc, drag.atoms, drag.captions, drag.bonds, drawnAt, drawnAlign));
+        const lower = t.atom === undefined && t.bond !== undefined ? lowerBond(doc, t.bond) : undefined;
+        if (lower) return set(lower);
         return removeAt(t);
       }
       case "box":

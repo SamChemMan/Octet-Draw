@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, bandRf, bandSize, GEL, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
+import { AROMATIC, bandRf, bandSize, circledRings, GEL, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -557,11 +557,19 @@ export const cycleBond = (m: Mol, i: number) => {
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
 // Delete or Backspace over a bond of more than one line (Sam, 31 October 2026): one line fewer, so a double becomes a
 // single and a triple a double. An aromatic or delocalised bond becomes a single. Undefined for a single bond (or a
-// hydrogen bond), which Delete takes away.
+// hydrogen bond), which Delete takes away. The Eraser's click does the same, as ChemDraw's does. A double bond in a
+// ring drawn with an aromatic circle shows as one line, so it is a single bond here too, and goes. A bond in an integral
+// group gives undefined too: the whole group goes, as the hover mark shows.
 export function lowerBond(m: Mol, i: number): Mol | undefined {
   const t = m.bonds[i].type, to = t === QUADRUPLE ? 3 : t === 2 || t === 3 ? t - 1 : t === AROMATIC ? 1 : undefined;
-  return to === undefined ? undefined : respec(m, i, { type: to });
+  if (to === undefined || (t === 2 && inCircle(m, i)) || groupsOf(m, new Set(m.bonds[i].atoms), new Set()).some((g) => g.integral)) return undefined;
+  return respec(m, i, { type: to });
 }
+// Whether bond i is a side of a ring drawn with an aromatic circle (circledRings).
+const inCircle = (m: Mol, i: number) => {
+  const [x, y] = m.bonds[i].atoms;
+  return !!m.atoms[x].circle && circledRings(m).some((r) => r.some((a, k) => (a === x && r[(k + 1) % r.length] === y) || (a === y && r[(k + 1) % r.length] === x)));
+};
 // No bond becomes a hydrogen bond, as in ChemDraw: the hydrogen bond tool only joins two atoms.
 export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => (spec.type === HBOND && m.bonds[i].type !== HBOND ? m : respec(m, i, spec));
 // A double bond's second line on one side, centred, or (unset) placed automatically.
