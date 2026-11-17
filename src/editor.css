@@ -989,10 +989,6 @@ button.variant.add {
   }
 }
 
-.tool:active:not(:disabled) {
-  transform: scale(var(--press));
-}
-
 .tool[aria-pressed="true"] {
   color: var(--link);
 }
@@ -1784,9 +1780,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.name-options button:active {
-  transform: scale(var(--press));
-}
 .name-suggestion.lower {
   top: calc(var(--space-4) + 118px);
 }
@@ -1973,9 +1966,6 @@ button.variant.add {
   .tray-button.delete:hover {
     color: var(--error);
   }
-}
-.tray-button:active {
-  transform: scale(var(--press));
 }
 /* Arranging the Actions panel: any action can be dragged along the rows, along the small buttons, or between them. */
 .action-slot {
@@ -2235,8 +2225,7 @@ button.variant.add {
 .library-item:active {
   transform: scale(var(--press-large));
 }
-.chip:active,
-.actions-reopen:active {
+.chip:active {
   transform: scale(var(--press));
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2376,9 +2365,6 @@ div.facts {
   .problem-buttons button:hover {
     background: var(--surface-sunken);
   }
-}
-.problem-buttons button:active {
-  transform: scale(var(--press));
 }
 .more-problems {
   align-self: flex-start;
@@ -2826,9 +2812,6 @@ div.facts {
   outline: none;
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
-}
-.page-button:active {
-  transform: scale(var(--press));
 }
 .page-thumb {
   display: inline-block;
@@ -3302,9 +3285,6 @@ div.facts {
     color: var(--ink);
     background: var(--surface-sunken);
   }
-}
-.actions-home:active {
-  transform: scale(var(--press));
 }
 .page-menu .grip {
   right: 3px;
@@ -4484,9 +4464,6 @@ div.facts {
     background: var(--surface-sunken);
   }
 }
-.palette-add:active {
-  transform: scale(var(--press));
-}
 
 /* Octet's slider: name, track and value on one row. The track fills in brand blue up to the thumb. */
 .sliders {
@@ -4671,9 +4648,6 @@ div.facts {
     border-color: var(--brand-hover);
     background: var(--brand-hover);
   }
-}
-.dialog-button:active:not(:disabled) {
-  transform: scale(var(--press));
 }
 /* Reduced motion: a dialog, and the bin on a shortcut pulled off the toolbar, fade in without moving. After their
    own rules, so these win. */
@@ -5538,9 +5512,6 @@ div.facts {
     background: var(--brand-hover);
   }
 }
-.export-button:active:not(:disabled) {
-  transform: scale(var(--press));
-}
 .strip.export-menu {
   top: calc(100% + 6px);
   right: 0;
@@ -5642,9 +5613,6 @@ div.facts {
   max-width: 80px;
   margin-left: var(--space-1);
   opacity: 1;
-}
-.feedback-link:active {
-  transform: scale(var(--press));
 }
 @media (prefers-reduced-motion: reduce) {
   .feedback-link,
@@ -5893,9 +5861,6 @@ div.facts {
   margin-left: var(--space-1);
   color: var(--ink-faint);
   font: 11px var(--font-sans);
-}
-.home-open:active {
-  transform: scale(var(--press));
 }
 .home-grid {
   display: grid;
@@ -6335,9 +6300,6 @@ div.facts {
     color: var(--ink);
   }
 }
-.home-act:active {
-  transform: scale(var(--press));
-}
 /* A drawing on its way into a folder: a copy of its picture, over everything, that flies to the folder (Home.tsx). */
 .home-fly {
   position: fixed;
@@ -6519,10 +6481,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.home-back:active,
-.home-more:active {
-  transform: scale(var(--press));
 }
 .home-title-row {
   display: flex;
@@ -7464,9 +7422,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.pill-open:active {
-  transform: scale(var(--press));
 }
 
 /* An experiment page's details (Editor.tsx): a box at each one's place, on screen only, and the empty title's name. */
