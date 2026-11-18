@@ -1,11 +1,8 @@
 // The library's Biomolecules and Cells sets: membranes, proteins, nucleic acids, organelles, cells and microbes, in
 // the Lab group's line style (art.mjs path data, 40 units to a bond length, y down). Every drawing here is Octet's own,
 // worked out from simple geometry.
-import { art, circle, ellipse, fill, fine, ink, membrane, rect, seg, solid } from "./art.mjs";
+import { art, circle, deg, ellipse, f, fill, fine, ink, membrane, PER, rect, seg, solid } from "./art.mjs";
 
-const PER = { per: 40 };
-const f = (v) => Math.round(v * 100) / 100;
-const deg = Math.PI / 180;
 // A point at angle a (degrees) and radius r about (cx, cy).
 const polar = (cx, cy, r, a) => [f(cx + r * Math.cos(a * deg)), f(cy + r * Math.sin(a * deg))];
 

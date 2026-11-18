@@ -10,7 +10,7 @@ import { clean2d } from "./clean2d.ts";
 import { chainLayout } from "./chain.ts";
 import { labelRows } from "./sequence.ts";
 import { kekulise } from "./rings.ts";
-import { counts } from "./mass.ts";
+import { counts as formulaCounts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
 import { isQueryMolfile, readV3000, RXCTR, writeV3000 } from "./molv3.ts";
 import { isCif, readCif } from "./cif.ts";
@@ -199,28 +199,17 @@ export const chiralFlagOnly = (text: string) => /V2000|V3000/.test(text) && !/MD
 export function importStructure(text: string): Mol {
   if (isCif(text)) return readCif(text);
   if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
-  const ind = engine(), opts = new ind.MapStringString();
-  try {
-    opts.set("output-content-type", "application/json");
-    opts.set("dearomatize-on-load", "true");
-    const hasDrawing = /V2000|V3000|<CDXML|"root"|<cml[\s>]/i.test(text);
-    if (!hasDrawing) return parseStructure(text);
-    if (/^\s*\$RDFILE/.test(text)) return readRdf(text);
-    // A query or Markush molfile: read by Octet, so its query data is kept (molv3.ts). A V2000 one (R-groups, atom
-    // lists, substitution counts, S-groups) is made V3000 by Indigo first.
-    const reaction = /^\s*\$RXN/.test(text);
-    const v2000 = !reaction && /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
-    const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
-    if (!reaction && isQueryMolfile(v3000)) {
-      const mol = readV3000(v3000);
-      const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
-      const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), at = (q: [number, number]): [number, number] => [q[0] * k, q[1] * k];
-      return { ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })), ...(mol.shapes ? { shapes: mol.shapes.map((sh) => ({ ...sh, from: at(sh.from), to: at(sh.to) })) } : {}) };
-    }
-    return scaled(fromKet(JSON.parse(JSON.parse(ind.convert(text, "ket", opts)).struct), /^\$\$\$\$/m.test(text)));
-  } finally {
-    opts.delete();
-  }
+  engine(); // throws while Indigo is not loaded, however the text is read
+  const hasDrawing = /V2000|V3000|<CDXML|"root"|<cml[\s>]/i.test(text);
+  if (!hasDrawing) return parseStructure(text);
+  if (/^\s*\$RDFILE/.test(text)) return readRdf(text);
+  // A query or Markush molfile: read by Octet, so its query data is kept (molv3.ts). A V2000 one (R-groups, atom
+  // lists, substitution counts, S-groups) is made V3000 by Indigo first.
+  const reaction = /^\s*\$RXN/.test(text);
+  const v2000 = !reaction && /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
+  const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
+  if (!reaction && isQueryMolfile(v3000)) return scaled(readV3000(v3000));
+  return scaled(fromKet(JSON.parse(JSON.parse(convert(text, "ket", { "output-content-type": "application/json", "dearomatize-on-load": "true" })).struct), /^\$\$\$\$/m.test(text)));
 }
 // A drawing with its median bond one bond length long.
 function scaled(mol: Mol): Mol {
@@ -229,6 +218,7 @@ function scaled(mol: Mol): Mol {
   return {
     ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })),
     ...(mol.arrows ? { arrows: mol.arrows.map((a) => ({ ...a, from: at(a.from), to: at(a.to) })) } : {}),
+    ...(mol.shapes ? { shapes: mol.shapes.map((sh) => ({ ...sh, from: at(sh.from), to: at(sh.to) })) } : {}),
     // A plus sign's point is its middle; its caption's point is its baseline, a quarter of a bond length lower.
     ...(mol.captions ? { captions: mol.captions.map((c) => ({ ...c, x: c.x * k, y: c.y * k - 0.25 })) } : {}),
   };
@@ -1129,7 +1119,6 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
   // wedges and hashes, which draw it in perspective, set no stereocentre. A variable attachment's substituent is
   // joined to the first of its atoms: every positional isomer has the same formula.
   const used = centres ? mol.atoms.map(() => 0) : [];
-  let dropped = false;
   if (centres) for (const b of mol.bonds) for (const k of b.atoms) if (!mol.atoms[b.atoms[0]].centre && !mol.atoms[b.atoms[1]].centre) used[k] += orderOf(b.type);
   mol.atoms.forEach((a, i) => {
     if (!a.centre) return;
@@ -1155,7 +1144,6 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
     }
     out.bonds = out.bonds.flatMap((b) => (!b.atoms.includes(i) ? [b] : to === undefined ? [] : [{ ...b, atoms: b.atoms.map((k) => (k === i ? to : k)) as [number, number] }]));
     out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, centre: undefined, removed: true } as Mol["atoms"][number];
-    dropped = true;
   });
   // Labels whose bonds say which of their kept atoms each one joins (a residue label): their kept atoms are the group.
   const ported = new Set<number>();
@@ -1163,7 +1151,7 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
   for (const b of mol.bonds) if (b.ports) for (let e = 0; e < 2; e++) { const k = b.atoms[e]; if (b.ports[e] >= 0 && mol.atoms[k]?.inner?.atoms.length) ported.add(k); }
   mol.atoms.forEach((a, i) => {
     // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
-    if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; dropped = true; return; }
+    if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; return; }
     // An attachment point (wavy, diamond or star) or a polymer bead is not an atom either, but its bond takes up its
     // neighbour's valence: it is a pseudo-atom ("*"), which counts in no formula, mass or analysis.
     if (a.attach || a.bead) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, isotope: undefined, charge: undefined }; return; }
@@ -1204,16 +1192,9 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
     const ox = writtenOxidation(text);
     if (ox && frag.atoms.length === 1) out.atoms[base] = { ...out.atoms[base], ox: ox.ox };
     out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, removed: true } as Mol["atoms"][number];
-    dropped = true;
   });
   // Drop the label atoms that were replaced, renumbering bonds (and a kept stereo configuration's neighbours: a label's
   // is its group's first atom).
-  // Nothing dropped (no label, multi-centre point or attachment): the numbers stay as they are (a bond to no atom
-  // still goes).
-  if (!dropped) {
-    const count = out.atoms.length, at = (j: number) => (j >>> 0 === j && j < count ? j : undefined);
-    return { mol: { atoms: out.atoms.map((a) => (a.kept ? renumberCentre(a, at) : a)), bonds: out.bonds.filter((b) => at(b.atoms[0]) !== undefined && at(b.atoms[1]) !== undefined).map((b) => ({ ...b, atoms: [b.atoms[0], b.atoms[1]] as [number, number] })) }, from: origin };
-  }
   const keep = out.atoms.map((a) => !(a as { removed?: boolean }).removed), map: number[] = [];
   let next = 0;
   out.atoms.forEach((_, k) => { if (keep[k]) map[k] = next++; });
@@ -1294,7 +1275,7 @@ const drawnKeys = new Map<string, string | undefined>();
 export function drawnInchiKey(part: Mol): string | undefined {
   const o = part.atoms[0]?.location ?? [];
   const shape = JSON.stringify([part.atoms, part.bonds], (k, v) => (k === "location" ? v.map((c: number, i: number) => Math.round((c - (o[i] ?? 0)) * 1000)) : v));
-  return remembered(drawnKeys, shape, () => { try { return toInchiKey(part) || undefined; } catch { return undefined; } });
+  return remembered(drawnKeys, shape, () => quiet(() => toInchiKey(part)));
 }
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
 // so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go
@@ -1432,23 +1413,15 @@ function labelsOf(part: Mol): Labels | null {
 // A text's InChI is kept: parseStructure asks for it more than once.
 const textInchis = new Map<string, string>();
 export function toInchi(drawn: Mol | string): string | undefined {
-  try {
-    // An aromatic SMILES is made Kekulé as indigoLayout makes it (in a second, not a millisecond, for a fullerene).
-    if (typeof drawn === "string") return lastUsed(textInchis, 8, drawn, () => convert(drawn, "inchi", { "dearomatize-on-load": "true", "dearomatize-verification": "false" })) || undefined;
-    // InChI takes at most 1,023 atoms: Indigo is not asked for a larger one, as the call would only fail (watched).
-    return drawn.atoms.length > 1023 ? undefined : convert(ketOf(drawn), "inchi") || undefined;
-  } catch {
-    return undefined;
-  }
+  // An aromatic SMILES is made Kekulé as indigoLayout makes it (in a second, not a millisecond, for a fullerene).
+  if (typeof drawn === "string") return quiet(() => lastUsed(textInchis, 8, drawn, () => convert(drawn, "inchi", { "dearomatize-on-load": "true", "dearomatize-verification": "false" })));
+  // InChI takes at most 1,023 atoms: Indigo is not asked for a larger one, as the call would only fail (watched).
+  return drawn.atoms.length > 1023 ? undefined : quiet(() => convert(ketOf(drawn), "inchi"));
 }
 // Standard InChI and, on the next line, its AuxInfo (/N: InChI's atoms by the drawing's), for complexes.ts.
-export function toInchiAux(drawn: Mol): string | undefined {
-  try {
-    return convert(ketOf(drawn), "inchi-aux") || undefined;
-  } catch {
-    return undefined;
-  }
-}
+export function toInchiAux(drawn: Mol) { return quiet(() => convert(ketOf(drawn), "inchi-aux")); }
+// What f gives, or undefined when it is empty or throws.
+const quiet = <T>(f: () => T): T | undefined => { try { return f() || undefined; } catch { return undefined; } };
 
 // A bond's type for a layout: a hydrogen or quadruple bond as a single bond, as Indigo has no type for them.
 const shapeType = (type: number) => (type === HBOND || type === QUADRUPLE ? 1 : Math.min(type, 3));
@@ -1774,14 +1747,9 @@ export function mapReaction(reactants: Mol[], products: Mol[], keep = false): { 
   const ind = indigo, opts = new ind.MapStringString();
   try {
     // A molfile keeps its first (name) line, so it is not trimmed.
-    const molfile = (m: Mol) => {
-      const o = new ind.MapStringString();
-      try {
-        return ind.convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
-          atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(keep && a.map ? { mapping: a.map } : {}) })),
-          bonds: m.bonds.filter((b) => b.type !== HBOND).map((b) => ({ type: shapeType(b.type), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
-      } finally { o.delete(); }
-    };
+    const molfile = (m: Mol) => convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
+      atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(keep && a.map ? { mapping: a.map } : {}) })),
+      bonds: m.bonds.filter((b) => b.type !== HBOND).map((b) => ({ type: shapeType(b.type), atoms: b.atoms })) } }), "molfile");
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
     opts.set("output-content-type", "application/json");
     const ket = JSON.parse(JSON.parse(ind.automap(rxn, keep ? "keep" : "discard", "ket", opts)).struct);
@@ -1875,7 +1843,7 @@ export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | unde
 // Entries added together, as one compound's.
 function added(entries: Analysis): Analysis[number] {
   const total: Record<string, number> = {};
-  for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
+  for (const e of entries) for (const [el, n] of Object.entries(formulaCounts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
   return { formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) };
 }
 // A compound's formula and masses. One structure's are as analyse gives them; a compound of several structures (the
@@ -1963,16 +1931,6 @@ function polymerValues(part: Mol): Values | undefined {
     composition: compose(symbolic.v.masses, symbolic.v.weight),
     repeat: { label: symbolic.label, weight: symbolic.v.weight, exact: symbolic.v.exact, ...(hasRest ? { ends: { weight: rest.weight, exact: rest.exact } } : {}) },
   };
-}
-// "C2 H4" as element counts.
-function formulaCounts(f: string): Record<string, number> | undefined {
-  const out: Record<string, number> = {};
-  for (const t of f.trim().split(/\s+/)) {
-    const m = /^([A-Z][a-z]?)(\d*)$/.exec(t);
-    if (!m) return t ? undefined : out;
-    out[m[1]] = (out[m[1]] ?? 0) + (m[2] ? Number(m[2]) : 1);
-  }
-  return out;
 }
 // Element counts in Hill order (C, H, then by symbol; by symbol alone with no carbon), fractional counts to 2 places.
 function hill(counts: Record<string, number>): string {

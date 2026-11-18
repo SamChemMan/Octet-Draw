@@ -4,9 +4,9 @@
 // seconds for its formula, and the Actions panel stopped the window with it. The checks run in a child process that is
 // stopped after 30 seconds, so a hang fails here.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { browser } from "../scripts/checkkit.ts";
 
 if (process.argv[2] !== "run") {
   const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "run"], { stdio: ["ignore", "inherit", "inherit"], timeout: 30_000 });
@@ -14,13 +14,7 @@ if (process.argv[2] !== "run") {
   process.exit(run.status ?? 1);
 }
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 const { hydrogens } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
@@ -53,7 +47,6 @@ assert.equal((found as chem.Analysis)[0].formula, "C36H84Si5");
 const [smiles, smilesMs] = timed(() => chem.toSmiles(busy));
 assert.ok(smiles instanceof RangeError, "SMILES past the ceiling fails");
 assert.ok(smilesMs < 11_000, `the SMILES took ${Math.round(smilesMs)} ms`);
-console.log("depth.check: a crowded structure with depth gives its formula and does not stop the editor ok");
 
 // Depth still sets stereochemistry where it is read: L-alanine in 3D is L-alanine.
 const alanine: Mol = {
@@ -63,13 +56,12 @@ const alanine: Mol = {
 };
 assert.equal(chem.toInchi(alanine), "InChI=1S/C3H7NO2/c1-2(4)3(5)6/h2H,4H2,1H3,(H,5,6)/t2-/m0/s1");
 assert.equal(chem.analyse(alanine)?.[0].formula, "C3H7NO2");
-console.log("depth.check: depth still gives a stereocentre its hand ok");
 
 // 3D Clean Up keeps what a structure is. Its SMILES and InChI are the same after one clean-up, after a second, after a
 // turn in 3D (Structure Perspective) and after Flatten: each command keeps the wedges reading as they did (cip.ts
 // keepHands, as the editor calls it). Before, 42 of 222 test structures read as another stereoisomer after a clean-up.
 const { clean3d } = await import("./clean3d.ts");
-const { flattenAtoms, tiltAtoms } = await import("./edit.ts");
+const { bondedTo: near, flattenAtoms, tiltAtoms } = await import("./edit.ts");
 const { keepHands } = await import("./cip.ts");
 const ids = (m: Mol) => m.atoms.map((_, i) => i);
 const cleanUp = (m: Mol) => keepHands(m, clean3d(m, ids(m)), ids(m)); // Editor.tsx clean_3d
@@ -96,13 +88,11 @@ for (const [name, text] of KEPT) {
   assert.deepEqual(other.bonds.map((b) => b.stereo), all3.bonds.map((b) => b.stereo), "cleaning up the ethanol leaves the menthol's wedges");
   assert.deepEqual(flattenAtoms(all3, new Set(part)).bonds.map((b) => b.stereo), all3.bonds.map((b) => b.stereo), "flattening the ethanol leaves the menthol's wedges");
 }
-console.log("depth.check: a structure reads as the same stereoisomer after 3D Clean Up, a turn in 3D and Flatten ok");
 
 // Shapes 3D Clean Up got wrong (12 November 2026), from the drawings their SMILES give.
 const span = (m: Mol, e: number) => Math.max(...m.atoms.map((a) => a.location[e])) - Math.min(...m.atoms.map((a) => a.location[e]));
 const bondOf = (m: Mol) => { const l = m.bonds.map((b) => Math.hypot(...[0, 1, 2].map((e) => m.atoms[b.atoms[0]].location[e] - m.atoms[b.atoms[1]].location[e]))).sort((a, b) => a - b); return l[l.length >> 1]; };
 const cleaned = (text: string) => { const m = chem.fullMol(text); return clean3d(m, ids(m)); };
-const near = (m: Mol) => { const n: number[][] = m.atoms.map(() => []); for (const b of m.bonds) { n[b.atoms[0]].push(b.atoms[1]); n[b.atoms[1]].push(b.atoms[0]); } return n; };
 const angleAt = (m: Mol, i: number, k: number, j: number) => {
   const [u, v] = [i, j].map((q) => [0, 1, 2].map((e) => m.atoms[q].location[e] - m.atoms[k].location[e]));
   return (Math.acos((u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (Math.hypot(...u) * Math.hypot(...v))) * 180) / Math.PI;

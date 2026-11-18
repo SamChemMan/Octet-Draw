@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { hydrogens, type Arrow, type Caption, type Mol } from "./render.ts";
+import { type Arrow, type Caption, type Mol } from "./render.ts";
 import { predict, readTables, type Prediction } from "./nmr.ts";
-import type { Graph } from "./naming.ts";
+import { graph } from "../scripts/checkkit.ts";
 import { parse, serialize } from "./file.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -20,11 +20,6 @@ import { msFigure, type IonOf } from "./msanalysis.ts";
 
 const PT = 1 / 14.4, env: PlotEnv = { captionSize: 10, bond: 14.4, measure: (t) => widthOf(t, 1) };
 readTables(gunzipSync(readFileSync(new URL("../data/nmr/shifts.bin.gz", import.meta.url))));
-function graph(els: string[], bonds: [number, number, number][]): Graph {
-  const used = els.map(() => 0);
-  for (const [a, b, o] of bonds) { used[a] += o; used[b] += o; }
-  return { atoms: els.map((el, i) => ({ el, charge: 0, h: hydrogens(el, 0, used[i]) })), bonds: bonds.map(([a, b, order]) => ({ a, b, order: order as 1 | 2 | 3 })) };
-}
 // Octane-3,5-dione (CCCC(=O)CC(=O)CC).
 const DIONE = graph(["C", "C", "C", "C", "O", "C", "C", "O", "C", "C"], [[0, 1, 1], [1, 2, 1], [2, 3, 1], [3, 4, 2], [3, 5, 1], [5, 6, 1], [6, 7, 2], [6, 8, 1], [8, 9, 1]]);
 const h1 = predict(DIONE, "1H")!, c13 = predict(DIONE, "13C")!;

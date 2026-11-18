@@ -461,12 +461,7 @@ function multiplicativeName(g0: Graph, reads: (name: string) => boolean): string
   for (const start of g.atoms.keys()) {
     if (g.atoms[start].el !== "C") continue;
     // A benzene ring through start, in cycle order.
-    const walk = (path: number[]): number[] | undefined => {
-      if (path.length === 6) return adj[path[5]].includes(start) ? path : undefined;
-      for (const j of adj[path[path.length - 1]]) if (!path.includes(j) && g.atoms[j].el === "C" && !g.atoms[j].charge && j > start) { const r = walk([...path, j]); if (r) return r; }
-      return undefined;
-    };
-    const ring = walk([start]);
+    const ring = sixRing(adj, [start], (j) => g.atoms[j].el === "C" && !g.atoms[j].charge && j > start);
     if (!ring || ring.map((a, k) => ord.get(key(a, ring[(k + 1) % 6]))).filter((o) => o === 2).length !== 3) continue;
     const hangs = ring.flatMap((a, k) => adj[a].filter((j) => !ring.includes(j)).map((r) => ({ k, root: r })));
     if (hangs.length !== 2 || hangs.some((x) => ord.get(key(ring[x.k], x.root)) !== 1)) continue;
@@ -487,6 +482,14 @@ function multiplicativeName(g0: Graph, reads: (name: string) => boolean): string
   return undefined;
 }
 
+// A six-membered ring that goes on from path back to its first atom, through atoms ok takes, in cycle order.
+function sixRing(adj: number[][], path: number[], ok: (j: number) => boolean): number[] | undefined {
+  const last = path[path.length - 1];
+  if (path.length === 6) return adj[last].includes(path[0]) ? path : undefined;
+  for (const j of adj[last]) if (!path.includes(j) && ok(j)) { const r = sixRing(adj, [...path, j], ok); if (r) return r; }
+  return undefined;
+}
+
 // An unbranched ring assembly of three or more pyridine rings (P-28.2): 2,2':6',2''-terpyridine, with the rings
 // primed in turn and its junctions as low as possible, then its substituents as prefixes with locants as low as
 // possible (P-31.1.4): 4'-(4-methoxyphenyl)-2,2':6',2''-terpyridine. Undefined for anything else; the namer names
@@ -500,13 +503,7 @@ function assemblyName(g0: Graph): string | undefined {
   const rings: number[][] = [];
   for (const nAtom of g.atoms.keys()) {
     if (el(nAtom) !== "N" || g.atoms[nAtom].charge || adj[nAtom].length !== 2) continue;
-    const walk = (path: number[]): number[] | undefined => {
-      const last = path[path.length - 1];
-      if (path.length === 6) return adj[last].includes(nAtom) ? path : undefined;
-      for (const j of adj[last]) if (!path.includes(j) && el(j) === "C" && !g.atoms[j].charge) { const r = walk([...path, j]); if (r) return r; }
-      return undefined;
-    };
-    const ring = walk([nAtom]);
+    const ring = sixRing(adj, [nAtom], (j) => el(j) === "C" && !g.atoms[j].charge);
     if (!ring) continue;
     const orders = ring.map((a, k) => ord.get(key(a, ring[(k + 1) % 6])));
     if (orders.filter((o) => o === 2).length === 3 && orders.every((o, k) => o !== orders[(k + 1) % 6])) rings.push(ring);
@@ -1565,21 +1562,15 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
   const { g, e, api } = c, words = topWords(name);
   // Cations come first (IR-5.4): a complex anion follows its counter-ion.
   const at = ions.length && e.charge < 0 ? 1 : 0;
-  if (isPoly(c)) {
-    if (words.length !== (ions.length ? 2 : 1)) return false;
-    if (ions.length) { const ion = readIon(words[1 - at], api); if (!ion?.key || ion.key !== ions[0].key || ion.charge * ions.length !== -e.charge) return false; }
-    return verifyPoly(words[at], c);
-  }
+  if (words.length !== (ions.length ? 2 : 1)) return false;
+  // The counter-ion: one kind, as many as the charges need.
+  if (ions.length) { const ion = readIon(words[1 - at], api); if (!ion?.key || ion.key !== ions[0].key || ion.charge * ions.length !== -e.charge) return false; }
+  if (isPoly(c)) return verifyPoly(words[at], c);
   const config = /^(?:cis-|trans-|fac-|mer-|Δ-|Λ-|\((?:SP-4-\d|OC-6-\d\d|T-4-[RS]|TBPY-5-\d\d|SPY-5-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
   // The configuration at the metal must be the one the drawing fixes (none where it fixes none).
   if (config !== configuration(c)) return false;
   const parsed = parseEntity(words[at].slice(config.length));
-  if (!parsed || words.length !== (ions.length ? 2 : 1)) return false;
-  // The counter-ion: one kind, as many as the charges need.
-  if (ions.length) {
-    const ion = readIon(words[1 - at], api);
-    if (!ion?.key || ion.key !== ions[0].key || ion.charge * ions.length !== -e.charge) return false;
-  }
+  if (!parsed) return false;
   const { terms, central } = parsed, el = g.atoms[e.metals[0]].el;
   if (central.el !== el || central.n !== e.metals.length || central.ate !== e.charge < 0) return false;
   if (!!central.mm !== (e.mm.length === 1) || (central.mm && (central.mm[0] !== el || central.mm[1] !== el))) return false;

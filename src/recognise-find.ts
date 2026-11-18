@@ -32,9 +32,8 @@ export function paperLevel(g: Uint8Array): number {
   return Math.round(Math.min(225, Math.max(100, at + 0.6 * (paper - at))));
 }
 
-// The pieces of ink, each the pixels joined to each other (8 neighbours).
-export const pieces = (p: Pixels, level?: number): Piece[] => inkPieces(p, level).all;
-// The same, with each pixel's piece (its number in the list, from 1; 0 for paper).
+// The pieces of ink, each the pixels joined to each other (8 neighbours), with each pixel's piece (its number in the
+// list, from 1; 0 for paper).
 export function inkPieces(p: Pixels, level?: number): { all: Piece[]; labels: Int32Array } {
   const g = grey(p), cut = level ?? paperLevel(g), { width: w, height: h } = p, seen = new Int32Array(w * h), out: Piece[] = [];
   const stack = new Int32Array(w * h);
@@ -88,9 +87,6 @@ export function letterHeight(all: Piece[], p: Pixels): number {
   const small = all.filter((c) => c.h >= 4 && c.h <= p.height / 8 && c.w <= 2 * c.h && c.pixels >= 6).map((c) => c.h).sort((a, b) => a - b);
   return small.length >= 3 ? small[small.length >> 1] : Math.max(8, Math.min(p.width, p.height) / 15);
 }
-
-// Every structure in the picture, in reading order (rows from the top, left to right in a row).
-export const findStructures = (p: Pixels): Found[] => findScheme(p).structures;
 
 // A reaction arrow in the picture (pixels): from its tail to its head, and the lines of text above and below it (its
 // conditions), nearest the arrow first. kind: reaction (one head), resonance (a head at each end), equilibrium (two

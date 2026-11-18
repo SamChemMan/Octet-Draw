@@ -1,12 +1,8 @@
 // More of the Lab group: flasks, funnels, condensers, adapters and apparatus, drawn in the Lab group's line style
 // (art.mjs path data, 40 units to a bond length, y down). Each shape is worked out here from simple geometry.
-import { art, circle, ellipse, fill, fine, ink, rect, seg, solid } from "./art.mjs";
+import { art, circle, deg, ellipse, f, fill, fine, ink, P, PER, rect, seg, solid } from "./art.mjs";
 
-const PER = { per: 40 };
 const LIP = 3.6; // the outward turn at the top of an open neck, as lab.mjs's
-const f = (v) => Math.round(v * 100) / 100;
-const P = (x, y) => `${f(x)} ${f(y)}`;
-const deg = Math.PI / 180;
 
 // A neck's wall from (x, y0) up to top, turning out at its lip (dir 1 to the right, -1 to the left).
 const wallUp = (x, y0, top, dir) => `M${P(x, y0)}L${P(x, top + LIP)}Q${P(x, top)} ${P(x + dir * LIP, top)}`;

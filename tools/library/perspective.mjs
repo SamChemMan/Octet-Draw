@@ -10,13 +10,13 @@ import { chairPoints } from "../../src/edit.ts";
 import { isElement } from "../../src/labels.ts";
 import { clashes } from "./clashes.mjs";
 
-const deg = Math.PI / 180;
-const add = (a, b) => a.map((v, k) => v + b[k]), sub = (a, b) => a.map((v, k) => v - b[k]), mul = (a, s) => a.map((v) => v * s);
-const len = (a) => Math.hypot(...a), unit = (a) => mul(a, 1 / len(a));
+export const deg = Math.PI / 180;
+export const add = (a, b) => a.map((v, k) => v + b[k]), sub = (a, b) => a.map((v, k) => v - b[k]), mul = (a, s) => a.map((v) => v * s);
+export const len = (a) => Math.hypot(...a), unit = (a) => mul(a, 1 / len(a));
 // Turns about the page's x axis (positive tips the top towards the viewer: seen from above) and its y axis.
-const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)];
-const rotY = ([x, y, z], t) => [x * Math.cos(t) + z * Math.sin(t), y, -x * Math.sin(t) + z * Math.cos(t)];
-const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
+export const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)];
+export const rotY = ([x, y, z], t) => [x * Math.cos(t) + z * Math.sin(t), y, -x * Math.sin(t) + z * Math.cos(t)];
+export const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
 
 // A structure being drawn: atoms (an element, or a written label such as CH2OH) at [x, y, z], and bonds.
 export class Drawing {

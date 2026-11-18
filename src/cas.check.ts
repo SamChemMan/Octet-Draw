@@ -5,14 +5,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { drawnInchiKey, parseStructure, ready, structures } = await import("./chem.ts");
 const { attachDictionary, dictionaryCas } = await import("./dictionary.ts");
 const { PROPERTY_ROWS, propertyReport, propertyValues, rowLabel, withCas } = await import("./proprows.ts");

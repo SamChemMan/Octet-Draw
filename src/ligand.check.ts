@@ -1,12 +1,12 @@
 // Run: node src/ligand.check.ts. Fails loudly if ChemDraw's j and Shift+J π ligands, or the multi-centre points they
 // are joined through, stop working: drawing, deleting, copying, CDXML and chemistry.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { EMPTY, addGroupAt, bondTo, clickBond, deleteAtoms, dragBond, extractSelection, fragments, insertMol, moveAtoms, neighbours, placeCentres, pos, sandwich, sprout, toFront } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ligandEllipse, render, type Ink, type Mol } from "./render.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 const iron: Mol = { atoms: [{ label: "Fe", location: [0, 0, 0] }], bonds: [] };
 const centres = (m: Mol) => m.atoms.flatMap((a, i) => (a.centre ? [i] : []));
@@ -39,7 +39,6 @@ assert.equal(addGroupAt(m, 0, "cpLigand")[0], m);
 const ferrocene = m;
 // Ferrocene is one structure.
 assert.equal(fragments(ferrocene).length, 1);
-console.log("ligand.check: Cp on a metal ok");
 
 // Shift+J on a chain end: the end atom becomes the point of a phenyl ring; the hotspot moves to the other end.
 const ethane = sprout(EMPTY, [0, 0]);
@@ -51,7 +50,6 @@ assert.equal(arene.bonds.filter((b) => b.stereo === 1).length, 2);
 // Not on an atom with two bonds.
 const propane = sprout(ethane, 1);
 assert.equal(addGroupAt(propane, 1, "phenylLigand")[0], propane);
-console.log("ligand.check: phenyl on a chain end ok");
 
 // Deleting the ring takes the point (and with it the bond to the metal); deleting one ring atom keeps it.
 const lower = ferrocene.atoms[centres(ferrocene)[0]].centre!.atoms;
@@ -72,7 +70,6 @@ const copy = extractSelection(ferrocene, new Set(ferrocene.atoms.map((_, i) => i
 const twice = insertMol(ferrocene, copy, [10, 0]).mol;
 assert.equal(centres(twice).length, 4);
 assert.ok(centres(twice).slice(2).every((i) => twice.atoms[i].centre!.atoms.every((j) => j >= ferrocene.atoms.length)));
-console.log("ligand.check: delete, move and copy ok");
 
 // CDXML: a MultiAttachment node with its Attachments, and the ring's 1.5 bonds with their styles, read back the same.
 const xml = toCdxml(ferrocene, DEFAULT_STYLE);
@@ -94,7 +91,6 @@ const curve = xml.replace("</fragment>", `<curve id="9999" Closed="yes" CurvePoi
   return [[-5, 0], [0, 2], [5, 0], [0, -2]].flatMap(([dx, dy]) => [x + dx, y + dy, x + dx, y + dy, x + dx, y + dy]).join(" ");
 })()}"/></fragment>`);
 assert.equal(fromCdxml(curve).mol.arrows?.filter((a) => a.kind === "curve").length ?? 0, 0);
-console.log("ligand.check: CDXML ok");
 
 // Octet's own JSON (the clipboard between Octet windows, templates and the copy inside .oct files) keeps the points
 // and the ring's delocalised bonds, and refuses a point that stands for itself, a missing atom, one atom or a point.
@@ -106,7 +102,6 @@ for (const bad of [[point, 2], [2, 999], [2], [2, centres(ferrocene)[1]], "2 3"]
   raw.structure.atoms[point].centre = bad;
   assert.throws(() => parse(JSON.stringify(raw)), /damaged/);
 }
-console.log("ligand.check: Octet JSON ok");
 
 // Drawing: the point has no label, and each ring has an ellipse inside.
 const ink = (): Ink => ({ width: 9.6, ascent: 9.5, outline: [[0, 0], [9.6, -9.5]] });
@@ -170,15 +165,9 @@ const onTop = (x: Mol, metal: number, point: number, edge: number[]) => {
   assert.ok(chemdraw.atoms[c].centre, "ChemDraw's file has the point");
   assert.deepEqual(order(chemdraw), order(old), "a ChemDraw file is unchanged");
 }
-console.log("ligand.check: drawing ok");
 
 // Chemistry: the points are not atoms; ferrocene is one compound, C10H10Fe, as ChemDraw gives it (chem.ts analyse).
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { analyse, expandLabels, parseStructure, ready, stereoFacts, toInchi, toSmiles } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { sandwichIons } = await import("./metals.ts");
@@ -187,7 +176,6 @@ assert.equal(expandLabels(ferrocene).atoms.length, ferrocene.atoms.length - 2);
 assert.equal(expandLabels(ferrocene).bonds.length, ferrocene.bonds.length - 2);
 const formulas = analyse(ferrocene)?.map((a) => a.formula).sort();
 assert.deepEqual(formulas, ["C10H10Fe"]);
-console.log("ligand.check: chemistry ok");
 
 // Name to Structure: a metallocene's ions (OPSIN's ferrocene) are drawn as the j key draws it, the same compound.
 for (const [smiles, formula] of [["[Fe+2].[cH-]1cccc1.[cH-]1cccc1", "C10H10Fe"], ["[Ni+2].[CH-]1C=CC=C1.[CH-]1C=CC=C1", "C10H10Ni"],
@@ -216,7 +204,6 @@ for (const smiles of ["[Fe+2].[cH-]1cccc1", "[Fe+2].[cH-]1cccc1.[cH-]1cccc1.[cH-
   const m = parseStructure(smiles);
   assert.equal(sandwich(m), m, smiles);
 }
-console.log("ligand.check: metallocene names ok");
 
 // Issue 26: a bond from a metal let go over the middle of a ring (or from the middle of a ring to a metal) joins the
 // ring through a new multi-centre point, as Add Multi-Centre Attachment and a bond from it do. A ring here is drawn

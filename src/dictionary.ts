@@ -44,10 +44,6 @@ const CAS = /^(?:CAS(?:\s*(?:RN|No\.?|number|registry number))?\s*[:#]?\s*)?\[?(
 const casParts = (text: string) => CAS.exec(text.trim());
 // The check digit: the other digits from the right, times 1, 2, 3 and so on, added, modulo 10.
 const checkDigit = (digits: string) => [...digits].reverse().reduce((sum, d, i) => sum + Number(d) * (i + 1), 0) % 10;
-export function casValid(text: string): boolean {
-  const m = casParts(text);
-  return !!m && checkDigit(m[1] + m[2]) === Number(m[3]);
-}
 // The reason a CAS number is refused: its check digit is wrong. Undefined for text that is not a CAS number, or one
 // that is right.
 export function casProblem(text: string): string | undefined {
@@ -60,6 +56,7 @@ export function casNumber(text: string): string | undefined {
   const m = casParts(text);
   return m && checkDigit(m[1] + m[2]) === Number(m[3]) ? `${Number(m[1])}-${m[2]}-${m[3]}` : undefined;
 }
+export const casValid = (text: string) => !!casNumber(text);
 
 // ——— InChIKeys ———
 const INCHIKEY = /^(?:InChIKey=)?([A-Z]{14}-[A-Z]{10}-[A-Z])$/i;
@@ -77,8 +74,8 @@ export function dictionarySmiles(text: string, read?: (name: string) => string |
   if (!s || s.length > 300) return undefined;
   const systematic = read && peptideName(s);
   if (s.length > 200) return systematic ? read(systematic) : undefined;
-  const t = table, number = casParts(s) && casNumber(s);
-  if (casParts(s)) return t && number ? t.smiles(t.casCompound(number)) : undefined;
+  const t = table;
+  if (casParts(s)) { const number = casNumber(s); return t && number ? t.smiles(t.casCompound(number)) : undefined; }
   const key = inchiKeyOf(s);
   if (key) return t?.smiles(t.keyCompound(key));
   return t?.smiles(t.nameCompound(commonKey(s))) ?? condensedSmiles(s) ?? (systematic ? read(systematic) : undefined);
@@ -158,7 +155,9 @@ export function completeName(typed: string): string | undefined {
 export function dictionaryStarting(typed: string, most: number): string[] {
   const q = commonKey(typed.trim()), head = typed.trim().toLowerCase().slice(0, 2), t = table;
   if (q.length < 2 || head.length < 2 || most <= 0 || !t) return [];
-  const found = [...new Set(t.withGram(` ${head}`))].filter((i) => commonKey(t.lower(i)).startsWith(q)).sort((a, b) => t.lower(a).length - t.lower(b).length || (t.lower(a) < t.lower(b) ? -1 : 1));
+  const hits = new Set<number>();
+  t.forGram(` ${head}`, (i) => hits.add(i));
+  const found = [...hits].filter((i) => commonKey(t.lower(i)).startsWith(q)).sort((a, b) => t.lower(a).length - t.lower(b).length || (t.lower(a) < t.lower(b) ? -1 : 1));
   const seen = new Set<number>(), out: string[] = [];
   for (const i of found) {
     if (seen.has(t.compound(i))) continue;

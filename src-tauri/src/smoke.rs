@@ -44,19 +44,19 @@ pub fn start(app: AppHandle) {
             let _ = std::fs::write(f, r#"<?xml version="1.0" encoding="UTF-8" ?><CDXML><page id="1"><fragment id="2"><n id="3" p="100 100"/></fragment></page></CDXML>"#);
         }
         crate::open::offer(&app, files, None);
-        let named = |app: &AppHandle, label: &str| crate::windows::window_list(app.state()).iter().find(|i| i.label().starts_with(label)).map(|i| i.name().to_string());
+        let named = |app: &AppHandle, label: &str| crate::windows::window_list(app.state()).iter().find(|i| i.label.starts_with(label)).map(|i| i.name.clone());
         wait("the second drawing opens in a new window, and its page starts", 90, || named(&app, "draw-").is_some());
         alive(&app, "opening two drawings");
         wait("the first drawing is in Home's window, the second in the new one", 30, || {
             named(&app, "main").as_deref() == Some("one") && named(&app, "draw-").as_deref() == Some("two")
         });
         // Edit > Paste in Home's window, which holds the first drawing, pastes into that drawing.
-        let edited = |app: &AppHandle| crate::windows::window_list(app.state()).iter().any(|i| i.label() == "main" && i.edited());
+        let edited = |app: &AppHandle| crate::windows::window_list(app.state()).iter().any(|i| i.label == "main" && i.edited);
         let _ = tauri::async_runtime::block_on(crate::clipboard::copy_to_clipboard(app.clone(), None, None, None, None, None, None, None, None, Some("CCO".into()), None));
         let _ = app.emit_to("main", "menu", "paste");
         wait("Edit > Paste pastes into the drawing in Home's window", 30, || edited(&app));
         alive(&app, "Edit > Paste");
-        let label = crate::windows::window_list(app.state()).iter().find(|i| i.label().starts_with("draw-")).unwrap().label().to_string();
+        let label = crate::windows::window_list(app.state()).iter().find(|i| i.label.starts_with("draw-")).unwrap().label.clone();
         // A menu command runs in the window it is sent to, and only there: File > New For > Paper makes one window.
         let count = |app: &AppHandle| crate::windows::window_list(app.state()).len();
         let before = count(&app);

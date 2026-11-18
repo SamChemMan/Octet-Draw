@@ -663,16 +663,8 @@ pub(crate) mod tests {
         assert_eq!(u(48) as usize, emf.len());
         // The frame: 1 in by 0.5 in, in hundredths of a mm.
         assert_eq!((u(24), u(28), u(32), u(36)), (0, 0, 2540, 1270));
-        // Every record's size takes the next record to the end, which is EMR_EOF.
-        let (mut at, mut count, mut last) = (0, 0, 0);
-        while at < emf.len() {
-            last = u(at);
-            at += u(at + 4) as usize;
-            count += 1;
-        }
-        assert_eq!(at, emf.len());
-        assert_eq!(count, u(52));
-        assert_eq!(last, 14);
+        // Every record's size takes the next record to the end (records checks it), which is EMR_EOF.
+        assert_eq!(records(&emf).last().unwrap().0, 14);
     }
 
     // The Mac's copy for Office (clipboard.rs office_package): with a PDF, the second record is the comment that holds
@@ -718,9 +710,9 @@ pub(crate) mod tests {
         }
         // No fonts in this picture, so the bytes are the same on every system.
         let emf = make_emf(&tree(SVG), None, None);
-        assert_eq!((emf.len(), crate::export::crc32(&emf)), (752, 0xEE1B_B281), "the EMF without a PDF has changed");
+        assert_eq!((emf.len(), crc32fast::hash(&emf)), (752, 0xEE1B_B281), "the EMF without a PDF has changed");
         let emf = make_emf(&tree(SVG), Some(cdxml), None);
-        assert_eq!((emf.len(), crate::export::crc32(&emf)), (800, 0x420E_C9C5), "the EMF with CDXML and no PDF has changed");
+        assert_eq!((emf.len(), crc32fast::hash(&emf)), (800, 0x420E_C9C5), "the EMF with CDXML and no PDF has changed");
     }
 
     // Windows draws an EMF with the PDF comment as it draws the EMF without it. GDI plays each into a bitmap of its own
@@ -1023,13 +1015,13 @@ pub(crate) mod tests {
         let emf = make_emf(&tree(&svg), None, None);
         let u = |at: usize| u32::from_le_bytes(emf[at..at + 4].try_into().unwrap());
         let f = |at: usize| f32::from_bits(u(at));
-        let (mut at, mut seen) = (0, Vec::new());
-        while at < emf.len() {
-            seen.push(u(at));
-            if u(at) == 35 {
+        let all = records(&emf);
+        let seen: Vec<u32> = all.iter().map(|&(kind, _)| kind).collect();
+        for &(kind, at) in &all {
+            if kind == 35 {
                 assert_eq!((8..32).step_by(4).map(|k| f(at + k)).collect::<Vec<_>>(), [180.0, 0.0, 0.0, 180.0, 360.0, 180.0]);
             }
-            if u(at) == 81 {
+            if kind == 81 {
                 // Source and destination 4 by 2, SRCCOPY, a 40-byte header at 80, and the bits at 120: 12 bytes a row.
                 assert_eq!((u(at + 40), u(at + 44), u(at + 48), u(at + 52), u(at + 56), u(at + 60)), (4, 2, 80, 40, 120, 24));
                 assert_eq!((u(at + 68), u(at + 72), u(at + 76)), (0x00CC_0020, 4, 2));
@@ -1037,9 +1029,7 @@ pub(crate) mod tests {
                 assert_eq!(&emf[at + 120..at + 126], &[0, 0, 255, 0, 0, 255]);
                 assert_eq!(u(at + 4) as usize, 120 + 24);
             }
-            at += u(at + 4) as usize;
         }
-        assert_eq!((at, u(48) as usize, u(52) as usize), (emf.len(), emf.len(), seen.len()));
         let k = seen.iter().position(|&r| r == 81).expect("a StretchDIBits record");
         assert_eq!(&seen[k - 2..k + 2], &[21, 35, 81, 36]);
     }

@@ -69,14 +69,11 @@ fn which(bytes: &[u8]) -> Option<&'static Model> {
     MODELS.iter().filter(|m| m.size == n).find(|m| m.sha256 == sha256(bytes))
 }
 
-// Written beside its place and then moved there, so a model file is never half written. Only while Downloading is
-// held, so two writes never share the part file.
+// Written beside its place and then moved there, so a model file is never half written.
 fn keep(app: &AppHandle, m: &Model, bytes: &[u8]) -> Result<(), String> {
     let dir = folder(app)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let part = dir.join(format!("{}.part", m.name));
-    fs::write(&part, bytes).map_err(|e| e.to_string())?;
-    fs::rename(&part, dir.join(format!("{}.octmodel", m.name))).map_err(|e| e.to_string())
+    crate::write_atomic(&dir.join(format!("{}.octmodel", m.name)), bytes).map_err(|e| e.to_string())
 }
 
 // The models that are installed (by their size; read_model checks the rest).

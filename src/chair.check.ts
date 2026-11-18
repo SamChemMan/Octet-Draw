@@ -1,17 +1,12 @@
 // Run: node src/chair.check.ts. Fails loudly if a chair drawn by hand stops reading as its stereoisomer, or if the bold
 // and wedged edges that draw a ring in perspective start reading as stereochemistry again (issue 46).
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { EMPTY, addChair, chairHydrogens, chairOf, deleteAtom, mayHaveChair, perspectiveBonds, setElement, setLabel, sprout } from "./edit.ts";
 import type { Bond, Mol } from "./render.ts";
+import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 
@@ -53,25 +48,13 @@ await chem.ready;
   }
   assert.ok(mayHaveChair(addChair(EMPTY, 1, { point: [0, 0] })) && mayHaveChair(addChair(EMPTY, 2, { point: [0, 0], turn: 1 })), "a chair is a possible chair");
 }
-console.log("chair.check: drawings with no chair cost no ring search ok");
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("chair.check: skipped (no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+needOpsin("chair.check: skipped (no OPSIN build)");
+const opsin = await loadOpsin();
 const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
 const { DRUGS } = await import("./drugs.ts");
 const { abbreviationOf, attachOpsin, knownName, nameToAtoms, nameToSmiles } = await import("./names.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
 const { checkedName, setComplexNamer, setNamer, withAbbreviation } = await import("./naming.ts");
 const { iupacName } = await import("./namer.ts");
 const { complexName } = await import("./complexes.ts");
@@ -129,7 +112,6 @@ for (const [a, want, desc] of [[false, beta, "(2R,3R,4R,5S,6R)"], [true, alpha, 
   assert.equal(inchiOf(glcNAc(a, (15 * Math.PI) / 180)), want, `${what} turned 15°`);
   assert.equal(chairHydrogens(glcNAc(a, Math.PI / 2)).length, 0, `${what} on its side`);
 }
-console.log("chair.check: N-acetylglucosamine drawn as a chair named with its stereochemistry ok");
 
 // The bold and wedged front edges of issue 46: depth, not stereochemistry. Cyclohexane names and has no warnings; the
 // sugar still names as drawn without them. Its bold edge low (nearest), as drawn.
@@ -177,7 +159,6 @@ const front = (m: Mol): Mol => ({ ...m, bonds: m.bonds.map((b): Bond => {
   // Drawn flat, the template reads the same from its chair.
   assert.equal(inchiOf({ ...glc, atoms: glc.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1], 0] as [number, number, number] })) }), inchiOf(glc), "β-D-glucopyranose flat");
 }
-console.log("chair.check: bold and wedged ring edges draw depth, not stereochemistry ok");
 
 // Never a guess: a flat ring, a wedge off the chair (the wedges set it), and a wedge on a flat ring's bond (a real
 // stereo bond) are left as they are.
@@ -190,7 +171,6 @@ console.log("chair.check: bold and wedged ring edges draw depth, not stereochemi
   assert.equal(chairHydrogens({ ...wedged, bonds: wedged.bonds.map((b, n) => (n === k ? { ...b, atoms: [3, b.atoms.find((x) => x !== 3)!] as [number, number], stereo: 6 as const } : b)) }).length, 0, "a wedge off the ring: the wedges set it");
   assert.equal(perspectiveBonds({ ...subbed, bonds: subbed.bonds.map((b, n) => (n === 0 ? { ...b, stereo: 1 as const } : b)) }).size, 0, "a wedge on a flat ring's bond is stereo");
 }
-console.log("chair.check: flat rings and wedged chairs left as drawn ok");
 
 // Two chairs that share a bond (trans-decalin, as a steroid is drawn): each carbon where they join is read once, so
 // the formula keeps its H count and the flat drawing reads as the same structure in 3D does.

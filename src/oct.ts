@@ -4,7 +4,7 @@
 // A .cdx file (decision 0009) works the same way: the drawing's JSON goes in a property of the CDX document, beside a
 // hash of the rest of the file.
 import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml.ts";
-import { BASE64_MAGIC, cdxToXml, fromBase64 as bytesOf, xmlToCdx } from "./cdx.ts";
+import { BASE64_MAGIC, cdxToXml, fromBase64 as bytesOf, toBase64, xmlToCdx } from "./cdx.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
@@ -32,23 +32,10 @@ function hashBytes(b: Uint8Array): string {
   return (a >>> 0).toString(16).padStart(8, "0") + (c >>> 0).toString(16).padStart(8, "0");
 }
 
-// Base64 of UTF-8, in chunks so a large drawing does not overflow the call stack.
-function toBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-function fromBase64(b64: string): string {
-  const s = atob(b64), bytes = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-}
-
 // The drawing as a .oct (or .cdxml) file: the two are the same. cdxml: the drawing's CDXML when the caller has it.
 export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}, cdxml = toCdxml(mol, style, opts)): string {
   const body = cdxml.endsWith("\n") ? cdxml : `${cdxml}\n`;
-  return `${body}${MARK}${hash(body)} ${toBase64(serialize({ ...mol, style }))}-->\n`;
+  return `${body}${MARK}${hash(body)} ${toBase64(new TextEncoder().encode(serialize({ ...mol, style })))}-->\n`;
 }
 
 // The drawing as a .cdx file: ChemDraw's binary form of the CDXML, with Octet's drawing in a user property (tag
@@ -98,7 +85,7 @@ export function readOct(text: string, oct = false): { mol: Mol; lost: Record<str
   if (at >= 0) {
     const m = /^([0-9a-f]{16}) ([A-Za-z0-9+/=]+)-->\s*$/.exec(text.slice(at + MARK.length));
     if (m && hash(text.slice(0, at)) === m[1]) {
-      try { return { mol: parse(fromBase64(m[2])), lost: {} }; } catch { /* a damaged copy: read the CDXML */ }
+      try { return { mol: parse(new TextDecoder("utf-8", { fatal: true }).decode(bytesOf(m[2]))), lost: {} }; } catch { /* a damaged copy: read the CDXML */ }
     }
   }
   const read = fromCdxml(text), resaved = (at >= 0 || oct) && /ChemDraw/i.test(programOf(text));

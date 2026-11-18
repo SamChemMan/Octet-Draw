@@ -578,7 +578,7 @@ class Namer {
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
       const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
-      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.classBond(a, b) && this.group[a] !== "ketone" && this.group[b] !== "ketone") throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
+      if (el[a] !== "C" && el[b] !== "C" && !this.nitroAtom(a) && !this.nitroAtom(b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.classBond(a, b) && this.group[a] !== "ketone" && this.group[b] !== "ketone") throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
     }
   }
   // =O on a ring S, Se, Te, P, As, Sb, Bi or halogen, or =S on a ring P, As, Sb or Bi (a λ⁵ thione: the cage of P4S10).
@@ -783,7 +783,6 @@ class Namer {
     return os.length === 2 && os.some((o) => this.ord(n, o) === 2 && !this.q[o]) && os.some((o) => this.ord(n, o) === 1 && this.q[o] === -1)
       && this.adj[n].length === 3 && this.adj[n].some((j) => this.el[j] === "C" || (this.el[j] === "N" && !this.q[j])); // on C, or on N: N-nitro (nitramines)
   }
-  nitroBond = (a: number, b: number) => this.nitroAtom(a) || this.nitroAtom(b);
   // The N=N+ end of a diazo or azido group: N+ with a terminal =N- and one more double bond, to x.
   private n2End(mid: number): number | undefined {
     if (this.el[mid] !== "N" || this.q[mid] !== 1 || this.h[mid] || this.adj[mid].length !== 2) return undefined;
@@ -969,7 +968,8 @@ class Namer {
       return this.centre(this.azanide[0]);
     }
     if (anion) return undefined;
-    if (this.onium.length) return this.oniumName();
+    if (this.onium.length > 1) throw new Error("several onium ions");
+    if (this.onium.length) return this.centre(this.onium[0]);
     const rings = new Set([...Array(this.n).keys()].filter((i) => this.inRing[i] && this.q[i] === 1 && (this.cationN(i) || this.ions.has(i))).map((i) => this.ringOf[i]));
     if (!rings.size || !kind || SENIORITY.indexOf(kind) <= SENIORITY.indexOf("diazonium")) return undefined;
     return this.parentName(undefined, undefined, new Set([...rings].flatMap((k) => this.rings[k])))?.text;
@@ -982,8 +982,6 @@ class Namer {
       if (low !== undefined && this.adj[i].reduce((t, j) => t + this.ord(i, j), 0) + this.h[i] < low) throw new Error("radical");
     }
   }
-  // The N of an aminide or iminium group g, whose other substituents are cited with N locants.
-  ionN = (kind: Kind | undefined, g: number) => (kind === "aminide" || kind === "iminium" ? g : undefined);
   // Ions cited as prefixes (P-72.6, P-73.6): oxido, carboxylato, sulfonato, and azaniumyl, sulfaniumyl, phosphaniumyl
   // with their substituents ((trimethylazaniumyl)acetate). Other ions are not cited as prefixes.
   ionPrefix(x: number, from: number): Name | undefined {
@@ -996,10 +994,6 @@ class Namer {
     if (g === "aminium" || this.onium.includes(x) || oxide) return { text: `${this.centre(x, from)}yl`, compound: this.adj[x].length > 1 };
     if ((g && (ANION_KINDS as Kind[]).includes(g)) || g === "ylium" || g === "iminium" || g === "diazonium" || (this.ions.has(x) && this.inRing[x])) throw new Error(`${g ?? "ion"} as a prefix`);
     return undefined;
-  }
-  oniumName(): string {
-    if (this.onium.length !== 1) throw new Error("several onium ions");
-    return this.centre(this.onium[0]);
   }
   // An onium or azanide centre x as a parent, with its substituents (but not the atom `from` it hangs on):
   // trimethylsulfanium, trimethyl(oxo)-λ4-sulfanium, tetraphenylphosphanium, acetyl(phenyl)azanide. (Boranuides are
@@ -1356,7 +1350,7 @@ class Namer {
     // N' (P-66.3.1.2): N'-phenylacetohydrazide.
     const prime = new Set<{ atom: number; name: Name; n?: boolean }>();
     for (const s of sites) {
-      const nAtom = kind === "amide" || kind === "amidine" || kind === "hydrazide" ? this.amideN(s.group) : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" || kind === "imidic" || kind === "imidate" || kind === "imidoylhalide" ? this.imineN(s.group) : sulfonamideN(this, kind, s.group) ?? this.ionN(kind, s.group);
+      const nAtom = kind === "amide" || kind === "amidine" || kind === "hydrazide" ? this.amideN(s.group) : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" || kind === "imidic" || kind === "imidate" || kind === "imidoylhalide" ? this.imineN(s.group) : sulfonamideN(this, kind, s.group) ?? (kind === "aminide" || kind === "iminium" ? s.group : undefined); // an aminide or iminium N
       const second = kind === "amidine" ? this.imineN(s.group) : kind === "hydrazide" ? this.hydrazideN(s.group, nAtom!) : undefined;
       for (const a of second !== undefined ? [nAtom!, second] : nAtom === undefined ? [] : [nAtom])
         for (const x of this.adj[a]) if (x !== s.group && !inParent.has(x) && x !== s.atom && x !== second && x !== nAtom && !used.has(x) && !(opts.mult && a === opts.mult[0] && x === opts.mult[1])) {
@@ -2731,11 +2725,8 @@ export function iupacLocants(g: Graph): (string | undefined)[] | undefined {
   }
 }
 
-// Hydrogen drawn as an atom (an H label, a wedged H) counts on the atom it is bonded to.
-function foldHydrogens(g: Graph): Graph {
-  return foldIndexed(g).g;
-}
-// The same, with where each atom went (undefined for an H folded in).
+// Hydrogen drawn as an atom (an H label, a wedged H) counts on the atom it is bonded to; with where each atom went
+// (undefined for an H folded in).
 function foldIndexed(g: Graph): { g: Graph; index: (number | undefined)[] } {
   const bonds = (i: number) => g.bonds.filter((b) => b.a === i || b.b === i);
   const other = (i: number) => { const b = bonds(i)[0]; return b.a === i ? b.b : b.a; };
@@ -2756,7 +2747,7 @@ function foldIndexed(g: Graph): { g: Graph; index: (number | undefined)[] } {
 export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
   try {
     if (!g.atoms.length) return { why: "empty" };
-    const folded = chargeSeparated(foldHydrogens(g)), name = nameOf(folded); // R-N(=O)=O as R-N⁺(=O)O⁻ (namer-maingroup.ts)
+    const folded = chargeSeparated(foldIndexed(g).g), name = nameOf(folded); // R-N(=O)=O as R-N⁺(=O)O⁻ (namer-maingroup.ts)
     // Every isotope must be cited (P-82): a part of the namer that does not cite them gives no name.
     if (name && citedNuclides(name) !== folded.atoms.reduce((t, a) => t + (a.iso ? 1 : 0) + (a.hx?.length ?? 0), 0)) return { why: "isotope" };
     return name ? { name } : { why: fragments(folded).length === 1 ? "no name" : "salt" };

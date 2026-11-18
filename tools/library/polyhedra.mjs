@@ -2,12 +2,9 @@
 // ligands L), coordination polyhedra as frames and cages (their hidden edges dashed), and carbon allotropes (C60, C70
 // and nanotube segments, each atom at its place in 3D, kept as depth; a graphene flake), with Kekulé double bonds.
 // Nothing comes from another program's files.
-import { Drawing } from "./perspective.mjs";
+import { deg, Drawing, rotX, rotY } from "./perspective.mjs";
 import { Build } from "./hosts.mjs";
 
-const deg = Math.PI / 180;
-const rotX = ([x, y, z], t) => [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)];
-const rotY = ([x, y, z], t) => [x * Math.cos(t) + z * Math.sin(t), y, -x * Math.sin(t) + z * Math.cos(t)];
 const entry = (name, also, mol) => ({ name, ...(also ? { also } : {}), mol });
 
 // ——— Coordination geometries ———

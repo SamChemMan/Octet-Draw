@@ -3,33 +3,17 @@
 // multiple-group bracket pair round each component. Each name must read back through Name to Structure (names.ts) as
 // the components, each as many times as it draws them.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import type { Mol, Shape } from "./render.ts";
+import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("mixtures.check: skipped (no OPSIN build)"); process.exit(0); }
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+needOpsin("mixtures.check: skipped (no OPSIN build)");
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+const opsin = await loadOpsin();
 const { attachOpsin, nameToAtoms, nameToSmiles } = await import("./names.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"));
 const { checkedName, setComplexNamer, setNamer } = await import("./naming.ts");
 const { iupacName } = await import("./namer.ts");
 const { complexName } = await import("./complexes.ts");

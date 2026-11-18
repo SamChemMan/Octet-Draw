@@ -19,6 +19,15 @@ import type { Store } from "./store";
 type Line = ReturnType<typeof mark>["bonds"][number];
 const stroke = (l: Line, k: number) => <div key={k} className="mcp-bond" style={{ left: l.x, top: l.y, width: l.length + LINE, "--turn": `${l.turn}deg`, "--i": l.at } as CSSProperties} />;
 const MARK_LINES = mark();
+// The mark's parts: the hexagon's bonds, the Kekulé lines, the octagon's edges and the solid mark (AiCard draws it too).
+export const MarkParts = () => (
+  <div className="mcp-parts" style={{ "--fill": FILL } as CSSProperties}>
+    {MARK_LINES.bonds.map(stroke)}
+    <div className="mcp-kekule">{MARK_LINES.inner.map(stroke)}</div>
+    {MARK_LINES.edges.map(stroke)}
+    <div className="mcp-fill" style={{ width: MARK, height: MARK, margin: -MARK / 2 }} />
+  </div>
+);
 
 export type Magic = { text: string; calling: boolean; steps?: number; stop?: () => void };
 
@@ -47,12 +56,7 @@ export function McpMagic({ magic, progress, page }: { magic: Magic; progress: St
             Chrome an SVG's parts were laid out and painted again each frame (so the sparkle's motion is on a box too).
             The solid mark is a box cut to the mark's shape (editor.css .mcp-fill) that only fades. */}
         <div key={turn} className="mcp-mol" onAnimationIteration={() => setTurn(turn + 1)}>
-          <div className="mcp-parts" style={{ "--fill": FILL } as CSSProperties}>
-            {MARK_LINES.bonds.map(stroke)}
-            <div className="mcp-kekule">{MARK_LINES.inner.map(stroke)}</div>
-            {MARK_LINES.edges.map(stroke)}
-            <div className="mcp-fill" style={{ width: MARK, height: MARK, margin: -MARK / 2 }} />
-          </div>
+          <MarkParts />
         </div>
       </div>
       <div className="mcp-pill">

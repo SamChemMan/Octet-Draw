@@ -37,7 +37,6 @@ const groupsIn = (x: Xml, depth = 0): { depth: number; integral: boolean; kids: 
   // A group that does not list the number (an older drawing): the number is still written inside it.
   const bare = { ...m, groups: [{ id: 90, atoms: [0, 1, 2, 3, 4, 5], items: [x] }] };
   assert.equal(groupsIn(parseXml(toCdxml(bare, DEFAULT_STYLE)))[0].kids.filter((k) => k === "t").length, 2);
-  console.log("groups.check: nested groups in CDXML ok");
 }
 
 // A catalytic cycle in a group: its arrows are written in the group, and the cycle is in the group again on reading.
@@ -51,7 +50,6 @@ const groupsIn = (x: Xml, depth = 0): { depth: number; integral: boolean; kids: 
   assert.equal(groupsIn(parseXml(text))[0].kids.filter((k) => k === "arrow").length, 2);
   const back = fromCdxml(text).mol;
   assert.deepEqual(back.groups!.map((x) => x.items.sort()), [[y, box].sort()]);
-  console.log("groups.check: grouped cycle in CDXML ok");
 }
 
 // Conditions that a ChemDraw file keeps in a group of their own, out of the group of their arrow, stay there: opening,
@@ -67,7 +65,6 @@ const groupsIn = (x: Xml, depth = 0): { depth: number; integral: boolean; kids: 
   assert.equal(wholeGroups(back), back);
   // When the arrow is in no group, the group of one text goes, as other groups of one thing do.
   assert.equal(wholeGroups({ ...m, groups: [m.groups![1]] }).groups?.length ?? 0, 0);
-  console.log("groups.check: conditions in a group of their own ok");
 }
 
 // Sam's corpus: each file with groups opens with its nested groups and every Integral flag, and keeps them through a

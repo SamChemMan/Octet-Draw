@@ -3,11 +3,8 @@
 // the Lab group's line style (art.mjs path data, 40 units to a bond length, y down). Each is worked out here from
 // simple geometry.
 import { PICTOGRAMS } from "../../src/ghs.ts";
-import { art, circle, fine, ink, solid } from "./art.mjs";
+import { art, circle, deg, f, fine, ink, PER, solid } from "./art.mjs";
 
-const PER = { per: 40 };
-const f = (v) => Math.round(v * 100) / 100;
-const deg = Math.PI / 180;
 const pt = (r, a) => `${f(r * Math.cos(a * deg))} ${f(r * Math.sin(a * deg))}`;
 // A closed polygon through points at radii rs (in turn) and even angles, the first straight up.
 const polygon = (n, rs, start = -90) => `M${Array.from({ length: n }, (_, k) => pt(rs[k % rs.length], start + (360 / n) * k)).join("L")}Z`;

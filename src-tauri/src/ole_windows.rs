@@ -45,7 +45,7 @@ use windows::Win32::System::Com::{
     SERVERCALL_ISHANDLED, SERVERCALL_RETRYLATER, STATFLAG_NONAME, STATSTG, STGC_DEFAULT, STGM, STGM_CREATE, STGM_READ, STGM_READWRITE, STGM_SHARE_EXCLUSIVE, STGM_WRITE, STGMEDIUM,
     STGMEDIUM_0, TYMED_ENHMF, TYMED_HGLOBAL, TYMED_ISTORAGE, TYMED_MFPICT,
 };
-use windows::Win32::System::DataExchange::{RegisterClipboardFormatW, METAFILEPICT};
+use windows::Win32::System::DataExchange::METAFILEPICT;
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::Rpc::I_RpcBindingInqLocalClientPID;
 use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
@@ -113,13 +113,6 @@ fn container_gone(e: &Error) -> bool {
     const RPC_S_SERVER_UNAVAILABLE: HRESULT = HRESULT(0x8007_06BA_u32 as i32);
     const RPC_S_CALL_FAILED: HRESULT = HRESULT(0x8007_06BE_u32 as i32);
     [RPC_E_DISCONNECTED, RPC_E_SERVER_DIED, RPC_E_SERVER_DIED_DNE, CO_E_OBJNOTCONNECTED, RPC_S_SERVER_UNAVAILABLE, RPC_S_CALL_FAILED].contains(&e.code())
-}
-
-// The format number Windows gives a name (the same in every program).
-fn registered(name: &str) -> u16 {
-    let w = wide(name);
-    // SAFETY: `w` is a NUL-terminated UTF-16 string that lives for the call.
-    unsafe { RegisterClipboardFormatW(PCWSTR(w.as_ptr())) as u16 }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -416,7 +409,7 @@ fn write_storage(stg: &IStorage, oct: &str, size: (i32, i32)) -> Result<()> {
     // SAFETY: COM calls on a live storage; the strings and the bytes live for each call.
     unsafe {
         WriteClassStg(stg, &CLASS)?;
-        WriteFmtUserTypeStg(stg, registered(super::NAME), PCWSTR(name.as_ptr()))?;
+        WriteFmtUserTypeStg(stg, crate::clipboard::win::format(super::NAME) as u16, PCWSTR(name.as_ptr()))?;
         let s = stg.CreateStream(PCWSTR(stream.as_ptr()), STGM_CREATE | STGM_WRITE | STGM_SHARE_EXCLUSIVE, 0, 0)?;
         let bytes = oct.as_bytes();
         let len = u32::try_from(bytes.len()).map_err(|_| fail(E_INVALIDARG))?;
@@ -799,7 +792,7 @@ impl Drawing {
     }
 
     fn formats(&self) -> Vec<FORMATETC> {
-        vec![formatetc(registered(super::EMBED_SOURCE), TYMED_ISTORAGE.0), formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0), formatetc(CF_METAFILEPICT.0, TYMED_MFPICT.0)]
+        vec![formatetc(crate::clipboard::win::format(super::EMBED_SOURCE) as u16, TYMED_ISTORAGE.0), formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0), formatetc(CF_METAFILEPICT.0, TYMED_MFPICT.0)]
     }
 
     // A picture from the window. Its frame is the size from now on. A changed drawing (Update) drops the size Word
@@ -1485,9 +1478,9 @@ fn clip_object(types: &[(u16, &str, Vec<u8>)], oct: String) -> IDataObject {
     let mut items = Vec::new();
     for name in super::clipboard_order(true, &names) {
         if name == super::EMBED_SOURCE {
-            items.push((formatetc(registered(name), TYMED_ISTORAGE.0), Payload::Storage(oct.clone(), size)));
+            items.push((formatetc(crate::clipboard::win::format(name) as u16, TYMED_ISTORAGE.0), Payload::Storage(oct.clone(), size)));
         } else if name == super::OBJECT_DESCRIPTOR {
-            items.push((formatetc(registered(name), TYMED_HGLOBAL.0), Payload::Bytes(super::object_descriptor(size))));
+            items.push((formatetc(crate::clipboard::win::format(name) as u16, TYMED_HGLOBAL.0), Payload::Bytes(super::object_descriptor(size))));
         } else if let Some((cf, _, b)) = types.iter().find(|(_, n, _)| *n == name) {
             if *cf == CF_ENHMETAFILE.0 {
                 items.push((formatetc(*cf, TYMED_ENHMF.0), Payload::Emf(b.clone())));
@@ -1660,7 +1653,7 @@ mod tests {
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
                 let mut m = data.GetData(&formatetc(CF_METAFILEPICT.0, TYMED_MFPICT.0)).unwrap();
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
-                let mut m = data.GetData(&formatetc(registered(super::super::EMBED_SOURCE), TYMED_ISTORAGE.0)).unwrap();
+                let mut m = data.GetData(&formatetc(crate::clipboard::win::format(super::super::EMBED_SOURCE) as u16, TYMED_ISTORAGE.0)).unwrap();
                 let stg = m.u.pstg.as_ref().cloned().unwrap();
                 assert_eq!(read_storage(&stg).as_deref(), Ok(OCT));
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
@@ -1683,7 +1676,7 @@ mod tests {
     #[test]
     fn the_copy_puts_the_object_first() {
         ole(|| {
-            let types = vec![(CF_ENHMETAFILE.0, crate::clipboard::ENHMETAFILE, b"x".to_vec()), (registered("SMILES"), "SMILES", b"CO\0".to_vec())];
+            let types = vec![(CF_ENHMETAFILE.0, crate::clipboard::ENHMETAFILE, b"x".to_vec()), (crate::clipboard::win::format("SMILES") as u16, "SMILES", b"CO\0".to_vec())];
             let data = clip_object(&types, OCT.into());
             // SAFETY: COM calls on live objects.
             unsafe {
@@ -1692,8 +1685,8 @@ mod tests {
                 let mut n = 0;
                 let _ = e.Next(&mut got, Some(&mut n));
                 let cfs: Vec<u16> = got[..n as usize].iter().map(|f| f.cfFormat).collect();
-                assert_eq!(cfs, [registered("Embed Source"), registered("Object Descriptor"), CF_ENHMETAFILE.0, registered("SMILES")]);
-                let mut m = data.GetData(&formatetc(registered("Embed Source"), TYMED_ISTORAGE.0)).unwrap();
+                assert_eq!(cfs, [crate::clipboard::win::format("Embed Source") as u16, crate::clipboard::win::format("Object Descriptor") as u16, CF_ENHMETAFILE.0, crate::clipboard::win::format("SMILES") as u16]);
+                let mut m = data.GetData(&formatetc(crate::clipboard::win::format("Embed Source") as u16, TYMED_ISTORAGE.0)).unwrap();
                 assert_eq!(read_storage(m.u.pstg.as_ref().unwrap()).as_deref(), Ok(OCT));
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
             }

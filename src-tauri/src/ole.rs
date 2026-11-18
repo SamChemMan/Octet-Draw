@@ -137,12 +137,8 @@ pub fn repair(registered: Option<&str>, me: &Path, exists: impl Fn(&Path) -> boo
 // Windows starts a local server with -Embedding (or /Embedding) when Word needs one. Octet then opens no Home window
 // and gives none of its arguments to open::from_args.
 // https://learn.microsoft.com/windows/win32/com/localserver32 ("-Embedding")
-pub fn is_embedding_arg(arg: &str) -> bool {
-    arg.eq_ignore_ascii_case("-embedding") || arg.eq_ignore_ascii_case("/embedding")
-}
-
 pub fn embedding<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> bool {
-    args.into_iter().skip(1).any(|a| is_embedding_arg(&a.to_string_lossy()))
+    args.into_iter().skip(1).any(|a| a.eq_ignore_ascii_case("-embedding") || a.eq_ignore_ascii_case("/embedding"))
 }
 
 // The picture's size in hundredths of a millimetre (HIMETRIC), from the EMF header's frame (rclFrame, already in

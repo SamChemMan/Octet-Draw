@@ -12,8 +12,9 @@
 // Nothing comes from another program's files.
 import { readFileSync, writeFileSync } from "node:fs";
 import { HBOND } from "../../src/render.ts";
+import { browser, loadOpsin, norender } from "../../scripts/checkkit.ts";
 import { LAB, TLC } from "./lab.mjs";
-import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel, PADDLEWHEELS, stereocentres } from "./perspective.mjs";
+import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel, PADDLEWHEELS, r3, stereocentres } from "./perspective.mjs";
 import { clashes } from "./clashes.mjs";
 import { CP_RINGS, DPPF, METALLOCENES } from "./organometallics.mjs";
 import { CARBON, POLYHEDRA } from "./polyhedra.mjs";
@@ -26,25 +27,9 @@ import { SYMBOLS } from "./symbols.mjs";
 import { PHOTOCHEM } from "./photochem.mjs";
 
 const root = new URL("../../", import.meta.url);
-const pack = readFileSync(new URL("src/vendor/opsin/opsin-data.bin", root));
-const files = new Map();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-globalThis.opsinResource = (name) => files.get(name) ?? null;
-const opsin = await import(new URL("src/vendor/opsin/opsin.js", root).href);
-opsin.init();
-const indigo = await (await import(new URL("node_modules/indigo-ketcher/indigo-ketcher-norender.js", root).href)).default();
-// chem.ts (for InChIs) reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-Object.assign(globalThis, {
-  document: { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) }, getComputedStyle: () => ({ getPropertyValue: () => "10" }),
-  window: globalThis, self: { location: { origin: "file://" } },
-  fetch: async (u) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } }),
-});
+const opsin = await loadOpsin(), indigo = await norender();
+// chem.ts (for InChIs) reads the drawing tokens and loads Indigo's wasm as a browser does.
+browser();
 const chem = await import(new URL("src/chem.ts", root).href);
 await chem.ready;
 
@@ -168,7 +153,6 @@ const FISCHER = [
 const opts = new indigo.MapStringString();
 opts.set("output-content-type", "application/json");
 opts.set("dearomatize-on-load", "true");
-const r3 = (n) => Math.round(n * 1000) / 1000 + 0;
 const failed = [];
 const smilesOf = (source) => { if (source.startsWith("smiles:")) return source.slice(7); try { return opsin.parseToSmiles(source) || ""; } catch { return ""; } };
 const inchiOf = (s) => { try { return chem.toInchi(s); } catch { return undefined; } };

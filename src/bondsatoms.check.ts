@@ -7,7 +7,7 @@ import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { DEFAULT_STYLE, darkColour, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems, showWarnedHydrogens } from "./check.ts";
-import { addSymbol, markNear, moveMark, lowerBond, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens, toggleLonePairs } from "./edit.ts";
+import { addSymbol, markNear, moveMark, lowerBond, atomAt, bondAt, bondOrders, clickBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens, toggleLonePairs } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -31,7 +31,7 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   const text = toCdxml(m, DEFAULT_STYLE);
   assert.match(text, /<b\s[^>]*Order="4"/);
   assert.equal(roundTrip(m).bonds[0].type, QUADRUPLE);
-  assert.equal(cycleBond(m, 0).bonds[0].type, 1, "a click with the single bond tool makes it single");
+  assert.equal(clickBond(m, 0, { type: 1 }, [0, 0]).bonds[0].type, 1, "a click with the single bond tool makes it single");
 }
 // A hydrogen bond is dotted, adds nothing to valence, and is ChemDraw 26's DottedHydrogen display.
 {
@@ -46,7 +46,7 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   // The spec's hydrogen order and an older dotted bond read as hydrogen bonds too.
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Order="hydrogen"')).mol.bonds[1].type, HBOND);
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Display="Dot"')).mol.bonds[1].type, HBOND);
-  assert.equal(cycleBond(m, 1).bonds[1].type, HBOND, "a hydrogen bond stays one");
+  assert.equal(clickBond(m, 1, { type: 1 }, [0, 0]).bonds[1].type, HBOND, "a hydrogen bond stays one");
   // No bond becomes a hydrogen bond (ChemDraw's tool only joins two atoms); a hydrogen bond can become another bond.
   assert.equal(setBondSpec(m, 0, { type: HBOND }), m);
   assert.equal(setBondSpec(m, 1, { type: 1 }).bonds[1].type, 1);
@@ -56,7 +56,6 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   assert.deepEqual(parse(serialize(m)).bonds.map((x) => x.type), [1, HBOND]);
   assert.deepEqual(parse(serialize({ ...m, bonds: [b(0, 1, { type: QUADRUPLE })] })).bonds.map((x) => x.type), [QUADRUPLE]);
 }
-console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
 
 // CD-9. Two bonds that cross in a flat drawing: the one behind has a gap where the front one passes, as wide as the
 // front bond and clear of it by a margin. The later bond is in front; in a structure with depth, the nearer one
@@ -101,7 +100,6 @@ console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
   }
   assert.equal(setBondSpec(red, 2, { type: 1, stereo: 1 }).bonds[2].colour, "#FF0000", "a wedge keeps the colour too");
 }
-console.log("bondsatoms.check: crossing bonds and bond order ok");
 
 // CD-21. A label's alignment set by hand: OMe with its bond on the right reads MeO by itself; Flush Left keeps OMe,
 // Centred puts the whole label on the atom, Stacked Above puts Me over O. NH2 Flush Right is H2N.
@@ -128,7 +126,6 @@ console.log("bondsatoms.check: crossing bonds and bond order ok");
   assert.equal(roundTrip(ome()).atoms[0].align, undefined);
   assert.equal(parse(serialize(ome("centre"))).atoms[0].align, "centre");
 }
-console.log("bondsatoms.check: label alignment ok");
 
 // A label Octet has no abbreviation for reads right to left by its words, never letter by letter: ODMT with its bond on
 // the right is DMTO (it was TMDO), NPhth is PhthN, CH2ODMT is DMTOH2C, and a generic or unknown word (SEM, ALK) reads as
@@ -143,7 +140,6 @@ console.log("bondsatoms.check: label alignment ok");
   assert.equal(roundTrip(flush).atoms[0].align, "left");
   assert.equal(parse(serialize(flush)).atoms[0].align, "left");
 }
-console.log("bondsatoms.check: unknown abbreviations read right to left by word ok");
 
 // CD-21. Interpret Chemically off: the label is its text (an N with two H stays NH2), saved as an Unspecified node
 // whose label is InterpretChemically="no", as ChemDraw saves it. On again, a label that reads as its element with its
@@ -165,7 +161,6 @@ console.log("bondsatoms.check: unknown abbreviations read right to left by word 
   assert.deepEqual([back.text, back.chemical], ["NH2", false]);
   assert.equal(parse(serialize(off)).atoms[0].chemical, false);
 }
-console.log("bondsatoms.check: interpret chemically ok");
 
 // CD-35. Toggle Hydrogen Display hides explicit H on carbon and keeps an H that means something: on a heteroatom,
 // charged, an isotope, on a stereo bond or a stereocentre. A hidden H is not drawn nor hit, still counts towards
@@ -208,7 +203,6 @@ console.log("bondsatoms.check: interpret chemically ok");
   assert.equal(near(render(t, S, ink), 0), "CH4", "the carbon shows, with its hidden H in its label");
   assert.equal(near(render(t, S, ink), 5), "", "a carbon with a bond in view stays a skeletal carbon");
 }
-console.log("bondsatoms.check: hidden hydrogens ok");
 
 // CD-26. A mark moved round its atom keeps its angle; lone pairs can be bars; an attachment point can be ChemDraw's
 // diamond or star, and the bond stops at it.
@@ -275,7 +269,6 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   assert.deepEqual(flipAtoms(water({ angles: { pair0: 30 } }), all, "vertical", true).atoms[0].angles, { pair0: -30 });
   assert.deepEqual(rotateAtoms(moved, new Set([1]), 90).atoms[0].angles, { pair0: 90 }, "an atom not turned keeps its marks");
 }
-console.log("bondsatoms.check: placed and styled symbols ok");
 
 // Charges, radicals and lone pairs moved by hand (Sam's feedback, November 2026): a drag with Select on a mark moves it
 // round its atom in 15° steps (free without Fixed Angles or with Option); it stays with the atom and keeps its place
@@ -328,7 +321,6 @@ console.log("bondsatoms.check: placed and styled symbols ok");
   assert.ok(down.indexOf("handle && handle.which !== \"add\" ? undefined") > 0 && down.indexOf("handle && handle.which !== \"add\" ? undefined") < down.indexOf("setDrag({ kind: \"mark\""), "the handle before the mark");
   assert.match(editor, /arrowEndAt\(p\) === undefined \? markNear\(/);
 }
-console.log("bondsatoms.check: marks moved by hand ok");
 
 // CD-28. The named palette is saved with the document, in Octet's data and in the CDXML colour table (ChemDraw's
 // document palette); Octet reads the names back. So is a background colour of the user's own.

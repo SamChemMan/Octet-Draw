@@ -4,14 +4,9 @@
 // table is written for what it cannot hold. Also that the four commands stay in File > More Formats.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { importStructure, parseStructure, ready, toCml, toInchi } = await import("./chem.ts");
 const { fromCt, toCt, toSln } = await import("./textformats.ts");
 type Mol = import("./render.ts").Mol;
@@ -92,7 +87,8 @@ assert.match(editor, /sln: \["SLN", \(m\) => toSln\(m\) \?\? ""\]/);
 assert.match(editor, /if \(f === "cml"\) return toCml\(part\);\n\s+if \(f === "ct"\) return toCt\(part, name\);/);
 assert.match(editor, /invoke<\[string, string\] \| null>\("import_structure", \{ ct \}\)/);
 assert.match(editor, /importStructure\(ct \? fromCt\(picked\[1\]\) : picked\[1\]\)/);
-assert.match(editor, /exportFile\(\{ name, format: f, mdl: text \}\)/);
+assert.match(editor, /exportAs\(\(\) => \(\{ format: f, mdl: text \}\)\)/);
+assert.match(editor, /async function exportAs\([^]*?const path = await exportFile\(\{ name, \.\.\.r \}\);\n\s+if \(path\) saved\(path, text\?\.\(path\)\);/);
 assert.match(exportRs, /\("cml", "Chemical Markup Language \(CML\)", &\["cml"\]\),\n\s+\("ct", "Connection Table \(CT\)", &\["ct"\]\),/);
 assert.match(main, /if ct == Some\(true\) \{ \("Connection Table \(CT\)", &\["ct"\]\) \}/);
 console.log("textformats.check: CML, connection tables and SLN ok");

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { anchorElement, attachmentFirst, chemicalText, formulaRuns, isElement, labelSmiles, pieces, standsIn, units } from "./labels.ts";
 import { render, type Ink } from "./render.ts";
 import { widthOf } from "./arial.ts";
+import { browser } from "../scripts/checkkit.ts";
 
 assert.deepEqual(units("CO2Et").map((u) => [u.text, u.count ?? ""]), [["C", ""], ["O", "2"], ["Et", ""]]);
 assert.deepEqual(units("NHBoc").map((u) => u.text), ["N", "H", "Boc"]);
@@ -64,7 +65,6 @@ for (const [t, want] of Object.entries({
 })) assert.equal(runs(t), want, t);
 // A label of more than one line is text: no chemistry reads it (it counts as an unknown atom), and it is no element.
 for (const t of ["Direct,\nNo ISC", "OMe\nCH3", "N\nH"]) assert.ok(labelSmiles(t) === undefined && !isElement(t), JSON.stringify(t));
-console.log("labels.check: ok");
 
 // Issue 44: the counts inside a bracket are subscripts on the canvas and in pictures, as the 2 after it is (and as
 // ChemDraw draws the CDXML). Pieces keep the label's text in order; reading a label for its chemistry is unchanged.
@@ -116,7 +116,6 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
       assert.ok(l.x > fe.x, `III after Fe (${dx > 0 ? "left to right" : "right to left"})`);
     }
   }
-  console.log("labels.check: superscript and subscript in labels ok");
 }
 
 // The labels of the paper corpus (docs/plans/mcp-v2-corpus-faults.md, 11 November 2026). Each family is read by one
@@ -211,20 +210,13 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     assert.ok(least < 300, `${first}${name}${name}… of 20,000 letters: ${least.toFixed(0)} ms`);
     assert.equal(labelSmiles(first + name.repeat(60000 / name.length) + "x"), undefined);
   }
-  console.log("labels.check: hyphens, labels written from the left, diolates, phenyls with positions, isotopes and stand-ins ok");
 }
 
 // The same labels as structures: each on a benzene ring is the compound written in full (its SMILES, from which the
 // InChIKey is worked out, and its formula, written here by hand), and read_drawing's SMILES marks no radical on a
 // group's first atom.
 {
-  const { readFileSync } = await import("node:fs");
-  const g = globalThis as Record<string, unknown>;
-  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-  g.window = globalThis;
-  g.self = { location: { origin: "file://" } };
-  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  browser();
   const { analyse, expandLabels, parseStructure, ready, toInchiKey, toSmiles } = await import("./chem.ts");
   const { problems } = await import("./check.ts");
   await ready;

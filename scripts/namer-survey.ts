@@ -1,26 +1,20 @@
-// Run: node src/namer.check.ts. Each name becomes a structure (OPSIN), Octet names the structure, and OPSIN must read
-// Octet's name back as the same structure (same standard InChI). No wrong names are allowed; misses are counted.
-
-import { existsSync, readFileSync } from "node:fs";
+// The gap survey (not a check): every name OPSIN knows by name (names.txt), Octet's reagent names (common.ts) and
+// drug names (drugs.ts), drawn from OPSIN's SMILES, then named by Octet and read back. Prints the reasons Octet
+// gives no name, largest first, and every name that reads back as a different structure.
+// Run: node scripts/namer-survey.ts [limit | corpus] [--save file]. --save writes the inputs named right to the file,
+// one per line, and the wrong ones to file.wrong, so two versions of the namer can be compared input by input.
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { browser, loadOpsin, needOpsin, norender, opsinDir } from "./checkkit.ts";
+import { COMMON } from "../src/common.ts";
+import { DRUGS } from "../src/drugs.ts";
 import { graphOf } from "../src/naming.ts";
-import { iupacName, iupacNameWhy } from "../src/namer.ts";
+import { iupacNameWhy } from "../src/namer.ts";
 import type { Mol } from "../src/render.ts";
 
-const dir = new URL("../src/vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("namer.check: skipped (no OPSIN build)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+needOpsin("namer.check: skipped (no OPSIN build)");
+const opsin = await loadOpsin();
+const indigo = await norender();
 const convert = (s: string, f: string, dearomatize = false) => {
   const o = new indigo.MapStringString();
   if (dearomatize) o.set("dearomatize-on-load", "true");
@@ -50,14 +44,8 @@ const molOf = (smiles: string): Mol => {
   return { atoms: m.atoms.map((a) => ({ label: a.label, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), location: [0, 0, 0] as [number, number, number] })), bonds: m.bonds.map((b) => ({ type: b.type, atoms: b.atoms })) };
 };
 // The CIP labels Octet gives (src/cip.ts) the structure as it draws it from the SMILES (Indigo's layout, with wedges),
-// on the atoms and bonds of `parsed`. chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does;
-// these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+// on the atoms and bonds of `parsed`.
+browser();
 const chem = await import("../src/chem.ts");
 await chem.ready;
 let otherOrder = 0;
@@ -77,29 +65,18 @@ const hydrogensOf = (smiles: string) => {
   try { return [...String(JSON.parse(indigo.calculate(smiles, o, sel))["gross-formula"]).matchAll(/\bH(\d*)(?![a-z])/g)].reduce((t, m) => t + Number(m[1] || 1), 0); } finally { o.delete(); sel.delete(); }
 };
 
-
-// The gap survey (not a check): every name OPSIN knows by name (names.txt), Octet's reagent names (common.ts) and
-// drug names (drugs.ts), drawn from OPSIN's SMILES, then named by Octet and read back. Prints the reasons Octet
-// gives no name, largest first, and every name that reads back as a different structure.
-// Run: node scripts/namer-survey.ts [limit | corpus] [--save file]. --save writes the inputs named right to the file,
-// one per line, and the wrong ones to file.wrong, so two versions of the namer can be compared input by input.
-import { COMMON } from "../src/common.ts";
-import { DRUGS } from "../src/drugs.ts";
-void iupacName;
 const args = process.argv.slice(2), at = args.indexOf("--save");
 const save = at < 0 ? undefined : args.splice(at, 2)[1];
 const corpus = args[0] === "corpus";
 const limit = corpus ? Infinity : Number(args[0] ?? Infinity);
 const inputs: string[] = [...new Set([
-  ...readFileSync(new URL("names.txt", dir), "utf8").split("\n").map((s) => s.trim()).filter(Boolean),
+  ...readFileSync(new URL("names.txt", opsinDir), "utf8").split("\n").map((s) => s.trim()).filter(Boolean),
   ...Object.values(COMMON).filter((v) => !v.startsWith("smiles:")),
   ...Object.keys(DRUGS),
 ])].slice(0, limit);
 // "corpus": the structures in Sam's ChemDraw files (~/octet-research/corpus/sam), read by Indigo, one per fragment.
 const drawings = new Map<string, Mol>(); // corpus: each structure's drawing, labels expanded, by its SMILES
 if (corpus) {
-  const { readdirSync } = await import("node:fs");
-  const { homedir } = await import("node:os");
   const { fromCdxml } = await import("../src/cdxml.ts");
   const { fragments, subset } = await import("../src/edit.ts");
   const folder = `${homedir()}/octet-research/corpus/sam`;
@@ -195,5 +172,5 @@ if (unread.length) console.log(`names OPSIN cannot read (${unread.length}): ${un
 if (otherOrder) console.log(`left out, read in another atom order (${otherOrder})`);
 if (otherH.length) console.log(`left out, drawn with other hydrogen counts (${otherH.length}): ${otherH.slice(0, 6).join("; ")}`);
 for (const [k, v] of [...why].sort((a, b) => b[1].length - a[1].length)) console.log(`${String(v.length).padStart(5)}  ${k}: ${v.slice(0, 6).join("; ")}`);
-if (save) { const { writeFileSync } = await import("node:fs"); writeFileSync(save, `${right.join("\n")}\n`); writeFileSync(`${save}.wrong`, `${wrong.join("\n")}\n`); }
+if (save) { writeFileSync(save, `${right.join("\n")}\n`); writeFileSync(`${save}.wrong`, `${wrong.join("\n")}\n`); }
 if (wrong.length) console.log(`WRONG (${wrong.length}): ${wrong.slice(0, 40).join("; ")}`);

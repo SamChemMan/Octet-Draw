@@ -5,21 +5,10 @@
 // Also builds src/abbreviations.json: for each structure in common.ts, by standard InChI, the first key listed for it
 // that Octet can cite (citable), for Structure to Name and the Structure panel.
 // Run after changing common.ts or drugs.ts: node tools/names/index.mjs (src/names.check.ts fails until then).
-import { readFileSync, writeFileSync } from "node:fs";
-const src = new URL("../../src/", import.meta.url), dir = new URL("vendor/opsin/", src);
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-globalThis.opsinResource = (name) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir));
-opsin.init();
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", src))).default();
+import { writeFileSync } from "node:fs";
+import { loadOpsin, norender } from "../../scripts/checkkit.ts";
+const src = new URL("../../src/", import.meta.url);
+const opsin = await loadOpsin(), indigo = await norender();
 const { COMMON, citable } = await import(new URL("common.ts", src));
 const { DRUGS, KNOWN } = await import(new URL("drugs.ts", src));
 const { hydrogens, NONMETAL, orderOf } = await import(new URL("render.ts", src));

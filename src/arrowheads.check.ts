@@ -19,7 +19,6 @@ const want: Record<ArrowKind, [boolean, boolean]> = {
   line: [true, true], arc: [true, true], curve: [true, true], equilibrium: [false, true], retro: [false, false], block: [false, false], orbital: [false, false], cut: [false, false],
 };
 for (const kind of ALL_ARROW_KINDS) assert.deepEqual([takesHeads({ kind }), shapesHeads({ kind })], want[kind], kind);
-console.log("arrowheads.check: kinds ok");
 
 // Drawn: a no-go, hash or dipole arrow draws a head at its start when given one, and its heads' shape; an
 // equilibrium's half heads take a shape too.
@@ -34,7 +33,6 @@ for (const kind of ["nogo", "hash", "dipole"] as const) {
 for (const head of ["hollow", "angled"] as const) assert.notEqual(draw(A("equilibrium", { head })), draw(A("equilibrium")), `equilibrium: ${head} heads`);
 // An angled head's barb is a bar from the tip; a hollow one adds its back.
 assert.ok(arrowShapes(A("equilibrium", { head: "hollow" }), S, k).length > arrowShapes(A("equilibrium", { head: "angled" }), S, k).length);
-console.log("arrowheads.check: drawn ok");
 
 // A cycle's head shape and size reach every arrow drawn from it: its arcs (a reversible step's pair too) and side
 // arrows. Small, the default, leaves each kind's own size.
@@ -50,7 +48,6 @@ for (const a of shaped) {
   assert.deepEqual(headSize(a), sizedHead(a, "large"), `${a.kind}: size`);
 }
 assert.equal(headSize(laid({ ...cycle, arrowSize: "medium" }).find((a) => a.kind === "curved")!).length, 15);
-console.log("arrowheads.check: cycles ok");
 
 // Saved: .oct and CDXML keep every arrow's heads and shape, and a cycle's. An equilibrium with hollow heads stays an
 // equilibrium in CDXML (ChemDraw's block arrow is also hollow with a shaft spacing).
@@ -81,7 +78,6 @@ const bad = JSON.parse(serialize(drawing));
 bad.cycles[0].head = "<script>";
 bad.cycles[0].arrowSize = 9;
 assert.deepEqual([parse(JSON.stringify(bad)).cycles![0].head, parse(JSON.stringify(bad)).cycles![0].arrowSize], [undefined, undefined]);
-console.log("arrowheads.check: saved ok");
 
 // Curves > Solid, Hollow and Angled Arrowhead (ChemDraw's arrow menu has them; Octet's Curves menu has them too, after
 // the half heads): on for arrows whose heads take a shape and for catalytic cycles (and a cycle's side-arrow text),
@@ -114,7 +110,6 @@ const editorTsx = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editorTsx, /HEAD_SHAPES\.map\(\(h\) => \[`curves_head_\$\{h\}`, \(\) => \{ const m = headMenu\(contextOf\(\)\); if \(m\.head\) runAction\(`\$\{m\.cycle \? "cycle" : "arrow"\}\.head\.\$\{h\}`\); \}\]\)/);
 assert.match(editorTsx, /invoke\("set_check", \{ id: `curves_head_\$\{h\}`, checked: heads\.head === h, enabled: !!heads\.head \}\)/);
 assert.match(editorTsx, /const heads = headMenu\(panelContext\);/);
-console.log("arrowheads.check: Curves menu ok");
 // Right-click an arrow, a catalytic cycle or its side arrow's text: the menu offers the Actions panel's picks (ChemDraw's
 // arrow menu has the line, the heads at each end, the fill and the kind), from the same lists (arrowPicks, arrowKind).
 const arrow = { kind: "arrow", arrow: "reaction", ratio: 1, heads: true, shaped: true, curved: false, fillable: false, size: "small", style: "plain", start: "none", end: "full", head: "hollow", fill: "none" };

@@ -19,7 +19,6 @@ assert.deepEqual([fmt(30), fmt(14.4), fmt(0.6), fmt(-0.001), fmt(523.2756), fmt(
 assert.deepEqual([fmtColour(0), fmtColour(1), fmtColour(0.6), fmtColour(0.63529)], ["0", "1", "0.6000", "0.6353"]);
 assert.deepEqual([fmtAngle(-120), fmtAngle(44.63), fmtAngle(-0.01), fmtAngle(270)], ["-120", "44.6", "0", "270"]);
 assert.deepEqual([fmtSize(7.5), fmtSize(10), fmtSize(9.65)], ["7.5", "10", "9.65"]);
-console.log("cdxml.check: numbers ok");
 
 // A drawing with every kind of object Octet has (coordinates in bond lengths, y up).
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
@@ -187,7 +186,6 @@ assert.ok(/<t\s[^>]*\sLineHeight="18"/.test(text) && /<t\s[^>]*\sCaptionLineHeig
   const wrapped = fromCdxml('<CDXML BondLength="14.4"><page><t p="0 0" WordWrapWidth="57.6" CaptionLineHeight="variable"><s font="3" size="10">a b</s></t></page></CDXML>');
   assert.deepEqual([wrapped.mol.captions?.[0].width, wrapped.mol.captions?.[0].lineHeight], [57.6 / wrapped.style.bond, "variable"]);
 }
-console.log("cdxml.check: every object kind round trips");
 
 // The file is laid out as ChemDraw writes it: the two header lines, the root's ACS settings, tables, then the page.
 {
@@ -209,7 +207,6 @@ console.log("cdxml.check: every object kind round trips");
   // The reaction: drawing 1 to drawing 2 over arrow 101, with its conditions and the mapped atoms.
   const step = all.find((x) => x.name === "step" && x.attrs.ReactionStepReactants)!;
   assert.ok(step.attrs.ReactionStepProducts && step.attrs.ReactionStepObjectsAboveArrow === "5" && step.attrs.ReactionStepObjectsBelowArrow === "6" && step.attrs.ReactionStepAtomMapManual);
-  console.log("cdxml.check: layout ok");
 }
 
 // Another page and style, and only part of a drawing (the clipboard).
@@ -273,7 +270,6 @@ console.log("cdxml.check: every object kind round trips");
   const expanded = toCdxml(drawing, DEFAULT_STYLE, { expand: (t) => (t === "Ph" ? phenyl : undefined) });
   assert.ok(expanded.includes('NodeType="Fragment"') && expanded.includes('NodeType="ExternalConnectionPoint"'));
   same(drawing, fromCdxml(expanded).mol, "expanded labels");
-  console.log("cdxml.check: selection, derived arrows and abbreviations ok");
 }
 
 // A file in ChemDraw's own form (written here by hand): legacy copies skipped for their arrows, legacy graphics on
@@ -337,7 +333,6 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(mol.shapes![0].picture, { PNG: "89504E47" }); // a picture is kept as it came, at the back as it has no Z (REL-15)
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
-  console.log("cdxml.check: ChemDraw's form read");
 }
 
 // ChemDraw's arrow sizes and kinds as its own files hold them (CD-14, CD-15): a bold arrow's doubled head (its own
@@ -381,7 +376,6 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
     const back = fromCdxml(text).mol.arrows![0];
     assert.deepEqual([back.kind, back.point, Math.abs(back.bend! - 0.3) < 1e-3, back.ratio], ["equilibrium", true, true, 3]);
   }
-  console.log("cdxml.check: ChemDraw's arrow sizes and kinds read and written");
 }
 
 // ChemDraw's turned and bold shapes (CD-18): a box turned 30° (its frame's axes turned, clockwise on the page with y
@@ -398,7 +392,6 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   const [oval, box] = mol.shapes!;
   assert.deepEqual([oval.kind, oval.boldLine, oval.dashed, oval.order, box.kind, box.fill, box.order], ["oval", true, true, undefined, "box", "solid", 1]);
   assert.ok(Math.abs(box.angle! - 30) < 0.05 && Math.abs(Math.abs(box.to[0] - box.from[0]) - 80 / 14.4) < 2e-3 && Math.abs(Math.abs(box.to[1] - box.from[1]) - 40 / 14.4) < 2e-3);
-  console.log("cdxml.check: ChemDraw's turned, bold and front shapes read");
 }
 
 // ChemDraw's turned text (CD-19): RotationAngle is degrees clockwise on the page times 65536, as in its samples (KMnO4
@@ -417,7 +410,6 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
 <scheme id="20"><step id="21" ReactionStepArrows="10" ReactionStepObjectsAboveArrow="11" ReactionStepObjectsBelowArrow="12"/></scheme></page></CDXML>`;
   const [turned, level] = fromCdxml(step).mol.captions!;
   assert.deepEqual([turned.text, turned.angle, turned.on, level.text, level.on?.side], ["KMnO4", -54, undefined, "H2O", "below"]);
-  console.log("cdxml.check: ChemDraw's turned text read and written");
 }
 
 // Delete takes only what is selected (issue 12). A file that repeats a text's id or leaves it out still gives every
@@ -438,7 +430,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
     const left = deleteGraphics(m, new Set([m.arrows![0].id])).captions!, kept = left.find((c) => c.text === "far");
     assert.deepEqual([left.length, kept?.on, kept?.placed, kept?.x, kept?.y], [5, undefined, undefined, at[0], at[1]], "the arrow's text stays where it is");
   }
-  console.log("cdxml.check: Delete takes only what is selected (issue 12) ok");
 }
 
 // Turned shapes in ChemDraw's form: a box turned 30° by its axes, with its own line width; one bracket lying down
@@ -466,7 +457,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.deepEqual(upright.shapes!.map((sh) => [sh.angle, sh.from[0] < sh.to[0], sh.from[1] < sh.to[1], size(sh)]), [[undefined, true, true, [+(167 / 14.4).toFixed(2), +(215 / 14.4).toFixed(2)]], [undefined, true, true, [+(190 / 14.4).toFixed(2), +(48 / 14.4).toFixed(2)]]]);
   const again = fromCdxml(toCdxml(upright, DEFAULT_STYLE)).mol;
   assert.deepEqual(again.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))), upright.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))));
-  console.log("cdxml.check: turned shapes read");
 }
 
 // Hostile files are refused with a message, or read with the bad parts left out; nothing is expanded or fetched.
@@ -516,7 +506,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
 <fragment><n id="1" p="0 0"/><n id="2" p="14 0"/></fragment><t id="3" p="0 0" Octet='{"cycle":{"cycle":9,"step":0,"side":"in","branch":"x"}}'><s font="1" size="10">x</s></t></page></CDXML>`).mol;
   assert.deepEqual([bounds.cycles?.[0].steps, bounds.cycles?.[0].branches, bounds.captions?.[0].cycle?.branch], [undefined, [{ id: 1, step: 0, in: {} }], 1]);
   parse(serialize(bounds));
-  console.log("cdxml.check: hostile files refused or read safely");
 }
 
 // Atom Properties and the newer marks: an isotope, a singlet radical (a carbene), aromatic circles and a reaction's
@@ -553,7 +542,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
     + `<graphic id="6" BoundingBox="114.4 92 107 92" GraphicType="Symbol" SymbolType="LonePairBar"><represent attribute="Radical" object="4"/></graphic><graphic id="7" BoundingBox="122 100 122 107" GraphicType="Symbol" SymbolType="LonePairBar"/></page></CDXML>`;
   const nb = fromCdxml(nitrene).mol.atoms[1];
   assert.deepEqual([nb.radical, nb.pairs, nb.bars, Object.keys(nb.angles ?? {}).sort()], [3, 1, true, ["pair0", "pair1"]], "ChemDraw's singlet nitrene");
-  console.log("cdxml.check: isotopes, singlet radicals, ring circles and grids ok");
 }
 
 // Atom numbers and the document's label options, and ChemDraw's CH3 labels read back as plain carbons.
@@ -566,7 +554,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   const back = fromCdxml(text);
   assert.deepEqual(back.mol.atoms.map((a) => [a.label, a.text, a.number]), [["C", undefined, "1"], ["C", undefined, "2"], ["O", undefined, undefined]]);
   assert.deepEqual([back.style.terminalLabels, back.style.carbonLabels, back.style.hideH, back.lost], [true, false, false, {}]);
-  console.log("cdxml.check: atom numbers and label options ok");
 }
 
 // ChemDraw's delocalised rings (bonds of order 1.5, a circle oval inside the ring) and its DoubleDashed bond (order 1.5,
@@ -612,7 +599,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.match(arText, /Order="1.5"\s+Display="Dash"\s+Display2="Dash"/);
   assert.deepEqual([fromCdxml(arText).mol.bonds[0].type, fromCdxml(arText).mol.bonds[0].display], [2, "aromatic"]);
   assert.equal(fromCdxml(arText.replace('Order="1.5"', 'Order="2"').replace(/\s+Display2="Dash"/, "")).mol.bonds[0].display, "aromatic");
-  console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
 }
 
 // A shown carbon (ChemDraw's c key): its label goes out with its hydrogens and comes back as a shown carbon, so its
@@ -623,7 +609,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.match(text, /NumHydrogens="3"/);
   assert.deepEqual(again.atoms.map((a) => [a.shown, a.text]), [[true, undefined], [undefined, undefined], [undefined, undefined]]);
   assert.equal(parse(serialize(m)).atoms[0].shown, true);
-  console.log("cdxml.check: shown carbons ok");
 }
 
 // The document's chain angle goes out as ChemDraw's ChainAngle and comes back.
@@ -633,7 +618,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.match(text, /ChainAngle="110"/);
   assert.equal(fromCdxml(text).style.chainAngle, 110);
   assert.equal(fromCdxml(text.replace('ChainAngle="110"', "")).style.chainAngle, 120);
-  console.log("cdxml.check: chain angle ok");
 }
 
 // Bonds come in in the order ChemDraw draws them (Z), so a bond brought to the front stays in front.
@@ -643,7 +627,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.equal(zs.length, 2);
   const swapped = text.replace(new RegExp(`Z="${zs[0]}"`), 'Z="ZA"').replace(new RegExp(`Z="${zs[1]}"`), `Z="${zs[0]}"`).replace('Z="ZA"', `Z="${zs[1]}"`);
   assert.deepEqual(fromCdxml(swapped.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol.bonds.map((x) => x.atoms), [[2, 3], [0, 1]], "ChemDraw's file: by Z");
-  console.log("cdxml.check: bond order ok");
 }
 
 // A structure drawn above a reaction arrow goes out as one of its step's objects above the arrow.
@@ -655,7 +638,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   } as Mol;
   const text = toCdxml(m, DEFAULT_STYLE), frags = [...text.matchAll(/<fragment\s+id="(\d+)"/g)].map((x) => x[1]);
   assert.match(text, new RegExp(`ReactionStepObjectsAboveArrow="${frags[2]}"`));
-  console.log("cdxml.check: structures above the arrow ok");
 }
 
 // REL-28: ChemDraw's annotations (GUIDs, Document Annotations) on the page and on groups are kept and written back,
@@ -678,7 +660,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.deepEqual([saved.annotations, saved.groups?.[0].annotations], [read.mol.annotations, read.mol.groups?.[0].annotations]);
   // Too long to hold: counted, not cut short.
   assert.deepEqual(fromCdxml(chemdraw.replace('Content="[II]"', `Content="${"x".repeat(10_001)}"`)).lost, { annotation: 2 });
-  console.log("cdxml.check: annotations ok");
 }
 
 // Decision 0007: a structure, an arrow and a box at 200%, in a document at 250%. ChemDraw sees each object's own
@@ -725,7 +706,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   const plate = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100"
  BottomRight="200 300" BottomLeft="100 300" ${attrs}><tlclane id="6"><tlcspot id="7" Rf="0.5"/></tlclane></tlcplate></page></CDXML>`);
   assert.deepEqual([plate(`LineWidth="1.20" BoldWidth="4"`).mol.shapes?.[0].scale, plate(`LineWidth="1.20" BoldWidth="2"`).lost], [2, { "line settings": 1 }]);
-  console.log("cdxml.check: scaled objects and the document scale ok");
 }
 
 // IDEA-SCALE-10: a ChemDraw drawing pasted or imported into one of other sizes keeps its text in proportion. A 24 pt
@@ -737,7 +717,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
 <t id="4" p="100 160"><s font="3" size="24" face="0">Big caption</s></t><t id="5" p="100 200"><s font="3" size="12" face="0">Default caption</s></t></page></CDXML>`);
   const fit = fitSizes(r.mol, r.style, { ...DEFAULT_STYLE, labelSize: 14 });
   assert.deepEqual([fit.atoms.map((a) => a.size), fit.captions!.map((c) => c.size)], [[7, undefined], [11.52, 5.76]]);
-  console.log("cdxml.check: paste sizes ok");
 }
 
 // REL-15: text ChemDraw turned (RotationAngle, clockwise on the page about p) keeps its turn, as degrees
@@ -771,7 +750,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   // A Bold shape with a bold width of its own that makes no scale keeps that width as its line width.
   const own = fromCdxml(chemdraw.replace('RectangleType="RoundEdge Dashed Bold"', 'RectangleType="RoundEdge Dashed Bold" LineWidth="0.60" BoldWidth="3"')).mol.shapes![0];
   assert.deepEqual([own.boldLine, own.width], [undefined, 3]);
-  console.log("cdxml.check: turned text and bold shapes ok");
 }
 
 // REL-15: a rounded box's corner and a shadow's depth (ChemDraw's CornerRadius and ShadowSize, hundredths of the
@@ -829,7 +807,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   const long = { ...s.mol, captions: [{ ...s.mol.captions![0], text: "a much longer line of conditions than the arrow" }] };
   assert.deepEqual(fitArrows(long, 14.4, (c) => c.text.length * 5, 1), long.arrows, "text placed by hand does not lengthen its arrow");
   assert.equal(placedAt(s.mol.captions![0], grown.arrows), undefined);
-  console.log("cdxml.check: rounded corners, shadow depths and conditions as drawn ok");
 }
 
 // The grid: a file's grid step is one Settings offers, or the bond length (1e-20 mm once hung Octet, drawing a line
@@ -846,7 +823,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   const shown = { grid: true as const, crosshair: [2, 3] as [number, number] };
   assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: shown }, { ...DEFAULT_STYLE, grid: 10 })).mol.guides, shown);
   assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: {} }, DEFAULT_STYLE)).mol.guides, {});
-  console.log("cdxml.check: grid and guides ok");
 }
 
 // ChemDraw rounds an A4 page to 523 by 770 pt. Octet writes A4 exactly (523.28 by 769.89), and everything keeps its
@@ -857,7 +833,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.equal(a4.style.page, "A4");
   assert.match(out, /<page\s+id="\d+"\s+BoundingBox="0 0 523.28 769.89"/);
   assert.deepEqual([...out.matchAll(/<n\s+id="\d+"\s+p="([^"]+)"/g)].map((m) => m[1]), ["100 100", "114.40 100"]);
-  console.log("cdxml.check: an A4 page's objects keep their places ok");
 }
 
 // Label anchors where Octet draws them. A label that reads right to left (here, its bond from the right) and has more
@@ -900,7 +875,6 @@ ${t(' id="10"', "100 100", "A")}${t(' id="10"', "100 130", "B")}${t("", "100 160
   assert.ok(Math.abs(cd.mol.atoms[0].location[0] - (200 - 270) / 14.4) < 1e-9 && Math.abs(cd.mol.atoms[0].location[1] - (360 - 200) / 14.4) < 1e-9, "the Br sits at its node");
   const [dx, j] = anchor(toCdxml(cd.mol, cd.style)), want = (667 / 2 - arialGlyph("B")[1] + 333 - arialGlyph("r")[2]) / 100;
   assert.ok(Math.abs(dx - want) <= 0.0051 && j === "Right", `and goes back right-justified at ${want.toFixed(3)} pt (${dx.toFixed(3)})`);
-  console.log("cdxml.check: label anchors ok");
 
   // ChemDraw's own justification wins where Octet's automatic one would draw the label another way: a centred Mn
   // between bonds both sides, Ph left-justified on a bond from the right, OH right-justified (HO) on a steep bond, NH
@@ -927,7 +901,6 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   // Drawn centred: the Mn's two letters sit either side of its atom.
   const drawn = render(justified.mol, S, arial), mn = drawn.labels.find((l) => l.text === "Mn")!;
   assert.ok(Math.abs(mn.x + arial("Mn").width / 2 - drawn.labelAt[drawn.labels.indexOf(mn)][0]) < 1e-9, "Mn centred on its atom");
-  console.log("cdxml.check: label justification from ChemDraw ok");
 
   // A turned label (RotationAngle, 359° clockwise: 1° anticlockwise) keeps its turn: read, drawn turned about its
   // anchor, written back and kept in Octet's own file.
@@ -942,7 +915,6 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   const turnedDrawing = render(turnedFile.mol, S, arial), osLabel = turnedDrawing.labels.find((l) => l.text === "Os")!;
   assert.ok(osLabel.angle === 1 && Math.abs(osLabel.pivot![0] - turnedDrawing.labelAt[turnedDrawing.labels.indexOf(osLabel)][0]) < 1e-9, "drawn turned about the middle of its line");
   assert.equal(render({ ...turnedFile.mol, atoms: turnedFile.mol.atoms.map((a) => ({ ...a, labelAngle: undefined })) }, S, arial).labels.find((l) => l.text === "Os")!.angle, undefined);
-  console.log("cdxml.check: label turns ok");
 }
 
 // A label's charge sign that Octet draws anywhere but after the label goes to ChemDraw as a Plus or Minus symbol linked
@@ -970,7 +942,6 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   assert.equal(oxide.back.atoms[0].charge, -1);
   const after = written({ atoms: [A("C", 0, 0), A("O", 1, 0, { charge: -1 })], bonds: [b(0, 1)] });
   assert.ok(after.text(after.nodes[1]) === "O-" && !after.symbols.length, "O- read left to right keeps its sign in the text");
-  console.log("cdxml.check: moved charge signs ok");
 }
 
 // Measured spectra as ChemDraw's spectrum object (decision 0016): written as ChemDraw 26.1 writes one, read back when
@@ -1053,7 +1024,6 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   const two = fromCdxml(`<CDXML BondLength="14.40"><page id="1" BoundingBox="0 0 540 720"><spectrum id="2" XLow="0" XSpacing="1" Class="Infrared">1 2 1</spectrum><spectrum id="3" XLow="0" XSpacing="1" Class="Infrared">1 3 1</spectrum><fragment id="4"><n id="5" p="10 10">${tag("1-2,")}${tag("9000-9001,")}</n></fragment></page></CDXML>`);
   assert.deepEqual([two.mol.spectra!.length, two.lost], [1, { spectrum: 1, "spectrum assignment": 1 }]);
   assert.equal(two.mol.atoms[0].peaks?.length, 1);
-  console.log("cdxml.check: spectra as ChemDraw's spectrum object ok");
 }
 
 // File fidelity: tritium (T) is hydrogen-3 as D is hydrogen-2; an atom number ChemDraw keeps hidden stays hidden.
@@ -1075,7 +1045,6 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   assert.deepEqual(cd.lost, {});
   assert.deepEqual(cd.mol.atoms.map((a) => [a.label, a.text, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, undefined, undefined, "0"], ["T", undefined, undefined, undefined, "1"]]);
   assert.deepEqual(parse(serialize(cd.mol)).atoms.map((a) => a.hiddenNumber), ["0", "1"]);
-  console.log("cdxml.check: tritium and hidden atom numbers ok");
 }
 
 // Labels of more than one line (ChemDraw's Option-Return in a label): one text with the line break in it, LineStarts
@@ -1121,7 +1090,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
     const again = fromCdxml(toCdxml(r, DEFAULT_STYLE)).mol;
     assert.ok(again.atoms.some((a) => a.text === "Direct,\nNo ISC"), "the corpus label keeps its break through Octet's CDXML");
   }
-  console.log("cdxml.check: labels of more than one line ok");
 }
 
 // A label with some characters bold, italic or underlined (typed so, or ChemDraw's label runs, as Sam's "OR" with a
@@ -1144,7 +1112,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   // ChemDraw's own: OR with a bold R, and a label all bold (its own bold, no runs).
   const cd = fromCdxml(`<CDXML BondLength="14.40"><page id="1"><fragment id="2"><n id="3" p="100 100" NodeType="Unspecified"><t p="97 104"><s font="3" size="10" face="96">O</s><s font="3" size="10" face="97">R</s></t></n><n id="4" p="200 100" NodeType="Unspecified"><t p="197 104"><s font="3" size="10" face="97">O</s><s font="3" size="10" face="97">Me</s></t></n></fragment></page></CDXML>`);
   assert.deepEqual(cd.mol.atoms.map((a) => [a.text, a.bold, a.runs]), [["OR", undefined, [{ text: "O" }, { text: "R", bold: true }]], ["OMe", true, undefined]]);
-  console.log("cdxml.check: labels with styled characters ok");
 }
 
 // A label in more than one colour (issue 64, the N of NMe2 in red): each <s> run in the colour it is drawn in, read
@@ -1174,7 +1141,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   // Runs in two colours on a node in a third: the label keeps the node's colour, and the run in another its own.
   const two = fromCdxml(`<CDXML BondLength="14.40"><colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/><color r="1" g="0" b="0"/><color r="0" g="0" b="1"/></colortable><page id="1"><fragment id="2"><n id="3" p="100 100" NodeType="Unspecified" color="5"><t p="97 104" color="4"><s font="3" size="10" color="4" face="96">Me</s><s font="3" size="10" color="5" face="96">O</s></t></n><n id="4" p="114.4 100"/><b id="5" B="3" E="4"/></fragment></page></CDXML>`).mol.atoms[0];
   assert.deepEqual([two.colour, two.runs], ["#0000FF", [{ text: "Me", colour: "#FF0000" }, { text: "O" }]]);
-  console.log("cdxml.check: labels in more than one colour ok");
 }
 
 // A label with part raised or lowered (issue 44, Fe with III raised): written as <s> runs with the superscript face
@@ -1195,7 +1161,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
     assert.deepEqual([back.atoms[2].label, back.atoms[2].text, back.atoms[2].runs], ["O", "OMea", ome.runs]);
     assert.deepEqual([back.atoms[4].isotope, back.atoms[4].text, back.atoms[5].charge, back.atoms[5].text], [13, undefined, 1, undefined]);
   }
-  console.log("cdxml.check: labels with superscript and subscript ok");
 }
 
 // Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.
@@ -1340,7 +1305,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   const q = (c: Caption) => drawn.find((x) => x.id === c.id)!, anchor = (p: Placed) => (p.anchor === "start" ? p.box[0] : p.anchor === "end" ? p.box[2] : (p.box[0] + p.box[2]) / 2);
   const loose = lay(deleteChosen(laid, new Set(), new Set([1, 2]), undefined, (c) => [anchor(q(c)) / 14.4, -q(c).lines[0].y / 14.4], (c) => ({ start: "left", middle: "centre", end: "right" } as const)[q(c).anchor]));
   assert.deepEqual(loose.map((q) => q.box), drawn.map((q) => q.box), "freed text stays where it is drawn");
-  console.log("cdxml.check: deleting one thing leaves the text it was not given ok");
 }
 
 // ChemDraw's predicted shifts (Predict 13C-NMR Shifts): each is an assignment tag on the atom's node holding a text at
@@ -1381,7 +1345,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   // A text tag of exactly the spectrum's value is a link too (ChemDraw's own assignment), with its caption.
   const same = fromCdxml(file((k) => (k === 4 ? tag(4, value, "2.50") : ""), spText));
   assert.deepEqual([same.mol.atoms[4].peaks?.length, same.mol.captions?.map((c) => c.text), same.lost], [1, ["2.50"], {}]);
-  console.log("cdxml.check: ChemDraw's predicted shifts open as captions ok");
 }
 
 // Issue 31: text Octet draws as a formula (conditions on an arrow, a cycle's text) is written as the runs the page
@@ -1419,7 +1382,6 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   // Turned conditions read back as free text, which is not drawn as a formula: they keep the runs, so H₂O stays H₂O.
   const turned = fromCdxml(toCdxml({ ...m, captions: [on(1, "H2O", { angle: 30 })] }, DEFAULT_STYLE)).mol.captions![0];
   assert.deepEqual([turned.on, turned.runs], [undefined, [{ text: "H" }, { text: "2", script: "sub" }, { text: "O" }]], "turned conditions keep their subscripts");
-  console.log("cdxml.check: formula text written as drawn, read back as typed ok");
 }
 
 // Hydrogens set by hand (issue 125): a bare O and a CH2 at chain ends and a lone Br+ go out as NumHydrogens and come

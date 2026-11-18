@@ -109,10 +109,6 @@ export type AtomQuery = {
   abundance?: "any" | "natural" | "enriched" | "deficient" | "nonnatural";
   valence?: true;
 };
-// ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or Double, Single or Aromatic,
-// Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring or Chain. rxn: Reaction
-// Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
-export type BondQuery = Pick<Bond, "query" | "topology" | "rxn">;
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
@@ -121,6 +117,9 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // Where two bonds cross, the later one in the list is in front, and the one behind has a gap cut in it.
 // halo: #rrggbb highlight, a band behind the bond as an atom's halo is a disc (ChemDraw's highlightColor on a bond).
 // ignoreWarnings: Display Warnings off for this bond (ChemDraw's IgnoreWarnings): its problems are not marked.
+// query, topology and rxn: ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or
+// Double, Single or Aromatic, Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring
+// or Chain. rxn: Reaction Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
 export type Bond = {
   type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; ignoreWarnings?: true;
   query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
@@ -249,7 +248,6 @@ export const sizeOf = (a: Pick<Arrow, "kind" | "headSize" | "style">): ArrowSize
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
 export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double"];
-export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
 export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
 // Arrows that carry reaction conditions and make up reactions: straight ones with heads.
 export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut" && a.kind !== "curve";
@@ -575,14 +573,14 @@ export type Drawing = {
 // An object's scale: its own, or 1.
 export const scaleOf = (x: { scale?: number }) => x.scale ?? 1;
 
-const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
-const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
-const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
-const len = (a: P) => Math.hypot(a[0], a[1]);
+export const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+export const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
+export const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
+export const len = (a: P) => Math.hypot(a[0], a[1]);
 const unit = (a: P): P => mul(a, 1 / len(a));
 const perp = (a: P): P => [-a[1], a[0]];
-const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
-const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
+export const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
+export const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
 const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (len(a) * len(b)))));
 
 // Label type: subscripts 75% and 0.212 em down, charges 75% and 0.33 em up. A stacked line (indole NH, a label stacked
@@ -893,6 +891,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const newman = new Map<number, number>();
   for (const back of endOn.values()) if (!labelled[back]) newman.set(back, 0.4 * zOf(scaleOf(mol.atoms[back])).L);
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
+  // A label of atom i.
+  const say = (l: Label, i: number) => { labels.push(l); labelAtom.set(l, i); };
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   // The middle of each charge sign drawn (a skeletal carbon's, a label's, a radical ion's), to move it (electrons).
   const signAt: (P | undefined)[] = [];
@@ -955,8 +955,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
         const c = add(add(pts[i], mul(d, 0.6 * S + (lead / 2) * Math.abs(d[0]))), [lead / 2, 0]);
         signAt[i] = c;
         const x = c[0] - (m.width * SUB) / 2, y = c[1] + (m.ascent * SUB) / 2;
-        labels.push({ text: t, x, y, size: S * SUB, colour: a.colour });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text: t, x, y, size: S * SUB, colour: a.colour }, i);
         marks[i] = m.outline.map(([px, py]) => [x + px * SUB, y + py * SUB]);
         if (lead) {
           const [x0, y0, , y1] = marks[i].length ? outlineBox(marks[i]) : [x, y - m.ascent * SUB, x, y];
@@ -1021,8 +1020,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     const run = (text: string, x: number, y: number, f = 1, line = 0, at?: number): Run | undefined => {
       let px = x;
       for (const p of stylePieces(text, at, f)) {
-        labels.push({ text: p.text, x: px, y: y + p.dy, size: S * f * p.k, colour: a.colour, ...p.look });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text: p.text, x: px, y: y + p.dy, size: S * f * p.k, colour: a.colour, ...p.look }, i);
         px += p.m.width * f * p.k;
       }
       const m = Mx(text, at, f);
@@ -1312,8 +1310,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
         if (q > 1) {
           const sign = `${q}${a.charge! > 0 ? '+' : '−'}`, m = grown(measure(sign), ratio[i]), size = Math.min(SUB, (1.35 * R) / m.width, (1.1 * R) / m.ascent);
           const x = c[0] - (m.width * size) / 2, y = c[1] + (m.ascent * size) / 2;
-          labels.push({ text: sign, x, y, size: z * size, colour: a.colour });
-          labelAtom.set(labels[labels.length - 1], i);
+          say({ text: sign, x, y, size: z * size, colour: a.colour }, i);
         } else {
           const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
           bar([1, 0]);
@@ -1322,8 +1319,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       }
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
-        labels.push({ text, x, y, size: z * SUB, colour: a.colour });
-        labelAtom.set(labels[labels.length - 1], i);
+        say({ text, x, y, size: z * SUB, colour: a.colour }, i);
         for (const [px, py] of ink.outline) marks[i].push([x + px * SUB, y + py * SUB]);
       }
     });
@@ -2011,11 +2007,8 @@ export type Placed = {
   order?: number; // the caption's draw order (order.ts)
   angle?: number; pivot?: P; frame?: Box;
 };
-// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down).
-export function turnPx(q: P, pivot: P, degrees: number): P {
-  const r = (degrees * Math.PI) / 180, dx = q[0] - pivot[0], dy = q[1] - pivot[1];
-  return [pivot[0] + dx * Math.cos(r) + dy * Math.sin(r), pivot[1] - dx * Math.sin(r) + dy * Math.cos(r)];
-}
+// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down): turnPoint the other way.
+export const turnPx = (q: P, pivot: P, degrees: number): P => turnPoint(q, pivot, -degrees);
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
 // in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text

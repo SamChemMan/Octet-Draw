@@ -15,6 +15,7 @@ import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
+import { followDrag } from "./cursor";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
@@ -41,7 +42,6 @@ const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
 export const ELLIPSES = ["ellipse-cw", "ellipse-ccw"];
 // Straight arrows, in the order of ChemDraw's Arrows palette. An unbalanced equilibrium has a ratio of 3.
 export const STRAIGHT = ["reaction", "equilibrium", "unbalanced", "resonance", "retro", "nogo", "hash", "dipole", "block"];
-export const DEFAULT_CURVED = ["curved-120", "fishhook-120"];
 // A straight arrow's variant can name its size after a space ("reaction large"). Unnamed is Small, ChemDraw's
 // default, except for a block arrow, whose sizes are Large (unnamed) and Medium.
 export type ArrowPick = { kind: ArrowKind; sweep?: number; size?: Exclude<ArrowSize, "small">; ratio?: number; ellipse?: "cw" | "ccw" };
@@ -247,10 +247,6 @@ export function ShapeGlyph({ kind }: { kind: ShapeKind }) {
     case "brackets": return <Icon><polyline points="84,48 52,48 52,208 84,208" /><polyline points="172,48 204,48 204,208 172,208" /></Icon>;
     case "parens": return <Icon><path d="M84,40 Q36,128 84,216" /><path d="M172,40 Q220,128 172,216" /></Icon>;
     case "braces": return <Icon><path d="M88,40 Q64,40 64,64 L64,108 Q64,128 44,128 Q64,128 64,148 L64,192 Q64,216 88,216" /><path d="M168,40 Q192,40 192,64 L192,108 Q192,128 212,128 Q192,128 192,148 L192,192 Q192,216 168,216" /></Icon>;
-    case "tlc": return <TlcGlyph />;
-    case "gel": return <GelGlyph />;
-    case "plasmid": return <PlasmidGlyph />;
-    case "table": return <TableGlyph />;
     default: return <Icon><rect x={40} y={64} width={176} height={128} /></Icon>;
   }
 }
@@ -636,7 +632,6 @@ export function Palette(p: PaletteProps) {
     const t = setTimeout(() => setClosing([]), timing("--motion-fast").duration + 50);
     return () => clearTimeout(t);
   }, [closing]);
-  const closeFloating = (f: FloatingPalette) => p.onPalettes((list) => closePalette(list, f.set));
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol ?? p.named(kind);
   // A template found by name has its name once its structure can be drawn (the names engine has loaded).
   const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);
@@ -741,8 +736,6 @@ export function Palette(p: PaletteProps) {
       setCarry({ key, pin, x: ev.clientX, y: ev.clientY, tilt, over, toList, index, phase: "drag" });
     };
     const up = (ev: PointerEvent) => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       if (!moving) return setCarry(undefined);
       const rest = p.pinned.filter((k) => k !== key);
       if (onList(ev.clientX, ev.clientY)) {
@@ -772,8 +765,7 @@ export function Palette(p: PaletteProps) {
         setLanded((l) => ({ key, n: (l?.n ?? 0) + 1 }));
       }, calm ? 0 : timing().duration);
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   }
   // One column or two: every tool glides from where it was to where it goes, and the toolbar grows or shrinks to
   // match (instant with reduced motion).
@@ -793,9 +785,6 @@ export function Palette(p: PaletteProps) {
   // The landing ripple runs once, then the class comes off so it can run again next time.
   useEffect(() => { if (landed) { const t = setTimeout(() => setLanded(undefined), 700); return () => clearTimeout(t); } }, [landed]);
 
-  function addByName() {
-    if (p.onAddName(adding.trim())) return setAdding("");
-  }
   const addPreview = useMemo(() => (adding.trim() ? p.preview(adding) : undefined), [adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -883,7 +872,7 @@ export function Palette(p: PaletteProps) {
                     {addPreview ? <TemplateGlyph mol={addPreview} /> : <Plus size={20} />}
                     <input className="variant-input" placeholder="Add by name" aria-label="Add a ring by name" spellCheck={false} value={adding}
                       aria-invalid={!!adding.trim() && !addPreview} onChange={(e) => setAdding(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") addByName(); if (e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }} />
+                      onKeyDown={(e) => { if (e.key === "Enter" && p.onAddName(adding.trim())) setAdding(""); if (e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }} />
                   </label>
                   {p.canAddSelection && (
                     <button className="variant add" onClick={() => p.onAdd(MY_SET, "ring")}>
@@ -985,7 +974,7 @@ export function Palette(p: PaletteProps) {
                   onColumns={(columns) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, columns } : q)))}
                   onSize={(size) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, size } : q)))}
                   onFront={() => { if (at !== p.palettes.length - 1) p.onPalettes((list) => [...list.filter((q) => q.set !== f.set), ...list.filter((q) => q.set === f.set)]); }}
-                  onClose={() => closeFloating(f)}
+                  onClose={() => p.onPalettes((list) => closePalette(list, f.set))}
                   onRename={(kind) => { const t = template(kind); if (t) p.onReveal(tool, t.set ?? MY_SET, t.id); }} />
               )}</Exit>
             );

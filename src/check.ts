@@ -335,13 +335,8 @@ function stereoProblems(m: Mol, s: StereoFacts, atomOf: (i: number, p: Omit<Prob
       lone = new Uint8Array(m.atoms.length);
       const ask = new Uint8Array(m.atoms.length);
       for (const w of wedges) if (centre[w.atoms[0]] && centre[w.atoms[1]]) ask[w.atoms[0]] = 1;
-      if (slots) {
-        for (let p = 0; p < ask.length; p++) if (ask[p]) for (let r = WIDE * p; r < WIDE * p + slots.deg[p]; r++) if (!centre[slots.near[r]]) lone[p] = 1;
-      } else for (const b of m.bonds) {
-        const p = b.atoms[0], q = b.atoms[1];
-        if (ask[p] && !s.centres.has(q)) lone[p] = 1;
-        if (ask[q] && !s.centres.has(p)) lone[q] = 1;
-      }
+      // loneAt runs only for a wedge with a stereocentre at its wide end, which is in need, so slots is set.
+      for (let p = 0; p < ask.length; p++) if (ask[p]) for (let r = WIDE * p; r < WIDE * p + slots!.deg[p]; r++) if (!centre[slots!.near[r]]) lone[p] = 1;
     }
     return lone[i] === 1;
   };

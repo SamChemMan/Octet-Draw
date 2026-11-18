@@ -6,13 +6,10 @@
 // InChI), as one undo step, cancelled by an edit or Escape.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { browser, loadOpsin, opsinDir } from "../scripts/checkkit.ts";
 
+browser();
 const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { fullMol, parseStructure, quickMol, ready, toInchi } = await import("./chem.ts");
 const { sandwich } = await import("./edit.ts");
 const { fullLayout, isSequence, laterSmiles, PREVIEW_ATOMS, PREVIEW_PAUSE, quickLayout } = await import("./namepreview.ts");
@@ -77,7 +74,8 @@ assert.match(editor, /const shownFull = later \? quickPreview\?\.mol : named, sh
 assert.match(editor, /if \(later\) \{\n\s+if \(placing === naming\) return true;\n\s+placingJob\.current\?\.cancel\(\);/, "Return on a waiting structure asks the worker, once");
 assert.match(editor, /const job = fullLayout\(list && list\.join\("\."\) === typedSmiles \? list : \[later\], !!typedSmiles \|\| isSequence\(s\)\);/);
 assert.match(editor, /if \(placing === undefined \|\| naming === placing\) return;\n\s+placingJob\.current\?\.cancel\(\);/, "an edit, Escape or closing the field cancels it");
-assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,800}place\(withOwnCaption\(s, asResidues\(s, frag\)\), doc, namingAt\.current\);/, "it lands as one place(), one undo step");
+assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,800}landName\(withOwnCaption\(s, asResidues\(s, frag\)\)\);/, "it lands as one place(), one undo step");
+assert.match(editor, /const landName = \(frag: Mol\) => \{ settleFrom\.current = doc\.atoms\.length; place\(frag, doc, namingAt\.current\); setNaming\(undefined\); \};/, "it lands as one place(), one undo step");
 assert.match(editor, /aria-busy=\{placing === naming \|\| undefined\}/, "the field shows it is busy");
 const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
 const busy = /\.name-field\[aria-busy="true"\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
@@ -98,21 +96,10 @@ assert.deepEqual(rnaAfter, fullMol(RNA_SMILES), "30-nt RNA: the same drawing");
 assert.equal(toInchi(rnaAfter), toInchi(rnaBefore), "30-nt RNA: the same InChI");
 const pepAfter = (await fullLayout([laterSmiles(PEPTIDE_60, undefined)!], true).result)![0];
 assert.equal(pepAfter.atoms.length, quickMol(laterSmiles(PEPTIDE_60, undefined)!)!.atoms.length, "60-residue peptide: every atom");
-const opsinDir = new URL("./vendor/opsin/", import.meta.url);
 if (existsSync(new URL("opsin.js", opsinDir))) {
   const { DRUGS } = await import("./drugs.ts");
   const { attachOpsin, nameToSmiles } = await import("./names.ts");
-  const pack = readFileSync(new URL("opsin-data.bin", opsinDir)), files = new Map<string, Int8Array>();
-  for (let p = 0; ; ) {
-    const n = pack.readUInt16BE(p); p += 2;
-    if (!n) break;
-    const name = pack.toString("latin1", p, p + n); p += n;
-    const size = pack.readInt32BE(p); p += 4;
-    files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-  }
-  g.opsinResource = (name: string) => files.get(name) ?? null;
-  const opsin = await import(new URL("opsin.js", opsinDir).href);
-  opsin.init();
+  const opsin = await loadOpsin();
   attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
   const pepBefore = sandwich(parseStructure(nameToSmiles(PEPTIDE_60)!));
   assert.equal(toInchi(pepAfter), toInchi(pepBefore), "60-residue peptide: the same InChI as through OPSIN");

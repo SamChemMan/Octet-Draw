@@ -149,7 +149,7 @@ pub struct Clip {
     oct: Option<String>,     // the .oct file in an Octet Drawing object copied out of Word (Windows, decision 0023)
     // CDXML: the CDXML type, or hidden in a picture: Octet's on every system, ChemDraw's PDF on the Mac, or either
     // after Word. ChemDraw's EMF on Windows has none.
-    cdxml: Option<String>,
+    pub(crate) cdxml: Option<String>,
     cdx: Option<String>,     // ChemDraw's CDX, base64
     molfile: Option<String>, // a molfile or RXN file, with LF line ends
     smiles: Option<String>,
@@ -402,7 +402,7 @@ fn mac_picture_within(svg: &str, cdxml: Option<&str>, most: usize) -> Result<Vec
     let fits = crate::vector::pixel_bytes(&tree).saturating_add(cdxml.map_or(0, str::len)) <= most;
     let (emf, pdf) = std::thread::scope(|t| {
         let emf = fits.then(|| std::thread::Builder::new().spawn_scoped(t, || crate::vector::make_emf(&tree, cdxml, None)).ok()).flatten();
-        let pdf = crate::export::pdf_of(&tree, cdxml, None);
+        let pdf = crate::export::pdf_pages(&[&tree], cdxml, None);
         (emf.and_then(|e| e.join().ok()), pdf)
     });
     let pdf = pdf?;
@@ -522,7 +522,7 @@ fn found_clip((found, any): (Vec<(&'static str, Vec<u8>)>, bool)) -> Clip {
 
 // A Windows bitmap (CF_DIB: its header, colours and pixels) as a .bmp file, which the page's decoder reads: the
 // 14-byte file header goes first, with where the pixels start. None if the header is not sound.
-fn bmp_file(dib: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn bmp_file(dib: &[u8]) -> Option<Vec<u8>> {
     let u32_at = |k: usize| dib.get(k..k + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
     let (head, bits, compression, used) = (u32_at(0)?, u16::from_le_bytes([*dib.get(14)?, *dib.get(15)?]), u32_at(16)?, u32_at(32)?);
     let colours = if used > 0 { used } else if bits <= 8 { 1 << bits } else { 0 };
@@ -586,16 +586,6 @@ pub(crate) mod mac {
             c.filled |= !present.is_empty();
             c
         })
-    }
-
-    pub fn general() -> Retained<NSPasteboard> {
-        NSPasteboard::generalPasteboard()
-    }
-
-    // The drawing on the clipboard as paste reads it, as CDXML: a picture Word copied for Edit Picture from Word
-    // (word.rs).
-    pub fn drawing(pb: &NSPasteboard) -> Option<String> {
-        read(pb).cdxml
     }
 
     // The clipboard as it is, to put back after Octet borrows it (word.rs): each item's types and bytes, 64 MB a type
@@ -666,7 +656,7 @@ pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, dpi: 
     };
     let _ = &app;
     #[cfg(target_os = "macos")]
-    return mac::write(&mac::general(), &types);
+    return mac::write(&objc2_app_kit::NSPasteboard::generalPasteboard(), &types);
     #[cfg(windows)]
     {
         if let Some(oct) = object.filter(|_| crate::ole::win::offered()) {
@@ -689,7 +679,7 @@ pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, dpi: 
 pub async fn read_clipboard(app: tauri::AppHandle) -> Result<Clip, String> {
     let _ = &app;
     #[cfg(target_os = "macos")]
-    return Ok(mac::read(&mac::general()));
+    return Ok(mac::read(&objc2_app_kit::NSPasteboard::generalPasteboard()));
     #[cfg(windows)]
     return win::read(&readable(HERE)).map(found_clip);
     #[cfg(target_os = "linux")]
@@ -699,7 +689,7 @@ pub async fn read_clipboard(app: tauri::AppHandle) -> Result<Clip, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const OFFICE: &str = "com.microsoft.Art--GVML-ClipFormat";
@@ -1009,7 +999,7 @@ mod tests {
 
     // Every part of a zip, read from its central directory: each inflated (or taken as it is, if it is stored) and
     // checked against its size and CRC-32, with a local header that agrees with the directory.
-    fn unzip(zip: &[u8]) -> Vec<(String, Vec<u8>)> {
+    pub(crate) fn unzip(zip: &[u8]) -> Vec<(String, Vec<u8>)> {
         let u16_at = |k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize;
         let u32_at = |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize;
         let end = zip.len() - 22;
@@ -1026,7 +1016,7 @@ mod tests {
                 8 => miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap(),
                 m => panic!("method {m}"),
             };
-            assert_eq!((data.len(), crate::export::crc32(&data) as usize), (size, crc));
+            assert_eq!((data.len(), crc32fast::hash(&data) as usize), (size, crc));
             out.push((String::from_utf8(zip[at + 46..at + 46 + name_len].to_vec()).unwrap(), data));
             at += 46 + name_len;
         }
@@ -1035,7 +1025,7 @@ mod tests {
     }
 
     // Each part's method, from the central directory: 8 deflated, 0 stored.
-    fn methods(zip: &[u8]) -> Vec<u16> {
+    pub(crate) fn methods(zip: &[u8]) -> Vec<u16> {
         let u16_at = |k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]);
         let (end, mut out) = (zip.len() - 22, Vec::new());
         let mut at = u32::from_le_bytes(zip[end + 16..end + 20].try_into().unwrap()) as usize;
@@ -1266,6 +1256,17 @@ mod tests {
         }
     }
 
+    // How long f takes, and the middle of several such times (the timing tests below).
+    fn time(f: &dyn Fn()) -> std::time::Duration {
+        let t = std::time::Instant::now();
+        f();
+        t.elapsed()
+    }
+    fn middle(mut v: Vec<std::time::Duration>) -> std::time::Duration {
+        v.sort();
+        v[v.len() / 2]
+    }
+
     // No step back (decision 0024): Copy on the Mac makes Office's copy as well as the PDF, from one reading of the SVG,
     // so it takes little longer than the PDF alone, which is what Copy made before: a tenth more and 2 ms at most.
     // This prints both times and what Office's copy takes. A drawing of 60 bonds and 12 labels; the middle of 9 runs of
@@ -1289,15 +1290,6 @@ mod tests {
         }
         svg += "</svg>";
         let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
-        let time = |f: &dyn Fn()| {
-            let t = std::time::Instant::now();
-            f();
-            t.elapsed()
-        };
-        let middle = |mut v: Vec<std::time::Duration>| {
-            v.sort();
-            v[v.len() / 2]
-        };
         // The middle time of each step for one drawing: the PDF alone (all of Copy's picture before Office's copy, and
         // before this change for a drawing with a picture), Copy now, reading the SVG, the EMF's records, the PDF put
         // into them, the EMF's CRC-32, and the zip (with that CRC-32).
@@ -1314,7 +1306,7 @@ mod tests {
                     &|| drop(crate::export::tree(svg).unwrap()),
                     &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
                     &|| drop(crate::vector::with_pdf(&records, &pdf)),
-                    &|| drop(std::hint::black_box(vec![crate::export::crc32(std::hint::black_box(&emf))])),
+                    &|| drop(std::hint::black_box(vec![crc32fast::hash(std::hint::black_box(&emf))])),
                     &|| drop(office_package(crate::vector::size(&tree), &emf)),
                 ];
                 for (list, step) in all.iter_mut().zip(steps) {
@@ -1358,11 +1350,6 @@ mod tests {
         }
         svg += "</svg>";
         let x = "<CDXML><page><fragment><n id=\"1\"/></fragment></page></CDXML>";
-        let time = |f: &dyn Fn()| {
-            let t = std::time::Instant::now();
-            f();
-            t.elapsed()
-        };
         let (mut before, mut now) = (Vec::new(), Vec::new());
         for _ in 0..9 {
             before.push(time(&|| {
@@ -1373,9 +1360,7 @@ mod tests {
                 types(System::Linux, Some(&svg), 600.0, Some(x), false, None, None, None, None).unwrap();
             }));
         }
-        before.sort();
-        now.sort();
-        let (before, now) = (before[4], now[4]);
+        let (before, now) = (middle(before), middle(now));
         eprintln!("Copy on Linux: {now:?}, 1.1.1's pictures: {before:?}");
         assert!(now <= before + before / 10 + std::time::Duration::from_millis(2), "Copy takes {now:?}, 1.1.1 took {before:?}");
     }

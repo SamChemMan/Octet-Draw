@@ -103,16 +103,22 @@ fn reaxys_window(app: &AppHandle, url: &str) -> Result<(), String> {
 // Settings > Online search: off hides the searches, and this refuses them.
 pub struct Online(pub std::sync::Mutex<bool>);
 
-// Runs only when the user presses one of the searches.
-#[tauri::command]
-pub async fn search_online(app: AppHandle, site: String, smiles: Option<String>, molfile: Option<String>, exact: bool, role: Option<String>, text: Option<String>) -> Result<(), String> {
+// Octet's version, for the user agent, when online search is on.
+pub(crate) fn online(app: &AppHandle) -> Result<String, String> {
     if !*app.state::<Online>().0.lock().unwrap() {
         return Err("Online search is off in Settings.".into());
     }
+    Ok(app.package_info().version.to_string())
+}
+
+// Runs only when the user presses one of the searches.
+#[tauri::command]
+pub async fn search_online(app: AppHandle, site: String, smiles: Option<String>, molfile: Option<String>, exact: bool, role: Option<String>, text: Option<String>) -> Result<(), String> {
+    let version = online(&app)?;
     if [&smiles, &molfile, &text].iter().any(|s| s.as_ref().is_some_and(|s| s.len() > MAX_INPUT)) {
         return Err(TOO_LONG.into());
     }
-    let url = address(&site, smiles.as_deref(), molfile.as_deref(), exact, role.as_deref(), text.as_deref(), &app.package_info().version.to_string())?;
+    let url = address(&site, smiles.as_deref(), molfile.as_deref(), exact, role.as_deref(), text.as_deref(), &version)?;
     if site == "reaxys" {
         return reaxys_window(&app, &url);
     }

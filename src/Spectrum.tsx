@@ -314,19 +314,9 @@ function Panel(p: Props) {
         {showP && !showM && <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} data-tip={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>}
         {showM && m && <span className="spectrum-threshold"><Slider name="Threshold" value={Math.round(m.threshold * 1000) / 10} min={0.5} max={50} step={0.5} show={(v) => `${v}%`} onChange={(v) => p.onThreshold(v / 100)} /></span>}
         <span className="spectrum-gap" />
-        {chosen !== undefined && !showM && (
-          // The clicked peak's colour, which its atoms take as a highlight too.
-          <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
-            {PEAKS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
-            <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
-          </span>
-        )}
-        {chosenM && p.linkedCount(chosenM.id) > 0 && (
-          <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
-            {PEAKS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.groupColour(chosenM.id) === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => p.onGroupColour(chosenM.id, c)} />)}
-            <button role="radio" aria-checked={!p.groupColour(chosenM.id)} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => p.onGroupColour(chosenM.id, undefined)} />
-          </span>
-        )}
+        {/* The clicked peak's colour, which its atoms take as a highlight too. */}
+        {chosen !== undefined && !showM && <Swatches value={p.colours[chosen]} pick={(c) => p.onColour(chosen, c)} />}
+        {chosenM && p.linkedCount(chosenM.id) > 0 && <Swatches value={p.groupColour(chosenM.id)} pick={(c) => p.onGroupColour(chosenM.id, c)} />}
         {chosenM && h1M && !chosenM.other && <NumberField label="Hydrogens" unit="H" value={Math.round(chosenM.n * 100) / 100} min={0.01} max={1000} step={1} lazy onChange={(n) => p.onCount(chosenM.id, n)} />}
         {chosenM && p.linkedCount(chosenM.id) > 0 && <button className="spectrum-button" onClick={() => p.onUnlink(chosenM.id)} data-tip="Unlink this peak from its atoms and bonds"><LinkBreak size={16} /> Unlink</button>}
         <button className="spectrum-button" onClick={() => (showM ? p.onGroupColourAll(!anyColour) : p.onColourAll(!anyColour))} disabled={showM ? !(a?.groups ?? []).some((g) => p.linkedCount(g.id)) : !signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
@@ -558,6 +548,15 @@ function Panel(p: Props) {
   );
 }
 
+// A peak's colour: one of PEAKS, or none.
+function Swatches({ value, pick }: { value?: string; pick: (c: string | undefined) => void }) {
+  return (
+    <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
+      {PEAKS.map(([name, c]) => <button key={c} role="radio" aria-checked={value === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => pick(c)} />)}
+      <button role="radio" aria-checked={!value} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => pick(undefined)} />
+    </span>
+  );
+}
 // A session's spectra as tabs (B1.8): the arrow keys move between them. With two or more, each has a close button in
 // room of its own beside its name, shown on hover or focus; Delete or Backspace on a tab closes it. One spectrum alone
 // closes with the panel's Close. children: the + that adds a spectrum, the last segment of the same control.

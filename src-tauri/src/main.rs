@@ -332,15 +332,10 @@ fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result
 struct Purposes(Mutex<(Vec<String>, String)>);
 
 #[tauri::command]
-fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, current: String) -> Result<(), String> {
+fn set_purposes(app: AppHandle, names: Vec<String>, current: String) -> Result<(), String> {
     let clean = |n: String| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>();
-    let next = (names.into_iter().take(12).map(clean).collect::<Vec<_>>(), clean(current));
-    {
-        let mut held = held.0.lock().unwrap();
-        if *held == next {
-            return Ok(());
-        }
-        *held = next;
+    if !keep_new(&app.state::<Purposes>().0, (names.into_iter().take(12).map(clean).collect(), clean(current))) {
+        return Ok(());
     }
     rebuild(&app)
 }
@@ -353,15 +348,10 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
 struct TemplateSets(Mutex<[Vec<String>; 3]>);
 
 #[tauri::command]
-fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
+fn set_template_sets(app: AppHandle, own: Vec<String>, octet: Vec<String>, art: Vec<String>) -> Result<(), String> {
     let clean = |list: Vec<String>| list.into_iter().take(80).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>()).collect::<Vec<_>>();
-    let next = [clean(own), clean(octet), clean(art)];
-    {
-        let mut held = held.0.lock().unwrap();
-        if *held == next {
-            return Ok(());
-        }
-        *held = next;
+    if !keep_new(&app.state::<TemplateSets>().0, [clean(own), clean(octet), clean(art)]) {
+        return Ok(());
     }
     rebuild(&app)
 }
@@ -1130,13 +1120,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         colour_items.push(&sep1);
         colour_items.extend(mine.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
-    colour_items.push(&sep2);
-    colour_items.push(&by_element);
-    colour_items.push(&highlight);
-    colour_items.push(&ringfill);
-    colour_items.push(&sep3);
-    colour_items.push(&pick_colour);
-    colour_items.push(&edit_colours);
+    colour_items.extend([&sep2 as &dyn IsMenuItem<Wry>, &by_element, &highlight, &ringfill, &sep3, &pick_colour, &edit_colours]);
     let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
     // Not ⌥⌘R or ⌥⌘P, which are ChemDraw's (Re-run Script, Paste SMILES).
@@ -1371,7 +1355,7 @@ fn main() {
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, #[cfg(target_os = "linux")] add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, mcp::mcp_bundle, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, #[cfg(target_os = "linux")] add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an

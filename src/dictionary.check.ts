@@ -10,27 +10,17 @@ import { DRUGS } from "./drugs.ts";
 import { attachOpsin, looksLikeSmiles, nameToSmiles, namesStarting, suggestName } from "./names.ts";
 import { attachDictionary, casProblem, casValid, dictionarySmiles, nameList, peptideName } from "./dictionary.ts";
 import { condensedSmiles } from "./condensed.ts";
+import { loadOpsin, norender, opsinDir } from "../scripts/checkkit.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url), table = new URL("../data/names/dictionary.tsv.gz", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir)) || !existsSync(table)) { console.log("dictionary.check: skipped (no OPSIN build or no dictionary)"); process.exit(0); }
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
+const table = new URL("../data/names/dictionary.tsv.gz", import.meta.url);
+if (!existsSync(new URL("opsin.js", opsinDir)) || !existsSync(table)) { console.log("dictionary.check: skipped (no OPSIN build or no dictionary)"); process.exit(0); }
+const opsin = await loadOpsin();
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
 const text = gunzipSync(readFileSync(table)).toString("utf8");
 let t0 = performance.now();
 await attachDictionary(text);
 const loadMs = performance.now() - t0;
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+const indigo = await norender();
 const keyOf = (s: string | undefined) => { if (!s) return undefined; const o = new indigo.MapStringString(); try { return indigo.convert(s, "inchi-key", o).trim() as string; } catch { return undefined; } finally { o.delete(); } };
 const read = (name: string) => keyOf(nameToSmiles(name));
 

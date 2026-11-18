@@ -32,7 +32,7 @@ fn oxt() {
             data = String::from_utf8(data).unwrap().replace("<version value=\"0.0.0\"/>", &format!("<version value=\"{version}\"/>")).into_bytes();
         }
         // Version 2.0, no flags, stored, 1 January 1980, the CRC-32 and both sizes, the name's length, no extra field.
-        let fields = [&[20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0][..], &crc32(&data).to_le_bytes(), &(data.len() as u32).to_le_bytes(), &(data.len() as u32).to_le_bytes(), &(name.len() as u16).to_le_bytes(), &[0, 0]].concat();
+        let fields = [&[20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0][..], &crc32fast::hash(&data).to_le_bytes(), &(data.len() as u32).to_le_bytes(), &(data.len() as u32).to_le_bytes(), &(name.len() as u16).to_le_bytes(), &[0, 0]].concat();
         directory.extend([&b"PK\x01\x02\x14\x00"[..], &fields, &[0; 10], &(zip.len() as u32).to_le_bytes(), name.as_bytes()].concat());
         zip.extend([&b"PK\x03\x04"[..], &fields, name.as_bytes(), &data].concat());
     }
@@ -43,15 +43,4 @@ fn oxt() {
     if std::fs::read("gen/octet-draw.oxt").ok().as_ref() != Some(&oxt) {
         std::fs::write("gen/octet-draw.oxt", oxt).unwrap();
     }
-}
-
-fn crc32(data: &[u8]) -> u32 {
-    let mut c = !0u32;
-    for &b in data {
-        c ^= u32::from(b);
-        for _ in 0..8 {
-            c = (c >> 1) ^ (0xEDB8_8320 & (c & 1).wrapping_neg());
-        }
-    }
-    !c
 }

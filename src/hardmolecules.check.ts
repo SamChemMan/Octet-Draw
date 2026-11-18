@@ -13,14 +13,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
+import { browser, norender } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { parseStructure, ready, smilesWeight, stereoFacts, toInchi, toInchiAux } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { render } = await import("./render.ts");
@@ -28,7 +23,7 @@ const { arialInk } = await import("./cdxml.ts");
 const { DRUGS } = await import("./drugs.ts");
 type Mol = ReturnType<typeof parseStructure>;
 // A second Indigo, for a SMILES's own InChIKey.
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+const indigo = await norender();
 const keyOf = (smiles: string) => { const o = new indigo.MapStringString(); try { return indigo.convert(smiles, "inchi-key", o).trim() as string; } catch { return smiles; } finally { o.delete(); } };
 await ready;
 

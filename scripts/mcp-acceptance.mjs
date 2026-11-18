@@ -12,7 +12,6 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const headless = process.argv[2] === "--headless" ? process.argv[3] : undefined;
 const dir = platform() === "darwin" ? join(homedir(), "Library/Application Support") : platform() === "win32" ? process.env.APPDATA : process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share");
@@ -31,6 +30,14 @@ const URL_ = `http://127.0.0.1:${port}/mcp`;
 // How a call's progress comes: on an event stream from the server, or as lines on standard output.
 const STREAM = headless ? "standard output" : "text/event-stream";
 
+// A tool call through ask: its result (an error as an isError result), its text and its time.
+const timed = (ask) => async (tool, args = {}) => {
+  const t0 = Date.now(), r = await ask(tool, args);
+  const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
+  return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
+};
+// Ten structures the big drawings repeat.
+const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
 // A client: one MCP session (initialize, then each call with its session id). It gives its brief first, as the
 // instructions ask (plan 3.1), in a new drawing: the user's answers, a paper with no style of their own. brief false:
 // none, and no drawing yet. With --headless, the session of a program of its own on standard input and output, with the
@@ -46,11 +53,7 @@ async function client(name, brief = true) {
   };
   await post({ jsonrpc: "2.0", id: ++n, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name, version: "1" } } });
   await post({ jsonrpc: "2.0", method: "notifications/initialized" });
-  const call = async (tool, args = {}) => {
-    const t0 = Date.now(), r = await post({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: tool, arguments: args } });
-    const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
-    return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
-  };
+  const call = timed((tool, args) => post({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: tool, arguments: args } }));
   // In a drawing of its own first: set_brief in the window in front is refused while another session works there (plan
   // 17.5), and a session with no brief fails each scheme far from the cause.
   if (brief) {
@@ -76,11 +79,7 @@ async function lines(name, brief) {
   const p = stdio(headless, ["--headless", "--mcp"]);
   await p.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name, version: "1" } });
   p.send({ jsonrpc: "2.0", method: "notifications/initialized" });
-  const call = async (tool, args = {}) => {
-    const t0 = Date.now(), r = await p.ask("tools/call", { name: tool, arguments: args });
-    const res = r.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
-    return { ...res, text: res.content?.[0]?.text ?? "", ms: Date.now() - t0 };
-  };
+  const call = timed((tool, args) => p.ask("tools/call", { name: tool, arguments: args }));
   if (brief) await call("set_brief", { destination: { kind: "paper" } });
   const read = async () => (await call("read", { detail: "full" })).structuredContent;
   const post = (body) => (body.id === undefined ? p.send(body) : p.request(body));
@@ -113,7 +112,7 @@ async function events(r, onEvent) {
   }
 }
 
-// An AI app that starts a program and talks to it on standard input and output (the relay, or the bundle's server).
+// An AI app that starts a program and talks to it on standard input and output (the relay).
 function stdio(command, args, env = {}) {
   const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"], env: { ...process.env, ...env } });
   let n = 0, rest = "";
@@ -282,7 +281,6 @@ const CASES = {
   async 10(a) {
     console.log("10. A grid of 200 structures");
     await a.call("drawings", { action: "new", for: "paper" });
-    const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
     const r = await a.call("draw", { kind: "structures", structures: Array.from({ length: 200 }, (_, k) => ({ text: names[k % names.length], number: `S${k + 1}` })) });
     check(!r.isError, "drawn", r.text.slice(0, 200));
     check(r.ms < 10_000, "under 10 s", `${r.ms} ms`);
@@ -328,7 +326,7 @@ const CASES = {
     check(updated.includes(`octet://drawing/${d}`), "a subscribed drawing tells the app it changed", JSON.stringify(updated));
   },
   async 18() {
-    console.log("18. Through the relay (Octet Draw --mcp) and Claude Desktop's bundle");
+    console.log("18. Through the relay (Octet Draw --mcp)");
     const r = stdio(info.program, ["--mcp"]);
     const init = await r.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-relay", version: "1" } });
     check(init.result?.serverInfo?.name === "octet-draw" && init.result.instructions?.includes("make ONE draw call with lines"), "Octet answers initialize", JSON.stringify(init).slice(0, 200));
@@ -337,7 +335,6 @@ const CASES = {
     check(tools.length === 6 && JSON.stringify(tools).length < 14000, "the six tools, under 14,000 characters", `${tools.length}, ${JSON.stringify(tools).length}`);
     const d = (await r.ask("tools/call", { name: "drawings", arguments: { action: "new", for: "paper" } })).result?.structuredContent?.opened;
     await r.ask("tools/call", { name: "set_brief", arguments: { destination: { kind: "paper" } } });
-    const names = ["benzene", "toluene", "phenol", "aniline", "pyridine", "furan", "thiophene", "naphthalene", "ethanol", "acetone"];
     const some = (k) => ({ structures: Array.from({ length: k }, (_, i) => ({ text: names[i % names.length] })) });
     let res = await r.ask("tools/call", { name: "draw", arguments: { kind: "structures", ...some(60) }, _meta: { progressToken: "p" } });
     const progress = r.notes.filter((m) => m.method === "notifications/progress" && m.params.progressToken === "p");
@@ -364,16 +361,6 @@ const CASES = {
     const later = (await c.ask("tools/list")).result?.tools ?? [];
     check(changed && ["draw", "change", "read"].every((n) => later.some((t) => t.name === n)), "Octet found: the list changed and the tools are there", `${changed} ${later.map((t) => t.name)}`);
     c.stop();
-    // Claude Desktop's bundle runs mcpb.cjs, which starts the same relay. A dev build's bundle has mcp-dev.json in
-    // place of mcp.json (bundle in mcp.rs). It runs in the real home, so the folder it works out must be the folder
-    // Octet wrote to.
-    const server = join(home, "index.cjs");
-    writeFileSync(server, readFileSync(fileURLToPath(new URL("../src-tauri/src/mcpb.cjs", import.meta.url)), "utf8").replaceAll("mcp.json", "mcp-dev.json"));
-    const b = stdio(process.execPath, [server]);
-    await b.ask("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "acceptance-bundle", version: "1" } });
-    const read = await b.ask("tools/call", { name: "drawings", arguments: { action: "list" } });
-    check(!read.result?.isError && read.result?.structuredContent, "the bundle's server reaches Octet", JSON.stringify(read).slice(0, 160));
-    b.stop();
     rmSync(home, { recursive: true, force: true });
   },
   async 11(a) {
@@ -525,9 +512,7 @@ const CASES = {
       const s = d.structures.find((x) => x.id === item.structure), n = d.captions.find((x) => x.id === item.number);
       check(s && n && Math.abs((s.box[0] + s.box[2]) / 2 - (n.box[0] + n.box[2]) / 2) < 0.3, `${n?.text}: the number is centred under its structure`, JSON.stringify([s?.box, n?.box]));
     }
-    // A frame holds its panel, so only what is outside the frames can overlap.
-    const loose = { ...d, captions: d.captions };
-    layout(loose, "the figure");
+    layout(d, "the figure");
   },
   async 21() {
     // Plan 17.5, test plan R5 and R6. Run it with Octet behind another app too: nothing an AI app waits on may stop

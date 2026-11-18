@@ -16,7 +16,6 @@ const chain = (x: number, y: number, label = "C", dx = 1, dy = 0): Mol => ({ ato
   // A plain carbon joined to a labelled atom takes its label.
   const labelled = joinSelection(merge(chain(0, 0, "N"), chain(3, 0), [0, 0]), new Set([1, 2]))!;
   assert.deepEqual(labelled.atoms.map((a) => a.label).sort(), ["C", "C", "N"]);
-  console.log("objects.check: Join two atoms ok");
 }
 
 // Three or more atoms: each structure moves so its atom is at the centroid; they become one atom.
@@ -30,7 +29,6 @@ const chain = (x: number, y: number, label = "C", dx = 1, dy = 0): Mol => ({ ato
   // The first atom picked keeps its label, as ChemDraw keeps the first selected atom.
   const named = { ...m, atoms: m.atoms.map((a, i) => (i === 2 ? { ...a, label: "N" } : i === 4 ? { ...a, label: "O" } : a)) };
   assert.equal(joinSelection(named, new Set([4, 0, 2]))!.atoms.filter((a) => a.label !== "C").map((a) => a.label).join(), "O");
-  console.log("objects.check: Join three atoms ok");
 }
 
 // Two bonds, one in each structure: they become one shared bond (two benzenes make naphthalene).
@@ -48,7 +46,6 @@ const chain = (x: number, y: number, label = "C", dx = 1, dy = 0): Mol => ({ ato
   const filled = joinSelection({ ...m, fills: [{ atoms: [0, 1, 2, 3, 4, 5], colour: "#2F6FED" }, { atoms: [6, 7, 8, 9, 10, 11], colour: "#E5484D" }] }, new Set([p, q, r, s]))!;
   assert.equal(filled.fills?.length, 2);
   for (const f of filled.fills!) assert.ok(f.atoms.every((i, k) => filled.bonds.some((b) => b.atoms.includes(i) && b.atoms.includes(f.atoms[(k + 1) % 6]))), "each fill is still a closed ring");
-  console.log("objects.check: Join two bonds ok");
 }
 
 // CD-29: TLC plates. Lanes added, duplicated, deleted and moved at a lane, the plate growing or shrinking by a lane.
@@ -85,7 +82,6 @@ import type { Shape } from "./render.ts";
   assert.deepEqual({ ...back, spots: back.spots.map((s) => ({ ...s, w: undefined, h: undefined })) }, { ...mine.tlc, spots: mine.tlc!.spots.map((s) => ({ ...s, w: undefined, h: undefined })) });
   // Octet's own file and clipboard keep them too.
   assert.deepEqual(parse(serialize({ atoms: [], bonds: [], shapes: [mine] })).shapes![0].tlc, mine.tlc);
-  console.log("objects.check: TLC lanes, spot styles, side ticks and transparency ok");
 }
 
 // Issue 96: gels and plasmid maps, laid out from their data. A gel's bands sit by their sizes on a log scale and keep
@@ -143,7 +139,6 @@ import { bandRf, bandSize, gelScale, namesTurn, plasmidLayout, tlcLayout } from 
   assert.deepEqual([read.lost, read.mol.shapes!.map((x) => [x.kind, x.tlc, x.plasmid])], [{}, [["gel", loaded.tlc, undefined], ["plasmid", undefined, map.plasmid]]]);
   assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ ...map, plasmid: { ...map.plasmid!, markers: [{ at: 4001, name: "x" }] } }] })), /damaged/);
   assert.throws(() => parse(serialize({ atoms: [], bonds: [], shapes: [{ id: 5, kind: "tlc", from: [0, 0], to: [1, 1], tlc: { lanes: 1, spots: [], names: ["A"] } }] })), /damaged/, "lane names are a gel's");
-  console.log("objects.check: gels and plasmid maps ok");
 }
 
 // A gel or plasmid map Octet saves, Octet opens again, whatever was typed, dragged or picked with it; and a file with
@@ -199,7 +194,6 @@ import { isPlate, turns } from "./render.ts";
   assert.match(editor, /const map = tool !== "erase" && bare \? plasmidAt\(/);
   assert.match(editor, /const bare = t\.caption === undefined && t\.atom === undefined && t\.bond === undefined;/);
   assert.match(editor, /if \(map && \(part\.region !== undefined \|\| part\.marker !== undefined \|\| part\.centre\)\) return openPart\(map, part\);/);
-  console.log("objects.check: gels and plasmid maps stay readable ok");
 }
 
 // CD-33: a template keeps the whole selection (its text, arrows, shapes and look) and goes where it is placed.
@@ -229,7 +223,6 @@ import { loadTemplates, newTemplate } from "./templates.ts";
   const cp = { ...ring, atoms: [...ring.atoms, { label: "C", location: [0, 0, 0] as [number, number, number], centre: { atoms: [0, 1, 2, 3, 4, 5] } }, { label: "Fe", location: [0, -1.5, 0] as [number, number, number] }], bonds: [...ring.bonds, { type: 1, atoms: [6, 7] as [number, number] }] };
   const two = addTemplate(addRing(EMPTY, 5, false, { point: [-20, 0] }), normalise(cp), { point: [10, 0] }), point = two.atoms.find((x) => x.centre)!;
   assert.deepEqual(point.centre!.atoms.map((i) => two.atoms[i].location[0] > 5), [true, true, true, true, true, true], "the ligand's atoms are the new ring's");
-  console.log("objects.check: templates keep the whole selection ok");
 }
 
 // CD-39: the Synthesis and Retrosynthesis tools: a line through bonds makes the reaction that forms (or breaks) them.

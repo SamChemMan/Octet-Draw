@@ -2,14 +2,9 @@
 // what Indigo says about stereocentres for the stereochemistry warnings changes. The handedness rule that gives M and
 // P is first checked on ordinary stereocentres against Indigo's R and S.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { cipOf, parseStructure, ready, stereoFacts, stereoLabels } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { axialLabels, compareBranches, handedness } = await import("./axial.ts");

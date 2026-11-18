@@ -90,12 +90,7 @@ pub struct Info {
 // stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet). With `info`, the document
 // information gets the title, author and keywords that are set.
 pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    pdf_of(&tree(svg)?, cdxml, info)
-}
-
-// make_pdf for an SVG that is read already, so Copy on the Mac reads it once for the PDF and for Office's copy.
-pub fn pdf_of(tree: &usvg::Tree, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
-    pdf_pages(&[tree], cdxml, info)
+    pdf_pages(&[&tree(svg)?], cdxml, info)
 }
 
 // The pages Octet sends for a PDF of several pages (an experiment page and its risk assessment), at most MAX_PAGES.
@@ -108,8 +103,9 @@ pub fn make_pdf_pages(svgs: &[String], cdxml: Option<&str>, info: Option<&Info>)
     pdf_pages(&trees.iter().collect::<Vec<_>>(), cdxml, info)
 }
 
-// A PDF with a page for each SVG, each page the SVG's box.
-fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
+// A PDF with a page for each SVG, each page the SVG's box. Copy on the Mac reads its SVG once for the PDF and for
+// Office's copy, and gives that tree here.
+pub(crate) fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
     let mut alloc = Ref::new(1);
     let [catalog, pages, meta] = [(); 3].map(|_| alloc.bump());
     // usvg measures in CSS px (96 to the inch); PDF in points (72). Rounded, so 86 pt stays 86, not 85.99999.
@@ -293,14 +289,7 @@ fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
 // A Windows bitmap (BMP) of the SVG at `dpi`, on white: a file header, then the bitmap as the clipboard holds it (dib).
 pub fn make_bmp(svg: &str, dpi: f32) -> Result<Vec<u8>, String> {
     let dpi = dpi_of(dpi);
-    let dib = dib(&draw(&tree(svg)?, dpi, false)?, dpi);
-    let mut out = Vec::with_capacity(14 + dib.len());
-    out.extend(b"BM");
-    out.extend(((14 + dib.len()) as u32).to_le_bytes());
-    out.extend([0u8; 4]); // reserved
-    out.extend(54u32.to_le_bytes()); // where the pixels start: after this header and the dib's
-    out.extend(dib);
-    Ok(out)
+    crate::clipboard::bmp_file(&dib(&draw(&tree(svg)?, dpi, false)?, dpi)).ok_or_else(|| "This drawing is too large to export.".to_string())
 }
 
 // A 3MF file (3D Manufacturing Format): a zip of the 3D model the page made (src/model3mf.ts), with the two parts every
@@ -340,7 +329,7 @@ pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8, stored_over: usize) -> Vec
         for v in [20u16, 0, method, 0, 0x21] {
             common.extend(v.to_le_bytes());
         }
-        for v in [crc32(data), packed.len() as u32, data.len() as u32] {
+        for v in [crc32fast::hash(data), packed.len() as u32, data.len() as u32] {
             common.extend(v.to_le_bytes());
         }
         common.extend((name.len() as u16).to_le_bytes());
@@ -366,45 +355,6 @@ pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8, stored_over: usize) -> Vec
     out.extend(at.to_le_bytes());
     out.extend([0u8; 2]);
     out
-}
-
-// The CRC-32 a zip file keeps for each part (the reflected polynomial 0xEDB88320), from tables, eight bytes a step.
-// CRC[0][b] is the CRC of the byte b; CRC[k][b] is that byte's with k zero bytes after it.
-static CRC: [[u32; 256]; 8] = {
-    let mut t = [[0u32; 256]; 8];
-    let mut b = 0;
-    while b < 256 {
-        let (mut c, mut bit) = (b as u32, 0);
-        while bit < 8 {
-            c = if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
-            bit += 1;
-        }
-        t[0][b] = c;
-        b += 1;
-    }
-    let mut k = 1;
-    while k < 8 {
-        let mut b = 0;
-        while b < 256 {
-            t[k][b] = (t[k - 1][b] >> 8) ^ t[0][(t[k - 1][b] & 0xff) as usize];
-            b += 1;
-        }
-        k += 1;
-    }
-    t
-};
-pub(crate) fn crc32(data: &[u8]) -> u32 {
-    let mut c = !0u32;
-    let mut eights = data.chunks_exact(8);
-    for b in &mut eights {
-        let lo = (c ^ u32::from_le_bytes([b[0], b[1], b[2], b[3]])).to_le_bytes();
-        c = CRC[7][lo[0] as usize] ^ CRC[6][lo[1] as usize] ^ CRC[5][lo[2] as usize] ^ CRC[4][lo[3] as usize]
-            ^ CRC[3][b[4] as usize] ^ CRC[2][b[5] as usize] ^ CRC[1][b[6] as usize] ^ CRC[0][b[7] as usize];
-    }
-    for &b in eights.remainder() {
-        c = (c >> 8) ^ CRC[0][((c ^ u32::from(b)) & 0xff) as usize];
-    }
-    !c
 }
 
 // A JPEG of the SVG at `dpi`, on white (JPEG has no transparency), at `quality` (1 to 100), with its resolution.
@@ -1385,25 +1335,6 @@ mod tests {
         assert_eq!(bmp.len(), 54 + 1080 * 271, "each row padded to 4 bytes");
     }
 
-    // The CRC-32 as Octet worked it out before the tables: a bit at a time.
-    fn bitwise_crc32(data: &[u8]) -> u32 {
-        !data.iter().fold(!0u32, |c, &b| (0..8).fold(c ^ u32::from(b), |c, _| if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }))
-    }
-
-    // The tables give the CRC-32 the bits gave: the standard check value, every length from 0 to 40 bytes (the eights
-    // and what is left over), and 100,000 bytes that follow no pattern.
-    #[test]
-    fn crc32_from_tables_is_the_same() {
-        assert_eq!((crc32(b"123456789"), crc32(b"")), (0xCBF4_3926, 0));
-        let mut x = 0x2545_F491u32;
-        let noise: Vec<u8> = (0..100_000).map(|_| { x ^= x << 13; x ^= x >> 17; x ^= x << 5; (x >> 24) as u8 }).collect();
-        for n in (0..=40).chain([255, 256, 257, 4_095, 65_537, 100_000]) {
-            assert_eq!(crc32(&noise[..n]), bitwise_crc32(&noise[..n]), "{n} bytes");
-            assert_eq!(crc32(&noise[noise.len() - n..]), bitwise_crc32(&noise[noise.len() - n..]), "the last {n} bytes");
-        }
-        assert_eq!(crc32(&[0xff; 1000]), bitwise_crc32(&[0xff; 1000]));
-    }
-
     // A part over the limit is stored, and a part at or under it deflated. The stored part's bytes are in the file as
     // they are, and both sizes are its own.
     #[test]
@@ -1414,7 +1345,7 @@ mod tests {
         assert_eq!((u16_at(8), u32_at(22)), (8, 100), "the small part is deflated");
         assert!(u32_at(18) < 100);
         let second = 30 + 5 + u32_at(18);
-        assert_eq!((u32_at(second), u16_at(second + 8), u32_at(second + 14), u32_at(second + 18), u32_at(second + 22)), (0x0403_4b50, 0, crc32(&large) as usize, 101, 101), "the large part is stored");
+        assert_eq!((u32_at(second), u16_at(second + 8), u32_at(second + 14), u32_at(second + 18), u32_at(second + 22)), (0x0403_4b50, 0, crc32fast::hash(&large) as usize, 101, 101), "the large part is stored");
         assert_eq!(&file[second + 35..second + 35 + 101], &large[..]);
         assert_eq!(u16::from_le_bytes(zip(&[("large", &large)], 1, 101)[8..10].try_into().unwrap()), 8, "at the limit: deflated");
     }
@@ -1422,36 +1353,18 @@ mod tests {
     // A 3MF file is a zip of three parts, each deflated with its CRC-32, and the model reads back as it went in.
     #[test]
     fn three_mf_is_a_zip_with_the_model() {
-        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         // The file's bytes are what they were when zip stored no part and the CRC-32 went a bit at a time (the same
         // miniz_oxide deflates them).
         let tetrahedron = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"><resources><object id=\"1\" type=\"model\"><mesh><vertices><vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/><vertex x=\"0\" y=\"1\" z=\"0\"/><vertex x=\"0\" y=\"0\" z=\"1\"/></vertices><triangles><triangle v1=\"0\" v2=\"2\" v3=\"1\"/><triangle v1=\"0\" v2=\"1\" v3=\"3\"/><triangle v1=\"0\" v2=\"3\" v3=\"2\"/><triangle v1=\"1\" v2=\"2\" v3=\"3\"/></triangles></mesh></object></resources><build><item objectid=\"1\"/></build></model>\n";
         let file = make_3mf(tetrahedron).unwrap();
-        assert_eq!((file.len(), bitwise_crc32(&file)), (926, 0x2F1C_8E8F), "the 3MF file has changed");
+        assert_eq!((file.len(), crc32fast::hash(&file)), (926, 0x2F1C_8E8F), "the 3MF file has changed");
         let model = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\"/>\n";
         let zip = make_3mf(model).unwrap();
-        let (u16_at, u32_at) = (|k: usize| u16::from_le_bytes([zip[k], zip[k + 1]]) as usize, |k: usize| u32::from_le_bytes(zip[k..k + 4].try_into().unwrap()) as usize);
-        let end = zip.len() - 22;
-        assert_eq!(u32_at(end), 0x0605_4b50);
-        assert_eq!((u16_at(end + 8), u16_at(end + 10)), (3, 3));
-        let (mut at, mut names) = (u32_at(end + 16), Vec::new());
-        for _ in 0..3 {
-            assert_eq!(u32_at(at), 0x0201_4b50);
-            let (crc, packed, size, name_len, local) = (u32_at(at + 16), u32_at(at + 20), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
-            let name = std::str::from_utf8(&zip[at + 46..at + 46 + name_len]).unwrap().to_string();
-            assert_eq!(u32_at(local), 0x0403_4b50);
-            assert_eq!(zip[local + 4..local + 30], zip[at + 6..at + 32], "the local header agrees with the directory");
-            let start = local + 30 + name_len;
-            let data = miniz_oxide::inflate::decompress_to_vec(&zip[start..start + packed]).unwrap();
-            assert_eq!((data.len(), crc32(&data) as usize), (size, crc));
-            if name == "3D/3dmodel.model" {
-                assert_eq!(data, model.as_bytes());
-            }
-            names.push(name);
-            at += 46 + name_len;
-        }
-        assert_eq!(names, ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"]);
-        assert_eq!(at, end, "the directory ends where the end record starts");
+        // Each part deflated, read back against its size and CRC-32 (clipboard.rs's tests read Office's zip the same way).
+        assert_eq!((&zip[zip.len() - 14..zip.len() - 10], crate::clipboard::tests::methods(&zip)), (&[3, 0, 3, 0][..], vec![8, 8, 8]));
+        let parts = crate::clipboard::tests::unzip(&zip);
+        assert_eq!(parts.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"]);
+        assert_eq!(parts[2].1, model.as_bytes());
         assert!(make_3mf(&" ".repeat(MAX_SVG + 1)).unwrap_err().contains("too large"));
     }
 

@@ -60,22 +60,14 @@ impl Places {
 }
 
 impl App {
-    fn id(self) -> &'static str {
+    // The app's id and its name.
+    fn id_name(self) -> (&'static str, &'static str) {
         match self {
-            App::Claude => "claude",
-            App::ClaudeCode => "claude-code",
-            App::Cursor => "cursor",
-            App::VsCode => "vscode",
-            App::Windsurf => "windsurf",
-        }
-    }
-    fn name(self) -> &'static str {
-        match self {
-            App::Claude => "Claude",
-            App::ClaudeCode => "Claude Code",
-            App::Cursor => "Cursor",
-            App::VsCode => "VS Code",
-            App::Windsurf => "Windsurf",
+            App::Claude => ("claude", "Claude"),
+            App::ClaudeCode => ("claude-code", "Claude Code"),
+            App::Cursor => ("cursor", "Cursor"),
+            App::VsCode => ("vscode", "VS Code"),
+            App::Windsurf => ("windsurf", "Windsurf"),
         }
     }
     // The file with the app's MCP servers. Claude has no Linux app.
@@ -133,17 +125,12 @@ fn has(app: App, file: &Path, program: &str) -> Has {
         Some(_) => Has::Other,
     }
 }
-// Writes the file whole, so the app never reads half of it: a new file beside it, then a rename over it.
+// Writes the file whole, so the app never reads half of it.
 fn write(file: &Path, v: &Value) -> Result<(), String> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let tmp = file.with_extension("octet-tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, file).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    crate::write_atomic(file, &serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 fn add(app: App, file: &Path, program: &str, args: &[String]) -> Result<(), String> {
     let mut v = read(file).map_err(|_| "unreadable".to_string())?;
@@ -223,7 +210,8 @@ fn state(app: App, p: &Places, program: &str) -> Option<Found> {
         Has::Other => "taken",
         Has::Unreadable => "unreadable",
     };
-    Some(Found { id: app.id(), name: app.name(), state })
+    let (id, name) = app.id_name();
+    Some(Found { id, name, state })
 }
 fn list(p: &Places, program: &str) -> Vec<Found> {
     APPS.iter().filter_map(|&a| state(a, p, program)).collect()
@@ -246,7 +234,7 @@ pub async fn ai_connect(ids: Vec<String>) -> Vec<Found> {
     tauri::async_runtime::spawn_blocking(move || {
         let (Some(p), true) = (Places::here(), allowed()) else { return Vec::new() };
         let (program, args) = crate::mcp::own_program();
-        for app in APPS.into_iter().filter(|a| ids.iter().any(|i| i == a.id()) && a.installed(&p)) {
+        for app in APPS.into_iter().filter(|a| ids.iter().any(|i| i == a.id_name().0) && a.installed(&p)) {
             let Some(file) = app.file(&p) else { continue };
             match has(app, &file, &program) {
                 Has::Ours | Has::None if app == App::Claude => keep_claude(file, program.clone(), args.clone()),
@@ -270,7 +258,7 @@ pub async fn ai_disconnect(id: String) -> Vec<Found> {
     tauri::async_runtime::spawn_blocking(move || {
         let (Some(p), true) = (Places::here(), allowed()) else { return Vec::new() };
         let program = crate::mcp::own_program().0;
-        if let Some(app) = APPS.into_iter().find(|a| a.id() == id) {
+        if let Some(app) = APPS.into_iter().find(|a| a.id_name().0 == id) {
             if app == App::Claude {
                 WANT_CLAUDE.store(false, Ordering::SeqCst);
             }

@@ -6,7 +6,7 @@ import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files,
 import { ColourPick, ColourPicker, ColourPop } from "./ColourPicker";
 import { OWN_MOST } from "./colours";
 import { Dialog, useModal } from "./Dialog";
-import { CURSOR_INKS, holdCursor, type CursorInk } from "./cursor";
+import { CURSOR_INKS, holdCursor, followDrag, type CursorInk } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
@@ -308,9 +308,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
               holdCursor(e.currentTarget);
               const x0 = e.clientX, w0 = width;
               const move = (ev: PointerEvent) => setWidth(Math.min(innerWidth - 16, Math.max(360, w0 + ev.clientX - x0)));
-              const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
-              addEventListener("pointermove", move);
-              addEventListener("pointerup", up);
+              followDrag(move);
             }}
           />
         </div>

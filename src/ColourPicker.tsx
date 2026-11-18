@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowDown, ArrowUp, Eyedropper, Palette, PencilSimple, Trash, X } from "@phosphor-icons/react";
-import { holdCursor } from "./cursor";
+import { holdCursor, followDrag } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 import { ContextMenu, Pick, type MenuItem } from "./Menu";
 import { UI } from "./export";
@@ -87,9 +87,7 @@ export function ColourPicker({ value, onChange }: { value: string; onChange: (he
     go(e);
     e.currentTarget.setPointerCapture(e.pointerId);
     holdCursor(e.currentTarget);
-    const move = (ev: PointerEvent) => go(ev), up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(go);
   };
   const [h, s, v] = hsv;
   return (
@@ -206,15 +204,12 @@ export function ColourPick({ label, value, presets, none, own, drawing = [], onP
       if (to >= 0 && to !== at) { list = moveColour(list, at, to); at = to; held.current.onOwn(list); }
     };
     const up = () => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", up);
       if (!moved) return;
       const swallow = (ev: Event) => ev.stopPropagation();
       addEventListener("click", swallow, true);
       setTimeout(() => removeEventListener("click", swallow, true));
     };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+    followDrag(move, up);
   };
   const at = manage ? ownIndex(manage.key, own) : -1;
   return (

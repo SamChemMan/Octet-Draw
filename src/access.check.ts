@@ -6,14 +6,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import type { Box, Mol } from "./render.ts";
+import { browser, loadOpsin, opsinDir } from "../scripts/checkkit.ts";
 
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 const { FOCUS, atomText, bondText, changeText, contrast, describe, readingOrder, ringOn } = await import("./access.ts");
@@ -22,24 +17,13 @@ const { findReaction } = await import("./reaction.ts");
 const { ACTIONS, actionFor, DEFAULT_KEYS, keymap, keyOf } = await import("./keys.ts");
 
 // The names engine (OPSIN), when it is built: Structure to Name as the editor runs it (Editor.tsx namedPart).
-const dir = new URL("./vendor/opsin/", import.meta.url);
 let nameOf: ((m: Mol) => string | undefined) | undefined;
-if (existsSync(new URL("opsin.js", dir))) {
-  const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-  for (let p = 0; ; ) {
-    const n = pack.readUInt16BE(p); p += 2;
-    if (!n) break;
-    const name = pack.toString("latin1", p, p + n); p += n;
-    const size = pack.readInt32BE(p); p += 4;
-    files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-  }
-  gl.opsinResource = (name: string) => files.get(name) ?? null;
-  const opsin = await import(new URL("opsin.js", dir).href);
-  opsin.init();
+if (existsSync(new URL("opsin.js", opsinDir))) {
+  const opsin = await loadOpsin();
   const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
   const { DRUGS } = await import("./drugs.ts");
   const { abbreviationOf, attachOpsin, knownName, nameToSmiles } = await import("./names.ts");
-  attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
+  attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
   const { checkedName, setNamer, withAbbreviation } = await import("./naming.ts");
   setNamer((await import("./namer.ts")).iupacName);
   const inchiOf = (s: Mol | string) => { try { return chem.toInchi(typeof s === "string" ? chem.parseStructure(s, false) : s); } catch { return undefined; } };

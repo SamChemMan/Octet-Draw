@@ -1,12 +1,8 @@
 // The library's Organisms, Bugs, Anatomy and BioArt sets: model organisms, insects and spiders, organs, and the parts
 // of biology diagrams, in the Lab group's line style (art.mjs path data, 40 units to a bond length, y down). Each is
 // built from simple shapes (ovals, arcs and smooth curves) worked out here; every drawing is Octet's own.
-import { art, circle, ellipse, fill, fine, ink, rect, seg, solid, subpaths } from "./art.mjs";
+import { art, circle, deg, ellipse, f, fill, fine, ink, P, PER, rect, seg, solid, subpaths } from "./art.mjs";
 
-const PER = { per: 40 };
-const f = (v) => Math.round(v * 100) / 100;
-const deg = Math.PI / 180;
-const P = (x, y) => `${f(x)} ${f(y)}`;
 // An oval turned by a degrees about its middle (cx, cy).
 function oval(cx, cy, rx, ry, a = 0) {
   const c = Math.cos(a * deg), s = Math.sin(a * deg), at = (x, y) => P(cx + x * c - y * s, cy + x * s + y * c), k = 0.5523;

@@ -3,6 +3,7 @@
 // same controls (PanelControls); Mass spec analysis sits with the NMR predictions and Properties.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { NUCLEUS_LIST } from "./nmr.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const editor = read("./Editor.tsx"), css = read("./editor.css"), actions = read("./Actions.tsx"), menu = read("../src-tauri/src/main.rs");
@@ -122,11 +123,11 @@ for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\n([^{}\n]*close-
 // pill's and tab's X (18 px), and the X on a notice and on a floating template palette, which are a panel's Close.
 {
   const radius = (sel: string) => new RegExp(`\\n${sel} \\{[^}]*\\n  border-radius: ([^;]+);`).exec(css)?.[1];
-  assert.equal(radius("\\.actions-close"), "var(--radius-sm)");
-  assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close"), "a pill's or tab's X has the panel controls' corners");
+  assert.equal(radius("\\.actions-close,\\n\\.floating-size"), "var(--radius-sm)");
+  assert.equal(radius("\\.close-x,\\n\\.segmented button\\.close-x"), radius("\\.actions-close,\\n\\.floating-size"), "a pill's or tab's X has the panel controls' corners");
   assert.match(read("./NoticeBar.tsx"), /<button className="actions-close" aria-label="Close" data-tip="Close" onClick=\{onGone\}><X size=\{12\} \/><\/button>/);
   assert.match(read("./TemplateLibrary.tsx"), /<button className="actions-close" aria-label=\{`Close \$\{palette\.set\}`\} data-tip="Close" onClick=\{onClose\}>/);
-  assert.match(css, /\n\.floating-size \{[^}]*\n  width: var\(--size-control-sm\);\n  height: var\(--size-control-sm\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
+  assert.match(css, /\n\.actions-close,\n\.floating-size \{[^}]*\n  width: var\(--size-control-sm\);\n  height: var\(--size-control-sm\);\n  padding: 0;\n  border: 0;\n  border-radius: var\(--radius-sm\);/, "the palette's size button matches its X");
   assert.doesNotMatch(css + read("./NoticeBar.tsx") + read("./TemplateLibrary.tsx"), /notice-close|floating-close/, "no second panel X");
 }
 // The + that adds a spectrum is a small action at the brand's 12 px, as the X beside it.
@@ -156,7 +157,7 @@ assert.match(editor, /text: a \? a\.abbreviation \?\? subscripts\(a\.formula\) :
 // The header shows a formula in the formula's font (IBM Plex Mono, weight 500), as the Actions panel shows it.
 assert.match(spectrum, /p\.formulaTitle \? <span className="formula">\{p\.title\}<\/span> : p\.title/);
 assert.match(css, /\n\.facts \.formula,\n\.prop-value\.formula,\n\.spectrum h2 \.formula \{\n  font: 500 13px\/18px var\(--font-mono\);/);
-assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.PREDICTED, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
+assert.match(editor, /addable=\{\[\.\.\.new Set\(\[\.\.\.NUCLEUS_LIST, \.\.\.\(doc\.spectra \?\? \[\]\)\.map\(spectrumKeyOf\)\]\)\]\.filter\(\(k\) => !x\.keys\.includes\(k\)\)\}/);
 assert.match(editor, /keys: x\.keys\.includes\(key\) \? x\.keys : \[\.\.\.x\.keys, key\], key/, "Predict for a kind already open shows its tab");
 assert.match(editor, /count: x\.keys\.length > 1 \? x\.keys\.length : undefined/, "the pill counts the spectra");
 
@@ -199,12 +200,13 @@ assert.match(spectrum, /aria-pressed=\{p\.decoupled\} onClick=\{\(\) => p\.onDec
 assert.match(spectrum, />Decouple ¹H<\/button>/);
 assert.match(editor, /decoupled=\{!!nucleusOpen && \(settings\.nmrDecouple\?\.\[nucleusOpen\] \?\? NUCLEI\[nucleusOpen\]\.decouple\)\}/);
 assert.match(spectrum, /\{v\.toFixed\(places\)\.replace\("-", "−"\)\}/, "a minus sign on the axis");
-assert.match(editor, /const PREDICTED: string\[\] = NUCLEUS_LIST;/);
+// Every nucleus Octet predicts (nmr.ts NUCLEUS_LIST) is a Predict command and a tab a session can add.
+assert.match(editor, /\.\.\.Object\.fromEntries\(NUCLEUS_LIST\.map\(\(n\) => \[`predict_\$\{n\.toLowerCase\(\)\}`, \(\) => openSpectrum\(n\)\]\)\),/);
 assert.doesNotMatch(editor.match(/\n  function openSpectrum\([^]*?\n  \}\n/)![0], /return|setNotice/, "Predict refuses no structure");
 assert.match(editor, /predict\(g, nucleusOpen, nmrSolvent, settings\.nmrDecouple\?\.\[nucleusOpen\]\)/);
 assert.match(editor, /const mhz = first\.mhz \/ NUCLEI\[key\]\.ratio/);
 for (const id of ["predict_19f", "predict_31p"]) {
-  assert.match(editor, new RegExp(`\\n    ${id}: \\(\\) => openSpectrum\\("${id === "predict_19f" ? "19F" : "31P"}"\\),`));
+  assert.ok((NUCLEUS_LIST as string[]).includes(id === "predict_19f" ? "19F" : "31P"), id);
   assert.ok(actions.includes(`"${id}"`) && menu.includes(`item("${id}"`), id);
 }
 assert.match(actions, /"predict_13c"\)\), small\(it\(<span className="glyph-text">¹⁹F<\/span>, "Predict ¹⁹F-NMR shifts", "predict_19f"\)\), small\(it\(<span className="glyph-text">³¹P<\/span>, "Predict ³¹P-NMR shifts", "predict_31p"\)\)/, "the Actions panel offers ¹⁹F and ³¹P for every structure");

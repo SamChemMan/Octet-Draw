@@ -21,6 +21,7 @@ import { looksLikeSmiles } from "../src/names.ts";
 import { ELEMENTS } from "../src/labels.ts";
 import { NONMETAL } from "../src/render.ts";
 import { casValid } from "../src/dictionary.ts";
+import { loadOpsin, norender } from "./checkkit.ts";
 
 const [cacheDir, flag, count] = process.argv.slice(2);
 if (!cacheDir) throw new Error("Usage: node scripts/build-dictionary.ts <cache directory> [--check 200]");
@@ -120,20 +121,8 @@ for (const { label, ingredients } of brands.values()) {
 console.log(`brands: ${branded} brand names of one active ingredient`);
 
 // ——— OPSIN and Indigo ———
-const dir = new URL("../src/vendor/opsin/", import.meta.url);
-const pack = readFileSync(new URL("opsin-data.bin", dir));
-const files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-(globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
-const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
+const opsin = await loadOpsin();
+const indigo = await norender();
 function convert(s: string, format: string): string | undefined {
   const o = new indigo.MapStringString();
   try { return indigo.convert(s, format, o).trim() || undefined; } catch { return undefined; } finally { o.delete(); }

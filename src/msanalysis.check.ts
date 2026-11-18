@@ -2,15 +2,10 @@
 // electron, an isotope pattern, a fragment set or the HRMS line wrong. Reference masses: PubChem's monoisotopic
 // masses (read 27 October 2026) and NIST's isotope masses; each m/z worked out by hand beside it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { browser } from "../scripts/checkkit.ts";
 
 // chem.ts loads Indigo's wasm as a browser does; these stand in for the browser (as chem.check.ts).
-const g = globalThis as Record<string, unknown>;
-g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-g.window = globalThis;
-g.self = { location: { origin: "file://" } };
-g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const { expandWithOrigins, importStructure, ready } = await import("./chem.ts");
 const { subset } = await import("./edit.ts");
 const ms = await import("./msanalysis.ts");
@@ -29,7 +24,6 @@ function load(smiles: string, cutBonds: number[][] = []) {
   const s = ms.structureOf(mol, ids, expandWithOrigins(subset(mol, new Set(ids))), cuts);
   return { mol, s, frags: (mode: import("./msanalysis.ts").Mode = "simultaneous") => ms.fragmentsOf({ ...s, mode }) };
 }
-const bondBetween = (m: Mol, a: string, b: string) => m.bonds.findIndex((x) => { const l = x.atoms.map((i) => m.atoms[i].label).sort().join(); return l === [a, b].sort().join(); });
 
 // The electron: CODATA 2022. A hydrogen atom less an electron is a proton (CODATA 2022: 1.007 276 466 5789 u) to
 // within the atom's 13.6 eV binding energy (1.5 × 10⁻⁸ u).

@@ -169,7 +169,6 @@ assert.equal(empty.cycles?.[0]?.nodes.length, 0);
   assert.equal(kept.captions!.find((c) => c.text === "Pd(OAc)2")!.cycle!.side, "node");
 }
 
-console.log("cycle tool ok");
 
 // Tobias, 2 November 2026: a structure as a reagent or product (saved as sides by Octet 1.0.29, now a side arrow). Its
 // arrow runs between the arc and the structure, on the step beside it, and follows it. It survives a save, and
@@ -286,7 +285,6 @@ console.log("cycle tool ok");
   damaged((d) => { (d.captions[0].cycle as Record<string, unknown>).branch = 3; });
   damaged((d) => { d.cycles[0].steps = [{ ratio: 0 }]; });
 }
-console.log("cycle model ok");
 
 // Side arrows' shape (layoutCycles). Each half is an arc of a circle that touches the cycle at T, so a reagent comes in
 // and a product leaves along the arc (a pass-through has no corner at T). Heads: one on the way out unless set. A step
@@ -405,7 +403,6 @@ console.log("cycle model ok");
   }
   assert.equal(layoutCycles(four(-1, undefined), L, 1, ink(four(-1, undefined))).spans[0].o, -1);
 }
-console.log("cycle layout ok");
 
 // One side arrow (Sam, 3 November 2026): pulled out of the arc, it comes in or goes out the way the pointer goes. Its
 // ends drag and read back where they were set; one dragged past where the arrow meets the arc turns round, or takes that
@@ -472,7 +469,6 @@ console.log("cycle layout ok");
   assert.deepEqual(shape(round), shape(pair));
   assert.deepEqual([!!br(setEnds(pair, 1, 1, "in"))!.out, !!br(setEnds(pair, 1, 1, "out"))!.in], [false, false]);
 }
-console.log("cycle ends ok");
 
 // Dropped on a cycle (dropOnCycle): what moved or is new joins the circle it is on or beside, the nearest one, and the
 // drag shows what letting go does. ⌘ held, nothing joins.
@@ -553,7 +549,6 @@ console.log("cycle ends ok");
   const grown: Mol = { ...plus(inn, polar((3 * Math.PI) / 8, 5.5)), bonds: [{ atoms: [4, 5], order: 1 }] as Mol["bonds"] };
   assert.deepEqual(cy(drop(grown, inn)).branches![0].in, { atoms: [4, 5] });
 }
-console.log("cycle drop ok");
 
 // Select and the Cycle tool on a whole cycle: what a pick of it takes, where a click may break it, and its radius.
 {
@@ -578,7 +573,6 @@ console.log("cycle drop ok");
   assert.deepEqual(big.cycles![0].at, two.cycles![0].at);
   assert.equal(resizeCycle(two, 1, 3), two);
 }
-console.log("cycle select ok");
 
 // Edge cases: a structure level with where its arrow meets the arc, an unbalanced reversible step, a step split or
 // joined, the most side arrows a cycle has, a flip, and a structure inside.
@@ -622,7 +616,6 @@ console.log("cycle select ok");
   const inner = { ...two({ branches: [{ id: 1, step: 0, out: { atoms: [2] } }] }, [atom(1.5, -0.5)]), captions: [{ id: 9, text: "x", x: 0, y: 0, cycle: { cycle: 1, step: 0, side: "name" as const } }] };
   assert.ok(named(inner).x > 3 * L, JSON.stringify(named(inner)));
 }
-console.log("cycle edges ok");
 
 // Delete takes exactly what is picked. A whole cycle picked (a click on it, ⌘A, a lasso round it) is its intermediates,
 // its side arrows' structures and all its text: Delete or Cut takes all of it, and Paste brings it back once. The cycle
@@ -661,7 +654,6 @@ console.log("cycle edges ok");
   assert.match(editor, /if \(partPick\) return Promise\.resolve\(false\);/);
   assert.match(editor, /if \(partPick\) return run\("edit\.delete"\);/);
 }
-console.log("cycle delete ok");
 
 // Placed where the pointer aims (a template or ring stamped, a file dropped, a structure named at the pointer), a new
 // structure joins a cycle as one dragged there does: beside an arc, a reagent or product. ⌘ (skip) keeps it free, and
@@ -681,7 +673,6 @@ console.log("cycle delete ok");
   const inside = (r: number) => { const x: Mol = { ...four, atoms: [...four.atoms, atom(r * Math.cos(Math.PI / 8), r * Math.sin(Math.PI / 8))] }; return dropOnCycle(x, fragments(x), four, { placed: true }).cycles![0].branches?.length ?? 0; };
   assert.deepEqual([inside(2), inside(1.2)], [1, 0]);
 }
-console.log("cycle placed ok");
 
 // Tidy the cycle: a side arrow's structure goes with the middle of its step's arc.
 {
@@ -691,7 +682,6 @@ console.log("cycle placed ok");
   assert.ok(Math.hypot(moved[2].location[0] - 5.5, moved[2].location[1]) < 1e-9, JSON.stringify(moved[2]));
   assert.deepEqual(moved[0].location, [0, 3, 0]);
 }
-console.log("cycle tidy ok");
 
 // The Side arrow tool. A click on a step asks Reagent, Product or Reagent and product, the likely one first: the end a
 // one-ended side arrow on the step is missing, else a reagent on the step's first half and a product on its second.
@@ -730,7 +720,6 @@ console.log("cycle tidy ok");
   const said: Mol = { ...four(), captions: [{ id: 50, text: "H2", x: 4 * Math.cos(Math.PI / 8), y: 4 * Math.sin(Math.PI / 8) }] };
   assert.deepEqual(attachBeside(said, { text: 50 }).captions![0].cycle, { cycle: 1, step: 0, side: "out", branch: 1 });
 }
-console.log("cycle side arrow tool ok");
 
 // Step names placed clear (the Suzuki cycle from the MCP test): three intermediates, side arrows with text on every
 // step and long names, so the names go inside where they fit, else outside. No name overlaps another, the centre
@@ -760,7 +749,6 @@ console.log("cycle side arrow tool ok");
   const moved = { ...suzuki, captions: suzuki.captions!.map((c) => (c.id === 20 ? { ...c, cycle: { ...c.cycle!, at: 0.5, reach: -0.6 } } : c)) };
   assert.deepEqual(layoutCycles(moved, L, pt, ink(moved), () => undefined, frame).anchors.get(20), layoutCycles(suzuki, L, pt, ink(suzuki)).anchors.get(20));
 }
-console.log("cycle step names ok");
 
 // Tidy the cycle leaves each intermediate half a bond clear of a wide centre text.
 {

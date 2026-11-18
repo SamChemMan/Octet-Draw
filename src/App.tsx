@@ -1,15 +1,16 @@
-import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
+import { Component, Fragment, lazy, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Editor, { keepNow, rescue } from "./Editor";
-import Gallery from "./Gallery";
 import { Dialog } from "./Dialog";
 import { logError } from "./crashlog";
 import { failure } from "./notice";
 
-// ?gallery, ?smiles=… or ?labels opens a renderer test page instead of the editor.
+// ?gallery, ?smiles=… or ?labels opens a renderer test page instead of the editor. Dev builds only: a release build
+// leaves the page out.
 const params = new URLSearchParams(location.search);
+const Gallery = import.meta.env.DEV ? lazy(() => import("./Gallery")) : undefined;
 
 // An error while the editor draws shows a message, not a blank window (REL-23). The drawing as last drawn is kept
 // (Editor's rescue): Save As writes it to a new file, and Cancel opens the editor again with it. The error goes to
@@ -57,7 +58,7 @@ class Guard extends Component<{ children: ReactNode }, { failed: boolean; key: n
 }
 
 export default function App() {
-  if (params.has("gallery") || params.has("smiles") || params.has("labels"))
-    return <Gallery smiles={params.get("smiles") ?? undefined} labels={params.has("labels")} />;
+  if (Gallery && (params.has("gallery") || params.has("smiles") || params.has("labels")))
+    return <Suspense><Gallery smiles={params.get("smiles") ?? undefined} labels={params.has("labels")} /></Suspense>;
   return <Guard><Editor /></Guard>;
 }

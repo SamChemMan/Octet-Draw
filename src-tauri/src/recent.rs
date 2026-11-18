@@ -29,35 +29,42 @@ pub struct Recent {
 #[derive(Default)]
 pub struct Recents(pub Mutex<Option<Vec<Recent>>>);
 
-fn store_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("recent.json"))
+fn store_path(app: &AppHandle, file: &str) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join(file))
 }
 
-// The list, read once from the data folder. A damaged or oversized file gives an empty list.
-fn with_list<T>(app: &AppHandle, f: impl FnOnce(&mut Vec<Recent>) -> T) -> T {
-    let state = app.state::<Recents>();
-    let mut guard = state.0.lock().unwrap();
+// A list (the recent drawings, or the Experiments list), read once from the data folder with parse. A damaged or
+// oversized file gives an empty list.
+fn with_store<E, T>(app: &AppHandle, held: &Mutex<Option<Vec<E>>>, file: &str, parse: fn(&str) -> Vec<E>, f: impl FnOnce(&mut Vec<E>) -> T) -> T {
+    let mut guard = held.lock().unwrap();
     let list = guard.get_or_insert_with(|| {
-        store_path(app)
+        store_path(app, file)
             .filter(|p| fs::metadata(p).map(|m| m.len() <= MAX_LIST).unwrap_or(false))
             .and_then(|p| fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str::<Vec<Recent>>(&t).ok())
-            .map(|l| l.into_iter().filter(|r| r.path.len() < 4096 && r.name.len() < 512 && r.thumb.as_ref().is_none_or(|t| t.len() <= MAX_THUMB)).take(MOST).collect())
+            .map(|t| parse(&t))
             .unwrap_or_default()
     });
     f(list)
 }
 
-// Called inside with_list, so each write goes out while the list is locked and an older list never replaces a newer
+// Called inside with_store, so each write goes out while the list is locked and an older list never replaces a newer
 // one on disk (issue 2).
-fn save_list(app: &AppHandle, list: &[Recent]) {
-    let Some(path) = store_path(app) else { return };
+fn save_store<E: Serialize>(app: &AppHandle, file: &str, list: &[E]) {
+    let Some(path) = store_path(app, file) else { return };
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
     if let Ok(text) = serde_json::to_string(list) {
         let _ = write_atomic(&path, text.as_bytes());
     }
+}
+
+fn with_list<T>(app: &AppHandle, f: impl FnOnce(&mut Vec<Recent>) -> T) -> T {
+    let parse = |t: &str| serde_json::from_str::<Vec<Recent>>(t).map(|l| l.into_iter().filter(|r| r.path.len() < 4096 && r.name.len() < 512 && r.thumb.as_ref().is_none_or(|t| t.len() <= MAX_THUMB)).take(MOST).collect()).unwrap_or_default();
+    with_store(app, &app.state::<Recents>().0, "recent.json", parse, f)
+}
+fn save_list(app: &AppHandle, list: &[Recent]) {
+    save_store(app, "recent.json", list)
 }
 
 // The drawings on the list, by path (a project can take any of them: home.rs).
@@ -202,37 +209,16 @@ struct Entry {
 #[derive(Default)]
 pub struct Experiments(Mutex<Option<Vec<Entry>>>);
 
-fn experiments_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("experiments.json"))
-}
-
 // The records that pass the checks, MOST_EXPERIMENTS at most, from the file's text. A damaged file gives none.
 fn read_experiments(text: &str) -> Vec<Entry> {
     serde_json::from_str::<Vec<Entry>>(text).map(|l| l.into_iter().filter(|e| e.path.len() < 4096 && e.name.len() < 512 && e.experiment.ok()).take(MOST_EXPERIMENTS).collect()).unwrap_or_default()
 }
 
-// As with_list, for the Experiments list. Each change is written while the list is locked.
 fn with_experiments<T>(app: &AppHandle, f: impl FnOnce(&mut Vec<Entry>) -> T) -> T {
-    let state = app.state::<Experiments>();
-    let mut guard = state.0.lock().unwrap();
-    let list = guard.get_or_insert_with(|| {
-        experiments_path(app)
-            .filter(|p| fs::metadata(p).map(|m| m.len() <= MAX_LIST).unwrap_or(false))
-            .and_then(|p| fs::read_to_string(p).ok())
-            .map(|t| read_experiments(&t))
-            .unwrap_or_default()
-    });
-    f(list)
+    with_store(app, &app.state::<Experiments>().0, "experiments.json", read_experiments, f)
 }
-
 fn save_experiments(app: &AppHandle, list: &[Entry]) {
-    let Some(path) = experiments_path(app) else { return };
-    if let Some(dir) = path.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if let Ok(text) = serde_json::to_string(list) {
-        let _ = write_atomic(&path, text.as_bytes());
-    }
+    save_store(app, "experiments.json", list)
 }
 
 // The list with a drawing's record put first (experiment) or taken out (None, or details that fail the checks).

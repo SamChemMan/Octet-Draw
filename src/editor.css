@@ -37,6 +37,7 @@ input:disabled,
 @media (hover: hover) and (pointer: fine) {
   .variant-action:hover,
   .key-remove:hover,
+  .home-remove:hover,
   .name-forget:hover {
     background: var(--surface-sunken);
     color: var(--ink);
@@ -53,6 +54,7 @@ input:disabled,
   -webkit-touch-callout: none;
   font-family: var(--font-sans);
   color: var(--ink);
+  --ruler: 0px;
 }
 
 /* The canvas stays white in dark mode (data-theme="light" on the element), for print fidelity. Its cursors are
@@ -558,10 +560,6 @@ rect.mark {
   border-bottom: 4px solid currentColor;
   opacity: 0.5;
 }
-.tool {
-  position: relative;
-}
-
 /* The variant strip opens beside its tool and grows out from it. */
 .strip {
   position: absolute;
@@ -579,6 +577,7 @@ rect.mark {
   box-shadow: var(--shadow-float);
   transform-origin: left center;
   animation: strip-in var(--motion-fast) var(--ease-out);
+  transition: width var(--motion) var(--ease-out);
 }
 
 @keyframes strip-in {
@@ -589,16 +588,8 @@ rect.mark {
 }
 
 /* Resizing: the width follows the grip, then eases to a whole column when it is let go. */
-.strip {
-  transition: width var(--motion) var(--ease-out);
-}
 .strip.resizing {
   transition: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .strip {
-    transition: none;
-  }
 }
 /* Its options scroll when the menu is taller than the window; its sub-menus sit outside the scrolling part. */
 .menu-body {
@@ -662,15 +653,15 @@ rect.mark {
   display: grid;
   min-width: 0;
 }
-.variant-action {
+/* The small round button on an item (remove, keep): shown on hover or focus. */
+.variant-action,
+.key-remove,
+.home-remove {
   position: absolute;
-  top: 50%;
-  right: var(--space-1);
   display: grid;
   place-items: center;
   width: var(--size-action);
   height: var(--size-action);
-  margin-top: calc(var(--size-action) / -2);
   padding: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -679,6 +670,11 @@ rect.mark {
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
   box-sizing: border-box;
+}
+.variant-action {
+  top: 50%;
+  right: var(--space-1);
+  margin-top: calc(var(--size-action) / -2);
 }
 /* In a list (the user's own colours in a colour menu) the name keeps clear of the button, so it never runs under it. */
 .strip.list .variant-cell:has(> .variant-action) > .variant {
@@ -694,7 +690,63 @@ rect.mark {
   background: var(--brand-mist);
   color: var(--link);
 }
-.variant-action:focus-visible {
+/* Keyboard focus: the focus ring on every control (BRAND.md, Controls). */
+.variant-action:focus-visible,
+.variant:focus-visible,
+.palette-toggle:focus-visible,
+.tool:focus-visible,
+.fold-title:focus-visible,
+.tray-button:focus-visible,
+.action:focus-visible,
+.chip:focus-visible,
+.actions-close:focus-visible,
+.actions-reopen:focus-visible,
+.problem-hide:focus-visible,
+.more-problems:focus-visible,
+.segmented button:focus-visible,
+.swatch:focus-visible,
+.switch:focus-visible,
+.text-button:focus-visible,
+.facts:focus-visible,
+.problem-buttons button:focus-visible,
+.palette-add:focus-visible,
+.key-chip > button:focus-visible,
+.key-add:focus-visible,
+.search-clear:focus-visible,
+.page-option:focus-visible,
+.module:focus-visible,
+.actions-home:focus-visible,
+.actions-settings:focus-visible,
+.library-keep:focus-visible,
+.floating-size:focus-visible,
+.floating-item:focus-visible,
+.library-category:focus-visible,
+.library-item:focus-visible,
+.paper-choice:focus-visible,
+.picker-square:focus-visible,
+.picker-hue:focus-visible,
+.slider input[type="range"]:focus-visible,
+.dialog-button:focus-visible,
+.prop-value:focus-visible,
+.prop-link:focus-visible,
+.prop-check:focus-visible,
+.prop-add:focus-visible,
+.close-x:focus-visible,
+.spectrum-button:focus-visible,
+.export-button:focus-visible,
+.feedback-link:focus-visible,
+.home-heading:focus-visible,
+.home-open:focus-visible,
+.home-remove:focus-visible,
+.home-act:focus-visible,
+.home-back:focus-visible,
+.home-more:focus-visible,
+.home-cell-open:focus-visible,
+.home-sort:focus-visible,
+.feedback-note:focus-visible,
+.ruler-corner:focus-visible,
+.notes:focus-visible,
+.pill-open:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
@@ -765,7 +817,8 @@ button.variant.add {
   transform: translate(-50%, -50%) scale(0.8);
   transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
-.strip.carrying {
+.strip.carrying,
+.library.carrying {
   opacity: 0.35;
   pointer-events: none;
   transition: opacity var(--motion-fast) var(--ease-out);
@@ -864,10 +917,6 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--link);
 }
-.variant:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* Live count of bonds while the Chain tool drags. */
 .count {
@@ -916,12 +965,9 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.palette-toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 .tool {
+  position: relative;
   width: var(--size-tool);
   height: var(--size-tool);
   display: grid;
@@ -941,19 +987,10 @@ button.variant.add {
   }
 }
 
-.tool:active:not(:disabled) {
-  transform: scale(var(--press));
-}
-
 .tool[aria-pressed="true"] {
   color: var(--link);
 }
 
-
-.tool:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* While Select is Structure perspective (a drag turns the structure in 3D), its button has a soft red glow that pulses
    slowly, active or not. The glow fades in and out with the mode. Reduced motion: the glow stays still. */
@@ -1371,13 +1408,7 @@ button.variant.add {
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   color: var(--ink);
-  animation: ai-card-in var(--motion-slow) var(--ease-out);
-}
-@keyframes ai-card-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  animation: notes-in var(--motion-slow) var(--ease-out);
 }
 .ai-card-mark {
   position: relative;
@@ -1457,6 +1488,7 @@ button.variant.add {
   }
   .strip {
     animation: fade-in var(--motion-fast) var(--ease-out);
+    transition: none;
   }
 }
 
@@ -1502,6 +1534,21 @@ button.variant.add {
   }
 }
 .actions-reopen {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-tool);
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink-muted);
   transform-origin: bottom right;
   animation: panel-in var(--motion-fast) var(--ease-out);
   font: 500 13px/18px var(--font-sans);
@@ -1512,20 +1559,24 @@ button.variant.add {
     transform: scale(0.97);
   }
 }
-.actions header {
+.actions header,
+.properties header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
 }
-.actions h2 {
+.actions h2,
+.properties h2,
+.spectrum h2 {
   margin: 0;
   font-size: 13px;
   line-height: 18px;
   font-weight: 600;
   color: var(--ink);
 }
-.actions-close {
+.actions-close,
+.floating-size {
   display: grid;
   place-items: center;
   width: var(--size-control-sm);
@@ -1571,7 +1622,8 @@ button.variant.add {
   font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
-.action kbd {
+/* A shortcut beside a command is plain small text. */
+kbd {
   font-family: var(--font-sans);
   font-size: 11px;
   color: var(--ink-faint);
@@ -1610,7 +1662,9 @@ button.variant.add {
   font-size: 13px;
 }
 .chip[aria-pressed="true"],
-.chip[aria-checked="true"] {
+.chip[aria-checked="true"],
+.name-kinds button[aria-checked="true"],
+.name-options > button[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
   color: var(--link);
@@ -1654,23 +1708,37 @@ button.variant.add {
 .name-field::placeholder {
   color: var(--ink-faint);
 }
-/* The suggested name, just under the field: the letters it adds or changes are marked. */
-.name-suggestion {
+/* Under the name field: the suggested name, a sequence's choices and the names drawn before. */
+.name-suggestion,
+.name-options,
+.name-history {
   position: absolute;
   top: calc(var(--space-4) + 44px);
   left: 50%;
   z-index: var(--z-strip);
+  width: 360px;
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+}
+.name-options,
+.name-history {
+  margin-left: -180px;
+  padding: var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  transform-origin: top center;
+  animation: strip-in var(--motion-fast) var(--ease-out);
+}
+/* The suggested name: the letters it adds or changes are marked. */
+.name-suggestion {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  width: 360px;
   margin: 0 0 0 -180px;
   padding: var(--space-1) var(--space-3);
-  box-sizing: border-box;
   border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -1680,23 +1748,9 @@ button.variant.add {
    Residue labels (each on or off). The field keeps
    the focus. A choice on shows in the brand's mist, as a pressed chip does. */
 .name-options {
-  position: absolute;
-  top: calc(var(--space-4) + 44px);
-  left: 50%;
-  z-index: var(--z-strip);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-1);
-  width: 360px;
-  margin-left: -180px;
-  padding: var(--space-1);
-  box-sizing: border-box;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  transform-origin: top center;
-  animation: strip-in var(--motion-fast) var(--ease-out);
 }
 .name-kinds {
   grid-column: 1 / -1;
@@ -1722,16 +1776,6 @@ button.variant.add {
 .name-options > button {
   border-color: var(--hairline);
 }
-.name-kinds button[aria-checked="true"] {
-  border-color: transparent;
-  background: var(--brand-mist);
-  color: var(--link);
-}
-.name-options > button[aria-pressed="true"] {
-  border-color: transparent;
-  background: var(--brand-mist);
-  color: var(--link);
-}
 @media (hover: hover) and (pointer: fine) {
   .name-options > button:hover:not([aria-pressed="true"]),
   .name-kinds button:hover:not([aria-checked="true"]) {
@@ -1741,10 +1785,8 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.name-options button:active {
-  transform: scale(var(--press));
-}
-.name-suggestion.lower {
+.name-suggestion.lower,
+.name-history.lower {
   top: calc(var(--space-4) + 118px);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1755,11 +1797,6 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--link);
   border-radius: var(--radius-2xs);
-}
-.name-suggestion kbd {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--ink-faint);
 }
 .ghost {
   fill: var(--ink);
@@ -1783,7 +1820,6 @@ button.variant.add {
   }
 }
 
-/* The end of a long actions list: small buttons in one row, each naming itself on hover. */
 /* The small buttons, set by set. Each set has a small title over its buttons, and space (no line) between it and the
    next, so the main rows read first and the sets below them read as smaller sections. */
 .tray {
@@ -1874,10 +1910,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.fold-title:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .fold-body {
   display: grid;
   grid-template-rows: 1fr;
@@ -1934,13 +1966,6 @@ button.variant.add {
   .tray-button.delete:hover {
     color: var(--error);
   }
-}
-.tray-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-.tray-button:active {
-  transform: scale(var(--press));
 }
 /* Arranging the Actions panel: any action can be dragged along the rows, along the small buttons, or between them. */
 .action-slot {
@@ -2038,6 +2063,7 @@ button.variant.add {
 }
 .tip kbd {
   flex: none;
+  color: inherit;
   font: inherit;
   white-space: nowrap;
   opacity: 0.7;
@@ -2167,23 +2193,6 @@ button.variant.add {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
-.actions-reopen {
-  position: absolute;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  z-index: var(--z-panel);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: var(--size-tool);
-  box-sizing: border-box;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  color: var(--ink-muted);
-}
 @media (hover: hover) and (pointer: fine) {
   .action:hover,
   .chip:hover:not([aria-pressed="true"], [aria-checked="true"]),
@@ -2193,13 +2202,6 @@ button.variant.add {
     color: var(--ink);
   }
 }
-.action:focus-visible,
-.chip:focus-visible,
-.actions-close:focus-visible,
-.actions-reopen:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .action:active,
 .variant:active,
 .module:active,
@@ -2207,8 +2209,7 @@ button.variant.add {
 .library-item:active {
   transform: scale(var(--press-large));
 }
-.chip:active,
-.actions-reopen:active {
+.chip:active {
   transform: scale(var(--press));
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2315,10 +2316,6 @@ div.facts {
 .library-keep:active {
   transform: scale(var(--press-small));
 }
-.problem-hide:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .problem > svg {
   margin-top: 1px;
   color: var(--error);
@@ -2353,9 +2350,6 @@ div.facts {
     background: var(--surface-sunken);
   }
 }
-.problem-buttons button:active {
-  transform: scale(var(--press));
-}
 .more-problems {
   align-self: flex-start;
   margin: 0;
@@ -2370,10 +2364,6 @@ div.facts {
   .more-problems:hover {
     color: var(--ink);
   }
-}
-.more-problems:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .action small {
   display: block;
@@ -2395,9 +2385,6 @@ div.facts {
 }
 .chips.groups {
   grid-template-columns: repeat(4, 1fr);
-}
-.chips.groups .chip {
-  font-size: 13px;
 }
 .chips.rings {
   grid-template-columns: repeat(6, 1fr);
@@ -2459,7 +2446,8 @@ div.facts {
   justify-content: space-between;
   margin-bottom: var(--space-3);
 }
-.modal h2 {
+.modal h2,
+.settings-main h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -2550,8 +2538,8 @@ div.facts {
   -webkit-user-select: text;
   user-select: text;
 }
-/* A field that does not apply now (Scale to the document's bond length): its value shows, faint. */
-/* The field is dimmed as one: its input does not dim a second time. */
+/* A field that does not apply now (Scale to the document's bond length) is dimmed as one: its input does not dim a
+   second time. */
 .unit-field[aria-disabled] {
   opacity: var(--disabled);
 }
@@ -2611,7 +2599,6 @@ div.facts {
     border-color: var(--outline);
   }
 }
-/* Orientation: two small pages. */
 /* The segments of one control have one width, the widest's: equal columns (BRAND.md, Controls). */
 .segmented {
   display: inline-grid;
@@ -2649,7 +2636,7 @@ div.facts {
 .segmented button:active {
   transform: scale(var(--press));
 }
-/* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
+/* Orientation: two small pages. */
 .page-glyph {
   width: 9px;
   height: 12px;
@@ -2689,19 +2676,6 @@ div.facts {
 .switch[aria-checked="true"] span {
   transform: translateX(12px);
   background: var(--on-brand);
-}
-.segmented button:focus-visible,
-.swatch:focus-visible,
-.switch:focus-visible,
-.text-button:focus-visible,
-.facts:focus-visible,
-.problem-buttons button:focus-visible,
-.palette-add:focus-visible,
-.key-chip > button:focus-visible,
-.key-add:focus-visible,
-.search-clear:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .swatches {
   display: flex;
@@ -2820,9 +2794,6 @@ div.facts {
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
 }
-.page-button:active {
-  transform: scale(var(--press));
-}
 .page-thumb {
   display: inline-block;
   box-sizing: border-box;
@@ -2885,14 +2856,12 @@ div.facts {
 .page-option-name {
   text-align: center;
   line-height: 15px;
+  white-space: nowrap;
 }
 .page-option-size {
   color: var(--ink-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.page-option-name {
   white-space: nowrap;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -2906,10 +2875,6 @@ div.facts {
 .page-option[aria-checked="true"] .page-thumb {
   color: var(--link);
   background: color-mix(in oklab, var(--brand-bright) 12%, transparent);
-}
-.page-option:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .page-custom {
   display: flex;
@@ -2932,9 +2897,8 @@ div.facts {
 .page-custom .times {
   color: var(--ink-faint);
 }
-/* Settings > Document > For: one button for each purpose, on more lines when there are many. */
-/* The purposes go onto more lines when the user has added their own, so each has one set width; a long name is cut
-   short with an ellipsis. */
+/* Settings > Document > For: one button for each purpose. They go onto more lines when the user has added their own,
+   so each has one set width; a long name is cut short with an ellipsis. */
 .segmented.purposes {
   display: flex;
   flex-wrap: wrap;
@@ -3084,10 +3048,6 @@ div.facts {
 .module[data-dim] {
   opacity: 0.45;
 }
-.module:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .module-count {
   min-width: 18px;
   padding: 0 var(--space-1);
@@ -3099,7 +3059,8 @@ div.facts {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.settings-main {
+.settings-main,
+.library-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -3110,12 +3071,6 @@ div.facts {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-6) var(--space-2);
-}
-.settings-main h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 .settings-body {
   flex: 1;
@@ -3207,21 +3162,8 @@ div.facts {
   }
 }
 .key-remove {
-  position: absolute;
   top: -7px;
   right: -7px;
-  display: grid;
-  place-items: center;
-  width: var(--size-action);
-  height: var(--size-action);
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-  box-sizing: border-box;
 }
 .key-chip:hover .key-remove,
 .key-remove:focus-visible {
@@ -3284,11 +3226,6 @@ div.facts {
 .actions-settings span {
   flex: 1;
 }
-.actions-settings kbd {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--ink-faint);
-}
 .actions-home {
   flex: none;
   justify-content: center;
@@ -3303,14 +3240,6 @@ div.facts {
     color: var(--ink);
     background: var(--surface-sunken);
   }
-}
-.actions-home:active {
-  transform: scale(var(--press));
-}
-.actions-home:focus-visible,
-.actions-settings:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .page-menu .grip {
   right: 3px;
@@ -3352,11 +3281,6 @@ div.facts {
   transform-origin: left top;
   animation: strip-in var(--motion-fast) var(--ease-out);
 }
-.library.carrying {
-  opacity: 0.35;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
 .library-side {
   display: flex;
   flex-direction: column;
@@ -3378,12 +3302,6 @@ div.facts {
   overflow-y: auto;
 }
 /* The open set's name over its templates, and Keep open, which tears the set off into a floating palette. */
-.library-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
 .library-head {
   display: flex;
   flex: none;
@@ -3413,10 +3331,6 @@ div.facts {
   background: transparent;
   color: var(--ink-muted);
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-}
-.library-keep:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 @media (hover: hover) and (pointer: fine) {
   .library-keep:hover {
@@ -3486,23 +3400,6 @@ div.facts {
   font: 500 11px var(--font-sans);
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-/* The template size button on the bar: the look of the panel controls (.actions-close), as the palette's X beside it. */
-.floating-size {
-  display: grid;
-  place-items: center;
-  width: var(--size-control-sm);
-  height: var(--size-control-sm);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-muted);
-}
-.floating-size:focus-visible,
-.floating-item:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .floating-grid {
   display: grid;
@@ -3597,10 +3494,6 @@ div.facts {
   background: var(--brand-mist);
   color: var(--link);
 }
-.library-category:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* The templates at the library's template size (--thumb, a thumbnail's side), as many across as fit. */
 .library-grid {
   display: grid;
@@ -3644,10 +3537,6 @@ div.facts {
 }
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
-}
-.library-item:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
@@ -3758,8 +3647,7 @@ div.facts {
   .library-add:hover .library-add-mark {
     border-color: var(--ink-muted);
   }
-  .library-item:hover,
-  .library-category:not([aria-pressed="true"]):hover {
+  .library-item:hover {
     background: var(--surface-sunken);
   }
   .library-category:not([aria-pressed="true"]):hover {
@@ -3850,7 +3738,8 @@ div.facts {
   width: 18px;
   height: 18px;
 }
-.command-name {
+.command-name,
+.name-text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -3867,7 +3756,6 @@ div.facts {
 }
 .command kbd {
   flex: none;
-  color: var(--ink-faint);
   font: 11px var(--font-sans);
 }
 .command-none {
@@ -3882,28 +3770,9 @@ div.facts {
 }
 
 
-/* Names drawn before, under the name field: five, or all of them in a taller list. */
-.name-history {
-  position: absolute;
-  top: calc(var(--space-4) + 44px);
-  left: 50%;
-  z-index: var(--z-strip);
-  width: 360px;
-  margin-left: -180px;
-  padding: var(--space-1);
-  box-sizing: border-box;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-float);
-  transform-origin: top center;
-  animation: strip-in var(--motion-fast) var(--ease-out);
-}
+/* Names drawn before: five, or all of them in a taller list. */
 .name-history.below {
   top: calc(var(--space-4) + 84px);
-}
-.name-history.lower {
-  top: calc(var(--space-4) + 118px);
 }
 .name-history.below.lower {
   top: calc(var(--space-4) + 158px);
@@ -3926,7 +3795,6 @@ div.facts {
 .name-recent.show-all {
   height: 32px;
   color: var(--ink-muted);
-  font-size: 13px;
 }
 .name-recent[aria-selected="true"] {
   background: var(--brand-mist);
@@ -3942,13 +3810,6 @@ div.facts {
 .name-thumb .thumb {
   width: 36px;
   height: 36px;
-}
-.name-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .name-forget {
   display: grid;
@@ -4013,7 +3874,8 @@ div.facts {
   stroke-width: 1.25;
   transition: fill var(--motion-fast) var(--ease-out);
 }
-.turn-handle path {
+.turn-handle path,
+.turn-centre {
   fill: none;
   stroke: var(--brand);
   stroke-width: 1.4;
@@ -4028,12 +3890,6 @@ div.facts {
 }
 .editor[data-select] .canvas[data-theme="dark"] :is(.resize-handle.hot, .turn-handle.hot circle) {
   fill: color-mix(in srgb, var(--select) 30%, var(--canvas));
-}
-.turn-centre {
-  fill: none;
-  stroke: var(--brand);
-  stroke-width: 1.4;
-  stroke-linecap: round;
 }
 .turn-angle {
   fill: var(--link);
@@ -4118,10 +3974,6 @@ div.facts {
 .paper-choice[aria-checked="true"] {
   border-color: var(--brand-bright);
   background: var(--brand-mist);
-}
-.paper-choice:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .paper-choice.white span { background: #FFFFFF; }
 /* #000B24: the dark theme's --canvas, which dark paper takes. */
@@ -4339,11 +4191,6 @@ div.facts {
   box-shadow: 0 0 0 1px var(--swatch-edge), var(--shadow-knob);
   pointer-events: none;
 }
-.picker-square:focus-visible,
-.picker-hue:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .picker-hex {
   width: 96px;
   padding: var(--space-1) var(--space-2);
@@ -4520,9 +4367,6 @@ div.facts {
     background: var(--surface-sunken);
   }
 }
-.palette-add:active {
-  transform: scale(var(--press));
-}
 
 /* Octet's slider: name, track and value on one row. The track fills in brand blue up to the thumb. */
 .sliders {
@@ -4566,10 +4410,6 @@ div.facts {
 }
 .slider input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.1);
-}
-.slider input[type="range"]:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 
 /* Octet's one dialog (Dialog.tsx): a small card, its title, its fields one to a row, Cancel and the action. */
@@ -4698,7 +4538,8 @@ div.facts {
   box-sizing: border-box;
   white-space: nowrap;
 }
-.dialog-button.primary {
+.dialog-button.primary,
+.export-button.primary:not(:disabled) {
   border-color: var(--brand);
   background: var(--brand);
   color: var(--on-brand);
@@ -4707,18 +4548,11 @@ div.facts {
   .dialog-button:hover:not(:disabled) {
     background: var(--surface-sunken);
   }
-  .dialog-button.primary:hover:not(:disabled) {
+  .dialog-button.primary:hover:not(:disabled),
+  .export-button.primary:hover:not(:disabled) {
     border-color: var(--brand-hover);
     background: var(--brand-hover);
   }
-}
-.dialog-button:active:not(:disabled) {
-  transform: scale(var(--press));
-}
-/* Disabled: faded, with no hover or press. */
-.dialog-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* Reduced motion: a dialog, and the bin on a shortcut pulled off the toolbar, fade in without moving. After their
    own rules, so these win. */
@@ -4741,7 +4575,6 @@ div.facts {
   fill-opacity: 0.08;
 }
 
-/* The Properties panel: the Actions panel's look, at the top right. */
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in
    columns. Both panels move by their headers (movable.ts). */
 .properties {
@@ -4776,20 +4609,6 @@ div.facts {
 .properties header button,
 .spectrum header button {
   cursor: default;
-}
-.properties header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
-}
-.properties h2,
-.spectrum h2 {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
-  color: var(--ink);
 }
 .prop-list {
   display: grid;
@@ -4959,13 +4778,6 @@ div.facts {
     background: var(--surface-sunken);
   }
 }
-.prop-value:focus-visible,
-.prop-link:focus-visible,
-.prop-check:focus-visible,
-.prop-add:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 @media (prefers-reduced-motion: reduce) {
   .properties {
     animation: none;
@@ -4995,8 +4807,10 @@ div.facts {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 26px;
   margin-right: calc(-1 * var(--space-1));
   padding: var(--space-1);
+  padding-right: calc(3 * var(--size-control-sm) + var(--space-3));
 }
 .spectrum.minimised {
   display: none;
@@ -5062,18 +4876,10 @@ div.facts {
     color: var(--ink);
   }
 }
-.close-x:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .spectrum > .panel-controls {
   position: absolute;
   top: calc(var(--space-1) + 2px);
   right: var(--space-1);
-}
-.spectrum header {
-  min-height: 26px;
-  padding-right: calc(3 * var(--size-control-sm) + var(--space-3));
 }
 /* A session's spectra as tabs (Spectrum.tsx Tabs), each with its close button on hover or focus, and + to add one. */
 /* The tabs are one width, and the + at their end is as wide as a tab: the tab list has equal columns, and the control
@@ -5363,10 +5169,6 @@ div.facts {
   user-select: text;
   overflow-wrap: anywhere;
 }
-.spectrum-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 @media (prefers-reduced-motion: reduce) {
   .spectrum {
     animation: none;
@@ -5394,17 +5196,13 @@ div.facts {
 }
 /* A row of small setting buttons (the arrow's line, ends, heads, curve and fill), each opening its choices. */
 .picks {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 2px;
   padding: 0 var(--space-1) var(--space-1);
 }
 .pick {
   position: relative;
-}
-.picks {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
 }
 .pick-button {
   display: flex;
@@ -5560,11 +5358,6 @@ div.facts {
   display: flex;
   gap: var(--space-2);
 }
-.export-button.primary:not(:disabled) {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: var(--on-brand);
-}
 .export-button {
   display: flex;
   align-items: center;
@@ -5593,17 +5386,6 @@ div.facts {
   .export-button:hover:not(:disabled) {
     background: var(--surface-sunken);
   }
-  .export-button.primary:hover:not(:disabled) {
-    border-color: var(--brand-hover);
-    background: var(--brand-hover);
-  }
-}
-.export-button:active:not(:disabled) {
-  transform: scale(var(--press));
-}
-.export-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .strip.export-menu {
   top: calc(100% + 6px);
@@ -5706,13 +5488,6 @@ div.facts {
   max-width: 80px;
   margin-left: var(--space-1);
   opacity: 1;
-}
-.feedback-link:active {
-  transform: scale(var(--press));
-}
-.feedback-link:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 @media (prefers-reduced-motion: reduce) {
   .feedback-link,
@@ -5898,10 +5673,6 @@ div.facts {
 .home-heading:active {
   transform: scale(var(--press-large));
 }
-.home-heading:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* A folded section is its heading alone. */
 .home-section.folded .home-row {
   margin-bottom: 0;
@@ -5963,15 +5734,7 @@ div.facts {
 .home-open kbd,
 .home-caption kbd {
   margin-left: var(--space-1);
-  color: var(--ink-faint);
   font: 11px var(--font-sans);
-}
-.home-open:active {
-  transform: scale(var(--press));
-}
-.home-open:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .home-grid {
   display: grid;
@@ -6084,7 +5847,6 @@ div.facts {
   gap: var(--space-4) var(--space-4);
 }
 .home-grid.purposes .home-thumb {
-  position: relative;
   background: var(--surface-sunken);
 }
 .home-thumb svg {
@@ -6164,27 +5926,8 @@ div.facts {
   opacity: 0.5;
 }
 .home-remove {
-  position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  display: grid;
-  place-items: center;
-  width: var(--size-action);
-  height: var(--size-action);
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-  box-sizing: border-box;
-}
-@media (hover: hover) and (pointer: fine) {
-  .home-remove:hover {
-    background: var(--surface-sunken);
-    color: var(--ink);
-  }
 }
 .home-remove:active {
   transform: scale(var(--press-small));
@@ -6193,12 +5936,9 @@ div.facts {
 .home-slot:focus-within .home-remove {
   opacity: 1;
 }
-.home-remove:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 /* A thumbnail of the user's own (a photo) fills its tile; a drawing's picture sits inside it. */
-.home-thumb img.fill {
+.home-thumb img.fill,
+.folder .paper img.fill {
   inset: 0;
   width: 100%;
   height: 100%;
@@ -6213,7 +5953,8 @@ div.facts {
   aspect-ratio: 4 / 3;
   border-radius: var(--radius-md);
 }
-.folder-back {
+.folder-back,
+.folder-lines {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -6248,12 +5989,6 @@ div.facts {
   height: 52%;
   object-fit: contain;
   object-position: center top;
-}
-.folder .paper img.fill {
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .folder-front {
   position: absolute;
@@ -6295,12 +6030,10 @@ div.facts {
 @media (prefers-reduced-motion: no-preference) {
   .folder .paper {
     transition: transform var(--motion) var(--ease-out);
+    transition-delay: calc(var(--k) * 20ms);
   }
   .folder-front {
     transition: transform var(--motion) var(--ease-out), background-color var(--motion) var(--ease-out), box-shadow var(--motion) var(--ease-out);
-  }
-  .folder .paper {
-    transition-delay: calc(var(--k) * 20ms);
   }
   @media (hover: hover) and (pointer: fine) {
     .home-tile.project:hover .folder-front {
@@ -6339,13 +6072,6 @@ div.facts {
   display: grid;
   place-items: center;
   color: var(--brand);
-}
-.folder-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
 }
 .folder-lines :is(path, rect) {
   fill: none;
@@ -6414,13 +6140,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.home-act:active {
-  transform: scale(var(--press));
-}
-.home-act:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 /* A drawing on its way into a folder: a copy of its picture, over everything, that flies to the folder (Home.tsx). */
 .home-fly {
@@ -6604,15 +6323,6 @@ div.facts {
     color: var(--ink);
   }
 }
-.home-back:active,
-.home-more:active {
-  transform: scale(var(--press));
-}
-.home-back:focus-visible,
-.home-more:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .home-title-row {
   display: flex;
   align-items: center;
@@ -6702,11 +6412,6 @@ div.facts {
   display: block;
   color: var(--ink);
   font-weight: 500;
-}
-.home-cell-open:focus-visible,
-.home-sort:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .home-table .home-remove.home-cell-remove {
   position: static;
@@ -7091,10 +6796,6 @@ div.facts {
   font: 13px/1.5 var(--font-sans);
   resize: vertical;
 }
-.feedback-note:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 .feedback-picture {
   width: 100%;
   max-height: 200px;
@@ -7115,9 +6816,6 @@ div.facts {
 
 /* Rulers (View > Show Rulers): along the top and left of the window, under the floating panels, which move in to
    clear them. The unit is in the corner where they meet. */
-.editor {
-  --ruler: 0px;
-}
 .editor.with-rulers {
   --ruler: var(--space-6);
 }
@@ -7210,10 +6908,6 @@ div.facts {
     color: var(--brand);
   }
 }
-.ruler-corner:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
 
 /* The choice after a citation is pasted into a caption: plain (as it went in) or with its formatting. It rises in from
    the caption box, quickly, and only fades with reduced motion. */
@@ -7245,10 +6939,6 @@ div.facts {
   overflow-y: auto;
   font-size: 13px;
   line-height: 18px;
-}
-.notes:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 .notes p {
   margin: 0 0 var(--space-2);
@@ -7570,13 +7260,6 @@ div.facts {
     background: var(--surface-sunken);
     color: var(--ink);
   }
-}
-.pill-open:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-.pill-open:active {
-  transform: scale(var(--press));
 }
 
 /* An experiment page's details (Editor.tsx): a box at each one's place, on screen only, and the empty title's name. */

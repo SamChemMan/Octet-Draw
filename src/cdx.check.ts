@@ -72,7 +72,6 @@ const doc = file(
   assert.equal(cdxToXml(big).attrs.BondLength, "20");
   const indigo = new Uint8Array([...ascii(MAGIC), 4, 3, 2, 1, ...new Array(16).fill(0), ...prop(0x0805, coord(30)), 0, 0]);
   assert.equal(cdxToXml(indigo).attrs.BondLength, "30");
-  console.log("cdx.check: reading and writing ok");
 }
 
 // Hostile files: refused with a message, never a crash or a hang.
@@ -101,7 +100,6 @@ const doc = file(
     try { cdxToXml(b); } catch (e) { assert.ok([DAMAGED, TOO_BIG].includes((e as Error).message), (e as Error).message); }
   }
   assert.throws(() => fromBase64("A".repeat(90_000_000)), (e: Error) => e.message === TOO_BIG);
-  console.log("cdx.check: hostile files refused or read safely");
 }
 
 // What Octet keeps from ChemDraw files, through CDXML, CDX, Octet's own JSON and editing (REL-15, CH-11, CH-12).
@@ -160,7 +158,6 @@ const kept: Mol = {
   // A picture's bytes as an image the webview draws.
   assert.equal(hexToBase64("89504E47"), "iVBORw==");
   assert.equal(hexToBase64("8950ZZ"), undefined);
-  console.log("cdx.check: pictures, highlights, query bonds and kept data ok");
 }
 
 // Octet's .cdx file: its own drawing back exactly while the file is unchanged; after another program changes it,
@@ -184,7 +181,6 @@ const kept: Mol = {
   const clip = fromCdxml(`<CDXML><page id="1"><curve id="2" CurvePoints="10 10 10 10 12 12" Closed="yes" FillType="Solid"/></page></CDXML>`).mol;
   assert.equal(clip.arrows?.[0].curve?.points.length, 1);
   assert.equal(readCdx(writeCdx(clip, DEFAULT_STYLE)).foreign, undefined);
-  console.log("cdx.check: Octet's .cdx files ok");
 }
 
 // Octet's own data through CDX: a drawing exported as CDX and opened again is the drawing its CDXML gives. Each
@@ -232,7 +228,6 @@ const kept: Mol = {
   assert.deepEqual(every(ft).filter((x) => x.name === "t").map((x) => x.attrs.Octet), ['{"under":[1e99,"x",3,99],"xy":["a",1],"cycle":{"cycle":7,"step":99}}', undefined, "[1,2] not JSON"]);
   assert.deepEqual(fm.captions!.map((c) => [c.text, c.under, c.cycle]), [["1", [0], undefined], ["2", undefined, undefined], ["3", undefined, undefined]]);
   assert.ok(fm.captions!.every((c) => Number.isFinite(c.x) && Number.isFinite(c.y)));
-  console.log("cdx.check: Octet's own data as CDX ok");
 }
 
 // REL-15: as CDX too, turned text keeps its turn (RotationAngle), a Bold rectangle stays Bold, and a bond keeps its
@@ -255,7 +250,6 @@ const kept: Mol = {
     assert.deepEqual([back.mol.atoms[0].labelAngle, back.mol.atoms[0].align], [30, "centre"]);
     assert.deepEqual(back.mol.captions![0].placed!.at.map((v) => +v.toFixed(3)), [-1, 0.5]);
   }
-  console.log("cdx.check: turned text, bold shapes and a bond's own settings ok");
 }
 
 // A measured spectrum and its assignment as CDX (decision 0016): a spectrum object (0x8010) with its values in full as
@@ -289,7 +283,6 @@ const kept: Mol = {
   assert.equal(measuredText(s, analyse(s)), measuredText(ir, analyse(ir)));
   // ChemDraw's CDX read and written again keeps its values.
   assert.equal(every(cdxToXml(xmlToCdx(tree))).find((x) => x.name === "spectrum")!.text, sp.text);
-  console.log("cdx.check: spectra as ChemDraw's spectrum object ok");
 }
 
 // Charsets (issue #18). The font table says iso-8859-1 on Windows and Linux and x-mac-roman on the Mac, as ChemDraw
@@ -320,7 +313,6 @@ const kept: Mol = {
   assert.ok(cdxml.includes(`charset="${fontCharset(navigator.platform)}"`) && !cdxml.includes(`charset="${fontCharset(navigator.platform.startsWith("Mac") ? "Win32" : "MacIntel")}"`));
   assert.equal(fromCdxml(cdxml).mol.captions![0].text, words + ", Ω µ ±");
   assert.equal(fromCdxml(cdxToXml(xmlToCdx(parseXml(cdxml)))).mol.captions![0].text, words + ", Ω µ ±");
-  console.log("cdx.check: charsets ok");
 }
 
 // Style sheets (.cds, issue 74): a CDX file with the document's settings and an empty page. Settings > Document > Save
@@ -352,7 +344,6 @@ const kept: Mol = {
   assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /"export_file", \{ export: \{ name, cds: toBase64\(writeCdx\(EMPTY, savedStyle\(\)\)\) \} \}/);
   assert.match(rust("main.rs"), /const STYLES: [^\n]*"cds"[\s\S]*fn pick_style_file[^}]*add_filter\(STYLES\.0, STYLES\.1\)/);
   assert.match(rust("export.rs"), /\("cds", "ChemDraw Style Sheet \(CDS\)", &\["cds"\]\)[\s\S]*"cds" => e\.cds\.is_some\(\)[\s\S]*"cds" => base64[^\n]*e\.cds/);
-  console.log("cdx.check: style sheets ok");
 }
 
 // A big-endian file (ChemDraw 4 on the Mac) reads its signed numbers as a little-endian one does: a charge of −1.
