@@ -11,13 +11,14 @@ Plan for release 1.2, 18 November 2026. Status: draft for Sam's review. Branch `
   352). Unit test: `the_window_menu_lists_the_drawings`. This half of issue 73 shipped in 1.1.2.
 - Windows: the Window menu has Minimize, then the drawings.
 - Linux: the Window menu has the drawings only (GTK has no Minimize or Full Screen item). With no drawing open, the
-  menu is dimmed (`windows.rs` line 141).
+  menu is dimmed (`windows.rs` lines 144 and 145).
 - Mac: the Window menu has Minimize and Full Screen, and it is the app's windows menu (`main.rs` line 172), so macOS
   lists the windows and adds its own items (see "What macOS gives").
 - Every drawing window has a minimum inner size of 800 x 620 (`windows.rs` lines 202, 262, 388; `tauri.conf.json`;
   REL-29: the toolbar always fits). A new window opens 28 px right of and below the window in front (`windows.rs`
   line 207).
-- CDXML: Octet writes `WindowPosition="0 0"` and `WindowSize="0 0"` (`src/cdxml.ts` line 1158) and reads neither.
+- CDXML: Octet writes `WindowPosition="0 0"` and `WindowSize="0 0"` (`src/cdxml.ts` line 1158) and reads neither
+  (`src/cdxtags.ts` lines 194 to 196 only name the CDX tags).
 - Missing: Tile and Cascade. Decision 0020 lists them under "Not done".
 
 So the gap is real: there is no Tile or Cascade on any platform, and the Mac lacks two of ChemDraw's Window items.
@@ -165,9 +166,6 @@ Each job ends with what "done" means.
   `Win32_Graphics_Dwm` feature to windows-sys, which Octet already uses.
 - **Minimised windows stay minimised.** As Windows' Show windows side by side and Tile in ChemDraw's frame. Maximised
   ones are restored and arranged.
-- **No MCP tool.** Arranging windows arranges the user's screen. It changes no drawing and an AI app has no use for
-  it. `MENU_COMMANDS` in `src/mcp.ts` leaves out the app-level commands (new, open, close, home) for the same reason.
-  The three ids stay out of it.
 - **No undo of an arrangement.** ChemDraw has none, and Edit > Undo belongs to the drawing. macOS has its own Return
   to Previous Size.
 - **Zoom kept.** Each window keeps its zoom, as on a resize by hand and as in ChemDraw. Fit to Window (⌘/) is one key
@@ -191,7 +189,7 @@ Each job ends with what "done" means.
 | Ctrl keys run by the page (Windows, Linux) | Run the same command (`commands.current`) |
 | Command palette | Lists them on Windows and Linux X11 |
 | Home's Open windows list | Unchanged (it lists; it does not arrange) |
-| MCP | Not offered (see decisions) |
+| MCP | Not offered (see "MCP") |
 | One-window mode (Settings, `windows` off) | One drawing: Tile fills the work area with it |
 | Mac, Windows, Linux X11, Linux Wayland, Flatpak | As in the decisions |
 | Light and dark | Native menus follow the system; palette rows use the existing row component and tokens |
@@ -199,6 +197,15 @@ Each job ends with what "done" means.
 
 Colour, ⌘A, hold-to-Select, flip, rotate, align and delete apply to objects in a drawing. Window arrangement has no
 object, so they do not apply.
+
+## MCP
+
+No tool and no `run_command` id. Cascade and the Tiles only arrange the user's screen: they change no drawing, and
+an AI app that draws has no use for them. `MENU_COMMANDS` in `src/mcp.ts` (line 278) leaves out the other app-level
+commands (New, Open, Close, Home) for the same reason. The three ids stay out of it, so `run_command` refuses them
+with its usual "Octet has no command" answer (`knownCommand`, line 2598). The Mac's Zoom and Bring All to Front are
+the system's own items and stay out too. Nothing in `src/mcp.ts` changes, so the session that reviews MCP code has
+nothing new to review.
 
 ## Files and formats
 
@@ -212,45 +219,27 @@ no such command, so it ignores the key, as it ignores the Search menu's keys whe
 
 | # | Case | Expected |
 |---|---|---|
-| 1 | No drawing open, Home only | The three items are dimmed; a key set for them does nothing; no error |
-| 2 | One drawing | Both Tiles fill the work area with it; Cascade puts it at the top left, the work area's size |
-| 3 | Two drawings, 1920 x 1080 at 100% | Side by Side: two 960 px columns, full height, frames touching. Top to Bottom: full width; each height is the minimum, so they overlap by the difference; the front one stays on top |
-| 4 | Two drawings, 1920 x 1080 at 125% or 150% | Side by Side: each 800 logical px wide, overlapping evenly, the first at the left edge and the last at the right; nothing outside the work area |
-| 5 | 40 drawings | Side by Side: six columns of 6, 6, 7, 7, 7 and 7 windows, every window at the minimum, overlapping evenly inside the work area. Cascade: runs of m. Done in one pass; the Window menu listed again once |
-| 6 | Odd counts 3, 5, 7, 11 | 3 columns; 2 + 3; 2 + 2 + 3; 3 + 4 + 4. No empty tile; edges on whole pixels; tiles cover the work area |
-| 7 | A minimised drawing; all minimised | It stays minimised and is not counted; with all minimised nothing moves |
-| 8 | A maximised drawing | Restored, then arranged |
-| 9 | A full-screen drawing (a Linux window manager can do this) | Left alone, not counted |
-| 10 | Home in front, holding no drawing | Home does not move; the drawings go to Home's monitor; the first drawing comes to the front |
-| 11 | Office object window open, Tile from its own menu bar | Arranged with the drawings, the same as from the main menu |
-| 12 | Reaxys window open | Never moved |
-| 13 | Two monitors: front on the left one at (-1920, 0) and 100%, two others on the right one at 150% | All three on the left monitor's work area; frames scaled from 150% to 100%; minimum at 100%; nothing under the taskbar |
-| 14 | Taskbar on the left or top; a monitor above the primary at negative y | Tiles start at the work area's origin, negative or not; nothing under the taskbar |
-| 15 | A drawing window left off-screen (monitor unplugged) | Moved onto the front window's monitor |
-| 16 | The front window on no monitor | Primary monitor; with no monitor at all, nothing happens and nothing is shown |
-| 17 | Tile key held down; Tile then Cascade at once | At most one running and one pending; the last command asked for is the final layout |
-| 18 | An AI app closes a drawing during Cascade | That window is skipped; the rest are arranged; no error |
-| 19 | An AI app opens a drawing during Tile | The new window is not moved; it opens where new windows open |
-| 20 | Two AI sessions; one with no drawing sends its first call during Cascade | The call goes to the window that was in front before Cascade, not to one raised on the way |
-| 21 | Edit > Undo after Tile | Undoes the last drawing edit; titles keep or lack "(edited)" as before; no recovery copy is written |
-| 22 | Tile from the menu while a label is being typed | The text box keeps its text and caret; nothing is committed |
-| 23 | A dialog (Document Settings) open in a window that Tile makes smaller | The dialog stays open and fits (the window is at least the minimum) |
-| 24 | 40 paclitaxels in one window and a 500-residue peptide in another | The arrangement's own time does not depend on the drawings; each window renders once for its new size, as on a resize by hand; a window whose size does not change does not render |
-| 25 | A floating template palette near the right edge, then a narrower tile | The palette stays inside the window, as on a resize by hand (if it does not, that is a fault of resizing by hand: report it to Sam, do not fix it here) |
-| 26 | Zoom at 6400% or 1% in a window that is tiled | The zoom is kept; the view reflows as on a resize by hand |
-| 27 | A key set in Settings (Ctrl+Alt+T for Tile Side by Side) on Windows | Works from a drawing, from Home, over a dialog and while typing; clashes show as for any key |
-| 28 | Linux under Wayland | No items; Settings and the palette do not list them; the Window menu is as in 1.1.2 |
-| 29 | Mac | Window: Minimize, Zoom, macOS's items, Full Screen, Bring All to Front (Arrange in Front with Option), the windows. No Octet Tile or Cascade. `arrange_windows` refused in a release build |
-| 30 | A window on another virtual desktop (Windows) | Not counted, not moved |
-| 31 | Work area smaller than the minimum (1024 x 600 at 125%) | Every window at the work area's top left at the minimum size; no negative size; no panic |
-| 32 | Very large work area (three 4K monitors, 100 000 px in a test) | Exact tiles; no overflow (64-bit maths) |
-| 33 | `invoke("arrange_windows", { how: "explode" })`, `{ how: 5 }`, no argument | Refused; nothing moves |
-| 34 | `--headless --mcp` | No menu; the command returns at once |
-| 35 | A drawing saved before and after Tile as .oct, CDXML and CDX | The same bytes |
-| 36 | Copy in one tiled window, paste in the other | Works as before |
-| 37 | One-window mode | One drawing: Tile fills the work area with it |
-| 38 | Offline | Works; nothing uses the network |
-| 39 | Dark mode | Native menus follow the system; palette rows as the others |
+| 1 | No drawing open (Home only); every drawing minimised | No drawing: the three items are dimmed and a key set for them does nothing. All minimised: nothing moves. No error |
+| 2 | One drawing; one-window mode (Settings > General > Windows off) | Both Tiles fill the work area with it; Cascade puts it at the top left at the work area's size |
+| 3 | Two drawings, 1920 x 1080 at 100%, then at 125% and 150% | 100%: Side by Side gives two 960 px columns, full height, frames touching; Top to Bottom gives full width, each at the minimum height, overlapping by the difference, the front one on top. 125% and 150%: Side by Side gives each 800 logical px, overlapping evenly, the first at the left edge and the last at the right. Nothing outside the work area |
+| 4 | Odd and large counts: 3, 5, 7, 11 and 40 drawings | Columns of 3; 2 + 3; 2 + 2 + 3; 3 + 4 + 4; for 40, six columns of 6, 6, 7, 7, 7 and 7, every window at the minimum, overlapping evenly inside the work area. No empty tile, edges on whole pixels, tiles cover the work area. Cascade: runs of m. One pass; the Window menu listed again once |
+| 5 | A minimised, a maximised and a full-screen drawing (a Linux window manager can make one full screen) | Minimised: stays minimised, not counted. Maximised: restored, then arranged. Full screen: left alone, not counted |
+| 6 | Home in front, holding no drawing | Home does not move; the drawings go to Home's monitor; the first drawing comes to the front |
+| 7 | An Office object window and the Reaxys window open; Tile from the object window's own menu bar | The object window is arranged with the drawings, the same as from the main menu. The Reaxys window never moves |
+| 8 | Two monitors: the front window on the left one at (-1920, 0) and 100%, two drawings on the right one at 150%; the taskbar on the left or top; a monitor above the primary at negative y | Every window on the front window's monitor, inside its work area, whose origin can be negative; frames scaled from 150% to 100%; the minimum at 100%; nothing under the taskbar |
+| 9 | A drawing left off-screen (monitor unplugged); the front window on no monitor; no monitor at all | The off-screen one moves onto the front window's monitor. Front on no monitor: the primary monitor. No monitor: nothing happens and nothing is shown |
+| 10 | A drawing on another virtual desktop (Windows) | Not counted, not moved |
+| 11 | Work area smaller than the minimum (1024 x 600 at 125%); a 100 000 px work area, scale 0 and NaN (unit tests) | Small: every window at the work area's top left at the minimum size, no negative size, no panic. Huge: exact tiles, no overflow (64-bit maths). A bad scale is taken as 1 |
+| 12 | Tile key held down; Tile then Cascade at once | At most one running and one pending; the last command asked for is the final layout |
+| 13 | AI apps: one closes a drawing during Cascade; one opens a drawing during Tile; a second session with no drawing sends its first call during Cascade | The closed window is skipped and the rest arranged, with no error. The new window is not moved and opens where new windows open. The first call goes to the window that was in front before Cascade, not to one raised on the way |
+| 14 | An AI app sends `run_command` with `cascade` or `tile_side_by_side` | Refused with "Octet has no command"; nothing moves |
+| 15 | `invoke("arrange_windows", { how: "explode" })`, `{ how: 5 }`, no argument; `--headless --mcp` | Refused, nothing moves. Headless: no menu, and the command returns at once |
+| 16 | Undo after Tile; Tile while a label is typed; Tile while Document Settings is open in a window that gets smaller | Undo undoes the last drawing edit; titles keep or lack "(edited)" as before; no recovery copy is written. The text box keeps its text and caret, and nothing is committed. The dialog stays open and fits (the window is at least the minimum) |
+| 17 | 40 paclitaxels in one window and a 500-residue peptide in another; zoom at 6400% or 1%; a floating template palette near the right edge | The arrangement's time does not depend on the drawings. Each window renders once for its new size; a window whose size does not change does not render. Zoom is kept. The palette stays inside the window, as on a resize by hand (if it does not, report it to Sam as a fault of resizing by hand; do not fix it here) |
+| 18 | A key set in Settings (Ctrl+Alt+T for Tile Side by Side, Windows); the same settings in Octet 1.1.2 | Works from a drawing, from Home, over a dialog and while typing; clashes show as for any key. Octet 1.1.2 ignores the key |
+| 19 | Linux under Wayland and the Flatpak; the Mac | Wayland: no items, Settings and the palette do not list them, the Window menu as in 1.1.2. Mac: Minimize, Zoom, macOS's items, Full Screen, Bring All to Front (Arrange in Front with Option), the windows; no Octet Tile or Cascade; `arrange_windows` refused in a release build |
+| 20 | A drawing saved as .oct, CDXML and CDX before and after Tile; copy in one tiled window, paste in the other | The same bytes, so Octet 1.1.2 and ChemDraw open them as before. Paste works as before |
+| 21 | Offline; dark mode | Works with the network off; nothing uses it. Native menus follow the system; palette rows match the others |
 
 ## Tests
 
@@ -258,25 +247,28 @@ Rust (`src-tauri/src/arrange.rs`, `cargo test` with `CARGO_TARGET_DIR=.../cargo-
 
 - No windows: no places. One window: the work area (tiles), its top left (cascade).
 - Every n from 1 to 40, both tiles, a large work area: no two tiles overlap, their areas add up to the work area, the
-  last column and row end on the work area's edge, and the column counts are as the grid rule says (cases 5, 6).
+  last column and row end on the work area's edge, and the column counts are as the grid rule says (case 4).
 - Every n from 1 to 40, every mode, work areas 1280 x 720 at 1, 1920 x 1040 at 1.25, 2560 x 1400 at 2,
   3840 x 2100 at 1.5, 1024 x 600 at 1.25 and 700 x 500 at 1: every frame inside the work area when the minimum fits;
-  at the top left at the minimum when it does not (cases 3, 4, 31).
+  at the top left at the minimum when it does not (cases 3, 11).
 - Order: the front window first in tiles, last in the cascade.
 - Cascade: equal steps of at least 28 logical px, each step at least the title bar, runs restart at the top left,
   every window at least half the work area and the minimum.
-- Work areas at (-2560, -1440) and (-1920, 0): every frame inside (cases 13, 14).
+- Work areas at (-2560, -1440) and (-1920, 0): every frame inside (case 8).
 - A window measured at scale 2 placed on a monitor at scale 1, and the other way: frame and inset scaled, inner size
   = tile less the scaled frame, inner size at least ceil(800·s) x ceil(620·s).
-- 100 000 x 100 000 work area, scale 0 and NaN (taken as 1): no panic, no overflow (case 32).
+- 100 000 x 100 000 work area, scale 0 and NaN (taken as 1): no panic, no overflow (case 11).
 - The fixed count before the drawing list: 5, 3, 0 (R9).
 - The three ids: none starts with `window_` or `arrange_` (R10).
+- The windows picked are the Window menu's list, so a label such as `reaxys` is never picked (case 7).
 - The one-at-a-time state: a request while running becomes pending, a newer one replaces it, and the pending one runs
-  once (case 17).
+  once (case 12).
 
 Page (`src/window-arrange.check.ts`, run with `node`, then in `npm test`):
 
 - `menuRuns` lets the three run over Home, a dialog, typing and an AI call.
+- None of the three ids is in `MENU_COMMANDS` in `src/mcp.ts` (the check reads the file), so `run_command` refuses them
+  (case 14).
 - The ids and labels match the Rust menu (the check reads `main.rs`), and the palette's search words name ChemDraw's
   Tile Horizontal and Tile Vertical.
 
@@ -289,7 +281,7 @@ the dev console must show no `look:` error.
 
 Speed: no hot path changes on the Mac. On Windows and Linux, `list` sets three items' enabled state when it runs
 (when a window comes to the front). The arrangement is not a hot path. The Mac real run times `arrange_windows` for
-2, 5 and 12 windows (median of 5, modes interleaved) and counts page renders per window (case 24).
+2, 5 and 12 windows (median of 5, modes interleaved) and counts page renders per window (case 17).
 
 ## Real runs
 
@@ -297,8 +289,10 @@ Mac (this machine). A local harness, never committed, in a dev build with its ow
 (`cargo-g73`), its own identifier, and the dev server on port 1475. The harness opens 2, 5 and 12 drawing windows
 (two holding 40 paclitaxels and a 500-residue peptide) and calls `arrange_windows` for each mode. A small script reads
 each window's frame from the window server (no accessibility access needed) and compares it with the maths, to the
-pixel. Also: a minimised window, a zoomed window, Home in front, the Reaxys window, a bad `how`, a held key, Undo and
-the Edited mark after Tile, typing in a label during Tile. Then every window closed, the build stopped, and `ps`
+pixel. Also: a minimised window, a zoomed window, Home in front, a bad `how`, a held key, Undo and the Edited mark
+after Tile, typing in a label during Tile, and a drawing opened, a drawing closed and a first AI call during Cascade
+(case 13). The harness makes the AI app's moves with the same Tauri commands the MCP uses, without starting the MCP
+server, so nothing touches the port of Sam's MCP Beta app. Then every window closed, the build stopped, and `ps`
 checked for anything started from the worktree.
 
 Windows: nothing can run here. The type check proves it builds. Sam's checklist (Windows 11 in UTM; Prof. Schramm has
@@ -331,16 +325,15 @@ Bring All to Front, the windows. Hold Option: Arrange in Front cascades the draw
 
 | Job or case | Check |
 |---|---|
-| Job 1; cases 2 to 6, 13, 14, 31, 32 | Rust unit tests |
-| Job 2; cases 7, 8, 10, 12, 18 to 24, 26, 33, 34 | Mac real run (harness), Rust unit tests for order and the one-at-a-time state |
-| Job 2 on Windows; cases 9, 15, 16, 30 | Windows type check; Sam's Windows run (case 9: Linux run) |
-| Job 3; cases 1, 11, 28 | Rust unit tests (count, ids); Sam's Windows run; Linux run |
-| Job 4; cases 17, 27 | `src/window-arrange.check.ts`; Rust unit test; Sam's Windows run |
-| Job 5; case 29 | Sam's Mac look |
+| Job 1; cases 2, 3, 4, 8, 11 | Rust unit tests |
+| Job 2; cases 1 (all minimised), 5, 6, 13, 15, 16, 17 | Mac real run (harness); Rust unit tests for order and the one-at-a-time state |
+| Job 2 on Windows; cases 9, 10 | Windows type check; Sam's Windows run |
+| Job 3; cases 1 (no drawing), 7, 19 (Wayland) | Rust unit tests (count, ids, the list of windows picked); Sam's Windows run; Linux run |
+| Job 4; cases 12, 14, 18 | `src/window-arrange.check.ts`; Rust unit test; Sam's Windows run |
+| Job 5; case 19 (Mac) | Sam's Mac look; the release-build refusal by a unit test |
 | Job 6 | Diff of decision 0020 and THIRD_PARTY.md |
-| Case 25 | Mac real run (report only) |
-| Cases 35, 36 | Mac real run: save before and after Tile, compare bytes; copy and paste between two tiled windows |
-| Cases 37, 38, 39 | Mac real run in one-window mode, with the network off, and in dark mode (palette rows on the Mac are untouched) |
+| Cases 20, 21 | Mac real run: save before and after Tile and compare bytes; copy and paste between two tiled windows; one run with the network off and one in dark mode (palette rows on the Mac are untouched) |
+| Job 7 | The What's New lines below, sent with the branch |
 
 ## Files
 
@@ -353,18 +346,30 @@ Bring All to Front, the windows. Hold Option: Arrange in Front cascades the draw
 - `src/window-arrange.check.ts` (new).
 - `docs/decisions/0020-windows.md`, `THIRD_PARTY.md`.
 
+## Not in this item
+
+- Tile and Cascade of Octet's own on the Mac: macOS gives them (Move & Resize > Arrange, and Arrange in Front).
+- Linux under Wayland: the system does not let an app place its windows. GNOME and KDE tile them.
+- View > Add Splitter (two views of one drawing in one window): a separate feature with its own canvas work.
+- Saving and restoring a window's place through CDXML `WindowPosition`, `WindowSize` and `WindowIsZoomed`: it
+  changes files, and ChemDraw's Tile does not use it.
+- A smaller minimum window size: it changes REL-29 for every window (question 1).
+- An undo for an arrangement, animation of the windows, and an MCP tool: see the decisions and "MCP".
+
 ## Questions for Sam (not blocking; the plan takes the first answer)
 
-1. Names: Tile Top to Bottom and Tile Side by Side, or ChemDraw's Tile Horizontal and Tile Vertical?
-2. The 800 x 620 minimum (REL-29) means two drawings side by side overlap on a 1080p screen at 125% or more, and two
-   one above the other overlap on any 1080p screen. Keep the minimum (this plan), or lower it for drawing windows in
-   another item?
+1. The issue's main case is two drawings side by side. With the 800 x 620 minimum (REL-29), two drawings side by side
+   overlap on a 1920 x 1080 screen at 125% or more (the usual setting on Windows laptops), and two one above the other
+   overlap on any 1080p screen. Keep the minimum (this plan), or lower it for drawing windows in another item?
+2. Names: Tile Top to Bottom and Tile Side by Side, or ChemDraw's Tile Horizontal and Tile Vertical?
 3. Mac: add Zoom and Bring All to Front, as ChemDraw has them (this plan)?
 
 ## What's New (draft, for the release session)
 
-- To put the open drawings side by side, choose Window > Tile Side by Side (Windows and Linux).
-- To put the open drawings one above the other, choose Window > Tile Top to Bottom (Windows and Linux).
-- To put the open drawings in a stack with each title bar in view, choose Window > Cascade (Windows and Linux).
-- On the Mac, the Window menu has Zoom and Bring All to Front. To put the drawings in a stack, hold Option and choose
-  Window > Arrange in Front.
+- To put the open drawings side by side, choose Window > Tile Side by Side (Windows, and Linux with X11).
+- To put the open drawings one above the other, choose Window > Tile Top to Bottom (Windows, and Linux with X11).
+- To put the open drawings in a stack with each title bar in view, choose Window > Cascade (Windows, and Linux with
+  X11).
+- To make a drawing window fill the screen, or to give it its last size again, choose Window > Zoom (Mac).
+- To bring all of Octet's windows in front of other apps, choose Window > Bring All to Front (Mac). To put them in a
+  stack, hold Option and choose Window > Arrange in Front.
