@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, Rows, Columns,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -8180,7 +8180,7 @@ export default function Editor() {
     colour_pick: ["Pick colour from screen", "", <Eyedropper size={18} />],
     // Window > Cascade and the Tiles, where the Window menu has them (Windows, and Linux under X11).
     ...(menuReady && ACTIONS.some((a) => a.id === "menu.cascade") ? {
-      cascade: ["Cascade", "", <Browsers size={18} />], tile_top_bottom: ["Tile top to bottom", "", <Rows size={18} />], tile_side_by_side: ["Tile side by side", "", <Columns size={18} />],
+      cascade: ["Cascade", "", <Browsers size={18} />], tile_top_bottom: ["Tile top to bottom", "", <SquareHalfBottom size={18} />], tile_side_by_side: ["Tile side by side", "", <SquareHalf size={18} />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
     ...Object.fromEntries(moreFormats.map(([id, name, icon]): [string, [string, string, React.ReactNode]] => [id, [name, "", icon]])),
     ...(settings.onlineSearch ? {

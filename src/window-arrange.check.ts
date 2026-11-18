@@ -44,7 +44,7 @@ assert.match(editor, /\.\.\.Object\.fromEntries\(ARRANGE\.map\(\(how\) => \[how,
 
 // The command palette lists them where the Window menu has them, with ChemDraw's names as search words.
 const palette = body(editor, 'ACTIONS.some((a) => a.id === "menu.cascade")', "} as Record");
-assert.match(palette, /cascade: \["Cascade", "", <Browsers size=\{18\} \/>\], tile_top_bottom: \["Tile top to bottom", "", <Rows size=\{18\} \/>\], tile_side_by_side: \["Tile side by side", "", <Columns size=\{18\} \/>\]/);
+assert.match(palette, /cascade: \["Cascade", "", <Browsers size=\{18\} \/>\], tile_top_bottom: \["Tile top to bottom", "", <SquareHalfBottom size=\{18\} \/>\], tile_side_by_side: \["Tile side by side", "", <SquareHalf size=\{18\} \/>\]/);
 const words = body(editor, "const WORDS: Record<string, string> = {", "};");
 assert.match(words, /tile_top_bottom: "tile horizontal[^"]*"/);
 assert.match(words, /tile_side_by_side: "tile vertical[^"]*"/);
