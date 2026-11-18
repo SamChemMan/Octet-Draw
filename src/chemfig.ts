@@ -33,21 +33,25 @@ for (const [name, c] of Object.entries(ESCAPES)) if (/[\u0370-\u03ff]/.test(c) &
 for (const [g, l] of Object.entries({ Α: "A", Β: "B", Ε: "E", Ζ: "Z", Η: "H", Ι: "I", Κ: "K", Μ: "M", Ν: "N", Ο: "O", Ρ: "P", Τ: "T", Χ: "X", ο: "o", ς: "\\varsigma" })) GREEK.set(g, l);
 // Signs chemistry uses, in TeX's maths mode, with no package that chemfig does not load.
 const SIGNS: Record<string, string> = {
-  "°": "^{\\circ}", "±": "\\pm", "∓": "\\mp", "×": "\\times", "÷": "\\div", "·": "\\cdot", "•": "\\bullet", "−": "-", "–": "\\mbox{--}", "—": "\\mbox{---}",
-  "≤": "\\leq", "≥": "\\geq", "≠": "\\neq", "≈": "\\approx", "∼": "\\sim", "≡": "\\equiv", "∝": "\\propto", "∞": "\\infty", "′": "'", "″": "''",
+  "°": "\\circ", "±": "\\pm", "∓": "\\mp", "×": "\\times", "÷": "\\div", "·": "\\cdot", "•": "\\bullet", "−": "-", "–": "\\mbox{--}", "—": "\\mbox{---}",
+  "≤": "\\leq", "≥": "\\geq", "≠": "\\neq", "≈": "\\approx", "∼": "\\sim", "≡": "\\equiv", "∝": "\\propto", "∞": "\\infty", "′": "\\prime", "″": "\\prime\\prime",
   "√": "\\surd", "∂": "\\partial", "∇": "\\nabla", "∫": "\\int", "∑": "\\sum", "⋯": "\\cdots", "…": "\\ldots", "ħ": "\\hbar", "Å": "\\mbox{\\AA}", "µ": "\\mu",
   "→": "\\rightarrow", "←": "\\leftarrow", "↔": "\\leftrightarrow", "⇌": "\\rightleftharpoons", "↑": "\\uparrow", "↓": "\\downarrow",
-  "‡": "\\ddagger", "†": "\\dagger", "✱": "\\ast", "⊕": "\\oplus", "⊖": "\\ominus", "‘": "\\mbox{`}", "’": "'", "“": "\\mbox{``}", "”": "''", "\u00a0": "\\mbox{ }",
+  "‡": "\\ddagger", "†": "\\dagger", "✱": "\\ast", "⊕": "\\oplus", "⊖": "\\ominus", "‘": "\\mbox{`}", "’": "\\prime", "“": "\\mbox{``}", "”": "\\prime\\prime", "\u00a0": "\\mbox{ }",
 };
 // Accented Latin letters, with TeX's accents (text mode, so in an \mbox), and the letters TeX has a command for.
 const ACCENTS: Record<string, string> = { "\u0300": "`", "\u0301": "'", "\u0302": "^", "\u0303": "~", "\u0304": "=", "\u0306": "u", "\u0307": ".", "\u0308": "\"", "\u030a": "r", "\u030b": "H", "\u030c": "v", "\u0327": "c" };
 const LETTERS: Record<string, string> = { ß: "\\ss", æ: "\\ae", Æ: "\\AE", œ: "\\oe", Œ: "\\OE", ø: "\\o", Ø: "\\O", ł: "\\l", Ł: "\\L", ı: "\\i" };
 // ASCII that TeX or chemfig reads as code, in maths mode.
-const SPECIAL: Record<string, string> = { "\\": "\\backslash{}", "{": "\\{", "}": "\\}", "#": "\\#", $: "\\$", "%": "\\%", "&": "\\&", _: "\\_", "~": "\\sim{}", "^": "\\hat{}", " ": "\\mbox{ }", "-": "\\mbox{-}", "\"": "''" };
+const SPECIAL: Record<string, string> = { "\\": "\\backslash{}", "{": "\\{", "}": "\\}", "#": "\\#", $: "\\$", "%": "\\%", "&": "\\&", _: "\\_", "~": "\\sim{}", "^": "\\hat{}", " ": "\\mbox{ }", "-": "\\mbox{-}", "'": "\\prime", "\"": "\\prime\\prime" };
 const SCRIPTS = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉₊₋", PLAIN = "0123456789+-";
+// Characters maths sets raised: primes (\prime) and the degree sign (\circ). They are raised characters here, so a
+// prime or degree sign after a raised part goes in that part, as TeX needs.
+const RAISED = new Set(["'", "\"", "′", "″", "’", "”", "°"]);
 
 // Text in TeX's maths mode: specials escaped, Greek and signs as TeX's, accents in an \mbox. Any other character is
-// left out and added to left; control characters are left out.
+// left out and added to left; control characters are left out. (typeset() turns Unicode scripts, primes and the
+// degree sign into raised and lowered characters first.)
 // script: in a raised or lowered part, where - is a minus (a charge), not a hyphen.
 function texOf(s: string, left: Set<string>, script = false): string {
   let out = "";
@@ -55,16 +59,13 @@ function texOf(s: string, left: Set<string>, script = false): string {
     const code = ch.codePointAt(0)!;
     if (code < 0x20 || code === 0x7f) continue;
     if (code < 0x7f) { out += script && ch === "-" ? ch : SPECIAL[ch] ?? ch; continue; }
-    const k = SCRIPTS.indexOf(ch);
-    if (k >= 0) { out += `${k < 12 ? "^" : "_"}{${PLAIN[k % 12]}}`; continue; }
     const mapped = GREEK.get(ch) ?? SIGNS[ch] ?? (LETTERS[ch] && `\\mbox{${LETTERS[ch]}}`);
     if (mapped) { out += mapped; continue; }
     const [base, mark, ...more] = [...ch.normalize("NFD")];
     if (/^[A-Za-z]$/.test(base) && mark && ACCENTS[mark] && !more.length) { out += `\\mbox{\\${ACCENTS[mark]}{${base === "i" ? "\\i" : base}}}`; continue; }
     left.add(ch);
   }
-  // Raised or lowered digits side by side are one script (H₁₂ as _{12}), since _{1}_{2} is an error in maths.
-  return out.replace(/(?:\^\{[0-9+-]\})+|(?:_\{[0-9+-]\})+/g, (run) => `${run[0]}{${run.replace(/[_^{}]/g, "")}}`);
+  return out;
 }
 
 // A label's character with its look: raised or lowered (a mass number, a count, a charge, or set by hand), bold,
@@ -79,10 +80,20 @@ const rgb = (hex?: string) => {
 };
 const tikzColour = (c: number[]) => `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}`;
 const texColour = (c: number[]) => `\\color[RGB]{${c.join(",")}}`;
-// Characters as TeX in chemfig's maths mode: each script in one _{…} or ^{…}, and each run of one look in maths
-// alphabets, which shrink in a script as text commands do not. Bold italic is \boldmath round \mathit, which needs no
-// package. A lone plain count stays bare (CH_3).
-function typeset(cs: Char[], left: Set<string>): string {
+// A character as typeset() reads it: a Unicode script (₃, ⁺) as its digit or sign raised or lowered, and a prime or
+// degree sign raised, unless it is in a script already. So a label typed with them and one set with Text >
+// Superscript give the same code.
+const scripted = (x: Char): Char => {
+  const k = SCRIPTS.indexOf(x.c);
+  return k >= 0 ? { ...x, c: PLAIN[k % 12], script: x.script ?? (k < 12 ? "super" : "sub") } : !x.script && RAISED.has(x.c) ? { ...x, script: "super" } : x;
+};
+// Characters as TeX in chemfig's maths mode, each atom's characters at once (issue 59, D18): raised characters side by
+// side in one ^{…} and lowered ones in one _{…}, and each run of one look in maths alphabets, which shrink in a script
+// as text commands do not. TeX takes one raised and one lowered part on a base; a third part starts on {}
+// (X_{1}^{+}{}_{2}). Bold italic is \boldmath round \mathit, which needs no package. A lone plain count stays bare
+// (CH_3).
+function typeset(given: Char[], left: Set<string>): string {
+  const cs = given.map(scripted);
   const looked = (s: string, l: Look, small: boolean) => {
     let t = l.bold && l.italic ? `\\mbox{\\boldmath$${small ? "\\scriptstyle" : ""}\\mathit{${s}}$}` : l.bold ? `\\mathbf{${s}}` : l.italic ? `\\mathit{${s}}` : s;
     if (l.underline) t = `\\underline{${t}}`;
@@ -90,7 +101,7 @@ function typeset(cs: Char[], left: Set<string>): string {
     return c ? `{${texColour(c)}${t}}` : t;
   };
   const same = (x: Look, y: Look) => !!x.bold === !!y.bold && !!x.italic === !!y.italic && !!x.underline === !!y.underline && (x.colour ?? "") === (y.colour ?? "");
-  let out = "";
+  let out = "", sub = false, sup = false; // the base's lowered and raised parts so far
   for (let k = 0; k < cs.length; ) {
     let e = k;
     while (e < cs.length && cs[e].script === cs[k].script) e++;
@@ -103,8 +114,12 @@ function typeset(cs: Char[], left: Set<string>): string {
       j = f;
     }
     const s = cs[k].script;
-    out += !s || !body ? body : s === "sub" && /^[0-9]$/.test(body) ? `_${body}` : `${s === "sub" ? "_" : "^"}{${body}}`;
     k = e;
+    if (!body) continue;
+    if (!s) { out += body; sub = sup = false; continue; }
+    if (s === "sub" ? sub : sup) { out += "{}"; sub = sup = false; }
+    out += s === "sub" && /^[0-9]$/.test(body) ? `_${body}` : `${s === "sub" ? "_" : "^"}{${body}}`;
+    if (s === "sub") sub = true; else sup = true;
   }
   return out;
 }
@@ -240,12 +255,13 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     if (!labelled[i]) return { atoms: [], anchor: 0 };
     // The label's own bold, italic, underline and colour go on all of it, its H, counts and sign.
     const look: Look = { ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.colour ? { colour: a.colour } : {}) };
-    // A circled charge, or a sign drawn apart, is a mark (marks()); a plain one is written after the label.
-    const ch = charge && !a.circled && !apart[i] ? typeset(chars(sign(charge), look, "super"), left) : "";
+    // A circled charge, or a sign drawn apart, is a mark (marks()); a plain one is written after the label, in the
+    // characters of its last chemfig atom, so it joins a raised part there (NH₃⁺ with a charge: NH_3^{++}).
+    const sg = charge && !a.circled && !apart[i] ? chars(sign(charge), look, "super") : [];
     if (a.text) {
       // A written label's characters styled as they were typed (its runs), each on top of the label's own look.
       const runs = a.runs && a.runs.map((r) => r.text).join("") === a.text ? a.runs.flatMap((r) => [...r.text].map(() => r)) : undefined;
-      // Raised or lowered digits typed as such (R¹³) are one unit, so they are one script.
+      // Raised or lowered digits typed as such (R¹³) are one unit.
       const scriptOnly = (u: Unit) => u.kind !== "bracket" && !u.count && /^[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉₊₋]+$/.test(u.text);
       // (A character that units() splits, an emoji or an accent typed after its letter, is one.)
       const merged = units(a.text).reduce<Unit[]>((list, u) => {
@@ -262,27 +278,29 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
           return { ...x, ...(r?.bold ? { bold: true } : {}), ...(r?.italic ? { italic: true } : {}), ...(r?.underline ? { underline: true } : {}), ...(r?.script ? { script: r.script } : {}), ...(r?.colour ? { colour: r.colour } : {}) };
         });
         n += cs.length;
-        return { text: typeset(cs, left), raised: scriptOnly(u) || (cs.length > 0 && cs.every((_, k) => runs?.[start + k]?.script)) };
+        return { cs, shown: !!typeset(cs, left), raised: cs.length > 0 && cs.every((x) => scripted(x).script) };
       });
-      // A unit all in a script (the III of Fe with III raised) stays with the unit before it, as on the page.
-      const together: string[] = [];
-      typed.forEach((t, k) => { if (!t.text) return; if (t.raised && k && together.length) together[together.length - 1] += t.text; else together.push(t.text); });
-      const out = (rtl ? together.reverse() : together).map(atom);
-      if (!out.length) return { atoms: ch ? [atom(ch)] : [], anchor: 0 };
-      if (ch) out[out.length - 1] = atom(out[out.length - 1] + ch);
-      return { atoms: out, anchor: rtl ? out.length - 1 : 0 };
+      // A unit all in a script (the III of Fe with III raised, ₃, a prime) stays with the unit before it, as on the
+      // page. Each chemfig atom's characters are typeset at once (D18), so its raised characters are one ^{…}.
+      const together: Char[][] = [];
+      typed.forEach((t, k) => { if (!t.shown) return; if (t.raised && k && together.length) together[together.length - 1].push(...t.cs); else together.push([...t.cs]); });
+      const lists = rtl ? together.reverse() : together;
+      if (sg.length) { if (lists.length) lists[lists.length - 1].push(...sg); else lists.push(sg); }
+      const out = lists.map((cs) => atom(typeset(cs, left)));
+      return { atoms: out, anchor: rtl ? Math.max(0, out.length - 1) : 0 };
     }
     const used = nbrs[i].reduce((m, { k }) => m + orderOf(mol.bonds[k].type), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
-    const el = atom(typeset([...chars(a.isotope ? String(a.isotope) : "", look, "super"), ...chars(a.label, look)], left));
-    const hs = h ? typeset([...chars("H", look), ...chars(h > 1 ? String(h) : "", look, "sub")], left) : "";
+    const el = [...chars(a.isotope ? String(a.isotope) : "", look, "super"), ...chars(a.label, look)];
+    const hs = h ? [...chars("H", look), ...chars(h > 1 ? String(h) : "", look, "sub")] : [];
+    const one = (cs: Char[]) => atom(typeset(cs, left));
     // H goes first read right to left (HO, H2N), and on a lone atom written that way (H2O, HCl). An H the bonds leave no
     // room for beside the atom stacks above or below it (an indole's NH).
     const back = rtl || (!a.align && !deg(i) && !!h && H_FIRST.has(a.label));
     const stack = a.align === "above" || a.align === "below" ? a.align : !a.align && steep && deg(i) > 1 ? (v[1] < 0 ? "above" : "below") : undefined;
-    if (hs && stack) return { atoms: [`\\chem${stack}{${el}}{${hs}}${ch}`], anchor: 0, stack };
-    if (!hs) return { atoms: [atom(el + ch)], anchor: 0 };
-    return back ? { atoms: [atom(hs), atom(el + ch)], anchor: 1 } : { atoms: [el, atom(hs + ch)], anchor: 0 };
+    if (hs.length && stack) return { atoms: [`\\chem${stack}{${one(el)}}{${typeset(hs, left)}}${typeset(sg, left)}`], anchor: 0, stack };
+    if (!hs.length) return { atoms: [one([...el, ...sg])], anchor: 0 };
+    return back ? { atoms: [one(hs), one([...el, ...sg])], anchor: 1 } : { atoms: [one(el), one([...hs, ...sg])], anchor: 0 };
   }
   // Lone pairs, unpaired electrons, circled and partial charges, and a sign drawn apart from its label, as chemfig's
   // \charge round the atom its bonds meet, each at the page's angle, in the atom's colour. A skeletal carbon's \charge
@@ -581,5 +599,5 @@ function chemfigNotice(mol: Mol, left: Set<string>, rings: number[][]): string {
   return out.join(" ");
 }
 
-// For checks: the characters that typeset() writes for a run of plain text in maths mode.
-export const texText = (s: string) => { const left = new Set<string>(); return { tex: texOf(s, left), left: [...left] }; };
+// For checks: what typeset() writes for a run of plain text in maths mode.
+export const texText = (s: string) => { const left = new Set<string>(); return { tex: typeset(chars(s, {}), left), left: [...left] }; };

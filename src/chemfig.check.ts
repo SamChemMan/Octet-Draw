@@ -4,12 +4,14 @@
 // of commands, bonds, rings and hooks as chemfig takes them) and a replay of chemfig's own placing rules (its manual's:
 // absolute angles, lengths, rings at the start and after a bond, nested rings), which must put each atom where the
 // page has it. With CHEMFIG_TEX=<file> it writes every drawing's code into one LaTeX file; when pdflatex is on the
-// PATH it compiles that file too. Sam's corpus is read where it is on this Mac.
+// PATH it compiles that file too. Every code is also read at TeX's level (scripts/chemfiglint.ts, the reader the stress
+// check uses too), which fails where TeX would stop. Sam's corpus is read where it is on this Mac.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { nesting, texLint } from "../scripts/chemfiglint.ts";
 import { chemfig, texText, toChemfig, WAVY_NOTE } from "./chemfig.ts";
 import { ESCAPES } from "./escapes.ts";
 import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
@@ -24,7 +26,7 @@ const ink = (): Ink => ({ width: 9.6, ascent: 9.5, outline: box });
 const c30 = Math.cos(Math.PI / 6), s30 = 0.5, RAD = Math.PI / 180;
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const B = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ type, atoms: [a, b], ...more });
-const compact = (atoms: Atom[], bonds: Bond[]) => toChemfig({ atoms, bonds }, S, ink, { compact: true });
+const compact = (atoms: Atom[], bonds: Bond[]) => { const code = toChemfig({ atoms, bonds }, S, ink, { compact: true }); if (code) texLint(code, code); return code; };
 const TEX: string[] = []; // every drawing's code, for CHEMFIG_TEX
 
 // ---- The strict reading of chemfig's syntax, and the replay of its placing rules ----
@@ -32,7 +34,7 @@ const TEX: string[] = []; // every drawing's code, for CHEMFIG_TEX
 // The commands the code may hold: chemfig's, the maths and text commands for labels, Greek, signs, accents, escapes.
 const SIGN_COMMANDS = ["circ", "pm", "mp", "times", "div", "cdot", "bullet", "leq", "geq", "neq", "approx", "sim", "equiv", "propto", "infty", "surd", "partial", "nabla", "int", "sum", "cdots", "ldots", "hbar", "AA", "mu",
   "rightarrow", "leftarrow", "leftrightarrow", "rightleftharpoons", "uparrow", "downarrow", "ddagger", "dagger", "ast", "oplus", "ominus"];
-const ALLOWED = new Set(["chemfig", "charge", "chargeangle", "chemabove", "chembelow", "phantom", "mathrm", "mathbf", "mathit", "underline", "mbox", "boldmath", "color", "scriptstyle", "delta", "varsigma",
+const ALLOWED = new Set(["chemfig", "charge", "chargeangle", "chemabove", "chembelow", "phantom", "mathrm", "mathbf", "mathit", "underline", "mbox", "boldmath", "color", "scriptstyle", "delta", "varsigma", "prime",
   ...Object.keys(ESCAPES).filter((k) => /[\u0370-\u03ff]/.test(ESCAPES[k])), ...SIGN_COMMANDS, "ss", "ae", "AE", "oe", "OE", "o", "O", "l", "L", "i",
   "`", "'", "^", "~", "=", "u", ".", "\"", "r", "H", "v", "c", ":", "|", "{", "}", "#", "$", "%", "&", "_", "backslash", "hat"]);
 const TIKZ = [/^draw=none$/, /^dotted$/, /^dashed$/, /^line width=2pt$/, /^dash pattern=on 0\.4pt off 1\.2pt$/, /^decorate$/, /^decoration=\{snake,amplitude=0\.6pt,segment length=2\.4pt\}$/, /^-stealth$/, /^stealth-$/, /^color=\{rgb,255:red,\d{1,3};green,\d{1,3};blue,\d{1,3}\}$/];
@@ -86,6 +88,7 @@ type Read = { slots: P[]; deepest: number; hooks: Map<string, number>; rings: nu
 // lengths, y up, the first atom at 0, 0).
 function read(code: string, where: string): Read {
   assert.ok(/^[\t\n\x20-\x7e]*$/.test(code), `${where}: not ASCII`);
+  texLint(code, where);
   const lines = code.split("\n");
   let k0 = 0;
   while (lines[k0]?.startsWith("%")) { assert.equal(lines[k0], WAVY_NOTE, `${where}: comment`); k0++; }
@@ -221,7 +224,16 @@ function read(code: string, where: string): Read {
   }
   assert.equal(frames.length, 0, `${where}: ( with no )`);
   for (const [name, n] of out.hooks) assert.equal(n, 2, `${where}: hook ${name} once`);
+  // Rule 8: branches and rings nest at most log2(atoms) + 24 deep, never over 64 (each is a TeX group).
+  assert.ok(out.deepest <= Math.min(64, Math.log2(Math.max(2, out.slots.length)) + 24), `${where}: nests ${out.deepest} deep`);
+  assert.equal(nesting(code), out.deepest, `${where}: two readings of the nesting`);
   return out;
+}
+
+// The reader fails where TeX stops (D24): a double superscript or subscript, and a prime after a superscript.
+for (const bad of ["\\chemfig{Fe^{I}^{I}}", "\\chemfig{CH_2_{3}}", "\\chemfig{-[:0]NH_{3}^{+}^{+}}", "\\chemfig{R^{1}'}"]) {
+  assert.throws(() => texLint(bad, bad), /double (superscript|subscript)/);
+  assert.throws(() => read(bad, bad), /double (superscript|subscript)/);
 }
 
 // The page's place of each atom (bond lengths: the drawing's median bond, as render() takes it).
@@ -435,6 +447,7 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   assert.equal(texText("α-Δ±°é").tex, "\\alpha\\mbox{-}\\Delta\\pm^{\\circ}\\mbox{\\'{e}}");
   assert.deepEqual(texText("Αü中😀").left, ["中", "😀"]);
   assert.equal(texText("Α").tex, "A", "capital Alpha as A");
+  assert.equal(texText("R'' x°").tex, "R^{\\prime\\prime}\\mbox{ }x^{\\circ}", "primes and the degree sign raised");
   assert.equal(texText("ß").tex, "\\mbox{\\ss}");
   assert.equal(texText("x\u0000\u0007y").tex, "xy", "control characters left out");
   const label = (text: string, more: Partial<Atom> = {}) => check(`label ${JSON.stringify(text).slice(0, 40)}`, { atoms: [A("C", 0, 0), A("C", 1, 0, { text, ...more })], bonds: [B(0, 1)] });
@@ -456,6 +469,26 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   // A label's oxidation state raised by hand stays with its element; a multi-centre attachment and an attachment
   // point are empty atoms, as the page draws them.
   label("Fe(III)", { runs: [{ text: "Fe" }, { text: "(III)", script: "super" }] });
+  // Raised and lowered characters (D18): each chemfig atom's raised ones in one ^{…} and lowered ones in one _{…}, a
+  // third part on {} (TeX takes one of each on a base), a prime or degree sign in the raised part, and a charge's
+  // sign joined to a raised part. The reader at TeX's level (compact()) passes each.
+  const ran = (text: string, runs?: Atom["runs"], more: Partial<Atom> = {}) => compact([A("C", 0, 0), A("C", 1, 0, { text, runs, ...more })], [B(0, 1)]);
+  const sup = (text: string) => ({ text, script: "super" as const }), sub = (text: string) => ({ text, script: "sub" as const });
+  assert.equal(ran("FeIII", [{ text: "Fe" }, sup("III")]), "\\chemfig{-[:0]Fe^{III}}");
+  assert.equal(ran("Fe(III)", [{ text: "Fe" }, sup("(III)")]), "\\chemfig{-[:0]Fe^{(III)}}");
+  assert.equal(ran("Fe2+", [{ text: "Fe" }, sup("2+")]), "\\chemfig{-[:0]Fe^{2+}}");
+  assert.equal(ran("SO42-", [{ text: "SO" }, sub("4"), sup("2-")]), "\\chemfig{-[:0,,,1]SO_4^{2-}}");
+  assert.equal(ran("R1'", [{ text: "R" }, sup("1'")]), "\\chemfig{-[:0]R^{1\\prime}}");
+  assert.equal(ran("X1+2", [{ text: "X" }, sub("1"), sup("+"), sub("2")]), "\\chemfig{-[:0]X_1^{+}{}_2}");
+  assert.equal(ran("CH2₃", [{ text: "CH" }, sub("2"), { text: "₃" }]), "\\chemfig{-[:0,,,1]CH_{23}}");
+  assert.equal(ran("PC•+", [{ text: "PC" }, sup("•+")]), "\\chemfig{-[:0,,,1]PC^{\\bullet+}}");
+  assert.equal(ran("NH₃⁺", undefined, { charge: 1 }), "\\chemfig{-[:0,,,1]NH_3^{++}}");
+  assert.equal(ran("C°", undefined, { charge: 1 }), "\\chemfig{-[:0]C^{\\circ+}}");
+  assert.equal(ran("FeIII", [{ text: "Fe", bold: true }, { ...sup("III"), colour: "#ff0000" }], { colour: "#0000ff" }), "\\chemfig{-[:0]{{\\color[RGB]{0,0,255}\\mathbf{Fe}}^{{\\color[RGB]{255,0,0}III}}}}");
+  // A label typed with Unicode scripts or primes gives the code that Text > Superscript and Text > Subscript give.
+  for (const [typed, set] of [["Fe³⁺", ran("Fe3+", [{ text: "Fe" }, sup("3+")])], ["SO₄²⁻", ran("SO42-", [{ text: "SO" }, sub("4"), sup("2-")])], ["R¹′", ran("R1'", [{ text: "R" }, sup("1'")])], ["R′", ran("R'", [{ text: "R" }, sup("'")])], ["R'", ran("R'", [{ text: "R" }, sup("'")])], ["CH₃", ran("CH3", [{ text: "CH" }, sub("3")])], ["NH₃⁺", ran("NH3+", [{ text: "NH" }, sub("3"), sup("+")])], ["R₁′", ran("R1'", [{ text: "R" }, sub("1"), sup("'")])]] as const) {
+    assert.equal(ran(typed), set, `${typed} typed`);
+  }
   const att = check("attachment point", { atoms: [A("C", 0, 0, { attach: true }), A("C", 1, 0), A("C", 1 + c30, s30, { bead: true })], bonds: [B(0, 1), B(1, 2)] });
   assert.equal(att.notice, "The code does not have the attachment points and polymer beads.");
 }
