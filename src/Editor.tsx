@@ -9238,12 +9238,16 @@ export default function Editor() {
       switch (a.act) {
         case "pass":
           if (!e) break;
+          // freed: this same event stopped a press (a palm under the pen). The editor's state is still that press's
+          // until it draws again, so the pen's press goes in a frame later, and a hover move is left out.
           if (e.type === "pointerdown") {
             if (!takePress(e.pointerId, freed)) break;
             reach.current = REACH[pointerKind(e.pointerType)];
-            onPointerDown(e);
+            const { pointerId: id, clientX: x, clientY: y, pointerType: type } = e;
+            if (freed) requestAnimationFrame(() => { if (owner.current === id) send("pointerdown", id, x, y, type); });
+            else onPointerDown(e);
           } else if (e.type === "pointermove") {
-            if (owner.current !== undefined && owner.current !== e.pointerId) break;
+            if (freed || (owner.current !== undefined && owner.current !== e.pointerId)) break;
             reach.current = REACH[pointerKind(e.pointerType)];
             onPointerMove(e);
           } else if (owner.current === e.pointerId) {
