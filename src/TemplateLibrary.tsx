@@ -20,7 +20,7 @@ import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { Segmented } from "./Fields";
 import { ART_SETS, isArt, LIBRARY, loadMore, type LibraryItem } from "./library";
-import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
+import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, symbolSize, partialText, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
 import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor, followDrag } from "./cursor";
@@ -108,7 +108,8 @@ function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, style, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, style, L))), ...across, ...spots, ...regions];
   const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
   const words = placeCaptions(mol, drawing, (t, c) => textWidth(t, (c.size ?? CAPTION_PT) * (4 / 3), c.bold, c.italic, fontStack(c.font ?? "Arial")), arrows);
-  const marks: Mark[] = (mol.shapes ?? []).filter((x) => x.mark && isBracket(x)).map((x) => ({ ...markAt(x, L), text: x.mark!, size: CAPTION_PT * (4 / 3) * scaleOf(x) }));
+  const marks: Mark[] = [...(mol.shapes ?? []).filter((x) => x.mark && isBracket(x)).map((x) => ({ ...markAt(x, L), text: x.mark!, size: CAPTION_PT * (4 / 3) * scaleOf(x) })),
+    ...(mol.shapes ?? []).flatMap((x) => { const t = x.kind === "symbol" && partialText(x); return t ? [{ x: Math.min(x.from[0], x.to[0]) * L, y: -Math.min(x.from[1], x.to[1]) * L, anchor: "start" as const, text: t, size: symbolSize(x) * L }] : []; })];
   const points = [...ink, ...fills, ...words.map((w): [number, number][] => [[w.box[0], w.box[1]], [w.box[2], w.box[3]]]), marks.map((m): [number, number] => [m.x, m.y])].flat();
   const xs = points.map((q) => q[0]), ys = points.map((q) => q[1]);
   const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];

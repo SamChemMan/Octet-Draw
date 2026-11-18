@@ -12,7 +12,7 @@ import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -199,7 +199,7 @@ const back = (table: Record<string, string>, v?: string) => Object.keys(table).f
 // An element symbol's atomic number (D and T are hydrogen).
 const atomicNumber = (el: string) => (el === "D" || el === "T" ? 1 : SYMBOLS.indexOf(el) + 1);
 // A free symbol's SymbolType, and the free symbol a SymbolType is.
-const SYMBOL_TYPE: Record<FreeSymbol, string> = { plus: "Plus", minus: "Minus", circledPlus: "CirclePlus", circledMinus: "CircleMinus", radical: "Electron", pair: "LonePair", bar: "LonePairBar", radicalCation: "RadicalCation", radicalAnion: "RadicalAnion" };
+const SYMBOL_TYPE: Record<Exclude<FreeSymbol, "partialPlus" | "partialMinus">, string> = { plus: "Plus", minus: "Minus", circledPlus: "CirclePlus", circledMinus: "CircleMinus", radical: "Electron", pair: "LonePair", bar: "LonePairBar", radicalCation: "RadicalCation", radicalAnion: "RadicalAnion" };
 const FREE_OF = new Map(Object.entries(SYMBOL_TYPE).map(([k, v]) => [v, k as FreeSymbol]));
 const SYMBOL_TEXT: Record<string, string> = { Dagger: "†", DoubleDagger: "‡", Racemic: "Rac", Absolute: "Abs", Relative: "Rel" };
 
@@ -436,6 +436,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     } else if (sh.kind === "oval") {
       const bits = [Math.abs(hw - hh) < 0.01 && "Circle", (sh.fill === "shaded" || sh.fill === "faded") && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", sh.boldLine && "Bold", sh.shadow && "Shadowed"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, ...mine, Octet: priv({ shade: sh.shade, angle: sh.angle, scale: ownScale(sh), fill: faded }) }), 3, box, sh.id);
+    } else if (sh.kind === "symbol" && partialText(sh)) {
+      // A free partial charge: ChemDraw has no symbol for one, so it goes as text, at its place, size and turn, as an
+      // atom's partial charge goes. Octet's data keeps it a free symbol.
+      const text = sh.symbol === "partialPlus" ? "δ+" : "δ−", size = symbolSize(sh) * B, foot = turned([Math.min(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])]);
+      put(el("t", { id, p: pt(foot), BoundingBox: boxText(box), Z: Z(), color: ink, LineHeight: "auto", RotationAngle: rotationAngle(sh.angle), Octet: priv({ symbol: sh.symbol, box: [...sh.from, ...sh.to], angle: sh.angle }) },
+        run(text, { font: style.labelFont, size, colour: sh.colour, face: 0 })), 3, box, sh.id);
     } else if (sh.kind === "symbol") {
       // A free symbol: ChemDraw's unattached chemical symbol, a Symbol graphic with no represent link (it is not
       // chemistry). Its first point is its middle and its second is its size from there, back along its turn; a radical
@@ -443,7 +449,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // box as drawn.
       const kind = sh.symbol ?? "plus", size = symbolSize(sh) * B, t = ((sh.angle ?? 0) * Math.PI) / 180, d: P = [Math.cos(t), -Math.sin(t)];
       const ends: P[] = kind === "radicalCation" || kind === "radicalAnion" ? [[c[0] - (d[0] * size) / 4, c[1] - (d[1] * size) / 4], [c[0] + (d[0] * size) / 4, c[1] + (d[1] * size) / 4]] : [c, [c[0] - d[0] * size, c[1] - d[1] * size]];
-      put(el("graphic", { id, BoundingBox: ends.map(pt).join(" "), Z: Z(), color: ink, GraphicType: "Symbol", SymbolType: SYMBOL_TYPE[kind], Octet: priv({ box: [...sh.from, ...sh.to], angle: sh.angle }) }), 3, box, sh.id);
+      put(el("graphic", { id, BoundingBox: ends.map(pt).join(" "), Z: Z(), color: ink, GraphicType: "Symbol", SymbolType: SYMBOL_TYPE[kind as keyof typeof SYMBOL_TYPE], Octet: priv({ box: [...sh.from, ...sh.to], angle: sh.angle }) }), 3, box, sh.id);
     } else if (isBracket(sh)) {
       // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9), turned
       // with the shape.
@@ -2037,6 +2043,12 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // RotationAngle: degrees clockwise on the page, times 65536; Octet turns anticlockwise.
     const turn = ((-(int(t.attrs.RotationAngle) ?? 0) / 65536) % 360 + 540) % 360 - 180;
     const p = priv(t), docFont = style.captionFont, docSize = style.captionSize, runs: (RunStyle & { text: string; font: string; size: number })[] = [];
+    // A free partial charge Octet wrote as text (its data has its box).
+    const kept = Array.isArray(p?.box) && p.box.length === 4 && p.box.every((v: unknown) => isNum(v, -1000, 1000)) ? (p.box as number[]) : undefined;
+    if (kept && (p!.symbol === "partialPlus" || p!.symbol === "partialMinus")) {
+      const colour = colourOf(t.attrs.color);
+      return void addShape({ kind: "symbol", symbol: p!.symbol, from: [kept[0], kept[1]], to: [kept[2], kept[3]], ...(isNum(p!.angle, -360, 360) && p!.angle ? { angle: p!.angle as number } : {}), id: newId(t), ...(colour ? { colour } : {}), z: zOf(t) }, t, group);
+    }
     let room = MAX_TEXT;
     for (const s of t.kids) {
       if (s.name !== "s" || room <= 0) continue;

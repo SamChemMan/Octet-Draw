@@ -4,29 +4,48 @@
 // Structure (names.ts) reads both. A mixture is two or more structures in one group (Object > Group); a component's
 // count is the repeat count of a multiple-group bracket pair round it (ChemDraw's 0.72 subscript), else 1.
 import { polymerBrackets, repeatCount } from "./query.ts";
+import { widthOf } from "./arial.ts";
+import { DEFAULT_STYLE } from "./docstyle.ts";
 import type { Mol } from "./render.ts";
 
 type Box = [number, number, number, number];
+// Text that is a charge: a sign, with its number before or after it (+, −, 2+, 3−, +2).
+export const isChargeText = (text: string) => /^(\d*[+\-−–]|[+\-−–]\d+)$/.test(text.trim());
 // A free symbol (a sign placed with the Symbols tool, on no atom) within 0.3 bond lengths of a structure's ink, or of
 // brackets round a structure, is that structure's own: its charge, or a complex's total charge by its brackets, as
-// text that close is. Clean Up moves it with the structure, and a plus one is not a reaction's plus sign. boxes: each
-// structure's ink. Gives each such symbol's structure, by its index in boxes (the nearest).
-export function symbolOwners(doc: Mol, boxes: Box[]): Map<number, number> {
+// text that close is. So is a charge typed as text there (isChargeText; text tied to a structure, an arrow or a cycle
+// is not). A sign with its middle over a structure, or inside its brackets, is not that one's: a charge stands beside
+// it, and a structure can come to reach over the plus sign beside it (Clean Up lays a reactant flat). A plus sign is a
+// charge only when it is raised (its middle 0.1 bond lengths or more over the middle of the structure or brackets, as
+// a charge at the top right is), and by one structure only: one level with the structures, or close to two (in the gap
+// between them), is a reaction's plus sign, however near. Clean Up moves
+// a structure's own with it, and a plus one is not a reaction's plus sign. boxes: each structure's ink. captionBox: a caption's box as drawn (unset: worked out from its text, in Arial at its size). Gives each such
+// symbol's and text's structure, by its index in boxes (the nearest).
+export function symbolOwners(doc: Mol, boxes: Box[], captionBox?: (id: number) => Box | undefined): Map<number, number> {
   const out = new Map<number, number>(), shapes = doc.shapes ?? [];
-  if (!shapes.some((s) => s.kind === "symbol")) return out; // most drawings
+  const signs = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && isChargeText(c.text));
+  if (!signs.length && !shapes.some((s) => s.kind === "symbol")) return out; // most drawings
   const boxOf = (s: { from: number[]; to: number[] }): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
   const gap = (p: Box, q: Box) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]);
+  const over = (p: Box, q: Box) => (p[0] + p[2]) / 2 > q[0] && (p[0] + p[2]) / 2 < q[2] && (p[1] + p[3]) / 2 > q[1] && (p[1] + p[3]) / 2 < q[3];
   const round = shapes.filter((s) => s.kind === "brackets" || s.kind === "parens" || s.kind === "braces").flatMap((s): [Box, number][] => {
     const f = boxOf(s), k = boxes.findIndex((b) => (b[0] + b[2]) / 2 > f[0] && (b[0] + b[2]) / 2 < f[2] && (b[1] + b[3]) / 2 > f[1] && (b[1] + b[3]) / 2 < f[3]);
     return k < 0 ? [] : [[f, k]];
   });
-  for (const s of shapes) {
-    if (s.kind !== "symbol") continue;
-    const b = boxOf(s);
+  const own = (id: number, b: Box, plus: boolean) => {
     let best = 0.3, k = -1;
-    boxes.forEach((q, j) => { const g = gap(b, q); if (g < best) { best = g; k = j; } });
-    for (const [f, j] of round) { const g = gap(b, f); if (g < best) { best = g; k = j; } }
-    if (k >= 0) out.set(s.id, k);
+    const by = (q: Box) => !over(b, q) && (!plus || b[1] + b[3] >= q[1] + q[3] + 0.2), near = new Set<number>();
+    boxes.forEach((q, j) => { const g = gap(b, q); if (g < 0.3) near.add(j); if (g < best && by(q)) { best = g; k = j; } });
+    for (const [f, j] of round) { const g = gap(b, f); if (g < 0.3) near.add(j); if (g < best && by(f)) { best = g; k = j; } }
+    if (plus && near.size > 1) return;
+    if (k >= 0) out.set(id, k);
+  };
+  for (const s of shapes) if (s.kind === "symbol") own(s.id, boxOf(s), s.symbol === "plus");
+  const pt = doc.style?.captionSize ?? DEFAULT_STYLE.captionSize, bond = doc.style?.bond ?? DEFAULT_STYLE.bond;
+  for (const c of signs) {
+    const w = widthOf(c.text.trim(), c.size ?? pt) / bond, x = c.align === "left" ? c.x : c.align === "right" ? c.x - w : c.x - w / 2;
+    const b = captionBox?.(c.id) ?? [x, c.y, x + w, c.y + (0.716 * (c.size ?? pt)) / bond];
+    own(c.id, b, c.text.trim() === "+");
   }
   return out;
 }
@@ -42,11 +61,11 @@ export function withSalts(doc: Mol, all: number[][]): number[][] {
   // (Each ion's box first: most pairs are too far apart to look at their atoms.)
   const box = ions.map((g) => g.reduce((b, i) => [Math.min(b[0], at(i)[0]), Math.min(b[1], at(i)[1]), Math.max(b[2], at(i)[0]), Math.max(b[3], at(i)[1])], [Infinity, Infinity, -Infinity, -Infinity]));
   const gap = (g: number[], h: number[]) => { let d = Infinity; for (const i of g) for (const j of h) d = Math.min(d, Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1])); return d; };
-  // (A plus sign placed with the Symbols tool, by its middle, unless it is an ion's charge: by it or by its brackets.
-  // An ion's ink is taken as its atoms and their labels, 0.3 bond lengths round them.)
+  // (A plus sign, by its middle, unless it is an ion's charge: by it or by its brackets. An ion's ink is taken as its
+  // atoms and their labels, 0.3 bond lengths round them.)
   const charges = symbolOwners(doc, box.map((b): Box => [b[0] - 0.3, b[1] - 0.3, b[2] + 0.3, b[3] + 0.3]));
   const pairs: [number, number, number][] = [], plus = [
-    ...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+"),
+    ...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+" && !charges.has(c.id)),
     ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus" && !charges.has(s.id)).map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
   ];
   const inside = (b: number[], x: number, y: number, e: number) => x > b[0] - e && x < b[2] + e && y > b[1] - e && y < b[3] + e;

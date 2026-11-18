@@ -14,6 +14,7 @@ import { ELEMENTS } from "./metals.ts";
 import { luminance } from "./docstyle.ts";
 import { rings } from "./rings.ts";
 import { USAGES, polymerLabel } from "./query.ts";
+import { symbolOwners } from "./mixtures.ts";
 import type { Reaction, Step } from "./reaction.ts";
 
 type P = [number, number];
@@ -244,9 +245,11 @@ export function describe(m: Mol, s: Sources): Item[] {
   for (const a of m.arrows ?? []) if (!itemsTaken.has(a.id)) add({ key: `o${a.id}`, ...arrowText(m, a, s), atoms: [], items: [a.id] });
   for (const sh of m.shapes ?? []) if (!itemsTaken.has(sh.id)) add({ key: `o${sh.id}`, role: "shape", ...shapeText(sh), atoms: [], items: [sh.id] });
   const keys = new Set(primary.map((x) => x.key)), attached = new Map<string, Item[]>();
+  // (A "+" by a structure is its charge, not a plus sign: mixtures.ts symbolOwners.)
+  const charges = m.captions?.some((c) => plain(c.text) === "+") ? symbolOwners(m, frags.map((f) => s.box(f, []) ?? [Infinity, Infinity, Infinity, Infinity]), (id) => s.box([], [id])) : undefined;
   for (const c of m.captions ?? []) {
     if (itemsTaken.has(c.id)) continue;
-    const it: Item = { key: `o${c.id}`, role: "text", name: plain(c.text) === "+" ? "Plus sign" : plain(c.text) || "Empty", atoms: [], items: [c.id], box: s.box([], [c.id]) };
+    const it: Item = { key: `o${c.id}`, role: "text", name: plain(c.text) === "+" ? (charges?.has(c.id) ? FREE_SYMBOL_NAMES.plus : "Plus sign") : plain(c.text) || "Empty", atoms: [], items: [c.id], box: s.box([], [c.id]) };
     const to = c.under?.length ? owner.get(c.under[0]) : c.on ? `o${c.on.arrow}` : c.cycle ? `o${c.cycle.cycle}` : undefined;
     if (to && keys.has(to)) attached.set(to, [...(attached.get(to) ?? []), it]);
     else primary.push(it);

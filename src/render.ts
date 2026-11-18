@@ -404,14 +404,20 @@ export type Shape = {
 // A free symbol: a charge, radical or lone pair that is on the page by itself, as ChemDraw's unattached chemical symbol
 // (a Symbols tool click away from an atom). It is not chemistry: no formula, mass, name or SMILES counts it. Its box
 // (from, to) is its ink, and the symbol is drawn stretched to fill it, so a resize handle sizes it as it does a box.
-export type FreeSymbol = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "bar" | "radicalCation" | "radicalAnion";
-export const FREE_SYMBOLS: FreeSymbol[] = ["plus", "minus", "circledPlus", "circledMinus", "radicalCation", "radicalAnion", "pair", "bar", "radical"];
+// A partial charge (δ+, δ−) is Octet's own: ChemDraw has no symbol for one, so its files hold it as text.
+export type FreeSymbol = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "bar" | "radicalCation" | "radicalAnion" | "partialPlus" | "partialMinus";
+export const FREE_SYMBOLS: FreeSymbol[] = ["plus", "minus", "circledPlus", "circledMinus", "radicalCation", "radicalAnion", "partialPlus", "partialMinus", "pair", "bar", "radical"];
 // Each free symbol's box, in units of its size: ChemDraw's symbol size, the size of the font its sign is drawn in, which
 // is 0.75 of the label size (an atom's charge sign). The proportions are the marks Octet draws round an atom.
 export const SYMBOL_BOX: Record<FreeSymbol, [number, number]> = {
   plus: [0.5, 0.5], minus: [0.5, 0.5], circledPlus: [0.99, 0.99], circledMinus: [0.99, 0.99], radical: [0.27, 0.27],
   pair: [0.75, 0.24], bar: [0.75, 0.24], radicalCation: [0.89, 0.5], radicalAnion: [0.89, 0.5],
+  // A partial charge's text in Arial: its width (δ 0.556, + 0.584, – 0.556) and the height of δ.
+  partialPlus: [1.14, 0.73], partialMinus: [1.112, 0.73],
 };
+// A free partial charge is text, as an atom's is (δ+, δ–): the font size is the symbol's size, and its baseline runs
+// along the foot of its box from the left.
+export const partialText = (sh: Pick<Shape, "symbol">) => (sh.symbol === "partialPlus" ? "δ+" : sh.symbol === "partialMinus" ? "δ–" : undefined);
 // A free symbol's size (bond lengths): its box's height over the height of its kind's box.
 export const symbolSize = (sh: Pick<Shape, "from" | "to" | "symbol">) => Math.abs(sh.to[1] - sh.from[1]) / SYMBOL_BOX[sh.symbol ?? "plus"][1];
 // A free symbol of this kind and size (bond lengths), its middle at c, upright.
@@ -2503,6 +2509,7 @@ export function symbolInk(sh: Shape, k: number): P[][] {
     case "bar": rect(0, H / 2 - 0.04, W, H / 2 + 0.04); break;
     // The dot, a gap of ION_GAP label sizes (0.12 of the size), then the sign, as an atom's radical ion.
     case "radicalCation": case "radicalAnion": ellipse(0.133, H / 2, 0.133, 0.133); sign(W - 0.5, 0.5, kind === "radicalCation"); break;
+    case "partialPlus": case "partialMinus": break; // text (partialText)
   }
   // Into the box (px), turned about its middle as shapePaths turns a shape, each polygon wound one way.
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k, sx = (Math.abs(sh.to[0] - sh.from[0]) * k) / W, sy = (Math.abs(sh.to[1] - sh.from[1]) * k) / H;

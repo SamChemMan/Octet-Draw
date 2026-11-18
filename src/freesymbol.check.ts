@@ -2,7 +2,8 @@
 // page by itself, ChemDraw's unattached chemical symbol) is not an object like the others: placed by the Symbols tool
 // away from an atom, drawn to fill its box (turned with it), sized and given a new kind about its middle, kept by
 // .oct, CDXML and CDX, written as ChemDraw writes one (a Symbol graphic with no represent link) and read back as one,
-// while a linked or nearby symbol still goes on its atom as before.
+// while a linked or nearby symbol still goes on its atom as before. A charge typed as text by a structure is its own as
+// a free symbol is, and a partial charge can be placed free (written for ChemDraw as text).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MAGIC, cdxToXml, xmlToCdx } from "./cdx.ts";
@@ -10,10 +11,10 @@ import { fromCdxml, parseXml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addArrow, addCaption, addShape, transformParts } from "./edit.ts";
 import { cleanUpReactions, findReaction, layoutRow, rowOf } from "./reaction.ts";
-import { withSalts } from "./mixtures.ts";
+import { symbolOwners, withSalts } from "./mixtures.ts";
 import { parse, serialize } from "./file.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
-import { FREE_SYMBOLS, SYMBOL_BOX, freeSymbol, resizeSymbol, settleShape, shapeBounds, shapeInk, symbolInk, symbolSize, type Mol, type Shape } from "./render.ts";
+import { FREE_SYMBOLS, SYMBOL_BOX, freeSymbol, partialText, resizeSymbol, settleShape, shapeBounds, shapeInk, symbolInk, symbolSize, type Mol, type Shape } from "./render.ts";
 import { FREE_SYMBOL_NAMES } from "./kinds.ts";
 import { describe } from "./access.ts";
 
@@ -58,7 +59,7 @@ for (const kind of FREE_SYMBOLS) {
   assert.ok(t.flat().every(([x, y]) => x >= tx0 * k - 1e-6 && x <= tx1 * k + 1e-6 && -y >= ty0 * k - 1e-6 && -y <= ty1 * k + 1e-6), kind);
 }
 const count = (kind: Shape["symbol"]) => symbolInk({ id: 1, ...freeSymbol(kind!, [0, 0], SIGN) }, k).length;
-assert.deepEqual([count("plus"), count("minus"), count("pair"), count("radical"), count("bar"), count("radicalCation"), count("radicalAnion")], [2, 1, 2, 1, 1, 3, 2]);
+assert.deepEqual([count("plus"), count("minus"), count("pair"), count("radical"), count("bar"), count("radicalCation"), count("radicalAnion"), count("partialPlus")], [2, 1, 2, 1, 1, 3, 2, 0]);
 
 // 3. .oct keeps it (its kind, box, turn and colour); a symbol with no kind, or a kind Octet does not know, is a damaged file.
 const sym: Shape = { id: 7, ...freeSymbol("circledMinus", [3, 2], 1.5 * SIGN), colour: "#cc0000", angle: 20 };
@@ -90,8 +91,8 @@ assert.equal(f.symbol, "circledMinus");
 assert.ok(near(mid(f)[0], 3, 0.01) && near(mid(f)[1], 2, 0.01) && near(symbolSize(f), 1.5 * SIGN, 0.01) && f.angle === undefined, JSON.stringify(f));
 // The atom's own charge stays on it (a linked sign), and the free symbol adds none.
 assert.deepEqual([back.atoms[0].charge, foreign.atoms[0].charge], [1, 1]);
-// Every kind round-trips through CDXML read as ChemDraw's, and through CDX.
-for (const kind of FREE_SYMBOLS) {
+// Every kind round-trips through CDXML read as ChemDraw's, and through CDX (a partial charge: see 11).
+for (const kind of FREE_SYMBOLS.filter((k) => !partialText({ symbol: k }))) {
   const one: Mol = { atoms: [], bonds: [], shapes: [{ id: 1, ...freeSymbol(kind, [-2, 1], SIGN), angle: kind === "radicalAnion" ? -45 : undefined }] };
   const text = toCdxml(one, DEFAULT_STYLE), plain = text.replace(/\sOctet='[^']*'/g, "").replace(/\sOctet="[^"]*"/g, "");
   for (const [read, own] of [[fromCdxml(plain).mol, false], [fromCdxml(cdxToXml(xmlToCdx(parseXml(plain)))).mol, false], [readCdx(writeCdx(one, DEFAULT_STYLE)).mol, true]] as const) {
@@ -253,6 +254,101 @@ assert.match(actions, /\["tlc", "gel", "plasmid", "table", "picture", "symbol"\]
   assert.match(editor, /lines: scalesText\(\), text: textAlone\(\),/);
   assert.match(editor, /const scalesText = \(\) => settings\.scaleLabels \|\| textAlone\(\);/);
   assert.match(editor, /corners: textAlone\(\)/, "text alone, a group of it too, has corners only");
+}
+
+// 10. A charge typed as text (+, −, 2+) by a structure, or by brackets round one, is its own as a free symbol is (one
+// rule, mixtures.ts symbolOwners): a "+" there is no plus sign of a reaction or of a row, it does not keep a salt's
+// ions apart, and Clean Up moves it with its structure. A "+" in the gap between two structures is a plus sign still,
+// and text tied to something (under a structure, on an arrow) is not a charge.
+{
+  const at = (x: number, y = 0) => ({ label: "C", location: [x, y, 0] as [number, number, number] });
+  const ink = (mol: Mol) => (atoms: number[]) => { const q = atoms.map((i) => mol.atoms[i].location); return [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))] as [number, number, number, number]; };
+  const cbox = (mol: Mol) => (id: number) => { const c = mol.captions?.find((x) => x.id === id); return c ? [c.x - 0.15, c.y - 0.15, c.x + 0.15, c.y + 0.15] as [number, number, number, number] : undefined; };
+  const layout = { gap: 0.8, width: 100, plusBox: [-0.25, -0.15, 0.25, 0.45] as [number, number, number, number], captionPt: 10, bondPt: 14.4 };
+  const text = (m: Mol, t: string, x: number, y: number, more: object = {}) => addCaption(m, { text: t, x, y, ...more } as Parameters<typeof addCaption>[1]);
+  const read = (x: Mol) => findReaction(x, x.arrows![0].id, x.arrows!, ink(x), cbox(x))!;
+  // A cation with "+" at its top right, an arrow, a product: the "+" is the cation's charge, not a plus sign.
+  let c: Mol = { atoms: [at(0), at(1), at(4), at(5)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  [c] = addArrow(c, { kind: "reaction", from: [2, 0.3], to: [3.4, 0.3] });
+  for (const sign of ["+", "2+", "−", "-", "3−"]) {
+    const [x, id] = text(c, sign, 1.25, 0.25), r = read(x);
+    assert.deepEqual(r.steps.map((s) => s.kind), ["structure", "arrow", "structure"], sign);
+    assert.ok(r.captions.includes(id), sign);
+    const out = cleanUpReactions(x, x.arrows!, ink, { ...layout, captionBox: cbox(x) }, () => true).mol, dy = out.atoms[1].location[1] - x.atoms[1].location[1], now = out.captions!.find((k) => k.id === id)!;
+    assert.ok(Math.abs(dy) > 0.1 && near(now.x, 1.25) && near(now.y, 0.25 + dy), sign);
+  }
+  // A "+" in the gap between two starting materials is a plus sign: A + B → C. So is one level with them, however
+  // near one (a charge is raised, at the top right).
+  const ab: Mol = { atoms: [at(-3), at(-2), at(0), at(1), at(4), at(5)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }, { atoms: [4, 5], order: 1 }] as Mol["bonds"], arrows: c.arrows };
+  assert.deepEqual(read(text(ab, "+", -1, 0)[0]).steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"]);
+  for (const x of [-1, -1.85, -0.2]) assert.deepEqual(read(text(ab, "+", x, 0)[0]).steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"], String(x));
+  const [lv, lid] = addShape(ab, freeSymbol("plus", [-0.2, 0], SIGN));
+  assert.ok(!symbolOwners(lv, [ink(lv)([0, 1]), ink(lv)([2, 3])]).has(lid));
+  // A complex in brackets with its charge "2+" by the brackets' top right: the brackets' structure's own.
+  let k: Mol = { atoms: [at(-5, 0.25), at(-4, 0.25), at(3), at(4)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  [k] = addShape(k, { kind: "brackets", from: [-5.3, 0.75], to: [-3.7, -0.25] });
+  for (const sign of ["2+", "+"]) {
+    const [k2, kid] = text(k, sign, -3.5, 0.85);
+    assert.equal(symbolOwners(k2, [ink(k2)([0, 1]), ink(k2)([2, 3])], cbox(k2)).get(kid), 0, sign);
+    const [kx] = addArrow(k2, { kind: "reaction", from: [-3, 0], to: [1.5, 0] }), r = read(kx);
+    const out = cleanUpReactions(kx, kx.arrows!, ink, { ...layout, captionBox: cbox(kx) }, () => true).mol, br = out.shapes!.find((s) => s.kind === "brackets")!, now = out.captions!.find((x) => x.id === kid)!;
+    assert.ok(r.steps.map((s) => s.kind).join(" ") === "structure arrow structure" && r.captions.includes(kid) && near(now.y - br.from[1], 0.85 - 0.75) && near(now.x, -3.5), sign);
+  }
+  // Text tied to something is not a charge: under a structure, on an arrow.
+  const [u, uid] = text(c, "+", 1.25, 0.25, { under: [0, 1] }), [o, oid] = text(c, "+", 1.25, 0.25, { on: { arrow: c.arrows![0].id, side: "above" } });
+  assert.ok(!symbolOwners(u, [ink(u)([0, 1])], cbox(u)).has(uid) && !symbolOwners(o, [ink(o)([0, 1])], cbox(o)).has(oid));
+  // Clean up of a row of structures (no arrow): a "+" at the second's top right is its charge, moved with it.
+  const two: Mol = { atoms: [at(0), at(1), at(1.2, 0.2), at(2.2, 0.2)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }] as Mol["bonds"] };
+  const [t, tid] = text(two, "+", 2.45, 0.45), row = rowOf(t, undefined, ink(t), cbox(t))!;
+  assert.equal(row.plus, false);
+  const laid = layoutRow(t, row.steps, 0.8).mol, moved = laid.atoms[3].location, sign = laid.captions!.find((x) => x.id === tid)!;
+  assert.ok(near(sign.x - moved[0], 0.25) && near(sign.y - moved[1], 0.25), JSON.stringify(sign));
+  const [g] = text(two, "+", 1.1, -0.6);
+  assert.equal(rowOf(g, undefined, ink(g), cbox(g))?.plus, true);
+  // A salt: the cation's "+" by it does not keep the ions apart; a "+" between them does (no caption box here: the
+  // text is measured in Arial at its size).
+  const salt: Mol = { atoms: [{ label: "N", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [3, 0, 0], charge: -1 }], bonds: [] };
+  assert.equal(withSalts(text(salt, "+", 0.3, 0.3)[0], [[0], [1]]).length, 1);
+  assert.equal(withSalts(text(salt, "+", 1.5, -0.2)[0], [[0], [1]]).length, 2);
+  // A "+" close to two ions, in the gap between them, is a plus sign, raised or not.
+  const tight: Mol = { atoms: [{ label: "Na", location: [0, 0, 0], charge: 1 }, { label: "Cl", location: [1.2, 0, 0], charge: -1 }], bonds: [] };
+  assert.equal(withSalts(text(tight, "+", 0.6, 0)[0], [[0], [1]]).length, 2);
+  // A screen reader calls a "+" by a structure a positive charge, and one between two a plus sign.
+  const box = (mol: Mol) => (atoms: number[], items: number[]) => (atoms.length ? ink(mol)(atoms) : cbox(mol)(items[0]));
+  const [ox] = text(c, "+", 1.25, 0.25), [gx] = text(ab, "+", -1, 0);
+  assert.ok(describe(ox, { box: box(ox) }).some((x) => x.name === "Positive charge") && describe(gx, { box: box(gx) }).some((x) => x.name === "Plus sign"));
+  // MCP delete takes a plus sign between two structures that go, not a structure's charge.
+  assert.match(readFileSync(new URL("./mcp.ts", import.meta.url), "utf8"), /\.filter\(\(c\) => !charges\.has\(c\.id\)\);/);
+}
+
+// 11. A partial charge (δ+, δ−) placed free: the Symbols tool's partial charges place one away from an atom, as the
+// other kinds; it is drawn as text, as an atom's is; .oct keeps it; CDXML and CDX write it as text at its place and
+// size (ChemDraw has no symbol for one), which Octet reads back as the symbol and ChemDraw as text. MCP and the screen
+// reader know its kinds.
+{
+  assert.ok(FREE_SYMBOLS.includes("partialPlus") && FREE_SYMBOLS.includes("partialMinus"));
+  assert.deepEqual([partialText({ symbol: "partialPlus" }), partialText({ symbol: "partialMinus" }), partialText({ symbol: "plus" })], ["δ+", "δ–", undefined]);
+  const d: Shape = { id: 4, ...freeSymbol("partialMinus", [2, 1], SIGN), colour: "#cc0000", angle: 30 }, m: Mol = { atoms: [], bonds: [], shapes: [d] };
+  const kept = (x?: Shape) => !!x && x.kind === "symbol" && x.symbol === "partialMinus" && same(x.from, d.from) && same(x.to, d.to) && x.angle === 30 && x.colour?.toLowerCase() === "#cc0000";
+  assert.ok(kept(parse(serialize(m)).shapes?.[0]) && kept(readOct(writeOct(m, DEFAULT_STYLE)).mol.shapes?.[0]) && kept(readCdx(writeCdx(m, DEFAULT_STYLE)).mol.shapes?.[0]));
+  const xml = toCdxml(m, DEFAULT_STYLE), plain = xml.replace(/\sOctet='[^']*'/g, "").replace(/\sOctet="[^"]*"/g, "");
+  assert.ok(!/GraphicType="Symbol"/.test(xml) && /<t\s[^>]*RotationAngle=[^>]*>\s*<s [^>]*>δ−<\/s>/.test(xml), xml);
+  const own = fromCdxml(xml).mol;
+  assert.ok(kept(own.shapes?.[0]) && !own.captions?.length, JSON.stringify(own));
+  for (const r of [fromCdxml(plain).mol, fromCdxml(cdxToXml(xmlToCdx(parseXml(plain)))).mol]) {
+    assert.ok(!r.shapes?.length && r.captions?.length === 1 && r.captions[0].text === "δ−", JSON.stringify(r));
+    // As text at its place: its baseline starts at the foot of the symbol's box (turned with it about its middle).
+    assert.ok(Math.hypot(r.captions[0].x - 2, r.captions[0].y - 1) < 0.6, JSON.stringify(r.captions[0]));
+  }
+  assert.ok(near(symbolSize(d), SIGN) && SYMBOL_BOX.partialPlus[0] > SYMBOL_BOX.partialPlus[1]);
+  // The editor draws its text in the label font at its size; a thumbnail draws it too.
+  assert.match(editor, /\{sh\.kind === "symbol" && partialText\(sh\) && \(\(\) => \{/);
+  assert.match(editor, /font: `\$\{symbolSize\(sh\) \* L\}px \$\{fontStack\(style\.labelFont\)\}`/);
+  assert.match(readFileSync(new URL("./TemplateLibrary.tsx", import.meta.url), "utf8"), /const t = x\.kind === "symbol" && partialText\(x\)/);
+  // MCP: every kind is a shape.symbol.X action, and draw's kind symbol names it.
+  const mcp = readFileSync(new URL("./mcp.ts", import.meta.url), "utf8"), kinds = /symbol\\\\\.\(([a-zA-Z|]+)\)/.exec(mcp)![1].split("|");
+  for (const kind of FREE_SYMBOLS) assert.ok(kinds.includes(kind) && mcp.includes(`symbol (plus, minus, circledPlus, circledMinus, radicalCation, radicalAnion, partialPlus, partialMinus, pair, bar, radical)`), kind);
+  assert.ok(describe(m, { box: () => [0, 0, 1, 1] }).some((x) => x.role === "shape" && x.name === "Partial negative"));
 }
 
 console.log("freesymbol.check: free symbols place, draw, size, save and read back as ChemDraw's.");

@@ -35,5 +35,5 @@ export const SHAPES: Record<ShapeKind, string> = {
 // A free symbol by its kind, as the Symbols tool names it.
 export const FREE_SYMBOL_NAMES: Record<FreeSymbol, string> = {
   plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative", radical: "Radical", pair: "Lone pair", bar: "Lone pair bar",
-  radicalCation: "Radical cation", radicalAnion: "Radical anion",
+  radicalCation: "Radical cation", radicalAnion: "Radical anion", partialPlus: "Partial positive", partialMinus: "Partial negative",
 };
