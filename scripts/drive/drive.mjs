@@ -199,9 +199,15 @@ const steps = [
     await until("the page", () => page("return document.readyState === 'complete' && !!document.querySelector('#root > *')"), 60_000);
     // A new profile asks for a name, offers the tutorial and checks for updates, and someone who has a name sees the
     // version's notes once (What's new): these are set, so Home shows.
-    await page(`const k = "octet.settings", s = JSON.parse(localStorage.getItem(k) || "{}");
-      localStorage.setItem(k, JSON.stringify({ ...s, userName: "Test", tutorialDone: true, updates: false, seenNotes: arguments[0] })); setTimeout(() => location.reload(), 50);`, VERSION);
-    await sleep(1000);
+    // The page can save its own settings just before the reload (Home connecting the AI apps at its start), over these:
+    // then the name box shows again, and they are set again.
+    for (let i = 0; ; i++) {
+      await page(`const k = "octet.settings", s = JSON.parse(localStorage.getItem(k) || "{}");
+        localStorage.setItem(k, JSON.stringify({ ...s, userName: "Test", tutorialDone: true, updates: false, seenNotes: arguments[0] })); setTimeout(() => location.reload(), 50);`, VERSION);
+      await sleep(1000);
+      await until("Home or the name box", () => page("return !!document.querySelector('main.home .home-tile.new, main.name-box')"), 30_000);
+      if (DRY || i === 2 || (await page("return !document.querySelector('main.name-box')"))) break;
+    }
     await until("Home", () => page("return !!document.querySelector('main.home .home-tile.new')"), 30_000);
   }],
   // Narrator and other screen readers find the menu bar through UI Automation: every menu of the window's menu bar
