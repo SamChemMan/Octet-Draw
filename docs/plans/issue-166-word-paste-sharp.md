@@ -2,7 +2,7 @@
 
 Branch `fix/166-word-paste-sharp`, from `release-1.2-mcp` (b30f413). For release 1.2 (Friday 20 November 2026).
 Plan of 17 November 2026, built the same day (J1 to J5). Revised 18 November 2026: what is left (J6 to J10), and the
-stress list cut to 20 cases.
+stress list cut to 20 cases. J6 to J10 built on 18 November ("Finished", below).
 
 ## The report
 
@@ -75,6 +75,19 @@ Gaps:
 5. The stress list was 46 cases, too many to read. This revision has 20, each still checked.
 
 Gap confirmed: the core is built, and these five things stop it from going into 1.2.
+
+### Finished (18 November 2026)
+
+- Gap 1: J6 (eacc12d). Gap 2: cut, for the MCP session. Gap 3: J8 (20c0e9c). Gap 4: J9 (e562ef1). Gap 5: J7 (20c0e9c).
+- `cargo test` (Mac, all): 176 pass, 0 fail. `cargo check --target x86_64-pc-windows-msvc --tests --bin octet`, debug
+  and release: no errors, no warnings.
+- `windows_copy_time` (release, run alone, load 4): L-proline 1.70 ms with the object, 1.66 ms for 1.1.2's Copy; 40
+  paclitaxels 226.3 ms and 228.4 ms; the peptide 338.9 ms and 345.1 ms. Within the bound; J6 changed nothing here.
+- Merge-tree of e562ef1 and `origin/release-1.2-mcp` 33c482c (tree 797d53a, no conflicts), extracted to the
+  scratchpad: Mac and Windows type checks clean (debug and release), `cargo test --bin octet` 173 pass, 0 fail, and
+  `node src/wordpaste-stress.check.ts` passes its 20 cases (the MCP calls of S20 too).
+- Full `npm test` on c3b834b: 162 of 162 check files pass (5 min 37 s; the base b30f413 had 161 of 161). Workflow
+  files parse. `npm run look` (WebKit, port 1460): 22 places, every control matches. This item changes no UI.
 
 ## ChemDraw cross-check
 
@@ -298,7 +311,7 @@ the GDI EMF. Numbers in decision 0023.
 
 ### J5. Documents. Done; J10 adds D11.
 
-### J6. Right-to-left text is outlines (D11)
+### J6. Right-to-left text is outlines (D11). Done.
 
 Done when:
 - `stress_s12_right_to_left_text_is_outlines` passes: Hebrew, Arabic, Arabic with Latin, and a Hebrew letter after
@@ -307,7 +320,7 @@ Done when:
 - The existing CRC tests and `labels_are_text_at_their_glyph_positions` pass unchanged (Latin labels stay text).
 - `windows_copy_time` still passes (release, run alone).
 
-### J7. The stress check matches this plan
+### J7. The stress check matches this plan. Done.
 
 Done when:
 - `src/wordpaste-stress.check.ts` lists the 20 cases below with these ids, each with the tests named in the table, and
@@ -315,14 +328,14 @@ Done when:
 - Gap 2 is no longer one of its cases: the MCP cut and paste go to the MCP session (scope cut).
 - `node src/wordpaste-stress.check.ts` passes.
 
-### J8. The Windows tests run on every push (D12)
+### J8. The Windows tests run on every push (D12). Done.
 
 Done when:
 - `check.yml`'s smoke job has the step, Windows only, and the file parses (`ruby -ryaml -e
   'YAML.load_file(".github/workflows/check.yml")'`; Node has no YAML reader here).
 - The check asserts the step is there and that each Windows test's name starts with "ole".
 
-### J9. Fit to the moved base (D13)
+### J9. Fit to the moved base (D13). Done.
 
 Done when:
 - The branch compiles and its tests pass on b30f413 (as now).
@@ -330,7 +343,7 @@ Done when:
   octet` (Mac) and with `--target x86_64-pc-windows-msvc` have no errors or warnings; the item's Mac tests pass;
   `node src/wordpaste-stress.check.ts` passes (with this worktree's `node_modules` linked).
 
-### J10. Finish
+### J10. Finish. Done.
 
 Done when:
 - Full `npm test` passes on the branch (162 of 162).
@@ -411,4 +424,5 @@ Prof. Schramm.
 - When you paste a drawing into Word, PowerPoint or Excel for Windows, its bonds and labels are smooth at all zoom
   levels and in print.
 - To make a drawing that you pasted with Octet 1.1.2 smooth, double-click it in Word and choose File > Update.
-- When you export a drawing as EMF, Hebrew and Arabic text keeps its shape.
+- When you export a drawing as EMF, or paste it into Word for Windows, Hebrew and Arabic labels show as they do in
+  Octet.
