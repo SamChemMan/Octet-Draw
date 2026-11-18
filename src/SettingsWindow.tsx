@@ -23,6 +23,7 @@ import type { ObjectSettings } from "./edit";
 import type { AiApp } from "./Editor";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
+import { AI } from "./features";
 
 export type ModuleId = "general" | "ai" | "document" | "drawing" | "keys" | "appearance" | "files" | "warnings" | "dictionary" | "pro";
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting),
@@ -361,7 +362,8 @@ function SelectionColour({ value, onChange }: { value: string; onChange: (hex: s
 
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
-const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
+// AI tools only in a release with AI (features.ts).
+const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = ([
   { id: "general", name: "General", icon: <GearSix size={18} />, words: "general updates version check structure" },
   { id: "ai", name: "AI tools", icon: <PlugsConnected size={18} />, words: "ai tools apps mcp claude chatgpt assistant connect" },
   { id: "document", name: "Document", icon: <FileText size={18} />, words: "document style page text" },
@@ -374,7 +376,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure" },
   // The settings few people need, such as the rare formats in the File menu.
   { id: "pro", name: "Pro", icon: <Toolbox size={18} />, words: "pro advanced expert rare" },
-];
+] as { id: ModuleId; name: string; icon: React.ReactNode; words: string }[]).filter((m) => AI || m.id !== "ai");
 // The module saved last time, as a module that is there now (Actions panel and Colours became Appearance).
 export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "colours" ? "appearance" : MODULES.find((m) => m.id === id)?.id ?? "document");
 // Words people use for the same thing.
@@ -675,7 +677,7 @@ export function SettingsWindow(p: Props) {
       d("pro", "File menu", "More formats", "more formats rare file import export open save menu submenu extra", <Switch on={p.moreFormats} label="More formats" onChange={p.onMoreFormats} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
-    ];
+    ].filter((x) => AI || x.module !== "ai");
   }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];

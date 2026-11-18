@@ -146,6 +146,7 @@ import { handle as handleMcp, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
 import { McpMagic, PictureDemo, type Magic } from "./McpMagic";
 import { AiCard } from "./AiCard";
+import { AI } from "./features";
 import "./editor.css";
 
 setNamer(iupacName);
@@ -2600,7 +2601,7 @@ export default function Editor() {
     tutorial: () => startTutorial(),
     shortcuts: () => setSettingsOpen("keys"),
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
-    connect_ai: () => setSettingsOpen("ai"),
+    ...(AI ? { connect_ai: () => setSettingsOpen("ai") } : {}),
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
@@ -2951,8 +2952,7 @@ export default function Editor() {
     stereo_and: () => enhance("&"),
     name_to_structure: () => nameToStructure(),
     // Image to Structure (decision 0027): from a file (File menu), or the selected picture (Actions, right-click).
-    image_to_structure: () => void imageToStructure(),
-    recognise_structures: () => void recognisePictures(),
+    ...(AI ? { image_to_structure: () => void imageToStructure(), recognise_structures: () => void recognisePictures() } : {}),
     // Structure > Insert Peptide… (issue 27), Insert RNA… and Insert DNA…: the name field, ready for one-letter codes
     // after "peptide: " (peptide.ts), "rna: " or "dna: " (nucleic.ts).
     ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => insertSequence(`${k}: `)])),
@@ -3116,14 +3116,14 @@ export default function Editor() {
   const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
   // Home starts the server when AI apps are on, and writes down that they are off when they are, for the relay
   // (mcp.rs mcp_set).
-  useEffect(() => { if (TAURI && HOME_WINDOW) void invoke<McpInfo | null>("mcp_set", { on: settings.mcp }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (AI && TAURI && HOME_WINDOW) void invoke<McpInfo | null>("mcp_set", { on: settings.mcp }).then(setMcpInfo).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The AI apps on this computer (aiapps.rs). The first time Octet opens with AI apps on (a new user, or the update
   // that brings them), it adds itself to each one that has no Octet, and says so once, with Settings > AI tools to
   // see them or turn them off (Sam, 13 November 2026). After that, Home connects again the apps that lost their entry
   // (Claude waits until it quits, and Octet may have quit first), unless the user turned that app off.
   const [aiApps, setAiApps] = useState<AiApp[]>([]);
   useEffect(() => {
-    if (!TAURI || !HOME_WINDOW || !settings.mcp) return;
+    if (!AI || !TAURI || !HOME_WINDOW || !settings.mcp) return;
     void invoke<AiApp[]>("ai_apps").then((apps) => {
       setAiApps(apps);
       const off = apps.filter((a) => a.state === "off").map((a) => a.id);
@@ -3547,7 +3547,7 @@ export default function Editor() {
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
   useEffect(() => {
-    if (!TAURI || !settingsOpen) return;
+    if (!AI || !TAURI || !settingsOpen) return;
     void invoke<McpInfo | null>("mcp_status").then(setMcpInfo).catch(() => {});
     void invoke<AiApp[]>("ai_apps").then(setAiApps).catch(() => {});
   }, [settingsOpen]);

@@ -388,6 +388,10 @@ fn set_more_formats(app: AppHandle, formats: Option<Vec<(String, String)>>) -> R
 }
 
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
+// Release 1.1.3 ships with the AI features off and 1.2 turns them on (src/features.ts AI). Off: no Image to Structure
+// in the File menu, and Octet does not answer AI apps (the relay, --mcp, and Octet with no window, --headless --mcp).
+// --convert stays.
+pub const AI: bool = false;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
@@ -742,6 +746,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
     let revert = item("revert", "Revert to Saved", "")?;
+    let image = item("image_to_structure", "Image to Structure…", "")?;
     let file = Submenu::with_items(app, "&File", true, &[
         &item("home", "Home", "")?,
         &item("new", &new_name, "CmdOrCtrl+N")?,
@@ -750,7 +755,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &open_recent,
         &item("import", "Import a Structure…", "")?,
         // Image to Structure (decision 0027): a picture's structures as atoms and bonds, read on this computer.
-        &item("image_to_structure", "Image to Structure…", "")?,
+        &image,
         &item("insert_file", "Insert…", "")?,
         &sep()?,
         &item("save", &object.map_or("Save".into(), |h| object_texts(h).0), "CmdOrCtrl+S")?,
@@ -776,6 +781,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
     if object.is_some() {
         file.remove(&revert)?;
+    }
+    if !AI {
+        file.remove(&image)?;
     }
     // The picture selected in Word, or a new drawing at Word's cursor, in an object window (word.rs). After Insert…
     #[cfg(target_os = "macos")]
@@ -1279,6 +1287,10 @@ fn main() {
                 }
             }
         }
+    }
+    if !AI && matches!(mode, Ok(Start::Relay | Start::Headless)) {
+        say!(stderr, "This version of Octet Draw does not connect to AI apps.");
+        std::process::exit(2)
     }
     let headless = matches!(mode, Ok(Start::Headless | Start::Convert(_)));
     let job = match mode {

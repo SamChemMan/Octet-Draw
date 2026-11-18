@@ -249,12 +249,15 @@ await assert.rejects(decodePicture("data:"), /too many pixels/);
 // command palette; a small action while a picture is picked (the Actions panel and the right-click menu), and nowhere
 // else in the panel; not in the Structure menu.
 const main = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8"), editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), actions = readFileSync(new URL("Actions.tsx", import.meta.url), "utf8");
-assert.match(main, /item\("import", "Import a Structure…", ""\)\?,\n(\s*\/\/.*\n)?\s*&item\("image_to_structure", "Image to Structure…", ""\)\?,/);
+assert.match(main, /item\("import", "Import a Structure…", ""\)\?,\n(\s*\/\/.*\n)?\s*&image,/);
+assert.match(main, /let image = item\("image_to_structure", "Image to Structure…", ""\)\?;/);
+// A release without AI (main.rs AI, features.ts AI) takes it out of the File menu, the commands and the panel.
+assert.match(main, /if !AI \{\n\s*file\.remove\(&image\)\?;\n\s*\}/);
 assert.doesNotMatch(main, /item\("recognise_structures"/);
 assert.match(main, /recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel/);
-assert.match(editor, /image_to_structure: \(\) => void imageToStructure\(\),\n\s*recognise_structures: \(\) => void recognisePictures\(\),/);
+assert.match(editor, /\.\.\.\(AI \? \{ image_to_structure: \(\) => void imageToStructure\(\), recognise_structures: \(\) => void recognisePictures\(\) \} : \{\}\),/);
 assert.match(editor, /image_to_structure: \["Image to structure…", "", <Scan size=\{18\} \/>\]/);
-assert.match(actions, /context\.shape === "picture"\) items\.push\(small\(it\(<Scan size=\{18\} \/>, "Image to structure", "recognise_structures"\)\)\);/);
+assert.match(actions, /AI && context\.shape === "picture"\) items\.push\(small\(it\(<Scan size=\{18\} \/>, "Image to structure", "recognise_structures"\)\)\);/);
 assert.equal(actions.match(/recognise_structures|image_to_structure/g)!.length, 2, "in the panel only for a picture (and its kind)");
 // The page's rules stay as they are: no network for the models, no fetch of the picture.
 const conf = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));

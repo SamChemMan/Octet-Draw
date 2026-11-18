@@ -32,6 +32,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { followDrag } from "./cursor";
 import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
 import { FREE_SYMBOL_NAMES } from "./kinds";
+import { AI } from "./features";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, FreeSymbolGlyph, MassSpecGlyph, MultiAttachmentGlyph, RingGlyph, ShapeGlyph, SHAPES, SideGlyph, STRAIGHT, TlcGlyph, VariableAttachmentGlyph, withSize, type BondKind } from "./tools";
 
 // Each pick's choices (arrowPicks lists them) drawn as themselves, for the Actions panel and the right-click menu alike.
@@ -546,7 +547,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (isBracket({ kind: context.shape })) items.push(it(<BracketsRound size={18} />, "Bracket properties…", "bracket_properties"), it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
       if (context.rgroup) items.push(it(<TreeStructure size={18} />, "R-Logic…", "rlogic"));
       // A picture: its structures as atoms and bonds (decision 0027). A small button, only while a picture is picked.
-      if (context.shape === "picture") items.push(small(it(<Scan size={18} />, "Image to structure", "recognise_structures")));
+      if (AI && context.shape === "picture") items.push(small(it(<Scan size={18} />, "Image to structure", "recognise_structures")));
       items.push(...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "part":
