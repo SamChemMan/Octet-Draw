@@ -134,7 +134,12 @@ export function Menu(p: Props) {
 // the next option that starts with it, Return picks, Escape closes. A list opened by the keyboard takes the focus; one
 // opened by a click leaves it where it was (in text being typed, say). A right-click on an option (or the Menu key)
 // opens the option's own menu, where the list has one (the user's own colours in a colour list).
-const ROW = 32; // px: a list option's height and the gap under it
+// px: a list option's height and the gap under it. A row is --size-row high, or --size-touch with a finger or a pen as
+// the main pointer (editor.css).
+const rowPx = () => {
+  const root = document.documentElement;
+  return parseFloat(getComputedStyle(root).getPropertyValue(root.dataset.pointer === "coarse" ? "--size-touch" : "--size-row")) + GAP || 32;
+};
 export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving), .eyedropper"); // a list, a colour picker or the eyedropper is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
@@ -204,7 +209,7 @@ export function Pick(p: PickProps) {
     if (key !== p.value) p.onPick(key);
   };
   const place = (): React.CSSProperties => {
-    const r = button.current!.getBoundingClientRect(), rows = all ? 12 : groups.reduce((n, g) => n + g.length, 0), want = rows * ROW + 2 * PAD + 2 + 8 * (groups.length - 1);
+    const ROW = rowPx(), r = button.current!.getBoundingClientRect(), rows = all ? 12 : groups.reduce((n, g) => n + g.length, 0), want = rows * ROW + 2 * PAD + 2 + 8 * (groups.length - 1);
     const below = innerHeight - r.bottom - 12, above = r.top - 12, down = above < Math.min(want, 6 * ROW + 2 * PAD + 2) && below > above;
     const across = r.right - menuWidth(1) < 8 ? { left: Math.max(8, r.left), right: "auto" } : { left: "auto", right: innerWidth - r.right };
     // Always inside the window, even for a button partly out of view.
@@ -311,7 +316,7 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     if (listKeys(e, (inSide ? side : main).current!)) return;
     e.stopPropagation(); // the menu's keys are its own
   };
-  const inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.flat().length * 32 + 24;
+  const row = rowPx(), inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.flat().length * row + 24;
   return createPortal(
     <>
       <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}

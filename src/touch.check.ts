@@ -370,19 +370,22 @@ const H = 350;
 {
   // The mouse's events pass one test (gated) before the editor's own code. Its time on a pointer move is under a budget
   // of 0.0005 ms (a pointermove's work is over 0.1 ms), and the gate's own work for a pen or a finger's move is too.
-  const time = (f: () => unknown) => { f(); let best = Infinity; for (let k = 0; k < 3; k++) { let n = 0; const t0 = performance.now(); do { f(); n++; } while (performance.now() - t0 < 15); best = Math.min(best, (performance.now() - t0) / n); } return best; };
+  // Calls go in batches of 1000 between clock reads (a clock read costs more than the test), the best of 5 runs, and
+  // up to 5 more runs when a busy machine puts the first over budget (perf.check.ts does the same).
+  const run = (f: () => unknown) => { let n = 0; const t0 = performance.now(); do { for (let j = 0; j < 1000; j++) f(); n += 1000; } while (performance.now() - t0 < 15); return (performance.now() - t0) / n; };
+  const time = (f: () => unknown, budget = Infinity) => { f(); let best = Infinity; for (let k = 0; k < 10 && (k < 5 || best > budget); k++) best = Math.min(best, run(f)); return best; };
   const types = ["mouse", "mouse", "pen", "touch", ""];
   let i = 0;
-  const mouse = time(() => gated(types[i++ % 2]));
+  const mouse = time(() => gated(types[i++ % 2]), 0.0005);
   assert.ok(mouse < 0.0005, `the mouse's test: ${mouse} ms`);
   const g = new Gate(H);
   g.down(ev("touch", 1, 0, 0));
   g.down(ev("touch", 2, 100, 0, { primary: false }));
   let x = 0;
-  const pinchMove = time(() => g.move({ id: 2, type: "touch", x: 100 + (x++ % 50), y: 0, button: -1, buttons: 1, primary: false, t: 0 }));
+  const pinchMove = time(() => g.move({ id: 2, type: "touch", x: 100 + (x++ % 50), y: 0, button: -1, buttons: 1, primary: false, t: 0 }), 0.005);
   assert.ok(pinchMove < 0.005, `a pinch move: ${pinchMove} ms`);
   const p = new Gate(H);
-  const hover = time(() => p.move({ id: 3, type: "pen", x: x++ % 500, y: 0, button: -1, buttons: 0, primary: true, t: 0 }));
+  const hover = time(() => p.move({ id: 3, type: "pen", x: x++ % 500, y: 0, button: -1, buttons: 0, primary: true, t: 0 }), 0.005);
   assert.ok(hover < 0.005, `a pen hover move: ${hover} ms`);
   // Growth: a long gesture costs the same per move (the gate keeps two fingers, not their history).
   const long = new Gate(H);
@@ -409,10 +412,27 @@ const H = 350;
     assert.ok(at > 0, site);
     assert.match(editor.slice(at, editor.indexOf("\n  }", at) > 0 ? Math.min(editor.indexOf("\n  };", at), at + 900) : at + 900), /reach\.current/, `${site} takes the reach`);
   }
-  // The page never zooms with a pinch: the canvas takes raw touches, and the rest pans only.
+  // The page never zooms with a pinch: the canvas takes raw touches, and the root pans only, so menus and cards on body
+  // are covered too (touch-action is not inherited: the chain up to the root decides).
   const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
   assert.match(css, /\.canvas \{[^}]*touch-action: none;/);
-  assert.match(css, /\.editor \{[^}]*touch-action: pan-x pan-y;/);
+  assert.match(css, /(^|\n):root \{[^}]*touch-action: pan-x pan-y;/);
+  for (const [rule, value] of css.matchAll(/touch-action: ([^;]+);/g)) assert.ok(value === "none" || value === "pan-x pan-y", `no rule lets a pinch zoom the window: ${rule}`);
+  // A coarse main pointer: the toolbar and every Menu.tsx menu (each is a .strip) take --size-touch for each size.
+  const coarse = /:root\[data-pointer="coarse"\] \.palette,\n:root\[data-pointer="coarse"\] \.strip \{([^}]*)\}/.exec(css);
+  assert.ok(coarse, "the coarse rule covers the toolbar and every menu");
+  for (const size of ["tool", "cell", "row"]) assert.match(coarse[1], new RegExp(`--size-${size}: var\\(--size-touch\\);`));
+  const tokens = readFileSync(new URL("../brand/tokens.css", import.meta.url), "utf8"), json = readFileSync(new URL("../brand/tokens.json", import.meta.url), "utf8");
+  assert.match(tokens, /--size-touch: 44px;/);
+  assert.match(json, /"name": "size-touch", "value": "44px"/);
+  // The toolbar's active mark and the menus' heights come from the tokens, not from a fixed 32 or 36 px.
+  const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), menu = readFileSync(new URL("Menu.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(tools, /\* 36\}px/);
+  assert.doesNotMatch(menu, /\.length \* 32 \+/);
+  assert.match(css, /\.indicator \{[^}]*width: var\(--size-tool\);\n\s*height: var\(--size-tool\);/);
+  // main.tsx follows the main pointer.
+  const main = readFileSync(new URL("main.tsx", import.meta.url), "utf8");
+  assert.match(main, /matchMedia\("\(pointer: coarse\)"\)/);
 }
 
 console.log("touch: ok");

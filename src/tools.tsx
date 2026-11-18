@@ -541,6 +541,8 @@ type PaletteProps = {
 };
 
 const DRAG_PX = 6; // an option pressed and moved this far is being dragged to the toolbar
+// From one tool to the next: a tool and the gap after it (tokens, so a coarse pointer's larger tools step right too).
+const STEP = "(var(--size-tool) + var(--space-1))";
 
 export function Palette(p: PaletteProps) {
   // ?strip=ring opens a strip on load (dev only, for checking its layout).
@@ -560,16 +562,18 @@ export function Palette(p: PaletteProps) {
   const timer = useRef<number>(undefined);
   const nav = useRef<HTMLElement>(null);
   // A window too short for one column of tools gets two, and the user's choice stays as it was. The toggle goes
-  // until one column fits again. one: the toolbar's height in one column, measured when it last was. While an option
-  // is carried, the columns stay as they are, so the gap it opens never moves the toolbar from under the pointer (a
-  // drop meant for the toolbar would go on the canvas); they are fitted again when it is let go.
-  const [short, setShort] = useState(false), one = useRef(0), wide = p.wide || short, carrying = !!carry;
+  // until one column fits again. one: the toolbar's height in one column, measured when it last was, for each main
+  // pointer (a finger's tools are larger: editor.css). While an option is carried, the columns stay as they are, so
+  // the gap it opens never moves the toolbar from under the pointer (a drop meant for the toolbar would go on the
+  // canvas); they are fitted again when it is let go.
+  const [short, setShort] = useState(false), one = useRef<Record<string, number>>({}), wide = p.wide || short, carrying = !!carry;
   useLayoutEffect(() => {
     const box = nav.current!;
     const fit = () => {
       if (carrying) return;
-      if (!wide) one.current = box.offsetHeight;
-      setShort(!p.wide && one.current > innerHeight - 2 * box.offsetTop);
+      const kind = document.documentElement.dataset.pointer ?? "";
+      if (!wide) one.current[kind] = box.offsetHeight;
+      setShort(!p.wide && (one.current[kind] ?? 0) > innerHeight - 2 * box.offsetTop);
     };
     fit();
     const watch = new ResizeObserver(fit);
@@ -800,7 +804,7 @@ export function Palette(p: PaletteProps) {
 
   return (
     <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools" data-tips="right">
-      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
+      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : wide ? `translate(calc(${active % 2} * ${STEP}), calc(${Math.floor(active / 2)} * ${STEP}))` : `translateY(calc(${active} * ${STEP}))`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : t.id === "text" ? [] : undefined; // the Text tool's is its periodic table

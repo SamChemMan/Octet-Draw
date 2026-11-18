@@ -32,12 +32,13 @@ export function measureLook(root: ParentNode = document) {
     const inner = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size-control")) - 6;
     if (first && first.offsetHeight !== inner) say(`the segments of "${name(control)}" are ${first.offsetHeight}px high, not ${inner}px`);
   }
-  // Each kind of control is as high as its size token.
-  const tokens = getComputedStyle(document.documentElement);
+  // Each kind of control is as high as its size token, read at the control: the toolbar and every menu set theirs to
+  // --size-touch with a finger or a pen as the main pointer (editor.css).
   for (const [token, selectors] of Object.entries(SIZE_OF)) {
-    const height = parseFloat(tokens.getPropertyValue(`--${token}`));
     for (const el of root.querySelectorAll<HTMLElement>(selectors.join(", "))) {
-      if (el.offsetHeight && el.offsetHeight !== height && !el.matches(OWN_HEIGHT)) say(`"${name(el)}" (${el.className}) is ${el.offsetHeight}px high, not --${token} (${height}px)`);
+      if (!el.offsetHeight || el.matches(OWN_HEIGHT)) continue;
+      const height = parseFloat(getComputedStyle(el).getPropertyValue(`--${token}`));
+      if (el.offsetHeight !== height) say(`"${name(el)}" (${el.className}) is ${el.offsetHeight}px high, not --${token} (${height}px)`);
     }
   }
 }
