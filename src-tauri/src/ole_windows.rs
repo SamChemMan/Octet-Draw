@@ -1709,7 +1709,7 @@ mod tests {
         use windows::Win32::System::Ole::{IOleCache, OleCreateDefaultHandler, OleGetClipboard, ReleaseStgMedium};
         ole(|| {
             let emf = crate::vector::make_office_emf(&crate::export::tree(crate::vector::tests::PROLINE).unwrap(), Some("<CDXML/>"));
-            let types = vec![(CF_ENHMETAFILE.0, crate::clipboard::ENHMETAFILE, emf.clone()), (registered("SMILES"), "SMILES", b"CO\0".to_vec())];
+            let types = vec![(CF_ENHMETAFILE.0, crate::clipboard::ENHMETAFILE, emf.clone()), (crate::clipboard::win::format("SMILES") as u16, "SMILES", b"CO\0".to_vec())];
             let data = clip_object(&types, OCT.into());
             // What a cache holds: each entry's format and medium.
             fn cached(e: &IEnumSTATDATA) -> Vec<(u16, u32)> {

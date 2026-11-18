@@ -917,7 +917,7 @@ mod tests {
         assert!(plain[1..] == office[1..], "only the EMF differs");
         assert_eq!(Some(&plain[1].1), crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap().1.as_ref());
         let all: Vec<u8> = plain.iter().filter(|(n, _)| *n != DIB).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
-        assert_eq!((all.len(), crate::export::crc32(&all)), (1_254, 0x3536_9BE5), "Copy on Windows without the object has changed since 1.1.2");
+        assert_eq!((all.len(), crc32fast::hash(&all)), (1_254, 0x3536_9BE5), "Copy on Windows without the object has changed since 1.1.2");
         for t in [&plain, &office] {
             assert_eq!(clip(System::Windows, |n| (n == ENHMETAFILE).then(|| t[0].1.clone())).cdxml.as_deref(), Some(x));
         }
