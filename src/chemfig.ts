@@ -141,9 +141,10 @@ const ringKey = (r: number[]) => [...r].sort((x, y) => x - y).join();
 // A wavy bond, as TikZ's snake: it needs a TikZ library, which the code's first line asks for.
 const WAVY = "decorate,decoration={snake,amplitude=0.6pt,segment length=2.4pt}";
 export const WAVY_NOTE = "% Add \\usetikzlibrary{decorations.pathmorphing} to the preamble for the wavy bonds.";
-// The deepest a ring system in ring syntax starts (branches and rings round it): deeper ones are bond by bond, so a row
-// of rings does not nest a level for each.
-const DEEPEST = 8;
+// The deepest a ring system in ring syntax starts (branches and rings round it), and the most rings it nests (NEST, a
+// ladder of fused rings, D22): deeper ones are bond by bond, so a row of rings does not nest a level for each. chemfig
+// opens a TeX group for each branch and ring, and pdfTeX stops at 255.
+const DEEPEST = 8, NEST = 16;
 
 // The rings chemfig's ring syntax draws as the page has them, each as its atoms anticlockwise. chemfig draws a ring
 // as a regular polygon with sides of one bond length, turned so the bond into it points at its middle; a fused ring
@@ -323,7 +324,10 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
       else if (m.key.startsWith("pair")) dots(m.t, a.bars ? "\\|" : "\\:");
     }
     if (!items.length) return g;
-    const keys = [...(lewis ? ["lewisautorot=true"] : []), ...(c && items.some((x) => /=\\[.:|]$/.test(x)) ? [`.style={color=${tikzColour(c)}}`, `|style={color=${tikzColour(c)}}`] : [])];
+    // A coloured atom's dots and bars in its colour: chemfig's own styles (.style={fill=black}, |style={black,line
+    // width=0.4pt}) with the colour for black. A dot is drawn with \draw, so its outline takes the colour too (D19).
+    const ink = c && tikzColour(c);
+    const keys = [...(lewis ? ["lewisautorot=true"] : []), ...(ink && items.some((x) => /=\\[.:|]$/.test(x)) ? [`.style={draw=${ink},fill=${ink}}`, `|style={draw=${ink},line width=0.4pt}`] : [])];
     const wrap = (content: string) => `\\charge{${keys.length ? `[${keys.join(",")}]` : ""}${items.join(",")}}{${content}}`;
     if (empty) return { atoms: [wrap("")], anchor: 0 };
     return { ...g, atoms: g.atoms.map((x, k) => (k === g.anchor ? wrap(x) : x)) };
@@ -361,10 +365,11 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
   // The atom of a label (1-based) a bond leaves or meets, named whenever the label has more than one chemfig atom.
   const letter = (i: number) => (groups[i].atoms.length > 1 ? String(groups[i].anchor + 1) : "");
   const fieldsOf = (fs: string[]) => { while (fs.length && !fs[fs.length - 1]) fs.pop(); return fs.length ? `[${fs.join(",")}]` : ""; };
-  // A bond from atom u to atom v (bond k): its character and [angle, length, departure atom, arrival atom, TikZ].
+  // A bond from atom u to atom v (bond k): its character and [angle, length, departure atom, arrival atom, TikZ]. Never
+  // shorter than a hundredth, as two bonded atoms on one spot would give chemfig a bond of no direction (D21).
   const bondCode = (u: number, v: number, k: number) => {
     const { char, tikz } = look(k, u), l = Math.hypot(at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]);
-    return char + fieldsOf([`:${num(degreesOf([at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]]), 1)}`, Math.abs(l - 1) > 0.02 ? num(l, 2) : "", letter(u), letter(v), tikz.join(",")]);
+    return char + fieldsOf([`:${num(degreesOf([at(v)[0] - at(u)[0], at(v)[1] - at(u)[1]]), 1)}`, Math.abs(l - 1) > 0.02 ? num(Math.max(l, 0.01), 2) : "", letter(u), letter(v), tikz.join(",")]);
   };
   // A bond chemfig does not draw, from atom u to a point p (or to atom v): what places a separate structure.
   const hop = (u: number, p: P, v?: number) => {
@@ -374,20 +379,23 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     return `-${fieldsOf([`:${num(degreesOf([x, y]), l > 20 ? 3 : 2)}`, num(Math.max(l, 0.01), 3), letter(u), v === undefined ? "" : letter(v), "draw=none"])}`;
   };
 
-  // Rings in ring syntax, and those the page draws with a circle (Toggle Aromatic Display): **6(------).
-  const circled = new Set(circledRings(mol).map(ringKey));
+  // Rings in ring syntax, and those the page draws with a circle (Toggle Aromatic Display): **6(------), and in a
+  // colour as the page draws that circle (its first atom's colour, render()): **[0,360,color=…]6( (D20).
+  const circles = new Map(circledRings(mol).map((r) => [ringKey(r), rgb(atoms[r[0]].colour)]));
+  const opening = (ring: number[]) => { const key = ringKey(ring); if (!circles.has(key)) return `*${ring.length}(`; const c = circles.get(key); return `**${c ? `[0,360,color=${tikzColour(c)}]` : ""}${ring.length}(`; };
   const allRings = syntaxRings(at, nbrs.map((list) => list.map(({ to, covalent }) => ({ to, covalent }))));
   const off = new Set<string>(); // ring systems written bond by bond, as they would start too deep (DEEPEST)
   let lines: [number, string][] = [], trace: number[] = [], wavy = false;
+  // (A fifth pass, if one is needed, writes every ring bond by bond, so the nesting stays within rule 8.)
   for (let pass = 0; ; pass++) {
-    const rings = allRings.filter((r) => !off.has(ringKey(r)));
+    const rings = pass >= 4 ? [] : allRings.filter((r) => !off.has(ringKey(r)));
     const ringsOf = new Map<number, number[][]>();
     for (const r of rings) for (const i of r) ringsOf.set(i, [...(ringsOf.get(i) ?? []), r]);
     const bondOf = (p: number, q: number) => nbrs[p].find((x) => x.to === q)!.k;
     // A side of a ring in ring syntax: its character with no angle or length (the ring sets them). A side of a ring the
     // page draws with a circle is a single line, as on the page; a double bond's second line inside is chemfig's plain
     // = (on the left going round anticlockwise).
-    const round = (p: number, q: number) => ringsOf.get(p)!.some((r) => r.includes(q) && circled.has(ringKey(r)));
+    const round = (p: number, q: number) => ringsOf.get(p)!.some((r) => r.includes(q) && circles.has(ringKey(r)));
     // (=_ puts it outside, as chemfig's manual has it.)
     const sideCode = (p: number, q: number) => {
       const k = bondOf(p, q), { char, tikz } = look(k, p);
@@ -409,15 +417,16 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     const enter = (v: number, stack: number[]) => {
       const own = ringsOf.get(v);
       if (!own || own.length !== 1) return;
-      const placed = new Set<number[]>([own[0]]), nest = new Map<number, number[]>(), todo = [turnTo(own[0], v)];
-      for (const path of todo) for (let k = 1; k < path.length - 1; k++) {
-        const next = ringsOf.get(path[k])?.find((r) => !placed.has(r) && r.includes(path[k + 1]));
+      const placed = new Set<number[]>([own[0]]), nest = new Map<number, number[]>(), todo = [turnTo(own[0], v)], level = [1];
+      for (let n = 0; n < todo.length; n++) for (let k = 1; k < todo[n].length - 1; k++) {
+        const path = todo[n], next = ringsOf.get(path[k])?.find((r) => !placed.has(r) && r.includes(path[k + 1]));
         if (!next) continue;
         const sub = turnTo(next, path[k]);
-        if (sub[sub.length - 1] !== path[k + 1]) return;
+        if (sub[sub.length - 1] !== path[k + 1] || level[n] >= NEST) return;
         placed.add(next);
         nest.set(path[k], sub);
         todo.push(sub);
+        level.push(level[n] + 1);
       }
       const system = [...new Set(todo.flat())];
       if (system.some((i) => i !== v && seen[i]) || rings.some((r) => r.some((i) => system.includes(i)) && !placed.has(r))) return;
@@ -504,7 +513,7 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
         for (let x = u, head = lead; ; ) {
           const ring = ringAt.get(x), first = !lead && !depth && x === u && ring ? turnFor(ring) : "";
           // (The lead goes before the atom's text: a hang's empty atom is traced first.)
-          const line = first + head + text(x) + (ring ? `${circled.has(ringKey(ring)) ? "**" : "*"}${ring.length}(` : "");
+          const line = first + head + text(x) + (ring ? opening(ring) : "");
           if (ring && depth > DEEPEST) deep.push(x);
           if (line) lines.push([depth, line]);
           const inner = ring ? depth + 1 : depth;
@@ -523,7 +532,7 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
                 lines.push([dd, side + (k < end ? text(q) : open ? phantom(q) : "")]);
                 if (k === end) break;
                 const sub = nestedAt.get(q);
-                if (sub) { lines.push([dd, `${circled.has(ringKey(sub)) ? "**" : "*"}${sub.length}(`]); sides(sub, dd + 1, true); lines.push([dd, ")"]); }
+                if (sub) { lines.push([dd, opening(sub)]); sides(sub, dd + 1, true); lines.push([dd, ")"]); }
                 for (const v of bySize(kids[q])) branch(() => bondCode(q, v, via[v]), v, dd);
               }
             };
@@ -551,9 +560,8 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
       hooks[q].push(`?${fieldsOf([String(n + 1), char === "-" ? "" : `{${char}}`, tikz.join(",")])}`);
     });
     run(true);
-    // Ring systems that start too deep are written bond by bond, and the code is written again (twice at most, as a
-    // pass can only take systems away).
-    if (!deep.length || pass >= 3) {
+    // Ring systems that start too deep are written bond by bond, and the code is written again.
+    if (!deep.length || pass >= 4) {
       wavy = named.some(([, , k]) => mol.bonds[k].display === "wavy") || lines.some(([, t]) => t.includes(WAVY));
       break;
     }

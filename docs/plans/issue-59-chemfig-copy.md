@@ -148,7 +148,7 @@ New in this revision:
 | # | Decision | Reason |
 | --- | --- | --- |
 | D18 | Each chemfig atom's characters are typeset once: the label's units that make up that atom, then its charge sign, go to `typeset()` as one list. Raised characters side by side are one `^{…}` and lowered ones one `_{…}`. A base takes at most one lowered and one raised part; a third part starts on `{}` (`X_{1}^{+}{}_{2}`). A prime after a raised part goes in it as `\prime`. | TeX stops at a double script (S30, X1, X2, X9, S28). PR 127 wrote `Fe^{(III)}` as one group. Fixing where the text is built is smaller than repairing the joined text afterwards. |
-| D19 | A coloured atom's marks: `.style={fill=<colour>}` and `|style={<colour>,line width=0.4pt}`. | chemfig's defaults with the colour in place of black. `color=` alone leaves a dot hollow (X3). PR 127 used `fill`. |
+| D19 | A coloured atom's marks: `.style={draw=<colour>,fill=<colour>}` and `|style={draw=<colour>,line width=0.4pt}`. | chemfig's defaults with the colour in place of black. `color=` alone leaves a dot hollow (X3). PR 127 used `fill`. (Changed in the build: TikZ takes only a named colour as a bare key, so `<colour>,line width` does not work for an RGB colour; and chemfig draws a dot with `\draw`, so with `fill` alone its outline stays black.) |
 | D20 | A circled ring in a colour: `**[0,360,color=<colour>]n(`, the colour `render()` gives that circle. | The page draws the circle in a colour (render.ts 1642); the code follows the page (X4). |
 | D21 | Every bond in the code is at least 0.01 bond lengths long, drawn or hidden. | A bond of length 0 has no direction. 0313822 did this for hidden bonds only (X5). |
 | D22 | A ring system in ring syntax nests at most 16 rings deep. A deeper system is bond by bond, closed by hooks. | Rule 8 and pdfTeX's 255 grouping levels (X15). Ortho-fused systems in papers are a few rings long (hexacene has 6), so 16 leaves room. Peri-fused sheets such as coronene are bond by bond already (D9). |
@@ -201,9 +201,9 @@ Left to do:
   `{}`, and puts a prime into a raised part as `\prime`. Done: S30, X1, X2, X9 and the five corpus drawings in S28
   pass `texLint`; the replay and every other check still pass; the same label typed with Unicode scripts and with
   Text > Superscript gives the same code.
-- **J14 Colour on marks and circles (D19, D20).** Done: X3's dots are filled in the atom's colour and its bars keep
-  0.4 pt; X4's circle has the circle's colour from `render()`; an uncoloured or black drawing gives the same bytes as
-  before this job.
+- **J14 Colour on marks and circles (D19, D20).** Done: X3's dots are drawn and filled in the atom's colour and its
+  bars keep 0.4 pt; X4's circle has the circle's colour from `render()`; an uncoloured or black drawing gives the same
+  bytes as before this job.
 - **J15 No bond under 0.01 (D21).** Done: X5 gives a bond of 0.01; no output of any check has a length field under
   0.01.
 - **J16 Nesting cap (D22).** Done: X15's ladder is bond by bond past 16 rings and nests at most 8 + 16 + log2(atoms)

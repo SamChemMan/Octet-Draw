@@ -29,7 +29,18 @@ and an AI app's `read` with format `chemfig`. Much of the writer is from konokon
 6. **Text cannot become code.** Every character of a label is escaped, mapped to a known TeX command (Greek, signs,
    accents in an `\mbox`) or left out; the notice names what was left out. The code is 7-bit ASCII and holds no
    command outside a fixed list.
-7. **The notice names what is not in the code**, in a fixed order ("The code does not have the arrows, text and
+7. **TeX reads every label.** Each chemfig atom's characters are typeset at once, so its raised characters are one
+   `^{…}` and its lowered ones one `_{…}`; a third part starts on `{}`. Unicode scripts, primes and the degree sign
+   count as raised or lowered characters, so `Fe³⁺` typed and Fe with 3+ set by Text > Superscript give the same code.
+   TeX stops at a double script, and the first build of this writer gave one for Fe with III raised.
+8. **Colour as the page draws it.** A coloured atom's dots are `.style={draw=<colour>,fill=<colour>}` and its bars
+   `|style={draw=<colour>,line width=0.4pt}` (chemfig's own defaults with the colour for black). An aromatic circle
+   takes the colour the page gives it: `**[0,360,color=<colour>]6(`. Black writes nothing.
+9. **Limits that keep TeX running.** No bond in the code is under 0.01 bond lengths, so two bonded atoms on one spot
+   give a bond with a direction. A ring system in ring syntax nests at most 16 rings deep; a longer ladder (only a
+   hostile file has one) is bond by bond. Each branch and ring is a TeX group, and pdfTeX stops at 255, so the code
+   nests at most log2(atoms) + 24 levels.
+10. **The notice names what is not in the code**, in a fixed order ("The code does not have the arrows, text and
    highlights."), and what it shows another way ("It shows quadruple bonds as triple bonds.").
 
 ## Not in this release
@@ -41,8 +52,9 @@ they need TeX to check and two LaTeX runs, and nothing on this Mac compiles LaTe
 ## How it is checked
 
 `src/chemfig.check.ts` reads every output strictly as chemfig would (grammar, braces, ASCII, the command list, hooks,
-`#`) and replays chemfig's placing rules (from its manual and source: absolute angles, lengths, a ring at the start
-and after a bond, nested rings) to put each atom within 0.02 bond lengths of the page. It runs on hand-built drawings,
-real molecules from SMILES (40 paclitaxels, a 500-residue peptide), hostile labels and Sam's local corpus. With
-`CHEMFIG_TEX=<file>` it writes every drawing's code into one LaTeX file; where `pdflatex` is on the PATH it compiles
-it. No TeX is installed on this Mac, so the outputs have not been compiled yet.
+`#`), reads it again as TeX would (`scripts/chemfiglint.ts`: double scripts, maths and text commands, `\color`
+values, line length) and replays chemfig's placing rules (from its manual and source: absolute angles, lengths, a
+ring at the start and after a bond, nested rings) to put each atom within 0.02 bond lengths of the page. It runs on
+hand-built drawings, real molecules from SMILES (40 paclitaxels, a 500-residue peptide), hostile labels and Sam's
+local corpus. With `CHEMFIG_TEX=<file>` it writes every drawing's code into one LaTeX file; where `pdflatex` is on
+the PATH it compiles it. No TeX is installed on this Mac, so the outputs have not been compiled yet.

@@ -70,7 +70,9 @@ function charges(arg: string, where: string): { t: number; mark: string }[] {
   if (rest.startsWith("[")) {
     let depth = 0, k = 0;
     for (; k < rest.length; k++) { if (rest[k] === "{") depth++; if (rest[k] === "}") depth--; if (rest[k] === "]" && !depth) break; }
-    for (const key of split(rest.slice(1, k))) assert.ok(/^lewisautorot=true$|^\.style=\{color=\{rgb,255:red,\d+;green,\d+;blue,\d+\}\}$|^\|style=\{color=\{rgb,255:red,\d+;green,\d+;blue,\d+\}\}$/.test(key), `${where}: \\charge key ${key}`);
+    // A coloured atom's dots filled and drawn in its colour, its bars 0.4 pt in its colour (D19).
+    const c = "\\{rgb,255:red,\\d{1,3};green,\\d{1,3};blue,\\d{1,3}\\}", keys = new RegExp(`^lewisautorot=true$|^\\.style=\\{draw=(${c}),fill=\\1\\}$|^\\|style=\\{draw=${c},line width=0\\.4pt\\}$`);
+    for (const key of split(rest.slice(1, k))) assert.ok(keys.test(key), `${where}: \\charge key ${key}`);
     rest = rest.slice(k + 1);
   }
   return split(rest).map((item) => {
@@ -178,10 +180,11 @@ function read(code: string, where: string): Read {
       continue;
     }
     if (ch === "*") {
-      const m = /^(\*\*?)([3-8])\(/.exec(body.slice(i));
-      assert.ok(m, `${where}: ring ${body.slice(i, i + 4)}`);
+      // (A circle in a colour: **[0,360,color=…]n(, D20.)
+      const m = /^(\*\*?)(\[0,360,color=\{rgb,255:red,\d{1,3};green,\d{1,3};blue,\d{1,3}\}\])?([3-8])\(/.exec(body.slice(i));
+      assert.ok(m && (!m[2] || m[1] === "**"), `${where}: ring ${body.slice(i, i + 4)}`);
       i += m[0].length;
-      const n = Number(m[2]), top = frames[frames.length - 1];
+      const n = Number(m[3]), top = frames[frames.length - 1];
       const nested = action === "side" && top?.kind === "ring";
       const first = action === "start" ? start - 90 + 360 / n : nested ? last + 360 / (top as Ring).n - 180 + 360 / n : action === "bond" ? last - 90 + 180 / n : NaN;
       assert.ok(!Number.isNaN(first), `${where}: a ring after ${action}`);
@@ -213,7 +216,8 @@ function read(code: string, where: string): Read {
     } else {
       const a = /^:(-?\d+(\.\d+)?)$/.exec(angle);
       assert.ok(a, `${where}: a bond's absolute angle (${angle})`);
-      assert.ok(!length || (/^\d+(\.\d+)?$/.test(length) && +length > 0), `${where}: length ${length}`);
+      // (No bond, drawn or not, under a hundredth of a bond length: D21.)
+      assert.ok(!length || (/^\d+(\.\d+)?$/.test(length) && +length >= 0.01), `${where}: length ${length}`);
       go(Number(a[1]), length ? Number(length) : 1);
       action = "bond";
     }
@@ -349,6 +353,14 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   // A circled ring (Toggle Aromatic Display): **6 with single sides.
   const circled = check("circled benzene", { atoms: hex.map((a) => ({ ...a, circle: true })), bonds: kekule });
   assert.equal(circled.compact, "\\chemfig{**6(------)}");
+  // A circle in a colour as render() draws it (its first atom's colour), and black or none writes no colour (D20).
+  for (const [k, colour] of [[0, "#ff0000"], [3, "#00aa00"], [0, "#000000"]] as const) {
+    const m: Mol = { atoms: hex.map((a, j) => ({ ...a, circle: true, ...(j === k ? { colour } : {}) })), bonds: kekule };
+    const d = render(m, S, ink), drawn = d.colours.filter((_, j) => d.owners?.[j] === -1), hexc = drawn[0] && drawn[0] !== "#000000" ? drawn[0] : "";
+    assert.ok(drawn.length && drawn.every((x) => x === drawn[0]), "the page draws one circle in one colour");
+    const rgbOf = (x: string) => [1, 3, 5].map((j) => parseInt(x.slice(j, j + 2), 16)), want = hexc ? `**[0,360,color={rgb,255:red,${rgbOf(hexc)[0]};green,${rgbOf(hexc)[1]};blue,${rgbOf(hexc)[2]}}]6(` : "**6(";
+    assert.ok(check(`circle, ${colour} on atom ${k}`, m).compact.startsWith(`\\chemfig{${want}`), `circle, ${colour} on atom ${k}: ${want}`);
+  }
   // Pyridine: the N's label in the ring; toluene: the methyl straight out; phenol from its O.
   check("pyridine", { atoms: hex.map((a, k) => (k === 2 ? { ...a, label: "N" } : a)), bonds: kekule });
   const tol = check("toluene", { atoms: [...hex, A("C", 2 * Math.cos(-30 * RAD), 2 * Math.sin(-30 * RAD))], bonds: [...kekule, B(5, 6)] });
@@ -407,6 +419,13 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   const chain = check("100 phenylenes", { atoms: rings.atoms, bonds: [...rings.bonds, ...linkers] });
   assert.ok(chain.read!.rings.length >= 4 && chain.read!.rings.length < 100, `phenylenes: ${chain.read!.rings.length} in ring syntax`);
   assert.ok(chain.read!.deepest <= Math.log2(600) + 8 + 1, `phenylenes nest ${chain.read!.deepest} deep`);
+  // Ladders of ortho-fused rings: up to 16 nested in ring syntax; a longer one (a hostile file) bond by bond, so it
+  // stays within rule 8 and pdfTeX's 255 grouping levels (D22).
+  for (const n of [2, 8, 16, 17, 300]) {
+    const ladder = check(`${n}-ring ladder`, lattice(Array.from({ length: n }, (_, k): P => [k * h, 0])));
+    assert.equal(ladder.read!.rings.length, n <= 16 ? n : 0, `${n}-ring ladder: ${ladder.read!.rings.length} rings in ring syntax`);
+    assert.ok(ladder.read!.deepest <= (n <= 16 ? n : Math.log2(ladder.read!.slots.length) + 1), `${n}-ring ladder nests ${ladder.read!.deepest} deep`);
+  }
 }
 
 // ---- Marks at the page's angles (J7) ----
@@ -439,7 +458,14 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
     assert.equal(ours.length, want.length, `${name}: ${ours.length} marks, the page ${want.length}`);
     for (const e of want) assert.ok(ours.some((x) => close(x.t, e.t)), `${name}: the ${e.key ?? "dot"} at ${e.t.toFixed(1)}° (code: ${ours.map((x) => x.t).join(", ")})`);
   }
-  assert.match(check("coloured marks again", cases[cases.length - 1][1]).compact, /\.style=\{color=\{rgb,255:red,31;green,119;blue,180\}\}.*\\color\[RGB\]\{31,119,180\}\\scriptstyle \\ominus/);
+  // A coloured atom's dots filled in its colour and its bars 0.4 pt in its colour (D19, chemfig's .style={fill=black}
+  // and |style={black,line width=0.4pt} with the colour; a dot is drawn with \draw, so its outline too); no keys for
+  // black or none.
+  const blue = "{rgb,255:red,31;green,119;blue,180}";
+  assert.ok(check("coloured marks again", cases[cases.length - 1][1]).compact.includes(`\\charge{[lewisautorot=true,.style={draw=${blue},fill=${blue}},|style={draw=${blue},line width=0.4pt}]`));
+  assert.match(check("coloured marks again", cases[cases.length - 1][1]).compact, /\\color\[RGB\]\{31,119,180\}\\scriptstyle \\ominus/);
+  assert.ok(check("red radical", { atoms: [A("C", 0, 0, { radical: 1, colour: "#ff0000" }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }).compact.includes("\\charge{[.style={draw={rgb,255:red,255;green,0;blue,0},fill={rgb,255:red,255;green,0;blue,0}},|style="));
+  for (const colour of [undefined, "#000000"]) assert.match(check(`two lone pairs, ${colour ?? "no colour"}`, { atoms: [A("O", 0, 0, { pairs: 2, colour }), A("C", 1, 0)], bonds: [B(0, 1)] }).compact, /\\charge\{\[lewisautorot=true\]-?\d+:1pt=\\:,-?\d+:1pt=\\:\}\{O\}/);
 }
 
 // ---- Labels: styles, Greek, signs, hostile text (J8) ----
@@ -517,6 +543,8 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   // Two copies of a structure on one spot: the second hangs off the first by a bond of (almost) no length.
   const two = check("two on one spot", { atoms: [A("C", 0, 0), A("O", 1, 0), A("C", 0, 0), A("O", 1, 0)], bonds: [B(0, 1), B(2, 3)] });
   assert.match(two.compact, /draw=none/);
+  // Two bonded atoms on one spot (a ChemDraw file can have them): a bond of a hundredth, not of no length (D21).
+  assert.equal(check("bonded on one spot", { atoms: [A("C", 0, 0), A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1), B(1, 2)] }).compact, "\\chemfig{-[:0,0.01]-[:0]}");
   // A multi-centre attachment (an η5 ring to Fe) and a variable attachment: drawn as the page draws the atoms.
   const R5 = 1 / (2 * Math.sin(Math.PI / 5)), cp = Array.from({ length: 5 }, (_, k) => A("C", R5 * Math.cos((90 + 72 * k) * RAD), R5 * Math.sin((90 + 72 * k) * RAD)));
   const ferrocene: Mol = { atoms: [...cp, A("C", 0, 0, { centre: { atoms: [0, 1, 2, 3, 4] } }), A("Fe", 0, -1.5)], bonds: [...[0, 1, 2, 3, 4].map((k) => B(k, (k + 1) % 5, k % 2 ? 1 : 2)), B(5, 6)] };
