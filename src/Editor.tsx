@@ -9260,6 +9260,13 @@ export default function Editor() {
           send("pointerdown", a.id, a.x, a.y, "touch");
           const { id, x, y } = a;
           if (a.tap) requestAnimationFrame(() => { if (owner.current !== id) return; owner.current = undefined; pressedFrom.current = undefined; send("pointerup", id, x, y, "touch"); });
+          // The move that made it a press reaches the editor too, a frame later once the press has drawn, as the
+          // mouse's first move after its press does: a finger that stops there has moved, so the hold does not start
+          // Select. It goes through the gate as the finger's own move.
+          else requestAnimationFrame(() => {
+            const f = gate.fingers.find((g) => g.id === id);
+            if (owner.current === id && f) svg.current?.dispatchEvent(new PointerEvent("pointermove", { clientX: f.x, clientY: f.y, bubbles: true, pointerId: id, pointerType: "touch", isPrimary: true, buttons: 1 }));
+          });
           break;
         }
         case "erase":
