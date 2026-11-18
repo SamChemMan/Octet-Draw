@@ -100,8 +100,9 @@ placement at the start and after a bond; `\charge` (chemfig 1.5 and later) with 
 ## Rules every part keeps
 
 1. One writer. Copy, Export and `read` (in the app and in Octet with no window) call `chemfig()` with the same
-   inputs. One drawing and one setting give the same bytes from Copy, Export and the app's `read`. (Octet with no
-   window: see J17.)
+   inputs. One drawing and one setting give the same bytes from Copy, Export and the app's `read`. Octet with no
+   window gives the same bytes but a mark's angle where its own page places the mark another way (J17: the two
+   hosts measure text in different ways, and `render()` places marks round the text).
 2. The code compiles in `\documentclass{article}\usepackage{chemfig}` (chemfig 1.5 or later), plus
    `\usetikzlibrary{decorations.pathmorphing}` only when its first line asks for it.
 3. The code is 7-bit ASCII. Braces balance. Text from a drawing reaches TeX only escaped or mapped to a command on a
@@ -155,7 +156,7 @@ New in this revision:
 | D23 | X12 is found before it is fixed. If the two hosts' `render()` put the dot in different places (their text measuring differs), the code follows each host's own page, and rule 1 for Octet with no window reads "the same bytes except a mark's angle where its own page places the mark another way". Sam gets one line about the measuring difference; `render.ts` is outside this item. If the writer reads one page two ways, the writer is fixed. | Plan before code: find which requirement breaks before the patch. |
 | D24 | One TeX-level reader for both checks: `texLint` moves from the stress check to `scripts/chemfiglint.ts`, and `chemfig.check.ts` runs it on every output. | The grammar validator missed double scripts. One reader, not two. |
 | D25 | The stress check is regrouped under ST1 to ST20 below. Its sub-checks stay; those that only repeat `chemfig.check.ts` go. | A list a reviewer can read. Each case is one risk. |
-| D26 | The two merge conflicts with `release-1.2-mcp` are resolved this way: `exportChemfig` uses the new `exportAs(() => ({ format: "tex", tex: code }), (path) => notice ? … : undefined)`; the Editor import line keeps `chemfig` and adds `type ExportRequest`; `chemfig.check.ts` keeps both tails, with its Editor pattern changed to `chemfigOf`. The merge itself is done by the integration session or on Sam's go. | Upstream moved every export to `exportAs` (b56943a). This branch does not merge. |
+| D26 | The two merge conflicts with `release-1.2-mcp` are resolved this way: `exportChemfig` uses the new `exportAs(() => ({ format: "tex", tex: code }), (path) => notice ? … : undefined)`; the Editor import line keeps `chemfig` and adds `type ExportRequest`; `chemfig.check.ts` keeps both tails, with its Editor pattern changed to `chemfigOf`. The merge itself is done by the integration session or on Sam's go. (See "Merge notes".) | Upstream moved every export to `exportAs` (b56943a). This branch does not merge. |
 
 ## PR 127 against Octet 1.1.2, feature by feature
 
@@ -183,18 +184,20 @@ Built (J1 to J12, from revision 1). Status on 18 November:
 | --- | --- | --- | --- |
 | J1 | The command in File > More Formats | In the menu on all three systems, the palette and Settings > Keys while More formats is on; in none while off. Copied text = exported file text without its last line break. | Done |
 | J2 | Right-click and Actions items | Present with More formats on, absent with it off; no `look:` line. | Done |
-| J3 | One writer path | One drawing gives the same bytes from Copy, Export, the app's `read` and Octet with no window. | Open: X12 (J17) |
+| J3 | One writer path | One drawing gives the same bytes from Copy, Export, the app's `read` and Octet with no window. | Done under rule 1 as restated (J17) |
 | J4 | Readable layout and Compact chemfig code | Rule 4 for every check drawing; the switch changes Copy, Export and `read`; it persists; a second window follows it. | Done |
-| J5 | Ring syntax | D9 cases in ring syntax or bond by bond as listed; replay within tolerance. | Open: X4 (J14), X15 (J16) |
-| J6 | Bonds | Each `Display` kind and colour as TikZ options; the notice names what shows another way. | Open: X5 (J15) |
-| J7 | Marks | Each `\charge` within 1° of the page's angle, in the atom's colour. | Open: X3 (J14) |
-| J8 | Labels | Every hostile and Unicode case valid; ASCII. | Open: S30, X1, X2, X9 (J13) |
+| J5 | Ring syntax | D9 cases in ring syntax or bond by bond as listed; replay within tolerance. | Done (J14, J16) |
+| J6 | Bonds | Each `Display` kind and colour as TikZ options; the notice names what shows another way. | Done (J15) |
+| J7 | Marks | Each `\charge` within 1° of the page's angle, in the atom's colour. | Done (J14) |
+| J8 | Labels | Every hostile and Unicode case valid; ASCII. | Done (J13) |
 | J9 | Notice | Each left-out kind named once, in order; "Copied." alone for structures only. | Done |
 | J10 | MCP | `compact` true, false, absent; `"yes"` refused; errors as for other formats. | Done |
-| J11 | Tests, validator, timing | All pass alone and in `npm test`. | Open: the validator misses double scripts (J18) |
+| J11 | Tests, validator, timing | All pass alone and in `npm test`. | Done (J18) |
 | J12 | Decision record and credit | 0028; header credit; notes lines returned, not written. | Done |
 
-Left to do:
+Built in this revision (J13 to J19, 18 November): e8562b4 (J13, J18), 2528369 (J14 to J16), and the commit with
+this line (J17, J19).
+
 
 - **J13 Scripts typeset once (D18).** `group()` builds each chemfig atom's character list (its units, then its
   sign) and calls `typeset()` once. `typeset()` merges neighbouring raised or lowered parts, starts a third part on
@@ -212,11 +215,34 @@ Left to do:
 - **J17 Octet with no window and the app (D23).** First, record the dot's place in each host's `render()` output for
   X12's drawing. Then fix the writer, or restate rule 1 and tell Sam about the measuring. Done: X12 passes under the
   rule that holds, with the finding in the commit message.
-- **J18 One TeX-level reader (D24).** Done: `chemfig.check.ts` fails on a double script (shown by a check that feeds
-  it `Fe^{I}^{I}`); the stress check uses the same reader.
+  Finding (18 November): the two hosts' pages place the marks differently, so rule 1 is restated. A Br radical's dot:
+  −87° in WebKit, 98° with no window. A circled sign on SO3: 105° and 108°. Cl⁻'s four pairs: −158°, −97°, 79°, 140°
+  in WebKit; −151°, −93°, 92°, 151° with no window. Each code follows its own page within 1°, and the codes are the
+  same bytes in every other place. The cause is outside this item: Octet with no window measures label text another
+  way than WebKit does, and `render()` places marks round the measured text.
 - **J19 Stress check regrouped (D25), and merge notes (D26).** Done: the stress check reports ST1 to ST20 only;
   `git merge-tree` against `origin/release-1.2-mcp` lists only the two known conflicts, and the plan's resolution is
   in the hand-over to the integration session.
+
+## Merge notes (for the integration session)
+
+`git merge-tree --write-tree HEAD origin/release-1.2-mcp` (18 November, release-1.2-mcp at bd7c684) has two
+conflicts. Every other file merges.
+
+1. `src/Editor.tsx`, the import lines: keep `import { chemfig } from "./chemfig";` and take upstream's export line
+   with `type ExportRequest`.
+2. `src/Editor.tsx`, `exportChemfig`: keep this branch's two lines and use upstream's `exportAs`:
+   ```ts
+   const { code, notice } = chemfigOf(selectedPart() ?? doc);
+   if (!code) return setNotice("There is nothing to export.", "info");
+   await exportAs(() => ({ format: "tex", tex: code }), (path) => (notice ? `Saved ${fileName(path)}. ${notice}` : undefined));
+   ```
+3. `src/chemfig.check.ts`, the end of the file: keep this branch's whole tail. From upstream's tail, keep the
+   `exportAs` and `"tex" => e.tex.is_some()` patterns, and change its `tex = toChemfig(part, frame, measure)` pattern
+   to `const \{ code, notice \} = chemfigOf\(selectedPart\(\) \?\? doc\);[\s\S]{0,200}exportAs\(\(\) => \(\{ format:
+   "tex", tex: code \}\)`.
+
+Then run `node src/chemfig.check.ts`, `node src/chemfigcopy-stress.check.ts` and `node src/textformats.check.ts`.
 
 ## Siblings (consistency pillar)
 
@@ -287,30 +313,35 @@ Octet 1.1.2 opening a file from this build: no file type changes, so it opens ev
 
 ## Stress list
 
-Each case names the stress check's earlier ids it takes in. "Fails now" marks what this revision must fix.
+Each case names the stress check's earlier ids it takes in. All 20 passed on 18 November, with the WebKit checks
+(`--ui`). The stress check keeps only the checks that do not repeat `chemfig.check.ts`; these are now in
+`chemfig.check.ts` alone: S3, S14, S24, S25, S26, X3, X4, X15, the peptide as atoms (S4), the 100 phenylenes (S31),
+the bond styles (S15) and hidden H (S16). X8 is in three parts: its key under ST18, its labels under ST7 and its
+double bonds under ST13. U2 to U4 (the command shown with More formats on) are under ST18, U8 (the notice for an
+arrow) under ST1, U13 under ST16 and U16 under ST3.
 
 | # | Case | Expected |
 | --- | --- | --- |
 | ST1 | Nothing to code: an empty drawing; a selection of only text and arrows; a selection whose atoms an AI app deleted. (S1, S23, U1, U12) | "There is no structure to copy." (info); the clipboard keeps what it had. Export: "There is nothing to export." MCP: its "cannot write" error. |
 | ST2 | Lone atoms and salts: CH4, H2O, Na+, a lone ¹³C, 300 salts in a list. (S2, S5) | `\chemfig{CH_4}`, `H_2O`, `Na^{+}`, the mass number in braces; each salt one level down. Valid. |
 | ST3 | Big drawings: 40 paclitaxels; a 500-residue peptide as atoms and with residue labels; a page of 200 messy structures. (S3, S4, X6, U14) | Under 300 ms (median of 5, run alone) in Node; 15 paclitaxels under 300 ms in WebKit. Valid; replay within tolerance. |
-| ST4 | Long and deep: a 1,000-atom chain; a 30-ring; a cyclic 500-mer; 100 para-phenylenes; a dendrimer of rings; a ladder of 300 fused rings. (S5, S6, S31, X15) | No stack overflow. 4 times the atoms in under 10 times the time. Nesting within rule 8; never over 64. Fails now (ladder). |
+| ST4 | Long and deep: a 1,000-atom chain; a 30-ring; a cyclic 500-mer; 100 para-phenylenes; a dendrimer of rings; a ladder of 300 fused rings. (S5, S6, S31, X15) | No stack overflow. 4 times the atoms in under 10 times the time. Nesting within rule 8; never over 64. |
 | ST5 | Hostile label text: `\input{/etc/passwd}`, `}{`, `%`, `#`, `$`, `&`, `~`, `^`, `_`, control characters, a 10,000-character label, a 60,000-character label in a ChemDraw file. (S7, X13) | Every special escaped or braced; no command outside the list; ASCII; no line over 200,000 characters. |
 | ST6 | Unicode labels: α, Δ, capital Alpha, ±, °, é, ü, ß, 中, an emoji. (S8) | TeX commands for the first eight; 中 and the emoji left out and named in the notice. ASCII. |
-| ST7 | Raised and lowered runs: Fe with III raised, Fe2+ and SO4 2- typed raised, R1', NH₃⁺ with a charge, CH with 2 lowered then ₃, OsCl3 • H2O, a label all raised; the same through MCP `read`. (S30, X1, X2, X9) | At most one raised and one lowered part on each base; `texLint` passes; the page's look kept. Fails now. |
+| ST7 | Raised and lowered runs: Fe with III raised, Fe2+ and SO4 2- typed raised, R1', NH₃⁺ with a charge, CH with 2 lowered then ₃, OsCl3 • H2O, a label all raised; the same through MCP `read`. (S30, X1, X2, X9) | At most one raised and one lowered part on each base; `texLint` passes; the page's look kept. |
 | ST8 | Rings: naphthalene, anthracene, phenanthrene; pyrene, spiro[4.5]decane, norbornane; a steroid with a slanted methyl; half a benzene selected. (S9, S24) | First three nested in ring syntax; the rest bond by bond. Replay within tolerance. |
 | ST9 | Turned 17°, flipped, scaled to 150% among structures at 100%. (S10) | Turned and flipped rings keep ring syntax; 150% rings bond by bond at length 1.5. Replay within tolerance. |
 | ST10 | Zoom at 5% and 4,000%, and dark mode. (S11, U6) | The same bytes as at 100% in light mode. |
-| ST11 | Colour: coloured labels, bonds and marks; a coloured aromatic ring with its circle; black set by hand; Colour by Element. (S12, X3, X4) | Labels and marks in `\color[RGB]`; filled dots; bars 0.4 pt; the circle coloured; black writes nothing. Fails now (dots, circle). |
+| ST11 | Colour: coloured labels, bonds and marks; a coloured aromatic ring with its circle; black set by hand; Colour by Element. (S12, X3, X4) | Labels and marks in `\color[RGB]`; filled dots; bars 0.4 pt; the circle coloured; black writes nothing. |
 | ST12 | Marks: two lone pairs, bars, a radical, a triplet carbene, a circled charge, δ+, a pair and a sign dragged round by hand, N•+ on a label. (S13, S14) | Each `\charge` within 1° of the page's angle. Valid with and without fix/163. |
 | ST13 | Bonds: wavy, bold, dashed, hashed, dative, hydrogen; quadruple; crossed and dashed double; hidden H and Hide implicit H. (S15, S16) | TikZ options; the comment line for wavy; the notice's second sentence; hidden H not written. |
-| ST14 | Atoms on one spot: two copies of a structure; two bonded atoms from a ChemDraw file; ferrocene's η5 centre; a variable attachment; a polymer bead. (S25, X5, S26) | No bond under 0.01. Valid. The notice names attachment points and beads. Fails now (bonded atoms). |
+| ST14 | Atoms on one spot: two copies of a structure; two bonded atoms from a ChemDraw file; ferrocene's η5 centre; a variable attachment; a polymer bead. (S25, X5, S26) | No bond under 0.01. Valid. The notice names attachment points and beads. |
 | ST15 | Hostile drawing data: duplicate and self bonds, charges of ±100, odd counts, colours and bond types, 1,000 lone pairs on one atom, 10,000 lone atoms. (X7) | No throw. Valid. |
 | ST16 | Undo and fast input: draw, copy, edit, copy, undo, copy, redo, copy; the command 50 times in one second. (S17, S18, U5, U7) | No undo step from a copy; the third copy equals the first, the fourth the second. 50 equal copies, one notice, no error. |
 | ST17 | Two windows: Compact set in window A, Copy in window B; code copied in A and pasted on B's page and in a text box; a large code pasted. (S19, S20, U9, U10, U15) | B's copy is compact. On the page: nothing drawn, the notice for text that is not a structure, answered within 2 s. In a text box: the code as text. |
 | ST18 | More formats off: menu, palette, Actions, right-click, a key set earlier. (S27, U11) | The command is in none of them; the key does nothing. MCP `read` still gives the code. |
-| ST19 | AI apps: `read` with `compact` true, false, absent and `"yes"`; format in other cases; ids empty, unknown, 501 of them, text only; one session reads while another edits; the same drawing read from Octet with no window and copied in the app. (S21, S22, X10, X12) | The code, or a plain refusal, never a throw. Reads change nothing. App and no-window bytes as J17 decides. Fails now (X12). |
-| ST20 | Round trips and other apps: `.oct`, CDXML and CDX; a drawing ChemDraw 22.2 saved again; Sam's 61 corpus drawings (local); Octet 1.1.2 run between two runs of this build. (S29, X14, S28, X11) | The same code within the files' rounding; ChemDraw's copy the same but mark angles; every corpus drawing valid; Compact chemfig code kept. Fails now (5 corpus drawings, from ST7). |
+| ST19 | AI apps: `read` with `compact` true, false, absent and `"yes"`; format in other cases; ids empty, unknown, 501 of them, text only; one session reads while another edits; the same drawing read from Octet with no window and copied in the app. (S21, S22, X10, X12) | The code, or a plain refusal, never a throw. Reads change nothing. App and no-window bytes as J17 decides. |
+| ST20 | Round trips and other apps: `.oct`, CDXML and CDX; a drawing ChemDraw 22.2 saved again; Sam's 61 corpus drawings (local); Octet 1.1.2 run between two runs of this build. (S29, X14, S28, X11) | The same code within the files' rounding; ChemDraw's copy the same but mark angles; every corpus drawing valid; Compact chemfig code kept. |
 
 ## Acceptance list
 

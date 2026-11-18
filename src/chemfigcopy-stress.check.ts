@@ -1,10 +1,11 @@
-// Run: node src/chemfigcopy-stress.check.ts [--ui http://localhost:1462/]. Stress cases for Copy as LaTeX
-// (chemfig) and the readable chemfig code (issue 59): every case of the plan's stress list (docs/plans/
-// issue-59-chemfig-copy.md, S1 to S31) and more (X1 on). It drives the real code: the writer, the file readers and
-// writers, the MCP tools on Octet with no window, and with --ui the app itself in WebKit (scripts/look/webkit.swift, in
-// two windows of the dev server; U1 to U16, which name the plan's case each covers). Each case runs whatever happens to
-// the others; the ones that fail are listed at the end and the check fails. CHEMFIG_CHEMDRAW_FILE=<file> reads the
-// drawing of X14 as ChemDraw 22.2 saved it (opened and saved as CDXML there) and compares its code.
+// Run: node src/chemfigcopy-stress.check.ts [--ui http://localhost:1462/]. The stress cases ST1 to ST20 of the plan
+// (docs/plans/issue-59-chemfig-copy.md) for Copy as LaTeX (chemfig) and the readable chemfig code (issue 59). Each case
+// is one risk, made of checks that keep the plan's earlier names (S, X and U) in their descriptions. Checks that only
+// repeat src/chemfig.check.ts are left to it. The checks drive the real code: the writer, the file readers and writers,
+// the MCP tools on Octet with no window, and with --ui the app itself in WebKit (scripts/look/webkit.swift, in two
+// windows of the dev server). Each check runs whatever happens to the others; a case passes when all its checks pass,
+// and each failed check is named at the end. CHEMFIG_X14_CDXML=<file> writes X14's drawing as CDXML;
+// CHEMFIG_CHEMDRAW_FILE=<file> reads it as ChemDraw 22.2 saved it (opened and saved as CDXML there) and compares its code.
 //
 // Each case's code is read at TeX's level by scripts/chemfiglint.ts (texLint, the reader chemfig.check.ts uses too):
 // it fails where TeX would stop. No TeX is installed here, so nothing is compiled.
@@ -95,9 +96,9 @@ const LIBRARY = ["CC(=O)Oc1ccccc1C(=O)O", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", "C[C@H
   "CC(C)Cc1ccc(cc1)[C@@H](C)C(=O)O", "O=C(O)c1ccccc1O", "c1ccc(cc1)-c1ccccc1", "C1CCCCC1", "CCN(CC)CC", "Clc1ccc(cc1)C(c1ccc(Cl)cc1)C(Cl)(Cl)Cl", "FC(F)(F)c1ccccc1", "CC(=O)N[C@@H](Cc1ccccc1)C(=O)O", "N#Cc1ccccc1", "O=[N+]([O-])c1ccccc1",
   "C=CC(=O)OC", "CS(=O)(=O)O", "[NH4+].[Cl-]", "c1ccc2ccccc2c1"];
 
-// ==== The plan's stress list ====
+// ==== The plan's stress list, ST1 to ST20 (each check's earlier name first in its description) ====
 
-await kase("S1", "an empty drawing, and one of text and arrows only: no code; Copy says so and leaves the clipboard", () => {
+await kase("ST1", "S1 an empty drawing, and one of text and arrows only: no code; Copy says so and leaves the clipboard", () => {
   assert.deepEqual(cf({ atoms: [], bonds: [] }), { code: "", notice: "" });
   const only = { atoms: [], bonds: [], captions: [{ id: 1, text: "x", x: 0, y: 0 }], arrows: [{ id: 2, kind: "reaction", from: [0, 0], to: [1, 0] }] } as unknown as Mol;
   assert.equal(cf(only).code, "");
@@ -105,7 +106,7 @@ await kase("S1", "an empty drawing, and one of text and arrows only: no code; Co
   assert.match(editor, /function copyChemfig\(\) \{\n\s+const \{ code, notice \} = chemfigOf\(selectedPart\(\) \?\? doc\);\n\s+if \(!code\) return setNotice\("There is no structure to copy\.", "info"\);/);
 });
 
-await kase("S2", "lone atoms: CH4, H2O, Na+, 13C", () => {
+await kase("ST2", "S2 lone atoms: CH4, H2O, Na+, 13C", () => {
   assert.equal(strict("CH4", { atoms: [A("C", 0, 0)], bonds: [] }).compact, "\\chemfig{CH_4}");
   assert.equal(strict("H2O", { atoms: [A("O", 0, 0)], bonds: [] }).compact, "\\chemfig{H_2O}");
   assert.equal(strict("Na+", { atoms: [A("Na", 0, 0, { charge: 1 })], bonds: [] }).compact, "\\chemfig{Na^{+}}");
@@ -113,24 +114,7 @@ await kase("S2", "lone atoms: CH4, H2O, Na+, 13C", () => {
 });
 
 const taxols = grid(Array(40).fill(TAXOL), 8, 14, 12);
-await kase("S3", "40 paclitaxels (2,560 atoms): valid at TeX's level, nesting within rule 8, code in under 300 ms", () => {
-  const r = strict("40 paclitaxels", taxols);
-  assert.ok(r.compact.includes("*6("), "phenyls in ring syntax");
-  assert.ok(nesting(r.compact) <= Math.log2(taxols.atoms.length) + 8 + 1, `nesting ${nesting(r.compact)}`);
-  within(300, () => cf(taxols), "40 paclitaxels");
-});
-
-await kase("S4", "a 500-residue peptide as atoms, and a chain of 500 residue labels: valid, under 300 ms", async () => {
-  const { peptideSmiles } = await import("./peptide.ts");
-  const fifty = peptideSmiles(`peptide: ${"ACDEFGHIKLMNPQRSTVWY".repeat(3).slice(0, 50)}`)!, hundred = chem.parseStructure(fifty.slice(0, -1) + fifty), pep: Mol = { atoms: [], bonds: [] };
-  const [y0, y1] = [Math.min(...hundred.atoms.map((a) => a.location[1])), Math.max(...hundred.atoms.map((a) => a.location[1]))];
-  for (let k = 0; k < 5; k++) {
-    const base = pep.atoms.length;
-    pep.atoms.push(...hundred.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1] - k * (y1 - y0 + 3), 0] as [number, number, number] })));
-    pep.bonds.push(...hundred.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] })));
-  }
-  strict("500-residue peptide", pep);
-  within(300, () => cf(pep), "the peptide", 3);
+await kase("ST3", "S4 a chain of 500 residue labels: valid, nesting 0, under 300 ms", () => {
   const names = ["Ala", "Gly", "Ser", "Thr", "Cys", "Val", "Leu", "Ile", "Met", "Pro", "Phe", "Tyr", "Trp", "Asp", "Glu", "Asn", "Gln", "His", "Lys", "Arg"];
   const res: Mol = { atoms: Array.from({ length: 500 }, (_, k) => A("C", k * 2 * c30, k % 2 ? s30 : 0, { text: names[k % 20] })), bonds: Array.from({ length: 499 }, (_, k) => B(k, k + 1)) };
   const r = strict("500 residue labels", res);
@@ -138,14 +122,17 @@ await kase("S4", "a 500-residue peptide as atoms, and a chain of 500 residue lab
   within(300, () => cf(res), "500 residue labels", 3);
 });
 
-await kase("S5", "a 1,000-atom chain (depth 0) and 300 salts (each one level down): no stack overflow, valid", () => {
+await kase("ST4", "S5 a 1,000-atom chain: depth 0, no stack overflow, valid", () => {
   const n = 1000, chain: Mol = { atoms: Array.from({ length: n }, (_, k) => A("C", k * c30, k % 2 ? s30 : 0)), bonds: Array.from({ length: n - 1 }, (_, k) => B(k, k + 1)) };
   assert.equal(nesting(strict("1,000 chain", chain).compact), 0);
+});
+
+await kase("ST2", "S5 300 salts in a list: each one level down, valid", () => {
   const salts: Mol = { atoms: Array.from({ length: 600 }, (_, k) => A(k % 2 ? "Cl" : "Na", (k % 40) * 1.5, -Math.floor(k / 40) * 2, { charge: k % 2 ? -1 : 1 })), bonds: [] };
   assert.equal(nesting(strict("300 salts", salts).compact), 1);
 });
 
-await kase("S6", "a 30-ring and a cyclic 500-mer bond by bond with one hook; 4 times the atoms under 10 times the time", () => {
+await kase("ST4", "S6 a 30-ring and a cyclic 500-mer bond by bond with one hook; 4 times the atoms under 10 times the time", () => {
   assert.equal((strict("30-ring", macro(30)).compact.match(/\?\[1\]/g) ?? []).length, 2);
   strict("500-ring", macro(500));
   const small = macro(1000), large = macro(4000);
@@ -156,12 +143,12 @@ await kase("S6", "a 30-ring and a cyclic 500-mer bond by bond with one hook; 4 t
 
 const HOSTILE = ["\\input{/etc/passwd}", "}{", "%", "#", "$", "&", "~", "^", "_", "!@?*|", "a-b=c~d<e>f(g)h[i]j*k?l!m@n|o,p", "\u0001\u001f\u007f", "\\#\\\\", "x".repeat(10000), "OMe\n", "$$\\def\\x{}$$", "{", "}", "\\", "\\chemfig{C}",
   "\\csname x\\endcsname", "^^41", "\\catcode`\\@=11", "\\write18{rm -rf ~}", "\\immediate\\write18{x}", "\\directlua{os.exit()}", "\\let\\x\\relax", "\\expandafter", "%\n\\end{document}", "\\par", "\\\\", "\\$", "\\{", "a\\b", "''", "'''", "^'", "_'"];
-await kase("S7", "hostile labels from a file: every special escaped or braced, no command outside the list, valid", () => {
+await kase("ST5", "S7 hostile labels from a file: every special escaped or braced, no command outside the list, valid", () => {
   for (const t of HOSTILE) strict(`label ${JSON.stringify(t).slice(0, 30)}`, setLabel({ atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)] }, 1, t));
   for (const t of HOSTILE) strict(`written label ${JSON.stringify(t).slice(0, 30)}`, { atoms: [A("C", 0, 0), A("C", 1, 0, { text: t })], bonds: [B(0, 1)] });
 });
 
-await kase("S8", "Unicode labels: Greek, signs, accents as TeX; 中 and an emoji left out and named; ASCII", () => {
+await kase("ST6", "S8 Unicode labels: Greek, signs, accents as TeX; 中 and an emoji left out and named; ASCII", () => {
   const r = strict("Unicode", { atoms: [A("C", 0, 0), A("C", 1, 0, { text: "αΔΑ±°éüß中😀" })], bonds: [B(0, 1)] });
   assert.match(r.compact, /\\alpha/);
   assert.match(r.compact, /\\Delta/);
@@ -169,7 +156,7 @@ await kase("S8", "Unicode labels: Greek, signs, accents as TeX; 中 and an emoji
   for (const t of ["µ", "Å", "½", "¹³C", "ñ", "ı", "€", "→", "⇌", "…", "‰", "–", "—", "≠", "\u00a0", "x\u0301", "i\u0301", "j\u030c", "Ω", "ϕ", "ϑ", "ς"]) strict(`label ${t}`, { atoms: [A("C", 0, 0), A("C", 1, 0, { text: t })], bonds: [B(0, 1)] });
 });
 
-await kase("S9", "fused and odd rings: naphthalene, anthracene, phenanthrene nested; pyrene, spiro, norbornane bond by bond; valid", () => {
+await kase("ST8", "S9 fused and odd rings: naphthalene, anthracene, phenanthrene nested; pyrene, spiro, norbornane bond by bond; valid", () => {
   for (const [name, centres, n] of [["naphthalene", [[0, 0], [h3, 0]], 2], ["anthracene", [[0, 0], [h3, 0], [2 * h3, 0]], 3], ["phenanthrene", [[0, 0], [h3, 0], [1.5 * h3, 1.5]], 3]] as [string, P[], number][]) {
     assert.equal((strict(name, lattice(centres)).compact.match(/\*6\(/g) ?? []).length, n, name);
   }
@@ -179,14 +166,14 @@ await kase("S9", "fused and odd rings: naphthalene, anthracene, phenanthrene nes
   for (const [name, smiles] of [["steroid", "C[C@H](CCCC(C)C)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CC=C4[C@@]3(CC[C@@H](C4)O)C)C"], ["coronene", "c1cc2ccc3ccc4ccc5ccc6ccc1c7c2c3c4c5c67"], ["spiro[4.5]decane", "C1CCC2(C1)CCCCC2"], ["cubane", "C12C3C4C1C5C2C3C45"], ["adamantane", "C1C2CC3CC1CC(C2)C3"], ["[2.2]paracyclophane", "c1cc2ccc1CCc1ccc(cc1)CC2"]]) strict(name, chem.parseStructure(smiles));
 });
 
-await kase("S10", "a structure turned 17°, one flipped, one at 150% among others: valid; the turned ring keeps ring syntax", () => {
+await kase("ST9", "S10 a structure turned 17°, one flipped, one at 150% among others: valid; the turned ring keeps ring syntax", () => {
   const turn = (a: Atom, t: number): Atom => ({ ...a, location: [a.location[0] * Math.cos(t * RAD) - a.location[1] * Math.sin(t * RAD), a.location[0] * Math.sin(t * RAD) + a.location[1] * Math.cos(t * RAD), 0] });
   assert.match(strict("turned", { atoms: [...hex.map((a) => turn(a, 17)), turn(A("C", 2 * c30, -1), 17)], bonds: [...kekule, B(5, 6)] }).compact, /^\\chemfig\{\[:-?[\d.]+\]\*6\(/);
   strict("flipped", { atoms: hex.map((a) => ({ ...a, location: [-a.location[0], a.location[1], 0] as [number, number, number] })), bonds: kekule });
   assert.ok(strict("150%", { atoms: [...hex.map((a) => ({ ...a, location: [a.location[0] * 1.5, a.location[1] * 1.5, 0] as [number, number, number] })), ...Array.from({ length: 9 }, (_, k) => A("C", 5 + k * c30, k % 2 ? s30 : 0))], bonds: [...kekule, ...Array.from({ length: 8 }, (_, k) => B(6 + k, 7 + k))] }).compact.includes(",1.5"));
 });
 
-await kase("S11", "zoom and dark mode cannot change the code: the writer takes the document's frame and measure only (U6 zooms in WebKit)", async () => {
+await kase("ST10", "S11 zoom and dark mode cannot change the code: the writer takes the document's frame and measure only (U6 zooms in WebKit)", async () => {
   const { DEFAULT_STYLE, frameStyle, readStyle } = await import("./docstyle.ts");
   const f = frameStyle(readStyle(DEFAULT_STYLE), chem.STYLE.bond);
   assert.deepEqual(Object.keys(f).filter((k) => /colou?r|dark|paper|theme|zoom/i.test(k)), []);
@@ -196,7 +183,7 @@ await kase("S11", "zoom and dark mode cannot change the code: the writer takes t
   assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => chemfig\(mol, frame, measure, \{ compact \}\);/);
 });
 
-await kase("S12", "colours on labels, bonds and marks; black writes nothing; Colour by Element as the page has it", () => {
+await kase("ST11", "S12 colours on labels, bonds and marks; black writes nothing; Colour by Element as the page has it", () => {
   const r = strict("colours", { atoms: [...hex.map((a, k) => ({ ...a, colour: k % 2 ? "#ff0000" : undefined, label: k === 1 ? "N" : "C" })), A("O", 2 * c30, -1, { colour: "#00ff00", pairs: 3, charge: -1 })], bonds: [...kekule.map((b, k) => ({ ...b, colour: k === 2 ? "#0000ff" : undefined })), B(5, 6, 1, { colour: "#123456" })] });
   assert.match(r.compact, /\\color\[RGB\]\{0,255,0\}/);
   assert.match(r.compact, /color=\{rgb,255:red,18;green,52;blue,86\}/);
@@ -218,7 +205,7 @@ const MARKS: [string, Mol][] = [
   ["a pair and a sign moved by hand", { atoms: [A("C", 0, 0, { charge: -1, pairs: 1, angles: { charge: 250, pair0: 100 } }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }],
   ["a skeletal sign moved past ±180", { atoms: [A("C", 0, 0), A("C", c30, s30, { charge: 1, angles: { charge: 540 } }), A("C", 2 * c30, 0)], bonds: [B(0, 1), B(1, 2)] }],
 ];
-await kase("S13", "marks: pairs, bars, radicals, carbenes, circled and partial charges, marks moved by hand: valid; one \\charge item for each mark the page draws", () => {
+await kase("ST12", "S13 marks: pairs, bars, radicals, carbenes, circled and partial charges, marks moved by hand: valid; one \\charge item for each mark the page draws", () => {
   for (const [name, m] of MARKS) {
     const r = strict(name, m), d = render(m, S, ink), items = [...r.compact.matchAll(/\\charge\{(?:\[[^\]]*\])?([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g)].flatMap((x) => splitTop(x[1], ","));
     // (A label's sign written after it is not a mark in the code; a radical ion's sign is drawn once.)
@@ -227,33 +214,17 @@ await kase("S13", "marks: pairs, bars, radicals, carbenes, circled and partial c
   }
 });
 
-await kase("S14", "a radical cation on a label (N•+) and on a skeletal carbon: the dot and sign present, valid", () => {
-  const n = strict("N radical cation", { atoms: [A("N", 0, 0, { charge: 1, radical: 1 }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }).compact;
-  assert.match(n, /=\\\./);
-  assert.match(n, /\+/);
-  strict("C radical cation", { atoms: [A("C", 0, 0, { charge: 1, radical: 1 }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] });
-});
-
-await kase("S15", "wavy, bold, dashed, hashed, dative and hydrogen bonds; quadruple, crossed and dashed double bonds: TikZ options, the comment line, the notice", () => {
-  const one = (b: Bond) => strict(`bond ${JSON.stringify(b).slice(0, 40)}`, { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 1 + c30, s30)], bonds: [b, B(1, 2)] });
-  assert.ok(one(B(0, 1, 1, { display: "wavy" })).code.startsWith(`${WAVY_NOTE}\n\\chemfig{`));
-  for (const display of ["bold", "dashed", "hashed", "dative", "hollow"] as const) one(B(0, 1, 1, { display }));
-  one(B(0, 1, 10));
-  assert.equal(one(B(0, 1, 14)).notice, "The code shows quadruple bonds as triple bonds.");
-  assert.equal(one(B(0, 1, 2, { display: "either" })).notice, "The code shows crossed double bonds as double bonds.");
-  assert.equal(one(B(0, 1, 2, { display: "dashed" })).notice, "The code shows dashed double bonds with both lines dashed.");
+await kase("ST13", "S15 a ring of wavy bonds closed on a hook: the comment line, valid", () => {
   // A wavy bond that closes a ring (on a hook) still gets the comment line.
   const ring = macro(9);
   assert.ok(strict("wavy ring", { ...ring, bonds: ring.bonds.map((b) => ({ ...b, display: "wavy" as const })) }).code.startsWith(WAVY_NOTE));
 });
 
-await kase("S16", "Toggle Hydrogen Display, Hide implicit H and explicit H: hidden H not written, H counts as the page shows", () => {
-  assert.equal(strict("hidden H", { atoms: [A("O", 0, 0), A("H", 1, 0, { hidden: true }), A("H", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }).compact, "\\chemfig{H-[:-30,,,1]OH}");
-  assert.equal(toChemfig({ atoms: [A("N", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)] }, { ...S, hideH: true }, ink, { compact: true }), "\\chemfig{N-[:0]}");
+await kase("ST13", "S16 explicit H atoms from SMILES: valid", () => {
   strict("explicit H", chem.parseStructure("[H]C([H])([H])[H]"));
 });
 
-await kase("S17", "a copy is no edit: copyChemfig and the writer change nothing (U5 undoes and redoes in WebKit)", () => {
+await kase("ST16", "S17 a copy is no edit: copyChemfig and the writer change nothing (U5 undoes and redoes in WebKit)", () => {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), body = /function copyChemfig\(\) \{([\s\S]*?)\n  \}/.exec(editor)![1];
   assert.ok(!/\bset\(|setDoc|commit\(/.test(body), "copyChemfig sets no drawing");
   const m = chem.parseStructure("CC(=O)Oc1ccccc1C(=O)O"), before = JSON.stringify(m);
@@ -261,23 +232,7 @@ await kase("S17", "a copy is no edit: copyChemfig and the writer change nothing 
   assert.equal(JSON.stringify(m), before, "the writer leaves the drawing as it was");
 });
 
-await kase("S24", "half a benzene ring selected: bond by bond, valid", () => {
-  assert.ok(!strict("half a ring", { atoms: hex.slice(0, 4), bonds: kekule.slice(0, 3) }).compact.includes("*"));
-});
-
-await kase("S25", "two copies of a structure on one spot: the second hangs off the first by a bond that has a length", () => {
-  const r = strict("two on one spot", { atoms: [A("C", 0, 0), A("O", 1, 0), A("C", 0, 0), A("O", 1, 0)], bonds: [B(0, 1), B(2, 3)] });
-  for (const m of r.compact.matchAll(/-\[:-?[\d.]+,([\d.]+)[^\]]*draw=none\]/g)) assert.ok(+m[1] > 0, `a hop of length ${m[1]}`);
-});
-
-await kase("S26", "ferrocene's η5 centre, a variable attachment, a polymer bead: valid; the notice names attachment points and beads", () => {
-  const R5 = 1 / (2 * Math.sin(Math.PI / 5)), cp = Array.from({ length: 5 }, (_, k) => A("C", R5 * Math.cos((90 + 72 * k) * RAD), R5 * Math.sin((90 + 72 * k) * RAD)));
-  strict("ferrocene", { atoms: [...cp, A("C", 0, 0, { centre: { atoms: [0, 1, 2, 3, 4] } }), A("Fe", 0, -1.5)], bonds: [...[0, 1, 2, 3, 4].map((k) => B(k, (k + 1) % 5, k % 2 ? 1 : 2)), B(5, 6)] });
-  strict("variable attachment", { atoms: [...hex, A("C", 0, 0, { centre: { atoms: [0, 1, 2], variable: true } }), A("Cl", 0, -1.5)], bonds: [...kekule, B(6, 7)] });
-  assert.equal(strict("bead", { atoms: [A("C", 0, 0, { attach: true }), A("C", 1, 0), A("C", 1 + c30, s30, { bead: true })], bonds: [B(0, 1), B(1, 2)] }).notice, "The code does not have the attachment points and polymer beads.");
-});
-
-await kase("S28", "Sam's corpus (local): every drawing's code valid at TeX's level", async () => {
+await kase("ST20", "S28 Sam's corpus (local): every drawing's code valid at TeX's level", async () => {
   const dir = join(homedir(), "octet-research/corpus/sam");
   if (!existsSync(dir)) { console.log("chemfigcopy-stress: no corpus here; S28 skipped"); return; }
   const { fromCdxml } = await import("./cdxml.ts");
@@ -292,7 +247,7 @@ await kase("S28", "Sam's corpus (local): every drawing's code valid at TeX's lev
   assert.equal(bad.length, 0, `${bad.length} of ${n} drawings: ${bad.join("; ")}`);
 });
 
-await kase("S29", ".oct, CDXML and CDX round trips give the same code (angles and lengths within their rounding)", async () => {
+await kase("ST20", "S29 .oct, CDXML and CDX round trips give the same code (angles and lengths within their rounding)", async () => {
   const { toCdxml, fromCdxml, parseXml } = await import("./cdxml.ts"), { xmlToCdx } = await import("./cdx.ts"), { readCdx, readOct, writeOct } = await import("./oct.ts"), { DEFAULT_STYLE } = await import("./docstyle.ts");
   const m = grid(["CC(=O)Oc1ccccc1C(=O)O", "[NH3+]CC([O-])=O", "c1ccc2ccccc2c1", "C[C@H](N)C(=O)O"], 2, 9, 8);
   m.atoms.push(A("O", 30, 0, { text: "OMe", pairs: 2 }), A("C", 31, 0), A("N", 34, 0, { colour: "#ff0000", charge: 1, radical: 1 }), A("C", 35, 0));
@@ -305,7 +260,7 @@ await kase("S29", ".oct, CDXML and CDX round trips give the same code (angles an
   }
 });
 
-await kase("S30", "labels with raised and lowered runs (Fe with III raised, Fe2+ and SO4 2- typed raised, R with 1' raised, a label all raised or lowered): valid at TeX's level", () => {
+await kase("ST7", "S30 labels with raised and lowered runs (Fe with III raised, Fe2+ and SO4 2- typed raised, R with 1' raised, a label all raised or lowered): valid at TeX's level", () => {
   const cases: [string, Mol][] = [
     ["Fe with III raised", runs("FeIII", [{ text: "Fe" }, { text: "III", script: "super" }])],
     ["Mn with VII raised", runs("MnVII", [{ text: "Mn" }, { text: "VII", script: "super" }])],
@@ -325,22 +280,13 @@ await kase("S30", "labels with raised and lowered runs (Fe with III raised, Fe2+
   assert.equal(bad.length, 0, `${bad.length} of ${cases.length}: ${bad.join("; ")}`);
 });
 
-await kase("S31", "100 para-phenylenes and a dendrimer of rings: nesting within rule 8, valid", () => {
-  const row = Array.from({ length: 100 }, (_, k): P => [k * 3, 0]), rings = lattice(row, 6, 0), linkers: Bond[] = [];
-  for (let k = 0; k + 1 < row.length; k++) {
-    const a = rings.atoms.findIndex((x) => Math.abs(x.location[0] - (row[k][0] + 1)) < 1e-6 && Math.abs(x.location[1]) < 1e-6), b = rings.atoms.findIndex((x) => Math.abs(x.location[0] - (row[k + 1][0] - 1)) < 1e-6 && Math.abs(x.location[1]) < 1e-6);
-    linkers.push(B(a, b));
-  }
-  const r = strict("100 phenylenes", { atoms: rings.atoms, bonds: [...rings.bonds, ...linkers] });
-  assert.ok(nesting(r.compact) <= Math.log2(600) + 8 + 1, `nesting ${nesting(r.compact)}`);
+await kase("ST4", "S31 a dendrimer of rings three generations deep: nesting within rule 8, valid", () => {
   const dendrimer = chem.parseStructure("c1(-c2cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)c2)cc(-c2cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)c2)cc(-c2cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)cc(-c3cc(-c4ccccc4)cc(-c4ccccc4)c3)c2)c1");
   const d = strict("dendrimer", dendrimer);
   assert.ok(nesting(d.compact) <= Math.log2(dendrimer.atoms.length) + 8 + 1, `nesting ${nesting(d.compact)}`);
 });
 
-// ==== More cases ====
-
-await kase("X1", "a label whose text ends in a superscript (NH₃⁺, Fe³⁺, typed or read from a file) that also has a charge: valid at TeX's level", () => {
+await kase("ST7", "X1 a label whose text ends in a superscript (NH₃⁺, Fe³⁺, typed or read from a file) that also has a charge: valid at TeX's level", () => {
   const base: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)] };
   const bad: string[] = [];
   for (const t of ["NH₃⁺", "Fe³⁺", "SO₄²⁻", "R''", "C°"]) {
@@ -350,7 +296,7 @@ await kase("X1", "a label whose text ends in a superscript (NH₃⁺, Fe³⁺, t
   assert.equal(bad.length, 0, bad.join("; "));
 });
 
-await kase("X2", "a lowered run next to a lowered character (CH with 2 lowered then ₃; OsCl3 • H2O with '3 ' lowered, as in Sam's Rovis drawings): valid", () => {
+await kase("ST7", "X2 a lowered run next to a lowered character (CH with 2 lowered then ₃; OsCl3 • H2O with '3 ' lowered, as in Sam's Rovis drawings): valid", () => {
   const bad: string[] = [];
   for (const [name, m] of [["CH 2 lowered then ₃", runs("CH2₃", [{ text: "CH" }, { text: "2", script: "sub" }, { text: "₃" }])], ["OsCl3 • H2O", runs("OsCl3 • H2O", [{ text: "OsCl" }, { text: "3 ", script: "sub" }, { text: "• H" }, { text: "2", script: "sub" }, { text: "O" }])]] as [string, Mol][]) {
     try { strict(name, m); } catch (e) { bad.push(`${name}: ${cf(m, true).code} (${(e as Error).message.replace(/^.*\]: /, "")})`); }
@@ -358,27 +304,14 @@ await kase("X2", "a lowered run next to a lowered character (CH with 2 lowered t
   assert.equal(bad.length, 0, bad.join("; "));
 });
 
-await kase("X3", "coloured lone pairs and radicals: chemfig draws a dot with \\draw[<.style>], so .style must fill it as the page does", () => {
-  for (const [name, m] of [["blue O with two pairs", { atoms: [A("O", 0, 0, { pairs: 2, colour: "#1f77b4" }), A("C", 1, 0)], bonds: [B(0, 1)] }], ["red radical", { atoms: [A("C", 0, 0, { radical: 1, colour: "#ff0000" }), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] }]] as [string, Mol][]) {
-    const code = strict(name, m).compact, style = /\.style=\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/.exec(code);
-    assert.ok(style, `${name}: no .style in ${code}`);
-    assert.match(style[1], /fill/, `${name}: .style={${style[1]}} draws each dot as a ring, not filled (${code})`);
-  }
-});
-
-await kase("X4", "a coloured aromatic ring with its circle (Toggle Aromatic Display): the circle in the ring's colour, as the page draws it", () => {
-  const code = strict("red circled benzene", { atoms: hex.map((a) => ({ ...a, circle: true, colour: "#ff0000" })), bonds: kekule.map((b) => ({ ...b, colour: "#ff0000" })) }).compact;
-  assert.match(code, /\*\*\[[^\]]*color/, `the circle is black in ${code}`);
-});
-
-await kase("X5", "two bonded atoms on one spot (a ChemDraw file): no bond of no length, as for two copies on one spot", async () => {
+await kase("ST14", "X5 two bonded atoms on one spot (a ChemDraw file): no bond of no length, as for two copies on one spot", async () => {
   const { fromCdxml } = await import("./cdxml.ts");
   const mol = fromCdxml(`<?xml version="1.0" encoding="UTF-8" ?><CDXML><page id="1"><fragment id="2"><n id="3" p="10 10"/><n id="4" p="10 10"/><n id="6" p="24 10"/><b id="5" B="3" E="4"/><b id="7" B="4" E="6"/></fragment></page></CDXML>`).mol;
   const code = strict("bonded on one spot", mol).compact;
   for (const m of code.matchAll(/[-=~<>][:|]?\[:-?[\d.]+,([\d.]+)/g)) assert.ok(+m[1] > 0, `a bond of length ${m[1]} in ${code}`);
 });
 
-await kase("X6", "a chemist's messy page of 200 structures (and 1,000): valid, under 300 ms (1 s), every line within TeX's buffer", () => {
+await kase("ST3", "X6 a chemist's messy page of 200 structures (and 1,000): valid, under 300 ms (1 s), every line within TeX's buffer", () => {
   const messy = grid(Array.from({ length: 200 }, (_, k) => LIBRARY[k % LIBRARY.length]), 20, 12, 10);
   strict("200 structures", messy);
   within(300, () => cf(messy), "200 structures", 3);
@@ -387,7 +320,7 @@ await kase("X6", "a chemist's messy page of 200 structures (and 1,000): valid, u
   within(1000, () => cf(huge), "1,000 structures", 3);
 });
 
-await kase("X7", "hostile drawing data (duplicate and self bonds, odd charges, counts, colours, bond types, 1,000 lone pairs, 10,000 lone atoms): no throw, valid", () => {
+await kase("ST15", "X7 hostile drawing data (duplicate and self bonds, odd charges, counts, colours, bond types, 1,000 lone pairs, 10,000 lone atoms): no throw, valid", () => {
   const cases: [string, Mol][] = [
     ["duplicate bonds", { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 2, 0)], bonds: [B(0, 1), B(0, 1), B(1, 0, 2), B(1, 2)] }],
     ["a bond to itself", { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1), B(1, 1)] }],
@@ -411,14 +344,20 @@ await kase("X7", "hostile drawing data (duplicate and self bonds, odd charges, c
   within(3000, () => cf(lone), "10,000 lone atoms", 1);
 });
 
-await kase("X8", "a ChemDraw user's habits: no default key for the command; labels as ChemDraw users type them; every double bond on the page's side", () => {
+await kase("ST18", "X8 a ChemDraw user's habits: no default key for the command (ChemDraw has none)", () => {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /\["more_chemfig_copy", "Copy as LaTeX \(chemfig\)", <CodeBlock size=\{18\} \/>, \(\) => copyChemfig\(\)\],/, "no key in the More Formats line");
+});
+
+await kase("ST7", "X8 labels as ChemDraw users type them (OTBS, NHBoc, Ph3P, Fe(CO)4, ...), on either side: valid", () => {
   const base: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", -c30, s30)], bonds: [B(0, 1), B(0, 2)] };
   for (const t of ["OTBS", "NHBoc", "CO2tBu", "Ph3P", "Fe(CO)4", "[Cu]", "OTf", "NMe2", "SO2Ph", "CH2OH", "N3", "PPh3+", "OAc", "Bn", "Cbz", "HN", "NH", "TBSO", "Me3Si", "(CH2)3CO2Me", "OCH2O", "CO2-", "NO2", "C6H4", "CF3", "Br"]) {
     strict(`ChemDraw label ${t}`, setLabel(base, 1, t));
     strict(`ChemDraw label ${t} on the left`, setLabel({ ...base, atoms: [A("C", 0, 0), A("C", -1, 0), A("C", c30, s30)] }, 1, t));
   }
+});
+
+await kase("ST13", "X8 every chain double bond's second line on the page's side, for neighbours at every 30°", () => {
   // The second line of each chain double bond: drawn (the page's own polygons) and written (=^ left, =_ right, =
   // centred, going from the atom written first) on the same side, for a C=C with neighbours at every 30°.
   for (let a = 30; a < 360; a += 30) for (let b = 0; b < 360; b += 30) {
@@ -433,7 +372,7 @@ await kase("X8", "a ChemDraw user's habits: no default key for the command; labe
   }
 });
 
-await kase("X11", "Octet 1.1.2 and the new setting: 1.1.2's loader keeps keys it does not know, so Compact chemfig code survives a run of 1.1.2", () => {
+await kase("ST20", "X11 Octet 1.1.2 and the new setting: 1.1.2's loader keeps keys it does not know, so Compact chemfig code survives a run of 1.1.2", () => {
   let old = "";
   try { old = execFileSync("git", ["show", "v1.1.2:src/settings.ts"], { cwd: new URL("..", import.meta.url), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { console.log("chemfigcopy-stress: no v1.1.2 tag here; X11 skipped"); return; }
   assert.match(old, /\.\.\.DEFAULTS, \.\.\.saved,/);
@@ -441,16 +380,10 @@ await kase("X11", "Octet 1.1.2 and the new setting: 1.1.2's loader keeps keys it
   assert.match(readFileSync(new URL("settings.ts", import.meta.url), "utf8"), /chemfigCompact: saved\.chemfigCompact === true,/);
 });
 
-await kase("X13", "TeX's line buffer: a 60,000-character label in a ChemDraw file is cut to 40 characters, so no line passes 200,000 characters", async () => {
+await kase("ST5", "X13 TeX's line buffer: a 60,000-character label in a ChemDraw file is cut to 40 characters, so no line passes 200,000 characters", async () => {
   const { fromCdxml } = await import("./cdxml.ts");
   const mol = fromCdxml(`<?xml version="1.0" encoding="UTF-8" ?><CDXML><page id="1"><fragment id="2"><n id="3" p="0 0"><t><s font="3" size="10" face="96">${"~".repeat(60000)}</s></t></n><n id="4" p="14 0"/><b id="5" B="3" E="4"/></fragment></page></CDXML>`).mol;
   strict("60,000 tildes", mol);
-});
-
-await kase("X15", "a ladder of 300 ortho-fused rings (a hostile file): within TeX's 255 grouping levels (chemfig opens a group for each branch and ring)", () => {
-  const ladder = lattice(Array.from({ length: 300 }, (_, k): P => [k * h3, 0]));
-  const r = strict("300-ring ladder", ladder);
-  assert.ok(nesting(r.compact) < 255, `branches and rings nest ${nesting(r.compact)} deep`);
 });
 
 // X14's drawing: six structures, a written label with lone pairs, a coloured radical cation. ChemDraw 22.2 opened its
@@ -464,7 +397,9 @@ const X14: Mol = { atoms: [], bonds: [] };
 });
 X14.atoms.push(A("O", 20, -14, { text: "OMe", pairs: 2 }), A("C", 21, -14), A("N", 24, -14, { colour: "#ff0000", charge: 1, radical: 1 }), A("C", 25, -14));
 X14.bonds.push(B(X14.atoms.length - 4, X14.atoms.length - 3), B(X14.atoms.length - 2, X14.atoms.length - 1));
-await kase("X14", "a drawing saved again by ChemDraw 22.2: the same code but the marks' angles, valid", async () => {
+// CHEMFIG_X14_CDXML=<file> writes this drawing as CDXML, for ChemDraw 22.2 to open and save again.
+if (process.env.CHEMFIG_X14_CDXML) { const { toCdxml } = await import("./cdxml.ts"), { DEFAULT_STYLE } = await import("./docstyle.ts"); writeFileSync(process.env.CHEMFIG_X14_CDXML, toCdxml(X14, DEFAULT_STYLE)); }
+await kase("ST20", "X14 a drawing saved again by ChemDraw 22.2: the same code but the marks' angles, valid", async () => {
   const file = process.env.CHEMFIG_CHEMDRAW_FILE;
   if (!file) { console.log("chemfigcopy-stress: X14 needs CHEMFIG_CHEMDRAW_FILE (the drawing as ChemDraw 22.2 saved it); skipped"); return; }
   const { fromCdxml } = await import("./cdxml.ts");
@@ -484,7 +419,7 @@ else {
   d.host.set({ ...grid(["CC(=O)Oc1ccccc1C(=O)O", "c1ccccc1"], 2, 10, 8), captions: [{ id: 900, text: "a note", x: 0, y: -8 }] } as Mol);
   const ids = ((await call("read", {})).structuredContent?.structures ?? []).map((s: { id: string }) => s.id);
 
-  await kase("S21", "MCP read chemfig: compact true, false and left out; refusals for odd values; the 40 paclitaxels under 300 ms", async () => {
+  await kase("ST19", "S21 MCP read chemfig: compact true, false and left out; refusals for odd values; the 40 paclitaxels under 300 ms", async () => {
     const readable = text(await call("read", { format: "chemfig" })), one = text(await call("read", { format: "chemfig", compact: true }));
     assert.match(readable, /^\\chemfig\{\n\t/);
     assert.match(one, /^\\chemfig\{[^\n]*\}$/);
@@ -499,7 +434,7 @@ else {
     d.host.set({ ...grid(["CC(=O)Oc1ccccc1C(=O)O", "c1ccccc1"], 2, 10, 8), captions: [{ id: 900, text: "a note", x: 0, y: -8 }] } as Mol);
   });
 
-  await kase("X10", "an AI app's odd arguments: format in other cases and names, ids empty, unknown, too many, of text only: plain refusals or the code, never a throw", async () => {
+  await kase("ST19", "X10 an AI app's odd arguments: format in other cases and names, ids empty, unknown, too many, of text only: plain refusals or the code, never a throw", async () => {
     const all = ((await call("read", {})).structuredContent?.structures ?? []).map((s: { id: string }) => s.id);
     for (const format of ["CHEMFIG", "ChemFig", " chemfig"]) { const r = await call("read", { format }); assert.ok(r.isError || text(r).startsWith("\\chemfig{"), `format ${format}: ${text(r).slice(0, 80)}`); }
     for (const format of ["latex", "tex", "LaTeX"]) { const r = await call("read", { format }); assert.ok(r.isError && /chemfig/.test(text(r)), `format ${format}: the refusal names chemfig (${text(r).slice(0, 160)})`); }
@@ -513,7 +448,7 @@ else {
     assert.ok(!(await call("read", { format: "smiles", compact: true })).isError, "compact on another format is ignored");
   });
 
-  await kase("S22", "two AI sessions: a read gives the drawing as it is at that call; reads change nothing", async () => {
+  await kase("ST19", "S22 two AI sessions: a read gives the drawing as it is at that call; reads change nothing", async () => {
     const before = d.host.doc(), first = text(await call("read", { format: "chemfig" }, "one"));
     assert.equal(d.host.doc(), before, "a read leaves the drawing object as it was");
     const m = d.host.doc();
@@ -523,14 +458,14 @@ else {
     assert.match(second, /Br/);
   });
 
-  await kase("S23", "a structure deleted after the AI app read its id: read chemfig of that id says so", async () => {
+  await kase("ST1", "S23 a structure deleted after the AI app read its id: read chemfig of that id says so", async () => {
     const m = d.host.doc();
     d.host.set({ ...m, atoms: [], bonds: [] });
     assert.match(text(await call("read", { format: "chemfig", ids: [ids[0]] })), /There is nothing with the id|Octet cannot write/);
     assert.match(text(await call("read", { format: "chemfig" })), /Octet cannot write this drawing as CHEMFIG/);
   });
 
-  await kase("X9", "MCP read of a label with III raised (as Text > Superscript leaves it): valid at TeX's level", async () => {
+  await kase("ST7", "X9 MCP read of a label with III raised (as Text > Superscript leaves it): valid at TeX's level", async () => {
     d.host.set({ atoms: [A("C", 0, 0), A("C", 1, 0, { text: "FeIII", runs: [{ text: "Fe" }, { text: "III", script: "super" }] })], bonds: [B(0, 1)] });
     texLint(text(await call("read", { format: "chemfig" })), "MCP Fe with III raised");
   });
@@ -602,7 +537,7 @@ async function palette(W, text, pick = text) {
 }
 const lastClip = (W) => W.w.__clip[W.w.__clip.length - 1];
 `;
-// U1 to U16: the cases, as a user does them; then X12's drawings coded in the page.
+// The WebKit checks (U1 to U16, each under its ST case), as a user does them; then X12's drawings coded in the page.
 const UI_CASES = String.raw`{
 setSettings({ moreFormats: true, chemfigCompact: false, tutorialDone: true });
 const A = await openWindow("A");
@@ -611,7 +546,7 @@ const A = await openWindow("A");
   A.w.__clip.length = 0;
   const p = await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)");
   await wait(300);
-  rec("U1 (S1) empty drawing: Copy as LaTeX (chemfig) says there is no structure, clipboard untouched", p.found && notice(A) === "There is no structure to copy." && A.w.__clip.length === 0, JSON.stringify({ found: p.found, notice: notice(A), clip: A.w.__clip }));
+  rec("ST1 U1 (S1) empty drawing: Copy as LaTeX (chemfig) says there is no structure, clipboard untouched", p.found && notice(A) === "There is no structure to copy." && A.w.__clip.length === 0, JSON.stringify({ found: p.found, notice: notice(A), clip: A.w.__clip }));
 }
 // A structure.
 await paste(A, "CC(=O)Oc1ccccc1C(=O)O");
@@ -620,14 +555,14 @@ A.w.__clip.length = 0;
 await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)");
 await wait(300);
 const first = lastClip(A);
-rec("U2 keyboard only: palette copies readable code", first && first.startsWith("\\chemfig{\n\t") && notice(A) === "Copied.", JSON.stringify({ first: first?.slice(0, 80), notice: notice(A) }));
+rec("ST18 U2 keyboard only: palette copies readable code", first && first.startsWith("\\chemfig{\n\t") && notice(A) === "Copied.", JSON.stringify({ first: first?.slice(0, 80), notice: notice(A) }));
 // U3: the Actions panel's button (More formats on) and Copy as SLN beside it.
 {
   const b = A.d.querySelector('.tray-button[data-command="more_chemfig_copy"]'), sln = A.d.querySelector('.tray-button[data-command="more_sln"]');
   const ordered = [...A.d.querySelectorAll(".tray-button")].map((x) => x.dataset.command);
   A.w.__clip.length = 0;
   b?.click(); await wait(400);
-  rec("U3 Actions panel: Copy as LaTeX (chemfig) and Copy as SLN beside Copy as InChIKey", !!b && !!sln && lastClip(A) === first && ordered.indexOf("more_chemfig_copy") === ordered.indexOf("copy_inchikey") + 1, JSON.stringify({ button: !!b, sln: !!sln, same: lastClip(A) === first, ordered }));
+  rec("ST18 U3 Actions panel: Copy as LaTeX (chemfig) and Copy as SLN beside Copy as InChIKey", !!b && !!sln && lastClip(A) === first && ordered.indexOf("more_chemfig_copy") === ordered.indexOf("copy_inchikey") + 1, JSON.stringify({ button: !!b, sln: !!sln, same: lastClip(A) === first, ordered }));
 }
 // U4: right-click on empty canvas: the drawing's menu has it; choosing it copies.
 {
@@ -642,7 +577,7 @@ rec("U2 keyboard only: palette copies readable code", first && first.startsWith(
   const item = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as LaTeX (chemfig)");
   A.w.__clip.length = 0;
   item?.click(); await wait(500);
-  rec("U4 right-click menu: Copy as LaTeX (chemfig) copies the drawing", !!item && lastClip(A) === first, JSON.stringify({ item: !!item, items: items.slice(0, 40), clip: lastClip(A)?.slice(0, 40) }));
+  rec("ST18 U4 right-click menu: Copy as LaTeX (chemfig) copies the drawing", !!item && lastClip(A) === first, JSON.stringify({ item: !!item, items: items.slice(0, 40), clip: lastClip(A)?.slice(0, 40) }));
   key(A, { key: "Escape", code: "Escape" }); await wait(300);
 }
 // U5: undo and redo: copy, edit, copy, undo, copy (= the first), redo, copy (= the second). No undo step from a copy.
@@ -657,7 +592,7 @@ rec("U2 keyboard only: palette copies readable code", first && first.startsWith(
   key(A, { key: "z", code: "KeyZ", metaKey: true, shiftKey: true }); await wait(600);
   await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(300);
   const fourth = lastClip(A);
-  rec("U5 (S17) undo after copy undoes the edit, not the copy; redo still works", second !== first && third === first && fourth === second, JSON.stringify({ secondDiffers: second !== first, thirdIsFirst: third === first, fourthIsSecond: fourth === second, third: third?.slice(0, 60) }));
+  rec("ST16 U5 (S17) undo after copy undoes the edit, not the copy; redo still works", second !== first && third === first && fourth === second, JSON.stringify({ secondDiffers: second !== first, thirdIsFirst: third === first, fourthIsSecond: fourth === second, third: third?.slice(0, 60) }));
 }
 const two = lastClip(A);
 // U6: zoom: in 15 times (about 2,800%) and out 30 times: the same code.
@@ -670,7 +605,7 @@ const two = lastClip(A);
   await wait(400);
   await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(300);
   const small = lastClip(A);
-  rec("U6 (S11) zoomed in and out: the same code", big === two && small === two, JSON.stringify({ big: big === two, small: small === two }));
+  rec("ST10 U6 (S11) zoomed in and out: the same code", big === two && small === two, JSON.stringify({ big: big === two, small: small === two }));
 }
 // U7: 50 copies as fast as a held key: no error, one notice, every copy the same.
 {
@@ -682,14 +617,14 @@ const two = lastClip(A);
   const ms = performance.now() - t;
   await wait(500);
   const notices = A.d.querySelectorAll(".notice:not(.leaving)").length;
-  rec("U7 (S18) 50 copies in about a second: all the same, one notice, no error", A.w.__clip.length === 50 && A.w.__clip.every((c) => c === two) && notices <= 1 && A.w.__errors.length === 0, JSON.stringify({ n: A.w.__clip.length, same: A.w.__clip.every((c) => c === two), ms: Math.round(ms), notices, errors: A.w.__errors.slice(0, 3) }));
+  rec("ST16 U7 (S18) 50 copies in about a second: all the same, one notice, no error", A.w.__clip.length === 50 && A.w.__clip.every((c) => c === two) && notices <= 1 && A.w.__errors.length === 0, JSON.stringify({ n: A.w.__clip.length, same: A.w.__clip.every((c) => c === two), ms: Math.round(ms), notices, errors: A.w.__errors.slice(0, 3) }));
 }
 // U8: a reaction with an arrow and text: the notice names what the code leaves out.
 {
   await paste(A, "CCO>>CC=O");
   await wait(800);
   await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(300);
-  rec("U8 the notice names the arrows", /^Copied\. The code does not have the arrows/.test(notice(A)), notice(A));
+  rec("ST1 U8 the notice names the arrows", /^Copied\. The code does not have the arrows/.test(notice(A)), notice(A));
 }
 // U9: a second window; Compact set in Settings in window A; window B copies compact code.
 const Bw = await openWindow("B");
@@ -706,7 +641,7 @@ const Bw = await openWindow("B");
   Bw.w.__clip.length = 0;
   await palette(Bw, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(400);
   const b = lastClip(Bw);
-  rec("U9 (S20) Compact chemfig code set in window A: window B copies one line", !!sw && saved.chemfigCompact === true && b && !b.includes("\n") && b.startsWith("\\chemfig{"), JSON.stringify({ search: !!search, switch: !!sw, saved: saved.chemfigCompact, b: b?.slice(0, 80) }));
+  rec("ST17 U9 (S20) Compact chemfig code set in window A: window B copies one line", !!sw && saved.chemfigCompact === true && b && !b.includes("\n") && b.startsWith("\\chemfig{"), JSON.stringify({ search: !!search, switch: !!sw, saved: saved.chemfigCompact, b: b?.slice(0, 80) }));
   key(A, { key: "Escape", code: "Escape" }); await wait(400); key(A, { key: "Escape", code: "Escape" }); await wait(800);
   log.push("settings still open after two Escapes: " + !!A.d.querySelector(".settings-sidebar"));
 }
@@ -718,7 +653,7 @@ const Bw = await openWindow("B");
   const ms = performance.now() - t;
   await wait(1500);
   const after = Bw.d.querySelectorAll(".editor svg text").length;
-  rec("U10 (S19) chemfig code copied in one window and pasted on a page: nothing drawn, a plain notice, no error", after === before && Bw.w.__errors.length === 0, JSON.stringify({ before, after, ms: Math.round(ms), notice: notice(Bw), errors: Bw.w.__errors.slice(0, 3) }));
+  rec("ST17 U10 (S19) chemfig code copied in one window and pasted on a page: nothing drawn, a plain notice, no error", after === before && Bw.w.__errors.length === 0, JSON.stringify({ before, after, ms: Math.round(ms), notice: notice(Bw), errors: Bw.w.__errors.slice(0, 3) }));
 }
 // U11: More formats off (Settings in another window): the command is in no menu, panel or palette, and a copy keeps nothing new.
 {
@@ -734,7 +669,7 @@ const Bw = await openWindow("B");
   const item = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as LaTeX (chemfig)");
   const sln = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as SLN");
   key(A, { key: "Escape", code: "Escape" }); await wait(300); key(A, { key: "Escape", code: "Escape" }); await wait(300);
-  rec("U11 (S27) More formats off: not in the palette, the panel or the right-click menu", typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ palette: p, button: !!button, menu: !!item, sln: !!sln }));
+  rec("ST18 U11 (S27) More formats off: not in the palette, the panel or the right-click menu", typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ palette: p, button: !!button, menu: !!item, sln: !!sln }));
   setSettings({ moreFormats: true, chemfigCompact: false });
   await wait(800);
 }
@@ -744,9 +679,9 @@ const Bw = await openWindow("B");
   key(A, { key: "Backspace", code: "Backspace" }); await wait(800);
   A.w.__clip.length = 0;
   const p12 = await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(500);
-  rec("U12 (S23) everything deleted: There is no structure to copy.", notice(A) === "There is no structure to copy." && A.w.__clip.length === 0, JSON.stringify({ found: p12.found, names: p12.names, notice: notice(A), clip: A.w.__clip.length, active: A.d.activeElement?.className }));
+  rec("ST1 U12 (S23) everything deleted: There is no structure to copy.", notice(A) === "There is no structure to copy." && A.w.__clip.length === 0, JSON.stringify({ found: p12.found, names: p12.names, notice: notice(A), clip: A.w.__clip.length, active: A.d.activeElement?.className }));
 }
-rec("U13 no page errors in either window", A.w.__errors.length === 0 && Bw.w.__errors.length === 0, JSON.stringify([...A.w.__errors, ...Bw.w.__errors].slice(0, 5)));
+rec("ST16 U13 no page errors in either window", A.w.__errors.length === 0 && Bw.w.__errors.length === 0, JSON.stringify([...A.w.__errors, ...Bw.w.__errors].slice(0, 5)));
 
 
 }
@@ -765,7 +700,7 @@ const taxol = "CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)
   for (let k = 0; k < 5; k++) { A.w.__clip.length = 0; const t = performance.now(); b.click(); ts.push(performance.now() - t); await wait(300); }
   ts.sort((x, y) => x - y);
   const code = lastClip(A);
-  rec("U14 (S3) 15 paclitaxels: Copy as LaTeX (chemfig) in WebKit, median of 5 under 300 ms", ts[2] < 300 && code && code.length > 1000, JSON.stringify({ ms: ts.map((x) => Math.round(x)), chars: code?.length, atoms: (code?.match(/\n/g) ?? []).length }));
+  rec("ST3 U14 (S3) 15 paclitaxels: Copy as LaTeX (chemfig) in WebKit, median of 5 under 300 ms", ts[2] < 300 && code && code.length > 1000, JSON.stringify({ ms: ts.map((x) => Math.round(x)), chars: code?.length, atoms: (code?.match(/\n/g) ?? []).length }));
   // U15: that code pasted on the page: how long until the notice, and nothing drawn.
   const before = A.d.querySelectorAll(".editor svg text").length;
   const was = notice(A);
@@ -776,26 +711,27 @@ const taxol = "CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)
   await until(() => notice(A) && notice(A) !== was ? true : null, 20000);
   const ms = performance.now() - t;
   const after = A.d.querySelectorAll(".editor svg text").length;
-  rec("U15 (S19) a large chemfig code pasted on the page: answered within 2 s, nothing drawn", ms < 2000 && after === before, JSON.stringify({ ms: Math.round(ms), sync: Math.round(sync), notice: notice(A), before, after }));
+  rec("ST17 U15 (S19) a large chemfig code pasted on the page: answered within 2 s, nothing drawn", ms < 2000 && after === before, JSON.stringify({ ms: Math.round(ms), sync: Math.round(sync), notice: notice(A), before, after }));
 }
-rec("U16 no page errors", A.w.__errors.length === 0, JSON.stringify(A.w.__errors.slice(0, 5)));
+rec("ST3 U16 no page errors", A.w.__errors.length === 0, JSON.stringify(A.w.__errors.slice(0, 5)));
 
 
 }
-// X12: the same drawings coded in the page, with WebKit's measuring.
+// X12: the same drawings coded in the page, with WebKit's measuring, and where the page draws each mark.
 {
   const { chemfig } = await import("/src/chemfig.ts");
+  const { render } = await import("/src/render.ts");
   const { measurer, STYLE } = await import("/src/chem.ts");
   const { DEFAULT_STYLE, fontStack, frameStyle, readStyle } = await import("/src/docstyle.ts");
   await document.fonts.ready;
   const style = readStyle(DEFAULT_STYLE), frame = frameStyle(style, STYLE.bond), measure = measurer(fontStack(style.labelFont), frame.size);
-  for (const [k, m] of Object.entries(SAME)) same[k] = chemfig(m, frame, measure, { compact: true }).code;
+  for (const [k, m] of Object.entries(SAME)) same[k] = { code: chemfig(m, frame, measure, { compact: true }).code, marks: MARKS(render(m, frame, measure), m) };
 }
 return JSON.stringify({ results, same, log });
 `;
 
 // ==== The app in WebKit (--ui <dev server>): two windows of the dev server, driven as a user drives them ====
-if (!UI) console.log("chemfigcopy-stress: the WebKit cases (U1 to U16, X12) need --ui http://localhost:1462/ and the dev server; skipped");
+if (!UI) console.log("chemfigcopy-stress: the WebKit checks (U1 to U16, X12) need --ui http://localhost:1462/ and the dev server; skipped");
 else if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) console.log("chemfigcopy-stress: WebKit needs a Mac with swift; skipped");
 else {
   const dir = mkdtempSync(join(tmpdir(), "chemfig-stress-")), page = join(dir, "page.js");
@@ -810,25 +746,49 @@ else {
   };
   const { measurer } = chem, { DEFAULT_STYLE, fontStack, frameStyle, readStyle } = await import("./docstyle.ts");
   const style = readStyle(DEFAULT_STYLE), frame = frameStyle(style, chem.STYLE.bond), measure = measurer(fontStack(style.labelFont), frame.size);
-  const headless = Object.fromEntries(Object.entries(SAME).map(([k, m]) => [k, chemfig(m, frame, measure, { compact: true }).code]));
-  writeFileSync(page, `${UI_LIB}\nconst SAME = ${JSON.stringify(SAME)};\n${UI_CASES}`);
+  // Where the page draws each mark: its atom and its angle (degrees, y up, as chemfig.ts reads render()'s electrons).
+  const MARKS = (d: { scale: number; electrons: { atom: number; at: number[] }[] }, m: Mol) => d.electrons.map((e) => Math.round((Math.atan2(-(e.at[1] + m.atoms[e.atom].location[1] * d.scale), e.at[0] - m.atoms[e.atom].location[0] * d.scale) * 180) / Math.PI)).sort((x, y) => x - y);
+  const headless = Object.fromEntries(Object.entries(SAME).map(([k, m]) => [k, { code: chemfig(m, frame, measure, { compact: true }).code, marks: MARKS(render(m, frame, measure), m) }]));
+  writeFileSync(page, `${UI_LIB}\nconst SAME = ${JSON.stringify(SAME)};\nconst MARKS = ${MARKS.toString()};\n${UI_CASES}`);
   const run = spawnSync("swift", [new URL("../scripts/look/webkit.swift", import.meta.url).pathname, UI, page], { encoding: "utf8", timeout: 290_000 });
   rmSync(dir, { recursive: true, force: true });
-  let got: { results: Result[]; same: Record<string, string> } | undefined;
+  let got: { results: Result[]; same: Record<string, { code: string; marks: number[] }> } | undefined;
   try { got = JSON.parse(run.stdout.trim().split("\n").pop()!); } catch { /* reported below */ }
-  if (!got) await kase("U0", "the WebKit run finishes", () => assert.fail(`${run.stdout.slice(-300)}${run.stderr.slice(-300)}`));
+  if (!got) await kase("WebKit", "the WebKit run finishes", () => assert.fail(`${run.stdout.slice(-300)}${run.stderr.slice(-300)}`));
   else {
     for (const r of got.results) results.push(r);
-    await kase("X12", "one drawing gives the same bytes from Copy in the app (WebKit's measuring) and the MCP with no window (rule 1, J3)", () => {
-      const differ = Object.keys(SAME).filter((k) => headless[k] !== got!.same[k]);
-      assert.equal(differ.length, 0, differ.map((k) => `${k}: no window ${headless[k]}, WebKit ${got!.same[k]}`).join("; "));
+    // Rule 1 for Octet with no window (D23): the same bytes, but a mark's angle where that host's own page draws the
+    // mark in another place (the two hosts measure text in different ways, and render() places marks round the text).
+    await kase("ST19", "X12 one drawing gives the same bytes from Copy in the app (WebKit's measuring) and the MCP with no window, but a mark's angle where each page draws the mark elsewhere (rule 1, J3, J17)", () => {
+      const angles = (code: string) => [...code.matchAll(/(-?\d+):\dpt/g)].map((x) => +x[1]).sort((x, y) => x - y);
+      const theta = (code: string) => code.replace(/-?\d+(?=:\dpt)/g, "θ");
+      for (const k of Object.keys(SAME)) {
+        const [h, w] = [headless[k], got!.same[k]];
+        for (const [host, x] of [["no window", h], ["WebKit", w]] as const) {
+          assert.equal(angles(x.code).length, x.marks.length, `${k}, ${host}: ${x.code} for marks at ${x.marks}`);
+          angles(x.code).forEach((t, j) => assert.ok(Math.abs(((t - x.marks[j] + 540) % 360) - 180) <= 1, `${k}, ${host}: the code's mark at ${t}°, the page's at ${x.marks[j]}°`));
+        }
+        if (h.code === w.code) continue;
+        assert.equal(theta(h.code), theta(w.code), `${k}: no window ${h.code}, WebKit ${w.code}`);
+        assert.notDeepEqual(h.marks, w.marks, `${k}: the two pages draw the marks in one place, so the writer read one page two ways`);
+        console.log(`chemfigcopy-stress: X12 ${k}: the page draws its marks at ${w.marks.join(", ")}° in WebKit and at ${h.marks.join(", ")}° with no window; each code follows its page`);
+      }
     });
   }
 }
 
-// ---- The end: each failure named (stderr, which npm test shows) ----
+// ---- The end: each case with the checks it ran, and each failed check named (stderr, which npm test shows) ----
+const TITLES = ["", "Nothing to code", "Lone atoms and salts", "Big drawings", "Long and deep", "Hostile label text", "Unicode labels", "Raised and lowered runs", "Rings", "Turned, flipped and scaled",
+  "Zoom and dark mode", "Colour", "Marks", "Bonds and hidden H", "Atoms on one spot", "Hostile drawing data", "Undo and fast input", "Two windows and pasted code", "More formats on and off", "AI apps", "Round trips and other apps"];
 const failed = results.filter((r) => !r.ok);
-for (const r of results) if (r.ok) console.log(`ok   ${r.id} ${r.what}`);
+let passed = 0, ran = 0;
+for (let n = 1; n < TITLES.length; n++) {
+  const mine = results.filter((r) => r.id === `ST${n}`);
+  if (!mine.length) { console.log(`skip ST${n} ${TITLES[n]}: its checks run in WebKit (--ui)`); continue; }
+  ran++;
+  if (mine.every((r) => r.ok)) passed++;
+  console.log(`${mine.every((r) => r.ok) ? "ok  " : "FAIL"} ST${n} ${TITLES[n]} (${mine.map((r) => r.what.slice(0, r.what.indexOf(" "))).join(", ")})`);
+}
 for (const r of failed) console.error(`FAIL ${r.id} ${r.what}: ${r.why}`);
-console.log(`chemfigcopy-stress: ${results.length - failed.length} of ${results.length} cases pass`);
+console.log(`chemfigcopy-stress: ${passed} of ${ran} cases pass${ran < 20 ? ` (${20 - ran} need --ui)` : ""}`);
 if (failed.length) process.exitCode = 1;
