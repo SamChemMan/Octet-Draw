@@ -40,6 +40,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
+import { Gate, gated, kindOf as pointerKind, REACH, reachIn, viewAfter, type Act, type In } from "./touch";
 import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
@@ -241,9 +242,10 @@ type Corner = "from" | "to" | "bend" | "width" | "head" | "add" | "meet" | "end:
 // arrow, and its half coming in or going out. mark: with Select, the atom's charge, radical or lone pair (its key in
 // Atom.angles) under the pointer, which a drag moves round the atom.
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number; branch?: number; part?: "in" | "out"; key?: true; mark?: string };
-const hitIn = (m: Mol, p: P): Hover => {
-  const atom = atomAt(m, p);
-  return atom !== undefined ? { atom } : { bond: bondAt(m, p) };
+// ra, rb: how far an atom and a bond reach (bond lengths); a pen's and a finger's reach further (atomReach).
+const hitIn = (m: Mol, p: P, ra = 0.3, rb = 0.2): Hover => {
+  const atom = atomAt(m, p, ra);
+  return atom !== undefined ? { atom } : { bond: bondAt(m, p, rb) };
 };
 // The atoms an atom or bond hit stands for.
 // A hover can outlive its bond for a moment (the bond just deleted), so a bond gone gives no atoms.
@@ -1057,6 +1059,11 @@ export default function Editor() {
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
+  // Pen and touch (touch.ts). reach: the reach of the last pointer event, by which every hit tolerance in px is
+  // multiplied (the mouse's is 1, so its values stay exact). owner: the pen or finger whose press the editor has now;
+  // the mouse waits until it lets go. passOn: an event the gate sends on to the editor's own code.
+  const reach = useRef(1), owner = useRef<number>(undefined), passOn = useRef(false);
+  const [gate] = useState(() => new Gate(HOLD_MS));
   // What the last edit added (its first new atom, or else its last new object), for Space.
   const added = useRef<{ mol: Mol; at: Hover }>(undefined), before = useRef<Mol>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
@@ -3526,7 +3533,7 @@ export default function Editor() {
     pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], timing("--motion-slow"));
   }, [pages, mm]);
   // The page whose edge is under a point (drawing coordinates), within a few screen px. With page edges off, none.
-  const pageEdgeAt = (p: P) => edgeAt(style.edges ? pages : [], [p[0] / mm, p[1] / mm], 5 / (views.get().zoom * L * mm));
+  const pageEdgeAt = (p: P) => edgeAt(style.edges ? pages : [], [p[0] / mm, p[1] / mm], (5 * reach.current) / (views.get().zoom * L * mm));
   // The page a press fits in the window: on a page's edge clear of the drawing, with every tool (Sam asks for this).
   // (ChemDraw's help gives a page boundary no click action; its View > Show Document fits the page.)
   const edgePage = (p: P, t: Hover) => (t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined);
@@ -3544,7 +3551,7 @@ export default function Editor() {
     return [x ?? p[0], y ?? p[1]];
   };
   const onCrosshair = (p: P, t: Hover) => !!cross && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined
-    && Math.hypot(p[0] - cross[0], p[1] - cross[1]) * L * views.get().zoom < 8;
+    && Math.hypot(p[0] - cross[0], p[1] - cross[1]) * L * views.get().zoom < 8 * reach.current;
   // The crosshair's place when it is shown, as ChemDraw's: the middle of the window (or a point given), on the
   // nearest heavier grid line from the page's corner. d: the style of a drawing about to open, whose page and grid
   // it takes.
@@ -3906,7 +3913,7 @@ export default function Editor() {
   }
   // The cycle arc (or side arrow) under a point.
   // A thicker line (an object's scale) is as easy to hit as it is wide.
-  const cycleAt = (p: P) => cycleArrows.find((a) => nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a)));
+  const cycleAt = (p: P) => cycleArrows.find((a) => nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), (5 * reach.current) / views.get().zoom + frame.line * 2 * scaleOf(a)));
   // Which step of which cycle was last pressed, right-clicked or had a handle under the pointer: actions go on that step.
   const [cycleStep, setCycleStep] = useState<{ cycle: number; step: number }>();
   // A cycle's step picked on its own (a second click on a picked cycle's arc, with Select), and the step a press on a
@@ -3935,7 +3942,7 @@ export default function Editor() {
   }, [picked, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // The arrow under a point (drawing coordinates), within a few px of its line.
   // A block arrow is hit anywhere inside its outline too.
-  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && (nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a))
+  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && (nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), (5 * reach.current) / views.get().zoom + frame.line * 2 * scaleOf(a))
     || (a.kind === "block" && inPolygon([p[0] * L, -p[1] * L], kept(blockOutlines, a, frame, () => blockOutline(a, frame, L))))))?.id;
   // The arrow with an end at a point, within a mark's reach (markNear).
   const arrowEndAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && [a.from, a.to].some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.2))?.id;
@@ -3944,7 +3951,7 @@ export default function Editor() {
   // The shape whose line is under a point; with the Select tool, also a highlight the point is inside. A free symbol is
   // hit anywhere in its box, with every tool.
   const shapeAt = (p: P) => {
-    const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => 5 / views.get().zoom + frame.line * 2 * scaleOf(sh);
+    const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => (5 * reach.current) / views.get().zoom + frame.line * 2 * scaleOf(sh);
     return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : (sh.kind === "symbol" && inShape(sh, p)) || nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
   };
   // A highlight, picture or filled shape a point is inside, as drawn: a press anywhere on it picks it (Sam, 28 October
@@ -3964,7 +3971,7 @@ export default function Editor() {
   const laneOf = (sh: Shape, p: P) => { const t = tlcLayout(sh); return Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width))); };
   // A lane's origin tick under a point, within 5 px.
   const tickAt = (sh: Shape, p: P) => {
-    const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
+    const t = tlcLayout(sh), near = (5 * reach.current) / (views.get().zoom * L);
     if (sh.tlc?.hide?.includes("origin") || Math.abs(p[1] - t.origin) > near) return undefined;
     const k = laneOf(sh, p);
     return Math.abs(p[0] - t.lane(k)) < near ? k : undefined;
@@ -3979,7 +3986,7 @@ export default function Editor() {
   // A spot is hit within 4 px of its edge (its tail included), the nearest one first; a gel's band outside its range
   // is not drawn, so not hit.
   const spotHit = (sh: Shape, p: P) => {
-    const t = tlcLayout(sh), slack = 4 / (views.get().zoom * L);
+    const t = tlcLayout(sh), slack = (4 * reach.current) / (views.get().zoom * L);
     const fit = (sh.tlc?.spots ?? []).map((x, i) => {
       const { rx, ry } = t.size(x), dx = (p[0] - t.lane(x.lane)) / (rx + slack), dy = p[1] - t.at(x.rf), below = dy < 0 ? Math.max(0, -dy - (x.tail ?? 0) * t.f) : dy;
       return { i, d: x.rf < 0 || x.rf > 1 ? Infinity : Math.hypot(dx, below / (ry + slack)) };
@@ -3988,7 +3995,7 @@ export default function Editor() {
   };
   // A gel's wells and the bottom of its range stay where its layout puts them.
   const lineHit = (sh: Shape, p: P): "origin" | "front" | undefined => {
-    const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
+    const t = tlcLayout(sh), near = (5 * reach.current) / (views.get().zoom * L);
     return t.gel ? undefined : Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
   };
   const spotAt = (sh: Shape, p: P, copy: boolean, size: boolean) => {
@@ -4035,7 +4042,7 @@ export default function Editor() {
   };
   // The part of a plasmid map under a point: a region (its arrow or name), a marker (its tick or name), or its middle.
   const plasmidPart = (sh: Shape, p: P): { region?: number; marker?: number; centre?: true } => {
-    const size = (sh.size ?? style.captionSize) * pt * scaleOf(sh), m = plasmidLayout(sh, (1.2 * size) / L), slack = 4 / (views.get().zoom * L), h = size / L;
+    const size = (sh.size ?? style.captionSize) * pt * scaleOf(sh), m = plasmidLayout(sh, (1.2 * size) / L), slack = (4 * reach.current) / (views.get().zoom * L), h = size / L;
     const width = (text: string) => formulaWidth(text, size, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
     const label = m.labels.find((x) => Math.abs(p[1] - x.y) < 0.6 * h && (x.anchor === "start" ? p[0] >= x.at[0] - slack && p[0] <= x.at[0] + width(x.text) + slack : p[0] <= x.at[0] + slack && p[0] >= x.at[0] - width(x.text) - slack));
     if (label) return label.region >= 0 ? { region: label.region } : { marker: label.marker };
@@ -4074,7 +4081,7 @@ export default function Editor() {
   });
   // The border of a table under a point, within 4 px: a column's (0 is the left edge) or a row's (0 is the top).
   const tableEdge = (p: P) => {
-    const near = 4 / (views.get().zoom * L);
+    const near = (4 * reach.current) / (views.get().zoom * L);
     for (const sh of [...(shown.shapes ?? [])].reverse()) {
       if (sh.kind !== "table") continue;
       const t = tableLayout(sh, cellWidth(sh), style.captionSize);
@@ -4125,7 +4132,7 @@ export default function Editor() {
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
   const captionAt = (p: P) => {
-    const at: P = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
+    const at: P = [p[0] * L, -p[1] * L], pad = (3 * reach.current) / views.get().zoom;
     // A turned caption: the point turned back about its pivot, against its own box.
     return [...placed].reverse().find((c) => {
       const [x, y] = c.angle && c.pivot ? turnPx(at, c.pivot, -c.angle) : at, b = c.frame ?? c.box;
@@ -4243,16 +4250,20 @@ export default function Editor() {
   };
   // The atom whose label (all of it, as in ChemDraw, not only its first letter) is at a point, with a little slack.
   const labelAt = (p: P) => {
-    const [x, y] = [p[0] * L, -p[1] * L], pad = 2 / views.get().zoom;
+    const [x, y] = [p[0] * L, -p[1] * L], pad = (2 * reach.current) / views.get().zoom;
     let found: number | undefined;
     drawing.label.forEach((b, i) => { if (b && i < doc.atoms.length && x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad) found = i; });
     return found;
   };
   // The atom or bond at a point: an atom's spot, then anywhere on its label, then a bond. A multi-centre point (the
   // middle of a π ligand's ring) is not an atom to point at.
+  // A pen's or a finger's reach (touch.ts reachIn): at least 6 px times its reach on screen, within 0.4 of a bond for
+  // an atom and 0.5 for a bond. The mouse's are 0.3 and 0.2, as ever.
+  const atomReach = () => (reach.current === 1 ? 0.3 : reachIn(0.3, 0.4, reach.current, L * views.get().zoom));
+  const bondReach = () => (reach.current === 1 ? 0.2 : reachIn(0.2, 0.5, reach.current, L * views.get().zoom));
   const hitAt = (p: P): Hover => {
-    const t = hitIn(doc, p);
-    if (t.atom !== undefined && doc.atoms[t.atom].centre) return { bond: bondAt(doc, p) };
+    const t = reach.current === 1 ? hitIn(doc, p) : hitIn(doc, p, atomReach(), bondReach());
+    if (t.atom !== undefined && doc.atoms[t.atom].centre) return { bond: bondAt(doc, p, bondReach()) };
     if (t.atom !== undefined) return t;
     const atom = labelAt(p);
     return atom !== undefined ? { atom } : t;
@@ -4713,13 +4724,13 @@ export default function Editor() {
   // The cycle whose circle passes within a few px (px) of a point: the nearest, where two do.
   const circleAt = (p: P, px = 8) => {
     const d = (c: Cycle) => Math.abs(Math.hypot(p[0] - c.centre[0], p[1] - c.centre[1]) - c.radius) * L * views.get().zoom;
-    return (doc.cycles ?? []).filter((c) => d(c) < px).sort((a, b) => d(a) - d(b))[0];
+    return (doc.cycles ?? []).filter((c) => d(c) < px * reach.current).sort((a, b) => d(a) - d(b))[0];
   };
   // A hidden step under a point: within a few px of where its arc would run.
   const hiddenAt = (p: P) => cycleLayout.spans.find((s) => {
     if (!doc.cycles?.find((c) => c.id === s.cycle)?.steps?.[s.step]?.hidden || s.to <= s.from) return false;
     const q: P = [p[0] * L, -p[1] * L], t = (((Math.sign(s.sw) || s.dir) * (Math.atan2(q[1] - s.O[1], q[0] - s.O[0]) - s.p0)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
-    return t <= Math.abs(s.sw) && Math.abs(Math.hypot(q[0] - s.O[0], q[1] - s.O[1]) - s.Rs) * views.get().zoom < 8;
+    return t <= Math.abs(s.sw) && Math.abs(Math.hypot(q[0] - s.O[0], q[1] - s.O[1]) - s.Rs) * views.get().zoom < 8 * reach.current;
   });
   // A drag draws a circle, and structures already on it join it; a drag from a circle pulls a side arrow out of it
   // (releasePull). A click on a circle breaks it there (or joins it up again at a break); a click away from any circle
@@ -5216,7 +5227,7 @@ export default function Editor() {
   // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
   const handleAt = (p: P): { id: number; which: Corner; step?: number; branch?: number } | undefined => {
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
-    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8 * reach.current;
     for (const b of branchHandles()) for (const which of ["meet", "end:in", "end:out"] as const) { const q = which === "meet" ? b.T : b[which === "end:in" ? "in" : "out"]; if (q && near(q)) return { id: b.cycle, which, branch: b.branch }; }
     const sh = stepHandles();
     if (sh) for (const which of ["lead", "trail", "bow"] as const) for (const s of cycleLayout.spans) if (s.cycle === sh.c.id && sh.steps.includes(s.step) && near(s[which])) return { id: sh.c.id, which, step: s.step };
@@ -5237,7 +5248,7 @@ export default function Editor() {
   // The end of an arrow or line under a point, or its middle where it has a point (a curved arrow always does), as
   // the exact place a joined arrow starts from.
   const joinAt = (p: P): P | undefined => {
-    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8 * reach.current;
     for (const a of [...arrows].reverse()) {
       if (isOrbital(a) || a.kind === "cut") continue;
       const spots: [number, number][] = [a.to, a.from, ...((curved(a) || a.point) ? [bendPoint(a)] : [])];
@@ -5281,17 +5292,17 @@ export default function Editor() {
   const frameSides = (b: RBox, zoom: number) => SIDES.filter((h) => selectionFrame?.handles && (isCorner(h) || (!selectionFrame.corners && ((h === "n" || h === "s" ? b[2] - b[0] : b[3] - b[1]) * L * zoom >= 30))));
   const resizeAt = (p: P): Side | undefined => {
     const zoom = views.get().zoom, b = tool !== "erase" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
-    return b && sideAt(b, frameSides(b, zoom), p, 6 / (L * zoom), f && [f[0] / L, -f[3] / L, f[2] / L, -f[1] / L]);
+    return b && sideAt(b, frameSides(b, zoom), p, (6 * reach.current) / (L * zoom), f && [f[0] / L, -f[3] / L, f[2] / L, -f[1] / L]);
   };
   // The rotation handle, as in ChemDraw: just off the frame's top right corner (px).
   const turnHandle = (zoom: number): P | undefined => {
     const b = frameBox(zoom);
     return b && selectionFrame!.turns ? [b[2] * L + 14 / zoom, -b[3] * L - 14 / zoom] : undefined;
   };
-  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
+  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11 * reach.current; };
   // The centre mark: where the selection turns about, worked out once for each selection and drawing.
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
-  const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
+  const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8 * reach.current;
 
   // What a pick for a template set takes from what is under the pointer: the whole structure (with its captions, as
   // selecting it would), or the object, with the rest of any integral group it is in.
@@ -5320,11 +5331,17 @@ export default function Editor() {
   // the Actions menu opens there. On a TLC plate the plate is picked, with the spot under the pointer. On a cycle's arc,
   // the cycle is picked, and its actions go on that step; on the arc of a cycle picked already, the step is picked (as
   // a second click picks it); on a side arrow, the side arrow.
+  // A finger held still and a pen's side button open it too (touch.ts): the browser's own menu event for those opens it
+  // only once.
   function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
     e.preventDefault();
-    if (noMenu.current || drag || writing) { noMenu.current = false; return; }
+    if (noMenu.current) { noMenu.current = false; return; }
+    if (gate.contextMenu(performance.now())) openMenu(e.clientX, e.clientY);
+  }
+  function openMenu(clientX: number, clientY: number) {
+    if (drag || writing) return;
     // On a warning's red mark, its atom, bond or brackets, as ChemDraw's right-click on the red box.
-    const p = toDoc(e.clientX, e.clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
+    const p = toDoc(clientX, clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
     const t: Hover = mark ? (mark.shape !== undefined ? { arrow: mark.shape } : { atom: mark.atom, bond: mark.bond }) : under, free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
     const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && isPlate(x))) ? plateAt(p) : undefined;
     const map = !plate && free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "plasmid")) ? plasmidAt(p) : undefined;
@@ -5345,7 +5362,7 @@ export default function Editor() {
         setBranchPick(found.branch !== undefined ? { cycle: cycle.id, branch: found.branch } : undefined);
       } else if (!on) choose([...atoms, ...own], [...items, ...text]);
     }
-    setMenuAt({ x: e.clientX, y: e.clientY });
+    setMenuAt({ x: clientX, y: clientY });
   }
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     stopCamera(); // what is drawn is where the press lands
@@ -5455,7 +5472,7 @@ export default function Editor() {
     }
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
     if (tool === "shape" && "pen" in shapePick) {
-      if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * views.get().zoom < 8) return finishPen(true);
+      if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * views.get().zoom < 8 * reach.current) return finishPen(true);
       setDrag({ kind: "pen", at: p, start: screen });
       return startHold(p, t, screen);
     }
@@ -5494,7 +5511,7 @@ export default function Editor() {
       return startHold(p, at, screen);
     }
     // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
-    const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
+    const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, (8 * reach.current) / L / views.get().zoom);
     // With the Plasmid map tool, a press on a map picks it, with the region or marker under the pointer, also where its
     // ring runs through them (elsewhere a press on the ring moves the map). A hold gives Select.
     const map = tool === "plasmid" && t.caption === undefined ? plasmidAt(p) : undefined, part = map && plasmidPart(map, p);
@@ -5542,7 +5559,7 @@ export default function Editor() {
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
     // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
-    const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
+    const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, (8 * reach.current) / L / views.get().zoom) : undefined;
     if (end) return setDrag({ kind: "arrow", from: end.line[end.end], start: screen, target: t, make: { kind: "cut" }, longer: { id: end.line.id, end: end.end } });
     if (tool === "fragment" || tool === "massspec" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
     // An orbital grows from the atom pressed (or the point) towards the pointer.
@@ -8795,7 +8812,7 @@ export default function Editor() {
     if (editCurve) {
       const c = doc.arrows?.find((a) => a.id === editPress.current && a.curve);
       if (!c?.curve) return;
-      const near = nearestOnCurve(c.curve, at), on = near.d * L * views.get().zoom < 8;
+      const near = nearestOnCurve(c.curve, at), on = near.d * L * views.get().zoom < 8 * reach.current;
       if (t.arrow === c.id && on) return set(updateArrow(doc, c.id, withCurve(splitCurve(c.curve, near.seg, near.t))), true);
       if (t.arrow === undefined) return set(updateArrow(doc, c.id, withCurve(appendCurvePoint(c.curve, at))), true);
       return;
@@ -9146,6 +9163,163 @@ export default function Editor() {
     }
   }
 
+  // ——— Pen and touch (touch.ts) ———
+  // Every pointer event on the canvas comes here first. A pen's and a finger's go through the gate, and the editor does
+  // what it says (follow). The mouse's go to the editor's own code as before, unless a pen or a finger has the press.
+  const read = (e: React.PointerEvent): In => ({ id: e.pointerId, type: e.pointerType, x: e.clientX, y: e.clientY, button: e.button, buttons: e.buttons, primary: e.isPrimary, t: performance.now() });
+  const ownerSeen = useRef(0); // when the pen or finger with the press last moved
+  const pressedFrom = useRef<{ selection: Set<number>; picked: Set<number> }>(undefined); // the selection before its press
+  const eraserPress = useRef<{ id: number; x: number; y: number; up?: true }>(undefined); // the eraser end's press, a frame away
+  const gateTimers = useRef<Record<string, number>>({});
+  function onDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (passOn.current) return onPointerDown(e);
+    if (gated(e.pointerType)) return follow(e, gate.down(read(e)));
+    if (owner.current !== undefined) {
+      // A pen or finger has the press. One silent for a second lost its pointerup: it stops, and the next click goes in.
+      if (performance.now() - ownerSeen.current > 1000) follow(undefined, [...gate.reset(), { act: "cancel" }]);
+      return;
+    }
+    reach.current = 1;
+    onPointerDown(e);
+  }
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (gated(e.pointerType)) return follow(e, gate.move(read(e)));
+    if (owner.current !== undefined) return;
+    reach.current = 1;
+    onPointerMove(e);
+  }
+  function onUp(e: React.PointerEvent<SVGSVGElement>) {
+    if (passOn.current) return onPointerUp();
+    if (gated(e.pointerType)) return follow(e, gate.up(read(e)));
+    if (owner.current !== undefined) return;
+    onPointerUp();
+  }
+  // The system took the pointer (an edge swipe, the pen out of range): a pen's or a finger's press stops as Escape
+  // stops it. The mouse's lets go, as before.
+  function onCancel(e: React.PointerEvent<SVGSVGElement>) {
+    if (gated(e.pointerType)) return follow(e, gate.cancel(read(e)));
+    if (owner.current !== undefined) return;
+    onPointerUp();
+  }
+  // The press goes to the editor unless the mouse is pressing (freed: a press of a palm stopped a moment ago).
+  const takePress = (id: number, freed: boolean) => {
+    if (owner.current === undefined && !freed && (drag || panFrom.current)) return false;
+    owner.current = id;
+    ownerSeen.current = performance.now();
+    pressedFrom.current = { selection, picked };
+    return true;
+  };
+  // A press or a release as the mouse's, for a finger's press where it landed and for the eraser end's: the tools' own
+  // code takes it as it takes a click.
+  const send = (type: "pointerdown" | "pointerup", id: number, x: number, y: number, pointerType: string) => {
+    passOn.current = true;
+    try { svg.current?.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, cancelable: true, pointerId: id, pointerType, isPrimary: true, button: 0, buttons: type === "pointerdown" ? 1 : 0 })); } finally { passOn.current = false; }
+  };
+  // A pen's or a finger's press stops as Escape stops it: nothing is drawn, the tool in hand comes back, and the
+  // selection is as it was before the press.
+  function cancelPress() {
+    const was = pressedFrom.current;
+    owner.current = undefined;
+    pressedFrom.current = undefined;
+    eraserPress.current = undefined;
+    stopHold();
+    setHolding(undefined);
+    markDrop(undefined);
+    if (panFrom.current) { panFrom.current = undefined; setPanning(false); }
+    if (spring) { setTool(spring); setSpring(undefined); }
+    setDrag(undefined);
+    if (was) { setSelection(was.selection); setPicked(was.picked); }
+  }
+  // What the gate says, done. e: the event it read (none for a timer, a blur or a lost pointer).
+  function follow(e: React.PointerEvent<SVGSVGElement> | undefined, acts: Act[]) {
+    let freed = false;
+    if (e && e.pointerId === owner.current) ownerSeen.current = performance.now();
+    for (const a of acts) {
+      switch (a.act) {
+        case "pass":
+          if (!e) break;
+          if (e.type === "pointerdown") {
+            if (!takePress(e.pointerId, freed)) break;
+            reach.current = REACH[pointerKind(e.pointerType)];
+            onPointerDown(e);
+          } else if (e.type === "pointermove") {
+            if (owner.current !== undefined && owner.current !== e.pointerId) break;
+            reach.current = REACH[pointerKind(e.pointerType)];
+            onPointerMove(e);
+          } else if (owner.current === e.pointerId) {
+            // The eraser end lifted before its press went in: the press goes in, then lets go.
+            if (eraserPress.current?.id === e.pointerId) { eraserPress.current.up = true; break; }
+            owner.current = undefined;
+            pressedFrom.current = undefined;
+            onPointerUp();
+          }
+          break;
+        case "press": {
+          if (!takePress(a.id, freed)) break;
+          reach.current = REACH.touch;
+          send("pointerdown", a.id, a.x, a.y, "touch");
+          const { id, x, y } = a;
+          if (a.tap) requestAnimationFrame(() => { if (owner.current !== id) return; owner.current = undefined; pressedFrom.current = undefined; send("pointerup", id, x, y, "touch"); });
+          break;
+        }
+        case "erase":
+          if (e && takePress(e.pointerId, freed)) eraseWith(e);
+          break;
+        case "cancel":
+          cancelPress();
+          freed = true;
+          break;
+        case "view":
+          stopCamera();
+          if (a.by === 1) setView((v) => ({ ...v, x: v.x + a.dx, y: v.y + a.dy }));
+          else zoomAt(a.x, a.y, a.by, a.dx, a.dy);
+          break;
+        case "ring":
+          setHolding((old) => ({ n: (old?.n ?? 0) + 1, x: a.x, y: a.y }));
+          break;
+        case "unring":
+          setHolding(undefined);
+          break;
+        case "menu":
+          openMenu(a.x, a.y);
+          break;
+        case "timer": {
+          const { key, n } = a;
+          clearTimeout(gateTimers.current[key]);
+          gateTimers.current[key] = window.setTimeout(() => followNow.current?.(undefined, gate.timer(key, n)), a.ms);
+          break;
+        }
+      }
+    }
+  }
+  const followNow = useRef<typeof follow>(undefined);
+  followNow.current = follow;
+  // The pen's eraser end: the Eraser for this stroke, and the tool in hand comes back when it lifts (release puts the
+  // spring back). The press goes in a frame later, once the Eraser is in hand, so the Eraser's own press runs: a tap
+  // removes what is under it, a rub all it crosses, in one undo step. The hold to Select is the mouse's and the pen
+  // tip's, not the eraser's.
+  function eraseWith(e: React.PointerEvent<SVGSVGElement>) {
+    reach.current = REACH.pen;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
+    if (tool !== "erase") { setSpring(spring ?? tool); setTool("erase"); }
+    const id = e.pointerId, x = e.clientX, y = e.clientY;
+    eraserPress.current = { id, x, y };
+    requestAnimationFrame(() => {
+      const was = eraserPress.current;
+      if (was?.id !== id || owner.current !== id) return;
+      eraserPress.current = undefined;
+      send("pointerdown", id, x, y, "pen");
+      stopHold();
+      if (was.up) requestAnimationFrame(() => { if (owner.current !== id) return; owner.current = undefined; pressedFrom.current = undefined; send("pointerup", id, x, y, "pen"); });
+    });
+  }
+  // The window lost the pen or the fingers (it went to the back): what they were doing stops.
+  useEffect(() => {
+    const lost = () => followNow.current?.(undefined, gate.reset());
+    addEventListener("blur", lost);
+    return () => { removeEventListener("blur", lost); for (const t of Object.values(gateTimers.current)) clearTimeout(t); };
+  }, [gate]);
+
   // The web view's own menu (Reload, Inspect) never shows: a right-click on the canvas opens the Actions menu, and text
   // fields keep the system's menu for cut, copy and paste.
   useEffect(() => {
@@ -9158,17 +9332,16 @@ export default function Editor() {
   // editor.css), so a zoom step does not lay out all the text again. When the zoom stops, the text is laid out for
   // the screen again and looks as it did before. The Mac's web view (WebKit) sends a trackpad pinch as gesture events
   // with the scale so far, not as Ctrl + scroll: they zoom the same way, and Ctrl + scroll waits while one goes on.
+  // Two fingers on a touch screen zoom by the same sum and the same limits, panning first (touch.ts viewAfter).
+  const pinchStop = useRef<number>(undefined);
+  const zoomAt = (x: number, y: number, by: number, dx = 0, dy = 0) => {
+    setView((v) => ({ ...viewAfter(v, { dx, dy, by, x, y }, clampZoom), pinch: true }));
+    clearTimeout(pinchStop.current);
+    pinchStop.current = window.setTimeout(() => setView((v) => (v.pinch ? { ...v, pinch: undefined } : v)), 150);
+  };
   useEffect(() => {
     const el = svg.current!;
-    let stop: number | undefined, pinched = 0;
-    const zoomAt = (x: number, y: number, by: number) => {
-      setView((v) => {
-        const zoom = clampZoom(v.zoom * by), k = zoom / v.zoom;
-        return { zoom, x: x - (x - v.x) * k, y: y - (y - v.y) * k, pinch: true };
-      });
-      clearTimeout(stop);
-      stop = window.setTimeout(() => setView((v) => (v.pinch ? { ...v, pinch: undefined } : v)), 150);
-    };
+    let pinched = 0;
     const onGesture = (e: Event) => {
       e.preventDefault();
       const g = e as Event & { scale: number; clientX: number; clientY: number };
@@ -9193,7 +9366,7 @@ export default function Editor() {
     const gestures = ["gesturestart", "gesturechange", "gestureend"];
     el.addEventListener("wheel", onWheel, { passive: false });
     for (const t of gestures) el.addEventListener(t, onGesture, { passive: false });
-    return () => { clearTimeout(stop); el.removeEventListener("wheel", onWheel); for (const t of gestures) el.removeEventListener(t, onGesture); };
+    return () => { clearTimeout(pinchStop.current); el.removeEventListener("wheel", onWheel); for (const t of gestures) el.removeEventListener(t, onGesture); };
   }, []);
 
   // Whether the focus came from the keyboard (Tab) or from a click. A click anywhere gives the keys back to the drawing.
@@ -10201,11 +10374,12 @@ export default function Editor() {
         } as React.CSSProperties}
         // Screen readers read the canvas through CanvasAccess, over it: each object, atom and bond on its own.
         aria-hidden
-        onPointerDown={onPointerDown}
+        onPointerDown={onDown}
         onContextMenu={onContextMenu}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onCancel}
+        onLostPointerCapture={(e) => { if (gated(e.pointerType) && e.pointerId === owner.current) follow(undefined, [...gate.reset(), { act: "cancel" }]); }}
         onPointerLeave={() => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); }}
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
