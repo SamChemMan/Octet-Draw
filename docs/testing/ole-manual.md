@@ -55,8 +55,9 @@ Written for Windows and type-checked, not run:
   compound file.
 - The object's picture (issue 166, decision 0023 "The object's picture"): `src-tauri/src/vector_plus_tests.rs`
   (`ole_plus_*`: GDI and GDI+ draw the EMF+ picture) and `ole_cache_keeps_the_plus_picture` in `ole_windows.rs`
-  (Windows' OLE cache keeps it). The job runs them with `--nocapture`: read what they print (the formats the cache
-  holds, whether GDI+ takes a large path continued over records).
+  (Windows' OLE cache keeps it). Check's smoke job runs them on every push, and the Office objects job on `main`, both
+  with `--nocapture`: read what they print (the formats the cache holds, whether GDI+ takes a large path continued over
+  records).
 - The container harness `src-tauri/tests/ole_container.rs` (`OleCreate`, `OleRun`, `DoVerb`, `OleSave`, `OleLoad`,
   hostile storages through the real server, the server ending), and the job "Office objects (Windows)" in
   `.github/workflows/platforms.yml`, which also installs and uninstalls the NSIS build silently and checks the keys.
@@ -202,6 +203,7 @@ Write down for each test: pass or fail, what you saw, and the time where a time 
       Update), close: now smooth. Open and close it with no change: the document is not changed (Word does not ask to
       save). _____
     - Settings > Import and export > Copy > Office object off: Ctrl+V gives a plain picture, smooth.
+    - A label in Hebrew (שלום) and one in Arabic (مرحبا): pasted, each shows as in Octet, the Arabic letters joined. _____
     - Open `smooth.docx` in Word for Mac: the picture shows, smooth. _____
 
 ## For Prof. Schramm: ChemDraw 25.5 side by side (Q7)

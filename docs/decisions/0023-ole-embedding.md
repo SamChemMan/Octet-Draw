@@ -113,9 +113,14 @@ Decision:
   where the GDI record puts it, in the same Windows font, so Word's Save as PDF and a printer get text. Text that is
   outlines in the GDI records is outlines in EMF+ too. A photo in the drawing goes through `EmfPlusGetDC` as its GDI
   records, so its pixels go in once.
+- Text in a right-to-left or joining script (U+0590 to U+08FF: Hebrew, Arabic, Syriac, Thaana, N'Ko and their
+  supplements; their presentation forms, U+FB1D to U+FDFF and U+FE70 to U+FEFF), or with a direction mark, is outlines
+  in every EMF, the GDI records too (`right_to_left` in `pick_runs`). usvg gives those glyphs in the order they show,
+  so GDI would order them again, and `EmfPlusDrawDriverString` would draw each Arabic letter on its own, not joined.
+  Outlines draw what the page drew. Latin, Greek and Cyrillic labels stay text, to the byte.
 - The EMF+ picture goes where Word draws an object: Copy with the object (`CF_ENHMETAFILE`, made on a thread beside
   the bitmap), and every picture the object window sends (at open, after each change, Update, Close and Return,
-  Word's Close, Quit). Every other EMF keeps its 1.1.2 bytes: Copy with Office object off or the class not registered
+  Word's Close, Quit). Every other EMF keeps its 1.1.2 bytes (but right-to-left text, above): Copy with Office object off or the class not registered
   (a test checks the CRC-32 of 1.1.2's copy), Export as EMF, Quick export, `--convert`, the AI apps' `read` with
   format emf, the Mac's copy for Office, and Linux. Paste reads the CDXML comment as before, in 1.2 and in 1.1.2.
 - ChemDraw: the pictures of ChemDraw for Windows objects in Word documents are EMF+ dual EMFs with anti-aliasing on
@@ -139,13 +144,15 @@ Proof. There is no Windows computer on the Mac where this was built.
   the end record last); every EMF+ shape and text checked against its GDI records (points within 1/20 pt, colours,
   pen widths, fonts, character positions); without its EMF+ comments the EMF is `make_emf`'s to the byte; the same
   input gives the same bytes; and the clipboard's other formats are unchanged.
-- Windows CI, the Office objects job (`cargo test --bin octet ole -- --nocapture`), each drawing into a DIB section
-  through a DC, as Word draws: `ole_plus_is_smooth` (GDI+ anti-aliases the object's picture and not the GDI-only one),
+- Windows CI on every push: Check's smoke job runs `cargo test --bin octet ole -- --nocapture` on its Windows machine
+  after the smoke run (`.github/workflows/check.yml`), and the Office objects job in `platforms.yml` runs it on `main`
+  and from Run workflow. The tests draw into a DIB section through a DC, as Word draws: `ole_plus_is_smooth` (GDI+ anti-aliases the object's picture and not the GDI-only one),
   `ole_plus_ink_box_and_gdi_pixels` (GDI+'s ink box is GDI's within 2 px; GDI draws the new EMF to 1.1.2's pixels),
   `ole_plus_photo` (a photo through `EmfPlusGetDC`, upright and turned), `ole_plus_fill_mode`, `ole_plus_large_path`,
   `ole_cache_keeps_the_plus_picture` (Windows' OLE cache, filled from the flushed clipboard as `OleCreateFromData`
   fills it, keeps the EMF+ bytes through a save and a load, and prints what it cached), `ole_plus_labels` and
-  `ole_plus_zoom` (0.25 to 40 px a pt). Not run yet: Sam runs Actions > Windows and Linux > Run workflow.
+  `ole_plus_zoom` (0.25 to 40 px a pt), and `ole_stress_gdiplus_draws_every_drawing` (every stress drawing, its ink box
+  GDI's). Not run yet: they run on the next push.
 - Where MS-EMFPLUS is silent, a CI test decides. Fill mode: a nonzero fill sets `PathPointFlags` bit 0x2000, as GDI+
   writes a path with winding fill (`ole_plus_fill_mode`). It matters: Octet's bond outlines overlap a little where
   bonds meet, and drawn even-odd, 42 of L-proline's 4,918 ink pixels at 4 px a pt would be white. Size: a 500-residue peptide's bonds are one path object of
