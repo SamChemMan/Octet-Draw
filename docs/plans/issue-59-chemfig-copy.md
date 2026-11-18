@@ -2,313 +2,359 @@
 
 Branch `item/59-chemfig-copy`, from `release-1.2-mcp` b30f413. For release 1.2 (Friday 20 November 2026).
 
+Revision 2, 18 November 2026. The first plan (83aec72) was built in fd3846e, 0313822, a1017d7 and d2a3660, with
+decision 0028. The stress run (963eac8) had 58 cases and 10 failed. This revision says what stands, what fails and
+why, the jobs left, and a stress list cut to 20 cases.
+
 The issue is konokonekonoko's. Their PR 127 (`feature/chemfig-export`, 926 lines of `src/chemfig.ts`) had features
-that Octet 1.1.2's own writer (124 lines) does not have. They reopened the issue on 15 November. This plan brings the
-best of PR 127 into Octet's writer and adds the copy command. PR 127 is under the repository's Apache-2.0 licence.
-Its code is the starting point for the parts below that name it, adapted to Octet's code and rules. The code header
-and the release notes credit konokonekonoko. The PR itself is left as it is (no comment, close or merge).
+that Octet 1.1.2's writer (124 lines) did not have. PR 127 is under the repository's Apache-2.0 licence. Its code was
+the starting point for the writer, adapted to Octet's code and rules. The code header, decision 0028 and the notes
+lines credit konokonekonoko. The PR is left as it is (no comment, close or merge).
 
-## What exists on the branch, and what is missing
+## What exists on the branch
 
-Exists:
+- `src/chemfig.ts` (585 lines). `chemfig(mol, style, measure, {compact})` (line 206) gives `{code, notice}`;
+  `toChemfig` (200) gives the code alone. Readable by default, compact on request. Ring syntax with circles and
+  nested ortho-fused rings where chemfig draws what the page has (`syntaxRings`, 141; `DEEPEST` = 8, 131). Labels
+  in their own bold, italic, underline, runs, scripts and colour (`group`, 236–284). Greek, signs and accents as TeX;
+  other characters left out and named (`texOf`, 52). Lone pairs, radicals, circled and partial charges and moved
+  signs from `render()`'s `electrons`, as `\charge` (`marks`, 288–310). Bond styles and colours as TikZ options;
+  hydrogen bonds dotted; wavy bonds add a comment line (`WAVY_NOTE`, 128). The notice (`chemfigNotice`, 552).
+  The writer reads `render()`'s output only. `render.ts` is not changed on this branch.
+- `src/Editor.tsx`: `chemfigOf` (1540), the one path for Export, Copy and the MCP. `exportChemfig` (1543) and
+  `copyChemfig` (1555). File > More Formats has "Copy as LaTeX (chemfig)" (`more_chemfig_copy`, `CodeBlock` icon,
+  2599) after Export LaTeX (chemfig)… (2598). The More Formats ids run only while More formats is on (2631). The
+  MCP's `fileText` takes `compact` (7829). `copyPlain` takes the notice text (7932); the copy event shows it (9318).
+- `src/Actions.tsx`: `copies` (347–348) puts Copy as LaTeX (chemfig) and Copy as SLN after Copy as InChIKey while
+  More formats is on, in the drawing (404), structure (420) and reaction (455) contexts and for an atom or bond that
+  is a whole molecule. The panel and the right-click menu get `more` from Editor.tsx (10923, 10949).
+- Settings > Pro > File menu > Compact chemfig code (off). `src/settings.ts` 85, 105, 160;
+  `src/SettingsWindow.tsx` 681. The row shows only while More formats is on.
+- MCP: `read` `{format: "chemfig", compact}` (`src/mcp.ts` 39, 601, 603: `compact` is an unlisted boolean).
+  `scripts/headless/host.ts` 237 calls the same writer.
+- `docs/decisions/0028-chemfig-code.md`.
+- Checks: `src/chemfig.check.ts` (635 lines: a strict chemfig grammar, a replay of chemfig's placing rules within
+  0.02 bond lengths, hostile text, Sam's local corpus, timing). `src/chemfigcopy-stress.check.ts` (1,005 lines: the
+  stress cases, a TeX-level reader `texLint`, and with `--ui` the app in WebKit in two windows).
+  `src/textformats.check.ts` and `src/headless.check.ts` cover the menu line and `read` with `compact`.
 
-- `src/chemfig.ts` (124 lines): `toChemfig(mol, style, measure)` writes one `\chemfig{…}` on one line. Bonds at the
-  page's angles and lengths (relative to the drawing's median bond, `d.scale / s.bond`, line 23), rings closed by
-  hooks (lines 92–101), double bonds on the page's side from `Drawing.sides` (line 69), wedges, triple bonds,
-  quadruple bonds as triple (line 70), charges, isotopes, stacked H (line 58), labels read as the page reads them
-  (lines 45–61), separate structures hung off the first by `draw=none` bonds (line 123). Label text is cut to
-  `[A-Za-z0-9'()+.,*-]` (line 11), so Greek, signs and styles are lost.
-- `src/Editor.tsx` 1537–1547: File > More Formats > Export LaTeX (chemfig)… saves the selection or the drawing as a
-  `.tex` file. The notice says "The file has only the structures." when the part has text, arrows, shapes or cycles.
-- `src/Editor.tsx` 2584–2593: the More Formats list. One line gives the menu item (`set_more_formats`, main.rs
-  366–380 and 728–733), the command palette entry (8056) and the Settings > Keys row. The list shows only while
-  Settings > Pro > More formats is on (2619, 3352).
-- `src/Editor.tsx` 7939–7960: Copy As (SMILES, InChI, InChIKey, CDXML text, MOL, MOL V2000, HELM, FASTA, and SLN from
-  More Formats), through `copyPlain` (7919).
-- `src/mcp.ts` 36 and 601: `read` with `format: "chemfig"` gives the code. `src/Editor.tsx` 7817 and
-  `scripts/headless/host.ts` 237 both call `toChemfig`.
-- `src-tauri/src/export.rs` 551, 579, 669: the `.tex` export type.
+Run on 18 November: `node src/chemfig.check.ts` passes (40 paclitaxels, 2,560 atoms, in 41 ms; a 500-residue
+peptide, 4,125 atoms, in 68 ms). `node src/chemfigcopy-stress.check.ts` passes 32 of 41 cases. The WebKit cases (U1
+to U16) passed in 963eac8; X12 failed there.
 
-Missing:
+## What is missing
 
-- (A) A command that copies the chemfig code to the clipboard. No `copy_chemfig` or `more_chemfig_copy` exists
-  anywhere (`grep -rn chemfig src src-tauri/src`).
-- (B) From PR 127: the readable layout (one atom a line, branches indented) and its Compact switch; chemfig's ring
-  syntax (`*6(…)`, `**6(…)` with a circle, fused rings nested); lone pairs, radicals, circled and partial charges at
-  the page's places; bold, dashed, hashed, wavy, dative, hydrogen and coloured bonds; label colour, bold, italic,
-  underline, runs and raised or lowered text; Greek and signs as LaTeX; a notice that names what the code leaves out;
-  a comment line when the code needs a TikZ library. Also from PR 127, and cut from this release (see Scope): reaction
-  schemes, `\chemmove` arrows, `\polymerdelim` brackets, `\chemname` names, atom and map numbers, R/S and E/Z labels.
+These fail, so the item is not done:
 
-The right-click menu and the Actions panel have Copy as SMILES, InChI and InChIKey only (`src/Actions.tsx` 398, 414,
-449). They have no More Formats command.
+| Case | What happens | Cause |
+| --- | --- | --- |
+| S30, X9 | Fe with III raised gives `Fe^{I}^{I}^{I}`; Fe with 2+ raised gives `Fe^{2}^{+}`. TeX stops: double superscript. | `group()` typesets each unit on its own and joins the results (`together[…] += t.text`, 268). |
+| X1 | NH₃⁺ typed, with a charge of +1, gives `NH_{3}^{+}^{+}`. | The sign is typeset apart and added after (`out + ch`, 271). |
+| X2 | CH with 2 lowered, then ₃, gives `CH_2_{3}`. | Same as S30, for lowered text. |
+| S28 | 5 of Sam's 61 corpus drawings give a double superscript or subscript. | S30 and X2. |
+| X3 | A coloured atom's lone pairs and dots are drawn as rings. | `.style={color=…}` (308) replaces chemfig's `fill=black`. |
+| X4 | A coloured ring's aromatic circle is black. | `**6(` takes no colour. |
+| X5 | Two bonded atoms on one spot (a ChemDraw file) give `-[:0,0]`. | The 0.01 floor is on hidden bonds only (356); a drawn bond's length (349) has none. |
+| X15 | A ladder of 300 ortho-fused rings nests 300 deep. pdfTeX stops at 255 grouping levels. | `DEEPEST` limits where a system starts, not how deep it nests. |
+| X12 | One drawing gives a Br radical's `\charge` at 98° from Copy in the app and at −87° from Octet with no window. | Not known yet (J17). |
+
+Also missing:
+
+- `chemfig.check.ts`'s validator passes code with a double script. Only the stress check's `texLint` finds it.
+- No TeX is installed on this Mac (`which pdflatex lualatex xelatex tectonic` finds none). No output has been
+  compiled.
+- The stress list is too long to review (31 S, 15 X and 16 U cases). This revision cuts it to 20.
+- The branch does not merge cleanly with `release-1.2-mcp` (`git merge-tree`, 18 November): two conflicts, both
+  small (J19).
 
 ## ChemDraw cross-check
 
-ChemDraw 26.1 has no chemfig or LaTeX output of any kind. Sources checked:
+ChemDraw 26.1 and 22.2 have no chemfig or LaTeX output. Sources checked:
 
 - `~/octet-research/notes/menus/live-menus.md` line 4: Edit > Copy As has SMILES, SLN, InChI, InChI Key, CDXML Text,
-  MOL Text, MOL V3000 Text, HELM, HELM natural analog (FASTA since 25.5), 3MF ball and stick, 3MF stick, PNG.
-- `~/octet-research/notes/chemdraw26-inventory.md` 396–405 (Edit > Copy As), 613 (right-click on a structure:
-  Molecule > Copy As >), 1254 (Possible Error in Drawing on copy and export: Stop, Ignore, Ignore All), 1258 (Save As
+  MOL Text, MOL V3000 Text, HELM, HELM natural analog, 3MF ball and stick, 3MF stick, PNG.
+- `~/octet-research/notes/chemdraw26-inventory.md` 396–410 (Edit > Copy As), 613 (right-click on a structure:
+  Molecule > Copy As), 1254 (Possible Error in Drawing on copy and export: Stop, Ignore, Ignore All), 1258 (Save As
   text formats take an end-of-line choice: CR, LF, CR+LF).
-- `~/octet-research/notes/help26/` (index and 175 pages), `chemdraw-release-notes.md`, `chemdraw-gaps.md`, `gaps.md`,
-  `chemdraw-hotkeys.md`: no LaTeX, TeX or chemfig. No key for any Copy As format but SMILES, CDXML, MOL and HELM.
-- `spec/`: no CDXML attribute applies. The code is not kept in any file.
+- `~/octet-research/notes/chemdraw-inventory.md` 28, 67, 204; `chemdraw-hotkeys.md` 203–207: keys only for Copy As
+  SMILES, CDXML, MOL and MOL V3000.
+- `~/octet-research/notes/help26/`, `chemdraw-release-notes.md`, `chemdraw-gaps.md`, `gaps.md`: no LaTeX, TeX or
+  chemfig.
+- `~/octet-research/notes/spec/`: no CDXML attribute applies. The code is not kept in any file.
 
-What follows for Octet:
+What follows:
 
 - No palette, Object, Curves, Color or Text menu option and no dialog applies. The sibling in ChemDraw is the Copy As
   family, so Copy as LaTeX (chemfig) behaves as Octet's Copy As commands do.
-- No default key (ChemDraw has none for this).
-- ChemDraw checks the structure before a copy. Octet's Copy As commands do not (Editor.tsx 2989–2996); plain Copy and
-  Export do, when Settings > General > Check when copying or exporting is on (7557, 9316). Copy as LaTeX (chemfig)
-  follows its Copy As siblings. Export LaTeX (chemfig)… keeps its check.
+- No default key.
+- Octet's Copy As commands do not check the structure first (ChemDraw's do). Copy as LaTeX (chemfig) follows Octet's
+  Copy As. Export LaTeX (chemfig)… keeps its check, as every export does.
 - ChemDraw's text exports take an end-of-line choice. Octet writes LF. TeX reads any line end, so no choice is added.
 
-chemfig facts used below are from the chemfig manual (CTAN `chemfig-en.pdf`, read 17 November 2026): `=^` and `=_`
-put a double bond's second line left or right of the drawing direction; spaces and line breaks between bonds and atoms
-are ignored; a ring that starts a molecule has its first atom at the south-west, is drawn anticlockwise, and its last
-side falls straight down onto the first atom; a ring after a bond is turned so the bond bisects its first and last
-sides; a plain `=` in a ring has its second line on the left (inside); `\charge` is in chemfig 1.5 (March 2020) and
-later; `#` and `\#` straight after a bond are chemfig's bond trimming; `\usetikzlibrary` goes in the preamble.
+chemfig facts used are from the chemfig manual and its source (`chemfig.tex`, CTAN, read 17 November 2026): `=^` and
+`=_` put a double bond's second line left or right; spaces and line breaks between bonds and atoms are ignored; ring
+placement at the start and after a bond; `\charge` (chemfig 1.5 and later) with its keys first; a dot's default
+`.style` is `{fill=black}` and a bar's `|style` is `{black,line width=0.4pt}`; a circled ring takes
+`**[start,end,tikz]n(`; each branch and ring opens a TeX group, and pdfTeX stops at 255 grouping levels.
 
 ## Rules every part keeps
 
-1. One writer. Copy, Export, MCP `read` in the app and in the headless host all call `toChemfig` with the same
-   inputs. The same drawing and setting give the same bytes everywhere.
-2. The code compiles in `\documentclass{article}\usepackage{chemfig}`, plus
-   `\usetikzlibrary{decorations.pathmorphing}` only when its first line asks for it. chemfig 1.5 or later is needed
-   for `\charge`. The manual does not say which version added `=^` and `=_`; 1.1.2 writes them already.
-3. The code is 7-bit ASCII. Braces balance. Text from a drawing reaches TeX only escaped or mapped to a known command.
-   A control sequence outside a fixed list never appears.
+1. One writer. Copy, Export and `read` (in the app and in Octet with no window) call `chemfig()` with the same
+   inputs. One drawing and one setting give the same bytes from Copy, Export and the app's `read`. (Octet with no
+   window: see J17.)
+2. The code compiles in `\documentclass{article}\usepackage{chemfig}` (chemfig 1.5 or later), plus
+   `\usetikzlibrary{decorations.pathmorphing}` only when its first line asks for it.
+3. The code is 7-bit ASCII. Braces balance. Text from a drawing reaches TeX only escaped or mapped to a command on a
+   fixed list. TeX finds no double script, no script without an argument and no line over 200,000 characters.
 4. Readable and compact code differ only in line breaks and tabs: the readable lines, trimmed and joined, are the
    compact code.
-5. Each atom drawn lands where the page has it: replayed by chemfig's rules, within 0.02 bond lengths.
+5. Each atom drawn lands where the page has it, replayed by chemfig's rules, within 0.02 bond lengths. No bond in the
+   code has a length under 0.01.
 6. Copy, Export and `read` change nothing in the drawing and add no undo step.
-7. Nothing on a hot path changes. `render.ts`, structure updates and input are untouched. The writer runs only on
+7. Nothing on a hot path changes. `render.ts`, structure updates and input are not touched. The writer runs only on
    Copy, Export and `read`.
-8. Loops are bounded: the walk is iterative and ring search goes at most 8 atoms deep. Bond by bond, branches nest
-   at most log2(atoms) deep. Ring syntax is used only for a ring system that starts no deeper than 8 levels (found in
-   at most two walks), so nesting stays under log2(atoms) + 8 + the levels of one fused system.
+8. Loops are bounded. The walk is iterative; ring search goes at most 8 atoms deep. Bond by bond, branches nest at
+   most log2(atoms) deep. A ring system in ring syntax starts at most 8 levels deep and nests at most 16 rings deep.
+   So any code nests at most log2(atoms) + 24 levels: 44 for a million atoms.
 9. UI text: British English, Simplified Technical English, Octet's own notice patterns. No tips or helper text.
-10. The UI command shows only while Settings > Pro > More formats is on. MCP `read` works always, as today.
+10. The UI command shows only while Settings > Pro > More formats is on. MCP `read` works always, as in 1.1.2.
 
 ## Design decisions
 
+D1 to D17 are built and stand. In short:
+
 | # | Decision | Reason |
 | --- | --- | --- |
-| D1 | File > More Formats > Copy as LaTeX (chemfig), id `more_chemfig_copy`, Phosphor `CodeBlock` icon, after Export LaTeX (chemfig)…. | Sam keeps rare formats in More Formats (issue comment, 9 November). ChemDraw has no chemfig, so Edit > Copy As keeps ChemDraw's list. Copy as SLN is there already. One line gives the menu on all three systems, the palette and Settings > Keys. `CodeBlock` is unused; `BracketsCurly` is the export's and HELM's. |
-| D2 | The Actions panel and right-click menu show Copy as LaTeX (chemfig) and Copy as SLN beside Copy as SMILES (contexts drawing, structure, reaction, and an atom or bond that is a whole molecule), only while More formats is on. They run the More Formats ids. | The item asks for it where the Copy As items are. Consistency: both More Formats copy commands go together. `runAction` runs a menu id first (Editor.tsx 8138). |
-| D3 | No default key. | ChemDraw has none. Never invent defaults. |
-| D4 | No structure check before the copy. | Its siblings (every Copy As) have none. |
-| D5 | Readable by default: one atom with its bond on each line, each branch's `(` and `)` on their own lines, a tab for each level; a ring's `*6(` ends its first atom's line and its sides go one level in. Settings > Pro > File menu > Compact chemfig code (off) writes one line. The row shows only while More formats is on. One setting for Copy, Export and MCP; MCP `read` can override it with `compact`. | konokonekonoko's request; PR 127's layout. One setting keeps the three outputs the same. Settings already hides rows by condition (SettingsWindow.tsx 544, 634). |
-| D6 | The writer starts from PR 127's `chemfig.ts`, cut to the scope below. It reads the page from `render()`'s output: which atoms show a label (`Drawing.label`), each mark's place (`Drawing.electrons` with its key), each double bond's side (`Drawing.sides`). PR 127's moves in `render.ts` (`markKinds`, `markAngles`, `stereoSpot`, `showsLabel`) are not made. | `render.ts` is the hot path, and fix/163 and fix/164 change its marks now. The page's own output gives exact places with no second copy of the rules, and fits those fixes: a label's charge sign moved by hand (fix/164) comes as an `electrons` entry keyed `charge`. |
-| D7 | The main chain is the largest subtree (1.1.2). | Nesting stays under log2(atoms), safe for TeX's grouping limit and for indents on a 4,000-atom drawing. PR 127's longest-chain rule can nest deeper. |
-| D8 | A bond names the atom of a label it leaves and meets whenever the label has more than one chemfig atom (1.1.2). | It never depends on chemfig's own choice, which PR 127 found flips near ±90°. It costs a few characters. |
-| D9 | Ring syntax only where chemfig draws what the page has: PR 127's rules (each ring regular, 3 to 8 atoms; rings joined only by one shared side, no atom in three rings, the joins a tree; fusion atoms have no bond out; each bond out points straight out from its ring's middle), with tighter limits so the replay holds (each atom within 1% of the ring's radius, corners within 0.5°, bonds out within 0.5°), and two more: no double bond in the system is centred (inside is chemfig's `=`, outside its `=_`), unless the ring has a circle, and the system starts no deeper than 8 branches. Else bond by bond. | chemfig has no centred double bond in a ring. (Changed in the build: the plan had outside double bonds bond by bond, but the manual's `=_` puts a ring's second line outside, so a fused side's double bond can be in either ring.) Each ring after another ring's atom is a branch inside it, so a row of 100 phenylenes would nest 200 deep; bond by bond keeps the log2 bound (D7). |
-| D10 | Text: TeX's special characters escaped (`\#`, `\$`, `\%`, `\&`, `\_`, `\{`, `\}`, `\backslash`, `\sim`, `\hat{}`), Greek by TeX's names (`escapes.ts`; capitals TeX has no command for become their Latin letters), signs from a table, accented Latin letters with TeX accents in an `\mbox`. Any other character is left out and the notice names it. Text with chemfig's own characters (`-=~<>()[]*?!@|,`) or `\#` goes in braces. | Rule 3. A hostile label cannot add a command. ASCII compiles with any engine and any input encoding. |
-| D11 | Colour: an atom's colour on its label and marks (`\color[RGB]{r,g,b}`), a bond's as a TikZ `color=`. Black and no colour write nothing. | Every object takes a colour. The code follows the document's colours, never the screen's theme. |
-| D12 | Bond styles as TikZ options in chemfig's fifth bond field: bold (line width), dashed, hashed (dash pattern), wavy (snake; the code's first line says `% Add \usetikzlibrary{decorations.pathmorphing} to the preamble for the wavy bonds.`), dative (an arrow tip), hydrogen bond (dotted; 1.1.2 leaves it out). | PR 127's mapping. The manual puts `\usetikzlibrary` in the preamble, so the code cannot load it. |
-| D13 | Notice after a copy or save: "Copied." or "Saved name.tex.", then "The code does not have the arrows, text and highlights." (kinds in a fixed order, plural nouns, no counts), then, if it applies, "It shows quadruple bonds as triple bonds." Characters left out: "…does not have the characters ★ and 中." It replaces "The file has only the structures." | The user knows what to add by hand. Short and plain. |
-| D14 | Captions read as chemistry are not in the code (as 1.1.2's export). | chemfig code is a drawing. A formula with no arrow beside it has no place. The notice names the text. |
-| D15 | MCP: `read` keeps format `chemfig`. It gets an unlisted `compact` boolean, as pictures have `dpi`. The description changes by one clause. No `run_command` id. | Another session reviews `mcp.ts`, so the change stays small. `copy_*` commands are not in the catalogue: `read` gives the code. |
-| D16 | No TeX is installed on this Mac (`which pdflatex lualatex xelatex` finds none; `mdfind` finds no chemfig). `chemfig.check.ts` holds a strict validator and a replay of the geometry. With `CHEMFIG_TEX=<path>` it writes every check's code into one LaTeX file; when `pdflatex` is on the PATH it compiles that file and fails on any error. | The item says to compile when TeX exists and to validate strictly when not. The file lets Sam or a machine with TeX compile all of it at once. Installing TeX needs Sam's yes. |
-| D17 | A short decision record, `docs/decisions/00NN-chemfig-code.md`, numbered at the time with the next free number. | CLAUDE.md asks for one for a significant technical decision. Other items may take numbers this week. |
+| D1 | File > More Formats > Copy as LaTeX (chemfig), `more_chemfig_copy`, `CodeBlock`, after Export LaTeX (chemfig)…. | Sam keeps rare formats in More Formats (issue, 9 November). Edit > Copy As keeps ChemDraw's list. One line gives the menu on all three systems, the palette and Settings > Keys. |
+| D2 | With More formats on, the Actions panel and right-click menu show Copy as LaTeX (chemfig) and Copy as SLN after Copy as InChIKey, where Copy as SMILES is. | The item asks for it where the Copy As items are. Both More Formats copy commands go together. |
+| D3 | No default key. | ChemDraw has none. |
+| D4 | No structure check before the copy. | No Copy As command has one. |
+| D5 | Readable by default; Settings > Pro > Compact chemfig code writes one line; MCP `read` can override with `compact`. | konokonekonoko's request and PR 127's layout. One setting keeps three outputs the same. |
+| D6 | The writer reads `render()`'s output (labels, `electrons`, `sides`); PR 127's moves in `render.ts` are not made. | `render.ts` is the hot path, and fix/163 and fix/164 change its marks. |
+| D7 | The largest subtree is the main chain. | Nesting under log2(atoms). |
+| D8 | A bond names the label's atom it meets when the label has more than one chemfig atom. | chemfig's own choice flips near ±90°. |
+| D9 | Ring syntax only where the replay holds (regular to 1% and 0.5°, ortho-fused tree, radial bonds out, no centred double bond unless circled, start no deeper than 8). | chemfig has no centred double bond in a ring and draws only regular rings. |
+| D10 | Text escaped, Greek and signs mapped, accents in `\mbox`; other characters left out and named. | Rule 3. |
+| D11 | Atom colour on labels and marks (`\color[RGB]`), bond colour as TikZ `color=`. Black writes nothing. | Every object takes a colour. |
+| D12 | Bold, dashed, hashed, wavy, dative and hydrogen bonds as TikZ options. | PR 127's mapping. |
+| D13 | The notice names what the code leaves out, in a fixed order, and what it shows another way. | The user knows what to add by hand. |
+| D14 | Captions read as chemistry are not in the code. | chemfig code is a drawing. |
+| D15 | MCP: `read` keeps format `chemfig` with an unlisted `compact`. No `run_command` id. | `copy_*` commands are not in `MENU_COMMANDS` (mcp.ts 278); `read` gives the text. Small change while the MCP is in review. |
+| D16 | No TeX here: strict validators, plus `CHEMFIG_TEX=<path>`, which writes every check drawing's code into one LaTeX file and compiles it where `pdflatex` is on the PATH. | The item says to validate strictly when no TeX exists. |
+| D17 | Decision record 0028. | Significant technical decision. |
+
+New in this revision:
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D18 | Each chemfig atom's characters are typeset once: the label's units that make up that atom, then its charge sign, go to `typeset()` as one list. Raised characters side by side are one `^{…}` and lowered ones one `_{…}`. A base takes at most one lowered and one raised part; a third part starts on `{}` (`X_{1}^{+}{}_{2}`). A prime after a raised part goes in it as `\prime`. | TeX stops at a double script (S30, X1, X2, X9, S28). PR 127 wrote `Fe^{(III)}` as one group. Fixing where the text is built is smaller than repairing the joined text afterwards. |
+| D19 | A coloured atom's marks: `.style={fill=<colour>}` and `|style={<colour>,line width=0.4pt}`. | chemfig's defaults with the colour in place of black. `color=` alone leaves a dot hollow (X3). PR 127 used `fill`. |
+| D20 | A circled ring in a colour: `**[0,360,color=<colour>]n(`, the colour `render()` gives that circle. | The page draws the circle in a colour (render.ts 1642); the code follows the page (X4). |
+| D21 | Every bond in the code is at least 0.01 bond lengths long, drawn or hidden. | A bond of length 0 has no direction. 0313822 did this for hidden bonds only (X5). |
+| D22 | A ring system in ring syntax nests at most 16 rings deep. A deeper system is bond by bond, closed by hooks. | Rule 8 and pdfTeX's 255 grouping levels (X15). Ortho-fused systems in papers are a few rings long (hexacene has 6), so 16 leaves room. Peri-fused sheets such as coronene are bond by bond already (D9). |
+| D23 | X12 is found before it is fixed. If the two hosts' `render()` put the dot in different places (their text measuring differs), the code follows each host's own page, and rule 1 for Octet with no window reads "the same bytes except a mark's angle where its own page places the mark another way". Sam gets one line about the measuring difference; `render.ts` is outside this item. If the writer reads one page two ways, the writer is fixed. | Plan before code: find which requirement breaks before the patch. |
+| D24 | One TeX-level reader for both checks: `texLint` moves from the stress check to `scripts/chemfiglint.ts`, and `chemfig.check.ts` runs it on every output. | The grammar validator missed double scripts. One reader, not two. |
+| D25 | The stress check is regrouped under ST1 to ST20 below. Its sub-checks stay; those that only repeat `chemfig.check.ts` go. | A list a reviewer can read. Each case is one risk. |
+| D26 | The two merge conflicts with `release-1.2-mcp` are resolved this way: `exportChemfig` uses the new `exportAs(() => ({ format: "tex", tex: code }), (path) => notice ? … : undefined)`; the Editor import line keeps `chemfig` and adds `type ExportRequest`; `chemfig.check.ts` keeps both tails, with its Editor pattern changed to `chemfigOf`. The merge itself is done by the integration session or on Sam's go. | Upstream moved every export to `exportAs` (b56943a). This branch does not merge. |
 
 ## PR 127 against Octet 1.1.2, feature by feature
 
-| Feature | 1.1.2 | PR 127 | This plan |
+| Feature | 1.1.2 | PR 127 | This branch |
 | --- | --- | --- | --- |
-| Copy to the clipboard | no | Edit > Copy As | Yes (D1, D2) |
-| Readable layout, Compact switch | no | yes, readable default | Yes (D5) |
-| Ring syntax, circles, fused rings | hooks only | yes | Yes (D9) |
-| Bond styles and colours | wedges, double, triple | all | Yes (D12, D11) |
-| Hydrogen bonds | left out | dotted | Yes |
-| Lone pairs, radicals, circled and partial charges | skeletal charge only | yes | Yes, from the page's own places (D6) |
-| Label styles, runs, scripts, colour | no | yes | Yes |
-| Greek, signs, escaping | cut to a safe set | mapped, others left in | Mapped; others left out and named (D10) |
-| Notice of what is left out | one sentence, export only | detailed | Yes (D13) |
-| Comment for a TikZ library | no | yes | Yes, wavy only |
-| Multi-centre `*` | empty atom | `*` | As the page draws it (`Drawing.label`) |
-| Reaction schemes, `\chemmove` arrows, brackets, names, atom and map numbers, R/S and E/Z | no | yes | Cut (Scope) |
-| Export dialog switch | n/a | yes | No: chemfig export is a direct More Formats save |
+| Copy to the clipboard | no | Edit > Copy As | File > More Formats, Actions, right-click (D1, D2) |
+| Readable layout, Compact switch | no | readable default; switch in Settings > Files > Export | readable default; switch in Settings > Pro (D5) |
+| Ring syntax, circles, fused rings | hooks only | yes | yes (D9); circle colour (D20); depth cap (D22) |
+| Bond styles and colours | wedges, double, triple | all | all (D11, D12) |
+| Hydrogen bonds | left out | dotted | dotted |
+| Lone pairs, radicals, circled and partial charges | skeletal charge only | yes | from the page's places (D6); colour fill (D19) |
+| Label styles, runs, scripts, colour | no | yes | yes; scripts typeset once (D18) |
+| Greek, signs, escaping | cut to a safe set | mapped, others left in | mapped; others left out and named (D10) |
+| Notice of what is left out | one sentence, export only | detailed | detailed (D13) |
+| Comment for a TikZ library | no | yes | wavy bonds only |
+| Reaction schemes, `\chemmove`, `\polymerdelim`, `\chemname`, atom and map numbers, R/S and E/Z | no | yes | cut (Scope) |
 
 ## Jobs
 
 Each job is done when its checks in the acceptance list pass and `npm test` passes.
 
-- **J1 The command.** A `moreFormats` line "Copy as LaTeX (chemfig)" after Export LaTeX (chemfig)…. It copies
-  `chemfigOf(selectedPart() ?? doc)` with `copyPlain`. No structures: "There is no structure to copy." (info), and the
-  clipboard is left as it was. Done: the command is in File > More Formats on the Mac, Windows and Linux menus, the
-  palette and Settings > Keys while More formats is on, and in none of them while it is off. The copied text equals
-  the exported file's text without its last line break.
-- **J2 Right-click and Actions.** Copy as LaTeX (chemfig) and Copy as SLN as small items beside Copy as InChIKey,
-  kind `library`, in the contexts of D2, only while More formats is on. Done: present and working in the panel, the
-  right-click menu and the palette's action list with More formats on; absent with it off; `npm run look` reports no
-  `look:` line for them.
-- **J3 One writer path.** `chemfigOf(part, compact = settings.chemfigCompact)` in Editor.tsx for Copy, Export and MCP
-  `fileText`; `host.ts` the same with `compact` from the call. Done: one drawing gives the same bytes from Copy, Export,
-  MCP in the app and MCP headless.
-- **J4 Readable layout and Compact chemfig code.** `chemfigCompact` in Settings (default false, read as
-  `saved.chemfigCompact === true`). Row in Settings > Pro > File menu under More formats, shown only while More
-  formats is on. Done: rule 4 holds for every check drawing; the switch changes Copy, Export and `read`; it persists;
-  a second window follows it (the `storage` event, Editor.tsx 3130).
-- **J5 Ring syntax.** D9. Done: benzene `*6(`, a circled ring `**6(` with single sides, naphthalene, anthracene and
-  phenanthrene nested; pyrene, spiro and bridged systems, a slanted bond out, a fusion atom with a bond out, a ring
-  scaled to 150% and a ring with a centred double bond all bond by bond; a ring with an outside double bond in ring
-  syntax with `=_`; rings deeper than 8 branches bond by bond; the replay matches the page for each.
-- **J6 Bonds.** D11, D12, and type 4 (aromatic) as a double bond on the page's side. Done: each `Display` kind, a
-  hydrogen bond and a coloured bond give their TikZ options; a wavy bond adds the comment line; a quadruple bond, a
-  crossed double bond and a dashed double bond are named in the notice's second sentence.
-- **J7 Marks.** From `Drawing.electrons`: lone pairs (`\:`, or `\|` for bars), unpaired electrons (`\.`), a carbene's
-  pair, circled charges (`\oplus`, `\ominus`), partial charges (`\delta^{+}`), a skeletal carbon's sign, a label's
-  sign moved by hand; each `\charge` at the page's angle, in the atom's colour. A radical with a charge on a label
-  goes where the page draws it, with or without fix/163. Done: each angle within 1° of the page's.
-- **J8 Labels.** D10, the label's own bold, italic and underline, its runs, raised and lowered parts, colour. Done:
-  every hostile and Unicode case in the stress list passes the validator, and the output is ASCII.
-- **J9 Notice.** D13, for Copy and Export. Done: each kind the code leaves out is named once, in the fixed order; a
-  drawing with only structures gives "Copied." or "Saved name.tex." alone.
-- **J10 MCP.** D15. Done: `read` `{format: "chemfig"}` gives the setting's layout; `compact: true` and `false` give
-  one line and the readable code; `compact: "yes"` is refused by the schema; unknown ids and a part with no structure
-  give the present errors.
-- **J11 Tests, validator, timing.** `src/chemfig.check.ts` (validator, replay, hostile text, corpus, timing),
-  `src/textformats.check.ts` (the More Formats line), `src/headless.check.ts` (`read` with `compact`). Done: all pass
-  alone and in `npm test`.
-- **J12 Record and credit.** The decision record (D17). The code header credits konokonekonoko and PR 127. What's
-  New lines go back to the workflow, not into `src/releases.ts`.
+Built (J1 to J12, from revision 1). Status on 18 November:
 
-## The validator (in `src/chemfig.check.ts`)
+| Job | What | Done means | Status |
+| --- | --- | --- | --- |
+| J1 | The command in File > More Formats | In the menu on all three systems, the palette and Settings > Keys while More formats is on; in none while off. Copied text = exported file text without its last line break. | Done |
+| J2 | Right-click and Actions items | Present with More formats on, absent with it off; no `look:` line. | Done |
+| J3 | One writer path | One drawing gives the same bytes from Copy, Export, the app's `read` and Octet with no window. | Open: X12 (J17) |
+| J4 | Readable layout and Compact chemfig code | Rule 4 for every check drawing; the switch changes Copy, Export and `read`; it persists; a second window follows it. | Done |
+| J5 | Ring syntax | D9 cases in ring syntax or bond by bond as listed; replay within tolerance. | Open: X4 (J14), X15 (J16) |
+| J6 | Bonds | Each `Display` kind and colour as TikZ options; the notice names what shows another way. | Open: X5 (J15) |
+| J7 | Marks | Each `\charge` within 1° of the page's angle, in the atom's colour. | Open: X3 (J14) |
+| J8 | Labels | Every hostile and Unicode case valid; ASCII. | Open: S30, X1, X2, X9 (J13) |
+| J9 | Notice | Each left-out kind named once, in order; "Copied." alone for structures only. | Done |
+| J10 | MCP | `compact` true, false, absent; `"yes"` refused; errors as for other formats. | Done |
+| J11 | Tests, validator, timing | All pass alone and in `npm test`. | Open: the validator misses double scripts (J18) |
+| J12 | Decision record and credit | 0028; header credit; notes lines returned, not written. | Done |
 
-It reads the code as chemfig does and fails on anything chemfig would not take:
+Left to do:
 
-- Comment lines only at the top, only the known one. After them, `\chemfig{` … `}` once, nothing after it.
-- 7-bit ASCII. Braces balance overall and within each atom. `$` pairs within each atom.
-- A token grammar: an optional `[:θ]` first; then atoms, bonds `-`, `=`, `=^`, `=_`, `~`, `<`, `>`, `<:`, `>:`, `<|`,
-  `>|` with an optional `[angle,length,from,to,tikz]` (angle `:number`, length a positive number, from and to whole
-  numbers within the label's atoms), branches `(`…`)`, rings `*n(` and `**n(` (n from 3 to 8, n sides, a nested ring
-  n-1 sides), hooks `?[name]` and `?[name,{bond},tikz]` (each name exactly twice, the first plain).
-- Control sequences only from a fixed list: `\charge`, `\chemabove`, `\chembelow`, `\phantom`, `\mathrm`, `\mathbf`,
-  `\mathit`, `\underline`, `\mbox`, `\boldmath`, `\color`, `\scriptstyle`, `\oplus`, `\ominus`, `\delta`, `\.`, `\:`,
-  `\|`, TeX's Greek, the sign table, the accent commands and the escapes of D10.
-- `#` never outside braces.
-- Hooks: the atom written first carries the plain `?[n]` and the bond is drawn from it, so the writer finds the
-  written order first (one pass) and then writes the hooks (added in the build: a bond from a ring's branch back to a
-  later ring atom would otherwise put the bond's character on the hook chemfig reads as plain).
-- The replay: from chemfig's rules (absolute angles, length factors, a ring at the start with its first atom
-  south-west and its last side falling onto it, a ring after a bond turned so the bond bisects its first and last
-  sides, hooks), each atom's place, compared with the page's within 0.02 bond lengths.
+- **J13 Scripts typeset once (D18).** `group()` builds each chemfig atom's character list (its units, then its
+  sign) and calls `typeset()` once. `typeset()` merges neighbouring raised or lowered parts, starts a third part on
+  `{}`, and puts a prime into a raised part as `\prime`. Done: S30, X1, X2, X9 and the five corpus drawings in S28
+  pass `texLint`; the replay and every other check still pass; the same label typed with Unicode scripts and with
+  Text > Superscript gives the same code.
+- **J14 Colour on marks and circles (D19, D20).** Done: X3's dots are filled in the atom's colour and its bars keep
+  0.4 pt; X4's circle has the circle's colour from `render()`; an uncoloured or black drawing gives the same bytes as
+  before this job.
+- **J15 No bond under 0.01 (D21).** Done: X5 gives a bond of 0.01; no output of any check has a length field under
+  0.01.
+- **J16 Nesting cap (D22).** Done: X15's ladder is bond by bond past 16 rings and nests at most 8 + 16 + log2(atoms)
+  levels; naphthalene to a 16-ring ladder keep ring syntax; every check drawing nests within rule 8 (the check counts
+  the deepest `(` level).
+- **J17 Octet with no window and the app (D23).** First, record the dot's place in each host's `render()` output for
+  X12's drawing. Then fix the writer, or restate rule 1 and tell Sam about the measuring. Done: X12 passes under the
+  rule that holds, with the finding in the commit message.
+- **J18 One TeX-level reader (D24).** Done: `chemfig.check.ts` fails on a double script (shown by a check that feeds
+  it `Fe^{I}^{I}`); the stress check uses the same reader.
+- **J19 Stress check regrouped (D25), and merge notes (D26).** Done: the stress check reports ST1 to ST20 only;
+  `git merge-tree` against `origin/release-1.2-mcp` lists only the two known conflicts, and the plan's resolution is
+  in the hand-over to the integration session.
+
+## Siblings (consistency pillar)
+
+Where the command shows, and its siblings there:
+
+| Place | Siblings | Behaviour that must match |
+| --- | --- | --- |
+| File > More Formats (Mac, Windows, Linux menus) | Export LaTeX (chemfig)…, Copy as SLN, the other More Formats lines | Shown and run only while More formats is on. |
+| Command palette, Settings > Keys | Every menu command | One `moreFormats` line gives both. A key set by the user works; none by default. |
+| Actions panel, right-click menu | Copy as SMILES, Copy as InChI, Copy as InChIKey | Same contexts (drawing, structure, reaction, an atom or bond that is a whole molecule); small items; kind `library`; can be dragged and arranged as the others. |
+| Clipboard | Copy as SMILES, SLN, InChI, HELM, FASTA, CDXML text, MOL | Plain text through `copyPlain`; "Copied." notice; "There is no structure to copy." (info) with no structure; no undo step; works in the app and in a browser. |
+| Export | Export LaTeX (chemfig)… | The same code byte for byte; the same notice after "Saved name.tex.". |
+| MCP | `read` with the other formats | Same ids handling and errors. |
+
+What can be in the drawing, and what the code does with it:
+
+| Object | In the code |
+| --- | --- |
+| Atoms, labels (element, written, abbreviation, residue), isotopes, charges, hidden H, stacked H | Yes, as the page shows them. |
+| Bonds: single, double (each side), triple, quadruple (as triple), aromatic, wedges, hashes, bold, dashed, wavy, dative, hydrogen, crossed | Yes; the notice names what shows another way. |
+| Rings, aromatic circles, fused systems | Yes (D9, D20, D22). |
+| Lone pairs, bars, radicals, carbenes, circled and partial charges, signs moved by hand | Yes (D6, D19). |
+| Colour on atoms, labels, bonds, marks, circles; Colour by Element | Yes (D11, D19, D20). |
+| Rotated, flipped, scaled structures; grouped structures; structures in a cycle or on an experiment page | Yes, as drawn. |
+| Highlights (halo), ring fill, depth shading | No; named in the notice. |
+| Text, captions, arrows, shapes, brackets, cycles' arrows, reagent tables, charts, spectra, TLC plates, pictures, orbitals | No; named in the notice. |
+| Multi-centre and variable attachments, polymer beads | Atoms as the page draws them; attachment points and beads named. |
+
+Other sibling behaviours: dark mode and zoom never change the code; undo and redo are not touched by a copy; the
+same drawing after `.oct`, CDXML or CDX round trips gives the same code; Cmd+A then Copy as LaTeX (chemfig) codes
+every structure; a second window reads the shared setting.
+
+## MCP surface
+
+- `read` `{format: "chemfig", ids?, compact?}`. `compact` is an unlisted boolean, as `dpi` is; the description has one
+  clause for it. Without it, the user's setting.
+- Errors as for other formats: unknown ids give "There is nothing with the id …"; ids with no structure give "Octet
+  cannot write these as CHEMFIG."; an empty drawing gives "Octet cannot write this drawing as CHEMFIG.". A wrong
+  `compact` type is refused by the schema.
+- No `run_command` id: no Copy As command is in `MENU_COMMANDS`; `read` gives the AI app the text. Nothing else in
+  `mcp.ts` changes in this revision.
+- Read only: no undo step, no change; two AI sessions can read while either edits.
 
 ## Files
 
-| File | Change |
+| File | Change in this revision |
 | --- | --- |
-| `src/chemfig.ts` | The writer (about 650 lines): PR 127's ring syntax, letters, labels, marks and readable lines, cut to scope, reading `render()`'s output; `chemfigNotice(mol)` for D13. |
-| `src/chemfig.check.ts` | Extended (J11). |
-| `src/Editor.tsx` | `chemfigOf`; the `moreFormats` line; Export and Copy notices; `fileText` passes `compact`; the More formats flag to Actions. |
-| `src/Actions.tsx` | Two small items (D2), their `KIND_OF` entries, the More formats flag beside `online`. |
-| `src/settings.ts`, `src/SettingsWindow.tsx` | `chemfigCompact` and its row. |
-| `src/mcp.ts` | `compact` in `read`'s schema and `FileOptions`; one clause in the description. |
-| `scripts/headless/host.ts` | `compact` passed to the writer. |
-| `src/textformats.check.ts`, `src/headless.check.ts` | The new line; `read` with `compact`. |
-| `docs/decisions/00NN-chemfig-code.md` | D17. |
+| `src/chemfig.ts` | J13 to J17. |
+| `src/chemfig.check.ts` | J13 to J18 checks; runs the shared reader. |
+| `scripts/chemfiglint.ts` (new, checks only) | The TeX-level reader, moved from the stress check (J18). |
+| `src/chemfigcopy-stress.check.ts` | Regrouped to ST1 to ST20 (J19). |
+| `docs/decisions/0028-chemfig-code.md` | D18 to D23 added in short. |
 
-No Rust change: More Formats and the `.tex` export already take the new line and text. No new dependency.
+No Rust, UI, settings or MCP change in this revision. No new dependency.
 
 ## File formats
 
 | Format | Effect |
 | --- | --- |
-| `.oct`, CDXML, CDX | None. The code is never stored in a drawing. Round trips are unchanged. |
-| MOL, SDF, RXN, SMILES, InChI | None. |
-| Clipboard | Plain text only, the same type as Copy as SMILES. ASCII with LF line ends. |
-| `.tex` (Export LaTeX (chemfig)…) | Same type. Its text is readable by default; it was one line in 1.1.2. Both draw the same. |
-| Settings storage | New key `chemfigCompact`. Octet 1.1.2 does not read it; its loader keeps the other settings as they are. |
+| `.oct`, CDXML, CDX | None. The code is never kept in a drawing. Round trips are unchanged. |
+| MOL, SDF, RXN, SMILES, InChI, HELM, FASTA, SLN | None. |
+| Clipboard | Plain text, the type Copy as SMILES uses. ASCII with LF line ends. |
+| `.tex` (Export LaTeX (chemfig)…) | Readable by default (1.1.2 wrote one line). Both draw the same. |
+| Settings storage | New key `chemfigCompact`. Octet 1.1.2 keeps keys it does not know (X11), so the setting survives a run of 1.1.2. |
 
 Octet 1.1.2 opening a file from this build: no file type changes, so it opens every file as before. Octet opens no
-`.tex` file. ChemDraw has no chemfig reader; files ChemDraw opens (CDXML, CDX) do not change.
+`.tex` file. ChemDraw has no chemfig reader; the files ChemDraw opens (CDXML, CDX) do not change.
 
 ## Stress list
 
+Each case names the stress check's earlier ids it takes in. "Fails now" marks what this revision must fix.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| S1 | Empty drawing; a selection of only text and arrows; Copy as LaTeX (chemfig). | "There is no structure to copy." (info). The clipboard keeps what it had. Export: "There is nothing to export." MCP: "Octet cannot write this drawing as CHEMFIG." |
-| S2 | A lone atom: CH4, H2O, Na+, a lone ¹³C. | `\chemfig{CH_4}`, `H_2O` as 1.1.2, `Na^{+}`, the mass number in braces. Valid. |
-| S3 | 40 paclitaxels in a grid (about 2,500 drawn atoms). | Code in under 300 ms (median of 5, render and code, run alone) on Sam's Mac. Taxane rings bond by bond where not regular, phenyls in ring syntax. Nesting within rule 8. Valid; replay within tolerance. |
-| S4 | A 500-residue peptide drawn as atoms, then with Residue labels on. | Under 300 ms. Labels such as `{Ala}` braced, bonds on both sides meet them. Nesting within rule 8. Valid. |
-| S5 | A 1,000-atom chain; 300 separate salts in a list. | No stack overflow (iterative walk). Chain: depth 0, 1,000 lines. Salts: each hangs off the first at depth 1. Valid. |
-| S6 | A 30-membered macrocycle; a cyclic 500-mer. | Bond by bond with one hook. Ring search stops at 8 atoms, so time grows in line with size (growth check: 4 times the atoms, under 10 times the time). |
-| S7 | Hostile labels from a file: `\input{/etc/passwd}`, `}{`, `%`, `#`, `$`, `&`, `~`, `^`, `_`, `!@?*|`, a 10,000-character label, control characters. | Every special escaped or braced; no control sequence outside the list; ASCII; braces balance. The validator passes. |
-| S8 | Unicode labels: α, Δ, capital Alpha, ±, °, é, ü, ß, 中, an emoji. | `\alpha`, `\Delta`, `A`, `\pm`, `^{\circ}`, accents in `\mbox`; 中 and the emoji are left out and the notice names them. ASCII. |
-| S9 | Fused and odd rings: naphthalene, anthracene, phenanthrene; pyrene; spiro[4.5]decane; norbornane; a steroid with a slanted methyl. | Ring syntax nested for the first three. The others bond by bond. Replay within tolerance for all. |
-| S10 | One structure turned 17°, one flipped horizontally, one scaled to 150% among others at 100%. | Turned and flipped rings still in ring syntax (first ring turned with `[:θ]`); wedges as the page shows them. The 150% rings bond by bond with length 1.5. Replay within tolerance. |
-| S11 | The same drawing at 5% and 4,000% zoom, and in dark mode. | The same bytes as at 100% in light mode. |
-| S12 | Colours: coloured labels, bonds and marks; black set by hand; Colour by Element. | `\color[RGB]` on labels and marks, `color={rgb,255:…}` on bonds; black writes nothing; Colour by Element colours each label as the page does. |
-| S13 | Marks: two lone pairs, bars, a radical, a triplet carbene, a circled charge, δ+, a pair and a sign dragged round by hand. | Each `\charge` within 1° of the page's angle. Valid. |
-| S14 | A radical cation on a label (N•+), before and after fix/163 is merged. | The radical and sign where the page draws them. Valid either way. |
-| S15 | Wavy, bold, dashed, hashed, dative and hydrogen bonds; a quadruple bond; a crossed double bond; a dashed (delocalised) double bond. | TikZ options; the comment line for wavy; the notice says it shows quadruple bonds as triple bonds and the others differently. |
-| S16 | Hidden H (Toggle Hydrogen Display), Hide implicit H in the style, explicit H atoms. | Hidden H and its bond not written. H counts as the page shows them. |
-| S17 | Undo and redo: draw, copy, edit, copy, undo twice, copy, redo. | No undo step from a copy. The third copy equals the first. Redo still works. |
-| S18 | The command 50 times in one second (key held). | No error. The clipboard holds the code. One notice shows. The heap after is within 5% of before. |
-| S19 | Copy in window A, paste on window B's page and in a text box. | On the page: what pasting text that is not a structure does today; nothing new is drawn and nothing breaks. In a text box: the code as text. |
-| S20 | Compact switched on in window A, then Copy in window B. | Window B's copy is compact. |
-| S21 | MCP: `read` chemfig with `compact` true, false, `"yes"`; unknown ids; ids of only an arrow; the 40-paclitaxel drawing. | One line; readable; schema refusal; "There is nothing with the id …"; "Octet cannot write these as CHEMFIG."; code under the S3 budget. |
-| S22 | Two AI sessions: one reads chemfig while the other edits the drawing. | Each read gives the drawing as it was at that call. No change, no undo step, no error. |
-| S23 | A selection, then its atoms deleted by an AI session, then Copy as LaTeX (chemfig). | No error. The code of what is still selected, or "There is no structure to copy." |
-| S24 | Half a benzene ring selected. | Its atoms bond by bond (no ring syntax for a part of a ring). Valid. |
-| S25 | Two copies of a structure on the same spot. | The second hangs off the first by a `draw=none` bond of length 0. Valid. |
-| S26 | Ferrocene (multi-centre bonds), a variable attachment, a polymer bead. | Drawn as the page draws the atoms; the notice names attachment points and beads. Valid. |
-| S27 | More formats off: menu, palette, Actions, right-click, a shortcut set earlier. | The command is in none of them; the shortcut does nothing. MCP `read` still gives the code. |
-| S28 | Sam's corpus (68 ChemDraw 22.2 CDXML files, local only). | For each: no throw, the validator passes, the notice lists the other kinds. Skipped where the corpus is absent. |
-| S29 | One drawing saved as `.oct`, CDXML and CDX, and opened again. | The same code from each (CDXML and CDX within the 0.1° of their rounding). |
-| S30 | A label with bold, italic and raised and lowered runs, coloured. | Maths alphabets per run, scripts kept, colour on all of it. Valid. |
-| S31 | 100 para-phenylenes in a row; a dendrimer of rings. | The first rings in ring syntax, rings deeper than 8 branches bond by bond. Nesting within rule 8. Valid; replay within tolerance. |
+| ST1 | Nothing to code: an empty drawing; a selection of only text and arrows; a selection whose atoms an AI app deleted. (S1, S23, U1, U12) | "There is no structure to copy." (info); the clipboard keeps what it had. Export: "There is nothing to export." MCP: its "cannot write" error. |
+| ST2 | Lone atoms and salts: CH4, H2O, Na+, a lone ¹³C, 300 salts in a list. (S2, S5) | `\chemfig{CH_4}`, `H_2O`, `Na^{+}`, the mass number in braces; each salt one level down. Valid. |
+| ST3 | Big drawings: 40 paclitaxels; a 500-residue peptide as atoms and with residue labels; a page of 200 messy structures. (S3, S4, X6, U14) | Under 300 ms (median of 5, run alone) in Node; 15 paclitaxels under 300 ms in WebKit. Valid; replay within tolerance. |
+| ST4 | Long and deep: a 1,000-atom chain; a 30-ring; a cyclic 500-mer; 100 para-phenylenes; a dendrimer of rings; a ladder of 300 fused rings. (S5, S6, S31, X15) | No stack overflow. 4 times the atoms in under 10 times the time. Nesting within rule 8; never over 64. Fails now (ladder). |
+| ST5 | Hostile label text: `\input{/etc/passwd}`, `}{`, `%`, `#`, `$`, `&`, `~`, `^`, `_`, control characters, a 10,000-character label, a 60,000-character label in a ChemDraw file. (S7, X13) | Every special escaped or braced; no command outside the list; ASCII; no line over 200,000 characters. |
+| ST6 | Unicode labels: α, Δ, capital Alpha, ±, °, é, ü, ß, 中, an emoji. (S8) | TeX commands for the first eight; 中 and the emoji left out and named in the notice. ASCII. |
+| ST7 | Raised and lowered runs: Fe with III raised, Fe2+ and SO4 2- typed raised, R1', NH₃⁺ with a charge, CH with 2 lowered then ₃, OsCl3 • H2O, a label all raised; the same through MCP `read`. (S30, X1, X2, X9) | At most one raised and one lowered part on each base; `texLint` passes; the page's look kept. Fails now. |
+| ST8 | Rings: naphthalene, anthracene, phenanthrene; pyrene, spiro[4.5]decane, norbornane; a steroid with a slanted methyl; half a benzene selected. (S9, S24) | First three nested in ring syntax; the rest bond by bond. Replay within tolerance. |
+| ST9 | Turned 17°, flipped, scaled to 150% among structures at 100%. (S10) | Turned and flipped rings keep ring syntax; 150% rings bond by bond at length 1.5. Replay within tolerance. |
+| ST10 | Zoom at 5% and 4,000%, and dark mode. (S11, U6) | The same bytes as at 100% in light mode. |
+| ST11 | Colour: coloured labels, bonds and marks; a coloured aromatic ring with its circle; black set by hand; Colour by Element. (S12, X3, X4) | Labels and marks in `\color[RGB]`; filled dots; bars 0.4 pt; the circle coloured; black writes nothing. Fails now (dots, circle). |
+| ST12 | Marks: two lone pairs, bars, a radical, a triplet carbene, a circled charge, δ+, a pair and a sign dragged round by hand, N•+ on a label. (S13, S14) | Each `\charge` within 1° of the page's angle. Valid with and without fix/163. |
+| ST13 | Bonds: wavy, bold, dashed, hashed, dative, hydrogen; quadruple; crossed and dashed double; hidden H and Hide implicit H. (S15, S16) | TikZ options; the comment line for wavy; the notice's second sentence; hidden H not written. |
+| ST14 | Atoms on one spot: two copies of a structure; two bonded atoms from a ChemDraw file; ferrocene's η5 centre; a variable attachment; a polymer bead. (S25, X5, S26) | No bond under 0.01. Valid. The notice names attachment points and beads. Fails now (bonded atoms). |
+| ST15 | Hostile drawing data: duplicate and self bonds, charges of ±100, odd counts, colours and bond types, 1,000 lone pairs on one atom, 10,000 lone atoms. (X7) | No throw. Valid. |
+| ST16 | Undo and fast input: draw, copy, edit, copy, undo, copy, redo, copy; the command 50 times in one second. (S17, S18, U5, U7) | No undo step from a copy; the third copy equals the first, the fourth the second. 50 equal copies, one notice, no error. |
+| ST17 | Two windows: Compact set in window A, Copy in window B; code copied in A and pasted on B's page and in a text box; a large code pasted. (S19, S20, U9, U10, U15) | B's copy is compact. On the page: nothing drawn, the notice for text that is not a structure, answered within 2 s. In a text box: the code as text. |
+| ST18 | More formats off: menu, palette, Actions, right-click, a key set earlier. (S27, U11) | The command is in none of them; the key does nothing. MCP `read` still gives the code. |
+| ST19 | AI apps: `read` with `compact` true, false, absent and `"yes"`; format in other cases; ids empty, unknown, 501 of them, text only; one session reads while another edits; the same drawing read from Octet with no window and copied in the app. (S21, S22, X10, X12) | The code, or a plain refusal, never a throw. Reads change nothing. App and no-window bytes as J17 decides. Fails now (X12). |
+| ST20 | Round trips and other apps: `.oct`, CDXML and CDX; a drawing ChemDraw 22.2 saved again; Sam's 61 corpus drawings (local); Octet 1.1.2 run between two runs of this build. (S29, X14, S28, X11) | The same code within the files' rounding; ChemDraw's copy the same but mark angles; every corpus drawing valid; Compact chemfig code kept. Fails now (5 corpus drawings, from ST7). |
 
 ## Acceptance list
 
 | Check | Covers |
 | --- | --- |
-| `node src/chemfig.check.ts`: validator and replay on every drawing it builds | Rules 2–5, 8; J5–J8; S2, S5–S10, S13–S16, S24–S26, S29–S31 |
-| same, readable and compact of each drawing | Rule 4; J4 |
-| same, hostile and Unicode labels | Rule 3; J8; S7, S8 |
-| same, notice text | J9; S1, S8, S15, S26 |
-| same, timing (budget and growth, re-run alone before any timing failure counts) | S3–S6, S21 (time) |
-| same, corpus (local) | S28 |
-| same, `CHEMFIG_TEX` file; compiled when `pdflatex` exists | Rule 2 (blocked here: no TeX) |
-| `node src/textformats.check.ts` | J1 (the line, the icon, the gating) |
-| `node src/headless.check.ts` | J3, J10; S21 |
-| A node check of `actionItems` with the flag on and off | J2; S27 |
-| Dev server (port 1462), WebKit: Copy, then the clipboard read back; Settings > Pro row; Actions and right-click items; S11 (zoom, dark), S17, S18, S19, S20, S23 | J1, J2, J4 |
-| `npm run look -- http://localhost:1462/` and the console's `look:` lines | J2, J4 (controls match) |
+| `node src/chemfig.check.ts`: grammar, `texLint`, replay, rule 4, notice text, timing (re-run alone before a timing failure counts), corpus where present | Rules 2 to 5, 8; J4 to J9, J11, J13 to J16, J18; ST2, ST5 to ST9, ST11 to ST15, ST20 |
+| same, `CHEMFIG_TEX=<file>`; compiled when `pdflatex` exists | Rule 2. Blocked here: no TeX on this Mac. The file is kept for Sam. |
+| `node src/chemfigcopy-stress.check.ts` | ST1 to ST20, Node parts; J13 to J17, J19 |
+| `node src/chemfigcopy-stress.check.ts --ui http://localhost:1462/` (dev server: `npx vite --port 1462 --strictPort`) | J1, J2, J4; ST1, ST3, ST10, ST16 to ST19 in WebKit, two windows |
+| `node src/textformats.check.ts`, `node src/molecule.check.ts` | J1, J2; ST18 |
+| `node src/headless.check.ts` | J3, J10; ST19 |
+| `npm run look -- http://localhost:1462/` and the console's `look:` lines | J2, J4: the new items and the Settings row match their siblings |
+| `git merge-tree --write-tree HEAD origin/release-1.2-mcp` (no commit) | J19: only the two known conflicts |
 | `npm test` (full) | Everything |
 
 ## Scope
 
-In: J1 to J12.
+In: J13 to J19. J1 to J12 are built.
 
 Cut, with reasons:
 
-- Reaction schemes (`\schemestart`, `\arrow`, `\+`, conditions): need Octet's reaction reading shared by the app and
-  the headless host, a second layout system, and TeX to check. Not to standard by Friday.
-- `\chemmove` arrows and lines: need two LaTeX runs and node names; nothing here can compile them.
-- Brackets and polymer brackets (`\polymerdelim`): two LaTeX runs; same.
-- Names and compound numbers under structures (`\chemname*`): split the code into one `\chemfig` per named structure
-  and need caption ownership rules. After the core.
-- Atom numbers, map numbers, R/S and E/Z labels: need stereo labels from Indigo in both hosts. After the core.
-- The Export dialog's compact switch: Octet's chemfig export is a direct More Formats save; Settings has the switch.
-- An MCP note of what the code leaves out: keeps `mcp.ts` changes small during its review. The AI app can read the
-  other objects with `read`.
-- A pdfLaTeX or LuaLaTeX compile: no TeX on this Mac; installing one needs Sam's yes. The validator and the
-  `CHEMFIG_TEX` file stand in.
-- Check Structure before every Copy As: a change to all Copy As commands, outside this item.
+- Reaction schemes (`\schemestart`, `\arrow`, `\+`): need Octet's reaction reading in both hosts, a second layout
+  system and TeX to check. Not to standard by Friday.
+- `\chemmove` arrows, `\polymerdelim` brackets: need two LaTeX runs and node names; nothing here compiles them.
+- Names and compound numbers under structures (`\chemname`): split the code into one `\chemfig` per named structure
+  and need rules for which caption belongs to which structure.
+- Atom numbers, map numbers, R/S and E/Z labels: need stereo labels from Indigo in both hosts.
+- A compact switch in the Export dialog: Octet's chemfig export is a direct More Formats save; Settings has the
+  switch.
+- An MCP note of what the code leaves out: keeps `mcp.ts` small during its review. `read` gives the other objects.
+- A LaTeX compile: no TeX on this Mac. Installing one is a large download and needs Sam's yes.
+- A structure check before every Copy As: a change to all Copy As commands, outside this item.
 - Reading chemfig code into Octet.
+- Making `render()` measure text the same way in the app and in Octet with no window, if J17 finds that is the cause
+  of X12: `render.ts` is the hot path and outside this item. Sam gets the finding.
+- Merging `release-1.2-mcp` into this branch: the integration session does it, or Sam says when.
+- Stress cases past the 20 above.
 
-## What's New (draft; final lines go back to the workflow)
+## What's New (draft; the final lines go back to the workflow)
 
-- To copy the structures as LaTeX chemfig code, choose File > More Formats > Copy as LaTeX (chemfig). With More
-  formats on, the right-click menu and the Actions panel also have it, and Copy as SLN.
-- When you copy or export chemfig code, Octet writes one atom on each line and indents each branch. To write it on
-  one line, set Settings > Pro > Compact chemfig code to on.
-- chemfig code keeps rings in chemfig's ring syntax with their circles, lone pairs, radicals, partial charges, bold,
-  dashed, wavy, dative and hydrogen bonds, colours, and label styles. The notice names what the code does not have.
-  Much of this is from konokonekonoko's PR 127.
+- To copy structures as LaTeX chemfig code, choose File > More Formats > Copy as LaTeX (chemfig). When More formats
+  is on, the right-click menu and the Actions panel also show Copy as LaTeX (chemfig) and Copy as SLN.
+- When you copy or export chemfig code, Octet writes one atom on each line and indents each branch. To write the code
+  on one line, set Settings > Pro > Compact chemfig code to on.
+- When you copy or export chemfig code, Octet writes rings in chemfig's ring syntax and keeps aromatic circles, lone
+  pairs, radicals, partial charges, bond styles, colours and label styles. The notice tells you what the code does
+  not have. Much of this work is from konokonekonoko (PR 127).
