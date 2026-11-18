@@ -15,6 +15,12 @@ use crate::MAX_BYTES;
 static NEXT: AtomicU64 = AtomicU64::new(1);
 // The last of Octet's windows in front, for menu commands while another window (Reaxys) is in front.
 static LAST: Mutex<String> = Mutex::new(String::new());
+// The window in front when Cascade or Tile started (arrange.rs). While the windows move, menu commands and an AI
+// app's first call still go to it, and a window that is moved or raised does not count as coming to the front.
+static HOLD: Mutex<Option<String>> = Mutex::new(None);
+pub fn hold(label: Option<String>) {
+    *HOLD.lock().unwrap() = label;
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Info {
@@ -45,7 +51,7 @@ pub fn ours(label: &str) -> bool {
 
 // A window came to the front: the Window menu ticks it. On the Mac, its menu bar goes on the app.
 pub fn focused(app: &AppHandle, label: &str) {
-    if ours(label) {
+    if ours(label) && HOLD.lock().unwrap().is_none() {
         *LAST.lock().unwrap() = label.into();
         menus(app);
         #[cfg(target_os = "macos")]
@@ -98,6 +104,9 @@ fn bar(app: &AppHandle) -> tauri::Result<()> {
 // The window that gets menu commands: the one in front, else the last of Octet's in front, else Home, else the
 // oldest drawing window.
 pub fn front(app: &AppHandle) -> Option<String> {
+    if let Some(held) = HOLD.lock().unwrap().clone().filter(|l| app.get_webview_window(l).is_some()) {
+        return Some(held);
+    }
     let windows = app.webview_windows();
     let mut labels: Vec<&String> = windows.keys().filter(|l| ours(l)).collect();
     labels.sort_by_key(|l| (l.as_str() != "main", l.trim_start_matches("draw-").parse::<u64>().unwrap_or(0)));
@@ -117,9 +126,10 @@ fn changed(app: &AppHandle) {
 }
 
 // Windows and Linux: the Window menu lists the open drawings (Home's list), the one in front ticked, after Minimize on
-// Windows (GTK has no Minimize). On the Mac the system lists the windows (set_bar in main.rs).
+// Windows (GTK has no Minimize) and Cascade and the Tiles (Windows, and Linux under X11). On the Mac the system lists
+// the windows (set_bar in main.rs).
 pub fn list(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<()> {
-    let fixed = usize::from(cfg!(windows));
+    let fixed = fixed(cfg!(windows), crate::arrange::places_windows());
     for _ in fixed..menu.items()?.len() {
         menu.remove_at(fixed)?;
     }
@@ -128,12 +138,28 @@ pub fn list(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<()> {
     if fixed > 0 && !items.is_empty() {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
-    // On Linux, with no drawing open, the menu is dimmed.
+    // With no drawing open, Cascade and the Tiles are dimmed; on Linux under Wayland, the whole menu.
     menu.set_enabled(fixed > 0 || !items.is_empty())?;
+    for item in menu.items()?.iter().filter_map(|i| i.as_menuitem().cloned()) {
+        if crate::arrange::ITEMS.iter().any(|(id, _)| item.id() == id) {
+            item.set_enabled(!items.is_empty())?;
+        }
+    }
     for (id, title, ticked) in items {
         menu.append(&CheckMenuItem::with_id(app, id, title, true, ticked, None::<&str>)?)?;
     }
     Ok(())
+}
+
+// The Window menu's items before the drawings: Minimize (Windows), then a line and Cascade and the Tiles where Octet
+// places windows (a line only after Minimize).
+fn fixed(windows: bool, places: bool) -> usize {
+    usize::from(windows) + if places { 3 + usize::from(windows) } else { 0 }
+}
+
+// The drawings the Window menu lists, in its order: Cascade and Tile arrange these.
+pub fn listed(app: &AppHandle) -> Vec<String> {
+    app.state::<Windows>().open.lock().unwrap().iter().map(|i| i.label.clone()).collect()
 }
 
 // Each drawing's item: its id, its window's title (as the page sets it) and whether its window is in front. An & in a
@@ -454,6 +480,15 @@ mod tests {
         assert_eq!(entries(&open, Some("draw-2")), [item("window_main", "Aspirin", false), item("window_draw-2", "R&&D route (edited)", true)]);
         assert!(entries(&open, Some("draw-5")).iter().all(|e| !e.2), "a window not on the list is not ticked");
         assert!(entries(&[], Some("main")).is_empty());
+    }
+
+    // The Window menu's fixed items before the drawings: 5 on Windows, 3 on Linux under X11, none under Wayland.
+    #[test]
+    fn the_window_menu_keeps_its_own_items() {
+        assert_eq!(fixed(true, true), 5);
+        assert_eq!(fixed(false, true), 3);
+        assert_eq!(fixed(false, false), 0);
+        assert_eq!(fixed(true, false), 1);
     }
 
     // Closing the last drawing window opens Home; with Home or another drawing window open, nothing opens.
