@@ -1,5 +1,5 @@
 // Loads a page in a WKWebView (the engine the Mac app runs in), runs a script in it and prints what the script
-// returns. scripts/look.mjs runs it: swift scripts/look/webkit.swift <url> <script.js>. The window is on screen but
+// returns. scripts/look.mjs runs it: swift scripts/look/webkit.swift <url> <script.js> [seconds]. The window is on screen but
 // clear and takes no clicks, so the page lays out and animates as it does in the app.
 import WebKit
 import AppKit
@@ -47,5 +47,7 @@ nav = Nav {
 }
 web.navigationDelegate = nav
 web.load(URLRequest(url: url))
-DispatchQueue.main.asyncAfter(deadline: .now() + 180) { print("TIMEOUT"); exit(2) }
+// The run stops after 180 s, or after the seconds given as a third argument.
+let limit = args.count >= 4 ? Double(args[3]) ?? 180 : 180
+DispatchQueue.main.asyncAfter(deadline: .now() + limit) { print("TIMEOUT"); exit(2) }
 app.run()

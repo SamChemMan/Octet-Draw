@@ -3,7 +3,8 @@
 // offer, every Settings page, the command palette, a Jablonski diagram with a level and a transition picked) and lets
 // the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
-// a new panel, dialog or page.
+// a new panel, dialog or page. ?look-pointer=coarse measures it as a tablet with its keyboard off shows it (main.tsx),
+// and ?look-theme=dark in the dark theme.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (find, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
 const out = { engine: navigator.userAgent.replace(/^.*\) /, ""), reached: [], missed: [] };
@@ -19,11 +20,17 @@ const button = (text) => [...document.querySelectorAll("button")].find((b) => b.
 const labelled = (label) => document.querySelector(`[aria-label="${label}"]`);
 
 await until(() => document.querySelector(".home, .editor"));
+const params = new URLSearchParams(location.search);
+if (params.get("look-pointer")) document.documentElement.dataset.pointer = params.get("look-pointer");
+if (params.get("look-theme")) document.documentElement.dataset.theme = params.get("look-theme");
 await wait(1200);
 if (button("Skip")) await measure("the welcome page"); // the first run only
 button("Skip")?.click();
 await wait(900);
 await measure("Home", !!document.querySelector(".home"));
+// A pinch on Home never zooms the window (the root's touch-action; touch-action is not inherited, so it is the chain).
+const pinchable = (el) => { for (let a = el; a; a = a.parentElement) { const t = getComputedStyle(a).touchAction; if (t === "none" || (t !== "auto" && t !== "manipulation" && !t.includes("pinch-zoom"))) return false; } return true; };
+if ([...document.querySelectorAll(".home *")].some(pinchable)) out.missed.push("Home without a pinch that zooms the window");
 document.querySelector(".home-tile.new")?.click();
 await measure("a new drawing", !!(await until(() => document.querySelector(".actions .action"))));
 [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();
