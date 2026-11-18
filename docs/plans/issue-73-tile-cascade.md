@@ -1,7 +1,7 @@
 # Tile and Cascade for drawing windows (issue 73)
 
-Plan for release 1.2, 18 November 2026. Status: draft for Sam's review. Branch `item/73-tile-cascade` from
-`release-1.2-mcp` 515ed13. Nothing is built yet.
+Plan for release 1.2, 18 November 2026. Status: built on branch `item/73-tile-cascade` (from `release-1.2-mcp`
+515ed13), for Sam's review. Not merged. The Mac real run changed one rule (R5, the grain): see "Real runs".
 
 ## What Octet has now (515ed13)
 
@@ -116,7 +116,10 @@ Each job ends with what "done" means.
 - **R5 Pixels and scale.** All maths in the target monitor's physical pixels. A window's frame (title bar, borders,
   menu bar) is measured at its own scale and scaled to the target's. Each window is moved, then sized, then moved
   again (a window that changes monitor scale is resized by the system between the first two). Size is set once, so a
-  page renders once for its new size.
+  page renders once for its new size. The grain: Windows places and sizes windows by the pixel, but macOS and GTK do it
+  by the point, which is a whole number of pixels at their whole-number scales. There, every edge inside the work area
+  falls on a whole point, so each window lands exactly where the maths says. (Added after the Mac real run: at 200%,
+  windows the maths put on an odd pixel landed one pixel off, because macOS rounds to a whole point.)
 - **R6 Order.** The window in front takes the first tile (top left) and the last cascade place (on top). The rest
   follow in Window menu order. The stacking follows the cascade, without making each window active: Windows uses
   `SetWindowPos` with `HWND_TOP` and `SWP_NOACTIVATE`; Linux raises each GDK window on the main thread.
@@ -153,7 +156,7 @@ Each job ends with what "done" means.
 - **Tile grid.** For n windows: r = floor(sqrt n) rows, c = floor(n / r) columns, and the last n - r·c columns take
   one window more. Side by Side fills column by column; Top to Bottom is the same grid turned (rows of windows, filled
   row by row). Two windows: two columns, or two rows. Three: three. Five: columns of 2 and 3. Every edge falls on a
-  whole pixel and the tiles cover the work area with no gap. This is the usual Windows tiling shape, written from the
+  whole pixel (a whole point on macOS and GTK, R5) and the tiles cover the work area with no gap. This is the usual Windows tiling shape, written from the
   rule above.
 - **Cascade.** Step d = the title bar height on the target monitor, at least 28 logical px (Octet's new-window offset).
   m = the most windows in one run that keep each window at least half the work area and at least the minimum, at
@@ -257,7 +260,11 @@ Rust (`src-tauri/src/arrange.rs`, `cargo test` with `CARGO_TARGET_DIR=.../cargo-
 - Work areas at (-2560, -1440) and (-1920, 0): every frame inside (case 8).
 - A window measured at scale 2 placed on a monitor at scale 1, and the other way: frame and inset scaled, inner size
   = tile less the scaled frame, inner size at least ceil(800·s) x ceil(620·s).
-- 100 000 x 100 000 work area, scale 0 and NaN (taken as 1): no panic, no overflow (case 11).
+- 100 000 x 100 000 work area, scale 0 and NaN (taken as 1), a window scale near 0, a grain of 0 or less: no panic, no
+  overflow (case 11).
+- The grain (R5): 1 on Windows and at scales that are not whole numbers, else the scale. On a 200% Mac work area, for
+  1 to 40 windows and every mode, every place and size is a whole point, inside the work area, and the tiles still
+  cover a large work area with no gap or overlap.
 - The fixed count before the drawing list: 5, 3, 0 (R9).
 - The three ids: none starts with `window_` or `arrange_` (R10).
 - The windows picked are the Window menu's list, so a label such as `reaxys` is never picked (case 7).
@@ -294,6 +301,33 @@ after Tile, typing in a label during Tile, and a drawing opened, a drawing close
 (case 13). The harness makes the AI app's moves with the same Tauri commands the MCP uses, without starting the MCP
 server, so nothing touches the port of Sam's MCP Beta app. Then every window closed, the build stopped, and `ps`
 checked for anything started from the worktree.
+
+Results, 18 November (dev build `io.github.samchemman.octet-draw.g73test`, MacBook Pro 14-inch at 200%, work area
+3024 x 1776 at (0, 66) physical pixels):
+
+- First run (52 arrangements of 2, 5 and 12 drawings, 5 rounds each mode, plus the special cases): Tauri read 297 of
+  326 windows back at the maths' place and size. The other 29 were each one pixel off, where the maths gave an odd
+  pixel (423 at 200% is 211.5 points; macOS put the window at 212). This led to the grain in R5.
+- Second run, with the grain (30 arrangements of 2, 5 and 12 drawings, the first two holding ten paclitaxels and one
+  paclitaxel): Tauri read 178 of 178 windows back at the maths' place and size. The window server showed every window
+  exactly where the maths says in 29 of 30 arrangements (in 7 of them the whole app was mid-slide between Spaces, by
+  the same offset for every window, Home included). The 30th was the first of the held-key pair, replaced 2 ms later
+  by the one asked for last, before the window server's next look.
+- Minimised: stays minimised and is not counted (4 of 5 arranged). Zoomed: restored, then arranged. Home in front:
+  Home does not move, and the first drawing gets the focus. `explode`, `5` and no `how`: refused, nothing moves. A
+  held key (nine requests at once): two arrangements ran, the first and the last asked for. A drawing closed during
+  Cascade: skipped, no error. A drawing opened during Tile: not moved; it opened 28 pt right of and below the window
+  in front.
+- Files (case 20): `.oct`, CDXML and CDX of the drawing with ten paclitaxels, read before and after Tile Side by Side,
+  have the same length and the same hash. Titles kept no Edited mark.
+- Renders (case 17): no window had more resize events than size changes. A covered window gets its resize event late
+  (WebKit slows a covered page), so the counts cross the read-back points, but the totals match.
+- Time of `arrange_windows` (median of 3, modes interleaved, second run): 2 drawings 5 to 13 ms, 5 drawings 13 to
+  36 ms, 12 drawings 7 to 47 ms. The first run (median of 5, drawings holding ethanol) gave the same range, so the time
+  does not depend on the drawings.
+- Not run on the Mac: typing in a label, Document Settings open and an AI app's first call during an arrangement. The
+  harness cannot type or open a dialog in another window without driving the screen. The arrangement calls nothing in
+  the page (the check file reads the one call), and a resize while typing or over a dialog is a resize by hand.
 
 Windows: nothing can run here. The type check proves it builds. Sam's checklist (Windows 11 in UTM; Prof. Schramm has
 Windows 11 x64 and can try two monitors):

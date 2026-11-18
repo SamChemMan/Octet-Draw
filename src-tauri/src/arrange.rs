@@ -68,9 +68,9 @@ pub struct Place {
     pub h: i64,
 }
 
-// A scale the system gave, or 1 if it makes no sense.
+// A scale the system gave, or 1 if it makes no sense (none is under 10% or over 1600%).
 fn sane(scale: f64) -> f64 {
-    if scale.is_finite() && scale > 0.0 {
+    if scale.is_finite() && scale >= 0.1 {
         scale.min(16.0)
     } else {
         1.0
@@ -99,15 +99,29 @@ fn place(f: &Fit, x: i64, y: i64, w: i64, h: i64) -> Place {
     Place { x: x - f.hidden.0, y: y - f.hidden.1, w: w - f.chrome.0, h: h - f.chrome.1 }
 }
 
+// The step the system places and sizes windows by, in physical pixels: Windows places them by the pixel; macOS and GTK
+// by the point, which is a whole number of pixels at their whole-number scales (at 200%, an odd pixel is rounded).
+pub fn grain(scale: f64, by_pixel: bool) -> i64 {
+    let s = sane(scale);
+    if by_pixel || s.fract() != 0.0 {
+        1
+    } else {
+        s as i64
+    }
+}
+
 // One axis of a tile: slot j of count equal slots over span from start, for a window at least len long. A window
 // longer than its slot keeps its length, and the windows overlap evenly: the first at the start, the last at the end.
-// A window longer than the span sits at its start. Gives where the window starts and its length.
-fn axis(start: i64, span: i64, count: i64, j: i64, len: i64) -> (i64, i64) {
-    let (a, b) = (start + span * j / count, start + span * (j + 1) / count);
+// A window longer than the span sits at its start. Every edge inside the span is on the grain g. Gives where the
+// window starts and its length.
+fn axis(start: i64, span: i64, count: i64, j: i64, len: i64, g: i64) -> (i64, i64) {
+    let on = |v: i64| v.div_euclid(g) * g;
+    let cut = |j: i64| if j >= count { span } else { on(span * j / count) };
+    let (a, b) = (start + cut(j), start + cut(j + 1));
     if b - a >= len {
         (a, b - a)
     } else if count > 1 && span >= len {
-        (start + (span - len) * j / (count - 1), len)
+        (start + if j + 1 >= count { span - len } else { on((span - len) * j / (count - 1)) }, len)
     } else {
         (start, len)
     }
@@ -126,9 +140,10 @@ fn lines(n: usize) -> Vec<usize> {
 
 // Where each window goes in the work area (physical pixels, at the monitor's scale), in the order they are raised:
 // the last on top. front: the window in front. It takes the first tile (top left) and the last cascade place (on top).
-// The others follow in the order given.
-pub fn places(how: How, area: Rect, scale: f64, frames: &[Frame], front: Option<usize>) -> Vec<(usize, Place)> {
+// The others follow in the order given. g: the system's grain (grain), so each window lands where the maths says.
+pub fn places(how: How, area: Rect, scale: f64, g: i64, frames: &[Frame], front: Option<usize>) -> Vec<(usize, Place)> {
     let scale = sane(scale);
+    let g = g.clamp(1, 16);
     let n = frames.len();
     let fits: Vec<Fit> = frames.iter().map(|f| fit(f, scale)).collect();
     let front = front.filter(|&i| i < n);
@@ -138,6 +153,7 @@ pub fn places(how: How, area: Rect, scale: f64, frames: &[Frame], front: Option<
         // The step: the tallest title bar, at least a new window's offset. A run of m windows keeps each window at least
         // half the work area and at least the smallest window; after m windows the next run starts at the top left.
         let d = fits.iter().map(|f| f.top).max().unwrap_or(0).max((STEP * scale).ceil() as i64).max(1);
+        let d = (d + g - 1) / g * g;
         let most = |i: usize| fits.iter().map(|f| [f.min.0, f.min.1][i]).max().unwrap_or(0);
         let room = |span: i64, min: i64| span - min.max((span + 1) / 2);
         let m = (1 + room(area.w, most(0)).min(room(area.h, most(1))).max(0) / d).min(n as i64).max(1);
@@ -161,9 +177,9 @@ pub fn places(how: How, area: Rect, scale: f64, frames: &[Frame], front: Option<
             let f = &fits[order[k]];
             let (across, along) = (all.len() as i64, count as i64);
             let ((x, w), (y, h)) = if how == How::TileSideBySide {
-                (axis(area.x, area.w, across, j as i64, f.min.0), axis(area.y, area.h, along, i as i64, f.min.1))
+                (axis(area.x, area.w, across, j as i64, f.min.0, g), axis(area.y, area.h, along, i as i64, f.min.1, g))
             } else {
-                (axis(area.x, area.w, along, i as i64, f.min.0), axis(area.y, area.h, across, j as i64, f.min.1))
+                (axis(area.x, area.w, along, i as i64, f.min.0, g), axis(area.y, area.h, across, j as i64, f.min.1, g))
             };
             out.push((order[k], place(f, x, y, w, h)));
             k += 1;
@@ -265,7 +281,8 @@ fn arrange(app: &AppHandle, how: How) {
         let _ = w.unmaximize();
     }
     let frames: Vec<Frame> = windows.iter().map(frame).collect();
-    let list = places(how, area, monitor.scale_factor(), &frames, windows.iter().position(|w| Some(w.label()) == front.as_deref()));
+    let scale = monitor.scale_factor();
+    let list = places(how, area, scale, grain(scale, cfg!(windows)), &frames, windows.iter().position(|w| Some(w.label()) == front.as_deref()));
     // Moved, sized (once, and only if the size changes), then moved again: a window that moves to a monitor at
     // another scale is sized again by the system on the way.
     for &(i, p) in &list {
@@ -390,7 +407,7 @@ mod tests {
     #[test]
     fn no_window_no_place() {
         for how in [How::Cascade, How::TileTopBottom, How::TileSideBySide] {
-            assert!(places(how, Rect { x: 0, y: 0, w: 1920, h: 1040 }, 1.0, &[], None).is_empty());
+            assert!(places(how, Rect { x: 0, y: 0, w: 1920, h: 1040 }, 1.0, 1, &[], None).is_empty());
         }
     }
 
@@ -399,7 +416,7 @@ mod tests {
     fn one_window() {
         let area = Rect { x: 0, y: 0, w: 1920, h: 1040 };
         for how in [How::Cascade, How::TileTopBottom, How::TileSideBySide] {
-            let p = places(how, area, 1.0, &[WIN], Some(0));
+            let p = places(how, area, 1.0, 1, &[WIN], Some(0));
             assert_eq!(p.len(), 1);
             assert_eq!(visible(&p[0].1, &WIN, 1.0), area, "{how:?}");
         }
@@ -432,7 +449,7 @@ mod tests {
         for how in [How::TileTopBottom, How::TileSideBySide] {
             for n in 1..=40 {
                 let frames = vec![WIN; n];
-                let p = places(how, area, 1.0, &frames, Some(n / 2));
+                let p = places(how, area, 1.0, 1, &frames, Some(n / 2));
                 assert_eq!(p.len(), n);
                 let tiles: Vec<Rect> = p.iter().map(|(i, p)| visible(p, &frames[*i], 1.0)).collect();
                 assert_eq!(tiles.iter().map(|t| t.w * t.h).sum::<i64>(), area.w * area.h, "{how:?} {n}");
@@ -466,7 +483,7 @@ mod tests {
             for how in [How::Cascade, How::TileTopBottom, How::TileSideBySide] {
                 for n in 1..=40 {
                     let frames: Vec<Frame> = (0..n).map(|k| if k % 2 == 0 { WIN } else { Frame { scale: 2.0, outer: [16, 118, 16, 16], hidden: [14, 0, 14, 14] } }).collect();
-                    let p = places(how, area, scale, &frames, Some(0));
+                    let p = places(how, area, scale, 1, &frames, Some(0));
                     assert_eq!(p.len(), n);
                     let min = min_inner(scale);
                     for (i, pl) in &p {
@@ -491,14 +508,14 @@ mod tests {
     #[test]
     fn two_windows_at_100() {
         let area = Rect { x: 0, y: 0, w: 1920, h: 1040 };
-        let p = places(How::TileSideBySide, area, 1.0, &[WIN, WIN], Some(1));
+        let p = places(How::TileSideBySide, area, 1.0, 1, &[WIN, WIN], Some(1));
         let v: Vec<Rect> = p.iter().map(|(i, p)| visible(p, &[WIN, WIN][*i], 1.0)).collect();
         assert_eq!(p.last().unwrap().0, 1, "the front window is raised last");
         assert_eq!(v[1], Rect { x: 0, y: 0, w: 960, h: 1040 }, "the front window takes the first tile");
         assert_eq!(v[0], Rect { x: 960, y: 0, w: 960, h: 1040 });
         // The hidden borders go outside the tile, so the visible frames touch.
         assert_eq!(p[1].1, Place { x: -7, y: 0, w: 960 - 2, h: 1040 - 59 - 1 });
-        let p = places(How::TileTopBottom, area, 1.0, &[WIN, WIN], Some(0));
+        let p = places(How::TileTopBottom, area, 1.0, 1, &[WIN, WIN], Some(0));
         let v: Vec<Rect> = p.iter().map(|(i, p)| visible(p, &[WIN, WIN][*i], 1.0)).collect();
         let tall = 620 + 59 + 1;
         assert_eq!(v[1], Rect { x: 0, y: 0, w: 1920, h: tall });
@@ -512,7 +529,7 @@ mod tests {
         for scale in [1.25, 1.5] {
             let area = Rect { x: 0, y: 0, w: 1920, h: (1080.0 - 48.0 * scale) as i64 };
             let frames = [Frame { scale, outer: [0, 40, 0, 0], hidden: [0; 4] }; 2];
-            let p = places(How::TileSideBySide, area, scale, &frames, Some(0));
+            let p = places(How::TileSideBySide, area, scale, 1, &frames, Some(0));
             let w = (800.0 * scale).ceil() as i64;
             assert_eq!((p[1].1.x, p[1].1.w), (0, w));
             assert_eq!((p[0].1.x, p[0].1.w), (1920 - w, w));
@@ -523,7 +540,7 @@ mod tests {
     #[test]
     fn forty_windows() {
         let area = Rect { x: 0, y: 0, w: 1920, h: 1040 };
-        let p = places(How::TileSideBySide, area, 1.0, &vec![NONE; 40], Some(0));
+        let p = places(How::TileSideBySide, area, 1.0, 1, &vec![NONE; 40], Some(0));
         let mut xs: Vec<i64> = p.iter().map(|(_, p)| p.x).collect();
         xs.sort();
         xs.dedup();
@@ -543,7 +560,7 @@ mod tests {
         ] {
             for n in [1, 2, 3, 5, 12, 40] {
                 let frames = vec![frame; n];
-                let p = places(How::Cascade, area, scale, &frames, Some(n - 1));
+                let p = places(How::Cascade, area, scale, 1, &frames, Some(n - 1));
                 assert_eq!(p.last().unwrap().0, n - 1, "the front window is on top");
                 let v: Vec<Rect> = p.iter().map(|(i, p)| visible(p, &frames[*i], scale)).collect();
                 assert!(v.iter().all(|r| (r.w, r.h) == (v[0].w, v[0].h) && inside(*r, area)));
@@ -563,7 +580,7 @@ mod tests {
         }
         // 1080p at 100% with Windows' frame (title bar and menu bar, 59 px): a run of 7, then the next starts at the top
         // left.
-        let p = places(How::Cascade, Rect { x: 0, y: 0, w: 1920, h: 1040 }, 1.0, &[WIN; 12], None);
+        let p = places(How::Cascade, Rect { x: 0, y: 0, w: 1920, h: 1040 }, 1.0, 1, &[WIN; 12], None);
         let xs: Vec<i64> = p.iter().map(|(_, p)| p.x + 7).collect();
         assert_eq!(xs, [0, 59, 118, 177, 236, 295, 354, 0, 59, 118, 177, 236]);
     }
@@ -573,13 +590,13 @@ mod tests {
     #[test]
     fn the_order() {
         let area = Rect { x: 0, y: 0, w: 4000, h: 3000 };
-        let tiles: Vec<usize> = places(How::TileSideBySide, area, 1.0, &[NONE; 4], Some(2)).iter().map(|p| p.0).collect();
+        let tiles: Vec<usize> = places(How::TileSideBySide, area, 1.0, 1, &[NONE; 4], Some(2)).iter().map(|p| p.0).collect();
         assert_eq!(tiles, [3, 1, 0, 2]);
-        let cascade: Vec<usize> = places(How::Cascade, area, 1.0, &[NONE; 4], Some(2)).iter().map(|p| p.0).collect();
+        let cascade: Vec<usize> = places(How::Cascade, area, 1.0, 1, &[NONE; 4], Some(2)).iter().map(|p| p.0).collect();
         assert_eq!(cascade, [0, 1, 3, 2]);
         // Home in front, holding no drawing: the drawings in the menu's order.
-        assert_eq!(places(How::TileSideBySide, area, 1.0, &[NONE; 3], None).iter().map(|p| p.0).collect::<Vec<_>>(), [2, 1, 0]);
-        assert_eq!(places(How::Cascade, area, 1.0, &[NONE; 3], Some(7)).iter().map(|p| p.0).collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(places(How::TileSideBySide, area, 1.0, 1, &[NONE; 3], None).iter().map(|p| p.0).collect::<Vec<_>>(), [2, 1, 0]);
+        assert_eq!(places(How::Cascade, area, 1.0, 1, &[NONE; 3], Some(7)).iter().map(|p| p.0).collect::<Vec<_>>(), [0, 1, 2]);
     }
 
     // Stress case 8: a window measured at 150% goes to a monitor at 100%, and one at 100% to a monitor at 200%: its frame
@@ -587,11 +604,11 @@ mod tests {
     #[test]
     fn mixed_scales() {
         let at150 = Frame { scale: 1.5, outer: [12, 89, 12, 12], hidden: [11, 0, 11, 11] };
-        let p = places(How::TileSideBySide, Rect { x: -1920, y: 0, w: 1920, h: 1040 }, 1.0, &[WIN, at150, WIN], Some(0));
+        let p = places(How::TileSideBySide, Rect { x: -1920, y: 0, w: 1920, h: 1040 }, 1.0, 1, &[WIN, at150, WIN], Some(0));
         let (_, q) = p.iter().find(|(i, _)| *i == 1).unwrap();
         assert_eq!(fit(&at150, 1.0).chrome, (2, 60));
         assert!(q.w >= 800 && q.h == 1040 - 60 && q.x >= -1920 - 7);
-        let p = places(How::TileTopBottom, Rect { x: 0, y: 0, w: 5120, h: 2800 }, 2.0, &[WIN, WIN], Some(0));
+        let p = places(How::TileTopBottom, Rect { x: 0, y: 0, w: 5120, h: 2800 }, 2.0, 1, &[WIN, WIN], Some(0));
         assert!(p.iter().all(|(_, p)| p.w == 5120 - 4 && p.h >= 1240));
         assert_eq!(fit(&WIN, 2.0).chrome, (4, 120));
     }
@@ -602,12 +619,15 @@ mod tests {
     fn no_overflow() {
         let huge = Rect { x: i32::MIN.into(), y: i32::MIN.into(), w: u32::MAX.into(), h: u32::MAX.into() };
         let wild = Frame { scale: f64::NAN, outer: [i64::MAX, -5, i64::MIN, 3], hidden: [i64::MAX; 4] };
+        let tiny = Frame { scale: 1e-300, outer: [100_000; 4], hidden: [0; 4] };
         for scale in [0.0, f64::NAN, f64::INFINITY, -1.0, 1e300, 1.0] {
             for how in [How::Cascade, How::TileTopBottom, How::TileSideBySide] {
                 for area in [huge, Rect::default(), Rect { x: 0, y: 0, w: -50, h: 3 }] {
-                    let p = places(how, area, scale, &[wild, NONE, WIN], Some(9));
-                    assert_eq!(p.len(), 3);
-                    assert!(p.iter().all(|(_, p)| p.w > 0 && p.h > 0));
+                    for g in [1, 2, 0, -3, i64::MAX] {
+                        let p = places(how, area, scale, g, &[wild, NONE, WIN, tiny], Some(9));
+                        assert_eq!(p.len(), 4);
+                        assert!(p.iter().all(|(_, p)| p.w > 0 && p.h > 0));
+                    }
                 }
             }
         }
@@ -665,5 +685,45 @@ mod tests {
             assert!(!id.starts_with("window_") && !id.starts_with("arrange_"), "{id}");
             assert!(serde_json::from_value::<How>(serde_json::json!(id)).is_ok(), "{id}");
         }
+    }
+
+    // R5, the grain: Windows places by the pixel; macOS and GTK by the point, two pixels at 200%. The Mac real run found
+    // windows a pixel off where the maths gave an odd pixel at 200% (macOS rounds it to a whole point).
+    #[test]
+    fn the_grain() {
+        assert_eq!([grain(1.0, false), grain(2.0, false), grain(3.0, false)], [1, 2, 3]);
+        assert_eq!([grain(1.25, false), grain(1.5, false), grain(2.0, true), grain(f64::NAN, false), grain(0.0, false)], [1; 5]);
+    }
+
+    // On the point grid (macOS at 200%, a 14-inch work area, and a huge one): every place and size is a whole point, the
+    // windows stay inside the work area, and where the tiles are larger than the smallest window they still cover it
+    // with no gap and no overlap. The 12 windows of the real run land on whole points.
+    #[test]
+    fn on_the_point_grid() {
+        let mac = Frame { scale: 2.0, outer: [0; 4], hidden: [0; 4] };
+        let even = |p: &Place| [p.x, p.y, p.w, p.h].iter().all(|v| v % 2 == 0);
+        for how in [How::Cascade, How::TileTopBottom, How::TileSideBySide] {
+            for n in 1..=40 {
+                let area = Rect { x: 0, y: 66, w: 3024, h: 1776 };
+                let p = places(how, area, 2.0, 2, &vec![mac; n], Some(0));
+                assert!(p.iter().all(|(_, p)| even(p) && inside(Rect { x: p.x, y: p.y, w: p.w, h: p.h }, area)), "{how:?} {n}: {p:?}");
+                if how == How::Cascade {
+                    continue;
+                }
+                let area = Rect { x: -6000, y: -2000, w: 60_000, h: 40_000 };
+                let p = places(how, area, 2.0, 2, &vec![mac; n], Some(0));
+                let tiles: Vec<Rect> = p.iter().map(|(_, p)| Rect { x: p.x, y: p.y, w: p.w, h: p.h }).collect();
+                assert!(p.iter().all(|(_, p)| even(p)), "{how:?} {n}");
+                assert_eq!(tiles.iter().map(|t| t.w * t.h).sum::<i64>(), area.w * area.h, "{how:?} {n}");
+                for (a, t) in tiles.iter().enumerate() {
+                    assert!(inside(*t, area) && tiles[a + 1..].iter().all(|u| !overlap(*t, *u)), "{how:?} {n}");
+                }
+            }
+        }
+        let p = places(How::TileTopBottom, Rect { x: 0, y: 66, w: 3024, h: 1776 }, 2.0, 2, &[mac; 12], Some(0));
+        let mut ys: Vec<i64> = p.iter().map(|(_, p)| p.y).collect();
+        ys.sort();
+        ys.dedup();
+        assert_eq!(ys, [66, 244, 422, 602]);
     }
 }
