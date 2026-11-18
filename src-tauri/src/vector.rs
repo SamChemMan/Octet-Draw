@@ -196,10 +196,19 @@ fn windows_font(family: &str) -> Option<&'static str> {
     SAME.into_iter().find(|f| f.eq_ignore_ascii_case(family)).or_else(|| LIKE.into_iter().find(|(f, _)| f.eq_ignore_ascii_case(family)).map(|(_, w)| w))
 }
 
+// A character of a script that runs right to left or joins its letters (Hebrew, Arabic, Syriac, Thaana, N'Ko,
+// Samaritan, Mandaic, their supplements and presentation forms), or a mark that sets the direction. usvg gives such
+// glyphs in the order they show, which GDI would order again, and EMF+'s DrawDriverString would draw each Arabic letter
+// on its own, not joined.
+fn right_to_left(c: char) -> bool {
+    matches!(c, '\u{590}'..='\u{8FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
 // A text as runs GDI can draw (issue 20: ChemDraw's EMF has its labels as text, so Word and PowerPoint can search
 // them). None, so the text goes in as outlines, if any glyph is turned, slanted or mirrored, has a stroke or a
 // decoration, is in a face windows_font has no font for, stands for anything but one character of the Basic
-// Multilingual Plane, is a missing glyph, or runs right to left.
+// Multilingual Plane, is a missing glyph, or runs right to left (a glyph left of the one before, or a character
+// right_to_left names).
 fn pick_runs(t: &usvg::Text, db: &usvg::fontdb::Database, base: Transform, opacity: f32) -> Option<Vec<Run>> {
     let to = base.pre_concat(t.abs_transform()).post_scale(0.75, 0.75);
     let upright = |m: &Transform| m.kx.abs() <= 1e-4 * m.sx && m.ky.abs() <= 1e-4 * m.sx && m.sx > 0.0 && (m.sy - m.sx).abs() <= 1e-4 * m.sx;
@@ -218,7 +227,7 @@ fn pick_runs(t: &usvg::Text, db: &usvg::fontdb::Database, base: Transform, opaci
             let m = to.pre_concat(g.transform());
             let mut chars = g.text.chars();
             let (Some(c), None) = (chars.next(), chars.next()) else { return None };
-            if !upright(&m) || g.id.0 == 0 || c.is_control() || u32::from(c) > 0xFFFF {
+            if !upright(&m) || g.id.0 == 0 || c.is_control() || u32::from(c) > 0xFFFF || right_to_left(c) {
                 return None;
             }
             let face = db.face(g.font)?;
@@ -1202,6 +1211,25 @@ pub(crate) mod tests {
                 let b = [8, 12, 16, 20].map(|k| i32_at(&emf, at + k));
                 assert!(b[0] >= 0 && b[1] >= 0 && b[2] <= 159 && b[3] <= 95 && b[0] < b[2] && b[1] < b[3], "{b:?}");
             }
+        }
+    }
+
+    // Issue 166: a label with a direction mark in it is outlines, though its letters are Latin, so GDI cannot order
+    // it again. The same label without the mark is text.
+    #[test]
+    fn a_direction_mark_makes_a_label_outlines() {
+        let emf = |text: &str| {
+            let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="80pt" height="40pt" viewBox="0 0 80 40"><text x="10" y="20" font-family="Arial" font-size="10pt">{text}</text></svg>"##);
+            let tree = crate::export::tree(&svg).unwrap();
+            (records(&make_emf(&tree, None, None)), records(&make_office_emf(&tree, None)))
+        };
+        let text = |all: &[(u32, usize)]| all.iter().any(|r| r.0 == 84);
+        let (plain, office) = emf("OH");
+        assert!(text(&plain) && text(&office));
+        for mark in ['\u{200E}', '\u{200F}', '\u{202B}', '\u{2067}'] {
+            let (plain, office) = emf(&format!("O{mark}H"));
+            assert!(!text(&plain) && plain.iter().any(|r| r.0 == 62), "U+{:04X}: {:?}", u32::from(mark), plain.iter().map(|r| r.0).collect::<Vec<_>>());
+            assert!(!text(&office), "U+{:04X} in the Office EMF", u32::from(mark));
         }
     }
 

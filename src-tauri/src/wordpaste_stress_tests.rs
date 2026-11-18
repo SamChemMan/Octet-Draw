@@ -498,17 +498,19 @@ fn stress_text_runs_and_outlines() {
     });
 }
 
-// S12, right to left: the plan's stress list (docs/plans/issue-166-word-paste-sharp.md) and pick_runs say text that
-// runs right to left is outlines in both streams. usvg gives its glyphs left to right, in the order they show, so
-// pick_runs takes it as a run. Then the EMF+ record draws each character's own glyph (DrawDriverString with
-// CmapLookup does no shaping): Arabic letters stand apart, not joined. GDI's EXTTEXTOUTW gets the characters in the
-// order they show and Windows orders them again.
+// S3 (S12 before), right to left: Hebrew and Arabic labels, alone and with Latin, are outlines in both streams of
+// both EMFs (right_to_left in vector.rs). usvg gives their glyphs in the order they show: GDI's EXTTEXTOUTW would order
+// them again, and EMF+'s DrawDriverString (CmapLookup, no shaping) would draw each Arabic letter on its own.
 #[test]
 fn stress_s12_right_to_left_text_is_outlines() {
     each(&right_to_left(), |_, tree, _| {
-        let emf = make_office_emf(tree, None);
-        let runs: Vec<String> = read_emf(&emf, true)?.strings.iter().map(|c| String::from_utf16_lossy(c)).filter(|t| t.chars().any(|c| ('\u{590}'..='\u{8FF}').contains(&c))).collect();
-        need(runs.is_empty(), || format!("drawn as text, not outlines: {runs:?}"))
+        for (which, emf, plus) in [("Export's EMF", make_emf(tree, None, None), false), ("the Office EMF", make_office_emf(tree, None), true)] {
+            let texts = emf_records(&emf).iter().filter(|r| r.0 == 84).count();
+            let strings: Vec<String> = read_emf(&emf, plus)?.strings.iter().map(|c| String::from_utf16_lossy(c)).collect();
+            need(texts == 0 && strings.is_empty(), || format!("{which}: {texts} EXTTEXTOUTW, DrawDriverString {strings:?}"))?;
+            need(emf_records(&emf).iter().any(|r| r.0 == 62), || format!("{which}: no outlines"))?;
+        }
+        Ok(())
     });
 }
 
