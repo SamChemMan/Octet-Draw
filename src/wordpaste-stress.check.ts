@@ -116,12 +116,12 @@ const cases: Case[] = [
     here: () => assert.match(editor, /copy: `\$\{MOD\}C`/),
   },
   {
-    id: "S16", what: "an object pasted from 1.1.2 is smooth after File > Update [S20]", hand: /Update/,
+    id: "S16", what: "an object pasted from 1.1.2 is smooth after File > Update [S20]", hand: /An object pasted with 1\.1\.2[^.]*: jagged when opened[\s\S]*?now smooth/,
     here: () => assert.match(fnBody(editor, /const officeUpdate = async/), /invoke\("ole_update", \{ oct, svg: pictureOf\(sent\) \?\? BLANK_SVG, cdxml: formatOf\(sent, "cdxml"\) \?\? "", send: true,/),
   },
   { id: "S17", what: "two objects from two documents open and changed, then Quit [S22]", hand: /two objects from two documents, change both/ },
   { id: "S18", what: "Word at 10% to 500%; printed; Save as PDF [S19, S29]", windows: ["ole_plus_zoom"], hand: /400%[\s\S]*Save As > PDF/ },
-  { id: "S19", what: "Word without Octet's class (run as administrator); the document opened in Word for Mac [S27, S28]", hand: /administrator[\s\S]*Word for Mac|Word for Mac[\s\S]*administrator/ },
+  { id: "S19", what: "Word without Octet's class (run as administrator); the document opened in Word for Mac [S27, S28]", hand: /Start Word with Run as administrator[^\n]*smooth[\s\S]*in Word for Mac: the picture shows, smooth/ },
   {
     id: "S20", what: "AI apps: run_command copy is the page's own Copy (EMF+); a misspelt copy; read with format emf+, wmf or 42 [S23, S24]",
     here: async () => {

@@ -203,6 +203,7 @@ Write down for each test: pass or fail, what you saw, and the time where a time 
       Update), close: now smooth. Open and close it with no change: the document is not changed (Word does not ask to
       save). _____
     - Settings > Import and export > Copy > Office object off: Ctrl+V gives a plain picture, smooth.
+    - Start Word with Run as administrator (it ignores Octet's class): Ctrl+V gives a picture, smooth. _____
     - A label in Hebrew (שלום) and one in Arabic (مرحبا): pasted, each shows as in Octet, the Arabic letters joined. _____
     - Open `smooth.docx` in Word for Mac: the picture shows, smooth. _____
 
