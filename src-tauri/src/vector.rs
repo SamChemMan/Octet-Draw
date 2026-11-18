@@ -1219,7 +1219,7 @@ pub(crate) mod tests {
     #[test]
     fn a_direction_mark_makes_a_label_outlines() {
         let emf = |text: &str| {
-            let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="80pt" height="40pt" viewBox="0 0 80 40"><text x="10" y="20" font-family="Arial" font-size="10pt">{text}</text></svg>"##);
+            let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="80pt" height="40pt" viewBox="0 0 80 40"><text x="10" y="20" font-family="Arial, Helvetica, sans-serif" font-size="10pt">{text}</text></svg>"##);
             let tree = crate::export::tree(&svg).unwrap();
             (records(&make_emf(&tree, None, None)), records(&make_office_emf(&tree, None)))
         };

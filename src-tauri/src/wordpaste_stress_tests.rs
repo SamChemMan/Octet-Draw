@@ -321,7 +321,9 @@ fn real_drawings() -> Vec<(String, String)> {
 }
 
 // Text: runs of 1 to 9 characters in each face Octet writes as text, every weight, italic, letter spacing and
-// anchors; and text that must be outlines in both streams.
+// anchors; and text that must be outlines in both streams. Each face list ends as the page's does (sans-serif), so
+// Linux CI, which has no Arial or Verdana, draws Liberation Sans, not nothing. Zapfino is the Mac's face Windows
+// lacks, DejaVu Sans Linux's.
 fn text_drawings() -> Vec<(String, String)> {
     let mut out = Vec::new();
     let faces = ["Arial", "Helvetica", "Times New Roman", "Times", "Courier New", "Courier", "Verdana", "Georgia", "Tahoma", "Trebuchet MS"];
@@ -329,28 +331,28 @@ fn text_drawings() -> Vec<(String, String)> {
         let mut body = String::new();
         for n in 1..=9 {
             let s: String = "CH3OHNaCl".chars().take(n).collect();
-            body += &format!(r#"<text x="5" y="{}" font-family="{face}" font-size="10">{s}</text>"#, 12 * n);
+            body += &format!(r#"<text x="5" y="{}" font-family="{face}, sans-serif" font-size="10">{s}</text>"#, 12 * n);
         }
         out.push((format!("runs of 1 to 9 characters in {face}"), page(80.0, 120.0, &body)));
     }
     let mut body = String::new();
     for (i, w) in (100..=900).step_by(100).enumerate() {
-        body += &format!(r#"<text x="{}" y="20" font-family="Arial" font-size="9" font-weight="{w}">N</text><text x="{}" y="40" font-family="Arial" font-size="9" font-weight="{w}" font-style="italic">Cl</text>"#, 5 + 15 * i, 5 + 15 * i);
+        body += &format!(r#"<text x="{}" y="20" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="{w}">N</text><text x="{}" y="40" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="{w}" font-style="italic">Cl</text>"#, 5 + 15 * i, 5 + 15 * i);
     }
     out.push(("weights 100 to 900, upright and italic".into(), page(150.0, 50.0, &body)));
-    out.push(("letter spacing, anchors, a space-only run and spaces inside".into(), page(120.0, 80.0, r#"<text x="5" y="15" font-family="Arial" font-size="10" letter-spacing="2">CO2Me</text><text x="60" y="35" font-family="Arial" font-size="10" text-anchor="middle">NHBoc</text><text x="115" y="55" font-family="Arial" font-size="10" text-anchor="end">OTBS</text><text x="5" y="75" font-family="Arial" font-size="10" xml:space="preserve">Ph   Me</text><text x="80" y="75" font-family="Arial" font-size="10" xml:space="preserve">   </text>"#)));
-    out.push(("tiny and huge labels".into(), page(400.0, 300.0, r#"<text x="5" y="5" font-family="Arial" font-size="0.05">O</text><text x="5" y="290" font-family="Arial" font-size="280">N</text>"#)));
-    out.push(("a 2,000-character caption".into(), page(12000.0, 20.0, &format!(r#"<text x="5" y="15" font-family="Arial" font-size="10">{}</text>"#, "Reflux in toluene, then ".repeat(84)))));
+    out.push(("letter spacing, anchors, a space-only run and spaces inside".into(), page(120.0, 80.0, r#"<text x="5" y="15" font-family="Arial, Helvetica, sans-serif" font-size="10" letter-spacing="2">CO2Me</text><text x="60" y="35" font-family="Arial, Helvetica, sans-serif" font-size="10" text-anchor="middle">NHBoc</text><text x="115" y="55" font-family="Arial, Helvetica, sans-serif" font-size="10" text-anchor="end">OTBS</text><text x="5" y="75" font-family="Arial, Helvetica, sans-serif" font-size="10" xml:space="preserve">Ph   Me</text><text x="80" y="75" font-family="Arial, Helvetica, sans-serif" font-size="10" xml:space="preserve">   </text>"#)));
+    out.push(("tiny and huge labels".into(), page(400.0, 300.0, r#"<text x="5" y="5" font-family="Arial, Helvetica, sans-serif" font-size="0.05">O</text><text x="5" y="290" font-family="Arial, Helvetica, sans-serif" font-size="280">N</text>"#)));
+    out.push(("a 2,000-character caption".into(), page(12000.0, 20.0, &format!(r#"<text x="5" y="15" font-family="Arial, Helvetica, sans-serif" font-size="10">{}</text>"#, "Reflux in toluene, then ".repeat(84)))));
     // Outlines in both streams: emoji, Hebrew, Arabic, CJK, a combining accent, underline, a face Windows lacks, a
     // control character, a character outside the Basic Multilingual Plane, turned 90 degrees.
     for (name, text, extra) in [
-        ("an emoji", "😀", "Arial"),
-        ("Chinese", "化学", "Arial"),
-        ("a combining accent", "e\u{301}", "Arial"),
-        ("underlined", "NH2", "Arial\" text-decoration=\"underline"),
-        ("a face Windows lacks", "OMe", "Zapfino"),
-        ("a mathematical letter", "𝑥", "Arial"),
-        ("turned 90 degrees", "OH", "Arial\" transform=\"rotate(90 20 20)"),
+        ("an emoji", "😀", "Arial, Helvetica, sans-serif"),
+        ("Chinese", "化学", "Arial, Helvetica, sans-serif"),
+        ("a combining accent", "e\u{301}", "Arial, Helvetica, sans-serif"),
+        ("underlined", "NH2", "Arial, Helvetica, sans-serif\" text-decoration=\"underline"),
+        ("a face Windows lacks", "OMe", "Zapfino, DejaVu Sans"),
+        ("a mathematical letter", "𝑥", "Arial, Helvetica, sans-serif"),
+        ("turned 90 degrees", "OH", "Arial, Helvetica, sans-serif\" transform=\"rotate(90 20 20)"),
     ] {
         out.push((format!("outlined text: {name}"), page(80.0, 40.0, &format!(r#"<text x="10" y="25" font-family="{extra}" font-size="10">{text}</text>"#))));
     }
@@ -361,7 +363,7 @@ fn text_drawings() -> Vec<(String, String)> {
 fn right_to_left() -> Vec<(String, String, bool)> {
     [("Hebrew", "שלום"), ("Arabic", "مرحبا"), ("Arabic with Latin", "Compound مرحبا"), ("a Hebrew letter after Latin", "Ring א")]
         .into_iter()
-        .map(|(name, text)| (format!("right to left: {name}"), page(120.0, 40.0, &format!(r#"<text x="10" y="25" font-family="Arial" font-size="10">{text}</text>"#)), false))
+        .map(|(name, text)| (format!("right to left: {name}"), page(120.0, 40.0, &format!(r#"<text x="10" y="25" font-family="Arial, Helvetica, sans-serif" font-size="10">{text}</text>"#)), false))
         .collect()
 }
 
@@ -398,7 +400,7 @@ fn photo_cases() -> Vec<(String, String)> {
     let image = photo[photo.find("<image").unwrap()..photo.rfind("/>").unwrap() + 2].to_string();
     vec![
         ("two photos, first and last".into(), page(72.0, 36.0, &format!(r##"{image}<path d="M1 1H70V2H1Z" fill="#000"/><g transform="translate(36 0)">{image}</g>"##))),
-        ("a photo at half opacity under a label".into(), page(72.0, 36.0, &format!(r##"<g opacity="0.5">{image}</g><text x="5" y="20" font-family="Arial" font-size="10">OH</text>"##))),
+        ("a photo at half opacity under a label".into(), page(72.0, 36.0, &format!(r##"<g opacity="0.5">{image}</g><text x="5" y="20" font-family="Arial, Helvetica, sans-serif" font-size="10">OH</text>"##))),
         ("only a photo, turned 45 degrees".into(), page(72.0, 72.0, &format!(r#"<g transform="rotate(45 36 36)">{image}</g>"#))),
     ]
 }
@@ -650,11 +652,11 @@ fn stress_hostile_pictures() {
         ("a picture 10 km wide".into(), page(2.83e7, 10.0, r#"<path d="M0 0H2.83e7V5H0Z"/>"#)),
         ("a scale of 1e-30".into(), page(40.0, 40.0, r#"<g transform="scale(1e-30)"><path d="M0 0H30V30Z"/></g>"#)),
         ("a stroke 1e-6 pt wide with dashes of 1e-7".into(), page(40.0, 40.0, r##"<path d="M0 0H40" stroke="#000" stroke-width="0.000001" stroke-dasharray="0.0000001 0.0000001"/>"##)),
-        ("text with a NUL-like control".into(), page(40.0, 40.0, r#"<text x="5" y="20" font-family="Arial" font-size="10">A&#x1;B</text>"#)),
-        ("text with U+FFFF".into(), page(40.0, 40.0, "<text x=\"5\" y=\"20\" font-family=\"Arial\" font-size=\"10\">A\u{FFFF}B</text>")),
+        ("text with a NUL-like control".into(), page(40.0, 40.0, r#"<text x="5" y="20" font-family="Arial, Helvetica, sans-serif" font-size="10">A&#x1;B</text>"#)),
+        ("text with U+FFFF".into(), page(40.0, 40.0, "<text x=\"5\" y=\"20\" font-family=\"Arial, Helvetica, sans-serif\" font-size=\"10\">A\u{FFFF}B</text>")),
         ("an image that is not a picture".into(), page(40.0, 40.0, r#"<image width="10" height="10" href="data:image/png;base64,AAAA"/>"#)),
         ("an image 1 px by 1 px".into(), page(40.0, 40.0, r#"<image width="30" height="30" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="/>"#)),
-        ("10,000 one-letter labels".into(), page(1000.0, 1000.0, &(0..10_000).map(|i| format!(r#"<text x="{}" y="{}" font-family="Arial" font-size="8">{}</text>"#, (i % 100) * 10, 10 + (i / 100) * 10, ["O", "N", "S", "P"][i % 4])).collect::<String>())),
+        ("10,000 one-letter labels".into(), page(1000.0, 1000.0, &(0..10_000).map(|i| format!(r#"<text x="{}" y="{}" font-family="Arial, Helvetica, sans-serif" font-size="8">{}</text>"#, (i % 100) * 10, 10 + (i / 100) * 10, ["O", "N", "S", "P"][i % 4])).collect::<String>())),
     ];
     let mut failed = Vec::new();
     for (name, svg) in &cases {
