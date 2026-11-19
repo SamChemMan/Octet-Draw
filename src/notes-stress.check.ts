@@ -556,6 +556,16 @@ it("N10 a group's annotations from two groups that become one: at most 1000, and
 // The speed cases first, before the other cases have run the same code on other kinds of drawing (which leaves the
 // engine's compiled code slower for this tree than for the tree it is timed against).
 const speed = (name: string) => Number(!/^S1[89] /.test(name));
+it("N11 a ChemDraw file's raw line breaks: a note keeps them, a title (one line in Settings) takes spaces (issue 100's rule)", () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8" ?><CDXML><page id="1"><t id="2" p="10 10"><s>A</s><annotation Keyword="Note" Content="one\r\ntwo\nthree"/></t><annotation Keyword="Title" Content="A\nB"/><annotation Keyword="Name" Content="x\ny"/></page></CDXML>`;
+  const m = fromCdxml(xml).mol;
+  assert.equal(noteOf(m, m.captions![0].id), "one\ntwo\nthree");
+  assert.equal(noteOf(m, "drawing", "Title"), "A B");
+  assert.equal(noteOf(m, "drawing", "Name"), "x\ny", "a keyword of ChemDraw's that is shown as a note keeps its lines too");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 let failed = 0;
 for (const [name, run] of [...cases].sort((p, q) => speed(p[0]) - speed(q[0]))) {
   try { await run(); } catch (e) { failed++; console.error(`FAIL ${name}\n  ${e instanceof Error ? e.message.split("\n").slice(0, 6).join("\n  ") : e}`); }

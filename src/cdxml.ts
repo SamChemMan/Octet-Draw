@@ -32,7 +32,7 @@ import { cleanComment, COMMENT, MAX_COMMENT } from "./experiment.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
-import { cleanNote, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, MAX_NOTES } from "./annotate.ts";
+import { cleanNote, isNote, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, MAX_NOTES } from "./annotate.ts";
 
 export const TOO_BIG = "This file is too large to open.";
 export const NOT_CDXML = "This file is not a ChemDraw drawing.";
@@ -1604,11 +1604,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     }
   };
   // An annotation, kept on its group, on the document or in the list given (an object's). One Octet cannot hold (too
-  // long, too many) is counted as lost.
+  // long, too many) is counted as lost. A note keeps its lines (ChemDraw writes them raw); a document property, an
+  // experiment page's detail or ChemDraw's own data is one line, as XML reads a line break in any other attribute.
   const annotations: Annotation[] = [], arcOf = new Map<number, Xml>();
   let notesRead = 0;
   const keepNote = (x: Xml, g?: G, into?: Annotation[]) => {
-    const raw = x.attrs.Content ?? "", keyword = cleanText(x.attrs.Keyword ?? ""), content = raw.length > MAX_CONTENT ? raw : cleanNote(raw), list = into ?? (g ? (g.annotations ??= []) : annotations);
+    const raw = x.attrs.Content ?? "", keyword = cleanText(x.attrs.Keyword ?? ""), list = into ?? (g ? (g.annotations ??= []) : annotations);
+    const content = raw.length > MAX_CONTENT ? raw : isNote({ keyword, content: "" }) ? cleanNote(raw) : cleanText(raw.replace(/\r\n|[\r\n]/g, " "));
     if (keyword.length > MAX_KEYWORD || content.length > MAX_CONTENT || list.length >= MAX_ANNOTATIONS || notesRead >= MAX_NOTES) return lose("annotation");
     notesRead++;
     list.push({ keyword, content });
