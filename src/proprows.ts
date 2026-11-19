@@ -32,7 +32,8 @@ export function calculated(s: Structure, g: Graph): Calculated {
 export type Row = { key: string; name: string; method: string; predicted?: true; value: (s: Structure, c?: Calculated, places?: number, g?: Ghs | null) => string | undefined };
 export const rowLabel = (r: { name: string; predicted?: true }) => (r.predicted ? `${r.name} (predicted)` : r.name);
 
-const sign = (x: number, places: number) => x.toFixed(places).replace("-", "−");
+// A value that rounds to zero shows 0, not −0.
+const sign = (x: number, places: number) => { const t = x.toFixed(places); return (Number(t) === 0 ? t.replace("-", "") : t).replace("-", "−"); };
 const celsius = (k: number | undefined, places = 1) => (k === undefined ? undefined : `${sign(k - 273.15, places)} °C`);
 const unit = (x: number | undefined, places: number, u: string) => (x === undefined || !Number.isFinite(x) ? undefined : `${sign(x, places)} ${u}`);
 const JOBACK = "Joback group contributions (Joback and Reid, Chem. Eng. Commun. 1987, 57, 233).";
@@ -68,7 +69,7 @@ export const PROPERTY_ROWS: Row[][] = [
     { key: "logp", name: "logP", predicted: true, method: CRIPPEN, value: (s, _, d) => (s.logP === undefined ? undefined : sign(s.logP, d ?? 2)) },
     { key: "mr", name: "Molar refractivity", predicted: true, method: CRIPPEN, value: (s, _, d) => unit(s.mr, d ?? 2, "cm³/mol") },
     { key: "logs", name: "logS", predicted: true, method: "Aqueous solubility, log10 of mol/L, by ESOL (Delaney, J. Chem. Inf. Comput. Sci. 2004, 44, 1000), with coefficients refitted for Crippen logP (P. Walters).", value: (_, c, d) => (c?.logS === undefined ? undefined : sign(c.logS, d ?? 2)) },
-    { key: "pka", name: "pKa", predicted: true, method: "Typical pKa of each ionisable group (for a base, of its conjugate acid), from the Dimorphite-DL site table (Ropp et al., J. Cheminform. 2019, 11, 14).", value: (_, c, d) => (c?.pka.length ? c.pka.map((p) => `${p.pka.toFixed(d ?? 1)} (${p.kind})`).join(", ") : undefined) },
+    { key: "pka", name: "pKa", predicted: true, method: "Typical pKa of each ionisable group (for a base, of its conjugate acid), from the Dimorphite-DL site table (Ropp et al., J. Cheminform. 2019, 11, 14).", value: (_, c, d) => (c?.pka.length ? c.pka.map((p) => `${sign(p.pka, d ?? 1)} (${p.kind})`).join(", ") : undefined) },
   ],
   [
     { key: "ghs", name: "Pictograms", method: GHS, value: (_, __, ___, g) => g?.pictograms.map((p) => `${PICTOGRAMS[p].name} (${p})`).join(", ") || undefined },

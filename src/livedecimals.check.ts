@@ -39,6 +39,15 @@ it("S3, S7 Decimals 0: no decimal point, and a negative value keeps Octet's minu
   assert.deepEqual([v.weight, v.logp, v.pka, v.hf], ["46", "−1", "5 (acid)", "−235 kJ/mol"]);
 });
 
+it("S7 a value that rounds to zero shows 0, not −0, and a negative pKa keeps Octet's minus sign", () => {
+  const near: Structure = { ...ethanol, logP: -0.39 };
+  const c: Calculated = { ...calc, henry: -0.2, logS: -0.004, pka: [{ atom: 2, kind: "acid", pka: -1.2, sd: 0.5 }], joback: { ...calc.joback!, tb: 273.0, hf: -0.3 } };
+  const v = Object.fromEntries(propertyValues([near], () => c, 0).flat().map((r) => [r.key, r.values[0]]));
+  assert.deepEqual([v.logp, v.henry, v.logs, v.tb, v.hf, v.pka], ["0", "0", "0", "0 °C", "0 kJ/mol", "−1 (acid)"]);
+  assert.equal(Object.fromEntries(propertyValues([near], () => c, 1).flat().map((r) => [r.key, r.values[0]])).logs, "0.0");
+  assert.equal(Object.fromEntries(propertyValues([near], () => c).flat().map((r) => [r.key, r.values[0]])).pka, "−1.2 (acid)");
+});
+
 it("S4 Decimals 8 on m/z: 8 places on each m/z, 1 on each intensity", () => {
   const peaks = row(8).mz!.split(", ");
   assert.ok(peaks.length > 1);

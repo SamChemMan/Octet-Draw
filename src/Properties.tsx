@@ -1,8 +1,8 @@
 // The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
 // selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
 // click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure. Decimals
-// sets the places of the exact mass, molecular weight and m/z (ChemDraw's Analysis window: 0 to 8, those three
-// rows only); Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
+// sets the places of every calculated number (ChemDraw's Analysis window: 0 to 8; the elemental analysis keeps 2);
+// Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
 // groups of predicted values have a Predicted heading, and every copy of their values says (predicted). With Online
 // search on, Find hazards adds each structure's GHS hazards from PubChem (ChemDraw's PubChem GHS LCSS add-in): the
 // pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser. Names off: Add
@@ -17,7 +17,8 @@ import { useLeaving } from "./motion";
 import { PICTOGRAMS } from "./ghs";
 
 const SUB = "₀₁₂₃₄₅₆₇₈₉";
-// Decimals: ChemDraw's 0 to 8, and Octet's standard places (4 for the exact mass, 2 for the rest).
+// Decimals: ChemDraw's 0 to 8, and Standard: each row's own places (4 for the exact mass, 1 for the temperatures,
+// critical volume and pKa, 2 for the rest).
 const DECIMALS: [string, string][] = [["", "Standard"], ...Array.from({ length: 9 }, (_, n): [string, string] => [String(n), String(n)])];
 
 type Props = {
