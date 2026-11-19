@@ -100,7 +100,7 @@ assert.ok(!/instanceof RangeError/.test(fromText), "the reason goes through refu
 // and the clipboard's MOL and SMILES: a reader's reason goes as it is.
 assert.match(editor, /try \{ mol = importStructure\(text\); \} catch \(e\) \{ throw refusal\(e\) \? e : new Error\("Octet cannot read the structures in this file\."\); \}/);
 assert.match(editor, /\} catch \(e\) \{\n\s+const why = refusal\(e\);\n\s+setNotice\(`Octet cannot read the structures in \$\{f\.name\}\.\$\{why \? ` \$\{why\}` : ""\}`\);/);
-assert.match(editor, /try \{ frag = asOpened\(importStructure\(source\), source\); \} catch \(err\) \{ frag = undefined; const why = refusal\(err\); if \(why\) refused\(why\); \}/);
+assert.match(editor, /try \{ read = importStructure\(source\); frag = asOpened\(read, source\); \} catch \(err\) \{ frag = undefined; const why = refusal\(err\); if \(why\) refused\(why\); \}/);
 // An AI app's add_file, in the window and with no window: a CIF file before names and SMILES, its refusal thrown.
 // A CIF file takes no aromatic step there, as File > Open, a drop and a paste take none; a MOL file takes File > Import's.
 assert.match(body(editor, "    file: (text) => {"), /const own = isOwnFormat\(text\);\n\s+if \(own \|\| \/V\[23\]000\|\^\\\$RXN\|\^\\\$RDFILE\/m\.test\(text\)\) \{ try \{ const m = importStructure\(text\); return m\.atoms\.length \? asOpened\(m, text, !own\) : undefined; \} catch \(e\) \{ if \(refusal\(e\)\) throw e; return undefined; \} \}\n\s+return structureFromText\(text\);/);

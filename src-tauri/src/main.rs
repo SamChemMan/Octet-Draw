@@ -1047,6 +1047,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
+        // ChemDraw's Attach Data: named fields on the selected structure (src/datafields.ts). No key, as in ChemDraw.
+        &item("attach_data", "Attach Data…", "")?,
         // ChemDraw's Annotate…: the Notes panel, at the note of the selection (or of the drawing). No key, as ChemDraw.
         &annotate,
         &sep()?,

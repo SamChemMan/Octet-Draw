@@ -21,6 +21,7 @@ import { cipLabels, openDoubles } from "./cip.ts";
 import { rdData, readFields, sdData, withRecord, type DataField } from "./eln.ts";
 import { idleWedges, type StereoFacts } from "./check.ts";
 import { axisAtoms } from "./axial.ts";
+import { cleanName, cleanValue, fieldsFromRecords, MAX_DATA, MAX_NAME, markLeft, NO_NAME, readSd, sdRecordItems } from "./datafields.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 // Each Indigo call that fails leaks some of Indigo's memory, as its error skips Indigo's own clean-up: about 50 bytes
@@ -215,8 +216,20 @@ export function importStructure(text: string): Mol {
   const reaction = /^\s*\$RXN/.test(text);
   const v2000 = !reaction && /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
   const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
-  if (!reaction && isQueryMolfile(v3000)) return scaled(readV3000(v3000));
-  return scaled(fromKet(JSON.parse(JSON.parse(convert(text, "ket", { "output-content-type": "application/json", "dearomatize-on-load": "true" })).struct), /^\$\$\$\$/m.test(text)));
+  // A query file's data items are not read: they are left out, and said.
+  if (!reaction && isQueryMolfile(v3000)) { const sd = /^>.*<|^\$\$\$\$/m.test(text) ? readSd(text) : undefined; return markLeft(scaled(readV3000(v3000)), sd ? sd.left + sd.records.reduce((n, r) => n + r.items.length, 0) : 0); }
+  const ket = JSON.parse(JSON.parse(convert(text, "ket", { "output-content-type": "application/json", "dearomatize-on-load": "true" })).struct), mol = fromKet(ket, /^\$\$\$\$/m.test(text));
+  // An SD file's data items, read by Octet (Indigo drops a lone record's), as fields of each record's structures
+  // (datafields.ts). Indigo reads each record's molecules in turn, so its molecules' sizes say which atoms each has,
+  // and the items it puts on a record's first molecule check that each record has its own.
+  let left = 0;
+  if (!reaction && /^>.*<|^\$\$\$\$/m.test(text)) {
+    const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => { const f = typeof n.$ref === "string" ? ket[n.$ref] as { type?: string; atoms?: unknown[]; properties?: unknown[] } : undefined; return f?.type === "molecule" ? [{ atoms: f.atoms?.length ?? 0, items: !!f.properties?.length }] : []; });
+    const sd = readSd(text), got = fieldsFromRecords(sd.records, mols), room = Math.max(0, MAX_DATA - (mol.data?.length ?? 0));
+    left = sd.left + got.left + Math.max(0, (got.data?.length ?? 0) - room);
+    if (got.data?.length) mol.data = [...(mol.data ?? []), ...got.data.slice(0, room)];
+  }
+  return markLeft(scaled(mol), left + (dropped.get(mol) ?? 0));
 }
 // A drawing with its median bond one bond length long.
 function scaled(mol: Mol): Mol {
@@ -233,6 +246,8 @@ function scaled(mol: Mol): Mol {
 // Indigo's KET as a drawing: its molecules, with their map numbers and enhanced stereo, and a reaction's arrows and
 // plus signs (Octet's reaction arrows and "+" captions). apart: the molecules are an SD file's records, which other
 // programs often draw at one place; when two overlap, they are set in a row.
+// Data S-groups fromKet left out, by the drawing it made.
+const dropped = new WeakMap<Mol, number>();
 function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, unknown>[] } }, apart = false): Mol {
   const mol: Mol = { atoms: [], bonds: [] }, arrows: NonNullable<Mol["arrows"]> = [], captions: NonNullable<Mol["captions"]> = [];
   let id = 1;
@@ -241,6 +256,14 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
     if (frag?.type === "molecule") {
       const base = mol.atoms.length;
       mol.atoms.push(...frag.atoms.map(atomOfKet));
+      // A Data S-group (a molfile's attached data) is a data field of its atoms, not shown (datafields.ts).
+      for (const sg of (frag as { sgroups?: { type?: string; atoms?: unknown[]; fieldName?: unknown; fieldData?: unknown }[] }).sgroups ?? []) {
+        if (sg?.type !== "DAT") continue;
+        const atoms = (Array.isArray(sg.atoms) ? sg.atoms : []).filter((i): i is number => Number.isInteger(i) && (i as number) >= 0 && (i as number) < frag.atoms.length).map((i) => i + base);
+        const name = cleanName(typeof sg.fieldName === "string" ? sg.fieldName : ""), value = cleanValue(typeof sg.fieldData === "string" ? sg.fieldData.replace(/ +$/gm, "") : "");
+        if (!atoms.length || value === undefined || name.length > MAX_NAME || (mol.data?.length ?? 0) >= MAX_DATA) { dropped.set(mol, (dropped.get(mol) ?? 0) + 1); continue; }
+        (mol.data ??= []).push({ name: name || NO_NAME, atoms: [...new Set(atoms)], value });
+      }
       // A bond's reacting centre (KET "center", the MDL code) is its Rxn mark.
       const rxnOf = (b: { center?: number }) => Object.keys(RXCTR).find((k) => RXCTR[k] === b.center) as Mol["bonds"][number]["rxn"];
       const orders = kekuleLeft(frag.atoms, frag.bonds);
@@ -276,7 +299,9 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
       });
     }
   }
-  return { ...mol, ...(arrows.length ? { arrows } : {}), ...(captions.length ? { captions } : {}) };
+  const out = { ...mol, ...(arrows.length ? { arrows } : {}), ...(captions.length ? { captions } : {}) };
+  if (dropped.has(mol)) dropped.set(out, dropped.get(mol)!);
+  return out;
 }
 // An RD file: each reaction (and molecule) record read on its own, one under another, so no two overlap.
 // A record's data fields (from its first $DTYPE) put back what Octet wrote there: the text over and under the arrow,
@@ -1421,11 +1446,11 @@ export function drawnInchiKey(part: Mol): string | undefined {
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
 // so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go
 // with each record, where they enclose its atoms.
-// items: a compound's data items (eln.ts), by any of its atoms.
+// Each record's data items: its structure's data fields (datafields.ts), then from items a compound's data items
+// (eln.ts), by any of its atoms.
 export function toSdf(drawn: Mol, v2000 = false, items?: Map<number, DataField[]>): string {
-  const groups = drawn.shapes?.some((sh) => sh.rgroup) ? undefined : fragments(drawn);
-  const parts = groups ? groups.map((g) => ({ ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) })) : [drawn];
-  return parts.map((p, k) => `${toMolfile(p, v2000)}\n${sdData(groups && items?.get(groups[k][0]))}$$$$\n`).join("");
+  const whole = drawn.shapes?.some((sh) => sh.rgroup), groups = whole ? [drawn.atoms.map((_, i) => i)] : fragments(drawn), fields = sdRecordItems(drawn, groups);
+  return groups.map((g, k) => `${toMolfile(whole ? drawn : { ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) }, v2000)}\n${fields[k]}${sdData(whole ? undefined : items?.get(g[0]))}$$$$\n`).join("");
 }
 
 // One step of a reaction, for RXN, RDF and reaction SMILES: its reactants, its products, and its agents (the structures

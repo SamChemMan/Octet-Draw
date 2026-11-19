@@ -27,8 +27,10 @@ export const numberValue = (text: string) => (/^\d{1,6}$/.test(text) ? Number(te
 // roman numerals. Its C and D are letters too, never 100 and 500.
 const lettered = (m: Mol) => (m.captions ?? []).some((c) => c.bold && c.under?.length && /^[A-Z]$/.test(c.text) && fromRoman(c.text) === undefined);
 const letter = (m: Mol, text: string) => /^[A-Z][a-z]?$/.test(text) && lettered(m);
+// A data field's text (datafields.ts) is never a compound number, whatever it says.
+const fieldText = (m: Mol) => new Set((m.data ?? []).flatMap((f) => (f.caption === undefined ? [] : [f.caption])));
 // The captions that are plain compound numbers: bold, under a structure, a number alone.
-const plainNumbers = (m: Mol) => (m.captions ?? []).filter((c) => c.bold && c.under?.length && numberValue(c.text) !== undefined && !letter(m, c.text));
+const plainNumbers = (m: Mol) => { const shown = fieldText(m); return (m.captions ?? []).filter((c) => c.bold && c.under?.length && numberValue(c.text) !== undefined && !letter(m, c.text) && !shown.has(c.id)); };
 // Whether the drawing numbers its compounds in roman numerals: it has numbers and every one is roman.
 export function romanNumbers(m: Mol): boolean {
   const ns = plainNumbers(m);
@@ -40,7 +42,7 @@ export const numberText = (m: Mol, n: number, roman = romanNumbers(m)) => (roman
 // The next compound number: one more than the highest bold number already there (3, III or 3a), in the drawing's style.
 export function nextCompound(m: Mol): string {
   // A roman numeral counts only under a structure, so bold text such as a heading "C" is not 100.
-  const used = (m.captions ?? []).filter((c) => c.bold && (/^\d/.test(c.text) || (c.under?.length && !letter(m, c.text)))).map((c) => numberValue(c.text.replace(/(?<=^(?:\d+|[IVXLCDM]+))[a-z]$/, "")) ?? 0);
+  const shown = fieldText(m), used = (m.captions ?? []).filter((c) => c.bold && !shown.has(c.id) && (/^\d/.test(c.text) || (c.under?.length && !letter(m, c.text)))).map((c) => numberValue(c.text.replace(/(?<=^(?:\d+|[IVXLCDM]+))[a-z]$/, "")) ?? 0);
   return numberText(m, Math.max(0, ...used) + 1);
 }
 

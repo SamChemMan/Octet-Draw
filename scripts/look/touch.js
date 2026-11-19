@@ -744,6 +744,13 @@ async function coarseSection() {
     await escape();
     if (document.querySelector(".strip.list:not(.leaving)")) button?.click();
     await wait(300);
+    // A colour row's palette (every colour as a swatch, a Menu.tsx list): its swatches are 44 px too, and it is in the window.
+    document.querySelector(".colour-row .colour-more")?.click(); await wait(500);
+    const palette = document.querySelector("body > div > .strip.list"), swatches = palette ? [...palette.querySelectorAll(".swatch-cell")].filter((v) => v.offsetHeight) : [], shelf = px(palette);
+    check(`coarse ${theme}: a colour palette's swatches are 44 px and the palette is in the window`, swatches.length > 4 && swatches.every((v) => v.offsetHeight === 44 && v.offsetWidth === 44) && !!shelf && shelf.bottom <= innerHeight - 8 + 0.5 && shelf.top >= 8 - 0.5,
+      `${swatches.length}: ${[...new Set(swatches.map((v) => `${v.offsetWidth}x${v.offsetHeight}`))].join(" ")} ${JSON.stringify(shelf)}`);
+    await escape();
+    await wait(300);
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await wait(1300);
   };
@@ -763,6 +770,11 @@ async function coarseSection() {
     await wait(500);
     const rows = [...document.querySelectorAll(".context-menu .variant")].filter((v) => v.offsetHeight);
     check("fine again: the Actions menu's rows are 30 px", rows.length > 1 && rows.every((v) => v.offsetHeight === 30), rows.map((v) => v.offsetHeight).join(" "));
+    await escape();
+    key({ key: "a", code: "KeyA", metaKey: true }); await wait(500);
+    document.querySelector(".colour-row .colour-more")?.click(); await wait(500);
+    const swatches = [...(document.querySelector("body > div > .strip.list")?.querySelectorAll(".swatch-cell") ?? [])].filter((v) => v.offsetHeight);
+    check("fine again: a colour palette's swatches are 24 px", swatches.length > 4 && swatches.every((v) => v.offsetHeight === 24), swatches.map((v) => v.offsetHeight).join(" "));
     await escape();
   }
 }

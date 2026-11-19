@@ -39,6 +39,7 @@ import { chemfig } from "../../src/chemfig.ts";
 import { writeNmredata } from "../../src/nmredata.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
+import { linked } from "../../src/datafields.ts";
 import { rings } from "../../src/rings.ts";
 
 setNamer(iupacName);
@@ -171,6 +172,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
     const found = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : named(s);
     if (found || !(lines || looksLikeSmiles(s))) return found;
     try {
+      // An SD file's text keeps its data items as data fields, as the editor reads it (datafields.ts).
+      if (lines && /^M {2}END/m.test(s) && /^>.*</m.test(s)) { const m = importStructure(text); return m.atoms.length ? m : undefined; }
       const m = parseStructure(lines ? text.trimEnd() : s);
       // Stereo flags from an MDL chiral flag only with Settings' Show Stereoflags When Opening MDL Format Files (off).
       return !m.atoms.length ? undefined : chiralFlagOnly(text) ? { ...m, atoms: m.atoms.map((a) => (a.enhanced ? (({ enhanced: _, ...rest }) => rest)(a) : a)) } : m;
@@ -311,6 +314,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       return true;
     },
     zoom_fit: () => true, show_page: () => true, check_structure: () => true, show_warnings: () => true,
+    // Select Linked Objects on a data field's text: its structures and the text (datafields.ts).
+    select_linked: () => { const l = picked.items.map((id) => linked(doc, id)).find(Boolean); if (!l) return false; picked = l; return true; },
     // The Actions panel's risk assessment actions, offline (no PubChem here: risk.hazards finds nothing).
     "risk.add": () => {
       if (!expPage() || riskGroup(doc)) return expPage();

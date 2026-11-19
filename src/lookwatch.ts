@@ -5,12 +5,14 @@
 // The height of each kind of control (tokens.json, size). ui.check.ts holds the stylesheet to the same list.
 export const SIZE_OF: Record<string, string[]> = {
   "size-action": [".close-x, .segmented button.close-x", ".variant-action, .key-remove, .home-remove", ".name-forget", ".problem-hide"],
-  "size-control-sm": [".actions-close, .floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button"],
+  "size-control-sm": [".variant.swatch-cell, .strip.list .variant.swatch-cell", ".actions-close, .floating-size", ".key-add", ".library-keep", ".home-act", ".pill", ".problem-buttons button", ".name-options button"],
   "size-control": [".text-button", ".dialog-button", ".spectrum-button", ".prop-add", ".home-open", ".page-button", ".select-field", ".unit-field", ".segmented", ".list-find", ".settings-search, .library-search"],
   "size-row": [".action", ".chip", ".module", ".library-category", ".strip.list .variant"],
   "size-tool": [".tool", ".tray-button", ".export-button", ".feedback-link", ".actions-reopen"],
   "size-cell": [".variant", ".command"],
 };
+// A colour's swatch in a colour menu or a colour row is a small control, whatever menu it is in.
+const SWATCH = ".swatch-cell";
 // These take their height from what is in them: the purposes wrap onto more lines, a menu option in a list is a row,
 // and a text field of several lines (Settings > Document > Properties > Comment, a note) is as high as its lines.
 const OWN_HEIGHT = ".segmented.purposes, .strip.list .variant, .variant.add, .unit-field.lines";
@@ -32,11 +34,11 @@ export function measureLook(root: ParentNode = document) {
     const inner = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size-control")) - 6;
     if (first && first.offsetHeight !== inner) say(`the segments of "${name(control)}" are ${first.offsetHeight}px high, not ${inner}px`);
   }
-  // Each kind of control is as high as its size token, read at the control: the toolbar and every menu set theirs to
-  // --size-touch with a finger or a pen as the main pointer (editor.css).
+  // Each kind of control is as high as its size token, read at the control: the toolbar and every menu (a colour
+  // menu's swatches too) set theirs to --size-touch with a finger or a pen as the main pointer (editor.css).
   for (const [token, selectors] of Object.entries(SIZE_OF)) {
     for (const el of root.querySelectorAll<HTMLElement>(selectors.join(", "))) {
-      if (!el.offsetHeight || el.matches(OWN_HEIGHT)) continue;
+      if (!el.offsetHeight || el.matches(OWN_HEIGHT) || (token !== "size-control-sm" && el.matches(SWATCH))) continue;
       const height = parseFloat(getComputedStyle(el).getPropertyValue(`--${token}`));
       if (el.offsetHeight !== height) say(`"${name(el)}" (${el.className}) is ${el.offsetHeight}px high, not --${token} (${height}px)`);
     }

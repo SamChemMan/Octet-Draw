@@ -17,13 +17,15 @@ import {
   Storefront, FirstAidKit, Triangle, TriangleDashed, PlusSquare, ShuffleSimple,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
+// Attach data… and Select linked objects (datafields.ts).
+import { Paperclip, SelectionBackground } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { GENERICS, massText, queryLabel } from "./query";
 import { ContextMenu, Menu, Pick, type MenuItem } from "./Menu";
 import { setItems } from "./TemplateLibrary";
 import { ColourPick, colourItems } from "./ColourPicker";
-import { colourOptions, PICK } from "./colours";
+import { colourOptions, PICK, type PinKind } from "./colours";
 import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
@@ -86,7 +88,8 @@ export type Context = ({ annotate?: true }) & (
   | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
       // shown when the document's is on and one of them reads as chemistry.
-      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
+      // field: one picked caption that is a data field's text (datafields.ts).
+      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean; field?: boolean;
       // cycleSide: one picked caption that labels a cycle's side arrow (CycleSide). cycleName: one picked caption that is
       // a step's name, moved from where Octet puts it. values: live values among them (Add to drawing), one showing its
       // names or none. places: the first one's decimals (Decimals), standard or 0 to 8.
@@ -140,7 +143,7 @@ type Props = {
   layout: Record<string, { order: string[]; rows: number }>;
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour menu every selection gets
-  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void }; // the user's own colours, the drawing's, after Octet's
+  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void; pins?: Partial<Record<PinKind, string[]>>; onPins?: (pins: Partial<Record<PinKind, string[]>>) => void }; // the user's own colours, the drawing's, after Octet's, and the pinned ones
   grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
@@ -364,6 +367,7 @@ const KIND_OF: Record<string, string> = {
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
+  attach_data: "marks",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
   copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", more_chemfig_copy: "library", more_sln: "library", "template.add": "library", "dictionary.add": "library", delete: "delete",
 };
@@ -468,7 +472,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(small({ ...it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"), short: context.structures > 1 ? "Number compounds" : undefined }), ...numerals(context.roman),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
-        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.values ? [small(names(context.values))] : []),
+        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
         ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<Signature size={18} />, "Define nickname…", "define_nickname")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
@@ -503,6 +507,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.convertible) items.push(toStructure);
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.values) items.push(names(context.values));
+      if (context.field) items.push(it(<Paperclip size={18} />, "Edit attached data…", "attach_data"), it(<SelectionBackground size={18} />, "Select linked objects", "select_linked"));
       if (context.cycleSide) items.push(...sideItems(context.cycleSide));
       if (context.cycleName?.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       if (context.conditions?.moved) items.push(it(<Magnet size={18} />, "Reset position", "conditions.reset"));
@@ -1262,14 +1267,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         {/* One colour menu for every kind of selection (a highlight shape takes a pale fill, anything else an ink colour),
             and Highlight (the selected atoms and the bonds between them) and Ring fill (each ring on its own) for
             structures. A colour changed in the picker is one step to undo (drag). */}
-        <div className="picks" role="group" aria-label="Colour">
-          <ColourPick label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
+        <div className="colour-rows" role="group" aria-label="Colour">
+          <ColourPick strip label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
           {/* A whole energy diagram with two paths or more: a colour for each path, under its own name. */}
           {chart?.kind === "energy" && chart.whole && chart.paths.length > 1 && chart.paths.map((p, i) => (
-            <ColourPick key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
+            <ColourPick strip key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
           ))}
-          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
-          {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick strip label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick strip label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
         </div>
         </Fold>
       )}
@@ -1390,9 +1395,9 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
     const p = picks.find((q) => `pick:${q.command}` === key);
     if (p) return { label: p.label, groups: [choices(p, context).map((o) => ({ key: `${p.command}.${o.id}`, name: o.name, icon: o.glyph, checked: p.value === o.id }))] };
     if (key === "set:align") return { label: "Alignment", groups: [labelAligns(18).map(([id, name, icon]) => ({ key: `caption.align.${id}`, name, icon, checked: aligned === id }))] };
-    // The colours as the panel's colour menu lists them. Add colour… opens the user's colours in Settings, as there is no
+    // The colours as the panel's colour menu lists them. Custom colour… opens the user's colours in Settings, as there is no
     // button here for the picker to open by.
-    if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, [...colours.own, ...colours.drawing], colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
+    if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, colours.own, colours.drawing, colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
     const list = keep(sets.find(([s]) => `set:${s}` === key)?.[1] ?? []);
     return { label: titleOf(key.slice(4) as SetId, context, list), groups: byKind(key.slice(4) as SetId, list).map((g) => g.map(item)) };
   };
