@@ -4866,10 +4866,6 @@ line.attach-hit[aria-checked="true"] {
 .spectrum header button {
   cursor: default;
 }
-/* Properties and Hazards: the panel's two tabs, in its header. */
-.prop-tabs {
-  grid-auto-columns: max-content;
-}
 /* The Properties tab: Composition, Structure and Predicted side by side, Predicted twice as wide with its rows in two
    columns; they wrap under each other as the panel narrows. */
 .prop-list {
