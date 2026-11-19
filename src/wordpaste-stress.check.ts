@@ -120,7 +120,8 @@ const cases: Case[] = [
   },
   {
     id: "S16", what: "an object pasted from 1.1.2 is smooth after File > Update [S20]", hand: /An object pasted with 1\.1\.2[^.]*: jagged when opened[\s\S]*?now smooth/,
-    here: () => assert.match(fnBody(editor, /const officeUpdate = async/), /invoke\("ole_update", \{ oct, svg: pictureOf\(sent\) \?\? BLANK_SVG, cdxml: formatOf\(sent, "cdxml"\) \?\? "", send: true,/),
+    // (bare: the drawing without its notes, which an object never holds; annotate.ts.)
+    here: () => assert.match(fnBody(editor, /const officeUpdate = async/), /invoke\("ole_update", \{ oct, svg: pictureOf\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\) \?\? "", send: true,/),
   },
   { id: "S17", what: "two objects from two documents open and changed, then Quit [S22]", hand: /two objects from two documents, change both/ },
   { id: "S18", what: "Word at 10% to 500%; printed; Save as PDF [S19, S29]", windows: ["ole_plus_zoom"], hand: /400%[\s\S]*Save As > PDF/ },
