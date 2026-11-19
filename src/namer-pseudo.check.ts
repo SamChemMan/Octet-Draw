@@ -6,35 +6,19 @@
 // and trans for rings, and published names. Then typed names, malformed and hostile names, the limits, the gate and
 // the cache, and the time each takes.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { browser, loadOpsin, needOpsin, norender, opsinDir } from "../scripts/checkkit.ts";
 import type { Mol } from "./render.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("namer-pseudo: skipped (no OPSIN build)"); process.exit(0); }
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+needOpsin("namer-pseudo: skipped (no OPSIN build)");
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+const opsin = await loadOpsin();
 const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
 const { DRUGS } = await import("./drugs.ts");
 const { attachOpsin, knownName, nameToSmiles, setPseudoReader } = await import("./names.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
 const { checkedName, namerName, setCageCheck, setNamer } = await import("./naming.ts");
 const { iupacName } = await import("./namer.ts");
 const { MOST_OPEN, pseudoReader, pseudoSmiles, smilesLabels } = await import("./pseudo.ts");
@@ -215,9 +199,8 @@ console.log("namer-pseudo: published names (xylitol, ribitol, galactitol, meso-t
 // Chain centres: Octet's labels are Indigo's (its own CIP code), r and s included. Indigo's labels depend on what it
 // labelled before (after ribitol it gives tropine's C3 R), so each structure is labelled by an Indigo of its own.
 {
-  const fresh = (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default;
   const indigoLabels = async (smiles: string) => {
-    const indigo = await fresh(), o = new indigo.MapStringString();
+    const indigo = await norender(), o = new indigo.MapStringString();
     o.set("output-content-type", "application/json");
     try { return (JSON.parse(JSON.parse(indigo.calculateCip(smiles, "ket", o)).struct).mol0.atoms as { cip?: string }[]).map((a) => a.cip?.replace(/[()]/g, "")); } finally { o.delete(); }
   };
@@ -276,8 +259,7 @@ console.log("namer-pseudo: typed names with r and s draw their structures ok");
 // ——— Malformed and hostile names: no structure, quickly ———
 const NONE = [
   "(1R,4R)-4-methylcyclohexan-1-ol", // R on a pseudoasymmetric centre
-  "(1r,3r)-3-methylcyclohexan-1-ol", // r on a centre that is not pseudoasymmetric
-  "(2s)-butan-2-ol", "(9r)-pentane-1,2,3,4,5-pentol", "(2R,9r,4S)-pentane-1,2,3,4,5-pentol", "(1r,4q)-4-methylcyclohexan-1-ol",
+  "(9r)-pentane-1,2,3,4,5-pentol", "(2R,9r,4S)-pentane-1,2,3,4,5-pentol", "(1r,4q)-4-methylcyclohexan-1-ol",
   "(1r,1s)-4-methylcyclohexan-1-ol", "(1r,4r)-", "(1r,4s)-4-methylcyclohexan-1-ol", "(3r)-pentane-1,2,3,4,5-pentol",
   "rel-(1r,4r)-4-methylcyclohexan-1-ol", "rac-(1r,4r)-4-methylcyclohexan-1-ol", "(1r*,4r*)-4-methylcyclohexan-1-ol", "(1r,4r)-4-methylcyclohexan-1-ol)",
   "(1r,4r)-4-methylcyclohexan-1-ol (1r,4r)-", "((1r,4r))-4-methylcyclohexan-1-ol", "(1r,4r)-(1r,4r)-4-methylcyclohexan-1-ol", "(r)-", "(s)-(s)-(s)-",
@@ -301,6 +283,11 @@ for (const smiles of ["[2H]C1CC[C@@H](C)CC1", "C[N+](C)(C)[C@H]1CC[C@@H](O)CC1",
   if (name) assert.equal(inchiOf(nameToSmiles(name) ?? ""), inchiOf(m), `${smiles}: "${name}" is its structure`);
 }
 console.log(`namer-pseudo: ${NONE.length} malformed and hostile names give no structure ok`);
+// r or s on an ordinary centre, as a name written all in lower case has it: read as OPSIN reads it, R or S, as 1.1.2 did.
+for (const [typed, want] of [["(2s)-butan-2-ol", "C[C@H](O)CC"], ["(1r,3r)-3-methylcyclohexan-1-ol", "C[C@@H]1CCC[C@@H](O)C1"], ["(2rs)-2-hydroxypropanoic acid", "CC(O)C(O)=O"],
+  ["(1s,2s)-cyclohexane-1,2-diamine", "N[C@H]1CCCC[C@@H]1N"], ["(4as,8ar)-decahydroquinoline", "N1CCC[C@@H]2CCCC[C@@H]12"]] as const)
+  assert.equal(inchiOf(nameToSmiles(typed) ?? ""), inchiOf(want), typed);
+console.log("namer-pseudo: r and s on ordinary centres (names in lower case) read as R and S ok");
 // Past the limit of open centres (four 1,4-cyclohexylene rings in a row: 8): no reading, no name, quickly.
 {
   const chainOfRings = drawn("C[C@H]1CC[C@@H](CC1)[C@H]1CC[C@@H](CC1)[C@H]1CC[C@@H](CC1)[C@H]1CC[C@@H](C)CC1");
@@ -331,7 +318,7 @@ console.log(`namer-pseudo: ${NONE.length} malformed and hostile names give no st
 {
   let calls = 0;
   setPseudoReader((n, read) => { calls++; return pseudoSmiles(n, read, api); });
-  const plain = readFileSync(new URL("names.txt", dir), "utf8").split("\n").filter(Boolean).slice(0, 500);
+  const plain = readFileSync(new URL("names.txt", opsinDir), "utf8").split("\n").filter(Boolean).slice(0, 500);
   for (const n of plain) nameToSmiles(n);
   assert.equal(calls, 0, "500 names with no r or s: the reader is not asked");
   for (let k = 0; k < 5; k++) nameToSmiles("(1r,4r)-4-methylcyclohexan-1-ol");

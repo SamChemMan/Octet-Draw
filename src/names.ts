@@ -222,9 +222,10 @@ function one(s: string): string | undefined {
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);
-  // A name with r or s is read by Octet's reader alone: OPSIN reads an s on a centre that is not pseudoasymmetric as S.
-  if (citesPseudo(s)) return beforeOpsinSmiles(s) ?? pseudoRead(s) ?? dictionarySmiles(s);
-  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read) ?? familySmiles(s);
+  // A name with r or s goes to Octet's reader before OPSIN, which reads no r or s on a pseudoasymmetric centre. A name
+  // the reader does not read goes on as before: OPSIN reads a lower-case descriptor on an ordinary centre as upper case
+  // ((2s)-butan-2-ol, (2rs)-, names in the dictionary written in lower case), and fails on a pseudoasymmetric one.
+  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? (citesPseudo(s) ? pseudoRead(s) : undefined) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read) ?? familySmiles(s);
 }
 
 // The reader of names with r and s (pseudo.ts), once Editor.tsx has given it Indigo and the namer. It is given OPSIN.

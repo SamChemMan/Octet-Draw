@@ -259,7 +259,7 @@ types (`Editor.tsx:3752`, and `nameToSmiles` in render at 10578 and 10593), and 
 | 4 | trans-4-tert-butylcyclohexan-1-ol as each chair (eq/eq, ax/ax), as a flat ring with wedges; cis likewise | (1r,4r)-4-tert-butylcyclohexan-1-ol; cis (1s,4s) |
 | 5 | cis-Decalin and trans-Decalin templates | (4as,8as)- and (4ar,8ar)-decahydronaphthalene, each read back to its own InChI |
 | 6 | Typed: "(1r,4r)-4-(aminomethyl)cyclohexane-1-carboxylic acid", "(1R,3r,5S)-8-methyl-8-azabicyclo[3.2.1]octan-3-ol", "(2R,3s,4S)-pentane-1,2,3,4,5-pentol" | trans tranexamic acid, tropine, ribitol |
-| 7 | Typed: "(1R,4R)-4-methylcyclohexan-1-ol" (R on a pseudo centre), "(1r,3r)-3-methylcyclohexan-1-ol" (r on a real centre), "(9r)-pentane-1,2,3,4,5-pentol", "(1r,4q)-…", "(1r,1s)-…" | no structure, as for any name that does not read |
+| 7 | Typed: "(1R,4R)-4-methylcyclohexan-1-ol" (R on a pseudo centre), "(9r)-pentane-1,2,3,4,5-pentol", "(1r,4q)-…", "(1r,1s)-…"; "(1r,3r)-3-methylcyclohexan-1-ol" (r on a real centre) | no structure, as for any name that does not read; (1r,3r) reads as (1R,3R), as in 1.1.2 (build notes, 19 November) |
 | 8 | An r or s name typed one character at a time | no lag; preview when complete; each read under 30 ms |
 | 9 | Seven or more open centres (a chain of cyclohexane rings) | no reading, no name, under 0.5 s |
 | 10 | myo-inositol flat and on a chair; scyllo-inositol | myo: no name; scyllo: (1r,2r,3r,4r,5r,6r)-cyclohexane-1,2,3,4,5,6-hexaol |
@@ -332,6 +332,14 @@ What changed from the plan while building, and why.
   validation suite (scripts/namer-suite.ts).
 - J3, lowercase on a centre that is not pseudoasymmetric. OPSIN reads "(2s)-butan-2-ol" as (2S). A name with r or s
   goes to Octet's reader alone, so that name gives no structure now, as stress 7 asks for "(1r,3r)-...".
+- Changed 19 November, before 1.1.3: a name Octet's reader does not read goes on to OPSIN, as every name did in 1.1.2.
+  With the reader alone, a name written in lower case with r or s on an ordinary centre stopped reading: "(s)-butan-
+  2-ol", "(1s,2s)-cyclohexane-1,2-diamine", "(2rs)-2-hydroxypropanoic acid", and 676 names of this kind that OPSIN
+  reads in the sources of Octet's names dictionary ("(3s)-1-methylpyrrolidin-3-ol", "(4as,7S,7ar)-nepetalactone").
+  OPSIN fails on r or s at a pseudoasymmetric
+  centre, so the malformed names in stress 7 still give no structure; "(1r,3r)-3-methylcyclohexan-1-ol" reads as
+  (1R,3R). A name Structure to Name gives is still read back to the drawing's InChI.
+- Stress check: src/names-stress.check.ts has stress 1, 4, 7, 9, 12, 19, 20 and 27; the other checks have the rest.
 - J4 is per bridgehead, not per structure. A 3D amantadine has labels (3s,5s,7s) and an InChI that also sets C1
   from the atoms' places; the name's InChI leaves C1 open. So the comparison leaves open only the /t atoms that are
   locked bridgeheads with no CIP label, and compares every other atom and /m as they are. With no /m (not chiral),

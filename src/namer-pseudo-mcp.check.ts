@@ -2,9 +2,9 @@
 // window (scripts/headless), which wires names as the window does: draw reads them, read gives them, and a name Octet
 // cannot read is refused with its line and draws nothing. Two sessions reading one drawing at once get one name.
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { needOpsin } from "../scripts/checkkit.ts";
 
-if (!existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) { console.log("namer-pseudo-mcp.check: skipped (no OPSIN build)"); process.exit(0); }
+needOpsin("namer-pseudo-mcp.check: skipped (no OPSIN build)");
 const { load, drawing, session } = await import("../scripts/headless/host.ts");
 const { handle } = await import("./mcp.ts");
 const { toInchi } = await import("./chem.ts");
@@ -37,7 +37,7 @@ assert.deepEqual(a.structuredContent.structures.map((s: { name?: string }) => s.
 
 // Bad names: refused with the line, nothing drawn, no exception.
 const before = read.structures.length;
-for (const lines of ["(1q,4r)-4-methylcyclohexan-1-ol", "(9r)-pentane-1,2,3,4,5-pentol", "(1r,4r)-", "(1r,1s)-4-methylcyclohexan-1-ol", "(1r,3r)-3-methylcyclohexan-1-ol",
+for (const lines of ["(1q,4r)-4-methylcyclohexan-1-ol", "(9r)-pentane-1,2,3,4,5-pentol", "(1r,4r)-", "(1r,1s)-4-methylcyclohexan-1-ol", "(1r,4s)-4-methylcyclohexan-1-ol",
   `(${Array.from({ length: 300 }, (_, k) => `${k + 1}r`).join(",")})-4-methylcyclohexan-1-ol`]) {
   const r = await call("draw", { lines });
   assert.ok(r.isError, lines.slice(0, 40));
