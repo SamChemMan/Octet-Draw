@@ -185,6 +185,12 @@ assert.equal(readCif(many(1000)).atoms.length, 1000);
 refused(`data_x\nloop_\n${Array.from({ length: 101 }, (_, k) => `_atom_site_cartn_${k ? `t${k}` : "x"}`).join("\n")}\n${"0 ".repeat(101)}\n`, /more than 100 tags/);
 assert.throws(() => readCif("data_x\n".repeat(1001)), (e: unknown) => e instanceof RangeError && /more than 1,000 data blocks/.test(e.message));
 assert.throws(() => readCif(many(1001)), (e: unknown) => e instanceof RangeError && /more than 1,000 atoms/.test(e.message));
+// An old Mac file (lines end in CR) and a Windows file read as the file does; a comment before the first block too.
+for (const ends of ["\r", "\r\n"]) assert.deepEqual(readCif(SMALL.replace(/\n/g, ends)), readCif(SMALL), JSON.stringify(ends));
+assert.ok(isCif(SMALL.replace(/\n/g, "\r")) && !isCif(`${"\r\n".repeat(40)}x`));
+// An atom far out (here 1e30 Å, which gave NaN positions at 1e160 Å) is damage: no position is NaN or absurd.
+refused(many(3).replace(/^C1 C 1\.5/m, "C1 C 1e30"), /more than 1,000,000 Å from the origin/);
+refused(many(3).replace(/^C1 C 1\.5/m, "C1 C 1e200"), /more than 1,000,000 Å from the origin/);
 // The limit is for each structure: a file with several (a paper's crystal structures) opens with more in all.
 assert.equal(readCif(many(600) + "\n" + many(600).replace("data_x", "data_y")).atoms.length, 1200);
 // A large macromolecule: 200,000 polymer atoms are read past, quickly, and its one ligand opens.

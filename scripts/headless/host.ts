@@ -8,7 +8,7 @@
 import "./browser.ts";
 import { readFileSync } from "node:fs";
 import { loadOpsin, opsinDir } from "../checkkit.ts";
-import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, structures, drawnInchiKey, type RxnStep, type Structure } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, structures, drawnInchiKey, type RxnStep, type Structure, importStructure, isOwnFormat } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -26,6 +26,7 @@ import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
+import { refusal } from "../../src/notice.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
 import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
 import { onTop } from "../../src/order.ts";
@@ -167,7 +168,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       const m = parseStructure(lines ? text.trimEnd() : s);
       // Stereo flags from an MDL chiral flag only with Settings' Show Stereoflags When Opening MDL Format Files (off).
       return !m.atoms.length ? undefined : chiralFlagOnly(text) ? { ...m, atoms: m.atoms.map((a) => (a.enhanced ? (({ enhanced: _, ...rest }) => rest)(a) : a)) } : m;
-    } catch { return undefined; }
+      // A MOL, SDF or RXN file over a limit is refused with the limit, as in a window (Editor.tsx host.file).
+    } catch (e) { if (refusal(e) && /V[23]000|^\$RXN|^\$RDFILE/m.test(text)) throw e; return undefined; }
   };
   const reactionLayout = (d: Laid): Layout => {
     const s = d.style, size = (s.captionSize * d.pt) / L, w = textWidth("+", s.captionSize * d.pt, false, false, fontStack(s.captionFont)) / L;
@@ -338,6 +340,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
     select: (atoms, items) => { picked = { atoms, items }; },
     file: (text) => {
       if (/<CDXML[\s>/]/.test(text.slice(0, 65536))) { const read = fromCdxml(text); return read.style ? fitSizes(read.mol, read.style, style()) : read.mol; }
+      // A CIF file, as the app reads it (its refusal is thrown, for add_file to say why, as a MOL file's limit is).
+      if (isOwnFormat(text)) { const m = importStructure(text); return m.atoms.length ? m : undefined; }
       return structure(text);
     },
     export: () => false,

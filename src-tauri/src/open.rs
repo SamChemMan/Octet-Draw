@@ -19,6 +19,9 @@ pub const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
 const PICTURES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp"];
 // Vector pictures Octet opens only for the drawing in them (export::cdxml_from_picture).
 pub const VECTORS: [&str; 2] = ["pdf", "emf"];
+// Text files read with the bytes that are not UTF-8 replaced (older CIF files have Latin-1 names in them). Octet reads
+// them itself (src/cif.ts), on every way in.
+pub const LOSSY: [&str; 2] = ["cif", "mmcif"];
 
 // The files waiting for a page, each with the window it was dropped on and the point there (CSS pixels), if it was.
 #[derive(Default)]
@@ -165,16 +168,18 @@ pub async fn insert_file(app: AppHandle, pictures: Option<bool>) -> Result<Optio
     Ok(Some(OpenedFile { name, path: None, text, picture, error, at: None }))
 }
 
-// A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8) or CDX only.
+// A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8, or for LOSSY
+// files any text with no NUL byte) or CDX only. The extension never refuses a file: the page reads text by what it is.
 pub fn read(path: &Path, name: &str) -> Result<String, String> {
+    let lossy = path.extension().and_then(|e| e.to_str()).is_some_and(|e| LOSSY.iter().any(|x| e.eq_ignore_ascii_case(x)));
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
         // (A named pipe or a device would never end: Octet reads files only.)
         Ok(m) if !m.is_file() => Err("This is not a file.".into()),
-        Ok(_) => crate::read_text_or_cdx(path).map_err(|e| match e.kind() {
+        Ok(_) => crate::read_bytes(path).and_then(|b| crate::text_or_cdx(b, lossy)).map_err(|e| match e.kind() {
             std::io::ErrorKind::PermissionDenied => "Octet does not have permission to read it.".into(),
-            _ => format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures."),
+            _ => format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, CIF, SMILES and InChI files, JCAMP-DX spectra, and pictures."),
         }),
     }
 }
@@ -282,6 +287,50 @@ mod tests {
             fs::set_permissions(&mol, fs::Permissions::from_mode(0o200)).unwrap();
             assert_eq!(read(&mol, "a.mol"), Err("Octet does not have permission to read it.".into()));
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // Issues 103 and 104: a CIF file with Latin-1 bytes opens on every way in (Finder, a drop, Insert…, --convert and
+    // its More Formats line all read through read), and no file is refused by its extension alone: binary bytes are
+    // refused whatever the name (an ISIS sketch, a ChemDraw 3.5 file), text goes to the page, which reads it by what
+    // it is (a ChemNote file that is an MDL molfile opens as one).
+    #[test]
+    fn old_formats_are_read_by_their_bytes() {
+        let dir = std::env::temp_dir().join(format!("octet-old-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, bytes: &[u8]| {
+            let p = dir.join(name);
+            fs::write(&p, bytes).unwrap();
+            read(&p, name)
+        };
+        let latin1 = b"data_x\n_publ_contact_author_name 'M\xfcller, J\xf6rg'\nloop_\n_atom_site_label\n_atom_site_fract_x\nC1 0.1\n";
+        for name in ["a.cif", "b.CIF", "c.mmcif", "d.MmCif"] {
+            let text = file(name, latin1).unwrap();
+            assert!(text.starts_with("data_x\n") && text.contains("M\u{fffd}ller, J\u{fffd}rg") && text.ends_with("C1 0.1\n"), "{name}");
+        }
+        // Valid UTF-8 is kept as it is; a CDX file is a CDX file whatever its name.
+        assert_eq!(file("e.cif", "data_é\n".as_bytes()).as_deref(), Ok("data_é\n"));
+        assert_eq!(file("f.cif", b"VjCD0100\x04\x03\x02\x01\xff").as_deref(), Ok("VmpDRDAxMDAEAwIB/w=="));
+        // Other files keep the strict test: the same Latin-1 bytes named .mol are refused.
+        let general = |n: &str| format!("Octet cannot open {n}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, CIF, SMILES and InChI files, JCAMP-DX spectra, and pictures.");
+        assert_eq!(file("g.mol", latin1), Err(general("g.mol")));
+        // Binary bytes (a NUL byte) are refused even named .cif.
+        assert_eq!(file("h.cif", b"data_x\n\0\xff\xfe"), Err(general("h.cif")));
+        // 1 MB of random bytes named as an ISIS sketch or a ChemDraw 2.x or 3.5 file, and named .cif: refused, fast.
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let random: Vec<u8> = (0..1 << 20).map(|_| { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; (seed >> 24) as u8 }).collect();
+        for name in ["i.skc", "j.chm", "k.SKC", "l.cif", "m.tgf", "n.msm", "o.smd"] {
+            let t = std::time::Instant::now();
+            assert_eq!(file(name, &random), Err(general(name)));
+            assert!(t.elapsed().as_millis() < 500, "{name} took {:?}", t.elapsed());
+        }
+        // Text named as ISIS transportable graphics or a ChemNote file goes to the page as it is (the page refuses text
+        // it cannot read, and reads an MDL molfile as one).
+        let molfile = "\n  Octet\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.5000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0  0  0  0\nM  END\n";
+        assert_eq!(file("p.msm", molfile.as_bytes()).as_deref(), Ok(molfile));
+        assert_eq!(file("q.tgf", b"not a structure\r\n").as_deref(), Ok("not a structure\r\n"));
+        // A file moved or deleted after it was picked.
+        assert_eq!(read(&dir.join("gone.cif"), "gone.cif"), Err("This file is not where it was. It was moved or deleted.".into()));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

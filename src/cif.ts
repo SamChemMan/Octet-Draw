@@ -9,6 +9,7 @@ import { hydrogens, NONMETAL, QUADRUPLE, type Mol } from "./render.ts";
 import { ELEMENTS } from "./labels.ts";
 import { kekulise } from "./rings.ts";
 import { crossV, dotV } from "./clean3d.ts";
+import { DamagedFile } from "./notice.ts";
 
 type V = [number, number, number];
 type Row = Record<string, string>;
@@ -20,6 +21,7 @@ type Group = { sites: Site[]; bonds?: [number, number, number][] };
 
 const MOST = 1000; // atoms in one structure (a data block, or a ligand); MOST_ROWS limits the file
 const MOST_ROWS = 20_000, MOST_TAGS = 100, MOST_BLOCKS = 1000; // rows kept from the tables Octet reads, tags in one, data blocks
+const FAR = 1_000_000; // Å: no atom is further from the origin on any axis (a macromolecule's are within 10,000)
 // The tables Octet reads, by one tag each: the others are only checked.
 const READ = new Set(["_atom_site_fract_x", "_atom_site_cartn_x", "_chem_comp_atom_atom_id", "_chem_comp_bond_atom_id_1", "_entity_type"]);
 const WATER = new Set(["HOH", "DOD", "WAT", "H2O"]);
@@ -35,7 +37,7 @@ const RADII = ("31 28 128 96 84 76 71 66 57 58 166 141 121 111 107 105 102 106 2
   "187 187 175 170 162 151 144 141 136 136 132 145 146 148 140 150 150 260 221 215 206 200 196 190 187 180 169").split(" ");
 const radius = new Map([...[...ELEMENTS].slice(0, RADII.length).map((el, k): [string, number] => [el, +RADII[k] / 100]), ["D", 0.31]]);
 
-const fail = (why: string): never => { throw new Error(`This CIF file is damaged: ${why}.`); };
+const fail = (why: string): never => { throw new DamagedFile(`This CIF file is damaged: ${why}.`); };
 // A number as CIF writes it, with its standard uncertainty in brackets (1.2345(6)); NaN for ? and . (unknown).
 const num = (s?: string) => (s ? Number(s.replace(/\(\d+\)$/, "")) : NaN);
 const dist = (p: V, q: V) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
@@ -46,8 +48,9 @@ const element = (s = "", label = false) => {
 };
 
 // A CIF file: comments and blank lines, then its first data block, and atoms in an atom_site or chem_comp_atom table.
+// Lines end in LF, CR LF or CR (an old Mac file), each one way only, so a file that is not CIF is refused at once.
 export const isCif = (text: string) =>
-  /^﻿?(?:[ \t]*(?:#[^\n]*)?\r?\n)*[ \t]*data_\S/i.test(text) && /^[ \t]*_(?:atom_site[._](?:fract|cartn)_x|chem_comp_atom[._]atom_id)\s/im.test(text);
+  /^﻿?(?:[ \t]*(?:#[^\r\n]*)?(?:\r\n|\r(?!\n)|\n))*[ \t]*data_\S/i.test(text) && /^[ \t]*_(?:atom_site[._](?:fract|cartn)_x|chem_comp_atom[._]atom_id)\s/im.test(text);
 
 // The file's data blocks: each block's single items, and the rows of the tables Octet reads, each row by its tags.
 // Tags are compared in lower case, with a DDL2 tag's first dot as an underscore (_atom_site.Cartn_x is
@@ -135,7 +138,10 @@ const table = (b: Block, tag: string): Row[] => b.tables.find((t) => t[0]?.[tag]
 
 // The structures in a data block.
 function groupsOf(b: Block): Group[] {
-  const known = (s: Site) => !!s.el && s.p.every(Number.isFinite);
+  const known = (s: Site) => {
+    if (s.p.some((x) => Math.abs(x) > FAR)) fail(`an atom is more than ${FAR.toLocaleString("en-GB")} Å from the origin`);
+    return !!s.el && s.p.every(Number.isFinite);
+  };
   // A ligand's own file: its ideal coordinates (else the model's), its charges and its bonds.
   const comp = table(b, "_chem_comp_atom_atom_id");
   if (comp.length) {
@@ -144,10 +150,13 @@ function groupsOf(b: Block): Group[] {
       const q = num(r._chem_comp_atom_charge);
       return { el: element(r._chem_comp_atom_type_symbol) ?? "", p: (["x", "y", "z"] as const).map((c) => num(r[`${xyz}${c}${ideal ? "_ideal" : ""}`])) as V, name: r._chem_comp_atom_atom_id ?? "", charge: Number.isInteger(q) && Math.abs(q) <= 8 ? q : 0 };
     }).filter(known);
-    const at = new Map(sites.map((s, k) => [s.name, k])), given = table(b, "_chem_comp_bond_atom_id_1");
+    // A bond to an atom that is not there, to itself or a second time between two atoms is left out.
+    const at = new Map(sites.map((s, k) => [s.name, k])), given = table(b, "_chem_comp_bond_atom_id_1"), seen = new Set<string>();
     const bonds = given.flatMap((r): [number, number, number][] => {
-      const i = at.get(r._chem_comp_bond_atom_id_1), j = at.get(r._chem_comp_bond_atom_id_2);
-      return i === undefined || j === undefined || i === j ? [] : [[i, j, ORDER[(r._chem_comp_bond_value_order ?? "").toUpperCase()] ?? 1]];
+      const i = at.get(r._chem_comp_bond_atom_id_1), j = at.get(r._chem_comp_bond_atom_id_2), pair = i! < j! ? `${i} ${j}` : `${j} ${i}`;
+      if (i === undefined || j === undefined || i === j || seen.has(pair)) return [];
+      seen.add(pair);
+      return [[i, j, ORDER[(r._chem_comp_bond_value_order ?? "").toUpperCase()] ?? 1]];
     });
     return [{ sites, bonds: given.length ? bonds : undefined }];
   }
@@ -187,13 +196,13 @@ function groupsOf(b: Block): Group[] {
 }
 
 // Bonds by distance: two atoms closer than their covalent radii and 0.4 Å, and not on one place. Two hydrogens are
-// never bonded.
-function near(s: Site[]): [number, number, number][] {
+// never bonded. most: the bonds the file has room for (atoms packed close in a hostile file would make millions).
+function near(s: Site[], most: number): [number, number, number][] {
   const out: [number, number, number][] = [], r = s.map((x) => radius.get(x.el)!), h = s.map((x) => x.el === "H" || x.el === "D");
   for (let i = 0; i < s.length; i++) for (let j = i + 1; j < s.length; j++) {
     if (h[i] && h[j]) continue;
     const d = dist(s[i].p, s[j].p);
-    if (d > 0.4 && d < r[i] + r[j] + 0.4) out.push([i, j, 1]);
+    if (d > 0.4 && d < r[i] + r[j] + 0.4 && out.push([i, j, 1]) > most) throw new RangeError(`It has more than ${MOST_ROWS.toLocaleString("en-GB")} bonds.`);
   }
   return out;
 }
@@ -267,11 +276,17 @@ function face(ps: V[]): V[] {
 // A CIF or mmCIF file as a drawing: its median bond between atoms other than H is one bond length (X-ray C–H bonds are
 // short), and each structure is in a row from left to right, two bond lengths apart. Each atom keeps its name in the
 // file as its atom number, not shown (Show Atom Number shows it). Throws a RangeError, with the reason to show, for a
-// file over Octet's limits.
+// file over Octet's limits, and a DamagedFile for a damaged one.
 export function readCif(text: string): Mol {
+  // An old Mac file's lines end in CR alone: it has no LF. (A CR in an LF or CR LF file is read as a space, as before.)
+  if (!text.includes("\n")) text = text.replace(/\r/g, "\n");
   const groups = blocks(text).flatMap(groupsOf).filter((g) => g.sites.length);
   if (groups.some((g) => g.sites.length > MOST)) throw new RangeError(`It has a structure of more than ${MOST.toLocaleString("en-GB")} atoms.`);
-  for (const g of groups) if (!g.bonds) { g.bonds = near(g.sites); orders(g.sites, g.bonds); }
+  // The bonds found by distance and the file's own, MOST_ROWS at most in the file: all found before any bond order.
+  const found = groups.filter((g) => !g.bonds);
+  let room = MOST_ROWS - groups.reduce((t, g) => t + (g.bonds?.length ?? 0), 0);
+  for (const g of found) { g.bonds = near(g.sites, room); room -= g.bonds.length; }
+  for (const g of found) orders(g.sites, g.bonds!);
   const heavy = (x: Site) => x.el !== "H" && x.el !== "D";
   const lengths = groups.flatMap((g) => g.bonds!.flatMap(([i, j]) => (heavy(g.sites[i]) && heavy(g.sites[j]) ? [dist(g.sites[i].p, g.sites[j].p)] : []))).sort((p, q) => p - q), unit = lengths[lengths.length >> 1] || 1.5;
   const mol: Mol = { atoms: [], bonds: [] };

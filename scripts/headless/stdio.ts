@@ -5,6 +5,7 @@
 // file's text opens it in a drawing of its own, as a hidden window does (CDXML and the structure formats: no .oct).
 import { createInterface } from "node:readline";
 import type { Host } from "../../src/mcp.ts";
+import { refusal } from "../../src/notice.ts";
 const { load, drawing, session } = await import("./host.ts");
 const { handle } = await import("../../src/mcp.ts");
 await load();
@@ -20,7 +21,7 @@ const opened = (id: string, next: Drawing): Host => {
   open.set(id, (d = next));
   unset = false;
   // A file it cannot read opens no window, and says so as the window's File > Open does (Editor.tsx readFile).
-  d.host.opens = async (text) => { try { if (d.host.file(text)) return {}; } catch { /* as nothing read */ } return { failed: "Octet cannot read the structures in this file." }; };
+  d.host.opens = async (text) => { try { if (d.host.file(text)) return {}; } catch (e) { const why = refusal(e); if (why) return { failed: `Octet cannot open this file. ${why}` }; } return { failed: "Octet cannot read the structures in this file." }; };
   d.host.newWindow = (purpose, _session, text) => {
     const m = text === undefined ? undefined : d.host.file(text), k = `headless-${++n}`;
     own.add(k);
