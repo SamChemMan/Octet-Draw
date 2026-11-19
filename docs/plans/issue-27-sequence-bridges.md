@@ -568,3 +568,23 @@ Each with its check: stress cases N43, N44, U11 and U12, `nicknames.check.ts` an
   residue label and read again, it is a monomer, never its SMILES). A side chain with an amino acid of its own, an N+
   its SMILES gives too few H and a ring with no Kekulé form are left out. It is asked of at most 600 monomers (the 500
   Octet keeps and 100 more): a hostile library of 20,000 that each read but none names back takes about 1.5 s.
+
+## 20. Review fixes, third round (19 November 2026, night)
+
+Each with its check: stress cases N45, N46 and U13 (WebKit), and `monomers.check.ts`.
+
+- **A residue drawn in full keeps each stereocentre as residue labels** (`seqbuild.ts buildLabels`). It is placed along
+  its row and may be turned over twice: its side chain to the other side, and the row read right to left (dir -1: a lone
+  residue linked to another chain, or a residue in the second, fourth … row of a long chain, which runs back). Its
+  wedges and hashes are swapped only when it is turned over once. Before, they followed the side chain alone, so
+  saquinavir's decahydroisoquinoline and hydroxyethylamine (5 centres) and pepstatin's statines and Ala came out as
+  their mirror images under Sequences > Residue labels. A residue in full at units 10 to 19 of a 30-mer did too, on
+  release-1.1.3 as well. A sweep of 68 molecules drawn as atoms (peptide drugs, protease inhibitors, ACE inhibitors,
+  β-lactams, nucleotides, cofactors, sugars) keeps every InChI under Residue labels and back to Atoms.
+- **A chain opened in the field is found again** (`helm.ts chainAgain`) when it is a lone residue label moved any length
+  or coloured (its kept atoms are the same), and by its compound (InChI) in its box when its sequence reads otherwise:
+  one residue drawn as atoms (rA as adenosine, H-Ala-OH as alanine) has none, and pepstatin as labels reads as other
+  chains. Return then draws one structure in its place. A lone residue label stays one way: drawn as atoms it is a small
+  molecule (N41, N43), so Residue labels leaves adenosine or alanine as drawn.
+- **Import…** in Settings > Dictionary (Names and Monomers) reads Importing… and is off while the file is read; the
+  label is painted before the work starts (a HELM library of 600 monomers takes about 1.4 s).

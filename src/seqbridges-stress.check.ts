@@ -1417,6 +1417,64 @@ await check("N44", "A chain opened in the Sequence field that goes while the fie
   assert.deepEqual(chainAgain(relabelled, openedB.mark), range(0, relabelled.atoms.length), "drawn again as labels: found in its place");
 });
 
+// Drugs whose residues Octet has no code for, read as chains: the residue drawn in full is placed along its row (and
+// for a lone one linked to another chain, or one in a row read right to left, turned over), with each stereocentre kept.
+const SAQUINAVIR = "CC(C)(C)NC(=O)[C@@H]1C[C@@H]2CCCC[C@@H]2CN1C[C@@H](O)[C@H](Cc1ccccc1)NC(=O)[C@H](CC(N)=O)NC(=O)c1ccc2ccccc2n1";
+const PEPSTATIN = "CC(C)C[C@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)CC(C)C)C(C)C)C(C)C)[C@@H](O)CC(=O)N[C@@H](C)C(=O)N[C@@H](CC(C)C)[C@@H](O)CC(=O)O";
+await check("N45", "Residue labels keep every stereocentre of a residue drawn in full, whichever way it is turned: saquinavir and pepstatin under Sequences > Residue labels and back to Atoms; a lone residue linked to another chain (R1 to R2, an N-cap's R2 to R1, a C-cap's R1 to R2, R2 to a side chain); a residue in a row read right to left (units 10 to 19 of 30)", () => {
+  for (const [name, smiles] of [["saquinavir", SAQUINAVIR], ["pepstatin", PEPSTATIN]]) {
+    const m = chem.parseStructure(smiles), l = withSequences(m, "labels");
+    assert.ok(l !== m && l.atoms.some((_, i) => isLabel(l, i)), `${name}: drawn again with residue labels`);
+    assert.equal(inchi(l), inchi(m), `${name}: Residue labels, the same stereoisomer`);
+    assert.equal(inchi(withSequences(l, "atoms")), inchi(m), `${name}: Atoms again, the same stereoisomer`);
+  }
+  const X = "[[*:1]N[C@@H]([C@@H](C)OC)C([*:2])=O]";
+  const cases: [string, string][] = [
+    ["a lone residue's R1 to R2", "PEPTIDE1{[[*:1]N[C@@H](Cc1ccccc1)[C@@H](O)CN(C)C]}|PEPTIDE2{A.N}$PEPTIDE1,PEPTIDE2,1:R1-2:R2$$$V2.0"],
+    ["an N-cap's R2 to R1", "PEPTIDE1{[C[C@H](c1ccccc1)C(=O)[*:2]]}|PEPTIDE2{A.G}$PEPTIDE1,PEPTIDE2,1:R2-1:R1$$$V2.0"],
+    ["a C-cap's R1 to R2", "PEPTIDE1{[[*:1]N[C@@H](C)c1ccccc1]}|PEPTIDE2{A.G}$PEPTIDE1,PEPTIDE2,1:R1-2:R2$$$V2.0"],
+    ["a lone residue's R2 to a side chain", `PEPTIDE1{${X}}|PEPTIDE2{A.K.G}$PEPTIDE1,PEPTIDE2,1:R2-2:R3$$$V2.0`],
+    ...[0, 9, 10, 15, 18, 19, 29].map((k): [string, string] => [`unit ${k + 1} of 30`, `PEPTIDE1{${Array.from({ length: 30 }, (_, i) => (i === k ? X : "A")).join(".")}}$$$$V2.0`]),
+  ];
+  for (const [what, h] of cases) {
+    const a = atoms(h), l = labels(h);
+    assert.equal(inchi(l), inchi(a), `${what}: as residue labels, the same stereoisomer as drawn in full`);
+    assert.equal(inchi(withSequences(l, "atoms")), inchi(a), `${what}: labels to atoms`);
+    assert.equal(inchi(withSequences(a, "labels")), inchi(a), `${what}: atoms to labels`);
+  }
+});
+
+await check("N46", "One residue opened in the Sequence field: a lone residue label (rA, dG, [mA]) moved any length, or moved and coloured, is its own atoms, and an alike one left after it is deleted is not; drawn again as atoms (adenosine, alanine) it is found by its compound, and Return draws one structure in its place; pepstatin drawn again as labels (read as other chains) is found by its compound", () => {
+  const { markChain, chainAgain, inPlaceOf } = helmMod;
+  const built = (words: string, as: "atoms" | "labels" = "labels") => { const seq = (fieldSeq(words) as { seq: Seq }).seq; return ((as === "atoms" ? buildAtoms(seq) : buildLabels(seq)) as { mol: Mol }).mol; };
+  const all = (m: Mol) => m.atoms.map((_, i) => i);
+  for (const words of ["rna: A", "dna: G", "rna: [mA]"]) {
+    const m = built(words), opened = markChain(m, all(m))!;
+    assert.equal(m.bonds.length, 0, `${words}: one label, no bonds`);
+    for (const d of [[3, 0], [40, -25]] as P[]) {
+      const moved = moveAtoms(m, new Set(all(m)), d);
+      assert.deepEqual(chainAgain(moved, opened.mark), [0], `${words}: moved ${Math.hypot(...d).toFixed(0)} bond lengths, its own label`);
+      assert.deepEqual(chainAgain({ ...moved, atoms: moved.atoms.map((a) => ({ ...a, colour: "#ff0000" })) }, opened.mark), [0], `${words}: moved and coloured`);
+    }
+    const after = erase(insertMol(m, built(words), [12, 0]).mol, new Set(), new Set(all(m)));
+    assert.equal(chainAgain(after, opened.mark), undefined, `${words}: deleted, the alike one left is not taken for it`);
+  }
+  // The Residue labels chip with the field open on one residue: drawn as atoms it is a small molecule, with no sequence.
+  for (const [words, next] of [["rna: A", "rna: AG"], ["dna: G", "dna: GA"], ["peptide: A", "peptide: AG"]]) {
+    const aspirin = chem.parseStructure("CC(=O)Oc1ccccc1C(=O)O"), page = insertMol(aspirin, built(words), [12, 0]).mol, mine = all(page).slice(aspirin.atoms.length);
+    const opened = markChain(page, mine)!, drawnOut = withSequences(page, "atoms");
+    assert.equal(fragments(drawnOut).length, 2, `${words}: drawn out`);
+    const found = chainAgain(drawnOut, opened.mark);
+    assert.ok(found && found.length > 1, `${words}: drawn as atoms, found by its compound`);
+    const out = inPlaceOf(drawnOut, found!, built(next, "atoms"));
+    assert.equal(fragments(out).length, 2, `${words}: Return draws ${next} in its place, no second structure`);
+    assert.ok(fragments(out).some((f) => inchi(pickAtoms(out, f)) === inchi(built(next, "atoms"))), `${words}: ${next} drawn`);
+  }
+  const pep = chem.parseStructure(PEPSTATIN), opened = markChain(pep, all(pep))!, l = withSequences(pep, "labels");
+  assert.notEqual(chainText(l, all(l)), opened.text, "pepstatin: as labels it reads as other chains");
+  assert.deepEqual(chainAgain(l, opened.mark), all(l), "pepstatin: found by its compound");
+});
+
 // ==================================================================================================================
 // ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8 to U12)
 // ==================================================================================================================
@@ -1452,16 +1510,27 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) 
 // nothing from this file. It reads the editor's state from React's own records (the undo history) and drives the
 // canvas and the name field with pointer and key events, as scripts/look/sweep.js does.
 const ui = process.env.OCTET_STRESS_URL;
-await check("U", "The app in WebKit: U1 to U6 and U9 to U12", async () => {
+await check("U", "The app in WebKit: U1 to U6 and U9 to U13", async () => {
   if (!ui) return "set OCTET_STRESS_URL to the dev server (npx vite --port 1467) to drive the app in WebKit";
   if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) return "needs a Mac with Xcode's swift";
   const dir = mkdtempSync(join(tmpdir(), "octet-ui27-")), script = join(dir, "stress.js");
-  writeFileSync(script, `return await (${uiStress.toString()})(${JSON.stringify(S.oxytocin)});`);
+  // U13's drawings: saquinavir and pepstatin as atoms, and rA as a residue label.
+  const drawings = { saquinavir: chem.parseStructure(SAQUINAVIR), pepstatin: chem.parseStructure(PEPSTATIN), rA: (buildLabels((fieldSeq("rna: A") as { seq: Seq }).seq) as { mol: Mol }).mol };
+  writeFileSync(script, `return await (${uiStress.toString()})(${JSON.stringify(S.oxytocin)}, ${JSON.stringify(drawings)});`);
   const run = spawnSync("swift", [fileURLToPath(new URL("../scripts/look/webkit.swift", import.meta.url)), ui, script], { encoding: "utf8", timeout: 300_000 });
   rmSync(dir, { recursive: true, force: true });
-  let out: { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[] };
+  let out: { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[]; mols?: Record<string, Mol> };
   try { out = JSON.parse(run.stdout.trim().split("\n").pop()!); } catch { throw new Error(`the WebKit run did not finish: ${run.stdout.slice(-300)}${run.stderr.slice(-300)}`); }
-  for (const c of out.cases) results.push({ id: c.id, title: c.title, state: c.ok ? "ok" : "failed", note: c.note });
+  // U13: what the app drew, the same stereoisomer as drawn (InChI here, from the page's drawings).
+  for (const c of out.cases) {
+    if (c.id === "U13") {
+      const same = Object.entries(out.mols ?? {}).map(([k, m]) => [k, inchi(m) === inchi(k.startsWith("saquinavir") ? SAQUINAVIR : PEPSTATIN)] as const);
+      const bad = same.filter(([, ok]) => !ok).map(([k]) => k);
+      c.ok &&= same.length === 4 && !bad.length;
+      c.note = `${c.note}; the same stereoisomer: ${same.length === 4 && !bad.length ? "all four" : `not ${bad.join(", ") || "drawn"}`}`;
+    }
+    results.push({ id: c.id, title: c.title, state: c.ok ? "ok" : "failed", note: c.note });
+  }
   assert.deepEqual(out.errors, [], "errors on the page");
 });
 
@@ -1492,11 +1561,12 @@ await check("U8", "The look sweep in light and dark: every control matches", asy
 // the worker busy, Return, then the field's preview timer: Return draws. U11: a chain opened in the field, the drawing
 // changed before Return (the Residue labels chip, Settings > Document > Sequences, a move) or Edit > Undo in the field
 // (it undoes the field's typing, not the drawing): Return draws one structure in its place. U12: Define nickname… for a
-// label the settings kept that is refused now: the refusal alone.
-async function uiStress(helmText: string) {
+// label the settings kept that is refused now: the refusal alone. U13: saquinavir and pepstatin under the Residue labels
+// chip and back, and an rA label drawn as atoms with the field open: one structure, the same stereoisomer.
+async function uiStress(helmText: string, drawings: { saquinavir: any; pepstatin: any; rA: any }) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const until = async <T,>(find: () => T, ms = 10000): Promise<T | null> => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
-  const out: { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[] } = { cases: [], errors: [] };
+  const out: { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[]; mols: Record<string, unknown> } = { cases: [], errors: [], mols: {} };
   const w = window as unknown as { __errors: string[] };
   const button = (text: string) => [...document.querySelectorAll("button")].find((b) => b.textContent!.trim() === text);
   // One keydown, where the focus is (it bubbles to the window's handlers once).
@@ -1778,6 +1848,60 @@ async function uiStress(helmText: string) {
     await wait(300);
     result("U12", "(issue 27) Define nickname… with a refused label the settings kept (OMe): the refusal alone, the button Define and off", notes.length === 1 && /^OMe is a peptide end in Octet's sequences\.$/.test(notes[0]) && primary?.textContent?.trim() === "Define" && primary.disabled,
       `notes ${JSON.stringify(notes)}, button "${primary?.textContent?.trim()}" ${primary?.disabled ? "off" : "on"}`);
+  });
+  // U13: a chain opened in the field (selected, then Structure > Sequence from the command palette), then the Residue
+  // labels chip pressed until the drawing is as asked. Saquinavir and pepstatin (drawn as atoms, residues Octet has no
+  // code for drawn in full) go to residue labels, Return with the field as it opened draws one structure in its place,
+  // and the chip back gives atoms; each drawing goes back to be read (InChI). An rA label drawn as atoms (adenosine), then
+  // rna: AG typed and Return: one structure.
+  await step("U13", "Residue labels keep each stereocentre; one residue drawn as atoms is found again", async () => {
+    const notes: string[] = [];
+    let ok = true;
+    const commands = () => hookList().map((h) => h.memoizedState).find((x) => x && typeof x === "object" && typeof x.current?.select_all === "function" && typeof x.current?.undo === "function")?.current;
+    const chip = () => [...document.querySelectorAll(".name-options button")].find((b) => b.textContent!.trim() === "Residue labels") as HTMLButtonElement | undefined;
+    const labelled = () => doc().atoms.some((a: any) => a.inner?.atoms.length && a.text);
+    const show = async (mol: any) => {
+      if (field()) { key({ key: "Escape", code: "Escape" }, field()); await wait(400); }
+      histHook().queue.dispatch({ type: "set", mol: { ...mol, ...(doc().style ? { style: doc().style } : {}) } });
+      await wait(500);
+    };
+    const open = async (item: string) => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      commands()?.select_all();
+      await wait(300);
+      await palette(item);
+      return (await until(() => field(), 3000))?.value;
+    };
+    // The chip until the drawing is (or is not) labelled, at most twice.
+    const press = async (labels: boolean) => { for (let k = 0; k < 2 && labelled() !== labels; k++) { chip()?.click(); await wait(900); } return labelled() === labels; };
+    const enter = async () => { key({ key: "Enter", code: "Enter" }, field()); await until(() => !field(), 8000); await wait(600); };
+    for (const name of ["saquinavir", "pepstatin"] as const) {
+      await show(drawings[name]);
+      const text = await open("Peptide sequence");
+      if (!text?.startsWith("PEPTIDE1{")) { ok = false; notes.push(`${name}: the field opened with "${text}"`); continue; }
+      const toLabels = await press(true);
+      if (name === "saquinavir") out.mols.saquinavirLabels = doc();
+      const at0 = hist().at;
+      await enter();
+      out.mols[`${name}Return`] = doc();
+      const n = parts(doc()), steps = hist().at - at0;
+      if (name === "saquinavir") {
+        const again = await open("Peptide sequence"), back = again !== undefined && await press(false);
+        out.mols.saquinavirAtoms = doc();
+        if (field()) { key({ key: "Escape", code: "Escape" }, field()); await wait(400); }
+        ok &&= back;
+        notes.push(`saquinavir: atoms again ${back}`);
+      }
+      ok &&= toLabels && n === 1 && steps === 1;
+      notes.push(`${name}: labels ${toLabels}, Return: structures ${n}, steps ${steps}`);
+    }
+    await show(drawings.rA);
+    const text = await open("RNA sequence"), toAtoms = text === "rna: A" && await press(false), size = doc().atoms.length;
+    if (toAtoms) { type("rna: AG"); await wait(900); await enter(); }
+    const n = parts(doc());
+    ok &&= toAtoms && size === 19 && n === 1;
+    notes.push(`rA: field "${text}", drawn as atoms ${toAtoms} (${size} atoms), rna: AG and Return: structures ${n}`);
+    result("U13", "(issue 27) Saquinavir and pepstatin opened in the field, then the Residue labels chip: the same stereoisomer as labels, after Return in place and as atoms again, one structure; an rA label opened, drawn as atoms (adenosine), rna: AG and Return: one structure", ok, notes.join("; "));
   });
   await step("U6", "Escape while it builds", async () => {
     const before = doc();

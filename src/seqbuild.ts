@@ -323,8 +323,9 @@ export function buildLabels(seq: Seq, look?: Look, own: Own = []): { mol: Mol } 
     const nodeOf = new Map(full.flatMap((f) => f.atoms.map((i): [number, number] => [i, f.first])));
     const laid = labelLayout(mol, frag, mine, along, nodeOf) ?? { at: new Map<number, P>(), routes: new Map<number, number>() };
     // Each residue drawn in full: its first and last backbone atoms along the row where its label would be, its side
-    // chain away from the rows (mirrored, wedges and hashes swapped, so it is the same compound), and the rest of its
-    // row moved along to make room.
+    // chain away from the rows, and the rest of its row moved along to make room. Turned over once (its side chain to
+    // the other side, or the row read right to left: dir -1, as a lone residue linked to another chain is), its wedges
+    // and hashes are swapped, so it is the same compound; turned over twice, it is only turned round.
     for (const f of full.filter((x) => inside.has(x.first))) {
       const row = mine.find((r) => r.includes(f.first))!, k = row.indexOf(f.first), here = laid.at.get(f.first) ?? [0, 0];
       const near = laid.at.get(row[k + 1] ?? row[k - 1]) ?? [here[0] + 1, here[1]], dir = Math.sign((k + 1 < row.length ? 1 : -1) * (near[0] - here[0])) || 1;
@@ -336,7 +337,7 @@ export function buildLabels(seq: Seq, look?: Look, own: Own = []): { mol: Mol } 
       if (flip) pts = pts.map((q) => [q[0], -q[1]]);
       const start = here[0] - dir * 0.6;
       f.atoms.forEach((i, n) => laid.at.set(i, [start + dir * pts[n][0], here[1] + pts[n][1]]));
-      if (flip) mol.bonds.forEach((b, j) => { if (f.atoms.includes(b.atoms[0]) && f.atoms.includes(b.atoms[1]) && (b.stereo === 1 || b.stereo === 6)) mol.bonds[j] = { ...b, stereo: b.stereo === 1 ? 6 : 1 }; });
+      if (flip !== dir < 0) mol.bonds.forEach((b, j) => { if (f.atoms.includes(b.atoms[0]) && f.atoms.includes(b.atoms[1]) && (b.stereo === 1 || b.stereo === 6)) mol.bonds[j] = { ...b, stereo: b.stereo === 1 ? 6 : 1 }; });
       const extra = Math.max(0, width - 1.2);
       for (const i of row.slice(k + 1)) { const q = laid.at.get(i); if (q) laid.at.set(i, [q[0] + dir * extra, q[1]]); }
     }

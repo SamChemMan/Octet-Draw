@@ -907,12 +907,17 @@ export default function Editor() {
     try { await invoke("export_file", { export: { name: "Octet dictionary", format: "smi", smiles: ownNamesFile(settings.dictionary) } }); }
     catch (e) { setNotice(failure("Octet cannot export the dictionary.", e)); }
   }
+  // Which Import… is reading its file: that button reads Importing…, painted before the work starts, and both are off
+  // until the file is read (a HELM library of 600 monomers takes about 1.4 s).
+  const [importing, setImporting] = useState<"names" | "monomers">();
+  const afterPaint = () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0)));
   async function importNames() {
     if (!TAURI) return;
     try {
       const picked = await invoke<[string, string] | null>("import_structure");
       if (!picked) return;
-      await ready;
+      setImporting("names");
+      await Promise.all([ready, afterPaint()]);
       const read = readOwnNamesFile(picked[1]).flatMap((n) => {
         try { const m = parseStructure(n.smiles, false); return m.atoms.length ? [{ ...n, inchi: toInchi(m) || undefined }] : []; } catch { return []; }
       });
@@ -923,7 +928,7 @@ export default function Editor() {
       setNotice(`Added ${merged.added} name${merged.added === 1 ? "" : "s"} to your dictionary.${merged.kept ? ` ${merged.kept} ${merged.kept === 1 ? "was" : "were"} in it already and stayed as ${merged.kept === 1 ? "it was" : "they were"}.` : ""}${left > 0 ? ` Octet left out ${left.toLocaleString("en-GB")}: your dictionary holds up to ${MOST_OWN_NAMES.toLocaleString("en-GB")} names.` : ""}`, "done");
     } catch (e) {
       setNotice(failure("Octet cannot import this file.", e));
-    }
+    } finally { setImporting(undefined); }
   }
   // Define Monomer (Structure > Define Monomer…, right-click a structure; issue 27): the selected structure, with R1, R2
   // and maybe R3 labels on its links, as a peptide monomer of the user's own (seqbuild.ts monomerOf), by a code.
@@ -946,7 +951,8 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("import_monomers");
       if (!picked) return;
-      await ready;
+      setImporting("monomers");
+      await Promise.all([ready, afterPaint()]);
       const read = readHelmLibrary(picked[1], importableMonomer);
       if ("problem" in read) return setNotice(read.problem);
       // New codes only, as many as there is room for (up to MOST_OWN_MONOMERS): a monomer the user has stays as it is.
@@ -957,7 +963,7 @@ export default function Editor() {
       setNotice(`Added ${add.length} monomer${add.length === 1 ? "" : "s"}.${left ? ` Octet left out ${left}.` : ""}`, "done");
     } catch (e) {
       setNotice(failure("Octet cannot import this file.", e));
-    }
+    } finally { setImporting(undefined); }
   }
   // A name from the user's own dictionary draws with the name under it, as ChemDraw's does.
   const withOwnCaption = (name: string, frag: Mol): Mol => {
@@ -11911,6 +11917,7 @@ export default function Editor() {
           onRemoveMonomer={(code) => setSettings((st) => ({ ...st, monomers: st.monomers.filter((x) => x.code !== code) }))}
           onExportMonomers={() => void exportMonomers()}
           onImportMonomers={() => void importMonomers()}
+          importing={importing}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
           onSaveFile={TAURI && !madeTemplate ? () => void saveStyleFile() : undefined}
           annotations={doc.annotations}

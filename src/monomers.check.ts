@@ -240,6 +240,16 @@ assert.ok(monomerRefs(own).some((r) => r.label === "Kac") && monomerRefs(own) ==
   assert.deepEqual(worse, { monomers: [], left: 20_000 });
   assert.ok(performance.now() - t2 < 3000, `${Math.round(performance.now() - t2)} ms`);
   assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const read = readHelmLibrary\(picked\[1\], importableMonomer\);/, "Import… asks it");
+  // A library that takes a second or more shows it is being read: the Import… button reads Importing…, painted before
+  // the work starts, and both Import… buttons (Names and Monomers) are off until it is read. The same for the names.
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), settingsWindow = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
+  for (const [what, invoke, read] of [["monomers", "import_monomers", "readHelmLibrary"], ["names", "import_structure", "readOwnNamesFile"]]) {
+    const body = editor.slice(editor.indexOf(`invoke<[string, string] | null>("${invoke}")`));
+    assert.ok(/^[^]*?setImporting\("\w+"\);\s*await Promise\.all\(\[ready, afterPaint\(\)\]\);/.test(body.slice(0, body.indexOf(read))), `${what}: Importing… is painted before the file is read`);
+    assert.match(body.slice(0, body.indexOf("\n  }\n")), /finally \{ setImporting\(undefined\); \}/, `${what}: and goes when it is read, or fails`);
+    assert.match(settingsWindow, new RegExp(`disabled=\\{!!p\\.importing\\} aria-busy=\\{p\\.importing === "${what}" \\|\\| undefined\\}>\\{p\\.importing === "${what}" \\? "Importing…" : "Import…"\\}`), `${what}: the button reads Importing… and is off`);
+  }
+  assert.match(editor, /importing=\{importing\}/, "the Settings window is told");
 }
 assert.deepEqual(readHelmLibrary("{"), { problem: "This file is not a HELM monomer library." });
 assert.deepEqual(readHelmLibrary("[]"), { monomers: [], left: 0 });

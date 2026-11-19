@@ -546,9 +546,11 @@ export function inPlaceOf(m: Mol, gone: number[], built: Mol): Mol {
 // A chain opened in the Sequence field, so Return finds it again when the drawing changes before Return (the Residue
 // labels choice or Settings > Document > Sequences draws it again with new atoms, an undo, a move): its atoms, how they
 // are drawn (each atom's label and text, and the bonds between them), the atoms and bonds themselves (a move keeps the
-// bonds, a colour the atoms or the bonds), and each structure's sequence, centre and half its width and height.
+// bonds, a colour the atoms or the bonds, and both keep a residue label's kept atoms), and each structure's sequence,
+// centre, half its width and height, and its atoms (for its InChI: one residue drawn as atoms is a small molecule, with
+// no sequence).
 type P = [number, number];
-export type ChainMark = { atoms: number[]; drawn: string; parts: { text: string; mid: P; half: P }[]; was: { atoms: Atom[]; bonds: Set<Mol["bonds"][number]> } };
+export type ChainMark = { atoms: number[]; drawn: string; parts: { text: string; mid: P; half: P; mol: Mol }[]; was: { atoms: Atom[]; bonds: Set<Mol["bonds"][number]> } };
 const midOf = (m: Mol, atoms: number[]): P => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; }) as P;
 const halfOf = (m: Mol, atoms: number[]): P => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.max(...v) - Math.min(...v)) / 2; }) as P;
 const bondsIn = (m: Mol, inside: Set<number>) => m.bonds.filter((b) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]));
@@ -566,30 +568,39 @@ export function markChain(m: Mol, atoms: number[], own: Own = []): { text: strin
   for (const f of frags) {
     const t = frags.length === 1 ? text : chainText(m, f, own);
     if (!t) return undefined;
-    parts.push({ text: t, mid: midOf(m, f), half: halfOf(m, f) });
+    parts.push({ text: t, mid: midOf(m, f), half: halfOf(m, f), mol: pickAtoms(m, f) });
   }
   return { text, mark: { atoms: sorted, drawn: drawnKey(m, sorted), parts, was: { atoms: sorted.map((i) => m.atoms[i]), bonds: new Set(bondsIn(m, inside)) } } };
 }
 // The marked chain in the drawing as it is now: the same atoms when they are still drawn as they were (moved or
-// coloured: its own atoms, or its own bonds, at the same numbers), else for each structure the one with the same
-// sequence whose centre is in the box it had (one bond length larger each way: drawn again as atoms or labels, it is
-// centred where it was), the nearest; undefined when one is gone (deleted, changed, or undone away), so a chain alike
-// elsewhere is never taken for it.
+// coloured: its own atoms, its own bonds, or a lone residue label's own kept atoms, at the same numbers), else for each
+// structure the one with the same sequence, or the same compound (one residue drawn as atoms: alanine, adenosine),
+// whose centre is in the box it had (one bond length larger each way: drawn again as atoms or labels, it is centred
+// where it was), the nearest; undefined when one is gone (deleted, changed, or undone away), so a chain alike elsewhere
+// is never taken for it.
 export function chainAgain(m: Mol, mark: ChainMark, own: Own = []): number[] | undefined {
   const n = m.atoms.length, inside = new Set(mark.atoms);
   if (mark.atoms.every((i) => i < n)) {
     const frags = fragments(m).filter((f) => f.some((i) => inside.has(i))), bonds = bondsIn(m, inside);
-    const same = mark.atoms.every((i, k) => m.atoms[i] === mark.was.atoms[k]) || (bonds.length > 0 && bonds.length === mark.was.bonds.size && bonds.every((b) => mark.was.bonds.has(b)));
+    const same = mark.atoms.every((i, k) => m.atoms[i] === mark.was.atoms[k]) || (bonds.length > 0 && bonds.length === mark.was.bonds.size && bonds.every((b) => mark.was.bonds.has(b)))
+      || (!bonds.length && !mark.was.bonds.size && mark.atoms.every((i, k) => !!m.atoms[i].inner && m.atoms[i].inner === mark.was.atoms[k].inner));
     if (same && frags.flat().length === mark.atoms.length && drawnKey(m, mark.atoms) === mark.drawn) return mark.atoms;
   }
   const frags = fragments(m).map((f) => [...f].sort((p, q) => p - q)), texts = new Map<number, string | undefined>(), used = new Set<number>(), out: number[] = [];
   const textOf = (k: number) => { if (!texts.has(k)) texts.set(k, chainText(m, frags[k], own)); return texts.get(k); };
+  // The same compound read another way also counts (one residue drawn as atoms has no sequence; a peptide with residues
+  // Octet has no code for may split into chains another way): each InChI is worked out only when the sequences differ.
+  const inchis = new Map<number | Mol, string | undefined>(), inchiOf = (key: number | Mol) => {
+    if (!inchis.has(key)) { let v: string | undefined; try { v = toInchi(typeof key === "number" ? pickAtoms(m, frags[key]) : key) || undefined; } catch { v = undefined; } inchis.set(key, v); }
+    return inchis.get(key);
+  };
+  const alike = (k: number, part: ChainMark["parts"][number]) => textOf(k) === part.text || (!!inchiOf(part.mol) && inchiOf(k) === inchiOf(part.mol));
   for (const part of mark.parts) {
     let best = -1, far = Infinity;
     for (let k = 0; k < frags.length; k++) {
       if (used.has(k)) continue;
       const [x, y] = midOf(m, frags[k]), d = Math.hypot(x - part.mid[0], y - part.mid[1]);
-      if (Math.abs(x - part.mid[0]) > part.half[0] + 1 || Math.abs(y - part.mid[1]) > part.half[1] + 1 || d >= far || textOf(k) !== part.text) continue;
+      if (Math.abs(x - part.mid[0]) > part.half[0] + 1 || Math.abs(y - part.mid[1]) > part.half[1] + 1 || d >= far || !alike(k, part)) continue;
       far = d; best = k;
     }
     if (best < 0) return undefined;

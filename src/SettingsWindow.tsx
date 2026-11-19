@@ -144,6 +144,8 @@ type Props = {
   onRemoveMonomer: (code: string) => void;
   onExportMonomers: () => void;
   onImportMonomers: () => void;
+  // The list whose Import… is reading a file: its button reads Importing… and both Import… buttons are off.
+  importing?: "names" | "monomers";
   onClose: () => void;
 };
 
@@ -774,9 +776,9 @@ export function SettingsWindow(p: Props) {
     );
     return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
       aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : s === "Names" && !query ? (
-        <span className="section-buttons"><button className="text-button" onClick={p.onImportNames}>Import…</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
+        <span className="section-buttons"><button className="text-button" onClick={p.onImportNames} disabled={!!p.importing} aria-busy={p.importing === "names" || undefined}>{p.importing === "names" ? "Importing…" : "Import…"}</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
       ) : s === "Monomers" && !query ? (
-        <span className="section-buttons"><button className="text-button" onClick={p.onImportMonomers}>Import…</button><button className="text-button" onClick={p.onExportMonomers} disabled={!p.monomers.length}>Export…</button></span>
+        <span className="section-buttons"><button className="text-button" onClick={p.onImportMonomers} disabled={!!p.importing} aria-busy={p.importing === "monomers" || undefined}>{p.importing === "monomers" ? "Importing…" : "Import…"}</button><button className="text-button" onClick={p.onExportMonomers} disabled={!p.monomers.length}>Export…</button></span>
       ) : s === "Selection" && !query && p.selection ? (
         // Reset to document: the selection takes the document's settings, with none of its own (ChemDraw's Apply Object
         // Settings from > Current Document).
