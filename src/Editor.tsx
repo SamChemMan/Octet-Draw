@@ -40,7 +40,7 @@ import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./
 import { sameSet, store, type Store } from "./store";
 import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type Swatch } from "./settings";
 import { pickColour } from "./ColourPicker";
-import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
+import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
 import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
@@ -8577,7 +8577,9 @@ export default function Editor() {
   // The Colour menu lists the user's colours and the drawing's own by name: the menu bar is built again when they change.
   const paletteNames = [...settings.palette, ...docColours].map((c) => c.name).join("\n");
   // The colour menus' colours (ColourPick): the user's own, which they can add to, rename, move and remove, then the drawing's.
-  const colours = { own: settings.palette, drawing: docColours, onOwn: (palette: Swatch[]) => setSettings((s) => ({ ...s, palette })) };
+  // The pinned colours of each colour row, too.
+  const colours = { own: settings.palette, drawing: docColours, onOwn: (palette: Swatch[]) => setSettings((s) => ({ ...s, palette })),
+    pins: settings.colourPins, onPins: (colourPins: typeof settings.colourPins) => setSettings((s) => ({ ...s, colourPins })) };
   useEffect(() => {
     if (TAURI) invoke("set_palette", { names: paletteNames.split("\n").filter(Boolean) }).then(syncChecks).catch(() => {});
   }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8839,11 +8841,9 @@ export default function Editor() {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
     if (REPEATS.test(command)) lastRepeat.current = { action: command };
-    // A colour chosen from any menu joins the recent colours, at the top of every colour menu. The colours the picker
-    // passes through on the way (.drag) do not join the drawing's own (docColours).
+    // The colours the picker passes through on the way (.drag) do not join the drawing's own (docColours).
     const used = /^(?:colour|halo|ringfill)\.(#[0-9a-f]{6})(\.drag)?$/i.exec(command);
     if (used?.[2]) passing.current.add(used[1].toLowerCase());
-    else if (used) rememberColour(used[1]);
     // Charges on what is picked (issue 60), as one step: the Actions panel's charge items and run_command. + and − and
     // the circled pair go on the selected atoms (a new charge in the document's look) and step the picked free charges;
     // Circle the charge puts a circle round every charge picked, or takes them all off.
