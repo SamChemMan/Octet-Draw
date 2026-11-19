@@ -485,6 +485,10 @@ const STEREO: Record<string, string> = {
   // An R group ranks above any element, as a methyl ranks above H: the E of R-CH=N-Me is MeCH=NMe's.
   "Imine": "(E)-N-methylethanimine", "Oxime": "(E)-N-hydroxyethanimine", "Hydrazone": "(E)-ethylidenehydrazine",
 };
+// The cyclodextrins (issue 97): the closed ring of α-1,4-linked D-glucopyranoses made from OPSIN's chain
+// (tools/library/hosts.mjs); src/hosts.check.ts compares it with PubChem's.
+const { cyclodextrinSmiles } = await import("../tools/library/hosts.mjs");
+for (const [n, name] of [[6, "α-Cyclodextrin"], [7, "β-Cyclodextrin"], [8, "γ-Cyclodextrin"]] as const) STEREO[name] = `smiles:${cyclodextrinSmiles(n, nameToSmiles) ?? assert.fail(name)}`;
 const reference = (t: (typeof items)[number]) => t.category === "Amino acids" ? (t.name === "Glycine" ? undefined : `L-${t.name.toLowerCase()}`)
   : t.category === "Hexoses" ? t.name.replace(/ \((Haworth|chair)\)$/, "").replace(/^α-D-(.)/, (_, c) => `alpha-D-${c.toLowerCase()}`).replace(/^β-D-(.)/, (_, c) => `beta-D-${c.toLowerCase()}`)
   : STEREO[t.name];
@@ -525,12 +529,14 @@ console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are 
 
 // Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
 // templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; a base pair, two
-// molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake). The drawn sets have no structure. The
-// calixarenes, pillar[5]arene and [2.2]paracyclophane take von Baeyer names with compound locants:
+// molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake; a cucurbituril, a cage of many fused
+// rings). The drawn sets have no structure. The calixarenes, pillar[5]arene, [2.2]paracyclophane and the cyclodextrins
+// take von Baeyer names with compound locants:
 // pentacyclo[19.3.1.1³,⁷.1⁹,¹³.1¹⁵,¹⁹]octacosa-1(25),3,5,7(28),…-dodecaene. The decalins cite r and s, read back by
 // Octet's reader (pseudo.ts), and the Cubane template, drawn in 3D, is a cage whose bridgeheads its name need not cite.
 const UNNAMED = new Set(["IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
   "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair",
+  "Cucurbit[5]uril", "Cucurbit[6]uril", "Cucurbit[7]uril", "Cucurbit[8]uril",
   ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))
     // Polyhedra of carbon atoms drawn in 3D that are cages of one stereoisomer: named as their hydrocarbons.
     .filter((n) => !["Trigonal bipyramid", "Square pyramid", "Cube", "Tetrahedrane"].includes(n))]);
@@ -561,10 +567,11 @@ console.log(`templates: ${named} templates named by Structure to Name, each name
 // Clean Up: a structure drawn in perspective (with depth: chairs, Newman, sawhorse and Haworth projections, Fischer
 // projections, paddlewheels, cubane) or with a π ligand (metallocenes) is left exactly where it is. Any other comes out
 // with the same structure and stereo, and tidy (not marked for Clean Up), but for these: bridged rings and crowded
-// biaryl phosphines, [2.2.2]cryptand and pillar[5]arene, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
+// biaryl phosphines, [2.2.2]cryptand, pillar[5]arene and the cucurbiturils, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
 // read as stereocentres and Structure to Name gives it no name, so they stay flat.)
 const CROWDED = new Set(["Bicyclo[1.1.1]pentane", "Bicyclo[2.1.1]hexane", "Bicyclo[3.1.1]heptane", "Norbornane", "Norbornene", "Norbornadiene", "Bicyclo[2.2.2]octane",
-  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos", "[2.2.2]Cryptand", "Pillar[5]arene"]);
+  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos", "[2.2.2]Cryptand", "Pillar[5]arene",
+  "Cucurbit[5]uril", "Cucurbit[6]uril", "Cucurbit[7]uril", "Cucurbit[8]uril"]);
 let kept = 0, cleaned = 0;
 for (const t of molecular) {
   const after = chem.cleanUp(t.mol);

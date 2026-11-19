@@ -2803,6 +2803,8 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   const low = (t: string) => t.trim().toLowerCase(), sets = a.set ? LIBRARY.filter((c) => low(c.name) === low(a.set!)) : LIBRARY;
   if (!sets.length) return { text: `The library has no set ${a.set}. Its sets: ${LIBRARY.map((c) => c.name).join(", ")}.`, error: true };
   const items = sets.flatMap((c) => c.items), want = low(a.name);
+  // A blank name is no template: said so, not answered with the library's first names.
+  if (!want) return { text: "Give the name of a template, or a word it is found by.", error: true };
   const item = items.find((t) => low(t.name) === want) ?? items.find((t) => t.also?.split(",").some((w) => low(w) === want));
   if (!item) {
     const near = items.filter((t) => low(t.name).includes(want) || t.also?.toLowerCase().includes(want)).slice(0, 8).map((t) => t.name);
@@ -2812,9 +2814,12 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   const bond = a.on !== undefined ? bondOf(m, a.on, host) : undefined, atom = a.on !== undefined && bond === undefined ? atomOf(m, a.on, host) : undefined;
   if (a.on !== undefined && bond === undefined && atom === undefined) return { text: `No atom or bond ${a.on}.`, error: true };
   // With no atom or bond to go on: its top left where new work starts (addTemplate takes where the middle of its
-  // atoms goes, or its own origin when it has none).
+  // atoms goes, or its own origin when it has none). On one, at it, as the Template tool's click is: a template with no
+  // atoms (an arrow, light) goes there.
   const t = item.mol, b = roughBox(t), n = t.atoms.length || 1, c = t.atoms.reduce((p, x) => [p[0] + x.location[0] / n, p[1] + x.location[1] / n], [0, 0]), [x, y] = origin(host, m);
-  m = host.set(addTemplate(m, t, bond !== undefined ? { bond } : atom !== undefined ? { atom } : { point: [x + c[0] - b[0], y + c[1] - b[3]] }));
+  const at = (i: number): [number, number] => [m.atoms[i].location[0], m.atoms[i].location[1]], ends = bond !== undefined ? m.bonds[bond].atoms.map(at) : undefined;
+  const point: [number, number] = ends ? [(ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2] : atom !== undefined ? at(atom) : [x + c[0] - b[0], y + c[1] - b[3]];
+  m = host.set(addTemplate(m, t, { ...(bond !== undefined ? { bond } : atom !== undefined ? { atom } : {}), point }));
   await host.settle();
   return { text: `Placed ${item.name} from ${item.category}.${UNDO}` };
 }
