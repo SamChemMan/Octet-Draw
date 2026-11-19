@@ -15,7 +15,8 @@ const check = (name, ok, why = "") => (ok ? out.reached.push(name) : out.missed.
 const only = new URLSearchParams(location.search).get("look-only")?.split(","), started = Date.now();
 const part = (name) => { const on = !only || only.includes(name); if (on) (out.parts ??= []).push(`${name} at ${Math.round((Date.now() - started) / 1000)} s`); return on; };
 window.__partial = out;
-const key = (init) => { for (const t of [document.activeElement, document.body, window]) t?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })); };
+// A key press where the focus is: it bubbles up to the window, so each key goes in once (⌘Z is one Undo).
+const key = (init) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
 const escape = async () => { key({ key: "Escape", code: "Escape" }); await wait(250); };
 
 await until(() => document.querySelector("svg.canvas"));
@@ -75,6 +76,7 @@ async function stroke(kind, a, b, steps = 12) {
   await frame();
   for (let k = 1; k <= steps; k++) { send("pointermove", a[0] + ((b[0] - a[0]) * k) / steps, a[1] + ((b[1] - a[1]) * k) / steps, p); await frame(); }
   send("pointerup", b[0], b[1], p);
+  if (kind === "touch") send("pointerout", b[0], b[1], { ...p, buttons: 0 }); // a finger leaves as it lifts, as a web view sends it
   await frame();
   if (kind !== "touch") send("pointermove", b[0] + 300, b[1] + 200, { ...p, buttons: 0 }); // away, so no hover is left
   return settle();
@@ -87,6 +89,7 @@ async function tap(kind, a) {
   await frame();
   if (kind === "pen") for (const [dx, dy] of [[2, 1], [4, -2], [3, 3]]) { send("pointermove", a[0] + dx, a[1] + dy, p); await frame(); }
   send("pointerup", a[0], a[1], p);
+  if (kind === "touch") send("pointerout", a[0], a[1], { ...p, buttons: 0 }); // a finger leaves as it lifts, as a web view sends it
   await frame();
   if (kind !== "touch") send("pointermove", a[0] + 300, a[1] + 200, { ...p, buttons: 0 });
   return settle();
@@ -102,6 +105,7 @@ async function strokePath(kind, points) {
     for (let k = 1; k <= 6; k++) { send("pointermove", x0 + ((x1 - x0) * k) / 6, y0 + ((y1 - y0) * k) / 6, p); await frame(); }
   }
   send("pointerup", b[0], b[1], p);
+  if (kind === "touch") send("pointerout", b[0], b[1], { ...p, buttons: 0 }); // a finger leaves as it lifts, as a web view sends it
   await frame();
   if (kind !== "touch") send("pointermove", b[0] + 300, b[1] + 200, { ...p, buttons: 0 });
   return settle();
@@ -122,8 +126,10 @@ async function option(i, key) {
   if (!(await pickSlot(i))) return undefined;
   slotTool(i).click();
   await wait(400);
-  const options = [...document.querySelectorAll(".palette .strip:not(.leaving) .variant")], was = options.find((b) => b.getAttribute("aria-checked") === "true")?.dataset.item;
-  const v = options.find((b) => b.dataset.item === key);
+  let options = [...document.querySelectorAll(".palette .strip:not(.leaving) .variant")];
+  // A menu that did not open in time (the last one still closing): once more.
+  if (!options.length) { await escape(); slotTool(i).click(); await wait(600); options = [...document.querySelectorAll(".palette .strip:not(.leaving) .variant")]; }
+  const was = options.find((b) => b.getAttribute("aria-checked") === "true")?.dataset.item, v = options.find((b) => b.dataset.item === key);
   v?.click();
   await wait(350);
   if (document.querySelector(".palette .strip:not(.leaving)")) await escape();
@@ -141,6 +147,9 @@ const SESSION = [
   [/^Select$/, (k) => stroke(k, [480, 340], [620, 420])],
 ];
 {
+  // The options a new user has, which the checks find their tools by: the web view keeps the settings, and a run
+  // stopped part way leaves the options its sibling checks chose.
+  for (const [slot, key] of [[0, "box"], [10, "box-plain"], [14, "tlc"]]) await option(slot, key);
   await clear();
   for (const [tool, act] of SESSION) { await pick(tool); await act("mouse"); }
   out.session = await settle();
@@ -154,8 +163,10 @@ if (new URLSearchParams(location.search).has("look-coarse")) { await clear(); aw
 // touch-action is not inherited: a pinch zooms the window only where every element from the one touched up to the
 // root allows pinch-zoom. The root allows panning only, so nothing under it can zoom the window.
 const pinchable = (el) => { for (let a = el; a; a = a.parentElement) { const t = getComputedStyle(a).touchAction; if (t === "none" || (t !== "auto" && t !== "manipulation" && !t.includes("pinch-zoom"))) return false; } return true; };
-check("the root lets a finger pan but not zoom the window", getComputedStyle(document.documentElement).touchAction === "pan-x pan-y", getComputedStyle(document.documentElement).touchAction);
-check("the canvas takes every touch itself", getComputedStyle(svg).touchAction === "none", getComputedStyle(svg).touchAction);
+if (part("root")) {
+  check("the root lets a finger pan but not zoom the window", getComputedStyle(document.documentElement).touchAction === "pan-x pan-y", getComputedStyle(document.documentElement).touchAction);
+  check("the canvas takes every touch itself", getComputedStyle(svg).touchAction === "none", getComputedStyle(svg).touchAction);
+}
 
 // ——— One finger acts as the mouse while no pen has been used (job 4) ———
 // Each sibling tool: a finger's drag and the same mouse drag give the same drawing. Text: a tap.
@@ -170,23 +181,28 @@ const DRAGS = [
   ["TLC plate", /^TLC plate$/, [560, 420], [660, 560]],
 ];
 // The other tools, each with its option chosen from its menu: [name, slot, option, tap or drag, from, to, a bond first].
-// A bond first: the tool works on a structure (the Eraser, the cut tools, the atom map, a symbol on an atom).
+// A bond first: the tool works on a structure (the Eraser, the cut tools, the atom map, a symbol on an atom). Points
+// given as functions are found from that bond's box on screen (r), so the stroke crosses it at any zoom. marks: what the
+// tool does shows on the canvas but not to screen readers (an unfinished Pen curve, a map number), so the canvas's
+// marks count too.
+const across = [(r) => [(r.left + r.right) / 2, (r.top + r.bottom) / 2 - 40], (r) => [(r.left + r.right) / 2, (r.top + r.bottom) / 2 + 40]];
 const SIBLINGS = [
   ["Orbital", 6, undefined, "drag", [560, 420], [620, 420]],
   ["Symbol", 7, undefined, "tap", [600, 420], undefined, true],
   ["Peptide", 5, undefined, "tap", [600, 420]],
   ["Catalytic cycle", 9, "circle", "drag", [560, 420], [680, 420]],
-  ["Pen curve", 10, "pen", "drag", [560, 420], [620, 450]],
-  ["Eraser", 13, undefined, "drag", [630, 380], [630, 460], true],
+  ["Pen curve", 10, "pen", "drag", [560, 420], [620, 450], false, true],
+  ["Eraser", 13, undefined, "drag", ...across, true],
   ["Gel", 14, "gel", "drag", [560, 420], [660, 560]],
   ["Plasmid map", 14, "plasmid", "drag", [560, 420], [660, 520]],
   ["Table", 14, "table", "drag", [560, 420], [700, 520]],
-  ["Mass fragmentation", 14, "fragment", "drag", [630, 380], [630, 460], true],
-  ["Mass spec analysis", 14, "massspec", "drag", [630, 380], [630, 460], true],
-  ["Synthesis", 14, "synthesis", "drag", [630, 380], [630, 460], true],
-  ["Retrosynthesis", 14, "retro", "drag", [630, 380], [630, 460], true],
-  ["Atom map", 14, "map", "drag", [600, 420], [660, 420], true],
+  ["Mass fragmentation", 14, "fragment", "drag", ...across, true],
+  ["Mass spec analysis", 14, "massspec", "drag", ...across, true],
+  ["Synthesis", 14, "synthesis", "drag", ...across, true],
+  ["Retrosynthesis", 14, "retro", "drag", ...across, true],
+  ["Atom map", 14, "map", "drag", (r) => [r.left, (r.top + r.bottom) / 2], (r) => [r.right, (r.top + r.bottom) / 2], true, true],
 ];
+const canvasMarks = () => `\nmarks: ${svg.querySelectorAll("path, line, polyline, polygon, circle, ellipse, rect, text").length}`;
 const bondFirst = async () => { await pick(/bond$/i); await stroke("mouse", [600, 420], [660, 420]); };
 async function sameAsMouse(kind, extra = async () => {}) {
   if (part(`${kind}-drags`)) for (const [name, tool, a, b] of DRAGS) {
@@ -202,16 +218,27 @@ async function sameAsMouse(kind, extra = async () => {}) {
   }
   if (part(`${kind}-siblings`)) {
   const back = {};
-  for (const [name, slot, key, how, a, b, bond] of SIBLINGS) {
+  // Lasso: round a bond, as the mouse's lasso. First: once Mass spec analysis has opened its panel, the Actions panel
+  // (which the check reads) is hidden.
+  const ring = [[570, 390], [690, 390], [690, 450], [570, 450], [572, 396]];
+  await clear(); await bondFirst(); const lasso = await option(0, "lasso");
+  back[0] ??= lasso;
+  const lassoMouse = await strokePath("mouse", ring);
+  await clear(); await bondFirst(); await option(0, "lasso");
+  const lassoOther = await strokePath(kind, ring);
+  check(`${kind} lasso with Select picks as the mouse's`, !!lasso && lassoMouse === lassoOther && /actions: [1-9]/.test(lassoMouse), `${lasso ? "" : "Lasso not chosen\n"}mouse:\n${lassoMouse}\n${kind}:\n${lassoOther}`);
+  for (const [name, slot, key, how, a, b, bond, marks] of SIBLINGS) {
     const run = async (who) => {
       await clear();
       await extra();
       if (bond) await bondFirst();
+      const r = document.querySelector("[data-object]")?.getBoundingClientRect(), at = (q) => (typeof q === "function" ? q(r) : q);
       const was = key ? await option(slot, key) : await pickSlot(slot);
       if (!was) return undefined;
       if (key && !(slot in back)) back[slot] = was;
-      const before = await settle();
-      return [before, await (how === "tap" ? tap(who, a) : stroke(who, a, b))];
+      const before = (await settle()) + (marks ? canvasMarks() : "");
+      const after = await (how === "tap" ? tap(who, at(a)) : stroke(who, at(a), at(b)));
+      return [before, after + (marks ? canvasMarks() : "")];
     };
     const mouse = await run("mouse");
     if (mouse === undefined) { check(`${kind} with ${name} draws as the mouse`, false, "tool not found"); continue; }
@@ -221,13 +248,6 @@ async function sameAsMouse(kind, extra = async () => {}) {
     check(`${kind} ${how} with ${name} draws as the mouse`, !!other && mouse[1] !== mouse[0] && mouse[1] === other[1], `mouse:\n${mouse[1]}\n${kind}:\n${other?.[1]}`);
     await escape();
   }
-  // Lasso: round a bond, as the mouse's lasso.
-  const ring = [[570, 390], [690, 390], [690, 450], [570, 450], [572, 396]];
-  await clear(); await bondFirst(); back[0] ??= await option(0, "lasso");
-  const lassoMouse = await strokePath("mouse", ring);
-  await clear(); await bondFirst(); await option(0, "lasso");
-  const lassoOther = await strokePath(kind, ring);
-  check(`${kind} lasso with Select picks as the mouse's`, lassoMouse === lassoOther && /actions: [1-9]/.test(lassoMouse), `mouse:\n${lassoMouse}\n${kind}:\n${lassoOther}`);
   // The options as they were, so the other checks find their tools by name.
   for (const [slot, key] of Object.entries(back)) await option(Number(slot), key);
   await clear();
@@ -426,10 +446,10 @@ if (part("eraser")) {
   // A rub across two bonds removes both, in one undo step.
   await clear(); await pick(/bond$/i);
   await stroke("mouse", [600, 380], [600, 440]); await stroke("mouse", [700, 380], [700, 440]);
-  const two = await settle();
-  send("pointerdown", 560, 410, { ...e, button: 5, buttons: 32 }); await frame(); await frame();
-  for (let k = 1; k <= 16; k++) { send("pointermove", 560 + 12 * k, 410, { ...e, buttons: 32 }); await frame(); }
-  send("pointerup", 752, 410, { ...e, button: 5, buttons: 0 });
+  const two = await settle(), first = document.querySelector("[data-object]").getBoundingClientRect(), y = (first.top + first.bottom) / 2; // across both bonds' middles
+  send("pointerdown", 560, y, { ...e, button: 5, buttons: 32 }); await frame(); await frame();
+  for (let k = 1; k <= 16; k++) { send("pointermove", 560 + 12 * k, y, { ...e, buttons: 32 }); await frame(); }
+  send("pointerup", 752, y, { ...e, button: 5, buttons: 0 });
   const rubbed = await settle();
   check("the eraser end rubbed over two bonds erases both", rubbed.trim().startsWith("actions") || !rubbed.includes("ethane"), rubbed);
   const both = await undo();
@@ -505,22 +525,31 @@ if (part("eraser")) {
   } else check("the eraser end on the rotation handle turns nothing", false, "no rotation handle");
   await escape();
 }
-// Ten finger taps a second on an atom with Chain: one chain each, as ten mouse clicks. A pen's double tap on an atom
-// with Select does what the mouse's double-click does (stress 11).
+// Ten finger taps a second with Bond, each in a new place: one bond each, as ten mouse clicks. A finger tap on an atom
+// with Chain opens Add Chain, as a mouse click does. A pen's double tap on an atom with Select does what the mouse's double-click
+// does (stress 11).
 if (part("taps")) {
   const taps = async (kind) => {
-    await clear(); await bondFirst(); await pick(/^Chain$/);
+    await clear(); await pick(/bond$/i);
     for (let k = 0; k < 10; k++) {
-      const p = who(kind);
-      if (kind !== "touch") send("pointermove", 600, 420, { ...p, buttons: 0 });
-      send("pointerdown", 600, 420, p); await wait(40);
-      send("pointerup", 600, 420, p); await wait(60);
+      const p = who(kind), x = 360 + 60 * k;
+      if (kind !== "touch") send("pointermove", x, 600, { ...p, buttons: 0 });
+      send("pointerdown", x, 600, p); await wait(40);
+      send("pointerup", x, 600, p); await wait(60);
     }
     if (kind !== "touch") send("pointermove", 900, 700, { ...who(kind), buttons: 0 });
     return settle();
   };
   const mouse = await taps("mouse"), finger = await taps("touch");
-  check("ten finger taps a second on an atom with Chain draw as ten mouse clicks", mouse === finger && drawn() !== "", `mouse:\n${mouse}\nfinger:\n${finger}`);
+  check("ten finger taps a second with Bond draw as ten mouse clicks", mouse === finger && (mouse.match(/ethane/g) ?? []).length === 10, `mouse:\n${mouse}\nfinger:\n${finger}`);
+  const chain = async (kind) => {
+    await clear(); await bondFirst(); await pick(/^Chain$/);
+    const s = await tap(kind, [600, 420]), open = !!document.querySelector('[aria-label="Number of atoms"]');
+    await escape();
+    return `${s}\n${open}`;
+  };
+  const mc = await chain("mouse"), fc = await chain("touch");
+  check("a finger tap on an atom with Chain opens Add Chain, as a mouse click does", mc === fc && mc.endsWith("true"), `mouse:\n${mc}\nfinger:\n${fc}`);
   const double = async (kind) => {
     await clear(); await bondFirst(); await pick(/^Select$/); await escape();
     const p = who(kind);
@@ -566,28 +595,37 @@ if (part("reach")) {
     const r = document.querySelector("[data-object]").getBoundingClientRect();
     return [await tap(kind, [(r.left + r.right) / 2, (r.top + r.bottom) / 2 + d]), r];
   };
-  const [on, r] = await off("mouse", 0), z = view().zoom, bond = 19.2 * z; // a bond's length on screen
-  const mouseReach = 0.2 * bond, fingerReach = Math.min(0.5, Math.max(0.2, 15 / bond)) * bond, penReach = Math.min(0.5, Math.max(0.2, 9 / bond)) * bond;
-  const d = (mouseReach + Math.min(fingerReach, penReach)) / 2;
-  const [mouseOff] = await off("mouse", d), [fingerOff] = await off("touch", d), [penOff] = await off("pen", d);
-  check("a finger tap just off a bond hits it, as a mouse click on it", fingerOff === on, `${d.toFixed(1)} px off (mouse ${mouseReach.toFixed(1)}, finger ${fingerReach.toFixed(1)}):\non:\n${on}\nfinger:\n${fingerOff}`);
-  // At a zoom where the pen's floor is under the mouse's reach, the pen reaches as the mouse does.
-  check("a pen tap just off a bond hits it, as a mouse click on it", penReach - mouseReach < 1 ? penOff === mouseOff : penOff === on, `${d.toFixed(1)} px off (pen ${penReach.toFixed(1)}):\n${penOff}`);
+  // How far off the bond's middle a tap lands: past the mouse's reach and within the pen's or the finger's, at this zoom.
+  const reaches = () => {
+    const bond = 19.2 * view().zoom; // a bond's length on screen
+    const mouse = 0.2 * bond, finger = Math.min(0.5, Math.max(0.2, 15 / bond)) * bond, pen = Math.min(0.5, Math.max(0.2, 9 / bond)) * bond;
+    return { mouse, finger, pen };
+  };
+  const was = reaches(), d = (was.mouse + was.finger) / 2;
+  const [on, r] = await off("mouse", 0), [mouseOff] = await off("mouse", d), [fingerOff] = await off("touch", d);
+  check("a finger tap just off a bond hits it, as a mouse click on it", fingerOff === on, `${d.toFixed(1)} px off (mouse ${was.mouse.toFixed(1)}, finger ${was.finger.toFixed(1)}):\non:\n${on}\nfinger:\n${fingerOff}`);
   check("the same mouse click misses the bond, as before", mouseOff !== on, `${r.width}x${r.height}`);
-  // Zoom out with Ctrl + wheel, then a tap in a benzene ring's middle.
+  // Zoom out to about a third with Ctrl + wheel (clear of the zoom's limit, so the same steps back return), then a tap
+  // in a benzene ring's middle: the finger does what the mouse does (numbers to a hundredth: the two drawings are laid
+  // out apart).
   const ring = async (kind) => {
     await clear(); await pick(/^Benzene$/); await tap("mouse", [700, 450]);
-    for (let k = 0; k < 30; k++) { svg.dispatchEvent(new WheelEvent("wheel", { clientX: 700, clientY: 450, deltaY: 10, ctrlKey: true, bubbles: true, cancelable: true })); await frame(); }
+    for (let k = 0; k < 12; k++) { svg.dispatchEvent(new WheelEvent("wheel", { clientX: 700, clientY: 450, deltaY: 10, ctrlKey: true, bubbles: true, cancelable: true })); await frame(); }
     await wait(300);
     const b = document.querySelector("[data-object]").getBoundingClientRect();
     await pick(/bond$/i);
     const s = await tap(kind, [(b.left + b.right) / 2, (b.top + b.bottom) / 2]);
-    for (let k = 0; k < 30; k++) { svg.dispatchEvent(new WheelEvent("wheel", { clientX: 700, clientY: 450, deltaY: -10, ctrlKey: true, bubbles: true, cancelable: true })); await frame(); }
+    for (let k = 0; k < 12; k++) { svg.dispatchEvent(new WheelEvent("wheel", { clientX: 700, clientY: 450, deltaY: -10, ctrlKey: true, bubbles: true, cancelable: true })); await frame(); }
     await wait(300);
-    return s;
+    return s.replace(/-?\d+\.\d+/g, (n) => Number(n).toFixed(2));
   };
-  const zoomed = view().zoom, mr = await ring("mouse"), fr = await ring("touch");
-  check("zoomed out, a finger tap in a ring's middle does what the mouse's does", mr === fr && mr !== "", `zoom ${zoomed}:\nmouse:\n${mr}\nfinger:\n${fr}`);
+  const mr = await ring("mouse"), fr = await ring("touch");
+  check("zoomed out, a finger tap in a ring's middle does what the mouse's does", mr === fr && mr.includes("structure"), `mouse:\n${mr}\nfinger:\n${fr}`);
+  // The pen last (after a pen, a finger only pans), at the zoom the rings left.
+  const now = reaches(), dp = (now.mouse + now.pen) / 2;
+  const [on2] = await off("mouse", 0), [mouseOff2] = await off("mouse", dp), [penOff] = await off("pen", dp);
+  // At a zoom where the pen's floor is under the mouse's reach, the pen reaches as the mouse does.
+  check("a pen tap just off a bond hits it, as a mouse click on it", now.pen - now.mouse < 1 ? penOff === mouseOff2 : penOff === on2, `${dp.toFixed(1)} px off (mouse ${now.mouse.toFixed(1)}, pen ${now.pen.toFixed(1)}):\non:\n${on2}\npen:\n${penOff}`);
 }
 // Undo during a drag: a finger's and a pen's do what the mouse's does. Undo during a pinch takes back the bond, and the
 // pinch goes on (stress 15: an outside edit, as the MCP's, replaces the drawing under a press the same way).
