@@ -14,7 +14,7 @@ switches each one off, except Octet's JSON. Only the names and the picture chang
 
 | | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Picture | Office's own copy of the picture (a zip with an EMF in it) and a PDF (vector, CDXML in both) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB) | image/png (CDXML in an iTXt chunk) and image/svg+xml |
+| Picture | Office's own copy of the picture (a zip with an EMF in it) and a PDF (vector, CDXML in both) | EMF (vector, CDXML in a comment) and a bitmap (CF_DIB); LibreOffice's SVXB with the PDF, last | image/png (CDXML in an iTXt chunk), the PDF and image/svg+xml; LibreOffice's SVXB with the PDF, last |
 | CDX | ChemDraw's PerkinElmer, Revvity and CambridgeSoft types | "ChemDraw Interchange Format" | chemical/x-cdx |
 | CDXML | com.perkinelmer.cdxml, com.revvity.cdxml and com.cambridgesoft.cdxml | "CDXML" | chemical/x-cdxml |
 | Molfile | com.mdli.molfile (length-prefixed lines) | "MDLCT" (length-prefixed lines) | chemical/x-mdl-molfile (text) |
@@ -45,6 +45,11 @@ CDXML is in the PDF. "CDXML" is ChemDraw JS's name.
   from one Octet window to another. Paste reads it first, and Settings cannot switch it off.
 - Windows calls the clipboard through `windows-sys`; Linux through GTK (`gtk`), which the window already uses on
   X11 and Wayland. Both crates are in the build through Tauri already.
+
+Since 1.1.3, Copy on Windows and Linux puts LibreOffice's own copy of a picture ("SVXB (StarView Bitmap/Animation)" on
+Windows, its MIME type on Linux) after Octet's JSON, holding the PDF, so a paste into LibreOffice opens in Octet
+(decision 0025, issue 48). On Windows, Impress and Draw take it only with the Office object off: with the object on
+they paste the EMF as their own picture. No other program reads it, and every type before it is unchanged.
 
 ## Office objects on Windows (release 1.2, decision 0023)
 

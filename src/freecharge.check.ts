@@ -112,7 +112,7 @@ console.log("freecharge.check: stepping and Circle the charge ok");
   assert.match(editor, /t\.atom !== undefined \? "atom" : t\.bond !== undefined \? "bond" : keyCaption\(\) \? "caption" : keyFree\(\) \? "caption" : "none"/, "an atom under the pointer first, then a stand-in caption, then a free charge");
   assert.match(editor, /const f = keyFree\(\);\s*if \(f\) return set\(keyCharges\(doc, \[\], \[f\.id\], arg\)\);/);
   assert.match(editor, /const charge = pressed && !many && freesTarget\(\) \? actionFor\(keymap\(settings\.keys\), pressed, "caption"\) : undefined;/);
-  assert.match(editor, /if \(\/\^charge\\\.\(plus\|minus\|circledPlus\|circledMinus\|circled\)\$\/\.test\(command\)\) return set\(keyCharges\(doc, ids, picked, command\.slice\(7\), !!style\.circled\), true\);/);
+  assert.match(editor, /if \(\/\^charge\\\.\(plus\|minus\|circledPlus\|circledMinus\|circled\)\$\/\.test\(command\)\) return set\(keyCharges\(doc, signPick !== undefined && !ids\.length && !picked\.size \? \[signPick\] : ids, picked, command\.slice\(7\), !!style\.circled\), true\);/);
   // Over a free charge the + and − keys are charge keys (as over a stand-in caption); other keys do what they did.
   const map = keymap({});
   assert.deepEqual(["+", "-"].map((k) => actionFor(map, k, "caption")), ["charge.plus", "charge.minus"]);

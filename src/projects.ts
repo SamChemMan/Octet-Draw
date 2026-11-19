@@ -9,6 +9,9 @@
 // A project has a colour (its folder on Home; Octet Blue unless the user picks another) and the time a drawing last
 // went in or came out (used). A store from before one folder at a time (a drawing in several projects) keeps each
 // drawing in the project used last (home.rs does the same).
+// A drawing in a project keeps its title and author (issue 100) as they were when it was last opened or saved, so its
+// tile shows them when it is not on the recent list.
+import { oneLine } from "./experiment.ts";
 
 export const STORE_VERSION = 1;
 export const MAX_PROJECTS = 200, MAX_IN_PROJECT = 1000, MAX_NAME = 60, MAX_PATH = 4096;
@@ -16,7 +19,8 @@ export const UNTITLED = "Untitled folder";
 export const PROJECT_COLOUR = "#213C99"; // Octet Blue
 const COLOUR = /^#[0-9a-f]{6}$/i;
 
-export type ProjectDrawing = { path: string; name: string; added: number }; // added: seconds since 1970
+export type About = { title?: string; author?: string };
+export type ProjectDrawing = { path: string; name: string; added: number } & About; // added: seconds since 1970
 export type Project = { id: string; name: string; made: number; thumb?: string; colour?: string; used?: number; drawings: ProjectDrawing[] };
 export type Pictures = { own?: string; auto?: string }; // thumbnail ids: the user's, and Octet's copy of the drawing
 export type HomeStore = { version: number; projects: Project[]; pictures: Record<string, Pictures> };
@@ -28,6 +32,11 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const time = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 const thumbId = (v: unknown) => (typeof v === "string" && THUMB.test(v) ? v : undefined);
 const pathOk = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length < MAX_PATH;
+// A title and author as a drawing keeps them: each one line of 200 characters at most, else none.
+const aboutOf = (v: Record<string, unknown>): About => {
+  const title = typeof v.title === "string" ? oneLine(v.title) : "", author = typeof v.author === "string" ? oneLine(v.author) : "";
+  return { ...(title ? { title } : {}), ...(author ? { author } : {}) };
+};
 
 // A project's name as typed: no control characters, spaces closed up, 60 characters at most.
 export const cleanName = (name: string) => name.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_NAME).trim();
@@ -66,7 +75,7 @@ export function readStore(text: string | null | undefined): { store: HomeStore; 
     for (const d of Array.isArray(p.drawings) ? p.drawings : []) {
       if (!isObject(d) || !pathOk(d.path) || seen.has(d.path)) continue;
       seen.add(d.path);
-      drawings.push({ path: d.path, name: typeof d.name === "string" && d.name ? d.name.slice(0, 512) : drawingName(d.path), added: time(d.added) });
+      drawings.push({ path: d.path, name: typeof d.name === "string" && d.name ? d.name.slice(0, 512) : drawingName(d.path), added: time(d.added), ...aboutOf(d) });
     }
     const thumb = thumbId(p.thumb), colour = typeof p.colour === "string" && COLOUR.test(p.colour) ? p.colour.toUpperCase() : undefined, used = time(p.used);
     projects.push({ id: p.id, name: cleanName(p.name), made: time(p.made), ...(thumb ? { thumb } : {}), ...(colour ? { colour } : {}), ...(used ? { used } : {}), drawings: drawings.slice(0, MAX_IN_PROJECT) });
@@ -183,6 +192,14 @@ export function relocate(store: HomeStore, from: string, to: string): { store: H
   if (!old) return { store: { ...store, projects }, drop: [] };
   const merged = { ...old, ...kept }, drop = [old.own, old.auto].filter((t) => t && t !== merged.own && t !== merged.auto) as string[];
   return { store: { ...store, projects, pictures: withPictures(withPictures(store.pictures, from, {}), to, merged) }, drop };
+}
+
+// A drawing's title and author, opened or saved: kept on it in its folder. The same store when it is in none, or when
+// they are as kept.
+export function setAbout(store: HomeStore, path: string, about: About): HomeStore {
+  const a = aboutOf(about), same = (d: ProjectDrawing) => d.title === a.title && d.author === a.author;
+  if (!store.projects.some((p) => p.drawings.some((d) => d.path === path && !same(d)))) return store;
+  return { ...store, projects: store.projects.map((p) => (p.drawings.some((d) => d.path === path) ? { ...p, drawings: p.drawings.map((d) => (d.path === path ? { path: d.path, name: d.name, added: d.added, ...a } : d)) } : p)) };
 }
 
 // A thumbnail for a drawing: the user's own (Set Thumbnail…), or Octet's copy of its automatic picture. drop: the

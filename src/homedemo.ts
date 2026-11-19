@@ -10,12 +10,12 @@ import { STORE_VERSION, type HomeStore } from "./projects";
 const t = Math.floor(Date.now() / 1000), day = 86400, dir = "/Users/sam/Documents";
 // A drawing deep in folders, so its tooltip shows how a long place wraps.
 const tamiflu = `${dir}/Group meeting/2026 autumn/Shikimic acid route to oseltamivir, revised after the meeting/tamiflu route.oct`;
-type Recent = { path: string; name: string; at: number; thumb?: string; found: boolean };
+type Recent = { path: string; name: string; at: number; thumb?: string; found: boolean; title?: string; author?: string };
 let recents: Recent[] = [
   { path: `${dir}/Thesis/oseltamivir.oct`, name: "Oseltamivir", at: t - 600, thumb: structure, found: true },
   { path: `${dir}/Thesis/suzuki scheme.cdxml`, name: "Suzuki scheme", at: t - 3 * 3600, thumb: reaction, found: true },
   { path: `${dir}/Thesis/suzuki cycle.oct`, name: "Suzuki cycle", at: t - day, thumb: cycle, found: true },
-  { path: tamiflu, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true },
+  { path: tamiflu, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true, title: "Oseltamivir from shikimic acid, revised after the group meeting", author: "Alexandra Montgomery-Fitzwilliam" },
   { path: `${dir}/Teaching/aldol mechanism.cdx`, name: "Aldol mechanism", at: t - 9 * day, thumb: cycle, found: true },
   { path: `${dir}/Desktop/old scheme.cdx`, name: "Old scheme", at: t - 40 * day, found: false },
 ];

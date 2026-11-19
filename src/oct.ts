@@ -8,6 +8,7 @@ import { BASE64_MAGIC, cdxToXml, fromBase64 as bytesOf, toBase64, xmlToCdx } fro
 import type { DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
+import { stamped } from "./experiment.ts";
 
 const MARK = "<!--Octet 1 ";
 
@@ -33,16 +34,18 @@ function hashBytes(b: Uint8Array): string {
 }
 
 // The drawing as a .oct (or .cdxml) file: the two are the same. cdxml: the drawing's CDXML when the caller has it.
+// Octet's drawing in a file: with no Author, without Last changed by (experiment.ts stamped), as the CDXML is.
+const own = (mol: Mol, style: DocStyle) => serialize({ ...stamped(mol, ""), style });
 export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}, cdxml = toCdxml(mol, style, opts)): string {
   const body = cdxml.endsWith("\n") ? cdxml : `${cdxml}\n`;
-  return `${body}${MARK}${hash(body)} ${toBase64(new TextEncoder().encode(serialize({ ...mol, style })))}-->\n`;
+  return `${body}${MARK}${hash(body)} ${toBase64(new TextEncoder().encode(own(mol, style)))}-->\n`;
 }
 
 // The drawing as a .cdx file: ChemDraw's binary form of the CDXML, with Octet's drawing in a user property (tag
 // 0x4F43, "OC") first in the document, as the hash of the file without it, a space, and the JSON.
 const OWN = 0x4f43;
 export function writeCdx(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}): Uint8Array {
-  const body = xmlToCdx(parseXml(toCdxml(mol, style, opts))), json = new TextEncoder().encode(`${hashBytes(body)} ${serialize({ ...mol, style })}`);
+  const body = xmlToCdx(parseXml(toCdxml(mol, style, opts))), json = new TextEncoder().encode(`${hashBytes(body)} ${own(mol, style)}`);
   const head = json.length >= 0xffff ? 8 : 4, out = new Uint8Array(body.length + head + json.length), d = new DataView(out.buffer);
   out.set(body.subarray(0, 28));
   d.setUint16(28, OWN, true);

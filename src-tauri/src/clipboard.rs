@@ -20,6 +20,11 @@
 // - Linux: the picture is a PNG (with the CDXML in a chunk), the Mac's PDF (with the CDXML in it, which LibreOffice
 //   keeps, so its Octet extension can open the drawing again) and an SVG. The chemistry has its MIME types
 //   (chemical/x-cdx and so on).
+// - Windows and Linux also put LibreOffice's own copy of a picture (SVXB) last, holding the Mac's PDF (svxb_of).
+//   Writer and Calc take it before every other picture, and Impress and Draw before all but a PDF. Each keeps the PDF,
+//   so the paste opens in Octet (decision 0025). On Windows with the Office object on, Impress and Draw take the EMF
+//   in their OLE step instead. No other program reads it. The Mac has none: LibreOffice for the Mac
+//   reads no SVXB that another program puts on the pasteboard.
 //
 // The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from
 // other apps, so the page cannot read these types itself: paste calls read_clipboard. Paste also reads a picture (a
@@ -90,7 +95,7 @@ enum Kind {
     Office,  // Office's own copy of a picture, a zip with the picture's file in it: read (cdxml_from_office), and written on the Mac (office_package)
     Keynote, // read only: Keynote's copy keeps the picture's file under a numbered type (com.apple.iWork.TSPData.364)
     Object,  // read only: an Octet Drawing object copied out of Word ("Embed Source", Windows only, decision 0023)
-    Svxb,    // read only: LibreOffice's own copy of a picture, which holds the picture's file (svxb_picture)
+    Svxb,    // LibreOffice's own copy of a picture, which holds the picture's file: read (svxb_picture) on every system, written on Windows and Linux (svxb_of)
 }
 
 // Each system's names for a kind, in the order copy writes them; paste reads the first one there. Empty: that system's
@@ -240,23 +245,29 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
         _ => Vec::new(),
     };
     let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().map(|n| (*n, b.clone())));
+    // LibreOffice's own copy of a picture, holding the PDF: it goes last, after every type Word and ChemDraw read.
+    let mut libreoffice = None;
     if let Some(svg) = svg.filter(|_| s != System::Mac) {
         if s == System::Windows {
             // The EMF is made on a thread of its own while the bitmap is drawn, so Copy takes about what the bitmap
             // takes. If the system gives no thread, it is made after. With the object or without it, the picture is the
             // EMF+ dual EMF (issues 166 and 167): Word draws a GDI-only EMF without anti-aliasing, and drops a bond
             // outline thinner than a pixel, so 1.1.2's plain picture lost parts of bonds at 100%.
+            // The same thread then makes the PDF for LibreOffice's copy (svxb_of), from the same tree: the EMF takes a
+            // small part of the bitmap's time, and the PDF about as long as the EMF.
             let tree = crate::export::tree(svg)?;
-            let emf = || crate::vector::make_office_emf(&tree, cdxml);
+            let emf = || (crate::vector::make_office_emf(&tree, cdxml), crate::export::pdf_pages(&[&tree], cdxml, None).ok());
             let (made, bitmap) = std::thread::scope(|t| {
                 let made = std::thread::Builder::new().spawn_scoped(t, emf).ok();
                 let bitmap = crate::export::clipboard_pixels(&tree, true, dpi, None);
                 (made.and_then(|m| m.join().ok()), bitmap)
             });
-            put(Kind::Emf, made.unwrap_or_else(emf));
+            let (emf, pdf) = made.unwrap_or_else(emf);
+            put(Kind::Emf, emf);
             if let (_, Some(b)) = bitmap? {
                 put(Kind::Bitmap, b);
             }
+            libreoffice = pdf.and_then(|p| svxb_of(&p));
         } else {
             // The PDF is made on a thread of its own while the PNG is drawn, so Copy takes no longer than in 1.1.1. A PDF
             // Octet cannot make (a font it cannot embed) leaves the PNG and the SVG, as in 1.1.1.
@@ -266,6 +277,7 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
             });
             put(Kind::Png, png?.0);
             if let Some(pdf) = pdf {
+                libreoffice = svxb_of(&pdf);
                 put(Kind::Pdf, pdf);
             }
             // The SVG in px user units, so Inkscape pastes it at true size (issue 47).
@@ -292,6 +304,9 @@ fn types(s: System, svg: Option<&str>, dpi: f32, cdxml: Option<&str>, cdxml_type
     }
     if let Some(j) = octet_json {
         put(Kind::Octet, j.into_bytes());
+    }
+    if let Some(b) = libreoffice {
+        put(Kind::Svxb, b);
     }
     Ok(out)
 }
@@ -482,6 +497,16 @@ fn office_package((w, h): (f32, f32), emf: &[u8]) -> Vec<u8> {
         ("clipboard/media/image1.emf", emf),
     ];
     crate::export::zip(&parts, 1, STORED_OVER)
+}
+
+// LibreOffice's own copy of a picture (SVXB) that holds `pdf`, in the form svxb_picture reads and LibreOffice reads
+// (vcl's TypeSerializer::readGraphic, "NAT5"): "NAT5", an empty header (version 1, no fields), then the picture's
+// link with a version 1 header (10 bytes of fields: type 12, a PDF; the PDF's size; user 0), then the PDF. LibreOffice
+// reads the PDF with its own PDF reader and keeps its bytes, as for a PDF pasted on Linux. None when it would be over
+// paste's limit for one type, so Octet reads back every copy it makes.
+fn svxb_of(pdf: &[u8]) -> Option<Vec<u8>> {
+    let n = u32::try_from(pdf.len()).ok().filter(|n| *n as usize + 26 <= MAX_TYPE)?;
+    Some([b"NAT5".as_slice(), &[1, 0, 0, 0, 0, 0], &[1, 0, 10, 0, 0, 0], &12u16.to_le_bytes(), &n.to_le_bytes(), &[0; 4], pdf].concat())
 }
 
 // The picture's file in LibreOffice's own copy of a picture (SVXB): "NAT5" and a 6-byte header, then the picture's
@@ -859,7 +884,7 @@ pub(crate) mod tests {
         let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
         let all = |s| types(s, Some(svg), 600.0, Some("<CDXML/>"), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         let t = all(System::Windows);
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json", SVXB_WINDOWS]);
         assert_eq!(&t[0].1[40..44], b" EMF");
         // A picture copied back out of Word keeps its EMF: with nothing else, paste reads the drawing from it.
         let c = clip(System::Windows, |n| (n == ENHMETAFILE).then(|| t[0].1.clone()));
@@ -880,7 +905,9 @@ pub(crate) mod tests {
         let c = clip(System::Windows, |n| (n == "application/x-octet+json").then(|| b"{}\0\0\0".to_vec()));
         assert_eq!(c.octet.as_deref(), Some("{}"));
         let t = all(System::Linux);
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "application/pdf", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"]);
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "application/pdf", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json", SVXB]);
+        // LibreOffice's copy holds the same PDF (issue 48).
+        assert_eq!(svxb_picture(&t[8].1), Some(t[1].1.as_slice()));
         assert_eq!((t[2].1.as_slice(), t[5].1.as_slice(), t[6].1.as_slice()), (crate::export::px_units(svg).as_bytes(), MOL.as_bytes(), b"CO".as_slice()));
         // The PDF is the Mac's, with the CDXML in it.
         assert_eq!(t[1].1, types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), false, None, None, None, None).unwrap()[1].1);
@@ -906,14 +933,66 @@ pub(crate) mod tests {
         let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
         let copy = types(System::Windows, Some(svg), 600.0, Some(x), true, Some(cdx), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         let names: Vec<_> = copy.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
+        assert_eq!(names, [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json", SVXB_WINDOWS]);
         let tree = crate::export::tree(svg).unwrap();
         assert!(copy[0].1 == crate::vector::make_office_emf(&tree, Some(x)), "the picture is the EMF+ dual EMF (issues 166, 167)");
         assert_eq!(&copy[0].1[120..124], b"EMF+");
         assert_eq!(Some(&copy[1].1), crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap().1.as_ref());
-        let all: Vec<u8> = copy.iter().filter(|(n, _)| *n != DIB).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
-        assert_eq!((all.len(), crc32fast::hash(&all)), (1_634, 0xEAD1_656C), "Copy on Windows has changed since 1.1.3 (1.1.2's was 1_254, 0x3536_9BE5: a GDI-only EMF)");
+        // What Word, PowerPoint, Excel and ChemDraw read is the same as before LibreOffice's copy was added: the same
+        // types, in the same order, with the same bytes.
+        let word: Vec<u8> = copy.iter().filter(|(n, _)| ![DIB, SVXB_WINDOWS].contains(n)).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
+        assert_eq!((word.len(), crc32fast::hash(&word)), (1_634, 0xEAD1_656C), "Copy for Word on Windows has changed since 1.1.3 (1.1.2's was 1_254, 0x3536_9BE5: a GDI-only EMF)");
         assert_eq!(clip(System::Windows, |n| (n == ENHMETAFILE).then(|| copy[0].1.clone())).cdxml.as_deref(), Some(x));
+        // Issue 48: LibreOffice's own copy goes last, with the Mac's PDF in it. The whole copy's CRC changed for it on 19
+        // November 2026 (1.1.3); before, it was the CRC above.
+        assert_eq!(svxb_picture(&copy[7].1), Some(types(System::Mac, Some(svg), 600.0, Some(x), false, None, None, None, None).unwrap().last().unwrap().1.as_slice()));
+        assert_eq!(clip(System::Windows, |n| (n == SVXB_WINDOWS).then(|| copy[7].1.clone())).cdxml.as_deref(), Some(crate::export::cdxml_document(x).as_str()));
+        let all: Vec<u8> = copy.iter().filter(|(n, _)| *n != DIB).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
+        assert_eq!((all.len(), crc32fast::hash(&all)), (3_574, 0xE8CB_7566), "Copy on Windows has changed since 1.1.3 with LibreOffice's copy");
+    }
+
+    // Issue 48: LibreOffice reads Octet's SVXB as it reads its own copy of a picture. A model of vcl's
+    // TypeSerializer::readGraphic and readGfxLink, with tools' VersionCompatRead (a version, 2 bytes, and the size of
+    // what follows, 4 bytes; the reader goes on at its end): "NAT5", a header, the link's header, its type, the file's
+    // size and a user number, then the size and map mode only from version 2, then the file. Type 12 is a PDF.
+    #[test]
+    fn libreoffice_reads_octets_svxb() {
+        let read = |b: &[u8]| -> Option<(u16, Vec<u8>)> {
+            let u16_at = |k: usize| b.get(k..k + 2).map(|x| u16::from_le_bytes([x[0], x[1]]));
+            let u32_at = |k: usize| b.get(k..k + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]) as usize);
+            if b.get(..4)? != b"NAT5" {
+                return None;
+            }
+            let link = 10 + u32_at(6)?;
+            let (version, size, fields) = (u16_at(link)?, u32_at(link + 2)?, link + 6);
+            let (kind, n) = (u16_at(fields)?, u32_at(fields + 2)?);
+            let read = if version >= 2 { 10 + 8 + 33 } else { 10 };
+            let start = fields + size.max(read);
+            Some((kind, b.get(start..start + n)?.to_vec()))
+        };
+        let svg = crate::vector::tests::SVG;
+        let pdf = crate::export::make_pdf(svg, Some("<CDXML/>"), None).unwrap();
+        let ours = svxb_of(&pdf).unwrap();
+        assert_eq!(&ours[..26], [&b"NAT5\x01\x00\0\0\0\0\x01\x00\x0a\0\0\0\x0c\x00"[..], &(pdf.len() as u32).to_le_bytes(), &[0; 4]].concat().as_slice());
+        assert_eq!(read(&ours), Some((12, pdf.clone())));
+        assert_eq!(svxb_picture(&ours), Some(pdf.as_slice()));
+        // LibreOffice's own copy (version 2, with the size and map mode, as its writeGfxLink writes it): the model and
+        // paste agree on it too.
+        let theirs = [&b"NAT5\x01\x00\0\0\0\0\x02\x00\x33\0\0\0\x0c\x00"[..], &(pdf.len() as u32).to_le_bytes(), &[0; 45], &pdf, &[0; 9]].concat();
+        assert_eq!(read(&theirs), Some((12, pdf.clone())));
+        assert_eq!(svxb_picture(&theirs), Some(pdf.as_slice()));
+        // Cut short anywhere, neither reads a whole PDF.
+        for k in 0..ours.len() {
+            assert!(read(&ours[..k]).is_none() && svxb_picture(&ours[..k]).is_none(), "cut at {k}");
+        }
+        // Paste's limit for one type: a copy over it is left out.
+        assert!(svxb_of(&vec![0; MAX_TYPE - 26]).is_some_and(|b| b.len() == MAX_TYPE));
+        assert_eq!(svxb_of(&vec![0; MAX_TYPE - 25]), None);
+        // With the picture switched off in Settings, or a PDF Octet cannot make, there is no LibreOffice copy.
+        for s in [System::Windows, System::Linux] {
+            assert!(types(s, None, 600.0, Some("<CDXML/>"), true, None, None, Some("CO"), Some("{}".into())).unwrap().iter().all(|(n, _)| !names(s, Kind::Svxb).contains(n)));
+        }
+        assert!(types(System::Mac, Some(svg), 600.0, Some("<CDXML/>"), true, None, None, None, None).unwrap().iter().all(|(n, _)| ![SVXB, SVBX].contains(n)), "the Mac puts none");
     }
 
     // S18: Ctrl+C many times fast, two selections in turn, from several threads at once: each copy makes its EMF on a
@@ -1403,7 +1482,8 @@ pub(crate) mod tests {
 
     // No step back (decision 0024, issue 166): Copy on Windows with the Office object makes the EMF with EMF+ on a thread
     // beside the bitmap, so it takes no longer than 1.1.2's Copy (the EMF, then the bitmap): a tenth more and 2 ms at
-    // most. For L-proline, 40 paclitaxels and a 500-residue peptide at 600 dpi (Settings' default), the middle of 9 runs
+    // most. The PDF for LibreOffice's copy (issue 48) is made after the EMF on its thread, so Copy is held to 1.1.3's
+    // without it in the same way. For L-proline, 40 paclitaxels and a 500-residue peptide at 600 dpi (Settings' default), the middle of 9 runs
     // of each, taken in turn. It prints Copy without the object too, the object window's picture (make_office_emf
     // against make_emf, which runs after each change, off the main thread: at most twice make_emf's time, and 15 ms for
     // 40 paclitaxels), and the EMFs' sizes (the EMF+ one at most 3 times the other).
@@ -1430,9 +1510,9 @@ pub(crate) mod tests {
         ];
         for (name, svg) in &drawings {
             let tree = crate::export::tree(svg).unwrap();
-            let mut all: [Vec<std::time::Duration>; 6] = Default::default();
+            let mut all: [Vec<std::time::Duration>; 7] = Default::default();
             for _ in 0..9 {
-                let steps: [&dyn Fn(); 6] = [
+                let steps: [&dyn Fn(); 7] = [
                     // 1.1.2's Copy on Windows: the SVG read, the EMF, then the bitmap.
                     &|| {
                         let tree = crate::export::tree(svg).unwrap();
@@ -1444,16 +1524,27 @@ pub(crate) mod tests {
                     &|| drop(crate::vector::make_emf(&tree, Some(x), None)),
                     &|| drop(crate::vector::make_office_emf(&tree, Some(x))),
                     &|| drop(crate::export::tree(svg).unwrap()),
+                    // 1.1.3's Copy before LibreOffice's copy (issue 48): the EMF+ EMF on a thread beside the bitmap.
+                    &|| {
+                        let tree = crate::export::tree(svg).unwrap();
+                        std::thread::scope(|t| {
+                            let emf = t.spawn(|| crate::vector::make_office_emf(&tree, Some(x)));
+                            drop(crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap());
+                            drop(emf.join());
+                        });
+                    },
                 ];
                 for (list, step) in all.iter_mut().zip(steps) {
                     list.push(time(step));
                 }
             }
-            let [before, object, plain, emf, office, read] = all.map(middle);
+            let [before, object, plain, emf, office, read, no_svxb] = all.map(middle);
             let (gdi, plus) = (crate::vector::make_emf(&tree, Some(x), None).len(), crate::vector::make_office_emf(&tree, Some(x)).len());
-            eprintln!("{name}: Copy with the object {object:?}, without it {plain:?}; 1.1.2's Copy {before:?}. The object's picture: make_office_emf {office:?}, make_emf {emf:?} (reading the SVG {read:?}). The EMF is {plus} bytes with EMF+, {gdi} without ({:.2} times).", plus as f64 / gdi as f64);
+            eprintln!("{name}: Copy with the object {object:?}, without it {plain:?}; 1.1.2's Copy {before:?}; 1.1.3's without LibreOffice's copy {no_svxb:?}. The object's picture: make_office_emf {office:?}, make_emf {emf:?} (reading the SVG {read:?}). The EMF is {plus} bytes with EMF+, {gdi} without ({:.2} times).", plus as f64 / gdi as f64);
             let slack = before / 10 + std::time::Duration::from_millis(2);
             assert!(cfg!(debug_assertions) || (object <= before + slack && plain <= before + slack), "{name}: Copy takes {object:?} with the object and {plain:?} without; 1.1.2's took {before:?}");
+            let slack = no_svxb / 10 + std::time::Duration::from_millis(2);
+            assert!(cfg!(debug_assertions) || plain <= no_svxb + slack, "{name}: Copy takes {plain:?}; without LibreOffice's copy it took {no_svxb:?}");
             assert!(cfg!(debug_assertions) || office <= 2 * emf + std::time::Duration::from_millis(1), "{name}: make_office_emf takes {office:?}, make_emf {emf:?}");
             if *name == "40 paclitaxels" {
                 assert!(cfg!(debug_assertions) || office <= std::time::Duration::from_millis(15), "{name}: make_office_emf takes {office:?}");

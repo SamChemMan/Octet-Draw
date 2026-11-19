@@ -12,7 +12,7 @@ import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch, TextField } from "./Fields";
-import { MAX_COMMENT, PROPERTIES, detailsOf, withDetails } from "./experiment";
+import { CHANGED_BY, MAX_COMMENT, PROPERTIES, changedBy, detailsOf, withDetails } from "./experiment";
 import type { Annotation } from "./render";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
@@ -507,7 +507,7 @@ export function SettingsWindow(p: Props) {
 
   const defs: Def[] = useMemo(() => {
     const d = (module: ModuleId, section: string, label: string, keywords: string, control: React.ReactNode, wide?: boolean): Def => ({ module, section, label, keywords, control, wide });
-    const properties = detailsOf(p.annotations, PROPERTIES);
+    const properties = detailsOf(p.annotations, PROPERTIES), by = changedBy(p.annotations);
     const num = (k: keyof DocStyle, label: string, unit: string, words: string, section = "Style") =>
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
     // The selection's own settings: a row for each one something selected has, to 0.01 pt (typed values count on Return).
@@ -591,6 +591,8 @@ export function SettingsWindow(p: Props) {
           if (JSON.stringify(next) !== JSON.stringify(p.annotations)) onAnnotations.current(next);
         }} />
       ), k === "comment"))),
+      // Who saved the drawing last (issue 100): each save sets it, so it is shown, not typed.
+      ...(!p.template && by ? [d("document", "Properties", CHANGED_BY, "document properties last changed by modified saved user name who edited", <span className="setting-value">{by}</span>)] : []),
       d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
       )),
@@ -616,7 +618,7 @@ export function SettingsWindow(p: Props) {
           {note?.id === a.id && <span className="key-note">{note.text} <button className="text-button" onClick={() => { p.onKeys(note.undo); setNote(undefined); }}>Undo</button></span>}
         </>
       ), true)),
-      d("files", "Export", "Format", "export format pdf svg png emf eps tiff tif jpeg jpg gif metafile postscript cdxml cdx mol sdf rxn rdf v2000 v3000 smiles inchi file save", <Select label="Export format" value={files.format} options={EXPORT_FORMATS} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      d("files", "Export", "Format", "export format pdf svg png emf eps tiff tif jpeg jpg gif metafile postscript cdxml cdx mol sdf nmredata nmr rxn rdf v2000 v3000 smiles inchi file save", <Select label="Export format" value={files.format} options={EXPORT_FORMATS} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
       d("files", "Export", "Quick export", "quick export format png svg pdf emf eps tiff jpeg gif latex office one click", <Select label="Quick export" value={files.quick} options={EXPORT_FORMATS.filter(([f]) => PICTURES.includes(f))} onChange={(v) => setFiles({ quick: v as FilePrefs["quick"] })} />),
       d("files", "Export", "Resolution", "png tiff jpeg gif image resolution dpi ppi scale pixels size", <DpiField value={files.dpi} onChange={(dpi) => setFiles({ dpi })} />),
       d("files", "Export", "Background", "background transparent white page colour color png tiff jpeg gif", <Select label="Background" value={files.background} options={BACKDROPS} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
