@@ -17,7 +17,7 @@ export const PROPS: [number, string, string, string?][] = [
   [0x0001, "CreationUserName", "raw"],
   [0x0002, "CreationDate", "raw"],
   [0x0003, "CreationProgram", "str"],
-  [0x0004, "ModificationUserName", "raw"],
+  [0x0004, "ModificationUserName", "str"],
   [0x0005, "ModificationDate", "raw"],
   [0x0006, "ModificationProgram", "raw"],
   [0x0008, "Name", "str"],

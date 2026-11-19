@@ -316,6 +316,25 @@ pub fn make_3mf(model: &str) -> Result<Vec<u8>, String> {
     Ok(zip(&parts, 6, usize::MAX))
 }
 
+// An ELN archive (The ELN Consortium's .eln, issue 117): a zip of one folder holding ro-crate-metadata.json and the
+// drawing's files, each deflated. The page names each file's path in the zip (src/eln.ts elnArchive); the paths are
+// checked here: 2 to 12 files, each in the one root folder and at most one folder below it, no part empty, "." or
+// "..", no backslash, colon or control character, 200 bytes at most, and 64 MB in all.
+pub fn make_eln(files: &[(String, String)]) -> Result<Vec<u8>, String> {
+    let root = files.first().and_then(|(p, _)| p.split('/').next()).unwrap_or_default();
+    let safe = |p: &str| {
+        let parts: Vec<&str> = p.split('/').collect();
+        p.len() <= 200 && (2..=3).contains(&parts.len()) && parts[0] == root
+            && parts.iter().all(|s| !s.is_empty() && *s != "." && *s != ".." && !s.chars().any(|c| c.is_control() || c == '\\' || c == ':'))
+    };
+    let size: usize = files.iter().map(|(_, t)| t.len()).sum();
+    if !(2..=12).contains(&files.len()) || size > MAX_SVG || !files.iter().all(|(p, _)| safe(p)) || !files.iter().any(|(p, _)| *p == format!("{root}/ro-crate-metadata.json")) {
+        return Err("Octet cannot write this ELN archive.".into());
+    }
+    let parts: Vec<(&str, &[u8])> = files.iter().map(|(p, t)| (p.as_str(), t.as_bytes())).collect();
+    Ok(zip(&parts, 6, usize::MAX))
+}
+
 // A zip file of `parts` (each a name and its bytes), each deflated at `level` (1 fastest, 9 smallest), with its CRC-32
 // and sizes, then the central directory and the end record. A part larger than `stored_over` bytes goes in as it is
 // (stored, method 0), with nothing to wait for. For a 3MF file, which stores no part, and for Office's copy of a
@@ -329,10 +348,12 @@ pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8, stored_over: usize) -> Vec
             Some(d) => (8, d),
             None => (0, data),
         };
-        // The fields the local header and the central directory share: version 2.0, no flags, the method, 1 January
-        // 1980, the CRC-32, both sizes, the name's length and no extra field.
+        // The fields the local header and the central directory share: version 2.0, the flags (bit 11 when the name is
+        // not ASCII: its bytes are UTF-8, not CP437), the method, 1 January 1980, the CRC-32, both sizes, the name's
+        // length and no extra field.
+        let flags: u16 = if name.is_ascii() { 0 } else { 0x0800 };
         let mut common = Vec::new();
-        for v in [20u16, 0, method, 0, 0x21] {
+        for v in [20u16, flags, method, 0, 0x21] {
             common.extend(v.to_le_bytes());
         }
         for v in [crc32fast::hash(data), packed.len() as u32, data.len() as u32] {
@@ -482,7 +503,8 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file. CML and ChemDraw's connection table (CT) are for File > More Formats (Settings > Pro), with ChemDraw's names.
-pub const FORMATS: [(&str, &str, &[&str]); 30] = [
+// NMReDATA is an SD file with NMR assignments (src/nmredata.ts); its default name ends .nmredata.sdf, as Mnova's does.
+pub const FORMATS: [(&str, &str, &[&str]); 32] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -498,6 +520,7 @@ pub const FORMATS: [(&str, &str, &[&str]); 30] = [
     ("mol2000", "MDL Molfile V2000", &["mol"]),
     ("sdf", "MDL SDfile", &["sdf", "sd"]),
     ("sdf2000", "MDL SDfile V2000", &["sdf", "sd"]),
+    ("nmredata", "NMReDATA", &["sdf", "sd"]),
     ("rxn", "Reaction Molfile (RXN)", &["rxn"]),
     ("rxn2000", "Reaction Molfile V2000 (RXN)", &["rxn"]),
     ("rdf", "MDL RDfile", &["rdf", "rd"]),
@@ -511,6 +534,7 @@ pub const FORMATS: [(&str, &str, &[&str]); 30] = [
     ("csv", "CSV", &["csv"]),
     ("bmp", "Windows Bitmap (BMP)", &["bmp"]),
     ("3mf", "3D Manufacturing Format for Printing (3MF)", &["3mf"]),
+    ("eln", "ELN Archive (ELN)", &["eln"]),
     ("cml", "Chemical Markup Language (CML)", &["cml"]),
     ("ct", "Connection Table (CT)", &["ct"]),
 ];
@@ -535,6 +559,7 @@ pub struct Export {
     tex: Option<String>, // chemfig code (File > More Formats)
     csv: Option<String>, // Home's Experiments list
     model: Option<String>, // a 3MF file's 3D model (src/model3mf.ts)
+    eln: Option<Vec<(String, String)>>, // an ELN archive's files, each its path in the zip and its text (src/eln.ts)
     dpi: Option<f32>,
     transparent: Option<bool>,
     quality: Option<u8>, // JPEG
@@ -566,6 +591,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "cds" => e.cds.is_some(),
         "csv" => e.csv.is_some(),
         "3mf" => e.model.is_some(),
+        "eln" => e.eln.is_some(),
         _ => e.mdl.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
@@ -574,7 +600,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     };
     let stem: String = e.name.trim_end_matches(".octet").chars().filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | ':')).take(100).collect();
     let stem = if stem.trim().is_empty() { "Untitled".into() } else { stem };
-    let mut dialog = app.dialog().file().set_file_name(format!("{stem}.{}", first.2[0]));
+    let mut dialog = app.dialog().file().set_file_name(format!("{stem}.{}", default_extension(first.0)));
     for f in &offered {
         dialog = dialog.add_filter(f.1, f.2);
     }
@@ -598,6 +624,14 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+// The extension a format's file is named with: its first, and .nmredata.sdf for NMReDATA (export_file, --convert).
+pub fn default_extension(id: &str) -> &'static str {
+    if id == "nmredata" {
+        return "nmredata.sdf";
+    }
+    FORMATS.iter().find(|f| f.0 == id).map_or("", |f| f.2[0])
+}
+
 // The file `format` names, as Export writes it, from what the page sent (export_file, export_bytes, and --convert).
 pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
     let text = |s: &Option<String>| s.clone().unwrap_or_default().into_bytes();
@@ -613,6 +647,7 @@ pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
         "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "bmp" => make_bmp(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
         "3mf" => make_3mf(e.model.as_deref().unwrap_or_default())?,
+        "eln" => make_eln(e.eln.as_deref().unwrap_or_default())?,
         // The EMF+ dual EMF, as the clipboard's (issues 166, 167): Office draws it anti-aliased, and a program that
         // reads no EMF+ draws its GDI records.
         "emf" => crate::vector::make_office_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref()),
@@ -1026,6 +1061,31 @@ mod tests {
         <text x="20" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="rgb(15, 23, 42)">NH<tspan baseline-shift="sub" font-size="7.5">2</tspan></text>
     </svg>"##;
     const CDXML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!DOCTYPE CDXML SYSTEM \"http://www.cambridgesoft.com/xml/cdxml.dtd\" >\n<CDXML><page><fragment/></page></CDXML>\n";
+
+    #[test]
+    fn eln_archive_is_one_folder() {
+        let file = |p: &str, t: &str| (p.to_string(), t.to_string());
+        let good = [file("Reduction/ro-crate-metadata.json", "{}"), file("Reduction/Reduction/Reduction.rdf", "$RDFILE 1\n")];
+        let zip = make_eln(&good).unwrap();
+        assert!(zip.starts_with(b"PK\x03\x04"));
+        assert!(find(&zip, b"Reduction/ro-crate-metadata.json").is_some() && find(&zip, b"Reduction/Reduction/Reduction.rdf").is_some());
+        let crate_file = file("R/ro-crate-metadata.json", "{}");
+        for bad in ["../x.rdf", "R/../x.rdf", "Other/x.rdf", "R/a/b/c.rdf", "R//x.rdf", "R/x\\y.rdf", "R/C:x.rdf", "R/x\n.rdf", "/R/x.rdf"] {
+            assert!(make_eln(&[crate_file.clone(), file(bad, "x")]).is_err(), "{bad}");
+        }
+        assert!(make_eln(&[file("R/x.rdf", "x"), file("R/y.rdf", "y")]).is_err(), "no metadata");
+        assert!(make_eln(&[crate_file.clone()]).is_err(), "nothing but the metadata");
+        assert!(make_eln(&vec![crate_file; 13]).is_err(), "too many files");
+        // A name that is not ASCII sets bit 11 (UTF-8) in the local header and the central directory; an ASCII one
+        // (every 3MF and Office part) leaves the flags 0.
+        let flags = |z: &[u8]| {
+            let dir = find(z, b"PK\x01\x02").unwrap();
+            (u16::from_le_bytes([z[6], z[7]]), u16::from_le_bytes([z[dir + 8], z[dir + 9]]))
+        };
+        assert_eq!(flags(&make_eln(&[file("Réduction/ro-crate-metadata.json", "{}"), file("Réduction/Réduction/Réduction.rdf", "x")]).unwrap()), (0x0800, 0x0800));
+        assert_eq!(flags(&zip), (0, 0));
+        assert_eq!(flags(&make_3mf("<model/>").unwrap()), (0, 0));
+    }
 
     #[test]
     fn pdf_carries_cdxml_and_reads_back() {

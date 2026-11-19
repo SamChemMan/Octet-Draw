@@ -8,7 +8,7 @@ import { call, HOME_API } from "./homeApi";
 import { makeThumb } from "./thumbs";
 import {
   addDrawings, createProject, deleteProject, drawingName, emptyStore, forget, newId, projectOf, projectsWith, readStore, relocate, removeDrawing, renameProject,
-  resetPicture, setPicture, setProjectColour, setProjectThumb, thumbIds, writeStore, type HomeStore, type StoreProblem,
+  resetPicture, setAbout, setPicture, setProjectColour, setProjectThumb, thumbIds, writeStore, type About, type HomeStore, type StoreProblem,
 } from "./projects";
 
 export type RecentLike = { path: string; name: string; thumb?: string };
@@ -149,6 +149,8 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
       .then(() => notice("Home shows the selection as this drawing's thumbnail.", "done")).catch((e) => notice(failure("Octet cannot set this thumbnail.", e))),
     // The drawing's picture changed (it was opened or saved): Octet's copy for a drawing in a project follows.
     autoSvg: (path: string, svg: string) => void keepAuto(path, svg).catch(() => {}),
+    // Its title and author too, for a drawing in a project (written only when they changed).
+    about: (path: string, about: About) => { if (setAbout(held.current, path, about) !== held.current) void commit((s) => ({ store: setAbout(s, path, about) })); },
     // Remove from Home: a drawing in no project takes its thumbnails with it.
     forget: (path: string) => commit((s) => forget(s, path)),
   };

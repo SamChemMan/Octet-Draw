@@ -8,7 +8,7 @@ import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn,
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { chainLayout } from "./chain.ts";
-import { labelRows } from "./sequence.ts";
+import { labelLayout } from "./sequence.ts";
 import { kekulise } from "./rings.ts";
 import { counts as formulaCounts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
@@ -17,6 +17,7 @@ import { isCif, readCif } from "./cif.ts";
 import { axialLabels } from "./axial.ts";
 import { sandwichIons } from "./metals.ts";
 import { cipLabels } from "./cip.ts";
+import { rdData, readFields, sdData, withRecord, type DataField } from "./eln.ts";
 import type { StereoFacts } from "./check.ts";
 import { cleanName, cleanValue, fieldsFromRecords, MAX_DATA, MAX_NAME, markLeft, NO_NAME, readSd, sdRecordItems } from "./datafields.ts";
 
@@ -301,13 +302,16 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
   return out;
 }
 // An RD file: each reaction (and molecule) record read on its own, one under another, so no two overlap.
+// A record's data fields (from its first $DTYPE) put back what Octet wrote there: the text over and under the arrow,
+// the compound numbers and the reagent table (eln.ts).
 function readRdf(text: string): Mol {
   const records = text.replace(/\r\n?/g, "\n").split(/^\$[RM]FMT[^\n]*\n/m).slice(1).slice(0, 200)
-    .map((r) => r.replace(/^\$(RIREG|REREG|MIREG|MEREG)[^\n]*\n/, "").split(/^\$DTYPE/m)[0].trimEnd()).filter((r) => r.trim());
+    .map((r) => { const s = r.replace(/^\$(RIREG|REREG|MIREG|MEREG)[^\n]*\n/, ""), k = s.search(/^\$DTYPE/m); return k < 0 ? [s.trimEnd(), ""] : [s.slice(0, k).trimEnd(), s.slice(k)]; }).filter(([r]) => r.trim());
   if (!records.length) throw new Error("This RD file has no reactions.");
   let out: Mol = { atoms: [], bonds: [] }, top = 0;
-  for (const r of records) {
-    const part = importStructure(r.startsWith("$RXN") ? r : `${r}\n`), ys = [...part.atoms.map((a) => a.location[1]), ...(part.arrows ?? []).flatMap((a) => [a.from[1], a.to[1]])];
+  for (const [r, data] of records) {
+    const read = importStructure(r.startsWith("$RXN") ? r : `${r}\n`), part = data && r.startsWith("$RXN") ? withRecord(read, readFields(data)) : read;
+    const ys = [...part.atoms.map((a) => a.location[1]), ...(part.arrows ?? []).flatMap((a) => [a.from[1], a.to[1]])];
     if (!ys.length) continue;
     const dy = top - Math.max(...ys);
     out = insertMol(out, part, [0, dy]).mol;
@@ -362,17 +366,37 @@ export function quickMol(smiles: string): Mol | undefined {
 }
 // The centre of points: their mean x and y.
 const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
-// Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was. Anything else as it is.
-function straightened(m: Mol): Mol {
-  const atoms = [...m.atoms];
+// Expand Label: a chain of residue labels drawn out whole (residues: the labels it drew out) lies along a straight
+// backbone at the labels' scale, as Sequences > Atoms draws it. One that still has a residue label keeps its places.
+export function chainsDrawnOut(m: Mol, residues: Set<number>): Mol {
+  const whole = fragments(m).filter((f) => f.some((i) => residues.has(i)) && !f.some((i) => m.atoms[i].inner?.atoms.length && m.atoms[i].text));
+  if (!whole.length) return m;
+  let atoms = m.atoms;
+  for (const f of whole) {
+    const own = f.filter((i) => residues.has(i)).map((i) => scaleOf(m.atoms[i])).sort((a, b) => a - b), k = own[own.length >> 1], in_ = new Set(f);
+    if (k !== 1) atoms = atoms.map((a, i) => (in_.has(i) ? { ...a, scale: k } : a));
+  }
+  return straightened(atoms === m.atoms ? m : { ...m, atoms }, new Set(whole.flat()));
+}
+// Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was, at its own scale. Anything else as
+// it is. only: just the structures with one of these atoms.
+function straightened(m: Mol, only?: Set<number>): Mol {
+  const atoms = [...m.atoms], routes = new Map<number, number>();
   for (const frag of fragments(m)) {
+    if (only && !frag.some((i) => only.has(i))) continue;
     const laid = chainLayout(m, frag);
     if (!laid) continue;
+    const own = frag.map((i) => scaleOf(m.atoms[i])).sort((a, b) => a - b)[frag.length >> 1];
     const [ox, oy] = centre(frag.map((i) => m.atoms[i].location)), [cx, cy] = centre([...laid.values()]);
-    for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + x - cx, oy + y - cy, 0] };
+    for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + (x - cx) * own, oy + (y - cy) * own, 0] };
+    laid.routes?.forEach((r, b) => routes.set(b, r));
   }
-  return atoms.every((a, i) => a === m.atoms[i]) ? m : keptHands(m, { ...m, atoms });
+  if (atoms.every((a, i) => a === m.atoms[i])) return m;
+  const out = keptHands(m, { ...m, atoms });
+  return routes.size ? { ...out, bonds: routed(out.bonds, routes) } : out;
 }
+// Bonds with the brackets a chain's layout gives its links (chain.ts): a bond in routes takes its route.
+const routed = (bonds: Mol["bonds"], routes: Map<number, number>) => bonds.map((b, k) => (routes.has(k) ? { ...b, route: routes.get(k) } : b));
 // A new layout's wedges and hashes, so each centre keeps the hand they drew before (from): where a centre now lies the
 // other way round, its wedges become hashes and its hashes wedges.
 function keptHands(from: Mol, to: Mol): Mol {
@@ -1104,6 +1128,15 @@ function placeWedges(m: Mol, hands: Map<number, number>, stereo = stereoFacts(m)
   return { ...m, atoms, bonds };
 }
 
+// Wedges and hashes that draw each centre's hand (hands: 1 or -1 by atom, as wedgeHands gives it: its neighbours in atom
+// order, an implicit H last), placed where ChemDraw puts them (placeWedges); the centres' own wedges and hashes go.
+// The sequence builder (seqbuild.ts) knows each hand from its monomers and gives it so, after the layout.
+export function handsDrawn(m: Mol, hands: Map<number, number>): Mol {
+  if (!hands.size) return m;
+  const centres = new Set(hands.keys());
+  const bare = { ...m, bonds: m.bonds.map((b) => ((b.stereo === 1 || b.stereo === 6) && centres.has(b.atoms[0]) ? (({ stereo: _, ...rest }) => rest)(b) : b)) };
+  return placeWedges(bare, hands, centres);
+}
 // Each label's group as Indigo reads it, kept by the label's text, so each label is read once. Not kept while Indigo
 // is loading. Cleared when it grows large.
 const labelGroups = new Map<string, Mol | undefined>();
@@ -1276,6 +1309,21 @@ function convert(input: string, format: string, options: Record<string, string> 
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
+// The drawing as SMILES that is the same however the compound is drawn (a HELM monomer's own SMILES, issue 27): the
+// structure its InChI with fixed hydrogens and metals kept bonded gives (one structure for one such InChI), written by
+// Indigo. The fixed H layer keeps the tautomer drawn (an amide stays C=O), and /RecMet keeps a metal's bonds. Its own
+// SMILES where that fails.
+const FIXED_INCHI = { "inchi-options": "/FixedH /RecMet" };
+export function canonicalSmiles(drawn: Mol): string {
+  try {
+    const inchi = drawn.atoms.length > 1023 ? "" : convert(ketOf(drawn), "inchi", FIXED_INCHI);
+    if (inchi) {
+      const back = parseStructure(inchi, false);
+      if (convert(ketOf(back), "inchi", FIXED_INCHI) === inchi) return toSmiles(back).split(/\s/)[0];
+    }
+  } catch { /* its own SMILES */ }
+  return toSmiles(drawn).split(/\s/)[0];
+}
 // The MCP host's SMILES (Editor.tsx and scripts/headless/host.ts), kept by the KET Indigo reads, as analyses are kept:
 // a draw's reply compares each compound drawn again with its first by SMILES (mcp.ts madeCompounds), call after call.
 // The keys are compounds, not whole drawings: copy as SMILES and the dictionary use toSmiles and keep nothing.
@@ -1309,10 +1357,11 @@ export function drawnInchiKey(part: Mol): string | undefined {
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
 // so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go
 // with each record, where they enclose its atoms.
-// Each record's data items are its structure's data fields (datafields.ts).
-export function toSdf(drawn: Mol, v2000 = false): string {
-  const whole = drawn.shapes?.some((sh) => sh.rgroup), groups = whole ? [drawn.atoms.map((_, i) => i)] : fragments(drawn), items = sdRecordItems(drawn, groups);
-  return groups.map((g, k) => `${toMolfile(whole ? drawn : { ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) }, v2000)}\n${items[k]}$$$$\n`).join("");
+// Each record's data items: its structure's data fields (datafields.ts), then from items a compound's data items
+// (eln.ts), by any of its atoms.
+export function toSdf(drawn: Mol, v2000 = false, items?: Map<number, DataField[]>): string {
+  const whole = drawn.shapes?.some((sh) => sh.rgroup), groups = whole ? [drawn.atoms.map((_, i) => i)] : fragments(drawn), fields = sdRecordItems(drawn, groups);
+  return groups.map((g, k) => `${toMolfile(whole ? drawn : { ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) }, v2000)}\n${fields[k]}${sdData(whole ? undefined : items?.get(g[0]))}$$$$\n`).join("");
 }
 
 // One step of a reaction, for RXN, RDF and reaction SMILES: its reactants, its products, and its agents (the structures
@@ -1344,14 +1393,15 @@ function reactionKet(drawn: Mol, step: RxnStep): string {
   return JSON.stringify({ root: { nodes }, ...out });
 }
 // Reactions as an RXN file (the first step), an RD file (every step, one record each) or reaction SMILES (one line
-// for each step), with their map numbers. RXN and RD files are V3000, as ChemDraw 26.1 saves them, or V2000.
-export function toReaction(drawn: Mol, steps: RxnStep[], kind: "rxn" | "rdf" | "smiles", v2000 = false): string {
+// for each step), with their map numbers. RXN and RD files are V3000, as ChemDraw 26.1 saves them, or V2000. fields:
+// an RD file's data fields for each record (eln.ts), after its rxnfile.
+export function toReaction(drawn: Mol, steps: RxnStep[], kind: "rxn" | "rdf" | "smiles", v2000 = false, fields?: DataField[][]): string {
   const mode = { "molfile-saving-mode": v2000 ? "2000" : "3000" };
   if (kind === "smiles") return steps.map((s) => convert(reactionKet(drawn, s), "smiles")).join("\n");
   if (kind === "rxn") return convert(reactionKet(drawn, steps[0]), "rxnfile", mode);
   const d = new Date(), two = (n: number) => String(n).padStart(2, "0");
   const date = `${two(d.getMonth() + 1)}/${two(d.getDate())}/${two(d.getFullYear() % 100)} ${two(d.getHours())}:${two(d.getMinutes())}`;
-  return [`$RDFILE 1`, `$DATM    ${date}`, ...steps.flatMap((s) => ["$RFMT", convert(reactionKet(drawn, s), "rxnfile", mode)])].join("\n") + "\n";
+  return [`$RDFILE 1`, `$DATM    ${date}`, ...steps.flatMap((s, k) => { const rxn = convert(reactionKet(drawn, s), "rxnfile", mode); return fields?.[k]?.length ? ["$RFMT", rxn.trimEnd(), ...rdData(fields[k])] : ["$RFMT", rxn]; })].join("\n") + "\n";
 }
 // Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
 // SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
@@ -1692,6 +1742,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
   const pi = new Set(mol.atoms.flatMap((a) => a.centre?.atoms ?? []));
   const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre || mol.atoms[i].location[2] || pi.has(i)));
   let chains = false;
+  // Brackets: each bond of a structure cleaned up loses its own, and a chain's links get theirs again (chain.ts).
+  const routes = new Map<number, number>(), cleaned = new Set(groups.flat());
   for (const frag of groups) {
     const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location));
     // A peptide or oligonucleotide: as residue labels, in rows (sequence.ts); drawn out, cleaned and then along a
@@ -1700,8 +1752,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
       const own = ownScale(frag), [cx, cy] = centre([...laid.values()]);
       for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + (x - cx) * own, oy + (y - cy) * own, 0] };
     };
-    const rows = labelRows(mol, frag);
-    if (rows) { placeAt(rows); continue; }
+    const rows = labelLayout(mol, frag);
+    if (rows) { placeAt(rows.at); rows.routes.forEach((r, b) => routes.set(b, r)); continue; }
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
     const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: shapeType(b.type) })), work * Math.min(1, 2 / groups.length), SAFETY * Math.min(1, 2 / groups.length), rounds);
@@ -1715,7 +1767,7 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
       atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
     });
     const chain = chainLayout({ ...mol, atoms }, frag);
-    if (chain) { placeAt(chain); chains = true; continue; }
+    if (chain) { placeAt(chain); chains = true; chain.routes?.forEach((r, b) => routes.set(b, r)); continue; }
     // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level, and a structure
     // without rings turned so the most bonds lie at a multiple of 30°.
     const turn = levelTurn({ ...mol, atoms }, frag);
@@ -1725,7 +1777,13 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
     }
   }
   // A chain's centres keep their hands (keptHands).
-  const kept = chains ? keptHands(mol, { ...mol, atoms }).bonds : mol.bonds;
+  const handed = chains ? keptHands(mol, { ...mol, atoms }).bonds : mol.bonds;
+  const kept = handed.some((b) => b.route !== undefined) || routes.size ? handed.map((b, k) => {
+    if (routes.has(k)) return { ...b, route: routes.get(k) };
+    if (b.route === undefined || !cleaned.has(b.atoms[0])) return b;
+    const { route: _, ...rest } = b;
+    return rest;
+  }) : handed;
   if (labels) for (const frag of groups) {
     const own = ownScale(frag), local = new Map(frag.map((i, k) => [i, k])), bonds = kept.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] }));
     const pieceOf = (from: Mol["atoms"]): Mol => ({ atoms: frag.map((i) => ({ ...from[i], location: [from[i].location[0] / own, from[i].location[1] / own, 0], scale: scaleOf(from[i]) / own })), bonds });

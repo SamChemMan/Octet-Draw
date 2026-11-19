@@ -633,8 +633,8 @@ fn plus_fills_draw_the_same_in_any_fill_mode() {
     }
     let mut cases = drawings();
     cases.push(("bonds, double bonds and hashed wedges that overlap at joins", octet_drawing(1, 24, 4, 8)));
-    cases.push(("the structure starter", include_str!("../../src/starters/structure.svg").to_string()));
-    cases.push(("the cycle starter", include_str!("../../src/starters/cycle.svg").to_string()));
+    cases.push(("the structure starter", include_str!("../tests/pictures/starter-structure.svg").to_string()));
+    cases.push(("the cycle starter", include_str!("../tests/pictures/starter-cycle.svg").to_string()));
     cases.push(("letters with holes, turned", page(120.0, 50.0, r#"<text x="10" y="35" font-family="Arial, Helvetica, sans-serif" font-size="24" transform="rotate(5 60 25)">B8%@&#xC5;</text>"#)));
     for (name, svg) in &cases {
         let emf = make_office_emf(&crate::export::tree(svg).unwrap(), None);
@@ -666,7 +666,7 @@ fn plus_fills_draw_the_same_in_any_fill_mode() {
             }
         }
     }
-    let emf = make_office_emf(&crate::export::tree(include_str!("../../src/starters/cycle.svg")).unwrap(), None);
+    let emf = make_office_emf(&crate::export::tree(include_str!("../tests/pictures/starter-cycle.svg")).unwrap(), None);
     let arc = fills(&emf).into_iter().find(|p| p.iter().map(Vec::len).sum::<usize>() > 60).expect("the cycle's arc");
     assert!(arc.len() <= 12, "the cycle's arc in {} paths", arc.len());
     // L-proline: its bonds' path, and the two lines of C=O.

@@ -59,6 +59,11 @@ export const ACTIONS: Action[] = [
   any("tool.cyclohexane", "Cyclohexane tool", "Tools"), any("tool.cyclopentane", "Cyclopentane tool", "Tools"), any("tool.erase", "Eraser tool", "Tools"), any("tool.text", "Text tool", "Tools"), any("tool.arrow", "Arrow tool", "Tools"),
   any("tool.template", "Template tool", "Tools"), any("tool.symbol", "Symbols tool", "Tools"), any("tool.shape", "Shape tool", "Tools"),
   any("tool.bracket", "Bracket tool", "Tools"), any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
+  // No key by default (keys.check holds every tool to having an action, so any can be given one).
+  any("tool.sequence", "Sequence tool", "Tools"), any("tool.cycle", "Catalytic cycle tool", "Tools"), any("tool.gel", "Gel tool", "Tools"),
+  any("tool.plasmid", "Plasmid map tool", "Tools"), any("tool.table", "Table tool", "Tools"), any("tool.fragment", "Mass fragmentation tool", "Tools"),
+  any("tool.massspec", "Mass spec analysis tool", "Tools"), any("tool.synthesis", "Synthesis tool", "Tools"), any("tool.retro", "Retrosynthesis tool", "Tools"),
+  any("tool.map", "Atom map tool", "Tools"), any("tool.measure", "Measure tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
   any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),
@@ -120,6 +125,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "tool.select": ["space"], "tool.bond": ["x"], "tool.chain": ["shift+x"], "tool.ring": [], "tool.benzene": ["j"],
   "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [], "tool.text": ["t"], "tool.arrow": ["e"], "tool.template": [], "tool.symbol": ["shift+e"], "tool.shape": [],
   "tool.bracket": ["shift+t"], "tool.tlc": ["g"], "tool.orbital": ["shift+g"],
+  "tool.sequence": [], "tool.cycle": [], "tool.gel": [], "tool.plasmid": [], "tool.table": [], "tool.fragment": [], "tool.massspec": [], "tool.synthesis": [], "tool.retro": [], "tool.map": [], "tool.measure": [],
   "eraser.smaller": ["["], "eraser.bigger": ["]"],
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
@@ -199,18 +205,21 @@ export function toAccelerator(key: string): string {
 }
 // Whether a menu command runs now. Over a dialog or Settings only Undo, Redo and Select All run, on the text in its
 // fields, as a Mac app's menu does over a sheet. Home covers the drawing in the same way: there only the commands that
-// start or open a drawing (Open Recent too), or open Settings, About, the tutorial or the Help menu's items, run. Quit
-// and Close Window run everywhere: they ask about unsaved changes over any dialog (src-tauri/src/quit.rs). Cut, Copy and
-// Paste (Octet's own items on Linux) run everywhere too: they work on the text being typed, and the drawing takes them
-// only when nothing covers it.
+// start or open a drawing (Open Recent and Open Example too), or open Settings, About, the tutorial or the Help menu's
+// items, run. Quit and Close Window run everywhere: they ask about unsaved changes over any dialog
+// (src-tauri/src/quit.rs). Cut, Copy and Paste (Octet's own items on Linux) run everywhere too: they work on the text
+// being typed, and the drawing takes them only when nothing covers it.
 const HOME_COMMANDS = ["home", "new", "open", "edit_word", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates", "select_all"];
+// Window > Cascade and the Tiles (Windows, and Linux under X11; src-tauri/src/arrange.rs) move the windows, not the
+// drawing, so they run everywhere too.
+export const ARRANGE = ["cascade", "tile_top_bottom", "tile_side_by_side"] as const;
 // While an AI app's call runs (calling), the menu works on the drawing as over a dialog: what the user did would join
 // the call's undo step.
 export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean; calling?: boolean }) {
-  if (["quit", "close", "cut", "copy", "paste"].includes(id)) return true;
+  if (["quit", "close", "cut", "copy", "paste", ...ARRANGE].includes(id)) return true;
   if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;
   if (over.modal || over.calling) return false;
-  return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_");
+  return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_") || id.startsWith("example_");
 }
 // The menu commands that open a dialog: their names end in "…", as the Mac's menus have it (Octet with no window
 // refuses them, for no one is there to finish one).
@@ -243,6 +252,16 @@ export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "ca
   const found = (p: Place) => ACTIONS.find((a) => (a.place === p || (a.place === "item" && p !== "any")) && map[a.id]?.includes(key))?.id;
   const charge = place === "caption" ? found("atom") : undefined;
   return (place === "atom" || place === "bond" ? found(place) : charge?.startsWith("charge.") ? charge : undefined) ?? found("any");
+}
+
+// The ring each ring command picks (J picks benzene). Ring kinds are RINGS' keys in tools.tsx.
+export const RING_TOOLS: Record<string, string> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
+// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel) or a ring's
+// (tool.benzene), so the Ring slot, its menu and a pinned ring can name the key.
+export function optionCommand(tool: string, kind: string): string | undefined {
+  if (tool === "more") return `tool.${kind}`;
+  const ring = tool === "ring" ? Object.keys(RING_TOOLS).find((c) => RING_TOOLS[c] === kind) : undefined;
+  return ring && `tool.${ring}`;
 }
 
 // Other actions that already use this key in the same place.

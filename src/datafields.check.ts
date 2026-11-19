@@ -255,6 +255,51 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual(dat.data, [{ name: "Batch", atoms: [0, 1, 2], value: "B-001" }]);
 }
 
+// Notes (issues 101 and 102) and fields keep apart. A structure's fields are annotations in its fragment; a note is
+// in the page (the drawing's), its group or its text (a field's text too). So no note is read as a field and no field
+// as a note, in .oct, Octet's CDXML, ChemDraw's (no Octet data), CDX and Octet's .cdx.
+{
+  const { allNotes, withNote, withoutNotes } = await import("./annotate.ts");
+  const { readCdx, writeCdx } = await import("./oct.ts");
+  const mp = withFields.data![1].caption!, group = E.nextId(withFields);
+  let m: Mol = { ...withFields, groups: [{ id: group, atoms: P, items: [mp] }] };
+  m = withNote(withNote(withNote(m, ["drawing"], "on the page"), [group], "on the group"), [mp], "on the field's text");
+  const notes = (x: Mol) => allNotes(x).map((r) => r.text).sort(), text = toCdxml(m, DEFAULT_STYLE);
+  const reads: [string, Mol][] = [[".oct", parse(serialize(m))], ["CDXML", fromCdxml(text).mol], ["ChemDraw's CDXML", fromCdxml(text.replace(/\n Octet="[^"]*"/g, "")).mol],
+    ["CDX", fromCdxml(cdxToXml(xmlToCdx(parseXml(text)))).mol], [".cdx", readCdx(writeCdx(m, DEFAULT_STYLE)).mol]];
+  // ChemDraw's file keeps no order of Octet's: its fields are compared in order of name.
+  const sorted = (x: Mol, atoms: number[]) => values(x, atoms).map(String).sort();
+  for (const [why, x] of reads) {
+    assert.deepEqual([sorted(x, P), sorted(x, Q)], [sorted(m, P), sorted(m, Q)], `${why}: the fields`);
+    if (why !== "ChemDraw's CDXML") assert.deepEqual(values(x, P), values(m, P), `${why}: in their order`);
+    assert.equal(x.data!.length, 4, `${why}: no note read as a field`);
+    assert.deepEqual(notes(x), ["on the field's text", "on the group", "on the page"], `${why}: the notes, and no field among them`);
+  }
+  // A picture or another app's clipboard loses the notes and keeps the fields (ChemDraw reads them as attached data).
+  assert.deepEqual([notes(withoutNotes(m)), withoutNotes(m).data], [[], m.data]);
+}
+
+// A measured structure (issue 85) keeps its fields: Measure's 3D clean-up keeps them, a measurement's label is never
+// a field's text, and a join keeps both structures' fields and the measurement on the atoms it joined.
+{
+  const r = E.addMeasure(withFields, [0, 2]);
+  assert.ok(typeof r !== "string" && r.made, String(r));
+  const measured = r.mol, label = measured.captions!.find((c) => c.id === r.id)!;
+  assert.deepEqual([values(measured, P), values(measured, Q)], [values(withFields, P), values(withFields, Q)], "Measure keeps the fields");
+  assert.ok(!D.fieldCaptions(measured).has(r.id) && /Å/.test(label.text), "its label is no field's text");
+  const sd = chem.toSdf(measured);
+  assert.ok(!sd.includes("Å"), "nor an SD item");
+  assert.deepEqual(values(fromCdxml(toCdxml(measured, DEFAULT_STYLE)).mol, P), values(withFields, P), "CDXML keeps both");
+  // Ethanol measured C to O, then moved so its first atom lies on propane's last: they join.
+  const [withLabel] = E.addCaption(withFields, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: [3, 5] } });
+  const moved: Mol = { ...withLabel, atoms: withLabel.atoms.map((a, i) => (Q.includes(i) ? { ...a, location: [a.location[0] - 4, a.location[1], 0] as [number, number, number] } : a)) };
+  const joined = E.joinOverlaps(moved, new Set(Q));
+  assert.ok(joined.joined);
+  const one = [0, 1, 2, 3, 4];
+  assert.deepEqual(values(joined.mol, one), [...values(withFields, P), ...values(withFields, Q)], "one structure with both lists, the earlier first");
+  assert.deepEqual(joined.mol.captions!.find((c) => c.measure)!.measure!.atoms, [2, 4], "the measurement goes on with the atom it joined");
+}
+
 // S9: a hostile SD file: a giant value, 20,000 items on one record, a header with no <name>, NUL and ESC in values,
 // a record with no atoms, $$$$ with spaces after it. Left out and counted once; read in under a second.
 {

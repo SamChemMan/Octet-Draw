@@ -1,7 +1,8 @@
 # Octet Draw in LibreOffice Writer, Impress, Draw and Calc, on Linux, Windows and the Mac (decision 0025). A
 # double-click on a structure that Octet or ChemDraw made opens it in an Octet object window: a PDF picture with the
-# drawing's CDXML in it (Octet's copy on the Mac and Linux, ChemDraw's on the Mac), or an EMF picture with Octet's
-# CDXML comment (Octet's copy on Windows, Word for Windows). Each Update in Octet puts the new picture in its place as
+# drawing's CDXML in it (Octet's copy on every system, ChemDraw's on the Mac; on Windows and Linux Octet's copy gives
+# LibreOffice the PDF in LibreOffice's own copy of a picture, which Calc takes too), or an EMF picture with Octet's
+# CDXML comment (Word for Windows, Octet 1.1.2's copy on Windows). Each Update in Octet puts the new picture in its place as
 # one undo step, with its anchor, wrap, rotation and alt text kept and its crop taken off. Other pictures, and every
 # picture in a read-only document, keep LibreOffice's own double-click. The context menu gets Edit in Octet Draw, and
 # Insert gets Octet Drawing for a new one.
@@ -705,8 +706,8 @@ def insert(ctx, controller):
         message(ctx, controller, READ_ONLY)
         return
     at = text_cursor(controller) if controller.getModel().supportsService("com.sun.star.text.TextDocument") else None
-    # A PDF on every system, which LibreOffice reads the same way on each. (Windows' Copy is an EMF, but LibreOffice on
-    # Windows does not keep a pasted EMF as its own bytes, so the PDF is the one kind that stays an Octet drawing.)
+    # A PDF on every system, which LibreOffice reads the same way on each. (LibreOffice on Windows does not keep a
+    # pasted EMF as its own bytes, so the PDF is the one kind that stays an Octet drawing. Copy gives it the PDF too.)
     session = Session(ctx, controller, None, "pdf", at)
     write_new(session.path, b"")
     start(session)

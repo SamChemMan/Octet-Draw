@@ -1,7 +1,7 @@
 // Catalytic cycles. A cycle holds its intermediates (sets of atoms) in order around a circle. Its arc arrows,
 // and the side arrows for reagents coming in and products going out, are worked out afresh from where the
 // intermediates are, so editing an intermediate keeps every arrow fitted to it.
-import { arrowPath, sizedHead, type Arrow, type ArrowKind, type Box, type Caption, type Head, type HeadShape, type Mol } from "./render.ts";
+import { arrowPath, sizedHead, type Annotation, type Arrow, type ArrowKind, type Box, type Caption, type Head, type HeadShape, type Mol } from "./render.ts";
 
 // A step's own settings (step s runs from node s to node s + 1). Unset is the default.
 // kind: "equilibrium" draws the step as a reversible pair; ratio: as Arrow.ratio. lead and trail: extra clear space in
@@ -27,7 +27,8 @@ export type CycleSide = { atoms: number[]; side: "in" | "out" };
 // head and arrowSize: the heads of all its arrows (arcs and side arrows), as an arrow's: their shape (unset is solid) and
 // palette size (unset is small, each arrow kind's own).
 export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; at: number[]; colour?: string; order?: number; scale?: number; width?: number; gap?: number;
-  head?: HeadShape; arrowSize?: "large" | "medium"; steps?: (CycleStep | null)[]; branches?: CycleBranch[]; sides?: CycleSide[] };
+  head?: HeadShape; arrowSize?: "large" | "medium"; steps?: (CycleStep | null)[]; branches?: CycleBranch[]; sides?: CycleSide[];
+  notes?: Annotation[] }; // its notes, not drawn (annotate.ts)
 // A cycle with its structures' atoms renumbered by `to` (undefined: the atom went). An end whose structure has gone is
 // a bare end.
 export function mapBranches(c: Cycle, to: (i: number) => number | undefined): Cycle {
@@ -490,7 +491,7 @@ export function dropOnCycle(m: Mol, frags: number[][], was?: Mol, opts: DropOpts
   // fresh: added by this edit. A cycle's text counts only when it was there before.
   const had = (t: Caption) => !!was?.captions?.some((x) => x.id === t.id);
   const items: { atoms?: number[]; text?: number; fresh: boolean }[] = [...frags.filter((fr) => fr.every(moved) && whole(fr)).map((atoms) => ({ atoms, fresh: !opts.placed && !!was && atoms.every((i) => i >= was.atoms.length) })),
-    ...(m.captions ?? []).filter((t) => !t.under && !t.on && (!t.cycle || (had(t) && (t.cycle.side === "node" || isSide(t.cycle)))) && textMoved(t)).map((t) => ({ text: t.id, fresh: !opts.placed && !!was && !had(t) }))];
+    ...(m.captions ?? []).filter((t) => !t.under && !t.on && !t.measure && (!t.cycle || (had(t) && (t.cycle.side === "node" || isSide(t.cycle)))) && textMoved(t)).map((t) => ({ text: t.id, fresh: !opts.placed && !!was && !had(t) }))];
   // The cycles laid out with a bond length as 1 (px, y down), for the arcs' spans and the side arrows' ends. Kept until
   // the drawing changes.
   let laid: [Mol, CycleLayout] | undefined;

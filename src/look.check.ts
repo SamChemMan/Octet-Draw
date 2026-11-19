@@ -16,7 +16,8 @@ const strings = (text: string) => text.split("\n").filter((l) => !/^\s*(\/\/|\*|
 // British English in every word a user reads (code identifiers keep standard spellings; cdxml.ts, cdx.ts and cdxtags.ts
 // write ChemDraw's own attribute names and values, so they are left out).
 for (const [file, text] of code) {
-  for (const s of strings(text)) assert.ok(!/\b(Analyz|analyz|Color\b|Colors\b|Center\b|Gray\b|Favorite|Optimiz|Organiz)/.test(s), `${file}: US spelling in ${s}`);
+  // schema.org's type name in an ELN archive's metadata (eln.ts), which no user reads, is spelled as schema.org has it.
+  for (const s of strings(text)) if (!(file === "eln.ts" && s === '"Organization"')) assert.ok(!/\b(Analyz|analyz|Color\b|Colors\b|Center\b|Gray\b|Favorite|Optimiz|Organiz)/.test(s), `${file}: US spelling in ${s}`);
 }
 // STE messages: "Select", never "Pick", for what to select first; "cannot", never a contraction or "could not". The
 // app's Rust errors reach the notice too.

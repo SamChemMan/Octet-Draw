@@ -247,7 +247,7 @@ test("S17 .oct, CDXML, CDX, .oct, SDF V2000, SDF V3000", () => {
 test("S20 the dialog and the text take tokens only", () => {
   for (const f of ["DataDialog.tsx", "Cells.tsx"]) assert.doesNotMatch(readFileSync(new URL(f, import.meta.url), "utf8"), /#[0-9a-f]{3,8}\b|rgba?\(|hsl\(/i, f);
   const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
-  for (const rule of [".chart-table .cell-title", ".chart-table .cell-switch", ".unit-field textarea"]) {
+  for (const rule of [".chart-table .cell-title", ".chart-table .cell-switch", ".chart-table .unit-field textarea"]) {
     const body = css.slice(css.indexOf(`${rule} {`), css.indexOf("}", css.indexOf(`${rule} {`)));
     assert.ok(body.length > rule.length, rule);
     assert.doesNotMatch(body, /#[0-9a-f]{3,8}\b|rgba?\(/i, rule);

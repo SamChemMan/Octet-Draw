@@ -15,8 +15,9 @@ const BASES: Record<string, string> = {
 export const unit = (base: string, dna: boolean) => `OC[C@H]1O[C@@H](${BASES[base]})${dna ? "C" : "[C@H](O)"}[C@@H]1O`;
 export const PHOSPHATE = "P(=O)(O)";
 
-// Up to 30 nucleotides: a 30-mer is 634 atoms, laid out in about 2 seconds, as long as the slowest 60-residue peptide.
-export const MAX_NUCLEOTIDES = 30;
+// As many as the Sequence tool reads (helm.ts MOST_UNITS). How many draw in full is up to the builder: 1,000 atoms
+// (seqbuild.ts), so 45 DNA or 43 RNA nucleotides of any kind, up to 52 and 50; as residue labels, all 1,000.
+export const MAX_NUCLEOTIDES = 1000;
 export const NUCLEIC = /^\s*(rna|dna)\s*:\s*/i;
 
 // SMILES for one-letter codes, with a phosphate on either end when a p is typed there ("pACGU", "5'-pACGU-3'").
@@ -31,7 +32,7 @@ export function nucleicSmiles(text: string, dna: boolean): { smiles: string } | 
   const letters = [...codes.toUpperCase()].map((ch) => (ch === (dna ? "U" : "T") ? (dna ? "T" : "U") : ch));
   const bad = [...new Set([...codes].filter((_, k) => !BASES[letters[k]]))];
   if (bad.length) return { problem: `${bad.length === 1 ? "Not a nucleotide" : "Not nucleotides"}: ${bad.join(", ")}` };
-  if (letters.length > MAX_NUCLEOTIDES) return { problem: `Up to ${MAX_NUCLEOTIDES} nucleotides.` };
+  if (letters.length > MAX_NUCLEOTIDES) return { problem: `Up to ${MAX_NUCLEOTIDES.toLocaleString("en-GB")} nucleotides.` };
   const chain = letters.map((b) => unit(b, dna)).join(PHOSPHATE);
   return { smiles: `${five ? `O${PHOSPHATE}` : ""}${chain}${three ? `${PHOSPHATE}O` : ""}` };
 }

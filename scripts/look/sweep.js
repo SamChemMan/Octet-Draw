@@ -1,7 +1,7 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
 // drawing, the Structure panel, Attach Data's dialog, the spectrum panel with two tabs, the template library, a
-// caption with the paste offer, every Settings page, the command palette, a Jablonski diagram with a level and a
-// transition picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
+// caption with the paste offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a
+// level and a transition picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,6 +24,15 @@ if (button("Skip")) await measure("the welcome page"); // the first run only
 button("Skip")?.click();
 await wait(900);
 await measure("Home", !!document.querySelector(".home"));
+// Home's example drawings: the Examples page when there are recent drawings (the UI-only preview's ?demo), else the
+// Recent section, which shows them all.
+const examples = document.querySelector("[data-examples]");
+if (examples) {
+  examples.click();
+  await measure("the Examples page", !!(await until(() => document.querySelector("[data-section='examples'] .home-tile"), 4000)));
+  key({ key: "Escape" });
+  await wait(600);
+} else await measure("Home's examples", !!document.querySelector('.home-tile[data-tile^="example:"]'));
 document.querySelector(".home-tile.new")?.click();
 await measure("a new drawing", !!(await until(() => document.querySelector(".actions .action"))));
 [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();
@@ -103,6 +112,17 @@ if (caption) {
 await measure("the paste offer", !!(await until(() => document.querySelector(".paste-offer"), 4000)));
 key({ key: "Escape" });
 await wait(600);
+
+// The Notes panel (Object > Annotate…), with a note of several lines on the selection.
+key({ key: "a", code: "KeyA", metaKey: true });
+await wait(800);
+labelled("Annotate…")?.click();
+// (Annotate… puts the cursor in the selection's note; leaving it uses what was typed.)
+const note = await until(() => (document.activeElement?.matches(".note-panel textarea") ? document.activeElement : null), 4000);
+if (note) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(note, "Entry 7\nbatch 2\nfrom the old bottle"); note.dispatchEvent(new Event("input", { bubbles: true })); }
+await measure("the Notes panel", !!note);
+note?.blur();
+await wait(400);
 
 // Every Settings page.
 document.querySelector(".actions-reopen")?.click();

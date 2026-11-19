@@ -1,0 +1,7 @@
+{
+ "for": "paper",
+ "calls": [
+  { "name": "set_brief", "arguments": { "destination": { "kind": "paper" } } },
+  { "name": "draw", "arguments": { "lines": "# Boots synthesis\nisobutylbenzene (1)\n-> 1-[4-(2-methylpropyl)phenyl]ethanone (2), AcCl, AlCl3\n-> ethyl 3-methyl-3-[4-(2-methylpropyl)phenyl]oxirane-2-carboxylate (3), ClCH2CO2Et, NaOEt\n-> 2-[4-(2-methylpropyl)phenyl]propanal (4), H3O⁺, heat\n-> CC(C)Cc1ccc(cc1)C(C)C=NO (5), NH2OH\n-> 2-[4-(2-methylpropyl)phenyl]propanenitrile (6), Ac2O\n-> ibuprofen (7), H3O⁺\n# BHC synthesis\n1\n-> 2, Ac2O, HF\n-> 1-[4-(2-methylpropyl)phenyl]ethanol (8), H2, Raney Ni\n-> 7, CO, Pd catalyst" } }
+ ]
+}

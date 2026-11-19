@@ -25,6 +25,8 @@ macro_rules! say {
 #[cfg(windows)]
 mod access_keys;
 mod aiapps;
+// Window > Cascade and the Tiles (issue 73).
+mod arrange;
 mod clipboard;
 mod convert;
 mod crashlog;
@@ -516,6 +518,13 @@ async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
     read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing or a style sheet (Octet, CDXML, CDX or CDS).".to_string())
 }
 
+// OCTET_FEEDBACK=0 in the environment at launch hides the Feedback button in every window, whatever Settings says
+// (for a cluster's module file or a launcher script). The same name as the build switch (build.rs).
+#[tauri::command]
+fn feedback_off() -> bool {
+    std::env::var("OCTET_FEEDBACK").as_deref() == Ok("0")
+}
+
 // Opens one of Octet's own links in the browser (or, for feedback, the mail app). The page names it; only these fixed
 // addresses can be opened.
 #[tauri::command]
@@ -538,6 +547,16 @@ async fn open_link(app: tauri::AppHandle, name: String) -> Result<(), String> {
         ),
         // The Properties panel's PubChem CID: the compound's Safety and Hazards section.
         n if n.starts_with("pubchem:") => pubchem::safety_page(&n["pubchem:".len()..]).ok_or("Octet has no such link.")?,
+        // The suppliers list (issue 114): a supplier's page, only as Find suppliers gave it this session, and Open in
+        // PubChem, the compound's Chemical Vendors section. Both only while Online search is on.
+        n if n.starts_with("supplier:") => {
+            search::online(&app)?;
+            app.state::<pubchem::Links>().given(&n["supplier:".len()..]).ok_or("Octet has no such link.")?
+        }
+        n if n.starts_with("pubchem-vendors:") => {
+            search::online(&app)?;
+            pubchem::vendors_link(&n["pubchem-vendors:".len()..]).ok_or("Octet has no such link.")?
+        }
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
@@ -658,6 +677,13 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
+// Octet's example drawings (issue 94), as the page lists them (src/examples/examples.json): each one's id and name.
+// File > Open Example has an item for each, the command example_<id>, which opens a copy of it (Editor.tsx).
+fn examples() -> Vec<(String, String)> {
+    let list: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../src/examples/examples.json")).unwrap_or_default();
+    list.iter().filter_map(|x| Some((x["id"].as_str()?.to_string(), x["name"].as_str()?.to_string()))).collect()
+}
+
 // An object window's File > Update <document> and Close and Return to <document>. In menu text & marks the next
 // letter as an access key, so an & in the document's name is written &&.
 fn object_texts(host: &str) -> (String, String) {
@@ -703,6 +729,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     recent_items.push(&clear);
     let open_recent = Submenu::with_items(app, "Open Recent", true, &recent_items)?;
+    // File > Open Example, between Open… and Open Recent, where ChemDraw has Open Samples: each example a command, so
+    // Settings lists it, with no shortcut of its own (the Command Palette lists them too, Editor.tsx paletteCommands).
+    section.replace("File › Open Example".into());
+    let example_items = examples().iter().map(|(id, name)| item(&format!("example_{id}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let open_example = Submenu::with_items(app, "Open Example", true, &example_items.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     // File > New For: Quick start (as on Home), then Paper, Thesis, Slides, Poster and Experiment, then the user's own
     // purposes.
     let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
@@ -745,6 +776,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("new", &new_name, "CmdOrCtrl+N")?,
         &new_for,
         &item("open", "Open…", "CmdOrCtrl+O")?,
+        &open_example,
         &open_recent,
         &item("import", "Import a Structure…", "")?,
         // Image to Structure (decision 0027): a picture's structures as atoms and bonds, read on this computer.
@@ -778,9 +810,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if !AI {
         file.remove(&image)?;
     }
+    // An object window keeps no notes (src/annotate.ts): Annotate… and Show or Hide Notes go, as Revert to Saved does.
+    let notes_here = object.is_none();
     // The picture selected in Word, or a new drawing at Word's cursor, in an object window (word.rs). After Insert…
     #[cfg(target_os = "macos")]
-    file.insert(&item("edit_word", "Edit Picture from Word", "")?, 7)?;
+    file.insert(&item("edit_word", "Edit Picture from Word", "")?, 8)?;
     if more_list.is_none() {
         file.remove(&more)?;
     }
@@ -810,6 +844,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
         &item("copy_helm", "HELM", if cfg!(target_os = "macos") { "Alt+CmdOrCtrl+E" } else { "" })?,
         &item("copy_fasta", "FASTA", "")?,
+        &item("copy_nmredata", "NMReDATA", "")?,
     ])?;
     section.replace("Edit".into());
     // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.
@@ -860,6 +895,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let sets_seps = [sep()?, sep()?];
     let sets_list = in_groups(&set_items, &template_sets, &sets_seps);
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
+    let (notes, annotate) = (item("notes", "Show or Hide Notes", "")?, item("annotate", "Annotate…", "")?);
     let view = Submenu::with_items(app, "&View", true, &[
         // ChemDraw's keys: Actual Size and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -883,6 +919,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
+        // The Notes panel: the drawing's notes and every object's (src/Notes.tsx).
+        &notes,
         // The spectrum or Mass spec panel shown goes to its pill beside its structure, or the last one comes back.
         &item("toggle_spectrum", "Show or Hide Spectrum", "")?,
         &templates,
@@ -896,6 +934,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_abs", "Mark as Absolute", "")?,
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
+    ])?;
+    section.replace("Structure › Measure".into());
+    let measure = Submenu::with_items(app, "Measure", true, &[
+        &item("measure_distance", "Distance", "")?,
+        &item("measure_angle", "Angle", "")?,
+        &item("measure_dihedral", "Dihedral", "")?,
     ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
@@ -920,6 +964,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("add_multicentre", "Add Multi-Centre Attachment", "")?,
         &item("add_variable", "Add Variable Attachment", "")?,
         &item("rlogic", "R-Logic Query…", "")?,
+        // Measurements of the selected atoms (issue 85), where ChemDraw has Add 3D Property: no shortcut, as ChemDraw.
+        &measure,
         &enhanced,
         &sep()?,
         &item("map_reaction", "Map Reaction Atoms", "")?,
@@ -995,6 +1041,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("atom_numbers", "Show Atom Numbers", "")?,
         // ChemDraw's Attach Data: named fields on the selected structure (src/datafields.ts). No key, as in ChemDraw.
         &item("attach_data", "Attach Data…", "")?,
+        // ChemDraw's Annotate…: the Notes panel, at the note of the selection (or of the drawing). No key, as ChemDraw.
+        &annotate,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
@@ -1018,6 +1066,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("rotate_dialog", "Rotate…", "CmdOrCtrl+R")?,
         &item("scale_dialog", "Scale…", "CmdOrCtrl+K")?,
     ])?;
+    if !notes_here {
+        view.remove(&notes)?;
+        object.remove(&annotate)?;
+    }
     // Text commands style the caption being typed, the picked captions, or the selected atom labels. The fonts and
     // sizes are the Actions panel's (the page sends them); Other Size… types any size, and Last Typed Size uses it
     // again (ChemDraw's Other… and Set Font Size To Last One).
@@ -1141,6 +1193,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("search_scholar", "Search Google Scholar", "")?,
         &item("search_patents", "Search Google Patents", "")?,
+        // The Properties panel's PubChem lookups (issue 114). No keys: ChemDraw has none.
+        &sep()?,
+        &item("find_suppliers", "Find Suppliers", "")?,
+        &item("find_hazards", "Find Hazards", "")?,
     ])?;
     // Window: Minimize and Full Screen where the system has them (GTK on Linux has neither, Windows has no full screen
     // item), then the open drawings. The Mac lists the windows itself (set_bar); Windows and Linux list them here.
@@ -1148,8 +1204,25 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let window = Submenu::with_id(app, "window", "&Window", true)?;
     #[cfg(not(target_os = "linux"))]
     window.append(&PredefinedMenuItem::minimize(app, None)?)?;
+    // The Mac: Zoom and Bring All to Front, as ChemDraw's Window menu has them. macOS adds its own Move & Resize (which
+    // tiles two to four windows), Zoom All, and Arrange in Front (Bring All to Front with Option, a cascade).
     #[cfg(target_os = "macos")]
-    window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    {
+        window.append(&PredefinedMenuItem::maximize(app, None)?)?;
+        window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+        window.append(&sep()?)?;
+        window.append(&PredefinedMenuItem::bring_all_to_front(app, None)?)?;
+    }
+    // Windows, and Linux under X11: ChemDraw's Cascade, Tile Horizontal (Tile Top to Bottom) and Tile Vertical (Tile
+    // Side by Side). No default keys, as ChemDraw has none; Settings can give each one.
+    if arrange::places_windows() {
+        if cfg!(windows) {
+            window.append(&sep()?)?;
+        }
+        for (id, name) in arrange::ITEMS {
+            window.append(&item(id, name, "")?)?;
+        }
+    }
     if !cfg!(target_os = "macos") {
         windows::list(app, &window)?;
     }
@@ -1366,12 +1439,13 @@ fn main() {
         .manage(MenuList::default())
         .manage(Palette::default())
         .manage(search::Online(Mutex::new(true)))
+        .manage(pubchem::Links::default())
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, pubchem::pubchem_suppliers, pubchem::pubchem_stop, open_link, feedback_off, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1401,6 +1475,8 @@ fn main() {
             if (std::env::var_os("OCTET_MCP").is_some() || option_env!("OCTET_BETA").is_some()) && !headless {
                 let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
             }
+            #[cfg(target_os = "linux")]
+            arrange::x11();
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
             windows::set_menu(handle, None, bar)?;
             #[cfg(windows)]
@@ -1514,6 +1590,7 @@ fn main() {
                 windows::closed(_app, &label);
                 quit::closed(_app, &label);
                 mcp::closed(_app, &label);
+                pubchem::closed(&label);
             }
             // With no window, Octet ends when its work is done (app.exit, with a code), not when its last window closes.
             tauri::RunEvent::ExitRequested { api, code, .. } if quit::ending() || (code.is_none() && windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed)) => api.prevent_exit(),
@@ -1593,6 +1670,21 @@ mod tests {
         }
         assert_eq!(own(&words("--register-ole")), ["--register-ole"]);
         assert!(ole::embedding(&own(&words("-Embedding"))));
+    }
+
+    // File > Open Example reads the page's list: every example, each a command id the page takes (example_<id>).
+    #[test]
+    fn the_examples_are_read_for_the_menu() {
+        let list = examples();
+        let page: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../src/examples/examples.json")).unwrap();
+        assert_eq!(list.len(), page.len());
+        assert!(list.len() >= 10);
+        assert_eq!(list.iter().map(|(id, _)| id).collect::<HashSet<_>>().len(), list.len(), "no id twice");
+        for (id, name) in &list {
+            assert!(!id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase()), "{id}");
+            assert!(!name.trim().is_empty() && !name.contains('&'), "{name}");
+        }
+        assert_eq!(list[0], ("oseltamivir".to_string(), "Oseltamivir".to_string()));
     }
 
     #[test]

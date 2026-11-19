@@ -115,3 +115,31 @@ does. ChemDraw's PubChem GHS LCSS add-in shows the whole LCSS page and can copy 
   PUG REST for the CID, then PUG View for the GHS Classification section. One key at a time.
 - The answer is hostile: at most 1 MB of UTF-8, read with `JSON.parse` and each value's type checked (`src/ghs.ts`).
   No answer, or no network, shows nothing.
+
+## Update, 19 November 2026: Find suppliers, and Stop for both PubChem lookups
+
+Issue 114, for 1.1.3. With Online search on, the Properties panel has Find suppliers beside Find hazards, and the
+Search menu (Find Suppliers, Find Hazards, no keys), the Actions panel's Search set and the command palette run
+either one for the selection (or the drawing), opening the Properties panel when it is closed. Online search off
+removes them all, as for the searches; a key the user gave one in Settings shows a notice with Open Settings, and the
+app refuses the request.
+
+- Octet asks only on that press. Only each structure's standard InChIKey goes to PubChem (NIH), then the CID PubChem
+  gave, to fixed addresses in `src-tauri/src/pubchem.rs`: PUG REST for the CID, then PUG View's Source Categories
+  (`/rest/pug_view/categories/compound/<CID>/JSON`), whose Chemical Vendors category lists each product. One key at a
+  time; each key once a window.
+- Rust reads the answer as hostile: at most 16 MB of UTF-8 and 30 s, typed fields (serde; a wrong type refuses the
+  whole answer), each supplier's name cleaned of control and format characters and cut to 120 characters, each
+  supplier once, A to Z, at most 1000. A product link is kept only when it is https to a named host with no user name
+  or password, at most 2000 characters; any other goes to the product's PubChem substance page. The page gets names
+  and checked links only, checks their shape again and shows names as text.
+- A supplier's link opens in the user's browser through `open_link`, which opens a `supplier:` link only when a Find
+  suppliers answer gave it this session (kept in memory, at most 50 000), and Open in PubChem the compound's Chemical
+  Vendors section. Both refuse while Online search is off.
+- PubChem has no prices, pack sizes or purity, so Octet shows none. Nothing goes in the drawing or on disk: the
+  Suppliers row has no Add to drawing box, as a supplier list goes out of date.
+- Stop: while a lookup runs its button reads Stop. Stop ends the request in flight within one chunk
+  (`pubchem_stop`), and the rest of the structures are not asked. Closing the panel or the window stops too. Find
+  hazards gets the same Stop, and now says when it cannot reach PubChem.
+- Every PubChem request in the app waits until 250 ms after the one before, so Octet sends at most four a second
+  from all its windows. NCBI's usage policy asks for no more than five a second from one application.

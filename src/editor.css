@@ -171,6 +171,29 @@ input:disabled,
 circle.mark {
   stroke: none;
 }
+/* A bracket bond's mark goes along the bracket, in its group's colour. */
+polyline.mark {
+  fill: none;
+  stroke-linejoin: round;
+}
+.selection-marks polyline {
+  fill: none;
+  stroke: var(--select);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.erase-marks polyline {
+  fill: none;
+  stroke: var(--error);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nmr-marks polyline {
+  fill: none;
+  stroke: var(--brand-mist);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* Selection: a stronger tint. A copy that worked: the selection's tint rises and falls once; with nothing selected,
    the page's edge lights once. */
@@ -218,6 +241,7 @@ circle.mark {
   fill: none;
   stroke: var(--select);
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* A group wholly selected: a dotted frame round it, a hairline at any zoom. */
@@ -1616,6 +1640,13 @@ button.variant.add {
 .action-name {
   flex: 1;
 }
+/* A value Settings shows and does not change (Last changed by). */
+.setting-value {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
   color: var(--ink-muted);
@@ -2553,8 +2584,8 @@ div.facts {
 .unit-field.text input {
   text-align: left;
 }
-/* Text of several lines (Settings > Document > Properties > Comment): the same well, as wide as its row, as high as
-   its lines. Its name stays level with the first line. */
+/* Text of several lines (Settings > Document > Properties > Comment, a note): the same well, as wide as its row,
+   growing with its text (TextField's lines). Its name stays level with the first line. */
 .unit-field.text.lines {
   width: 100%;
   height: auto;
@@ -2571,9 +2602,12 @@ div.facts {
   background: transparent;
   color: var(--ink);
   font: 13px/18px var(--font-sans);
-  resize: vertical;
+  resize: none;
   -webkit-user-select: text;
   user-select: text;
+}
+.unit-field.lines textarea::placeholder {
+  color: var(--ink-faint);
 }
 .setting-control:has(> .unit-field.lines) {
   flex: 1;
@@ -3571,6 +3605,13 @@ div.facts {
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
 }
+/* One of the user's own beside the Ring menu: its pin above its ×. */
+.library-cell > .variant-action:has(+ .variant-action) {
+  margin-top: calc(-1 * var(--size-action) - 1px);
+}
+.library-cell > .variant-action + .variant-action {
+  margin-top: 1px;
+}
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
   position: relative;
@@ -4131,7 +4172,7 @@ div.facts {
   user-select: text;
 }
 /* Mapping an atom: rings on the two atoms and a dashed line between, in brand blue. */
-.mapping circle, .mapping line {
+.mapping circle, .mapping line, .mapping polyline {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.4px;
@@ -4501,8 +4542,9 @@ div.facts {
   display: flex;
   justify-content: center;
 }
-/* A field of lines of text (a data field's value): as high as any field, one line in view, the caret's. */
-.unit-field textarea {
+/* A field of lines of text in a grid (a data field's value): as high as any field, one line in view, the caret's. A
+   note's well grows with its text instead (.unit-field.lines). */
+.chart-table .unit-field textarea {
   width: 100%;
   min-width: 0;
   height: 1lh;
@@ -4630,6 +4672,96 @@ div.facts {
 .lane-picked {
   fill: var(--select);
   fill-opacity: 0.08;
+}
+
+/* The Notes panel (Notes.tsx): the Actions panel's look and width, on the right just above it (or its pill), as tall
+   as the room up to the Export pill; beside it, at the bottom, when that room is too small. Each field is a well of
+   several lines; the rows are the Actions panel's rows, each object's name and the first line of its note. It moves
+   by its header (movable.ts). */
+.note-panel {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
+  z-index: var(--z-panel);
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  box-sizing: border-box;
+  max-height: calc(100% - var(--below, 0px) - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  transform-origin: bottom right;
+  animation: panel-in var(--motion-fast) var(--ease-out);
+}
+.note-panel.beside {
+  right: calc(var(--space-4) * 2 + 248px);
+  bottom: var(--space-4);
+  max-height: calc(100% - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+}
+.note-panel.leaving {
+  animation: panel-out var(--motion-fast) var(--ease-out) forwards;
+  pointer-events: none;
+}
+.note-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  cursor: grab;
+}
+.note-panel header button {
+  cursor: default;
+}
+.note-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+}
+.note-name {
+  font: 13px/18px var(--font-sans);
+  color: var(--ink-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-rows {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--hairline);
+}
+.note-row > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-row-name {
+  flex: none;
+  max-width: 50%;
+}
+.note-row-text {
+  min-width: 0;
+  color: var(--ink-muted);
 }
 
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in
@@ -5975,6 +6107,12 @@ div.facts {
 .home-when {
   color: var(--ink-faint);
   font: 11px/14px var(--font-sans);
+}
+/* A tile's author and time, on one line. */
+.home-caption .home-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-initial {
   color: var(--ink-faint);

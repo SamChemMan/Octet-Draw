@@ -88,6 +88,9 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
 - The MCP's in-place replace (`replaceStructure`, `src/mcp.ts` 1646) moves the fields to the new structure, as it
   moves the number.
 - Done: a check for each path in `datafields.check.ts`; undo and redo through `history.ts`.
+- Built on 1.1.3 (19 November): a chain drawn again as atoms or as residue labels (Sequences, issue 27), and a link
+  made between two residue labels, keep the chain's fields, as they keep its number (`helm.ts` redrawn;
+  `sequencestyle.check.ts`). A join keeps a measurement (issue 85) on the atom it joined, and both lists of fields.
 
 ### J3. .oct
 
@@ -110,6 +113,10 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
   writer and reader as now.
 - Done: round trip checks; ChemDraw 22.2 opens Octet's CDXML and CDX and saves CDXML, and Octet reads that file back
   with the same fields.
+- Built on 1.1.3 (19 November): notes (issues 101 and 102) are annotations in the page, a group or a text, and a
+  fragment's are fields, so neither is read as the other (`datafields.check.ts`: .oct, CDXML, ChemDraw's CDXML, CDX,
+  .cdx). Every annotation's Content keeps its raw line breaks as it is read; a note and a field keep them, and the
+  document's properties (Title) are one line (issue 100).
 
 ### J5. SDF write
 
@@ -120,6 +127,8 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
 - UTF-8, as every text file Octet writes.
 - Done: checks on the text; Octet reads its own SDF back with every item, and Indigo reads a file of two records or
   more with every item.
+- Built on 1.1.3 (19 November): a compound in a reagent table (issue 117) has its fields first, then its row of the
+  table (`eln.check.ts`). An NMReDATA file (issue 111) still reads and writes no fields: open.
 
 ### J6. SDF and MOL read
 
@@ -167,6 +176,8 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
   tied under (its first atom). The other piece gets its own text when Show stays on, as the dialog showed it.
 - Done: `npm run look` with the dialog in `scripts/look/sweep.js`, both themes, no `look:` errors; `dialog.check.ts`
   rules hold for the new dialog.
+- Built on 1.1.3 (19 November): the value's one-line rule is the grid's (`.chart-table .unit-field textarea`), so a
+  note's field and the Comment (issues 100 to 102) still grow with their text.
 
 ### J8. MCP
 

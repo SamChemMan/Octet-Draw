@@ -1355,6 +1355,18 @@ pub(crate) mod tests {
         assert_eq!([24, 28, 32, 36].map(|k| i32_at(&emf, k)), [0, 0, 1983, 1289], "the frame in 0.01 mm");
         let t = texts(&emf);
         assert_eq!(t.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["HO", "O", "N", "H"]);
+        // Issue 171: Copy's picture of it (onWholePoints in src/export.ts) is 57 by 37 pt, whole points as ChemDraw's
+        // clipboard PDF is, since Word for Mac cut the fraction of a point off the top and right. The spare (0.79 and
+        // 0.45 pt) is split equally between the two sides, so each side has half of it.
+        let copy = PROLINE.replace(r#"width="56.21pt" height="36.55pt" viewBox="-33.1 -21.54 56.21 36.55""#, r#"width="57pt" height="37pt" viewBox="-33.495 -21.765 57 37""#);
+        let tree = crate::export::tree(&copy).unwrap();
+        assert_eq!(size(&tree), (57.0, 37.0));
+        let ink = tree.root().abs_stroke_bounding_box();
+        let slack = [ink.left(), ink.top(), 76.0 - ink.right(), 37.0 / 0.75 - ink.bottom()].map(|v| v * 0.75);
+        assert!(slack.iter().zip([0.395, 0.225, 0.395, 0.225]).all(|(s, half)| (s - half).abs() <= room), "{slack:?}");
+        let pdf = crate::export::make_pdf(&copy, None, None).unwrap();
+        assert!(pdf.windows(21).any(|w| w == b"/MediaBox [0 0 57 37]"), "the PDF's page is whole points");
+        assert_eq!([24, 28, 32, 36].map(|k| i32_at(&make_emf(&tree, None, None), k)), [0, 0, 2011, 1305], "the frame in 0.01 mm");
     }
 
     // A picture as standaloneSvg writes one (src/export.ts): a red PNG of 4 by 2 px, drawn 36 by 18 pt at (18, 9) on a

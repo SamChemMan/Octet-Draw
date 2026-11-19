@@ -94,9 +94,11 @@ function seek(ats: Float64Array, x: number, after = false): number {
 // Moves `d` by up to `tol` so the selection lands on an atom or lines up with another object. boxes: the moving
 // things' drawn box and every other object's, from the caller (labels, text and shapes included); without them,
 // the boxes of the atoms.
-export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { moving: number[]; targets: number[][] }): { d: P; guides: Guide[]; point?: P } {
+// held: an axis Shift holds at 0 (heldAxis). An atom snap then needs an atom level with (or straight under) the moving
+// one, and nothing snaps on that axis.
+export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { moving: number[]; targets: number[][] }, held?: 0 | 1): { d: P; guides: Guide[]; point?: P } {
   const { moving, others, flat, cells } = prepare(m, ids);
-  if (boxes && !others.length) return snapBoxes(boxes.moving, boxes.targets, d, tol);
+  if (boxes && !others.length) return snapBoxes(boxes.moving, boxes.targets, d, tol, held);
   if (!moving.length || !others.length) return { d, guides: [] };
 
   // An atom landing on an atom wins outright: the nearest, and of those as near, the first moving atom and then the
@@ -114,11 +116,12 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { 
     }
     for (const k of near) {
       const s = pos(m, flat[k]), shift: P = [s[0] - a[0] - d[0], s[1] - a[1] - d[1]], gap = Math.hypot(...shift);
+      if (held !== undefined && Math.abs(shift[held]) > 1e-6) continue;
       if (gap < tol && (!best || gap < best.gap || (gap === best.gap && n === best.a && k < best.k))) best = { gap, shift, at: s, a: n, k };
     }
   });
-  if (best) return { d: [d[0] + best.shift[0], d[1] + best.shift[1]], guides: [], point: best.at };
-  if (boxes) return snapBoxes(boxes.moving, boxes.targets, d, tol);
+  if (best) return { d: oneAxis([d[0] + best.shift[0], d[1] + best.shift[1]], held), guides: [], point: best.at };
+  if (boxes) return snapBoxes(boxes.moving, boxes.targets, d, tol, held);
 
   // Otherwise line up outline edges and centres, each axis on its own. (Every atom as well would make
   // almost every position snap.)
@@ -137,7 +140,7 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { 
     }
     return pick;
   };
-  const sx = axis(0), sy = axis(1);
+  const sx = held === 0 ? undefined : axis(0), sy = held === 1 ? undefined : axis(1);
   const out: P = [d[0] + (sx?.diff ?? 0), d[1] + (sy?.diff ?? 0)];
   const fb = box(moving).map((v, k) => v + out[k % 2]);
   const guides: Guide[] = [];
@@ -148,8 +151,9 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { 
 
 // A box moved among others: its edges and middle line up with each other box's edges and middle, and its middle
 // with the point halfway between two neighbouring boxes (where a + or a label belongs). Middles count for a little
-// more than edges, so things centre when they can. moving and boxes: [left, bottom, right, top]; d: the move so far.
-export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number): { d: P; guides: Guide[] } {
+// more than edges, so things centre when they can. moving and boxes: [left, bottom, right, top]; d: the move so far;
+// held: an axis Shift holds at 0 (heldAxis), which does not snap.
+export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number, held?: 0 | 1): { d: P; guides: Guide[] } {
   if (!boxes.length) return { d, guides: [] };
   const mb = moving.map((v, k) => v + d[k % 2]);
   const axis = (k: 0 | 1) => {
@@ -181,7 +185,7 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
     }
     return pick;
   };
-  const sx = axis(0), sy = axis(1);
+  const sx = held === 0 ? undefined : axis(0), sy = held === 1 ? undefined : axis(1);
   const out: P = [d[0] + (sx?.diff ?? 0), d[1] + (sy?.diff ?? 0)];
   const fb = moving.map((v, k) => v + out[k % 2]), guides: Guide[] = [];
   // A spacing snap marks the new space and every space of the same size in line.
@@ -196,3 +200,9 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
   else if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
   return { d: out, guides };
 }
+
+// Shift held on a move: it keeps to one axis, the one the pointer has gone further along from the press (raw), so it
+// can change as the pointer goes. heldAxis is the other axis, which oneAxis holds at 0. The caller holds it before the
+// snaps and passes it to them, so they snap the free axis only, and again after Snap to Grid.
+export const heldAxis = (raw: P, lock: boolean): 0 | 1 | undefined => (lock ? (Math.abs(raw[0]) >= Math.abs(raw[1]) ? 1 : 0) : undefined);
+export const oneAxis = (d: P, held?: 0 | 1): P => (held === 0 ? [0, d[1]] : held === 1 ? [d[0], 0] : d);
