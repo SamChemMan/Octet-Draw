@@ -228,6 +228,63 @@ export function fromEnd(us: Unit[]): boolean {
 // then the rest (t-BuNH as NHt-Bu, BocHN as NHBoc).
 const fromAtom = (back: Unit[]) => (back[0].text === "H" ? [back[1], back[0], ...back.slice(2)] : back);
 const written = (us: Unit[]) => us.map((u) => u.text + (u.count ?? "")).join("");
+// Atoms that take more than one bond, so a label written from the left can end in one and be bonded there.
+const MANY = /^(?:C|N|O|S|P|Si|B|Se)$/;
+const plainAtom = (u: Unit | undefined) => u?.kind === "element" && MANY.test(u.text) && !u.count;
+// A label written from the left, bond on its last atom, that the other readings get wrong: it starts with an atom that
+// bonds once (H, F, Cl, Br: HOH2C, ClO2S, Cl3CC(O)) and ends in an atom that takes more, with only hydrogens or a
+// bracket after it; or it starts with an atom and ends in a C with its hydrogens written before it, or an N with one
+// (NCH2C, IH2C, OHCHN; CH2N is methyleneamino, read as it is); or it starts with a group and ends in a carbonyl written CO after a carbon (EtO2CCO).
+function fromLeft(us: Unit[]): boolean {
+  if (us.length < 2) return false;
+  let end = us.length - 1;
+  while (end > 0 && (us[end].text === "H" || us[end].kind === "bracket")) end--;
+  const first = us[0], last = us[end], tail = us.slice(end + 1);
+  if (/^(?:H|F|Cl|Br)$/.test(first.text) && first.kind === "element" && end > 0 && plainAtom(last) && (tail.every((u) => u.text === "H") || (tail.length === 1 && tail[0].kind === "bracket"))) return true;
+  const h = us[end - 1];
+  if (end === us.length - 1 && end > 1 && first.kind === "element" && h?.text === "H" && (last.text === "C" || (last.text === "N" && !h.count)) && plainAtom(last)) return true;
+  const n = us.length;
+  return n >= 4 && us[n - 1].text === "O" && !us[n - 1].count && us[n - 2].text === "C" && !us[n - 2].count && us[n - 3].text === "C" && (us[0].kind === "group" || us[0].kind === "bracket");
+}
+// The label a label written from the left is read as (CH2OH for HOH2C), when fromLeft says it is one and that reads.
+export function turnedLabel(label: string, us = units(label)): string | undefined {
+  if (!fromLeft(us)) return undefined;
+  for (const toNext of [true, false]) {
+    const turned = mirrored(us, toNext);
+    if (turned && turned !== label && labelSmiles(turned)) return turned;
+  }
+  return undefined;
+}
+// Such a label written from its attachment atom: its atoms in reverse, each with the hydrogens written before it
+// (toNext) or after it, and the brackets after it; a carbonyl written CO at its end stays one (C(O)), but after three
+// halogens (F3CO is trifluoromethoxy). HOH2C is CH2OH, OHCHN NHCHO, H2NCO C(O)NH2, Cl3CC(O) C(O)CCl3, EtO2CCO COCO2Et.
+function mirrored(us: Unit[], toNext: boolean): string | undefined {
+  const groups: { head: Unit; more: Unit[] }[] = [];
+  let waiting: Unit[] = [];
+  for (const u of us) {
+    const last = groups[groups.length - 1];
+    if (u.kind === "element" && u.text === "H" && (toNext || !last)) waiting.push(u);
+    else if (u.kind === "bracket" || (u.kind === "element" && u.text === "H")) { if (!last) return undefined; last.more.push(u); }
+    else { groups.push({ head: u, more: waiting }); waiting = []; }
+  }
+  if (!groups.length) return undefined;
+  groups[groups.length - 1].more.push(...waiting);
+  // A C written with nothing on it but one H, then an O with nothing on it, is a carbonyl (CO of H2NCO, H3CCONH,
+  // EtO2CCO, HCOO), but
+  // after three halogens (F3CO is trifluoromethoxy) or in a label that starts with a group and has no C before it
+  // (MeO2CO is methoxycarbonyloxy).
+  const bare = (g?: { head: Unit; more: Unit[] }, el = "C") => !!g && g.head.kind === "element" && g.head.text === el && !g.head.count
+    && (el === "C" ? g.more.every((u) => u.text === "H" && !u.count) && g.more.length <= 1 : !g.more.length);
+  const grouped = us[0].kind === "group" || us[0].kind === "bracket";
+  for (let k = groups.length - 2; k >= 0; k--) {
+    const before = groups[k - 1]?.head;
+    if (!bare(groups[k]) || !bare(groups[k + 1], "O") || (before?.kind === "element" && before.count && /^(?:F|Cl|Br|H|D)$/.test(before.text))) continue;
+    if (grouped && before?.text !== "C") continue;
+    groups[k].more.push({ text: "(O)", kind: "bracket" });
+    groups.splice(k + 1, 1);
+  }
+  return groups.reverse().map((g) => written([g.head, ...g.more])).join("");
+}
 // Units as text that splits in one way only: a group that starts with a small letter goes in a bracket by the name it
 // is read as (S and iPr are no SiPr; the formula reader takes tBu for t-Bu).
 const small = (u: Unit) => u.kind === "group" && u.text[0] >= "a";
@@ -258,31 +315,32 @@ export function attachmentFirst(label: string): string {
 }
 // Two label SMILES that are one group with one attachment atom (C(OCC)=O and C(=O)OCC). Each atom is named by its
 // element and, round after round, by its neighbours and bonds; the attachment atom is marked.
+// A label SMILES as atoms and, for each, its neighbours with the bond between them ("", "-", "=" or "#").
+const graph = (smiles: string) => {
+  const atoms: string[] = [], near: [number, string][][] = [], stack: number[] = [], rings = new Map<string, [number, string]>();
+  let prev = -1, bond = "";
+  const join = (i: number, j: number, o: string) => { near[i].push([j, o]); near[j].push([i, o]); };
+  for (const t of smiles.match(/\[[^\]]*\]|Br|Cl|[A-Za-z*]|[=#\-.()]|%\d\d|\d/g) ?? []) {
+    if (t === "(") stack.push(prev);
+    else if (t === ")") prev = stack.pop() ?? -1;
+    else if ("=#-.".includes(t)) bond = t;
+    else if (/^%?\d/.test(t)) {
+      const open = rings.get(t);
+      if (open) { join(prev, open[0], bond || open[1]); rings.delete(t); } else rings.set(t, [prev, bond]);
+      bond = "";
+    } else {
+      const i = atoms.push(t) - 1;
+      near.push([]);
+      if (prev >= 0 && bond !== ".") join(prev, i, bond);
+      prev = i; bond = "";
+    }
+  }
+  return { atoms, near };
+};
 function sameGroup(a: string | undefined, b: string | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   const names = new Map<string, number>(), name = (s: string) => names.get(s) ?? (names.set(s, names.size), names.size - 1);
-  const graph = (smiles: string) => {
-    const atoms: string[] = [], near: [number, string][][] = [], stack: number[] = [], rings = new Map<string, [number, string]>();
-    let prev = -1, bond = "";
-    const join = (i: number, j: number, o: string) => { near[i].push([j, o]); near[j].push([i, o]); };
-    for (const t of smiles.match(/\[[^\]]*\]|Br|Cl|[A-Za-z*]|[=#\-.()]|%\d\d|\d/g) ?? []) {
-      if (t === "(") stack.push(prev);
-      else if (t === ")") prev = stack.pop() ?? -1;
-      else if ("=#-.".includes(t)) bond = t;
-      else if (/^%?\d/.test(t)) {
-        const open = rings.get(t);
-        if (open) { join(prev, open[0], bond || open[1]); rings.delete(t); } else rings.set(t, [prev, bond]);
-        bond = "";
-      } else {
-        const i = atoms.push(t) - 1;
-        near.push([]);
-        if (prev >= 0 && bond !== ".") join(prev, i, bond);
-        prev = i; bond = "";
-      }
-    }
-    return { atoms, near };
-  };
   const ga = graph(a), gb = graph(b);
   if (ga.atoms.length !== gb.atoms.length) return false;
   const label = (g: ReturnType<typeof graph>) => {
@@ -322,24 +380,30 @@ function onRing(text: string): string | undefined {
 // same label from its attachment atom.
 // A phenyl written with what is on it and where is that ring, and n- before a formula is the formula (RING, STRAIGHT).
 // Kept by the label, as the drawing and its captions read each label on every change.
-// A whole label that is a nickname of the user's own is read as it first (Structure > Define Nickname…); one of Octet's
-// built-in nicknames only where the reading here reads nothing (nicknames.ts). Nicknames are whole labels: a part of a
-// longer label is read as before ((oTol)2P is not read through oTol).
-const read = new Map<string, string | undefined>();
-let inside = 0;
+// A whole label that is a nickname of the user's own is read as it first (Structure > Define Nickname…). Then Octet's
+// own reading; then one of Octet's built-in nicknames, as the whole label (nicknames.ts); then the reading with words
+// Octet reads no group in taken as the nicknames they spell (NHPbf, CH2ODMTr). A part of a longer label is read
+// with Octet's reading alone ((oTol)2P is not read through oTol).
+const read = new Map<string, string | undefined>(), worded = new Map<string, string | undefined>();
+let inside = 0, words = false;
+const kept = (store: Map<string, string | undefined>, label: string, withWords: boolean) => {
+  if (store.has(label)) return store.get(label);
+  const was = words;
+  inside++; words = withWords;
+  let smiles: string | undefined;
+  try { smiles = inside > 8 ? undefined : readLabel(label); } finally { inside--; words = was; }
+  if (store.size >= 1000) store.clear();
+  store.set(label, smiles);
+  return smiles;
+};
 export function labelSmiles(label: string): string | undefined {
   const mine = inside ? undefined : ownNickname(label);
   if (mine) return mine.smiles;
-  let smiles = read.get(label);
-  if (!read.has(label)) {
-    inside++;
-    try { smiles = readLabel(label); } finally { inside--; }
-    if (read.size >= 1000) read.clear();
-    read.set(label, smiles);
-  }
-  return smiles ?? (inside ? undefined : builtInNickname(label)?.smiles);
+  const smiles = kept(read, label, false);
+  if (smiles || inside) return smiles;
+  return builtInNickname(label)?.smiles ?? kept(worded, label, true);
 }
-onNicknamesChange(() => ends.clear());
+onNicknamesChange(() => { ends.clear(); worded.clear(); });
 // Why a label cannot be a nickname of the user's own, or undefined when it can: it is one word of up to 32
 // characters, and no element or generic label (typed on an atom, those are never read as a group). A label Octet reads
 // already may be one: the user's group comes first, as a name of their own does in Name to Structure.
@@ -369,6 +433,14 @@ function readLabel(label: string): string | undefined {
   // C2H5O, NHC6H5, N(C2H5)2) and i-, s- and t- before C3H7 or C4H9. Any other carbon counted before its hydrogens
   // (C6H4 with no position, C2H3, C10H7) has more than one structure and is not read. A label can start with the
   // formula written from the left (H5C6, H5C2O).
+  // A perfluoro or perchloro chain CnX2n+1 (C2F5, C3F7, F5C2), as a straight chain, and C6F5 and C6Cl5, the
+  // pentahalophenyls, written either way round.
+  const halo = /^(?:C(\d+)(F|Cl)(\d+)|(F|Cl)(\d+)C(\d+))$/.exec(label);
+  if (halo) {
+    const n = Number(halo[1] ?? halo[6]), x = halo[2] ?? halo[4], k = Number(halo[3] ?? halo[5]);
+    if (n === 6 && k === 5) return `c1c(${x})c(${x})c(${x})c(${x})c1${x}`;
+    if (n >= 2 && n <= 20 && k === 2 * n + 1) return `C(${x})(${x})`.repeat(n - 1) + `C(${x})(${x})${x}`;
+  }
   const named = label.replace(/^H(\d+)C(\d+)(?![\da-z])/, "C$2H$1").replace(/(?:([inst])-)?C(\d+)H(\d+)(?!\d)/g, (m, p: string | undefined, c: string, h: string, at: number) => {
     const n = Number(c), g = WRITTEN[(p ? `${p}-` : "") + `C${c}H${h}`];
     if (g || (p && p !== "n") || Number(h) !== 2 * n + 1 || n < 2) return g ?? m;
@@ -385,6 +457,10 @@ function readLabel(label: string): string | undefined {
   if (!us.length || (us.length === 1 && us[0].kind === "other")) return undefined;
   const back = [...us].reverse(), reverse = written(back);
   if (FORMULAS[reverse]) return FORMULAS[reverse];
+  // A label written from the left whose own reading would put the bond on the wrong atom (HOH2C, ClO2S, NCH2C,
+  // EtO2CCO): read as it is written from its attachment atom (CH2OH, SO2Cl, CH2CN, COCO2Et).
+  const turned = turnedLabel(label, us);
+  if (turned) return labelSmiles(turned);
   const left = fromEnd(us), given = us;
   if (left) us = fromAtom(back);
   // A nitrile written from its N (MeCN, NCMe, NCCH3, PhCN) is a ligand on a dative bond, which a label does not hold:
@@ -414,15 +490,18 @@ function readLabel(label: string): string | undefined {
       // A label's hydrogens are left to valence. A label that is only hydrogen is the atom.
       if (u.text === "H" && us.length > 1) continue;
       // Deuterium and tritium bond once, as hydrogen does: each hangs off the atom before it. One is read where it is
-      // the whole label, where it is counted (CD3, ND2), and as the one atom after another (OD). In a longer word it is
+      // the whole label, where it is counted (CD3, ND2), and as the one atom after C, N, O, S or a halogen (OD, ID; BT and PT are abbreviations). In a longer word it is
       // a letter of an abbreviation (OTPS, CDI, BHT, THF).
       const once = u.text === "D" || u.text === "T";
-      if (once && us.length > 1 && !(smiles && (u.count || (us.length === 2 && us[0].kind === "element")))) return undefined;
+      if (once && us.length > 1 && !(smiles && (u.count || (us.length === 2 && us[0].kind === "element" && /^(?:[CNOS]|F|Cl|Br|I)$/.test(us[0].text))))) return undefined;
       smiles += smiles && (n > 1 || once) ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
     } else {
-      // A group, or what a bracket holds, hangs off the atom before it. A diolate (pin, in any case) closes its ring
+      // A group, a nickname, or what a bracket holds, hangs off the atom before it. A diolate (pin, in any case) closes its ring
       // on the boron written just before it (Bpin, CH2Bpin, OB(pin)).
-      const name = u.kind === "bracket" ? u.text.slice(1, -1) : u.text, g = u.kind === "group" ? GROUPS[SPELT[name]] : u.kind === "bracket" ? labelSmiles(name) : undefined;
+      // A word or bracket Octet reads no group in (Pbf in NHPbf and N(Pbf)2, DMTr in CH2ODMTr) is the nickname it
+      // spells, if there is one.
+      const name = u.kind === "bracket" ? u.text.slice(1, -1) : u.text, nick = words && !standsIn(name) ? (ownNickname(name) ?? builtInNickname(name))?.smiles : undefined;
+      const g = u.kind === "group" ? GROUPS[SPELT[name]] : u.kind === "bracket" ? labelSmiles(name) ?? nick : u.kind === "other" ? nick : undefined;
       const diol = g ? undefined : DIOLATES[name.toLowerCase()];
       if (g) smiles += smiles ? `(${g})`.repeat(n) : g + `(${g})`.repeat(n - 1);
       else if (diol && n === 1 && us[k - 1]?.text === "B" && !us[k - 1].count) smiles += `1${diol}1`;

@@ -11716,6 +11716,14 @@ export default function Editor() {
           onRemoveName={(name) => setSettings((s) => ({ ...s, dictionary: withoutOwnName(s.dictionary, name) }))}
           onExportNames={() => void exportNames()}
           onImportNames={() => void importNames()}
+          nicknames={settings.nicknames}
+          onRenameNickname={(from, to) => setSettings((st) => {
+            // A label kept only when it can be a nickname and is not one of the user's already; else the field goes back.
+            const label = to.trim();
+            if (!label || label === from || nicknameProblem(label) || st.nicknames.some((n) => n.label === label)) return st;
+            return { ...st, nicknames: st.nicknames.map((n) => (n.label === from ? { ...n, label } : n)) };
+          })}
+          onRemoveNickname={(label) => setSettings((st) => ({ ...st, nicknames: withoutNickname(st.nicknames, label) }))}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
           onSaveFile={TAURI && !madeTemplate ? () => void saveStyleFile() : undefined}
           annotations={doc.annotations}
