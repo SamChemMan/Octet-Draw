@@ -1,7 +1,9 @@
 # Octet drawings in LibreOffice: manual tests
 
 Decision 0025, issue 48, release 1.1.3. For Sam: Windows 11 (UTM) and the Mac, with LibreOffice 24.x or later from
-libreoffice.org and Octet 1.1.3 installed from its installer (the .oxt is in the installer, not in a dev build).
+libreoffice.org and Octet 1.1.3 installed from its installer (the .oxt is in the installer, not in a dev build). On
+Windows use LibreOffice 26.2 or later for steps W3 to W3b: 24.2 to 25.8 do not see Octet's SVXB (decision 0025, Copy
+and paste). Write down the version (Help > About) at the top.
 
 ## Status (19 November 2026)
 
@@ -33,7 +35,12 @@ from LibreOffice's source only. Steps W3, W3a, W3b, L4 and L5 check it.
    the setting on and then off: each pastes as in 1.1.2 (an Octet Drawing object with the setting on; a sharp picture
    with it off).
    (W3b) Paste Special in Writer (Ctrl+Shift+V): write down the names it lists, and which one the plain paste matched.
-4. Do step 2 in Impress, Draw and Calc.
+   (W3c) If a LibreOffice 25.8 or older for Windows is at hand: paste the same copy into Writer and Calc. Writer gives a
+   bitmap and Calc a picture, and neither has Edit in Octet Draw (LibreOffice's source says so). Insert > Octet
+   Drawing works.
+4. Do step 2 in Impress, Draw and Calc. In Impress and Draw, select a picture or a text box first, then choose Insert >
+   Octet Drawing and press Ctrl+S: a new picture goes in, and the selected one is unchanged. In Calc, press Ctrl+S three
+   times: the sheet has one new picture, not three.
 5. Press Ctrl+S 20 times fast. No "cannot update" message shows, and Writer ends with the last drawing.
 6. Close Octet's window with a change not sent: the picture changes. Open it again, change it, and quit Octet: the
    same.

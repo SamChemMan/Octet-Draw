@@ -12,7 +12,8 @@
 // - OCTET_STRESS_CHEMDRAW=1 (a Mac with ChemDraw 22.2): ChemDraw opens the CDXML that an Update's EMF holds and saves
 //   it again. Needs the Rust part. OCTET_STRESS_CHEMDRAW_LOCK names a folder other runs take first (made, then removed).
 // LibreOffice itself is not run here. The cases marked "LibreOffice source" compare Octet's own clipboard with what
-// LibreOffice's paste code takes (LibreOffice 24.8 to 26.8, and master), read from its public source.
+// LibreOffice's paste code takes (LibreOffice 26.2 to 26.8, and master), read from its public source. LibreOffice for
+// Windows before 26.2 does not see Octet's SVXB (libreoffice-paste.check.ts).
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -384,6 +384,12 @@ test("S29 a field on a structure in a reaction", async () => {
 test("S30 a template with fields", () => {
   const m = fielded(two(), 1, [["ID", "T"]]), t = E.normalise(E.extractSelection(m, new Set(atomsOf(m, 1)), new Set()));
   assert.deepEqual(all(E.addTemplate(E.EMPTY, t, { point: [0, 0] })), [[["ID", "T", false]]]);
+  // Attached by the atom or bond chosen in the library (anchor, joined by a bond or sharing one): the template's fields
+  // go on the structure it joins, after that structure's own.
+  const host = fielded(two(), 0, [["ID", "H"]]), end = atomsOf(host, 0)[0];
+  for (const target of [{ atom: end, anchor: { atom: 1 } }, { atom: end, anchor: { bond: 0 } }, { atom: end, connect: true }]) {
+    assert.deepEqual(all(E.addTemplate(host, t, target)), [[["ID", "H", false], ["ID", "T", false]], []], JSON.stringify(target));
+  }
 });
 
 test("S31 Expand and Contract label", () => {

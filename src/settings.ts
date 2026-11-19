@@ -12,6 +12,7 @@
 // selection. A new user has every section open.
 import { keepOwnRings, readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
 import type { OwnName } from "./names";
+import type { TemplateAnchor } from "./edit";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 import { DPI_MIN, DPI_MAX, PICTURES } from "./export";
@@ -63,6 +64,7 @@ export type Settings = {
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
   libraryRings: string[]; // templates kept in the Ring strip: built-in ("lib:name"), named ("name:…") and own ("custom:id")
+  anchors: Record<string, TemplateAnchor>; // the atom or bond each built-in or named template attaches by, by kind (the user's own keep theirs)
   ringOwnKept: boolean; // the user's own templates from before the Ring menu pin (1.1.3) are in libraryRings
   palettes: FloatingPalette[]; // template sets open as floating palettes, each where it was left (the last on top)
   librarySize: TemplateSize; // the size of the templates in the template library (each floating palette has its own)
@@ -106,7 +108,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -120,6 +122,8 @@ export function loadSettings(): Settings {
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
       pinned: list<string>(saved.pinned, (k) => typeof k === "string"),
       // Once: the user's own templates, all in the Ring strip before its pin (1.1.3), stay there.
+      anchors: Object.fromEntries(Object.entries(saved.anchors && typeof saved.anchors === "object" ? saved.anchors : {}).filter(([k, a]) => /^(lib|name):./.test(k) && k.length <= 300
+        && !!a && typeof a === "object" && [(a as { atom?: unknown }).atom, (a as { bond?: unknown }).bond].some((n) => Number.isInteger(n) && (n as number) >= 0)).slice(0, 500)),
       libraryRings: ((kept: string[]) => (saved.ringOwnKept === true ? kept : keepOwnRings(kept, Array.isArray(saved.templates) ? saved.templates : [])))(list<string>(saved.libraryRings, (k) => typeof k === "string")),
       ringOwnKept: true,
       templateSets: list<string>(saved.templateSets, (k) => typeof k === "string" && !!k.trim() && k.length <= 40).slice(0, 50),
@@ -135,7 +139,7 @@ export function loadSettings(): Settings {
       // A saved 350 dpi is the old default, not a choice: it moves to the new default. A dpi or JPEG quality out of
       // range (the quality a whole number, as Rust reads it), or a background Octet does not have, takes the default.
       files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), ...(saved.files?.dpi === 350 || !inRange(saved.files?.dpi, DPI_MIN, DPI_MAX) ? { dpi: DEFAULT_FILES.dpi } : {}),
-        ...(Number.isInteger(saved.files?.quality) && inRange(saved.files.quality, 1, 100) ? {} : { quality: DEFAULT_FILES.quality }), ...(["white", "transparent", "page"].includes(saved.files?.background) ? {} : { background: DEFAULT_FILES.background }), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct", quick: PICTURES.includes(saved.files?.quick) ? saved.files.quick : DEFAULT_FILES.quick },
+        ...(Number.isInteger(saved.files?.quality) && inRange(saved.files.quality, 1, 100) ? {} : { quality: DEFAULT_FILES.quality }), ...(["white", "transparent", "page"].includes(saved.files?.background) ? {} : { background: DEFAULT_FILES.background }), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct", quick: PICTURES.includes(saved.files?.quick) ? saved.files.quick : DEFAULT_FILES.quick, pdfPages: saved.files?.pdfPages === "document" ? "document" : "one" },
       paletteWide: saved.paletteWide === true,
       warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
       checkCopy: saved.checkCopy === true,
