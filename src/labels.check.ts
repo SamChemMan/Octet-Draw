@@ -165,11 +165,14 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
   // not know; a diolate with no boron; a phenyl whose positions and groups do not agree, with a linker on it (4-OPh is
   // no biphenylol), or with a count that is the group's own (the 2 of NO2); and capitals that spell no group, where a
   // D or T is a letter of an abbreviation (OTPS is no tritium compound, CDI no deuterium on carbon).
-  for (const label of ["Ar", "Ar1", "Ar'", "OAr", "ArO", "NHAr", "CH2Ar", "SO2Ar", "N(Ar)2", "R", "R1", "X", "OR", "NR2", "Het", "HetAr", "L", "Ln", "Alkyl", "Aryl", "EWG", "PG", "Nu", "MIV", "MII", "M(IV)", "Xyz", "ODMT", "n-Hex",
+  for (const label of ["Ar", "Ar1", "Ar'", "OAr", "ArO", "NHAr", "CH2Ar", "SO2Ar", "N(Ar)2", "R", "R1", "X", "OR", "NR2", "Het", "HetAr", "L", "Ln", "Alkyl", "Aryl", "EWG", "PG", "Nu", "MIV", "MII", "M(IV)", "Xyz", "OZq", "n-Xyz",
     "pin", "Spin", "B2pin2", "4-C6H4", "3,5-MeC6H3", "3,3-Me2C6H3", "1-ClC6H4", "4-ClC6H3", "4-XyzC6H4", "4-OPh", "4-SPh", "4-NPh", "4-NHPh", "4-CPh", "4-CHPh", "4-CH2Ph", "4-COPh", "4-SOPh", "4-SO2Ph", "4-OC6H4", "4-C(O)Ph",
     "3,5-NO2C6H3", "3,4,5-CF3C6H2", "3,5-OMeC6H3", "THF", "DBU", "DCC", "TPS", "OTPS", "CDI", "PDC", "BHT", "COT", "HBTU", "T3P", "CuTC", "TS", "T3C", "CDCl3", "CH2D", "PhD", "DCl",
     // A nitrile ligand written from its N: no amine (it was NC(C), ethylamino).
     "MeCN", "NCMe", "NCCH3", "PhCN", "NCPh"]) assert.equal(labelSmiles(label), undefined, label);
+  // ODMT and n-Hex are Octet's nicknames (nicknames.ts): read whole, as the DMTr ether and n-hexyl.
+  assert.equal(labelSmiles("ODMT"), "OC(c1ccccc1)(c1ccc(OC)cc1)c1ccc(OC)cc1");
+  assert.equal(labelSmiles("n-Hex"), "CCCCCC");
   assert.equal(labelSmiles("CH2CN"), "CC#N");
   for (const label of ["Ar", "Ar1", "Ar'", "Het", "HetAr", "L", "Ln", "L'", "Alkyl", "Aryl", "EWG", "EDG", "PG", "LG", "Nu", "E", "Hal", "R", "R1", "R''", "X", "ALK", "Q", "MIV", "MII", "MIII", "MX", "M(IV)", "M(0)"]) assert.ok(standsIn(label), label);
   for (const label of ["Xyz", "Ph", "Me", "ODMT", "OAr", "Arg", "Lys", "Li", "Al", "EtO", "All", "Allyl", "Mn", "Me", "MIVa", "M(IV", "MIV)", "M()"]) assert.ok(!standsIn(label), label);

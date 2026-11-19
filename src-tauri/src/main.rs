@@ -973,6 +973,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,
+        // ChemDraw's Define Nickname…: the selected group kept by a label of the user's own (PR #146).
+        &item("define_nickname", "Define Nickname…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         // One-letter peptide, RNA and DNA codes, drawn through Name to Structure (issue 27).
         &item("insert_peptide", "Insert Peptide…", "")?,

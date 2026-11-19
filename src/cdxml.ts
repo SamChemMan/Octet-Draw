@@ -275,6 +275,7 @@ export type CdxmlOptions = {
   selection?: { atoms: Iterable<number>; items: Iterable<number> }; // only these atoms (and the bonds between them) and objects
   derived?: Arrow[]; // arrows Octet draws from other objects (a catalytic cycle's), written so ChemDraw shows them too
   expand?: (text: string) => Mol | undefined; // a written label's atoms (atom 0 attaches), for ChemDraw's abbreviation
+  own?: (text: string) => boolean; // a label whose group the file keeps as the label's own (a nickname of the user's): read back from the file, as another computer may not know it
   name?: string; // the document's name
   // Several drawings written into one document, one after another (a template file's panes): ids from firstId up, and
   // one colour and font table that each drawing adds its own to (the last one written has them all).
@@ -761,7 +762,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
-    }, (inner ? nested(i, inner, !!known) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
+    }, (inner ? nested(i, inner, !!known && !opts.own?.(a.text!)) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
