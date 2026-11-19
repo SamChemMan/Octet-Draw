@@ -100,7 +100,7 @@ export const PHOTOCHEM = [
   transition("Internal conversion", "IC, radiationless transition, wavy arrow, Jablonski", [{ text: "IC" }], { wavy: true, down: true }),
   // Energy transfer from one species or state to another (EnT in photocatalysis, apart from SET, electron transfer):
   // radiationless, so wavy, as intersystem crossing is.
-  transition("Energy transfer", "EnT, ET, triplet energy transfer, TTET, sensitisation, sensitization, Dexter, Förster, FRET, radiationless transition, wavy arrow, Jablonski",
+  transition("Energy transfer", "EnT, triplet energy transfer, TTET, sensitisation, sensitization, Dexter, Förster, FRET, radiationless transition, wavy arrow, Jablonski",
     [{ text: "EnT" }], { wavy: true }),
   excited(),
   label("Singlet oxygen", "1O2, ¹O₂, dioxygen, photooxygenation", [SUP("1"), { text: "O" }, SUB("2")]),
