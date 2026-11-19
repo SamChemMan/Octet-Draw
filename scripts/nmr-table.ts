@@ -3,20 +3,23 @@
 // spectra the file marks as predicted (in its Program and NMRProgram fields) are left out. Spectra whose solvent the
 // file names (one of the Spectrum panel's) also go in that solvent's table, where their shifts differ from the
 // shifts in every solvent.
-// Run: node scripts/nmr-table.ts <nmrshiftdb2withsignals.sd> [--test]
+// Run: node scripts/nmr-table.ts <nmrshiftdb2withsignals.sd> [--test] [--compare <old shifts.bin.gz>]
 // --test builds the table from nine molecules in ten and reports how well it predicts the tenth; nothing is written.
 // The tenth is chosen by the first block of the InChIKey (the skeleton), so stereoisomers and isotopomers of a held-out
-// molecule are held out with it.
-import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
+// molecule are held out with it. It also reports the shifts next to peroxides (see "Peroxides" below).
+// --compare reads an older table and lists the codes that differ from it: since 17 November 2026 only codes on kinds
+// of atoms near an O–O may (kinds() marks the O–O); any other is named.
+import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { hydrogens } from "../src/render.ts";
 import type { Graph } from "../src/naming.ts";
-import { codeHash, codes, environment, heavy, lookup, quality, solventCode, useTables, writeTables, NUCLEI, NUCLEUS_LIST, type Nucleus, type Table } from "../src/nmr.ts";
+import { codeHash, codes, environment, heavy, lookup, nearPeroxide, nearShift, peroxides, quality, solventCode, standIn, unmarked, useTables, writeTables, NUCLEI, NUCLEUS_LIST, PEROXIDE_INC, type Env, type Found, type Nucleus, type Table } from "../src/nmr.ts";
 import { isMetal } from "../src/metals.ts";
 
-const [file, flag] = process.argv.slice(2), test = flag === "--test";
-if (!file) throw new Error("Usage: node scripts/nmr-table.ts <nmrshiftdb2withsignals.sd> [--test]");
+const args = process.argv.slice(2), file = args[0], test = args.includes("--test"), compare = args.includes("--compare") ? args[args.indexOf("--compare") + 1] : undefined;
+if (!file || (args.includes("--compare") && !compare)) throw new Error("Usage: node scripts/nmr-table.ts <nmrshiftdb2withsignals.sd> [--test] [--compare <old shifts.bin.gz>]");
+const started = Date.now();
 
 type Peak = { shift: number; atom: number };
 type Molecule = { id: number; key: string; graph: Graph; spectra: { nucleus: Nucleus; peaks: Peak[]; solvent?: string }[] };
@@ -104,25 +107,79 @@ for await (const line of createInterface({ input: createReadStream(file, { encod
 }
 console.log(`${molecules.length} molecules with measured spectra`);
 
+// unmarked(env) has the kinds release 1.1.2 made, with no O–O mark, so its codes are 1.1.2's. For --compare and the
+// peroxide report.
+// Each molecule's tenth (0 to 9): by the InChIKey's first block (else the nmrshiftdb2 ID). Tenth 0 is held out.
+const tenth = (mol: Molecule) => (mol.key ? codeHash("1H", mol.key.slice(0, 14)) % 10 : mol.id % 10);
+
+// Peroxides: every ¹H and ¹³C shift of a molecule with an O–O on a carbon bonded to it (α), on a carbon bonded to such a
+// carbon (β), or on its O (OOH), with the codes it needs to be predicted three ways: 1.1.2's codes, the codes with
+// the O–O in the kinds, and as Octet predicts now (¹³C with the stand-in, nearPeroxide; ¹H on an α carbon unmarked).
+type Target = { id: number; fold: number; nucleus: Nucleus; atom: number; shift: number; cat: string; env: Env; old: Env; per: NonNullable<ReturnType<typeof peroxides>>; near?: ReturnType<typeof nearPeroxide>; alt: Env[] };
+const targets: Target[] = [], need = new Set<number>();
+const hasOO = (g: Graph) => g.bonds.some((b) => b.order === 1 && g.atoms[b.a].el === "O" && g.atoms[b.b].el === "O");
+if (test) for (const mol of molecules) {
+  if (!hasOO(mol.graph)) continue;
+  const { g, out } = observations(mol);
+  let env;
+  try { env = environment(g); } catch { continue; }
+  const per = peroxides(env);
+  if (!per) continue;
+  const inO = new Set(per.pairs.flat()), old = unmarked(env), bonded = (x: number) => env.edges[x].some((e) => inO.has(e.to));
+  for (const o of out) {
+    if (o.nucleus !== "1H" && o.nucleus !== "13C") continue;
+    const el = g.atoms[o.atom].el, alpha = el === "C" && bonded(o.atom), beta = el === "C" && !alpha && env.edges[o.atom].some((e) => g.atoms[e.to].el === "C" && bonded(e.to));
+    const cat = inO.has(o.atom) ? (o.nucleus === "1H" ? "OOH" : "") : alpha ? `α ${o.nucleus}` : beta ? `β ${o.nucleus}` : "";
+    if (!cat) continue;
+    const near = o.nucleus === "13C" ? nearPeroxide(env, per, o.atom) : undefined, alt = near ? near.far.map((f) => standIn(env, f)) : [];
+    targets.push({ id: mol.id, fold: tenth(mol), nucleus: o.nucleus, atom: o.atom, shift: o.shift, cat, env, old, per, near, alt });
+    for (const e of [env, old, ...alt]) for (const [code] of codes(e, o.atom, o.nucleus)) need.add(codeHash(o.nucleus, code));
+  }
+}
+// The shifts behind each code the targets need, with their tenth and which codes they come from (0: the same in 1.1.2
+// and now, 1: now only, 2: 1.1.2 only).
+const cv = new Map<number, { s: number[]; f: number[]; t: number[] }>();
+// --compare: the codes on kinds that differ between 1.1.2 and now (atoms near an O–O), with their codes in each
+// solvent (whose shifts are shrunk towards the code's in every solvent, so they move with it).
+const changed = new Set<number>(), solvents = [...new Set(Object.values(SOLVENT))];
+const differs = (n: Nucleus, code: string) => { changed.add(codeHash(n, code)); for (const x of solvents) changed.add(codeHash(n, solventCode(x, code))); };
+
 // The table: every level of every observed atom's code, with the shifts seen there; and in its solvent's table too,
 // with the hash of the code in every solvent.
 const seen = Object.fromEntries(NUCLEUS_LIST.map((n) => [n, new Map()])) as Record<Nucleus, Map<number, number[]>>;
 const seenIn = Object.fromEntries(NUCLEUS_LIST.map((n) => [n, new Map()])) as Record<Nucleus, Map<number, { all: number; shifts: number[] }>>;
-// The held-out tenth: by the InChIKey's first block (else the nmrshiftdb2 ID).
-const heldOut = (mol: Molecule) => (mol.key ? codeHash("1H", mol.key.slice(0, 14)) % 10 === 0 : mol.id % 10 === 0);
 const held: { mol: Molecule; g: Graph; out: ReturnType<typeof observations>["out"] }[] = [];
 for (const mol of molecules) {
   const { g, out } = observations(mol);
   if (!out.length) continue;
-  if (test && heldOut(mol)) { held.push({ mol, g, out }); continue; }
+  const fold = tenth(mol), add = !(test && fold === 0);
+  if (!add) held.push({ mol, g, out });
   let env;
   try { env = environment(g); } catch { continue; }
-  for (const o of out) for (const [code] of codes(env, o.atom, o.nucleus)) {
-    const h = codeHash(o.nucleus, code), list = seen[o.nucleus].get(h);
-    if (list) list.push(o.shift); else seen[o.nucleus].set(h, [o.shift]);
-    if (!o.solvent) continue;
-    const hs = codeHash(o.nucleus, solventCode(o.solvent, code)), there = seenIn[o.nucleus].get(hs);
-    if (there) there.shifts.push(o.shift); else seenIn[o.nucleus].set(hs, { all: h, shifts: [o.shift] });
+  const old = (compare || need.size) && peroxides(env) ? unmarked(env) : undefined;
+  for (const o of out) {
+    const now = [...codes(env, o.atom, o.nucleus)].map(([code]) => code), then = old ? new Set([...codes(old, o.atom, o.nucleus)].map(([code]) => code)) : undefined;
+    const keep = (code: string, t: number) => {
+      const h = codeHash(o.nucleus, code);
+      if (!need.has(h)) return;
+      let x = cv.get(h);
+      if (!x) cv.set(h, (x = { s: [], f: [], t: [] }));
+      x.s.push(o.shift); x.f.push(fold); x.t.push(t);
+    };
+    for (const code of now) {
+      keep(code, then && !then.has(code) ? 1 : 0);
+      if (then && !then.has(code)) differs(o.nucleus, code);
+      if (!add) continue;
+      const h = codeHash(o.nucleus, code), list = seen[o.nucleus].get(h);
+      if (list) list.push(o.shift); else seen[o.nucleus].set(h, [o.shift]);
+      if (!o.solvent) continue;
+      const hs = codeHash(o.nucleus, solventCode(o.solvent, code)), there = seenIn[o.nucleus].get(hs);
+      if (there) there.shifts.push(o.shift); else seenIn[o.nucleus].set(hs, { all: h, shifts: [o.shift] });
+    }
+    if (then) for (const code of then) if (!now.includes(code)) {
+      keep(code, 2);
+      differs(o.nucleus, code);
+    }
   }
 }
 // A nucleus's table: each code's median, spread and count, × scale (100 for ¹H and ¹³C, 10 for ¹⁹F and ³¹P, whose
@@ -185,9 +242,95 @@ if (test) {
     console.log(`  by quality: ${Object.entries(rated).map(([q, v]) => `${q} ${((100 * v.length) / errors.length).toFixed(0)}% MAE ${mean(v)}`).join(", ")}`);
     console.log(`  in a known solvent: ${known.any.length} shifts, MAE ${mean(known.any)} from every solvent, ${mean(known.own)} with the solvent's table; on O, N and S: ${known.anyX.length}, ${mean(known.anyX)} and ${mean(known.ownX)}`);
   }
+  peroxideReport();
 } else {
   const bytes = gzipSync(writeTables(tables), { level: 9 }), dir = new URL("../data/nmr/", import.meta.url);
   mkdirSync(dir, { recursive: true });
   writeFileSync(new URL("shifts.bin.gz", dir), bytes);
-  console.log(`wrote data/nmr/shifts.bin.gz, ${(bytes.length / 1e6).toFixed(1)} MB`);
+  console.log(`wrote data/nmr/shifts.bin.gz, ${bytes.length} bytes (${(bytes.length / 1e6).toFixed(2)} MB)`);
+  if (compare) compareWith(compare);
+}
+console.log(`${((Date.now() - started) / 1000).toFixed(0)} s`);
+
+// --compare: each part of the old table against the new one, by code hash: codes gone, new and changed (shift, spread
+// or count), and any of them that is not a code on kinds near an O–O.
+function compareWith(path: string) {
+  const parts = (bytes: Uint8Array) => {
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), k = v.getUint32(8, true), out = new Map<string, Map<number, string>>();
+    let at = 12 + 8 * k;
+    for (let i = 0; i < k; i++) {
+      const o = 12 + 8 * i, n = v.getUint32(o + 4, true), m = new Map<number, string>();
+      for (let j = 0; j < n; j++) m.set(v.getUint32(at + 4 * j, true), `${v.getInt16(at + 4 * n + 2 * j, true)}/${v.getUint16(at + 6 * n + 2 * j, true)}/${v.getUint16(at + 8 * n + 2 * j, true)}`);
+      out.set(`${NUCLEUS_LIST[bytes[o]]}${bytes[o + 1] ? " in one solvent" : ""}`, m);
+      at += 10 * n;
+    }
+    return out;
+  };
+  const before = parts(gunzipSync(readFileSync(path))), after = parts(writeTables(tables));
+  let stray = 0;
+  for (const [name, b] of before) {
+    const a = after.get(name) ?? new Map<number, string>();
+    const gone = [...b.keys()].filter((h) => !a.has(h)), added = [...a.keys()].filter((h) => !b.has(h)), moved = [...b.keys()].filter((h) => a.has(h) && a.get(h) !== b.get(h));
+    const odd = [...gone, ...added, ...moved].filter((h) => !changed.has(h));
+    stray += odd.length;
+    console.log(`${name}: ${b.size} codes before, ${a.size} now; ${added.length} new, ${moved.length} changed, ${gone.length} gone${odd.length ? `; ${odd.length} NOT codes on kinds near an O–O: ${odd.slice(0, 10).join(", ")}` : ""}`);
+  }
+  console.log(stray ? `rule 1 broken: ${stray} codes differ that are not codes on kinds near an O–O` : "rule 1 kept: every code that differs is a code on kinds near an O–O");
+}
+
+// The peroxide report (--test): 10-fold cross-validation over every molecule with an O–O, each tenth predicted from the
+// shifts of the other nine, three ways: 1.1.2's codes, the codes with the O–O in the kinds (kinds()), and as predict()
+// does now (nearShift): ¹³C with the stand-ins and increments from the other nine tenths, ¹H on an α carbon from the
+// unmarked codes in the new table. Then the increments from every tenth, as nmr.ts has them (PEROXIDE_INC).
+function peroxideReport() {
+  const mid = (v: number[]) => { const w = [...v].sort((a, b) => a - b), h = w.length >> 1; return w.length % 2 ? w[h] : (w[h - 1] + w[h]) / 2; };
+  const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+  // An atom's shift from its most telling code with shifts outside its tenth: 1.1.2's table (shifts of t 0 and 2) or
+  // the new one (t 0 and 1).
+  const look = (env: Env, x: Target, now: boolean): Found | undefined => {
+    for (const [code, level] of codes(env, x.atom, x.nucleus)) {
+      const e = cv.get(codeHash(x.nucleus, code));
+      if (!e) continue;
+      const v = e.s.filter((_, k) => e.f[k] !== x.fold && (e.t[k] === 0 || e.t[k] === (now ? 1 : 2)));
+      if (!v.length) continue;
+      const m = mean(v);
+      return { shift: mid(v), sd: Math.sqrt(mean(v.map((y) => (y - m) ** 2))), based: v.length, level, kinds: code.startsWith("k:"), code: "" };
+    }
+    return undefined;
+  };
+  const rows = targets.map((x) => {
+    const old = look(x.old, x, false), j1 = look(x.env, x, true), alts = x.alt.map((e) => look(e, x, true));
+    return { x, old, j1, alts, alt: alts.length && alts.every(Boolean) ? mean(alts.map((y) => y!.shift)) : undefined };
+  });
+  // The increments: medians of measured − stand-in over carbons with one O–O in reach, by class; a class with fewer
+  // than 4 shifts takes the class above it. leave: the tenth to leave out (none: every tenth).
+  const above = (k: string) => (/ (C|CH|CH2)$/.test(k) ? k.replace(/ \S+$/, " plain") : k.includes(" ") ? k.split(" ")[0] : undefined);
+  const chain = (k: string) => { const out = [k]; for (let u = above(k); u; u = above(u)) out.push(u); return out; };
+  const increments = (leave?: number) => {
+    const res = rows.filter((r) => r.x.fold !== leave && r.alt !== undefined && r.x.near!.inc.length === 1).map((r) => ({ k: r.x.near!.inc[0], d: r.x.shift - r.alt! }));
+    return Object.fromEntries(Object.keys(PEROXIDE_INC).map((k): [string, [number, number, number]] => {
+      const ks = chain(k), pool = (u: string) => res.filter((r) => chain(r.k).includes(u)).map((r) => r.d);
+      const v = pool(ks.find((u) => pool(u).length >= 4) ?? ks[ks.length - 1]), m = v.length ? mid(v) : 0;
+      return [k, [m, v.length, v.length ? mid(v.map((y) => Math.abs(y - m))) : 0]];
+    }));
+  };
+  const folds = new Map([...new Set(rows.map((r) => r.x.fold))].map((f) => [f, increments(f)]));
+  const ways = rows.map((r) => {
+    const { x, j1 } = r, now = j1 && nearShift(x.env, x.per, x.nucleus, x.atom, j1, (e) => look(e, x, true), new Map(), folds.get(x.fold)!);
+    return { ...r, now, stood: !!now?.standIn };
+  });
+  console.log(`\nPeroxides: ${new Set(targets.map((x) => x.id)).size} molecules with an O–O; MAE (ppm) and median, held out by tenths: 1.1.2 / O–O in kinds / now`);
+  const err = (v: (Found | undefined)[], w: typeof ways) => v.map((p, k) => (p ? Math.abs(p.shift - w[k].x.shift) : NaN)).filter(Number.isFinite);
+  const line = (v: number[]) => (v.length ? `${mean(v).toFixed(2)}/${mid(v).toFixed(2)}` : "–");
+  for (const cat of ["α 13C", "β 13C", "α 1H", "β 1H", "OOH"]) {
+    const w = ways.filter((r) => r.x.cat === cat), s = w.filter((r) => r.stood);
+    if (!w.length) continue;
+    const rated = (q: string) => { const v = w.filter((r) => r.now && quality({ atoms: [], shift: r.now.shift, nuclei: 1, couplings: [], sd: r.now.sd, based: r.now.based, level: r.now.level, ...(r.stood ? { standIn: true as const } : {}), ...(cat === "OOH" ? { broad: true } : {}) }, r.x.nucleus) === q); return `${q} ${v.length} ${line(err(v.map((r) => r.now), v))}`; };
+    console.log(`  ${cat}: ${w.length} shifts, ${line(err(w.map((r) => r.old), w))} / ${line(err(w.map((r) => r.j1), w))} / ${line(err(w.map((r) => r.now), w))}; from a stand-in ${s.length}, ${line(err(s.map((r) => r.old), s))} / ${line(err(s.map((r) => r.j1), s))} / ${line(err(s.map((r) => r.now), s))}; rated ${["good", "medium", "rough"].map(rated).join(", ")}`);
+  }
+  const all = increments();
+  console.log("  increments from every tenth (shift, shifts, MAD), as PEROXIDE_INC should have them:");
+  console.log(`  ${JSON.stringify(Object.fromEntries(Object.entries(all).map(([k, [d, n, m]]) => [k, [+d.toFixed(1), n, +m.toFixed(1)]])))}`);
+  const off = Object.keys(all).filter((k) => all[k].some((y, i) => Math.abs(y - PEROXIDE_INC[k][i]) > (i === 1 ? 0 : 0.05)));
+  console.log(off.length ? `  PEROXIDE_INC differs in ${off.join(", ")}` : "  PEROXIDE_INC matches");
 }

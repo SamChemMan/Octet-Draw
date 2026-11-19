@@ -49,7 +49,8 @@ export function guessNucleus(first: number, last: number, mhz?: number): Nucleus
 // solvent: the shift comes from spectra measured in the solvent asked for (unset: from spectra in any solvent).
 // code: a hash of the atoms' longest code (their class), the same however the structure is drawn or numbered.
 // metal: a ¹⁹F or ³¹P atom bonded to a metal, whose shift the table rarely knows (rated rough).
-export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number; with?: number[] }[]; broad?: boolean; sd: number; based: number; group?: string; level?: number; solvent?: string; code?: string; metal?: true };
+// standIn: the shift comes from a stand-in for the carbon's O–O (peroxideShift), rated rough.
+export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number; with?: number[] }[]; broad?: boolean; sd: number; based: number; group?: string; level?: number; solvent?: string; code?: string; metal?: true; standIn?: true };
 // decoupled: a ¹³C, ¹⁹F or ³¹P spectrum with its ¹H couplings removed (¹³C{¹H}); unset for ¹H.
 export type Prediction = { nucleus: Nucleus; signals: Signal[]; decoupled?: boolean };
 
@@ -194,8 +195,11 @@ export function hose(env: Env, centre: number, levels = LEVELS, label = env.labe
   return out;
 }
 // Each atom's kind: its label with its bonds that are not single and what they go to: S=O=O in a sulfonyl, C=O, C%N,
-// C*C*N beside the N of a pyridine. Made once per structure, the first time an atom needs codes on kinds.
-const kinds = (env: Env) => (env.kind ??= env.label.map((l, i) => `${l}${env.edges[i].filter((e) => e.bond).map((e) => e.bond + env.label[e.to]).sort().join("")}`));
+// C*C*N beside the N of a pyridine; and a neutral O single-bonded to a neutral O has -O for each such bond (O-O in a
+// peroxide, O-O-O in the middle of a trioxide), so a code on kinds tells C–O–O from C–O–C. Made once per structure,
+// the first time an atom needs codes on kinds.
+const kindOf = (env: Env, mark = true) => env.label.map((l, i) => `${l}${env.edges[i].filter((e) => e.bond).map((e) => e.bond + env.label[e.to]).sort().join("")}${mark && l === "O" ? env.edges[i].filter((e) => !e.bond && env.label[e.to] === "O").map(() => "-O").join("") : ""}`);
+const kinds = (env: Env) => (env.kind ??= kindOf(env));
 // An atom's codes from the most it tells to the least, each with the spheres it matches. Spheres 1 and 2 also come as
 // codes on kinds (k:), after the next sphere by labels and before the same sphere by labels: when the table has no atom
 // with the same next sphere, a code on kinds still tells a sulfonyl or carbonyl neighbour from a sulfide or ether one,
@@ -291,9 +295,10 @@ function find(t: Table, h: number) {
   return -1;
 }
 // An atom's shift: from its most telling code the table has (level 0 at the least), as measured in `solvent` where the
-// solvent table has that code; level: the spheres that code matches; code: the hash of its longest code (its class, as
-// Signal has it). Undefined when not even the atom alone is there.
-export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: string): { shift: number; sd: number; based: number; level: number; solvent?: string; code: string } | undefined {
+// solvent table has that code; level: the spheres that code matches; kinds: that code is a code on kinds; code: the hash
+// of its longest code (its class, as Signal has it). Undefined when not even the atom alone is there.
+export type Found = { shift: number; sd: number; based: number; level: number; kinds?: boolean; solvent?: string; code: string; standIn?: true };
+export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: string): Found | undefined {
   const t = tables[nucleus], st = solvent ? solventTables[nucleus] : undefined;
   if (!t) return undefined;
   let longest: string | undefined;
@@ -301,12 +306,123 @@ export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: strin
     const h = codeHash(nucleus, code), i = find(t, h);
     longest ??= h.toString(36);
     if (i < 0) continue;
-    const j = st ? find(st, codeHash(nucleus, solventCode(solvent!, code))) : -1;
-    if (j >= 0) { const k = st!.scale ?? 100; return { shift: st!.shift[j] / k, sd: st!.sd[j] / k, based: st!.n[j], level, solvent, code: longest }; }
+    const j = st ? find(st, codeHash(nucleus, solventCode(solvent!, code))) : -1, kinds = code.startsWith("k:");
+    if (j >= 0) { const k = st!.scale ?? 100; return { shift: st!.shift[j] / k, sd: st!.sd[j] / k, based: st!.n[j], level, kinds, solvent, code: longest }; }
     const k = t.scale ?? 100;
-    return { shift: t.shift[i] / k, sd: t.sd[i] / k, based: t.n[i], level, code: longest };
+    return { shift: t.shift[i] / k, sd: t.sd[i] / k, based: t.n[i], level, kinds, code: longest };
   }
   return undefined;
+}
+
+// --- Next to a peroxide ------------------------------------------------------------------------------------------
+// nmrshiftdb2 has few peroxides (64 of its molecules), so the table often has no code that reaches a carbon's O–O,
+// and the lookup falls to codes that every OCH₂ shares. Then Octet predicts the carbon's ¹³C shift in a stand-in: the
+// same structure with each nearby O–O's farther O made a carbon (an ether: R–O–O–R′ is read as R–O–CH₂–R′, R–OOH as
+// R–OCH₃, an endoperoxide as a cyclic ether of the same ring size, an ozonide as a 1,3-dioxolane), and adds an
+// increment for each O–O, as additive predictors add a substituent's increment to a smaller unit.
+
+// The O–O bonds of a structure: two neutral O joined by a single bond that is not aromatic or η (kinds() marks them).
+// ok: whether a stand-in can replace it: each O has exactly two connections (hydrogens included) and its other one is
+// to C or H, and no atom is bonded to both O (a dioxirane). d: each O's distances to the atoms up to 3 bonds away.
+// Undefined when there is none, as for most structures, which then cost one pass over their atoms.
+export type Peroxides = { pairs: [number, number][]; ok: boolean[]; d: Map<number, Int8Array> };
+export function peroxides(env: Env): Peroxides | undefined {
+  let pairs: [number, number][] | undefined;
+  env.label.forEach((l, a) => { if (l === "O") for (const e of env.edges[a]) if (e.to > a && !e.bond && env.label[e.to] === "O") (pairs ??= []).push([a, e.to]); });
+  if (!pairs) return undefined;
+  const g = env.g, d = new Map<number, Int8Array>();
+  const plain = (o: number, p: number) => g.atoms[o].h + env.edges[o].length === 2 && env.edges[o].every((e) => e.to === p || g.atoms[e.to].el === "C");
+  const ok = pairs.map(([a, b]) => plain(a, b) && plain(b, a) && !env.edges[a].some((e) => env.edges[b].some((f) => f.to === e.to)));
+  for (const [a, b] of pairs) for (const o of [a, b]) if (!d.has(o)) d.set(o, distances(env, o, 3));
+  return { pairs, ok, d };
+}
+// Increments (ppm, ¹³C) for an O–O in place of the stand-in's ether, by α (the carbon is bonded to the O–O) or β
+// (bonded to a carbon that is) and kind of carbon: carbonyl (a perester's or peroxy acid's C=O), acetal (the carbon
+// also bears an O or N that is in no O–O: ozonides, peroxyketals) or plain, a plain α carbon by its hydrogens (C, CH,
+// CH₂ and CH₃); β by sp² (a bond that is not single) or sp³. Each is the median of measured − stand-in over
+// nmrshiftdb2's peroxide carbons with one O–O in reach, each predicted from a table without its tenth
+// (scripts/nmr-table.ts --test prints them again), with how many shifts it holds and their median absolute deviation.
+// A class with fewer than 4 shifts has the value of the class above it (CH₂ → plain → α).
+export const PEROXIDE_INC: Record<string, [shift: number, n: number, mad: number]> = {
+  "α C": [6.3, 24, 2.9], "α CH": [6.5, 11, 7.8], "α CH2": [3.2, 4, 1.2], "α acetal": [3.1, 13, 4.1], "α carbonyl": [-3.1, 4, 4.6],
+  "β sp2": [-2.9, 35, 3.6], "β sp3": [-1.8, 70, 2.3],
+};
+// A carbon's O–O within reach, for its ¹³C shift. near: bonds to the nearest O–O it is α or β to; far: the O atoms each
+// stand-in makes carbon (every O–O whose nearer O is 3 bonds away or less, its farther O; when both O are as far, as
+// from C4 of a 1,2-dioxolane, there is a stand-in for each and the shifts are averaged, so the result does not depend
+// on the order the atoms were drawn in); inc: the increment of each O–O it is α or β to. A second O–O on the same
+// carbon (a gem-bisperoxide, a 1,2,4,5-tetraoxane) counts as acetal: the carbon already bears an O, and increments
+// at a carbon with two O do not add (nmrshiftdb2 has no such carbon; set with the literature check of 17 November
+// 2026, so those classes there are not independent). Undefined when there is no such O–O; null when an O–O that
+// cannot be replaced (ok) is 2 bonds away or less, where its codes on kinds see it, or there would be more than 8
+// stand-ins.
+export type Near = { near: number; far: number[][]; inc: string[] };
+export function nearPeroxide(env: Env, per: Peroxides, c: number): Near | null | undefined {
+  const g = env.g;
+  if (g.atoms[c].el !== "C") return undefined;
+  let near = 9, far: number[][] = [[]];
+  const inc: string[] = [], inO = (o: number) => per.d.has(o);
+  for (let k = 0; k < per.pairs.length; k++) {
+    const [a, b] = per.pairs[k], da = per.d.get(a)![c], db = per.d.get(b)![c];
+    if (da < 0 && db < 0) continue;
+    const m = da < 0 ? db : db < 0 ? da : Math.min(da, db), to = (x: number) => env.edges[x].some((e) => (e.to === a && da === m) || (e.to === b && db === m));
+    const by = m === 1 ? 1 : m === 2 && env.edges[c].some((e) => g.atoms[e.to].el === "C" && to(e.to)) ? 2 : 0;
+    if (!per.ok[k]) { if (m <= 2) return null; continue; }
+    if (by) {
+      near = Math.min(near, by);
+      const kind = by === 2 ? (env.edges[c].some((e) => e.bond) ? "sp2" : "sp3")
+        : env.edges[c].some((e) => e.bond === "=" && env.label[e.to] === "O") ? "carbonyl"
+        : inc.some((x) => x[0] === "α") || env.edges[c].some((e) => !e.bond && (env.label[e.to] === "O" || env.label[e.to] === "N") && !inO(e.to)) ? "acetal"
+        : ["C", "CH", "CH2"][Math.min(2, g.atoms[c].h)];
+      inc.push(`${by === 1 ? "α" : "β"} ${kind}`);
+    }
+    // The farther O: an O more than 3 bonds away (-1) is farther than any.
+    const fa = da < 0 ? 9 : da, fb = db < 0 ? 9 : db, choice = fa === fb ? [a, b] : [fa > fb ? a : b];
+    far = far.flatMap((x) => choice.map((o) => [...x, o]));
+    if (far.length > 8) return null;
+  }
+  return inc.length ? { near, far: far.map((x) => x.sort((p, q) => p - q)), inc } : undefined;
+}
+// Whether an atom's shift sees its O–O: its code on kinds reaches the nearer O (whose kind says O-O), or its code by
+// labels reaches the farther O.
+export const seesPeroxide = (found: Found, near: number) => found.level >= (found.kinds ? near : near + 1);
+// The stand-in: the structure as env has it, with the far O atoms labelled C (their hydrogens do not enter a code).
+export const standIn = (env: Env, far: number[]): Env => { const label = [...env.label]; for (const o of far) label[o] = "C"; return { ...env, label, kind: undefined }; };
+// The shift of a carbon near an O–O, from its own match (found) and its stand-ins' (alt). Its own match stands when it
+// sees the O–O and matched as many spheres as the stand-ins' shallowest, or when it does not see it and the stand-ins
+// matched one sphere or none: then they know no more than the atom's neighbours, and the increments are for a stand-in
+// that matched its real surroundings (a tetraoxane's spiro carbon took 118.4 ppm for 110.6). Otherwise a match that
+// does not see the O–O, or that sees it but matched two spheres fewer, gives way to the stand-ins'; between, the two are
+// weighed by how many measured shifts the own match holds, n / (n + 1). (On nmrshiftdb2's peroxides, held out by
+// tenths, this did better than either alone, and on the literature check a shallow match from a few unlike molecules,
+// a CF₃ peracid's C=O or a dioxetane's CH₃, no longer decides a perester's shift.) The stand-ins' shift is their mean
+// plus the increments; its level is the own match's spheres; based: the fewest shifts behind an increment; sd: the
+// stand-ins' largest spread and each increment's (1.4826 × its MAD) combined. A stand-in with no shift matched none.
+export function peroxideShift(found: Found, near: Near, alt: (Found | undefined)[], inc = PEROXIDE_INC): Found {
+  const sees = seesPeroxide(found, near.near), deep = alt.some((x) => !x) ? 0 : Math.min(...alt.map((x) => x!.level));
+  if (sees ? found.level >= deep : deep <= 1) return found;
+  const r = alt as Found[], add = near.inc.map((k) => inc[k]);
+  const stood = r.reduce((s, x) => s + x.shift, 0) / r.length + add.reduce((s, x) => s + x[0], 0), w = sees && deep < found.level + 2 ? found.based / (found.based + 1) : 0;
+  return {
+    shift: stood + (found.shift - stood) * w,
+    sd: Math.sqrt(Math.max(...r.map((x) => x.sd)) ** 2 + add.reduce((s, x) => s + (1.4826 * x[2]) ** 2, 0)),
+    based: Math.min(...add.map((x) => x[1])), level: found.level, ...(r.every((x) => x.solvent) ? { solvent: r[0].solvent } : {}), code: found.code, standIn: true,
+  };
+}
+// The structure as release 1.1.2's codes on kinds saw it, with no O–O mark. ¹H on a carbon bonded to an O–O is looked
+// up this way: on simple peroxides from the literature the marked codes doubled its error (0.11 to 0.21 ppm), and on
+// nmrshiftdb2's peroxides they gained as little (0.27 to 0.22), so it keeps 1.1.2's shift.
+export const unmarked = (env: Env): Env => ({ ...env, kind: kindOf(env, false) });
+// The shift of atom c near an O–O, as predict() gives it, from its own match (found) and look(e), the same atom's match
+// in another form e of the structure, each form made once and kept in made (a stand-in by its far O, the unmarked
+// structure as ""). ¹³C on a carbon α or β to an O–O: peroxideShift. On a carbon 2 bonds or less from an O–O that
+// cannot be replaced (a silyl, sulfonyl, aminyl, boryl or metal peroxide, a trioxide, a dioxirane), ¹H and ¹³C as 1.1.2
+// looked them up (unmarked), as ¹H on a carbon bonded to any O–O. Otherwise found.
+export function nearShift(env: Env, per: Peroxides, nucleus: Nucleus, c: number, found: Found, look: (e: Env) => Found | undefined, made = new Map<string, Env>(), inc = PEROXIDE_INC): Found {
+  const form = (k: string, f: () => Env) => { let e = made.get(k); if (!e) made.set(k, (e = f())); return e; };
+  const plain = () => look(form("", () => unmarked(env))) ?? found, n = nearPeroxide(env, per, c);
+  if (n === null || (nucleus === "1H" && n && env.edges[c].some((e) => per.d.has(e.to)))) return plain();
+  return n && nucleus === "13C" ? peroxideShift(found, n, n.far.map((f) => look(form(f.join(), () => standIn(env, f)))), inc) : found;
 }
 
 // Loads the shift tables (once, on first use), gzipped next to the app.
@@ -496,11 +612,15 @@ export function predict(drawn: Graph, nucleus: Nucleus, solvent?: string, decoup
   const fs = g.atoms.map((_, i) => i).filter((i) => g.atoms[i].el === "F"), ps = g.atoms.map((_, i) => i).filter((i) => g.atoms[i].el === "P");
   const sp = fs.length || ps.length ? spins(env) : undefined;
   const coupled = (x: number) => g.atoms[x].h > 0 && !exchange(x);
+  // Next to an O–O: nearShift, each form of the structure made once.
+  const per = nucleus === "13C" || nucleus === "1H" ? peroxides(env) : undefined, made = new Map<string, Env>();
+  const near = (c: number, found: Found) => nearShift(env, per!, nucleus, c, found, (e) => lookup(e, nucleus, c, solvent), made);
   for (const c of centres) {
     if (done.has(env.cls[c])) continue;
     done.add(env.cls[c]);
-    const found = lookup(env, nucleus, c, solvent);
+    let found = lookup(env, nucleus, c, solvent);
     if (!found) continue;
+    if (per) found = near(c, found);
     const members = centres.filter((i) => env.cls[i] === env.cls[c]);
     const nuclei = nucleus === "1H" ? members.reduce((s, i) => s + g.atoms[i].h, 0) : members.length;
     // Couplings: each J with the number of equivalent nuclei it couples to (one entry for J values within 0.6 Hz),
@@ -537,6 +657,7 @@ export function predict(drawn: Graph, nucleus: Nucleus, solvent?: string, decoup
       ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based, level: found.level, ...(found.solvent ? { solvent: found.solvent } : {}),
       group: groupName(env, c, members, nucleus),
       code: found.code,
+      ...(found.standIn ? { standIn: true as const } : {}),
       ...((nucleus === "19F" || nucleus === "31P") && env.edges[c].some((e) => metalLike(g.atoms[e.to].el)) ? { metal: true as const } : {}),
     });
   }
@@ -559,12 +680,13 @@ function groupName(env: Env, c: number, members: number[], nucleus: Nucleus): st
 // How far to trust a shift, as ChemDraw rates its estimates. Good: four or more spheres of the atom's surroundings
 // matched, the measured shifts agree (spread up to NUCLEI's tight value: 0.15 ppm for ¹H, 1.5 for ¹³C, 2 for ¹⁹F, 3 for
 // ³¹P), and there were two or more of them (one is enough when all six spheres matched). Rough: two spheres or fewer
-// matched, the shifts spread more than twice that, a ¹⁹F or ³¹P atom on a metal, or a hydrogen on O, N or S (broad),
+// matched, the shifts spread more than twice that, a ¹⁹F or ³¹P atom on a metal, a hydrogen on O, N or S (broad),
 // whose shift moves with the solvent and the concentration (ChemDraw rates shifts that depend on the solvent rough;
-// on held-out spectra those rated good were 0.5 ppm out). Medium otherwise.
+// on held-out spectra those rated good were 0.5 ppm out), or a ¹³C shift from a stand-in for an O–O (peroxideShift; on
+// nmrshiftdb2's peroxides, held out, those were 4.6 ppm out on α carbons and 3.5 on β). Medium otherwise.
 export function quality(s: Signal, nucleus: Nucleus): "good" | "medium" | "rough" {
   const level = s.level ?? 0, tight = NUCLEI[nucleus].tight;
-  if (level <= 2 || s.sd > 2 * tight || s.metal || s.broad) return "rough";
+  if (level <= 2 || s.sd > 2 * tight || s.metal || s.broad || s.standIn) return "rough";
   return level >= 4 && s.sd <= tight && (s.based >= 2 || level === 6) ? "good" : "medium";
 }
 // A shift as text: NUCLEI's decimals, with a true minus sign (U+2212) for print; plain: a hyphen-minus, for a

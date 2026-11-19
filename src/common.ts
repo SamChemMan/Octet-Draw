@@ -87,8 +87,10 @@ export const COMMON: Record<string, string> = {
   "proton sponge": "N1,N1,N8,N8-tetramethylnaphthalene-1,8-diamine", NMI: "1-methyl-1H-imidazole", NMM: "4-methylmorpholine",
   "2,6-lutidine": "2,6-dimethylpyridine", collidine: "2,4,6-trimethylpyridine",
   // Oxidants, radical initiators and traps, and halogenating and azide reagents. DTBP is di-tert-butyl peroxide and DCP
-  // dicumyl peroxide, as radical chemists use them; Ns is the 2-nitro group (Fukuyama's), pNs the 4-nitro one.
+  // dicumyl peroxide, as radical chemists use them; Ns is the 2-nitro group (Fukuyama's), pNs the 4-nitro one. OPSIN
+  // reads cumene hydroperoxide and tetralin hydroperoxide as the hydrocarbon and an HOO⁻ ion.
   TBHP: "2-methylpropane-2-peroxol", DTBP: "di-tert-butyl peroxide", DCP: "bis(2-phenylpropan-2-yl) peroxide",
+  "cumene hydroperoxide": "2-phenylpropane-2-peroxol", "tetralin hydroperoxide": "1,2,3,4-tetrahydronaphthalene-1-peroxol",
   BHT: "2,6-di-tert-butyl-4-methylphenol", NHPI: "2-hydroxy-1H-isoindole-1,3(2H)-dione", TBN: "tert-butyl nitrite", tBuONO: "=TBN",
   PIDA: "smiles:CC(=O)OI(OC(C)=O)c1ccccc1", "PhI(OAc)2": "=PIDA", BAIB: "=PIDA",
   PIFA: "smiles:FC(F)(F)C(=O)OI(OC(=O)C(F)(F)F)c1ccccc1", "PhI(OCOCF3)2": "=PIFA", "PhI(TFA)2": "=PIFA",
