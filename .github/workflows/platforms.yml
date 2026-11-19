@@ -101,17 +101,23 @@ jobs:
         timeout-minutes: 15
         run: node scripts/drive/drive.mjs
 
+      # Release 1.1.3 has the AI features off (src/features.ts AI) and 1.2 has them on. With them off, Octet with no
+      # window (--headless --mcp) and the relay (--mcp) end with code 2, so the steps that start them run only when on.
+      - name: AI features (src/features.ts)
+        id: ai
+        shell: bash
+        run: echo "on=$(grep -qx 'export const AI = true;' src/features.ts && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
       # AI apps (decision 0021): the same debug build with its MCP server on, and an AI app that starts Octet's relay
       # (Octet Draw --mcp) and Claude Desktop's bundle server, as acceptance case 18 does on the Mac.
       - name: AI apps through the relay (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.ai.outputs.on == 'true'
         timeout-minutes: 5
         env:
           OCTET_MCP: "1"
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- bash -c 'src-tauri/target/debug/octet & node scripts/mcp-acceptance.mjs 18'
       - name: AI apps through the relay (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.ai.outputs.on == 'true'
         timeout-minutes: 5
         shell: bash
         env:
@@ -126,11 +132,11 @@ jobs:
           if-no-files-found: ignore
 
   # The scripting page's examples (docs/scripting.md, plan 18.6), each in JavaScript and in Python, against Octet as a
-  # script starts it (OCTET, --headless --mcp), and --convert. A release build: on Windows it is a window program
-  # (main.rs), as a user's Octet is, which a debug build is not. No installer: the program is copied to a folder named
-  # "Octet Draw", so its path has a space as the page's paths do. scripts/examples/run-all.mjs makes the files through
-  # the program and fails on a difference between the languages. Its folder (each run's command, exit code and output,
-  # and every file written) is the run's artifact.
+  # script starts it (OCTET, --headless --mcp), when the AI features are on, and --convert in every build. A release
+  # build: on Windows it is a window program (main.rs), as a user's Octet is, which a debug build is not. No installer:
+  # the program is copied to a folder named "Octet Draw", so its path has a space as the page's paths do.
+  # scripts/examples/run-all.mjs makes the files through the program and fails on a difference between the languages.
+  # Its folder (each run's command, exit code and output, and every file written) is the run's artifact.
   examples:
     name: Scripts (${{ startsWith(matrix.platform, 'windows') && 'Windows' || 'Linux' }})
     strategy:
@@ -178,25 +184,31 @@ jobs:
           "OCTET=$octet" >> $env:GITHUB_ENV
           Write-Output "Octet $((Get-Content package.json | ConvertFrom-Json).version): $octet, $((Get-Item $octet).Length) bytes"
 
+      # Release 1.1.3 has the AI features off (src/features.ts AI) and 1.2 has them on. With them off, Octet with no
+      # window (--headless --mcp) and the relay (--mcp) end with code 2, so the steps that start them run only when on.
+      - name: AI features (src/features.ts)
+        id: ai
+        shell: bash
+        run: echo "on=$(grep -qx 'export const AI = true;' src/features.ts && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
       # As the drive job: a virtual screen for the hidden windows, a session bus of their own, and WebKit with no DMA-BUF.
       # The session bus has no accessibility bus, so GTK's bridge to it is off (NO_AT_BRIDGE): it wrote a warning to
       # standard error each time Octet started, which a user's desktop does not.
       - name: The examples (Linux, on a virtual screen)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.ai.outputs.on == 'true'
         timeout-minutes: 20
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
           NO_AT_BRIDGE: "1"
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/run-all.mjs examples-out
       - name: The examples (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.ai.outputs.on == 'true'
         timeout-minutes: 20
         run: node scripts/examples/run-all.mjs examples-out
       # A script that sends one request and closes its end of the pipe gets the answer, and Octet ends with code 0
       # (scripts/examples/one-request.mjs starts Octet with pipes, as a script does). RUST_BACKTRACE: a panic prints
       # where it happened.
       - name: One request, then the end of input (Linux, on a virtual screen)
-        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        if: ${{ !cancelled() && runner.os == 'Linux' && steps.ai.outputs.on == 'true' }}
         timeout-minutes: 5
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
@@ -204,37 +216,46 @@ jobs:
           RUST_BACKTRACE: "1"
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/examples/one-request.mjs
       - name: One request, then the end of input (Windows)
-        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.ai.outputs.on == 'true' }}
         timeout-minutes: 5
         env:
           RUST_BACKTRACE: "1"
         run: node scripts/examples/one-request.mjs
-      - name: --convert to PDF and SVG (Linux, on a virtual screen)
+      # --convert in every build, on two drawings Octet made (scripts/examples/convert: a CDXML with compounds 7, 3 and
+      # 9, a CDX with 9 and 4): a PDF and an SVG of each, and one SDF of all five compounds, each with its file.
+      - name: --convert to PDF, SVG and one SDF (Linux, on a virtual screen)
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         timeout-minutes: 10
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
         run: |
-          for to in pdf svg; do
-            xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- "$OCTET" --convert examples-out/in/scheme1.cdxml --to $to --out examples-out/converted
-          done
+          run() { xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- "$OCTET" --convert scripts/examples/convert "$@"; }
+          for to in pdf svg; do run --to $to --out examples-out/converted; done
+          run --to sdf --into examples-out/converted/si.sdf
           ls -l examples-out/converted
-          test -s examples-out/converted/scheme1.pdf && test -s examples-out/converted/scheme1.svg
+          for f in scheme1.pdf scheme1.svg scheme2.pdf scheme2.svg; do test -s examples-out/converted/$f; done
+          test "$(grep -cx '[$][$][$][$]' examples-out/converted/si.sdf)" = 5
+          grep -qx scheme2.cdx examples-out/converted/si.sdf
       # A window program waits to end here only when its output is piped.
-      - name: --convert to PDF and SVG (Windows)
+      - name: --convert to PDF, SVG and one SDF (Windows)
         if: ${{ !cancelled() && runner.os == 'Windows' }}
         timeout-minutes: 10
         shell: pwsh
         run: |
           foreach ($to in 'pdf', 'svg') {
-            & $env:OCTET --convert examples-out/in/scheme1.cdxml --to $to --out examples-out/converted | Write-Output
+            & $env:OCTET --convert scripts/examples/convert --to $to --out examples-out/converted | Write-Output
             if ($LASTEXITCODE -ne 0) { throw "--convert --to ${to}: exit $LASTEXITCODE" }
           }
-          foreach ($f in 'scheme1.pdf', 'scheme1.svg') {
+          & $env:OCTET --convert scripts/examples/convert --to sdf --into examples-out/converted/si.sdf | Write-Output
+          if ($LASTEXITCODE -ne 0) { throw "--convert --into: exit $LASTEXITCODE" }
+          foreach ($f in 'scheme1.pdf', 'scheme1.svg', 'scheme2.pdf', 'scheme2.svg', 'si.sdf') {
             $file = Get-Item "examples-out/converted/$f"
             Write-Output "$f $($file.Length) bytes"
             if ($file.Length -eq 0) { throw "$f is empty" }
           }
+          $records = (Select-String -Path examples-out/converted/si.sdf -Pattern '^\$\$\$\$$').Count
+          if ($records -ne 5) { throw "si.sdf has $records records, not 5" }
+          if (-not (Select-String -Path examples-out/converted/si.sdf -Pattern '^scheme2\.cdx$' -Quiet)) { throw "si.sdf does not name scheme2.cdx" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -353,24 +374,32 @@ jobs:
           name: octet-office-objects-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+      # Release 1.1.3 has the AI features off (src/features.ts AI) and 1.2 has them on. With them off, Octet with no
+      # window (--headless --mcp) and the relay (--mcp) end with code 2, so the steps that start them run only when on.
+      - name: AI features (src/features.ts)
+        id: ai
+        shell: bash
+        run: echo "on=$(grep -qx 'export const AI = true;' src/features.ts && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
       # The scripting page's path on Windows (docs/scripting.md): the release installer puts octet.exe there (the window
-      # program, as a user gets it), and it answers a script's initialize (--headless --mcp).
+      # program, as a user gets it), and it answers a script's initialize (--headless --mcp) when the AI features are
+      # on, and converts a drawing (--convert) in every build.
       - name: The installed Octet is where the scripting page says, and answers a script
         shell: pwsh
         timeout-minutes: 5
         env:
           RUST_BACKTRACE: "1"
+          AI: ${{ steps.ai.outputs.on }}
         run: |
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/S' -Wait
           $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
           if (-not (Test-Path $exe)) { throw "no $exe" }
           $env:OCTET = $exe
-          node scripts/examples/one-request.mjs
+          if ($env:AI -eq 'true') { node scripts/examples/one-request.mjs } else { & $exe --convert scripts/examples/convert/scheme1.cdxml --to svg --out (Join-Path $env:RUNNER_TEMP installed) | Write-Output }
           $answered = $LASTEXITCODE
           Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
           Start-Sleep -Seconds 5
-          if ($answered -ne 0) { throw "no answer to initialize, or not exit 0" }
+          if ($answered -ne 0) { throw "no answer, or not exit 0" }
       # Octet's crash log, where the server writes what it refused and why.
       - name: Octet's log
         if: always()
