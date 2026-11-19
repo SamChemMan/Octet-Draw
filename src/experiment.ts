@@ -35,13 +35,16 @@ const upTo = (v: string, n: number) => (v.length <= n ? v : v.slice(0, /[\ud800-
 export const oneLine = (v: string) => upTo(v.replace(LONE, "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim(), MAX_VALUE).trim();
 // Who saved the drawing last (issue 100): the computer user's name, set by each save, read-only in Settings. ChemDraw's
 // ModificationUserName on the document in CDXML and CDX (cdxml.ts). Not in PROPERTIES, so nothing else sets it.
+// A drawing with no Author has none: clearing Author in Settings keeps every name out of the file.
 export const CHANGED_BY = "Last changed by";
 const CHANGED = [["by", CHANGED_BY]] as const;
-export const changedBy = (annotations?: Annotation[]) => detailsOf(annotations, CHANGED).by;
-// The drawing as saved by this user: the same drawing when it says so already, or when there is no name.
+export const changedBy = (annotations?: Annotation[]) => (detailsOf(annotations, PROPERTIES).author ? detailsOf(annotations, CHANGED).by : undefined);
+// The drawing as saved by this user: with no Author, without Last changed by; else with the name. The same drawing
+// when it says so already, or when there is no name.
 export function stamped<M extends { annotations?: Annotation[] }>(m: M, name: string): M {
-  const by = oneLine(name);
-  return !by || changedBy(m.annotations) === by ? m : { ...m, annotations: withDetails(m.annotations, { by }, CHANGED) };
+  const by = oneLine(name), named = !!detailsOf(m.annotations, PROPERTIES).author;
+  const same = named ? !by || changedBy(m.annotations) === by : !m.annotations?.some((a) => a.keyword === CHANGED_BY);
+  return same ? m : { ...m, annotations: withDetails(m.annotations, { by: named ? by : "" }, CHANGED) };
 }
 // A comment as the drawing keeps it: its lines (each line break a line feed), a tab as a space, no other control
 // characters, MAX_COMMENT units at most (the files' limit on an annotation).

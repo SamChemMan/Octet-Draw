@@ -33,9 +33,10 @@ pub struct Recent {
 
 const MAX_ABOUT: usize = 200; // characters in a title or author (experiment.ts MAX_VALUE)
 
-// A title or author as the list keeps it: one line of 1 to MAX_ABOUT characters, else none.
+// A title or author as the list keeps it: one line of 1 to MAX_ABOUT characters, else none. A C1 character
+// (U+0080 to U+009F) is allowed, as experiment.ts oneLine keeps it.
 fn about(v: Option<String>) -> Option<String> {
-    v.map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && t.chars().count() <= MAX_ABOUT && !t.chars().any(char::is_control))
+    v.map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && t.chars().count() <= MAX_ABOUT && !t.chars().any(|c| matches!(c, '\0'..='\x1f' | '\x7f')))
 }
 
 // A title or author from recent.json: one that is not text or fails the check is dropped, and the drawing stays.
@@ -311,6 +312,7 @@ mod tests {
             assert_eq!(about(Some(bad.into())), None, "{bad:?}");
         }
         assert_eq!(about(Some("x".repeat(MAX_ABOUT + 1))), None);
+        assert_eq!(about(Some("a\u{85}b".into())).as_deref(), Some("a\u{85}b"), "C1, as oneLine keeps it");
         let long = "x".repeat(10_000);
         let text = format!(r#"[{{"path":"/a.oct","name":"a","at":1,"title":"Zoë 😀","author":"Sam"}},{{"path":"/b.oct","name":"b","at":2,"title":{{"x":1}},"author":"{long}"}},{{"path":"/c.oct","name":"c","at":3,"title":"a\nb","author":7}},{{"path":"/d.oct","name":"d","at":4}}]"#);
         let list: Vec<Recent> = serde_json::from_str(&text).unwrap();

@@ -194,8 +194,6 @@ export function relocate(store: HomeStore, from: string, to: string): { store: H
   return { store: { ...store, projects, pictures: withPictures(withPictures(store.pictures, from, {}), to, merged) }, drop };
 }
 
-// A thumbnail for a drawing: the user's own (Set Thumbnail…), or Octet's copy of its automatic picture. drop: the
-// thumbnail it takes the place of.
 // A drawing's title and author, opened or saved: kept on it in its folder. The same store when it is in none, or when
 // they are as kept.
 export function setAbout(store: HomeStore, path: string, about: About): HomeStore {
@@ -204,6 +202,8 @@ export function setAbout(store: HomeStore, path: string, about: About): HomeStor
   return { ...store, projects: store.projects.map((p) => (p.drawings.some((d) => d.path === path) ? { ...p, drawings: p.drawings.map((d) => (d.path === path ? { path: d.path, name: d.name, added: d.added, ...a } : d)) } : p)) };
 }
 
+// A thumbnail for a drawing: the user's own (Set Thumbnail…), or Octet's copy of its automatic picture. drop: the
+// thumbnail it takes the place of.
 export function setPicture(store: HomeStore, path: string, which: keyof Pictures, id: string): { store: HomeStore; drop: string[] } {
   if (!pathOk(path) || !THUMB.test(id)) return { store, drop: [] };
   const was = store.pictures[path]?.[which];

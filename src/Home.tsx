@@ -816,7 +816,7 @@ export function Home(p: Props) {
   };
 
   // A drawing's tile, in Recent or in a folder. A drawing that was moved or deleted shows so, and Locate… finds it.
-  // A drawing with a title shows it in place of the file's name, and its author before when it was used (issue 100).
+  // A drawing with a title shows it in place of the file's name, and its author after when it was used (issue 100).
   const drawingTile = (d: { path: string; name: string; found: boolean; recent?: RecentEntry; project?: string; when: string; title?: string | null; author?: string | null }, k: number) => {
     const picture = lib.pictureFor(d.path), key = `drawing:${d.path}`, shown = d.title || d.name;
     return (
@@ -827,7 +827,7 @@ export function Home(p: Props) {
           <DrawingPicture name={shown} picture={picture} />
           <span className="home-caption">
             <span className="home-name">{shown}</span>
-            <span className="home-when">{d.found ? [d.author, d.when].filter(Boolean).join(" · ") : "Moved or deleted"}</span>
+            <span className="home-when">{d.found ? [d.when, d.author].filter(Boolean).join(" · ") : "Moved or deleted"}</span>
           </span>
         </button>
         {drawingActs(d)}

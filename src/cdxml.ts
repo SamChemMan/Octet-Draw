@@ -28,7 +28,7 @@ import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
 import { readPart, readPlot, type Plot } from "./pageplot.ts";
 import { readRisk, type Risk } from "./riskassess.ts";
-import { CHANGED_BY, cleanComment, COMMENT, MAX_COMMENT, oneLine } from "./experiment.ts";
+import { CHANGED_BY, changedBy, cleanComment, COMMENT, MAX_COMMENT, oneLine } from "./experiment.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -1224,9 +1224,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     sides: c.branches?.flatMap((b) => (["in", "out"] as const).flatMap((side) => (b[side]?.atoms?.length ? [{ side, atoms: ids(b[side]!.atoms) }] : []))).slice(0, 32) }));
   // The drawing's comment (its first Document comment annotation) is ChemDraw's document comment, on the root (issue
   // 100). An annotation with the keyword Comment is someone's own and stays an annotation.
-  // Who saved it last (its first Last changed by annotation) is ChemDraw's ModificationUserName, on the root too.
+  // Who saved it last (its first Last changed by annotation) is ChemDraw's ModificationUserName, on the root too, and
+  // only when the drawing has an Author (changedBy): with none, no name goes in the file.
   const said = mol.annotations?.findIndex((a) => a.keyword === COMMENT) ?? -1, comment = said < 0 ? undefined : mol.annotations![said].content;
-  const byAt = mol.annotations?.findIndex((a) => a.keyword === CHANGED_BY) ?? -1, by = byAt < 0 ? undefined : oneLine(mol.annotations![byAt].content) || undefined;
+  const byAt = mol.annotations?.findIndex((a) => a.keyword === CHANGED_BY) ?? -1, by = changedBy(mol.annotations);
   const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations?.filter((_, k) => k !== said && k !== byAt)));
   const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
@@ -2776,7 +2777,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   else if (comment) annotations.unshift({ keyword: COMMENT, content: comment });
   // ChemDraw's ModificationUserName is who saved it last (Last changed by), after the comment.
   const by = root.attrs.ModificationUserName === undefined ? "" : oneLine(root.attrs.ModificationUserName);
-  if (by && annotations.length < MAX_ANNOTATIONS) annotations.splice(comment && annotations[0]?.keyword === COMMENT ? 1 : 0, 0, { keyword: CHANGED_BY, content: by });
+  if (by && annotations.length >= MAX_ANNOTATIONS) lose("annotation");
+  else if (by) annotations.splice(comment && annotations[0]?.keyword === COMMENT ? 1 : 0, 0, { keyword: CHANGED_BY, content: by });
   if (annotations.length) mol.annotations = annotations;
   if (kept.length) mol.groups = kept;
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));

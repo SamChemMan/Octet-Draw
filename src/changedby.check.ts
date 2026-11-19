@@ -30,8 +30,32 @@ const drawing = (): Mol => ({ atoms: [C], bonds: [], annotations: withDetails([{
   assert.deepEqual(detailsOf(s.annotations, PROPERTIES), props, "the properties stay");
   assert.equal(s.annotations!.filter((a) => a.keyword === CHANGED_BY).length, 1);
   // Settings' fields (and the AI tools' properties) rewrite PROPERTIES only: Last changed by stays (stress 23, 24).
-  assert.equal(changedBy(withDetails(s.annotations, { title: "New", author: "" }, PROPERTIES)), "Sam Ellis");
+  assert.equal(changedBy(withDetails(s.annotations, { title: "New", author: "Jo" }, PROPERTIES)), "Sam Ellis");
   assert.equal(PROPERTIES.some(([, k]) => k === CHANGED_BY), false);
+}
+
+// No Author, no name (the reviewer's privacy case): a drawing whose Author was taken out in Settings loses Last changed
+// by on its next save, Settings and the AI read show none, and no file written from it holds the name, even before the
+// save (a PDF's CDXML, Save Copy As).
+{
+  const s = stamped(drawing(), "Sam Ellis"), cleared = { ...s, annotations: withDetails(s.annotations, { ...props, author: "" }, PROPERTIES) };
+  assert.equal(changedBy(cleared.annotations), undefined, "Settings and the AI read show none");
+  assert.doesNotMatch(toCdxml(cleared, DEFAULT_STYLE), /Sam Ellis|ModificationUserName/, "not in CDXML, as the root's or an annotation");
+  for (const b of [readOct(writeOct(cleared, DEFAULT_STYLE)).mol, readCdx(writeCdx(cleared, DEFAULT_STYLE)).mol])
+    assert.equal(b.annotations?.some((a) => a.keyword === CHANGED_BY || a.content.includes("Sam Ellis")), false, "not in .oct or CDX, Octet's own part included");
+  assert.equal(new TextDecoder("latin1").decode(writeCdx(cleared, DEFAULT_STYLE)).includes("Sam Ellis"), false, "not in CDX's bytes");
+  const saved = stamped(cleared, "Sam Ellis");
+  assert.equal(saved.annotations?.some((a) => a.keyword === CHANGED_BY), false, "the save takes it out of the drawing");
+  assert.deepEqual(detailsOf(saved.annotations, PROPERTIES), { title: props.title, comment: props.comment }, "the other properties stay");
+  assert.equal(stamped(saved, "Sam Ellis"), saved, "saved again: the same drawing");
+  const none = { atoms: [C], bonds: [] } as Mol;
+  assert.equal(stamped(none, "Sam Ellis"), none, "a drawing with no Author never gets the name");
+  // A ChemDraw file with a ModificationUserName and no Author: read, not shown, not written back.
+  const theirs = fromCdxml(toCdxml(none, DEFAULT_STYLE).replace("<CDXML", '<CDXML ModificationUserName="Pat Lee"')).mol;
+  assert.equal(changedBy(theirs.annotations), undefined);
+  assert.doesNotMatch(toCdxml(theirs, DEFAULT_STYLE), /Pat Lee/);
+  // With the Author put back, the next save names the user again.
+  assert.equal(changedBy(stamped({ ...saved, annotations: withDetails(saved.annotations, props, PROPERTIES) }, "Sam Ellis").annotations), "Sam Ellis");
 }
 
 // Through CDXML (the root's ModificationUserName, not an annotation), CDX (tag 0x0004), .oct and .oct's CDXML alone
@@ -112,7 +136,7 @@ const drawing = (): Mol => ({ atoms: [C], bonds: [], annotations: withDetails([{
   has(editor, /const contents = writeOct\(\{ \.\.\.stamped\(doc, systemName\), guides \}/);
   has(editor, /invoke\("recent_thumb", \{ path, svg: svg \?\? null, title: about\.title \?\? null, author: about\.author \?\? null \}\)/);
   has(home, /shown = d\.title \|\| d\.name/);
-  has(home, /\[d\.author, d\.when\]\.filter\(Boolean\)\.join\(" · "\)/);
+  has(home, /\[d\.when, d\.author\]\.filter\(Boolean\)\.join\(" · "\)/);
   has(home, /\[x\.name, x\.details\.author\]\.filter\(Boolean\)\.join\(" · "\)/);
   has(settings, /d\("document", "Properties", CHANGED_BY, .*<span className="setting-value">\{by\}<\/span>/);
   has(rs, /fn about\(v: Option<String>\) -> Option<String>/);
