@@ -213,14 +213,16 @@ export function importStructure(text: string): Mol {
   const reaction = /^\s*\$RXN/.test(text);
   const v2000 = !reaction && /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
   const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
-  if (!reaction && isQueryMolfile(v3000)) return scaled(readV3000(v3000));
+  // A query file's data items are not read: they are left out, and said.
+  if (!reaction && isQueryMolfile(v3000)) { const sd = /^>.*<|^\$\$\$\$/m.test(text) ? readSd(text) : undefined; return markLeft(scaled(readV3000(v3000)), sd ? sd.left + sd.records.reduce((n, r) => n + r.items.length, 0) : 0); }
   const ket = JSON.parse(JSON.parse(convert(text, "ket", { "output-content-type": "application/json", "dearomatize-on-load": "true" })).struct), mol = fromKet(ket, /^\$\$\$\$/m.test(text));
   // An SD file's data items, read by Octet (Indigo drops a lone record's), as fields of each record's structures
-  // (datafields.ts). Indigo reads each record's molecules in turn, so its molecules' sizes say which atoms each has.
+  // (datafields.ts). Indigo reads each record's molecules in turn, so its molecules' sizes say which atoms each has,
+  // and the items it puts on a record's first molecule check that each record has its own.
   let left = 0;
   if (!reaction && /^>.*<|^\$\$\$\$/m.test(text)) {
-    const sizes = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => { const f = typeof n.$ref === "string" ? ket[n.$ref] as { type?: string; atoms?: unknown[] } : undefined; return f?.type === "molecule" ? [f.atoms?.length ?? 0] : []; });
-    const sd = readSd(text), got = fieldsFromRecords(sd.records, sizes), room = Math.max(0, MAX_DATA - (mol.data?.length ?? 0));
+    const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => { const f = typeof n.$ref === "string" ? ket[n.$ref] as { type?: string; atoms?: unknown[]; properties?: unknown[] } : undefined; return f?.type === "molecule" ? [{ atoms: f.atoms?.length ?? 0, items: !!f.properties?.length }] : []; });
+    const sd = readSd(text), got = fieldsFromRecords(sd.records, mols), room = Math.max(0, MAX_DATA - (mol.data?.length ?? 0));
     left = sd.left + got.left + Math.max(0, (got.data?.length ?? 0) - room);
     if (got.data?.length) mol.data = [...(mol.data ?? []), ...got.data.slice(0, room)];
   }

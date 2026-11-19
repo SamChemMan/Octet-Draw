@@ -1,5 +1,5 @@
 // Run: node src/datafields-stress.check.ts. The stress list of issue 68 (docs/plans/issue-68-data-fields.md, S1 to
-// S34): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
+// S36): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
 // undo, copy and paste, every format in a chain, AI apps with odd arguments and two at once, and speed. Each case runs on
 // its own, and the file fails at the end with the cases that fail. What only the window does (the dialog, a notice) is
 // checked here in the source the editor runs for it. S18 (ChemDraw 22.2) and S19 (Octet 1.1.2's own readers) need
@@ -19,6 +19,7 @@ const { readCdx, readOct, writeCdx, writeOct, lostText } = await import("./oct.t
 const { history } = await import("./history.ts");
 const { nextCompound } = await import("./numbering.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
+const { pastedRows } = await import("./charts.ts");
 type Mol = import("./render.ts").Mol;
 await load();
 
@@ -427,6 +428,59 @@ test("S34 ChemDraw's raw line breaks: lines in a structure's annotation, spaces 
   const read = fromCdxml(text).mol;
   assert.deepEqual(all(read)[0], [["Note", "a\nb\nc", false]]);
   assert.equal(read.annotations?.find((a) => a.keyword === "Title")?.content, "A B");
+});
+
+test("S35 each SD record's items go on its own structure, or are left out and said", () => {
+  // Each structure's fields as name=value, in the drawing's structure order.
+  const got = (text: string) => { const m = chem.importStructure(text); return [all(m).map((s) => s.map(([n, v]) => `${n}=${v}`).join(",")), D.leftOf(m)]; };
+  const rec = (mol: string, items: string) => `${mol}\n${items}$$$$\n`, id = (k: string) => `> <ID>\n${k}\n\n`;
+  const three = (first: string) => first + rec(molfile, id("C-2")) + rec(molfile, id("C-3"));
+  const ok = [["ID=C-1", "ID=C-2", "ID=C-3"], {}];
+  // A counts line with no V2000 (older programs write none), with V3000 and V2000 records.
+  assert.deepEqual(got(three(rec(molfile.replace(" V2000", ""), id("C-1")))), ok, "no V2000");
+  assert.deepEqual(got(rec(chem.toMolfile(ethanol(), false), id("C-1")) + rec(molfile.replace(" V2000", ""), id("C-2")) + rec(molfile, id("C-3"))), ok, "V3000, none, V2000");
+  // CRLF and CR line ends.
+  assert.deepEqual(got(three(rec(molfile, id("C-1"))).replace(/\n/g, "\r\n")), ok, "CRLF");
+  assert.deepEqual(got(three(rec(molfile, id("C-1"))).replace(/\n/g, "\r")), ok, "CR");
+  // A record of three molecules: the field is on each of them.
+  assert.deepEqual(got(rec(chem.toMolfile(chem.parseStructure("CCO.[Na+].[Cl-]"), true), id("S")) + rec(molfile, id("C-2"))), [["ID=S", "ID=S", "ID=S", "ID=C-2"], {}], "fragments");
+  // A record with no atoms has no structure: its items are left out, and the records after it keep theirs.
+  const empty = "\n  none\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END";
+  assert.deepEqual(got(rec(molfile, id("C-1")) + rec(empty, id("E")) + rec(molfile, id("C-3"))), [["ID=C-1", "ID=C-3"], { "data field": 1 }], "empty record");
+  // $$$$ in a value is the value's, as Indigo reads it: a value with no empty line after it runs into the next record,
+  // and Indigo reads the two as one (a line of spaces is not empty).
+  assert.deepEqual(got(rec(molfile, "> <V>\na\n$$$$ x\nb\n\n") + rec(molfile, id("C-2"))), [["V=a\n$$$$ x\nb", "ID=C-2"], {}], "$$$$ in a value");
+  for (const end of ["", "   \n", "\t\n"]) assert.deepEqual(got(three(`${molfile}\n> <V>\nv\n${end}$$$$\n`)), [[`V=${D.cleanValue(`v\n${end}$$$$`)},ID=C-2`, "ID=C-3"], {}], `merged records ${JSON.stringify(end)}`);
+  // After a header Indigo does not read (no name, or an empty one), $$$$ ends the record.
+  for (const head of ["> 25", "> <>", "> <a"]) assert.deepEqual(got(three(`${molfile}\n${head}\nx\n$$$$\n`))[0], [head === "> <>" ? "Data=x" : "", "ID=C-2", "ID=C-3"], head);
+  // A header ends the molfile, with or without its M  END; a last record may have no M  END and no $$$$.
+  assert.deepEqual(got(three(rec(molfile.replace("M  END", ""), id("C-1")))), ok, "no M  END");
+  assert.deepEqual(got(three(rec(molfile.replace("M  END", "> <early>\nE\n\nM  END"), id("C-1"))))[0], ["early=E,ID=C-1", "ID=C-2", "ID=C-3"], "a header before M  END");
+  assert.deepEqual(got(rec(molfile, id("C-1")) + rec(molfile, id("C-2")) + molfile.replace("M  END", "")), [["ID=C-1", "ID=C-2", ""], {}], "a last record with no M  END");
+  // A record in a query file: its items are left out and said.
+  assert.deepEqual(got(rec(molfile, id("C-1")) + rec(molfile.replace(/ O {3}0/, " R#  0"), id("C-2"))), [["", ""], { "data field": 2 }], "query");
+  // Records and molecules that do not match all the way: no item moves to another record's structure.
+  const r = (atoms: number, k: string, tagged = true) => ({ atoms, items: [{ name: "ID", value: k }], tagged }), m = (atoms: number, items: boolean) => ({ atoms, items });
+  for (const [records, mols, what] of [
+    [[r(0, "C-1"), r(3, "C-2"), r(3, "C-3")], [m(3, true), m(3, true), m(3, true)], "a molecule left over"],
+    [[r(3, "C-1"), r(3, "C-2", false), r(3, "C-3")], [m(3, true), m(3, true), m(3, true)], "items on a record with none"],
+    [[r(3, "C-1"), r(3, "C-2"), r(3, "C-3")], [m(3, true), m(3, false), m(3, true)], "no items on a record with some"],
+    [[r(6, "C-1"), r(3, "C-2")], [m(3, true), m(3, true), m(3, true)], "items on a record's second molecule"],
+    [[r(3, "C-1"), r(4, "C-2")], [m(3, true), m(3, true)], "atoms that do not add up"],
+  ] as [D.SdRecord[], { atoms: number; items: boolean }[], string][]) assert.deepEqual(D.fieldsFromRecords(records, mols), { left: records.length }, what);
+  assert.deepEqual(D.fieldsFromRecords([r(3, "C-1")], [m(3, false)]).left, 0, "one record: Indigo gives no items");
+});
+
+test("S36 text with line breaks pasted in a value stays in that value", () => {
+  const [most, wide, chars] = [D.MAX_EACH + 1, 3, D.MAX_VALUE];
+  // In the Value column (lines of text): the field's own text, which the field takes as typed.
+  for (const text of ["first line\nsecond line", "a\r\nb\r\nc\r\n", "one\n\ntwo"]) assert.deepEqual(pastedRows(text, most, wide, chars, true), [], JSON.stringify(text));
+  // A table still pastes as rows, in any column: names, or names and values.
+  assert.deepEqual(pastedRows("ID\tA-1\nmp\t78 °C", most, wide, chars, true), [["ID", "A-1"], ["mp", "78 °C"]]);
+  assert.deepEqual(pastedRows("ID\tA-1\nmp\t78 °C", most, wide, chars, false), [["ID", "A-1"], ["mp", "78 °C"]]);
+  assert.deepEqual(pastedRows("ID\nmp", most, wide, chars, false), [["ID"], ["mp"]]);
+  const cells = readFileSync(new URL("Cells.tsx", import.meta.url), "utf8");
+  assert.match(cells, /pastedRows\([^;]*kind\(Number\(at\.c\)\) === "lines"\)/, "Cells says when the cell pasted in is lines of text");
 });
 
 const failed: string[] = [];

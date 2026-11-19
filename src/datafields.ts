@@ -195,13 +195,17 @@ export function sdRecordItems(m: Mol, groups: number[][]): string[] {
   }
   return out;
 }
-// An SD file's records, each with its atom count (from its counts line, V2000 or V3000) and its data items, read in
-// one pass. A header with no <name> is left out; an empty name is NO_NAME. A value over the limit, and items past
-// MAX_EACH on a record, are left out. left: how many items were left out.
-export type SdRecord = { atoms: number; items: { name: string; value: string }[] };
+// An SD file's records as Indigo splits them, so each record goes with its own molecules, read in one pass. Each has
+// its atom count (its counts line, with or without V2000, or V3000's COUNTS) and its data items. As Indigo reads them:
+// a header ("> " with a <name> that is not empty) starts a value, and only an empty line ends it, so a line in it that
+// starts with $$$$ or > is the value's; a header ends the molfile, with or without its M  END; anywhere else a line
+// that starts with $$$$ ends the record. Octet also keeps an item whose <name> is empty (as NO_NAME), which ends at an
+// empty line, a header or $$$$. A header with no <name> is left out. A value over the limit, and items past MAX_EACH
+// on a record, are left out. tagged: the record has a header Indigo reads. left: how many items were left out.
+export type SdRecord = { atoms: number; items: { name: string; value: string }[]; tagged: boolean };
 export function readSd(text: string): { records: SdRecord[]; left: number } {
   const records: SdRecord[] = [];
-  let left = 0, rec: SdRecord | undefined, line = 0, ended = false, item: { name?: string; lines: string[]; size: number } | undefined;
+  let left = 0, rec: SdRecord | undefined, line = 0, ended = false, item: { name?: string; lines: string[]; size: number; indigo: boolean } | undefined;
   const finish = () => {
     if (!item || !rec) return void (item = undefined);
     const value = item.size > 4 * MAX_VALUE ? undefined : cleanValue(item.lines.join("\n"));
@@ -210,53 +214,55 @@ export function readSd(text: string): { records: SdRecord[]; left: number } {
     item = undefined;
   };
   for (const raw of text.split(/\r\n|\r|\n/)) {
-    if (/^\$\$\$\$/.test(raw)) { finish(); if (rec) records.push(rec); rec = undefined; line = 0; ended = false; continue; }
-    if (!rec) rec = { atoms: 0, items: [] };
+    if (item && (item.indigo || !/^(>|\$\$\$\$)/.test(raw))) {
+      if (!raw) finish();
+      else { item.size += raw.length; if (item.size <= 4 * MAX_VALUE) item.lines.push(raw); }
+      continue;
+    }
+    finish();
+    if (/^\$\$\$\$/.test(raw)) { if (rec) records.push(rec); rec = undefined; line = 0; ended = false; continue; }
+    rec ??= { atoms: 0, items: [], tagged: false };
     line++;
+    if (!ended && line > 4 && raw.startsWith(">")) ended = true;
     if (!ended) {
-      // The counts line (V2000: the fourth line's first three columns) or V3000's COUNTS.
-      if (line === 4 && /V2000/.test(raw)) rec.atoms = Number(raw.slice(0, 3)) || 0;
+      // The counts line (the fourth line's first three columns) or V3000's COUNTS.
+      if (line === 4 && !/V3000/.test(raw)) rec.atoms = Number(raw.slice(0, 3)) || 0;
       const v3 = /^M {2}V30 COUNTS (\d+)/.exec(raw);
       if (v3) rec.atoms = Number(v3[1]);
       if (/^M {2}END/.test(raw)) ended = true;
       continue;
     }
-    if (item) {
-      if (!raw.trim()) { finish(); continue; }
-      item.size += raw.length;
-      if (item.size <= 4 * MAX_VALUE) item.lines.push(raw);
-      continue;
-    }
     if (raw.startsWith(">")) {
-      const named = /<([^>]*)>/.exec(raw);
-      item = { name: named ? (cleanName(named[1]).slice(0, MAX_NAME + 1) || NO_NAME) : undefined, lines: [], size: 0 };
+      const named = /<([^>]*)>/.exec(raw), indigo = !!named?.[1];
+      item = { name: named ? (cleanName(named[1]).slice(0, MAX_NAME + 1) || NO_NAME) : undefined, lines: [], size: 0, indigo };
       if (item.name !== undefined && item.name.length > MAX_NAME) item.name = undefined;
+      if (indigo) rec.tagged = true;
     }
   }
   finish();
-  // A last record with no $$$$ (a molfile with data items) counts when it has a molfile.
-  if (rec && ended) records.push(rec);
+  // A last record with no $$$$ counts when it has a molfile (Indigo reads one with no M  END too).
+  if (rec && (ended || rec.atoms)) records.push(rec);
   return { records, left };
 }
-// The records' items as fields, on a drawing whose structures came from those records in order, each record's atoms
-// in a row (Indigo reads each record's molecules in turn; a record with no atoms has none). sizes: the atoms of each
-// molecule read, in order. A record whose atoms do not add up to whole molecules leaves its items out (counted).
-export function fieldsFromRecords(records: SdRecord[], sizes: number[]): { data?: DataField[]; left: number } {
-  const data: DataField[] = [];
-  let left = 0, mol = 0, base = 0;
+// The records' items as fields, on a drawing whose structures came from those records in order. mols: each molecule
+// Indigo read, in order, with its atoms and whether it has items. Indigo reads a record's molecules in turn (none from
+// a record with no atoms), and when the file has more than one record it puts the record's items on its first
+// molecule. So each record takes the molecules its atoms add up to, and the first has items when the record has a
+// header Indigo reads. Where that fails, or molecules are left over, Octet cannot tell where records and molecules
+// part, so every item is left out (counted) and none goes on another record's structure.
+export function fieldsFromRecords(records: SdRecord[], mols: { atoms: number; items: boolean }[]): { data?: DataField[]; left: number } {
+  const data: DataField[] = [], all = records.reduce((n, r) => n + r.items.length, 0), many = records.length > 1;
+  let mol = 0, base = 0;
   for (const r of records) {
-    if (!r.atoms) { left += r.items.length; continue; }
-    let n = 0;
-    const start = base;
-    while (n < r.atoms && mol < sizes.length) { n += sizes[mol]; base += sizes[mol]; mol++; }
-    if (n !== r.atoms) { left += r.items.length; continue; }
-    const atoms = Array.from({ length: n }, (_, k) => start + k);
-    for (const it of r.items) {
-      if (data.length >= MAX_DATA) { left++; continue; }
-      data.push({ name: it.name, atoms, value: it.value });
-    }
+    if (!r.atoms) continue;
+    const first = mol, start = base;
+    while (base - start < r.atoms && mol < mols.length) base += mols[mol++].atoms;
+    if (base - start !== r.atoms || (mols[first].items ? !r.tagged : r.tagged && many) || mols.slice(first + 1, mol).some((x) => x.items)) return { left: all };
+    const atoms = Array.from({ length: r.atoms }, (_, k) => start + k);
+    for (const it of r.items) if (data.length < MAX_DATA) data.push({ name: it.name, atoms, value: it.value });
   }
-  return { ...(data.length ? { data } : {}), left };
+  if (mol < mols.length) return { left: all };
+  return { ...(data.length ? { data } : {}), left: all - data.length };
 }
 
 // What a reader left out, by the drawing it read: said as "Octet left out 3 data fields." (oct.ts lostText).

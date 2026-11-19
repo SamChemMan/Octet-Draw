@@ -127,6 +127,14 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
   items after `M  END`, and matches each record with Indigo's molecule by order. A record with no atoms has no
   molecule in Indigo's result and is skipped. Where a record's atom count differs from its molecule's, its fields are
   left out.
+- Built (19 November, after review): Octet splits the records as Indigo does, so each record keeps its own molecules.
+  A counts line without `V2000` still gives the atoms. A value (a header with a `<name>` that is not empty) ends only
+  at an empty line, so a line in it that starts with `$$$$` or `>` is the value's, and a line of spaces is not empty.
+  A header ends the molfile, with or without `M  END`. A last record with no `M  END` and no `$$$$` counts. Each
+  record's first molecule has Indigo's own copy of its items when the file has two records or more, and that checks
+  the match. Where records and molecules do not match all the way (atoms that do not add up, items on the wrong
+  molecule, molecules left over), every item of the file is left out and said, so none goes on another record's
+  structure. A query file's items (R-groups, atom lists) are left out and said.
 - `fromKet` reads Data S-groups (`sgroups` of type `DAT`) as fields of their atoms. They start hidden.
 - Fields from a file are not shown (an SD file of 200 compounds with 10 fields each would bury its drawing).
 - What is left out is said, as for a ChemDraw file: "Octet left out 3 data fields." Every way in uses this: Open,
@@ -140,6 +148,8 @@ Each job is done when its lines hold and its checks pass (see Acceptance).
   `src/Cells.tsx`): Up and Down move between rows, a table pasted from a spreadsheet fills from the cell pasted in, a
   row left empty is left out. Shift+Return and Option+Return add a line to a value. Return saves. Escape cancels.
   Nothing changes the drawing until Save, and Save is one undo step.
+- Built (19 November, after review): text with line breaks and no tab pasted in a value stays in that value. A table
+  (text with tabs) still fills from the cell pasted in, and names pasted in the Name column fill down.
 - Built (17 November): a value's field is as high as every other field, with the caret's line in view. A field that
   grew with its lines failed `npm run look` (every `.unit-field` is `--size-control` high). Column names Name, Value
   and Show stand over the grid; the empty row has no placeholder text.
@@ -310,6 +320,8 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | S32 | Attach data… with nothing selected, or with an arrow selected | "Select a structure first." |
 | S33 | Indigo's own SD reader (apart from Octet's) on an SDF Octet wrote, V2000 and V3000, two records | Every item of each record, multi-line and Unicode values and empty ones too. Indigo keeps one item of a name (the last), as most readers do |
 | S34 | ChemDraw's raw line breaks inside Content: a structure's annotation, and a document annotation (Title) | The field's value keeps its lines (CR LF a line feed). The document annotation's breaks are spaces (XML's rule, issue 100's check) |
+| S35 | SD records that can slip: a counts line with no V2000 among V2000 and V3000 records, CRLF and CR, a record of three molecules, an empty record, `$$$$` and a line of spaces in a value, headers with no name or an empty one, a header before `M  END`, no `M  END`, a query record, and records and molecules that do not match | Each record's items on its own structure, as Indigo reads the records; what cannot be matched is left out and said, never moved to another structure |
+| S36 | Text with line breaks pasted in a value in the dialog; a table pasted in the Name and Value columns | The text stays in that value; the table fills from the cell pasted in |
 
 ## Acceptance
 
@@ -323,7 +335,7 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | `src/datafields.check.ts`: undo chain through `history.ts` | Rule 8; S15 |
 | `src/datafields.check.ts`: timing | J9; S25, S26 (median of interleaved runs, with and without fields) |
 | `src/datafieldsmcp.check.ts` (headless host) | J8; S22-S24, S28 |
-| `src/datafields-stress.check.ts` | Every case of the stress list but S18 and S19 (S1 to S34), each on its own |
+| `src/datafields-stress.check.ts` | Every case of the stress list but S18 and S19 (S1 to S36), each on its own |
 | `src/numbering.check.ts` and a chemistry check | Rule 7; S27 |
 | `npm run look` with the dialog in `sweep.js`, light and dark | J7; S20, S32 |
 | `npm test`, `cargo test` (the menu item) | Everything else still passes |

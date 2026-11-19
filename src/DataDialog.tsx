@@ -1,8 +1,9 @@
 // Attach Data (Object > Attach Data…, and Edit attached data… on a field's text): a structure's data fields in one grid
 // to type in, Add Chart's (Cells.tsx). Each row is a field's name, its value and whether it is shown under the
 // structure. There is always one empty row to type the next one in, and a table copied from a spreadsheet pastes from
-// the cell it is pasted in. A row with no name is left out. Shift+Return or Option+Return makes a new line in a value;
-// Return saves. Nothing changes the drawing until Save, which is one step to undo (datafields.ts setRows).
+// the cell it is pasted in. Text with line breaks and no tab pasted in a value stays in that value. A row with no name
+// is left out. Shift+Return or Option+Return makes a new line in a value; Return saves. Nothing changes the drawing
+// until Save, which is one step to undo (datafields.ts setRows).
 import { useState } from "react";
 import { Cells } from "./Cells";
 import { Dialog } from "./Dialog";

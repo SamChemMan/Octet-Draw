@@ -1,8 +1,9 @@
 // A grid of fields to type a table in: a chart's data (ChartDialog.tsx) and a structure's data fields (DataDialog.tsx).
 // head: the first row names the columns, and its first cell is empty. Up and Down move between rows. Paste fills from
-// the cell pasted in, and grows the grid as far as `most` rows and columns. kinds: a column's fields, one line of text
-// (the default), lines of text (one line in view, the caret's: Shift+Return or Option+Return makes a new line, and
-// Return does the dialog's action), or a switch. limit: the most characters a column's field takes.
+// the cell pasted in, and grows the grid as far as `most` rows and columns; text with no tab pasted in lines of text
+// stays in that field. kinds: a column's fields, one line of text (the default), lines of text (one line in view, the
+// caret's: Shift+Return or Option+Return makes a new line, and Return does the dialog's action), or a switch. limit:
+// the most characters a column's field takes.
 import { pastedRows, spare } from "./charts";
 import { Switch } from "./Fields";
 
@@ -36,9 +37,10 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
         if (!(next instanceof HTMLButtonElement)) next.select();
       }}
       onPaste={(e) => {
-        const rows = pastedRows(e.clipboardData.getData("text/plain"), most[0], most[1], Math.max(...Array.from({ length: cols }, (_, c) => limit(c))));
         const at = (e.target as HTMLElement).dataset;
-        if (!rows.length || at.r === undefined) return;
+        if (at.r === undefined) return;
+        const rows = pastedRows(e.clipboardData.getData("text/plain"), most[0], most[1], Math.max(...Array.from({ length: cols }, (_, c) => limit(c))), kind(Number(at.c)) === "lines");
+        if (!rows.length) return;
         e.preventDefault();
         // A whole table (a row of path names on top, a column of state names at the left) pasted at the top of the
         // sheet goes in from the corner, so its names name the paths and the states.
