@@ -94,7 +94,7 @@ for (const r of rules) {
   }
   const z = r.props.get("z-index");
   // Inside one component a part goes behind or in front of its siblings with a small number.
-  const LOCAL = [".spectrum-button[aria-pressed]::before", ".indicator", ".home-section.lifted::after", ".menu-head", ".home-section.lifted", ".remove-shade", ".folder-front"];
+  const LOCAL = [".spectrum-button[aria-pressed]::before", ".indicator", ".seg-thumb", ".home-section.lifted::after", ".menu-head", ".home-section.lifted", ".remove-shade", ".folder-front"];
   if (z) assert.ok(/^var\(--z-[\w-]+\)$/.test(z) || r.parts.some((p) => LOCAL.includes(p)), `${r.selector}: z-index ${z}; use a --z token`);
 }
 
