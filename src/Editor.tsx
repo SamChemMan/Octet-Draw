@@ -633,6 +633,10 @@ export default function Editor() {
   // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
   // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
+  // Octet started with OCTET_FEEDBACK=0 (a cluster's module file or a launcher script): no Feedback button, whatever
+  // Settings > Pro > Feedback button says (main.rs feedback_off).
+  const [feedbackOff, setFeedbackOff] = useState(false);
+  useEffect(() => { if (TAURI) invoke<boolean>("feedback_off").then(setFeedbackOff, () => {}); }, []);
   useEffect(() => {
     if (!__FEEDBACK__) return;
     const mac = navigator.platform.startsWith("Mac"), pressed = new Map<string, number>();
@@ -10869,6 +10873,9 @@ export default function Editor() {
           onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
           moreFormats={settings.moreFormats}
           onMoreFormats={(moreFormats) => setSettings((s) => ({ ...s, moreFormats }))}
+          feedbackButton={settings.feedbackButton}
+          onFeedbackButton={(feedbackButton) => setSettings((s) => ({ ...s, feedbackButton }))}
+          feedbackOff={feedbackOff}
           chemfigCompact={settings.chemfigCompact}
           onChemfigCompact={(chemfigCompact) => setSettings((s) => ({ ...s, chemfigCompact }))}
           selection={!madeTemplate && (selection.size || picked.size) ? { settings: objectSettings(doc, style, selection, picked), onChange: settingsTo,
@@ -11425,7 +11432,7 @@ export default function Editor() {
       <Exit>{notes && ownNotes && <WhatsNew release={ownNotes} onClose={() => setNotes(false)} />}</Exit>
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
-      <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
+      {settings.feedbackButton && !feedbackOff && <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />}
       <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
         lead={office && !office.gone && (
         // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >
