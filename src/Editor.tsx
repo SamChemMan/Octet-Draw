@@ -1403,14 +1403,16 @@ export default function Editor() {
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
   // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws. crop: only this
-  // box of it (bond lengths, y up), for an AI app that asked to see what a call changed.
-  function pictureOf(part: Mol, crop?: Box): string | undefined {
+  // box of it (bond lengths, y up), for an AI app that asked to see what a call changed. seen: given the ink, for
+  // Export…'s count of the pages it covers.
+  function pictureOf(part: Mol, crop?: Box, seen?: (ink?: [number, number, number, number]) => void): string | undefined {
     const canvas = svg.current;
     if (!canvas) return undefined;
     flushSync(() => setExporting(part));
     try {
       const ink = canvasInk(canvas), cut = ink && crop && ([Math.max(ink[0], crop[0] * L), Math.max(ink[1], -crop[3] * L), Math.min(ink[2], crop[2] * L), Math.min(ink[3], -crop[1] * L)] as Box);
       const box = cut && cut[2] > cut[0] && cut[3] > cut[1] ? cut : ink;
+      seen?.(ink);
       return box && standaloneSvg(canvas, box, 1 / pt);
     } finally {
       flushSync(() => setExporting(undefined));
@@ -1536,10 +1538,12 @@ export default function Editor() {
     return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked, drawnAt, drawnAlign) }).part;
   };
   // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
-  // selected, the selection's. The chosen format is made when the dialog shows it. Then the Save dialog for that format.
+  // selected, the selection's, and the document pages each covers (PDF > Pages > Document pages). The chosen format is
+  // made when the dialog shows it. Then the Save dialog for that format.
   function openExport() {
-    const sel = selectedPart();
-    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), parts: { all: doc, selection: sel } });
+    const sel = selectedPart(), [, w, h] = pages[0], sheets: NonNullable<typeof exportView>["sheets"] = {};
+    const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { sheets[k] = pagesOver(ink ?? [0, 0, 0, 0], w * mm * L, h * mm * L); };
+    setExportView({ all: pictureOf(doc, undefined, over("all")), selection: sel && pictureOf(sel, undefined, over("selection")), parts: { all: doc, selection: sel }, sheets });
   }
   const filePrefs = settings.files;
   // What Export sends the app for `mol` in f.format, its picture `svg` (pictureOf) as the format saves it: only what the
@@ -1575,9 +1579,9 @@ export default function Editor() {
       return;
     }
     const path = await exportAs(() => {
-      // An experiment page's PDF is its pages, as Print gives them: the experiment, then its risk assessment.
-      const sheets = f.format === "pdf" && part === "all" && expPage ? pagePictures(mol) : undefined;
-      if (f.format === "pdf" && part === "all" && expPage && !sheets) return;
+      // PDF > Pages > Document pages (always, for an experiment page): the pages, as Print gives them.
+      const paged = f.format === "pdf" && ((part === "all" && expPage) || f.pdfPages === "document"), sheets = paged ? pagePictures(mol) : undefined;
+      if (paged && !sheets) return;
       return { ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts };
     });
     if (path) setExportView(undefined);
@@ -3828,7 +3832,7 @@ export default function Editor() {
   // Option held at the last press, with any tool (Option-click opens or repeats a label).
   const pressAlt = useRef(false);
   const pressCtrlCopy = useRef(false); // Ctrl at the press made this a copy-drag (Windows and Linux): see skipsCycle
-  const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
+  const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol }; sheets: { all?: ReturnType<typeof pagesOver>; selection?: ReturnType<typeof pagesOver> } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string; targets: number[]; q: AtomQuery; q0: AtomQuery; reset?: true }
     | { kind: "contract"; text: string; keep: number; group: number[]; want?: string; warn?: string }
@@ -11975,6 +11979,7 @@ export default function Editor() {
       )} />
       <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView} page={pageColour(style)}
+          paper={{ name: pages[0][0], w: pages[0][1], h: pages[0][2] }} sheets={exportView.sheets} paged={!!expPage}
           chemistry={(part) => {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
             // when the part can have them, and made when they are chosen.

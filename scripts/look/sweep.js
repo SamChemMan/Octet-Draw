@@ -1,5 +1,5 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
+// drawing, the Structure panel, Export… with document pages, the spectrum panel with two tabs, the template library, a caption with the paste
 // offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
@@ -56,6 +56,18 @@ await measure("the Structure panel", !!(await until(() => labelled("Add a captio
 labelled("Show the Properties panel")?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
+await wait(600);
+
+// Export…: PDF with Pages > Document pages, the pages as the preview, then One page again.
+document.querySelector(".export-button")?.click();
+await wait(400);
+(await until(() => document.querySelector('.export-menu [data-item="export"]'), 2000))?.click();
+const pagesRow = await until(() => labelled("Pages"), 4000);
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Document pages")?.click();
+await measure("Export… with document pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "One page")?.click();
+await wait(300);
+key({ key: "Escape" });
 await wait(600);
 
 // The spectrum panel: one tab, then two (each with its X, and the + after them).

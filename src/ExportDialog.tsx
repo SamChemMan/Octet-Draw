@@ -1,8 +1,8 @@
 // Export: a button that stays at the top right of the window. It opens a menu with Quick export (straight to the Save
 // dialog, in the format Settings > Import and export > Quick export picks, PNG at first, with the saved settings) and
 // Export…, which shows the settings first: what to export, the
-// format, a raster picture's resolution (or its size in pixels), background and JPEG quality, the margin, and a preview
-// with the size it will come out at. Print… prints what the dialog would export (the whole drawing or the selection)
+// format, a raster picture's resolution (or its size in pixels), background and JPEG quality, a PDF's pages, the margin,
+// and a preview with the size it will come out at. Print… prints what the dialog would export (the whole drawing or the selection)
 // as File > Print does, every page it covers at true size.
 import { useEffect, useRef, useState } from "react";
 import { CaretUpDown, DownloadSimple, Export as ExportIcon, ImageSquare } from "@phosphor-icons/react";
@@ -11,12 +11,16 @@ import { Menu, Pick } from "./Menu";
 import { Exit } from "./motion";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
+import { MAX_PRINT_PAGES, type pagesOver } from "./docstyle";
 import { EXPORT_FORMATS as FORMATS, DPI_MAX, DPI_MIN, DPIS, dpiFor, pictureAs, PICTURES, pixelsAt, RASTERS, shortName, tooLarge } from "./export";
 import type { ExportFormat } from "./export";
 import type { FilePrefs } from "./SettingsWindow";
 
 // A raster picture's background: "page" is the drawing's own page colour, white for a drawing that has none.
 export const BACKDROPS: [FilePrefs["background"], string][] = [["transparent", "Transparent"], ["white", "White"], ["page", "Page colour"]];
+// A PDF's pages: one page cropped to the drawing, or a page for each page of the document's paper it covers, as File >
+// Print lays them out.
+export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "Document pages"]];
 
 // The resolution, in Export… and Settings: any dpi typed, or one of the usual ones from the list beside it.
 export function DpiField({ value, onChange }: { value: number; onChange: (dpi: number) => void }) {
@@ -60,14 +64,17 @@ export function ExportButton({ quick, selected, onQuick, onExport, hint, lead }:
   );
 }
 
-export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin" | "quality"> & { format: ExportFormat };
+export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin" | "quality" | "pdfPages"> & { format: ExportFormat };
+type Sheets = ReturnType<typeof pagesOver>;
 
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
-// selection (standaloneSvg, in pt, no margin). page: the drawing's page colour, when it has one. Changes are kept as
-// the next export's defaults.
-export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExport, onPrint, onClose }: {
+// selection (standaloneSvg, in pt, no margin). page: the drawing's page colour, when it has one. paper: the document's
+// page (its name, and its width and height in mm); sheets: the pages of it each part covers (pagesOver). paged: the
+// whole drawing's PDF is always its pages (an experiment page). Changes are kept as the next export's defaults.
+export function ExportDialog({ prefs, onPrefs, pictures, page, paper, sheets, paged, chemistry, onExport, onPrint, onClose }: {
   prefs: ExportSettings; onPrefs: (p: Partial<ExportSettings>) => void; page?: string;
   pictures: { all?: string; selection?: string };
+  paper: { name: string; w: number; h: number }; sheets: { all?: Sheets; selection?: Sheets }; paged?: boolean;
   chemistry: (part: "all" | "selection") => Partial<Record<ExportFormat, boolean>>;
   onExport: (part: "all" | "selection") => void; onPrint: (part: "all" | "selection") => void; onClose: () => void;
 }) {
@@ -84,18 +91,27 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExpo
   const backdrop = backdrops.some(([b]) => b === prefs.background) ? prefs.background : "white";
   // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
   const ok = usable.some(([f]) => f === format);
+  // PDF > Pages > Document pages: how many, too many (Print's limit), and the preview as the pages, the drawing where it
+  // sits on them (the picture's viewBox is its place in pt, as the pages are).
+  const fixed = paged && part === "all", pages = format === "pdf" && (fixed ? "document" : prefs.pdfPages);
+  const sheet = pages === "document" ? sheets[part] : undefined, many = !!sheet && sheet.count > MAX_PRINT_PAGES;
+  const sheetsView = sheet && !many && picture ? sheetsPreview(picture, sheet, paper) : undefined;
+  const paperName = /mm$/.test(paper.name) || paper.w <= paper.h ? paper.name : `${paper.name} landscape`;
   // The preview is white paper in both themes, so it and the text on it take the light theme's colours.
   return (
-    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok || big} alt={{ label: "Print…", onClick: () => onPrint(part) }}>
+    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok || big || many} alt={{ label: "Print…", onClick: () => onPrint(part) }}>
       <div className={["export-preview", svg && clear && "transparent"].filter(Boolean).join(" ")} data-theme="light">
-        {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
+        {sheetsView ?? (svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>)}
       </div>
-      {size.length === 2 && (
+      {sheet ? (
+        <p className="export-size">{sheet.count === 1 ? "1 page" : `${sheet.count.toLocaleString()} pages`} · {paperName}</p>
+      ) : size.length === 2 && (
         <p className="export-size">
           {mm(size[0])} × {mm(size[1])} mm{raster ? ` · ${px[0].toLocaleString()} × ${px[1].toLocaleString()} px` : ""}
         </p>
       )}
       {big && <p className="export-size export-big" role="alert">Too large. Choose a lower resolution.</p>}
+      {many && <p className="export-size export-big" role="alert">{`Too many pages. Octet exports ${MAX_PRINT_PAGES} at most.`}</p>}
       {pictures.selection && (
         <Segmented label="What to export" value={part} onChange={setPart} options={[["all", "Whole drawing"], ["selection", "Selection"]]} />
       )}
@@ -124,11 +140,31 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, chemistry, onExpo
           <NumberField label="Quality" unit="%" min={1} max={100} step={5} value={prefs.quality} onChange={(n) => onPrefs({ quality: Math.round(n) })} />
         </label>
       )}
-      {isPicture && (
+      {format === "pdf" && (
+        <div className="dialog-row"><span>Pages</span>
+          <Segmented label="Pages" value={pages || "one"} options={PDF_PAGES.map(([v, name]) => [v, name, undefined, fixed && v === "one"])} onChange={(pdfPages) => onPrefs({ pdfPages })} />
+        </div>
+      )}
+      {isPicture && !sheet && (
         <label className="dialog-row"><span>Margin</span>
           <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={prefs.margin} onChange={(n) => onPrefs({ margin: n })} />
         </label>
       )}
     </Dialog>
+  );
+}
+
+// Document pages' preview: the pages at their size, the drawing (a standaloneSvg, its viewBox in pt) where it sits on
+// them. The picture comes in as an <image>, so it is drawn as the export's <img> is.
+function sheetsPreview(picture: string, sheet: Sheets, paper: { w: number; h: number }) {
+  const [w, h] = [(paper.w * 72) / 25.4, (paper.h * 72) / 25.4], box = (/viewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/.exec(picture) ?? []).slice(1).map(Number);
+  if (box.length !== 4 || !sheet.pages.length) return undefined;
+  const is = sheet.pages.map(([i]) => i), js = sheet.pages.map(([, j]) => j);
+  const [x0, y0] = [(Math.min(...is) - 0.5) * w, (Math.min(...js) - 0.5) * h], [x1, y1] = [(Math.max(...is) + 0.5) * w, (Math.max(...js) + 0.5) * h];
+  return (
+    <svg className="export-sheets" viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`} role="img" aria-label="Preview">
+      {sheet.pages.map(([i, j]) => <rect key={`${i} ${j}`} x={(i - 0.5) * w} y={(j - 0.5) * h} width={w} height={h} />)}
+      <image href={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(picture)}`} x={box[0]} y={box[1]} width={box[2]} height={box[3]} />
+    </svg>
   );
 }
