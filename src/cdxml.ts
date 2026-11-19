@@ -22,7 +22,8 @@ import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle,
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
-import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
+import { fragments, groupParents, markDirections, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
+import type { StereoText } from "./stereonames.ts";
 import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub } from "./render.ts";
@@ -284,6 +285,11 @@ export type CdxmlOptions = {
   // one colour and font table that each drawing adds its own to (the last one written has them all).
   firstId?: number;
   tables?: { colours: string[]; fonts: string[] };
+  // What Show Stereochemistry draws beside each atom (stereonames.ts stereoTexts). The names Octet adds (D and L,
+  // steroid alpha and beta, undefined marks) have no CDXML attribute: they go as plain text, and the atom's
+  // ShowAtomStereo is no, so ChemDraw does not add its own R or S beside them (Octet's own data keeps Show
+  // Stereochemistry on for those atoms).
+  stereoTexts?: (m: Mol) => Map<number, StereoText>;
 };
 // The one version is package.json's (REL-9).
 const PROGRAM = `Octet ${pkg.version}`;
@@ -421,6 +427,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     put(el("t", { id: fresh(), p: pt(p), BoundingBox: boxText([left, p[1] - 0.716 * size, left + w, p[1]]), Z: Z(), color: colour(c), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED },
       run(text, { font: style.captionFont, size, colour: c, face: 0 })), 2, [left, p[1] - size, left + w, p[1]], item);
   };
+  // Show Stereochemistry's added names, as text beside the atom in the widest gap between its bonds, in the caption font
+  // at 80%: D or L upright, R or S italic, an undefined mark grey.
+  const stereoAdded = new Map([...(opts.stereoTexts?.(mol) ?? [])].filter(([i, t]) => t.added && mol.atoms[i]?.cip));
+  for (const [i, way] of markDirections(mol, [...stereoAdded.keys()])) {
+    const t = stereoAdded.get(i)!, a = mol.atoms[i], f = a.scale ?? 1, size = style.captionSize * 0.8 * f, ink = t.muted ? "#475569" : a.colour;
+    // Centred on a point out along the gap: further out the wider the text and the more sideways the gap, so its ends
+    // keep clear of the bonds either side.
+    const text = (t.prefix ?? "") + t.text, w = widthOf(text, size), out = 0.55 * f + (Math.abs(way[0]) * w) / 2 / style.bond;
+    const p = at([a.location[0] + way[0] * out, a.location[1] + way[1] * out]), left = p[0] - w / 2, just = "Center", base: P = [p[0], p[1] + 0.35 * size];
+    put(el("t", { id: fresh(), p: pt(base), BoundingBox: boxText([left, base[1] - 0.716 * size, left + w, base[1]]), Z: Z(), color: colour(ink), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED },
+      (t.prefix ? run(t.prefix, { font: style.captionFont, size, colour: ink, face: 0 }) : "") + run(t.text, { font: style.captionFont, size, colour: ink, face: t.upright ? 0 : 2 })), 2, [left, base[1] - size, left + w, base[1]]);
+  }
 
   // Shapes: boxes and ovals as graphics with their 3D frame (spec 9.2), turned as drawn, brackets as one graphic a
   // side, TLC plates, and tables as a group of lines and text that ChemDraw shows, with the table itself in Octet's
@@ -760,14 +778,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       RxnChange: aq?.change ? "yes" : undefined, RxnStereo: aq?.stereo && { inversion: "Inversion", retention: "Retention" }[aq.stereo], Translation: aq?.translation && { broad: "Broad", narrow: "Narrow", any: "Any" }[aq.translation],
       IsotopicAbundance: aq?.abundance && ABUNDANCES[aq.abundance], AbnormalValence: aq?.valence ? "yes" : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
-      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number ?? a.hiddenNumber, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
+      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? (stereoAdded.has(i) ? "no" : "yes") : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number ?? a.hiddenNumber, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
       // A fragment's or alternative group's bonds in order; or a stereocentre's kept configuration, as ChemDraw stores it.
       BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : kept ? kept.map((j) => (j < 0 ? 0 : bondId[bondsAt[i].find((k) => mol.bonds[k].atoms.includes(j))!])).join(" ") : undefined,
       Geometry: !(inner || alternatives.length) && kept ? "Tetrahedral" : undefined,
       // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
-      Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
+      Octet: priv({ cip: stereoAdded.has(i) ? 1 : undefined, hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
     }, (inner ? nested(i, inner, !!known && !opts.own?.(a.text!)) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
@@ -1752,6 +1770,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const enhanced = { Absolute: "abs", And: `&${g}`, Or: `or${g}` }[n.attrs.EnhancedStereoType ?? ""];
     if (enhanced) a.enhanced = enhanced;
     const p = priv(n);
+    // Show Stereochemistry with a name Octet adds (written ShowAtomStereo no, so ChemDraw shows the name only).
+    if (p?.cip === 1) a.cip = true;
     if (p?.hmark === "dot" || p?.hmark === "dash") a.hmark = p.hmark;
     if (p?.partial === "+" || p?.partial === "-") a.partial = p.partial;
     if (yes(n.attrs.ShowPerspective)) a.shade = isNum(p?.opacity, 0.01, 0.99) ? (p!.opacity as number) : true; // with any opacity set by hand
