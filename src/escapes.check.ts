@@ -6,12 +6,16 @@ import { readFileSync } from "node:fs";
 import { ESCAPES, expandEscapes, expandRuns, keptText } from "./escapes.ts";
 import { markupRuns } from "./experiment.ts";
 import { CHAR_GROUPS, charName } from "./chars.ts";
+import type { Mol } from "./render.ts";
 
 // Names, exactly as LaTeX's.
 for (const [typed, kept] of [
   ["\\delta+", "δ+"], ["h\\nu", "hν"], ["\\Delta G\\ddagger", "Δ G‡"], ["\\lambda_max", "λ_max"], ["A \\to B", "A → B"], ["\\alpha-D-glucose", "α-D-glucose"],
   ["\\leq", "≤"], ["x \\leq 5", "x ≤ 5"], ["\\neq", "≠"], ["\\geq", "≥"], ["\\cdots", "⋯"], ["\\pm", "±"], ["\\mu", "μ"], ["\\AA", "Å"], ["25 \\degree C", "25 ° C"],
   ["\\Delta T", "Δ T"], ["\\Delta{}T", "ΔT"], ["\\sum", "∑"], ["\\Sigma", "Σ"],
+  // Issue 60: a circled charge standing on its own, away from any atom. The Character Map has had both all along;
+  // these are the names for typing them, so the two ways to type a character agree.
+  ["\\oplus", "⊕"], ["\\ominus", "⊖"], ["R\\oplus + X\\ominus", "R⊕ + X⊖"],
   // Stays as typed: not a name (exactly), a path, a doubled backslash.
   ["\\DeltaT", "\\DeltaT"], ["\\leqq", "\\leqq"], ["\\number", "\\number"], ["C:\\new\\data", "C:\\new\\data"], ["\\temp\\pictures", "\\temp\\pictures"],
   ["\\\\delta", "\\\\delta"], ["\\", "\\"], ["\\constructor", "\\constructor"], ["\\toString", "\\toString"], ["no backslash", "no backslash"],
@@ -68,6 +72,8 @@ for (const [group, cs] of CHAR_GROUPS) {
   assert.equal(new Set(cs).size, cs.length, `${group}: each character once`);
   for (const ch of cs) assert.ok(charName(ch) !== ch && charName(ch).length > 2, `${ch} has a name`);
 }
+// Issue 60: the circled charges are in the map and have a name to type them by, so neither way is the only way.
+for (const ch of "⊕⊖") assert.ok(all.includes(ch) && Object.values(ESCAPES).includes(ch), `${ch} is in the map and has a name`);
 assert.equal(charName("δ"), "Greek delta");
 assert.equal(charName("Δ"), "Greek capital delta");
 assert.equal(charName("₂"), "Subscript two");
@@ -106,5 +112,46 @@ assert.match(map, /if \(field\.current && focus\) box\.current\?\.querySelector<
 assert.match(map, /onClick=\{\(e\) => type\(ch, e\.detail === 0\)\}/);
 assert.match(map, /if \(keyboard && inMap\(from\)\)/);
 assert.equal(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8").match(/onClick=\{\(\) => run\("char_map"\)\}/g)?.length, 2);
+
+// \oplus and \ominus (PR #124) in every place text is typed: the experiment page's markup reads the same table. The
+// characters stay through .oct, CDXML and CDX (the clipboard carries the same), and CDXML holds them as ChemDraw 22.2
+// writes a character outside Mac Roman: itself, in the run (π, → and δ in Arial in Sam's corpus). Chemfig code writes
+// the names back.
+assert.equal(markupRuns([{ text: "R\\oplus" }]).map((r) => r.text).join(""), "R⊕");
+{
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts"), { readCdx, readOct, writeCdx, writeOct } = await import("./oct.ts");
+  const { DEFAULT_STYLE } = await import("./docstyle.ts"), { texText } = await import("./chemfig.ts");
+  const text = expandEscapes("R\\oplus + X\\ominus"), m: Mol = { atoms: [], bonds: [], captions: [{ id: 1, text, x: 0, y: 0 }] };
+  const x = toCdxml(m, DEFAULT_STYLE);
+  assert.match(x, />R⊕ \+ X⊖<\/s>/);
+  for (const back of [fromCdxml(x).mol, readOct(writeOct(m, DEFAULT_STYLE)).mol, readCdx(writeCdx(m, DEFAULT_STYLE)).mol]) assert.equal(back.captions?.[0].text, "R⊕ + X⊖");
+  assert.equal(texText(text).tex, "R\\oplus\\mbox{ }+\\mbox{ }X\\ominus");
+}
+// A ⊕ or ⊖ typed as a caption by a structure is its charge, as the free circled charge there is (#164 free symbols,
+// mixtures.ts symbolOwners): it goes with the structure in a reaction, and is never a reaction's plus sign.
+{
+  const { isChargeText, symbolOwners } = await import("./mixtures.ts"), { addArrow, addCaption, addShape } = await import("./edit.ts");
+  const { findReaction } = await import("./reaction.ts"), { freeSymbol } = await import("./render.ts");
+  for (const t of ["⊕", "⊖", "2⊕", "3⊖", "⊕2", " ⊖ "]) assert.ok(isChargeText(t), t);
+  for (const t of ["⊕⊕", "R⊕", "⊕ + ⊖", "2⊕3"]) assert.ok(!isChargeText(t), t);
+  const at = (x: number, y = 0) => ({ label: "C", location: [x, y, 0] as [number, number, number] });
+  const ink = (mol: Mol) => (atoms: number[]) => { const q = atoms.map((i) => mol.atoms[i].location); return [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))] as [number, number, number, number]; };
+  const cbox = (mol: Mol) => (id: number) => { const c = mol.captions?.find((k) => k.id === id); return c ? [c.x - 0.15, c.y - 0.15, c.x + 0.15, c.y + 0.15] as [number, number, number, number] : undefined; };
+  let ab: Mol = { atoms: [at(-3), at(-2), at(0), at(1), at(4), at(5)], bonds: [{ atoms: [0, 1], order: 1 }, { atoms: [2, 3], order: 1 }, { atoms: [4, 5], order: 1 }] as Mol["bonds"] };
+  [ab] = addArrow(ab, { kind: "reaction", from: [2, 0.3], to: [3.4, 0.3] });
+  const boxes = (mol: Mol) => [ink(mol)([0, 1]), ink(mol)([2, 3])];
+  // Raised at the top right, level, and in the gap between two: each where the free circled charge is.
+  for (const [sign, kind] of [["⊕", "circledPlus"], ["⊖", "circledMinus"]] as const) for (const [cx, cy] of [[1.25, 0.25], [1.25, 0], [-1.6, 0], [-1, 0], [6, 3]]) {
+    // (The caption's box is the free symbol's, so only the rule differs, if anything does.)
+    const sh = freeSymbol(kind, [cx, cy], 0.3), box = [Math.min(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1]), Math.max(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])] as [number, number, number, number];
+    const [t, tid] = addCaption(ab, { text: sign, x: cx, y: cy }), [f, fid] = addShape(ab, sh);
+    assert.equal(symbolOwners(t, boxes(t), () => box).get(tid), symbolOwners(f, boxes(f)).get(fid), `${sign} at ${cx},${cy}`);
+    const r = findReaction(t, t.arrows![0].id, t.arrows!, ink(t), cbox(t))!;
+    assert.ok(!r.steps.some((s) => s.kind === "plus"), `${sign} at ${cx},${cy} is no plus sign`);
+  }
+  const [t, tid] = addCaption(ab, { text: "⊕", x: 1.25, y: 0.25 });
+  assert.equal(symbolOwners(t, boxes(t), cbox(t)).get(tid), 1, "⊕ at a structure's top right is its own");
+  assert.ok(findReaction(t, t.arrows![0].id, t.arrows!, ink(t), cbox(t))!.captions.includes(tid));
+}
 
 console.log("escapes: ok");
