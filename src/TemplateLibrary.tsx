@@ -343,6 +343,8 @@ export function LibraryPanel(p: TemplateActions & {
     }
     return exactFirst(found, typed);
   }, [open, typed, categories, named]);
+  // A new search or another set starts at the top of the grid, so its first template shows.
+  useLayoutEffect(() => { grid.current?.scrollTo(0, 0); }, [typed, category]);
   // A set of the user's is in the order the user gives it: by drag, or Move to start and Move to end.
   const ordering = !query && open.own;
   const order = useOrder(grid, ordering ? p.onPlace : undefined, shown.map((t) => t.kind).join("\n"));

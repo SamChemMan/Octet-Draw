@@ -729,6 +729,13 @@ await check("N24", "Library search per keystroke over every template stays withi
   assert.ok(now <= was * 1.5 + 0.05, `${now.toFixed(2)} ms against ${was.toFixed(2)} ms`);
 }));
 
+// Found in the browser on f06d1b4: the library grid kept the set's scroll when the results took its place, so EnT's
+// first result, Energy transfer, was above the view (and another set opened as far down as the last one was).
+await check("N26", "A new search or another set in the library starts at the top of its grid, so the first result shows", () => {
+  const panel = readFileSync(new URL("./TemplateLibrary.tsx", import.meta.url), "utf8");
+  assert.match(panel, /useLayoutEffect\(\(\) => \{ grid\.current\?\.scrollTo\(0, 0\); \}, \[typed, category\]\);/);
+});
+
 await check("N25", "library-more.json, read as the app reads it once its window is idle: no slower than at the base beyond 25%", () => timed(() => {
   const root = fileURLToPath(new URL("..", import.meta.url));
   let base: string;
