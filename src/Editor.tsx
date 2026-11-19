@@ -77,8 +77,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
-import { chemfig } from "./chemfig";
-import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
+import { chemfig, type Scheme, type SchemeItem } from "./chemfig";import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
@@ -87,7 +86,7 @@ import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { inkOn, richSpans } from "./richspans";
-import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
+import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction, type Step } from "./reaction";
 import { clearScheme, interpret, mapScheme, rolesOf, turnScheme, type Part, type Role } from "./interpret";
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
@@ -98,7 +97,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, bracketPath, routeOf } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, setPseudoReader, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -1578,7 +1577,12 @@ export default function Editor() {
   // chemfig code (chemfig.ts) for a part of the drawing, and what the notice says it leaves out: the one writer for
   // Export LaTeX (chemfig)…, Copy as LaTeX (chemfig) and an AI app's read. compact: Settings > Pro > Compact chemfig
   // code, unless an AI app asks.
-  const chemfigOf = (mol: Mol, compact = settings.chemfigCompact) => chemfig(mol, frame, measure, { compact });
+  // The drawing or the selection comes with its reactions as schemes and its R/S and E/Z labels where Show
+  // Stereochemistry shows them; another part (an AI app's ids) with neither.
+  const chemfigOf = (mol: Mol, compact = settings.chemfigCompact) => {
+    const own = mol === doc || mol === selectedPart(), labels = own && loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined;
+    return chemfig(mol, frame, measure, { compact, schemes: own ? schemesIn(mol) : undefined, stereo: labels && { ...labels, parens: settings.stereoParens } });
+  };
   // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code in a .tex file.
   // chemfig draws structures only, so the notice names what was left out.
   async function exportChemfig() {
@@ -4283,6 +4287,26 @@ export default function Editor() {
     return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structureAtoms(s.reactants), products: structureAtoms(s.products), agents: structureAtoms([...s.above, ...s.below]) }))
       .filter((s) => s.reactants.length && s.products.length && (!at || [...s.reactants, ...s.products, ...s.agents].flat().every((i) => at.has(i))))
       .map((s) => (at ? { reactants: s.reactants.map((g) => g.map((i) => at.get(i)!)), products: s.products.map((g) => g.map((i) => at.get(i)!)), agents: s.agents.map((g) => g.map((i) => at.get(i)!)) } : s));
+  };
+  // The reactions in a part of the drawing (the drawing, or the selection's part) as the chemfig code takes them
+  // (chemfig.ts Scheme): each reaction's row in order and each arrow's conditions, by the part's atoms and the ids of
+  // its text, plus signs and arrows. A reaction comes only when its row is all in the part; a condition that is not in
+  // the part is left out. From konokonekonoko's pull request 127.
+  const schemesIn = (part: Mol): Scheme[] => {
+    const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
+    const ids = new Set([...(part.captions ?? []).map((c) => c.id), ...(part.arrows ?? []).map((a) => a.id), ...(part.shapes ?? []).map((x) => x.id)]);
+    const item = (p: Step): SchemeItem | undefined => {
+      if (p.kind === "text") return ids.has(p.id) ? { caption: p.id } : undefined;
+      if (p.kind !== "structure") return undefined;
+      if (!at) return { atoms: p.atoms };
+      return p.atoms.every((i) => at.has(i)) ? { atoms: p.atoms.map((i) => at.get(i)!) } : undefined;
+    };
+    return reactions().flatMap(({ r, steps }) => {
+      const row = r.steps.map((s) => (s.kind === "plus" || s.kind === "arrow" ? (ids.has(s.id) ? (s.kind === "plus" ? { plus: s.id } : { arrow: s.id }) : undefined) : item(s)));
+      if (!row.length || row.some((x) => !x)) return [];
+      const side = (k: "above" | "below") => new Map(steps.map((s) => [s.arrow, s[k].flatMap((p) => item(p) ?? [])]));
+      return [{ row: row as Scheme["row"], above: side("above"), below: side("below") }];
+    });
   };
   // ChemDraw's reaction shortcut: a reaction arrow (the Arrow tool's straight arrow) and a copy of the selected
   // structures (or the structure under the pointer) beyond it, that way, spaced as Clean Up Reaction spaces a reaction.
@@ -7764,11 +7788,10 @@ export default function Editor() {
     stereo.bonds.forEach((c, k) => {
       const b = shown.bonds[k];
       if (!c || !b || !shown.atoms[b.atoms[0]]?.cip) return;
-      // Beside the middle of the double bond, on the side with fewer neighbours.
-      const [p, q] = b.atoms.map((i) => pos(shown, i)), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
-      const side = shown.bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = pos(shown, b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
-      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
-      out.push({ key: `b${k}`, x: (mx + side * nx * 0.5 * f) * L, y: -(my + side * ny * 0.5 * f) * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
+      // Beside the middle of the double bond, on the side with fewer neighbours (render.ts stereoSpot, which the
+      // chemfig code uses too).
+      const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2, [x, y] = stereoSpot(shown.bonds, b, (i) => pos(shown, i) as [number, number], f);
+      out.push({ key: `b${k}`, x: x * L, y: -y * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
     });
     return out;
   }

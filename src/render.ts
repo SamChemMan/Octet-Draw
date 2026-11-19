@@ -2286,6 +2286,14 @@ export function fitArrows(mol: Mol, scale: number, width: (c: Caption) => number
   });
 }
 
+// Where Show Stereochemistry puts a double bond's (E) or (Z): beside the bond's middle, half a bond (times f, the
+// bond's scale) out on the side with fewer neighbours. at: an atom's place (drawing units, y up).
+export function stereoSpot(bonds: Bond[], b: Bond, at: (i: number) => [number, number], f: number): [number, number] {
+  const [p, q] = b.atoms.map(at), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
+  const side = bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = at(b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
+  return [mx + side * nx * 0.5 * f, my + side * ny * 0.5 * f];
+}
+
 // The middle of a curved arrow's arc, in drawing coordinates.
 export function bendPoint(a: Arrow): [number, number] {
   const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]), b = a.bend ?? 0;

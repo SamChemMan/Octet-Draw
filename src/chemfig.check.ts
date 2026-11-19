@@ -11,9 +11,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { nesting, texLint } from "../scripts/chemfiglint.ts";
+import { chemfigBlocks, nesting, texLint } from "../scripts/chemfiglint.ts";
 import { browser } from "../scripts/checkkit.ts";
-import { chemfig, texText, toChemfig, WAVY_NOTE } from "./chemfig.ts";
+import { chemfig, texText, toChemfig, TWICE_NOTE, WAVY_ARROW_NOTE, WAVY_NOTE, type ChemfigOptions, type Scheme } from "./chemfig.ts";
 import { ESCAPES } from "./escapes.ts";
 import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
@@ -94,7 +94,7 @@ function read(code: string, where: string): Read {
   texLint(code, where);
   const lines = code.split("\n");
   let k0 = 0;
-  while (lines[k0]?.startsWith("%")) { assert.equal(lines[k0], WAVY_NOTE, `${where}: comment`); k0++; }
+  while (lines[k0]?.startsWith("%")) { assert.ok([WAVY_NOTE, WAVY_ARROW_NOTE, TWICE_NOTE].includes(lines[k0]), `${where}: comment ${lines[k0]}`); k0++; }
   const all = lines.slice(k0).join("\n");
   assert.ok(all.startsWith("\\chemfig{") && all.endsWith("}"), `${where}: one \\chemfig{…} and nothing after it`);
   assert.ok(!/(^|[^\\])#/.test(all), `${where}: # outside \\#`);
@@ -123,6 +123,8 @@ function read(code: string, where: string): Read {
     let text = "";
     while (i < body.length && !/[\s\-=~<>()*]/.test(body[i])) {
       const ch = body[i];
+      // A node's name (@{name}, for \chemmove and \polymerdelim): letters and digits.
+      if (ch === "@") { const m = /^@\{([A-Za-z0-9]+)\}/.exec(body.slice(i)); assert.ok(m, `${where}: node ${body.slice(i, i + 20)}`); i += m[0].length; continue; }
       if (ch === "?") {
         i++;
         assert.equal(body[i], "[", `${where}: hook without [`);
@@ -249,24 +251,32 @@ function places(mol: Mol): P[] {
 }
 // A drawing's code, readable and compact, read strictly and replayed: each atom within 0.02 bond lengths of the page,
 // and a fused ring's last corner on its atom. The readable lines, trimmed and joined, are the compact code.
-function check(name: string, mol: Mol, tolerance = 0.02) {
-  const trace: number[] = [], r = chemfig(mol, S, ink, { trace }), c = chemfig(mol, S, ink, { compact: true });
-  if (!r.code) return { ...r, read: undefined, compact: c.code };
-  const [lead, rest] = r.code.startsWith("%") ? [r.code.slice(0, r.code.indexOf("\n") + 1), r.code.slice(r.code.indexOf("\n") + 1)] : ["", r.code];
-  assert.equal(lead + rest.split("\n").map((l) => l.trim()).join(""), c.code, `${name}: readable and compact differ`);
+// more: the writer's other options (schemes, stereo labels). A code of several \chemfig commands (schemes, names) has
+// each read and replayed on its own, from its first atom; the text round them is read by texLint.
+// Readable lines end with % only in a scheme, where the join takes it off.
+const joinedLines = (code: string) => code.split("\n").map((l) => (l.startsWith("%") ? `${l}\n` : l.trim().replace(/(?<!\\)%$/, ""))).join("");
+function check(name: string, mol: Mol, tolerance = 0.02, more: ChemfigOptions = {}) {
+  const trace: number[] = [], starts: number[] = [], r = chemfig(mol, S, ink, { ...more, trace, blocks: starts }), c = chemfig(mol, S, ink, { ...more, compact: true });
+  if (!r.code) return { ...r, read: undefined, reads: [], compact: c.code };
+  assert.equal(joinedLines(r.code), c.code, `${name}: readable and compact differ`);
   assert.equal(r.notice, c.notice);
-  for (const code of [r.code, c.code]) read(code, name);
-  const got = read(r.code, name), at = places(mol), root = at[trace[0]];
-  assert.equal(got.slots.length, trace.length, `${name}: ${got.slots.length} atoms read, ${trace.length} written`);
+  for (const code of [r.code, c.code]) { texLint(code, name); for (const b of chemfigBlocks(code)) read(b, name); }
+  const blocks = chemfigBlocks(r.code), at = places(mol);
+  assert.equal(blocks.length, starts.length, `${name}: ${blocks.length} \\chemfig in the code, ${starts.length} written`);
+  const reads = blocks.map((b, n) => {
+    const got = read(b, name), mine = trace.slice(starts[n], starts[n + 1] ?? trace.length), root = at[mine[0]];
+    assert.equal(got.slots.length, mine.length, `${name}: ${got.slots.length} atoms read, ${mine.length} written`);
+    mine.forEach((x, k) => {
+      if (x === -1) return;
+      const want = at[x >= 0 ? x : -2 - x], p = got.slots[k], off = Math.hypot(p[0] - (want[0] - root[0]), p[1] - (want[1] - root[1]));
+      assert.ok(off <= tolerance, `${name}: atom ${x} is ${off.toFixed(3)} bond lengths from the page`);
+    });
+    return got;
+  });
   assert.deepEqual([...new Set(trace.filter((x) => x >= 0))].sort((x, y) => x - y), mol.atoms.flatMap((a, k) => (a.hidden ? [] : [k])), `${name}: each atom once`);
   assert.equal(trace.filter((x) => x >= 0).length, mol.atoms.filter((a) => !a.hidden).length, `${name}: each atom once`);
-  trace.forEach((x, k) => {
-    if (x === -1) return;
-    const want = at[x >= 0 ? x : -2 - x], p = got.slots[k], off = Math.hypot(p[0] - (want[0] - root[0]), p[1] - (want[1] - root[1]));
-    assert.ok(off <= tolerance, `${name}: atom ${x} is ${off.toFixed(3)} bond lengths from the page`);
-  });
   TEX.push(`% ${name.replace(/[^\x20-\x7e]/g, "?")}\n${r.code}\n\n${c.code}\n`);
-  return { ...r, read: got, compact: c.code, trace };
+  return { ...r, read: reads[0], reads, compact: c.code, trace };
 }
 
 // ---- Bonds, labels and charges, as 1.1.2 wrote them (compact) ----
@@ -535,16 +545,110 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   const ethane = [A("C", 0, 0), A("C", 1, 0)], one = [B(0, 1)];
   const say = (more: Partial<Mol>, bonds = one) => chemfig({ atoms: ethane, bonds, ...more }, S, ink).notice;
   assert.equal(say({}), "", "structures only: nothing more to say");
-  assert.equal(say({ arrows: [{ id: 1, kind: "reaction", from: [0, 0], to: [1, 0] }], captions: [{ id: 2, text: "x", x: 0, y: 0 }], shapes: [{ id: 3, kind: "highlight", from: [0, 0], to: [1, 1] }] } as Partial<Mol>), "The code does not have the arrows, text and highlights.");
+  assert.equal(say({ arrows: [{ id: 1, kind: "equilibrium", from: [0, 0], to: [1, 0] }], captions: [{ id: 2, text: "x", x: 0, y: 0 }], shapes: [{ id: 3, kind: "highlight", from: [0, 0], to: [1, 1] }] } as Partial<Mol>), "The code does not have the arrows, text and highlights.");
   assert.equal(say({ cycles: [{}] } as Partial<Mol>), "The code does not have the catalytic cycles.");
   // A charge, radical or lone pair placed on its own with the Symbols tool (#164) is not the atom's: it is named.
   assert.equal(say({ captions: [{ id: 2, text: "x", x: 0, y: 0 }], shapes: [{ id: 3, kind: "symbol", symbol: "plus", from: [1.2, 0.2], to: [1.5, 0.5] }] } as Partial<Mol>), "The code does not have the text and free symbols.");
-  assert.equal(say({ shapes: [{ id: 3, kind: "brackets", from: [0, 0], to: [1, 1] }] } as Partial<Mol>), "The code does not have the brackets.");
+  assert.equal(say({ shapes: [{ id: 3, kind: "brackets", from: [5, 5], to: [6, 6] }] } as Partial<Mol>), "The code does not have the brackets.", "brackets round no atom");
   assert.equal(say({}, [B(0, 1, 14)]), "The code shows quadruple bonds as triple bonds.");
   assert.equal(say({ captions: [{ id: 2, text: "x", x: 0, y: 0 }] } as Partial<Mol>, [B(0, 1, 14)]), "The code does not have the text. It shows quadruple bonds as triple bonds.");
   assert.equal(say({}, [B(0, 1, 2, { display: "either" })]), "The code shows crossed double bonds as double bonds.");
   assert.equal(say({}, [B(0, 1, 2, { display: "dashed" })]), "The code shows dashed double bonds with both lines dashed.");
-  assert.equal(chemfig({ atoms: [A("C", 0, 0, { number: "1", halo: "#ff0000", map: 3 }), A("C", 1, 0)], bonds: one }, S, ink).notice, "The code does not have the highlights, atom numbers and map numbers.");
+  assert.equal(chemfig({ atoms: [A("C", 0, 0, { number: "1", halo: "#ff0000", map: 3 }), A("C", 1, 0)], bonds: one }, S, ink).notice, "The code does not have the highlights.", "atom and map numbers are in the code");
+}
+
+// ---- Schemes, names, brackets, arrows, numbers and stereo labels (issue 59 reopened: PR 127's features) ----
+{
+  // A + B → C ⇌ D, with H2SO4 above the first arrow and a structure below it: one \schemestart row, a \chemfig for each
+  // compound, the conditions in the arrow's labels, the arrow's length as its coeff (2 bond lengths: (3 × 2 + 2) / 5 = 1.6).
+  const m: Mol = {
+    atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 2.5, 0), A("C", 3.5, 0), A("C", 6.5, 0), A("C", 7.5, 0), A("C", 10.5, 0), A("C", 11.5, 0), A("C", 4.5, -1), A("N", 5.5, -1)],
+    bonds: [B(0, 1), B(2, 3), B(4, 5, 2), B(6, 7), B(8, 9)],
+    captions: [{ id: 10, text: "+", x: 1.75, y: 0 }, { id: 30, text: "H2SO4", x: 5, y: 0.5, on: { arrow: 20, side: "above" } }],
+    arrows: [{ id: 20, kind: "reaction", from: [4, 0], to: [6, 0] }, { id: 21, kind: "equilibrium", from: [8, 0], to: [10, 0] }],
+  } as Mol;
+  const row: Scheme = { row: [{ atoms: [0, 1] }, { plus: 10 }, { atoms: [2, 3] }, { arrow: 20 }, { atoms: [4, 5] }, { arrow: 21 }, { atoms: [6, 7] }], above: new Map([[20, [{ caption: 30 }]]]), below: new Map([[20, [{ atoms: [8, 9] }]]]) };
+  const r = check("scheme", m, 0.02, { schemes: [row] });
+  assert.equal(r.compact, "\\schemestart\\chemfig{-[:0]}\\+\\chemfig{HO-[:0,,2]}\\arrow{->[{H\\textsubscript{2}SO\\textsubscript{4}}][{\\chemfig{-[:0,,,1]NH_2}}]}[0,1.6]\\chemfig{=[:0]}\\arrow{<=>}[0,1.6]\\chemfig{-[:0]}\\schemestop");
+  assert.equal(r.notice, "", "the arrows, the plus sign and the conditions are in the code");
+  assert.ok(r.code.startsWith("\\schemestart%\n\t\\chemfig{\n\t\t-[:0]\n\t}%\n\t\\+%\n"), "readable: a piece a line, each ended by %");
+  // Without the scheme: one \chemfig as before, and the notice names the arrow it cannot draw and the text.
+  assert.equal(chemfig(m, S, ink).notice, "The code does not have the arrows and text.");
+  // Each arrow kind: chemfig's own where it has one; the others -> and named. chemfig's first label is on the arrow's
+  // left, turned to stay upright: above a level arrow either way, on the page's right of a straight-down arrow and on
+  // its left of a straight-up one. The page's above is up, or left of a steep arrow. A two-line condition is a \shortstack.
+  const two: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 4, 0), A("C", 5, 0)], bonds: [B(0, 1), B(2, 3)], captions: [{ id: 5, text: "up", x: 2.5, y: 0.5 }, { id: 6, text: "down\nlow", x: 2.5, y: -0.5 }] } as Mol;
+  const kind = (k: string, from: P = [1.5, 0], to: P = [3.5, 0]) => check(`arrow ${k}`, { ...two, arrows: [{ id: 9, kind: k, from, to }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map([[9, [{ caption: 6 }]]]) }] });
+  for (const [k, type] of [["reaction", "->"], ["equilibrium", "<=>"], ["resonance", "<->"], ["nogo", "-/>"], ["hash", "-/>"], ["retro", "->"], ["dipole", "->"], ["block", "->"]]) assert.ok(kind(k).compact.includes(`\\arrow{${type}[{up}][{\\shortstack{down\\\\low}}]}`), k);
+  assert.equal(kind("retro").notice, "The code shows retrosynthetic arrows as plain arrows.");
+  assert.equal(kind("hash").notice, "The code shows hashed no-go arrows as crossed ones.");
+  assert.ok(kind("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[180,1.6]"), "an arrow pointing left keeps its labels");
+  assert.ok(kind("reaction", [2.5, 1], [2.5, -1]).compact.includes("\\arrow{->[{\\shortstack{down\\\\low}}][{up}]}[-90,1.6]"), "an arrow pointing down swaps its labels");
+  assert.ok(kind("reaction", [2.5, -1], [2.5, 1]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[90,1.6]"), "an arrow pointing up keeps its labels");
+  assert.ok(kind("reaction", [2.6, -1], [2.4, 1]).compact.includes("\\arrow{->[{\\shortstack{down\\\\low}}][{up}]}[96,1.6]"), "an arrow up and leaning left swaps its labels");
+  assert.ok(kind("reaction", [2.6, 1], [2.4, -1]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[-96,1.6]"), "an arrow down and leaning left keeps its labels");
+  assert.ok(kind("reaction", [1.5, 0], [6.5, 0]).compact.includes("}[0,3.4]"), "a long arrow is longer");
+  // An unbalanced equilibrium: chemfig's arrow with the short back half, or the short forward half.
+  assert.ok(check("ratio 2", { ...two, captions: [], arrows: [{ id: 9, kind: "equilibrium", ratio: 2, from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] }).compact.includes("\\arrow{<->>}[0,1.6]"));
+  const back = check("ratio 0.5", { ...two, captions: [], arrows: [{ id: 9, kind: "equilibrium", ratio: 0.5, from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] });
+  assert.ok(back.compact.includes("\\arrow{<<->}[0,1.6]"));
+  assert.equal(back.notice, "", "an unbalanced equilibrium is in the code as it is");
+  // < > and | in text are \textless, \textgreater and \textbar (OT1 sets the bare characters as ¡ ¿ and a dash).
+  const lt = check("less than", { ...two, captions: [{ id: 5, text: "pH < 7 | > 95%", x: 2.5, y: 0.5 }], arrows: [{ id: 9, kind: "reaction", from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map() }] });
+  assert.ok(lt.compact.includes("\\arrow{->[{pH \\textless{} 7 \\textbar{} \\textgreater{} 95\\%}]}"), lt.compact);
+  // Names under structures (\chemname*): a name and a bold number under one; a salt with one name is one \chemfig;
+  // hostile text is escaped and stays text.
+  const named: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("Na", 3, 0, { charge: 1 }), A("Cl", 4, 0, { charge: -1 })], bonds: [B(0, 1)],
+    captions: [{ id: 1, text: "Ethane 50% \\input{x} #1 } $", x: 0.5, y: -1, under: [0, 1] }, { id: 2, text: "1", bold: true, x: 0.5, y: -1.5, under: [0, 1] }, { id: 3, text: "salt\nα-form", x: 3.5, y: -1, under: [2, 3] }] } as Mol;
+  const n = check("names", named);
+  assert.equal(n.compact, "\\chemname*{\\chemfig{-[:0]}}{Ethane 50\\% \\textbackslash{}input\\{x\\} \\#1 \\} \\$\\\\\\textbf{1}}\\qquad\\chemname*{\\chemfig{Na^{+}(-[:0,1,,,draw=none]Cl^{-})}}{salt\\\\$\\alpha$-form}");
+  assert.equal(n.notice, "");
+  assert.equal(n.reads.length, 2);
+  // A name with its runs: italic, raised, coloured; a name of characters TeX cannot set says so.
+  const runs = check("name runs", { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)], captions: [{ id: 1, text: "tBu中", x: 0, y: -1, under: [0], runs: [{ text: "t", italic: true }, { text: "Bu", colour: "#ff0000" }, { text: "中", script: "super" }] }] } as Mol);
+  assert.equal(runs.compact, "\\chemname*{\\chemfig{-[:0]}}{\\textit{t}\\textcolor[RGB]{255,0,0}{Bu}}");
+  assert.equal(runs.notice, "The code does not have the character 中.");
+  // Curved arrows, a fishhook and a line (\chemmove): each end, and a curve's middle, a node off the nearest atom; the
+  // first line asks for two LaTeX runs. An equilibrium arrow outside a scheme is still named.
+  const push: Mol = { atoms: [A("O", 0, 0, { charge: -1 }), A("C", 1, 0), A("O", 2, 0.5)], bonds: [B(0, 1), B(1, 2, 2)],
+    arrows: [{ id: 5, kind: "curved", from: [0.2, 0.3], to: [0.7, 0.3], bend: 0.3 }, { id: 6, kind: "fishhook", from: [1, 0.5], to: [2, 1], bend: -0.2, colour: "#0000ff" }, { id: 7, kind: "line", from: [0, -1], to: [2, -1], style: "dashed" }, { id: 8, kind: "double", from: [0, 1], to: [1, 1], bend: 0.2 }] } as Mol;
+  const p = check("curved arrows", push);
+  assert.ok(p.code.startsWith(`${TWICE_NOTE}\n\\chemfig{`));
+  const moves = /\\chemmove\{(.*)\}$/.exec(p.compact)?.[1] ?? "";
+  assert.match(moves, /^\\draw\[-\{CF\}\]\((oct\w+a5s)\)to\[bend left=30\.96,looseness=0\.92\]\((oct\w+a5m)\)to\[bend left=30\.96,looseness=0\.92\]\((oct\w+a5e)\);/);
+  assert.match(moves, /\\draw\[-\{CF\[harpoon,swap\]\},color=\{rgb,255:red,0;green,0;blue,255\}\]\(oct\w+a6s\)to\[bend right=/);
+  assert.match(moves, /\\draw\[-,dashed\]\(oct\w+a7s\)--\(oct\w+a7e\);/);
+  assert.match(moves, /\\draw\[\{CF\}-\{CF\}\]\(oct\w+a8s\)to\[bend left/);
+  for (const node of moves.match(/oct\w+a\d[sme]/g)!) assert.ok(p.compact.includes(`@{${node}}`), `node ${node} is in the \\chemfig`);
+  assert.equal(p.notice, "");
+  assert.equal(chemfig({ ...push, arrows: [{ id: 5, kind: "equilibrium", from: [0, 1], to: [2, 1] }] } as Mol, S, ink).notice, "The code does not have the arrows.");
+  // Polymer brackets (\polymerdelim): both sides with n and a mark, one side, turned; a bracket round nothing named.
+  const poly = (sh: object) => check("brackets", { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)], shapes: [{ id: 40, kind: "brackets", from: [-0.3, -0.5], to: [1.3, 0.5], ...sh }] } as Mol);
+  const sru = poly({ polymer: { usage: "sru" }, mark: "‡" });
+  assert.match(sru.compact, /^% Run LaTeX twice[^\n]*\n\\chemfig\{\(-\[:180,0\.3,,,draw=none\]@\{(oct\w+b40o)\}\)\(-\[:0,1\.3,,,draw=none\]@\{(oct\w+b40c)\}\)\(-\[:-120\.96,0\.583,,,draw=none\]\)\(-\[:21\.04,1\.393,,,draw=none\]\)\(-\[:14\.04,1\.649,,,draw=none\]\{\\scriptstyle \\ddagger\}\)-\[:0\]\}\\polymerdelim\[delimiters=\{\[\]\},height=1\.5em,depth=1\.5em,indice=\{n\}\]\{\1\}\{\2\}$/);
+  assert.equal(sru.notice, "");
+  assert.match(poly({ kind: "parens", side: "left", polymer: { usage: "mult", label: "3" } }).compact, /\\polymerdelim\[delimiters=\{\(\.\},height=1\.5em,depth=1\.5em,indice=\{3\}\]/);
+  assert.match(poly({ kind: "braces", angle: 30 }).compact, /\\polymerdelim\[delimiters=\{\\\{\\\}\},height=1\.5em,depth=1\.5em,indice=\{\},h align=false,rotate=30\]/);
+  assert.equal(poly({ from: [5, 5], to: [6, 6] }).notice, "The code does not have the brackets.");
+  // Atom numbers in the gaps between bonds, as the page puts them; a map number where the page draws it.
+  const num = check("atom and map numbers", { atoms: [A("C", 0, 0, { number: "1" }), A("C", c30, s30, { number: "2'" }), A("O", 2 * c30, 0, { map: 3 }), A("C", 3 * c30, s30, { map: 4 })], bonds: [B(0, 1), B(1, 2), B(2, 3)] });
+  assert.equal(num.compact, "\\chemfig{\\charge{-150:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 1$}{}-[:30]\\charge{90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle 2^{\\prime}$}{}-[:-30]\\charge{-90:1pt[anchor=180+\\chargeangle]=$\\scriptstyle 3$}{O}-[:30]\\charge{30:3pt[anchor=180+\\chargeangle]=$\\scriptstyle 4$}{}}");
+  assert.equal(num.notice, "");
+  // A map number level with OH, past its H: on the H.
+  const oh = check("map number after OH", { atoms: [A("C", 0, 0), A("O", 1, 0, { map: 7 })], bonds: [B(0, 1)] });
+  assert.match(oh.compact, /^\\chemfig\{-\[:0,,,1\]O\|\\charge\{0:1pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle 7\$\}\{H\}\}$/);
+  // R/S beside its centre and E/Z by its double bond, where Show Stereochemistry shows them, with and without the
+  // parentheses (Settings), in the bond's colour; without the labels given, the notice names them.
+  const st: Mol = { atoms: [A("C", 0, 0, { cip: true }), A("C", c30, s30, { cip: true }), A("C", 2 * c30, 0, { cip: true }), A("C", 3 * c30, s30, { cip: true }), A("Cl", -c30, s30, { cip: true })], bonds: [B(0, 1), B(1, 2, 2, { colour: "#ff0000" }), B(2, 3), B(0, 4, 1, { stereo: 1 })] };
+  const labels = { atoms: ["S", undefined, undefined, undefined, undefined], bonds: [undefined, "E", undefined, undefined] };
+  const with_ = check("R/S and E/Z", st, 0.02, { stereo: { ...labels, parens: true } });
+  assert.equal(with_.compact, "\\chemfig{Cl>[:-30]\\charge{-90:9pt[anchor=180+\\chargeangle]=$\\scriptstyle (\\mathit{S})$}{}-[:30](-[:15,0.707,,,draw=none]{\\color[RGB]{255,0,0}\\scriptstyle (\\mathit{E})})=_[:-30,,,,color={rgb,255:red,255;green,0;blue,0}]-[:30]}");
+  assert.equal(with_.notice, "");
+  assert.ok(check("R/S without parentheses", st, 0.02, { stereo: labels }).compact.includes("$\\scriptstyle \\mathit{S}$"));
+  assert.equal(chemfig(st, S, ink).notice, "The code does not have the stereo labels.");
+  // Everything at once, in two schemes: valid, each \chemfig replayed.
+  check("all at once", { ...m, shapes: [{ id: 40, kind: "brackets", from: [-0.3, -0.5], to: [1.3, 0.5], polymer: { usage: "sru" } }], arrows: [...m.arrows!, { id: 50, kind: "curved", from: [0, 0.3], to: [1, 0.3], bend: 0.3 }],
+    captions: [...m.captions!, { id: 60, text: "1", x: 0.5, y: -1, under: [0, 1] }] } as Mol, 0.02, { schemes: [row, { row: [{ atoms: [6, 7] }], above: new Map(), below: new Map() }] });
 }
 
 // ---- Odd drawings (S16, S25, S26, S12) ----
@@ -669,9 +773,10 @@ browser();
     for (const name of readdirSync(CORPUS).filter((f) => f.endsWith(".cdxml"))) {
       const mol = fromCdxml(readFileSync(join(CORPUS, name), "utf8")).mol, r = chemfig(mol, S, ink), c = chemfig(mol, S, ink, { compact: true });
       if (!r.code) continue;
-      read(r.code, name);
-      read(c.code, name);
-      if ((mol.arrows?.length ?? 0) > 0) assert.match(r.notice, /arrows/, `${name}: the notice names the arrows`);
+      for (const code of [r.code, c.code]) { texLint(code, name); for (const b of chemfigBlocks(code)) read(b, name); }
+      assert.equal(joinedLines(r.code), c.code, `${name}: readable and compact differ`);
+      // An arrow is drawn (\chemmove, by its nodes) or named.
+      if (mol.arrows?.some((a) => !r.code.includes(`a${a.id}s}`))) assert.match(r.notice, /arrows/, `${name}: the notice names the arrows`);
       TEX.push(`% corpus file ${n + 1}\n${r.code}\n`);
       n++;
     }
@@ -683,8 +788,11 @@ browser();
 {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), rust = readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8");
   assert.match(editor, /\["more_chemfig", "Export LaTeX \(chemfig\)…", <BracketsCurly size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportChemfig\(\)\)\],\n\s+\["more_chemfig_copy", "Copy as LaTeX \(chemfig\)", <CodeBlock size=\{18\} \/>, \(\) => copyChemfig\(\)\],/);
-  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => chemfig\(mol, frame, measure, \{ compact \}\);/);
+  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\), labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
   assert.equal((editor.match(/chemfig\(mol, frame, measure/g) ?? []).length, 1, "one writer path in the app");
+  // The drawing or the selection gives its reactions as schemes; E and Z go where the page puts them.
+  assert.match(editor, /const schemesIn = \(part: Mol\): Scheme\[\] => \{[^]*?return reactions\(\)\.flatMap\(/);
+  assert.match(editor, /stereoSpot\(shown\.bonds, b, /);
   assert.match(editor, /if \(format === "chemfig"\) return chemfigOf\(mol, o\.compact\)\.code \|\| undefined;/);
   assert.match(rust, /\("tex", "LaTeX \(chemfig\)", &\["tex"\]\)/);
   assert.match(editor, /const \{ code, notice \} = chemfigOf\(selectedPart\(\) \?\? doc\);[\s\S]{0,200}exportAs\(\(\) => \(\{ format: "tex", tex: code \}\)/);
