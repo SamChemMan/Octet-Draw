@@ -43,7 +43,10 @@ assert.match(editor, /casProblem\(naming\) \?\? seqNote/);
 assert.match(editor, /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| looksLikeSmiles\(s\)\) return false;/);
 assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| HELM\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
 const menu = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
-assert.match(menu, /item\("insert_peptide", "Insert Peptide…", ""\)\?,\n\s+&item\("insert_rna", "Insert RNA…", ""\)\?,\n\s+&item\("insert_dna", "Insert DNA…", ""\)\?,/);
+// Structure > Sequence > Peptide…, DNA… and RNA… (18 November), each with a shortcut of the user's own in Settings.
+assert.match(menu, /section\.replace\("Structure › Sequence"\.into\(\)\);\n\s+let sequence = Submenu::with_items\(app, "Sequence", true, &\[\n\s+&item\("insert_peptide", "Peptide…", ""\)\?,\n\s+&item\("insert_dna", "DNA…", ""\)\?,\n\s+&item\("insert_rna", "RNA…", ""\)\?,\n\s+\]\)\?;/);
+assert.match(menu, /&item\("dictionary_add", "Add Structure to Dictionary…", ""\)\?,[\s\S]*?&sequence,/, "the submenu in Structure");
+assert.doesNotMatch(menu, /Insert Peptide…|Insert RNA…|Insert DNA…/);
 
 // Through Name to Structure, as the editor draws it. The reference InChIs are OPSIN's for the systematic names
 // (adenylyl-(3'→5')-…-uridine), so the SMILES built here is checked against a structure made another way. Adenosine's

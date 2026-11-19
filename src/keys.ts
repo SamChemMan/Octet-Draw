@@ -59,6 +59,8 @@ export const ACTIONS: Action[] = [
   any("tool.cyclohexane", "Cyclohexane tool", "Tools"), any("tool.cyclopentane", "Cyclopentane tool", "Tools"), any("tool.erase", "Eraser tool", "Tools"), any("tool.text", "Text tool", "Tools"), any("tool.arrow", "Arrow tool", "Tools"),
   any("tool.template", "Template tool", "Tools"), any("tool.symbol", "Symbols tool", "Tools"), any("tool.shape", "Shape tool", "Tools"),
   any("tool.bracket", "Bracket tool", "Tools"), any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
+  // The Sequence tool (issue 27). No key by default: ChemDraw has none for its sequence tools.
+  any("tool.sequence", "Sequence tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
   any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),

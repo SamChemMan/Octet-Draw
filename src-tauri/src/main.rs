@@ -913,6 +913,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
     ])?;
+    // Structure > Sequence (issue 27): the name field opens with a peptide's, DNA's or RNA's codes, as the Sequence tool
+    // does. Each takes a shortcut in Settings > Keyboard shortcuts; ChemDraw gives them none.
+    section.replace("Structure › Sequence".into());
+    let sequence = Submenu::with_items(app, "Sequence", true, &[
+        &item("insert_peptide", "Peptide…", "")?,
+        &item("insert_dna", "DNA…", "")?,
+        &item("insert_rna", "RNA…", "")?,
+    ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
     let structure = Submenu::with_items(app, "&Structure", true, &[
@@ -954,10 +962,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // A structure with R1 and R2 labels as a peptide monomer of the user's own (issue 27).
         &item("define_monomer", "Define Monomer…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
-        // One-letter peptide, RNA and DNA codes, drawn through Name to Structure (issue 27).
-        &item("insert_peptide", "Insert Peptide…", "")?,
-        &item("insert_rna", "Insert RNA…", "")?,
-        &item("insert_dna", "Insert DNA…", "")?,
+        &sequence,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
     // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
