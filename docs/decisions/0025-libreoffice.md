@@ -14,8 +14,8 @@ Adds to decisions 0011 (the clipboard) and 0023 (the object window). LibreOffice
 what Word gets on Windows: double-click a structure, edit it in Octet's object window, and Update puts it back. The
 same picture works in a document that moves between Linux, Windows and the Mac. A structure gets into a document by
 Insert > Octet Drawing on every system, and by a paste from Octet: into Writer, Impress, Draw or Calc on Linux, into
-Writer or Calc on Windows (Impress and Draw too with Settings > Import and export > Copy > Office object off), and into
-Writer, Impress or Draw on the Mac.
+Writer or Calc on Windows with LibreOffice 26.2 or later (Impress and Draw too with Settings > Import and export > Copy >
+Office object off), and into Writer, Impress or Draw on the Mac.
 
 ## Copy and paste
 
@@ -54,6 +54,12 @@ Writer, Impress or Draw on the Mac.
   With the Office object off they take the SVXB. Octet cannot get around this: Word needs the object, and LibreOffice
   for Windows reads no PDF type (`vcl/win/dtrans/ftransl.cxx` has no `application/pdf`). Writer and Calc on Windows,
   and every program on Linux, paste a PDF picture that opens in Octet.
+- Windows needs LibreOffice 26.2 or later for that. LibreOffice for Windows 24.2 to 25.8 reads the clipboard name
+  `SVXB (StarView Bitmap/Animation)` as `application/x-openoffice-svbx;…` (its `vcl/win/dtrans/ftransl.cxx` table,
+  line 132), which is no format it knows, so it does not see Octet's SVXB: Writer takes the bitmap and Calc the
+  metafile, as before 1.1.3, and neither opens in Octet. Commit dbdc2f17d64a (10 November 2025, first in 26.2) builds
+  the table from `sot/source/base/exchange.cxx` and mends the spelling. No other type helps those versions: their
+  table has no PDF, and their EMF paste drops Octet's comment. There a structure goes in by Insert > Octet Drawing.
 - Before 1.1.3, on Windows, Writer took the bitmap (`CF_DIB`), and Impress, Draw and Calc converted the EMF with
   `TransferableDataHelper::GetGDIMetaFile`, which loses Octet's CDXML comment. Only `GetGraphic` keeps an EMF's own
   bytes, and only from LibreOffice 26.2 (tdf#168886). An SVXB that held the EMF would not help: LibreOffice reads an
@@ -106,7 +112,11 @@ Octet with no window refuses it, as a command that opens a dialog.
   "This document is read-only."
 - The context menu of such a picture starts with Edit in Octet Draw. Insert > Octet Drawing (after Insert > Image)
   opens an empty object window, and the first Update inserts the drawing: in Writer in line at the cursor, in Impress,
-  Draw and Calc through LibreOffice's own Insert Image. Insert asks for a PDF on every system: LibreOffice reads a PDF
+  Draw and Calc through LibreOffice's own Insert Image. Before it the extension takes the selection off the page: with
+  one picture selected Insert Image puts the drawing in its place, and with one shape selected it fills the shape with
+  the drawing (sd's `FuInsertGraphic`, Calc's `lcl_InsertGraphic`). Calc does not select a picture inserted by a command
+  with a file name (`SdrInsertFlags::DONTMARK`), so the extension takes the picture that is new on the page (added
+  last, or in an empty placeholder's place in Impress). Insert asks for a PDF on every system: LibreOffice reads a PDF
   in the same way on each and keeps its bytes, and Windows' EMF would gain nothing, since LibreOffice on Windows does
   not keep a pasted one. If the place in Writer is gone by the first Update (its table or frame deleted), the drawing
   goes in at the cursor. Insert Image reads a private copy (`mkstemp`) of the picture the
@@ -248,6 +258,8 @@ Octet with no window refuses it, as a command that opens a dialog.
   `docs/testing/libreoffice-manual.md`.
 - The paste from Octet into LibreOffice on Windows, and into Calc on Windows and Linux, is proved from LibreOffice's
   source only: no real LibreOffice has read Octet's SVXB yet. Steps W3, W3a and L4 of the checklist.
+- LibreOffice for Windows 24.2 to 25.8: a structure pasted from Octet does not open in Octet (Copy and paste, above).
+  Step W3c of the checklist. Insert > Octet Drawing works there.
 - Impress and Draw on Windows with the Office object on (the default): a structure pasted from Octet is LibreOffice's
   own picture and does not open in Octet (Copy and paste, above). With the Office object off it opens, and Insert >
   Octet Drawing works either way.

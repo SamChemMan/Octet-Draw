@@ -1,5 +1,5 @@
 // Run: node src/libreoffice-paste.check.ts. Issue 48 (1.1.3): a paste from Octet into LibreOffice Writer and Calc opens
-// in Octet on Windows (Impress and Draw only with the Office object off), and into Calc on Linux
+// in Octet on Windows with LibreOffice 26.2 or later (Impress and Draw only with the Office object off), and into Calc on Linux
 // (docs/plans/issue-48-48w-1-1-3.md, decision 0025). Copy on Windows and
 // Linux puts LibreOffice's own copy of a picture (SVXB) last, holding the PDF. This checks Copy's names and SVXB's form
 // in clipboard.rs, which picture each LibreOffice program takes from Octet's copy on each system (its paste tables,
@@ -76,6 +76,14 @@ for (const [where, offer] of Object.entries(OFFERS)) {
 const before = OFFERS["Windows, Office object off"].filter((f) => f !== "SVXB");
 assert.deepEqual([takes("Writer", before), takes("Impress", before), takes("Calc", before)], ["BITMAP", "GDIMETAFILE", "GDIMETAFILE"]);
 assert.deepEqual([takes("Writer", OFFERS["Windows, Office object on"]), takes("Impress", OFFERS["Windows, Office object on"]), takes("Calc", OFFERS["Windows, Office object on"])], ["SVXB", "GDIMETAFILE", "SVXB"]);
+// LibreOffice for Windows before 26.2 (24.2 to 25.8) reads the name "SVXB (StarView Bitmap/Animation)" as
+// application/x-openoffice-svbx (its vcl/win/dtrans/ftransl.cxx table, line 132), which is no format it knows
+// (sot/source/base/exchange.cxx has svxb). Commit dbdc2f17d64a (10 November 2025, in 26.2) mends the spelling. So
+// there Octet's SVXB is not seen, and nothing pasted opens in Octet: Writer takes the bitmap, Calc the metafile.
+for (const offer of [OFFERS["Windows, Office object on"], OFFERS["Windows, Office object off"]]) {
+  const old = offer.filter((f) => f !== "SVXB");
+  assert.deepEqual(["Writer", "Impress", "Calc"].map((p) => takes(p, old)), ["BITMAP", "GDIMETAFILE", "GDIMETAFILE"]);
+}
 
 // The extension: in a Calc sheet, the pasted picture (LibreOffice keeps it as "0fdp", the length, then the PDF, its
 // /Metadata deflated with the /Filter taken off, as pdfium saves it) gets Edit in Octet Draw and opens on a
@@ -139,5 +147,7 @@ else assert.equal(py.stdout.trim().split("\n").at(-1), "ok", py.stderr.slice(-20
 // The documents say what the source says, and the checklist asks for the real runs.
 const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md");
 assert.ok(decision.includes("LibreOffice's own copy of a picture (SVXB, 1.1.3)") && decision.includes("spells SVXB `svbx`") && /Impress and Draw on Windows paste\s+LibreOffice's own picture/.test(decision), "decision 0025");
+assert.ok(/LibreOffice 26\.2 or later/.test(decision) && /dbdc2f17d64a/.test(decision), "decision 0025: the Windows paste needs LibreOffice 26.2");
 assert.ok(manual.includes("(W3) Settings > Import and export > Copy > Office object on") && manual.includes("(W3a)") && manual.includes("(L4) Copy a structure in Octet and paste it into Calc"), "the checklist");
+assert.ok(/\(W3c\)/.test(manual) && /25\.8/.test(manual), "the checklist: an older LibreOffice for Windows");
 console.log("libreoffice-paste: ok");
