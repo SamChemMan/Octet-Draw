@@ -785,9 +785,10 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    // An EMF object (Windows' Copy, and Update in LibreOffice on Windows): it opens as its drawing, Update writes an EMF
-    // as Copy makes it, and the drawing reads back. Office's Mac EMF (a PDF comment first) opens too. An empty file is
-    // a new drawing, and Update with nothing drawn still holds a drawing. Hostile EMFs open nothing.
+    // An EMF object (a picture Octet's Copy put in Word for Windows, in a document LibreOffice opened): it opens as its
+    // drawing, Update writes an EMF with Octet's comment, and the drawing reads back. Office's Mac EMF (a PDF comment
+    // first) opens too. An empty file is a new drawing, and Update with nothing drawn still holds a drawing. Hostile EMFs
+    // open nothing.
     #[test]
     fn an_emf_object_round_trips() {
         let dir = std::env::temp_dir().join(format!("octet-emf-{}", std::process::id()));
@@ -800,7 +801,8 @@ mod tests {
         assert_eq!(f.kind, Kind::Emf);
         assert_eq!(*f.session.oct.borrow(), "<CDXML><page/></CDXML>");
         let picture = Kind::Emf.picture(svg, "<CDXML><page><n/></page></CDXML>").unwrap();
-        assert_eq!(picture, crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML><page><n/></page></CDXML>"), None), "as Copy on Windows makes it");
+        assert_eq!(&picture[40..44], b" EMF");
+        assert_eq!(crate::vector::cdxml_from_emf(&picture).as_deref(), Some("<CDXML><page><n/></page></CDXML>"), "the drawing in Octet's comment");
         assert_eq!(write(&path, &picture, "R", Some(2)), Ok(true));
         assert_eq!(crate::export::cdxml_from_picture(&std::fs::read(&path).unwrap()).as_deref(), Some("<CDXML><page><n/></page></CDXML>"));
         let leftovers = std::fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name() != "drawing.emf").count();

@@ -406,20 +406,19 @@ def stamp(path):
 
 
 # The picture that Octet wrote, a PDF or an EMF (64 MB at most, never through a link, else None), and the stamp of the
-# file that was read: Octet can rename a newer one over it between a look and the read. False if it cannot be read now
-# (Windows: Octet is putting the next one in its place), so it is looked at again.
+# file that was read, as stamp gives it: Octet can rename a newer one over it between a look and the read, and again
+# after the read. On Windows the stamp is taken while the file is open, as Windows renames nothing over an open file.
+# False if it cannot be read now (Windows: Octet is putting the next one in its place), so it is looked at again.
 def read_picture(path):
     try:
         fd = os.open(path, os.O_RDONLY | NOFOLLOW | BINARY)
         with os.fdopen(fd, "rb") as f:
             st = os.fstat(f.fileno())
-            read = (st.st_ino, st.st_mtime_ns, st.st_size)
-            if st.st_size > MAX_BYTES:
-                return None, read
-            data = f.read(MAX_BYTES + 1)
+            data = f.read(MAX_BYTES + 1) if st.st_size <= MAX_BYTES else b""
+            read = stamp(path) if SYSTEM == "win32" else (st.st_ino, st.st_mtime_ns, st.st_size)
     except OSError:
         return False, None
-    return (data if len(data) <= MAX_BYTES and kind_of(data) else None), read
+    return (data if 0 < len(data) <= MAX_BYTES and kind_of(data) else None), read
 
 
 def message(ctx, controller, text):
@@ -661,9 +660,9 @@ def look(s):
     if now is not None and now != s.seen:
         data, read = read_picture(s.path)
         if data is not False:
-            # The file that was read: the one looked at, or the newer one Octet renamed over it in between, which is
-            # there now. (Compared lstat to lstat, so Windows' two ways of reading a file's stamp never meet.)
-            s.seen = now if read == now else stamp(s.path)
+            # The file that was read: the one looked at, or a newer one Octet renamed over it in between. One renamed
+            # over it after the read is read at the next look.
+            s.seen = read
         if data:
             on_main(s.ctx, lambda: s.put(data))
     if closed:

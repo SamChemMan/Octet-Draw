@@ -101,12 +101,13 @@ Octet with no window refuses it, as a command that opens a dialog.
   a time, and one older than the last written is dropped. The extension looks at the file four times a second, reads
   it as hostile (a regular file, 64 MB at most, a PDF or an EMF), and puts it in place of the picture. A file it
   cannot read at that moment is read at the next look. It notes the file it read by that file's own stamp, so an
-  Update renamed in between goes in once. The picture keeps its anchor, wrap,
-  rotation, flip, alt text and name, and takes the drawing's own size, as on Windows. A crop comes off: it was made
-  for the old drawing. The swap is one undo step, "Octet Drawing", in every program, and Undo puts back the old
-  picture with its size and crop: Impress and Draw record none for a changed picture, so the step is the extension's
-  own. Undo and Redo of it on a picture that is gone since do nothing: an exception there would make LibreOffice clear
-  its whole Undo list.
+  Update renamed in before the read goes in once, and one renamed in after it goes in at the next look. (Windows
+  renames nothing over a file that is open, so there the stamp is taken while the file is open.) The picture keeps its
+  anchor, wrap, rotation, flip, alt text and name, and takes the drawing's own size, as on Windows. A crop comes off:
+  it was made for the old drawing. The swap is one undo step, "Octet Drawing", in every program, and Undo puts back
+  the old picture with its size and crop: Impress and Draw record none for a changed picture, so the step is the
+  extension's own. Undo and Redo of it on a picture that is gone since do nothing: an exception there would make
+  LibreOffice clear its whole Undo list.
 - Octet writes an empty `closed` file when the window closes (after the last picture), and the extension removes the
   folder. When the document closes first, or the picture is gone, the extension writes `gone`, and the window's title
   says "Octet Drawing (Report.odt is closed)". Both files are made new, never through a link. A folder that is gone

@@ -488,6 +488,34 @@ def a_cases():
     case("S9.race", "An Update renamed in between the extension's look and its read: the new drawing goes in once (one Undo step)", puts == [two], "%d Undo steps for one drawing" % len(puts))
     shutil.rmtree(s.folder, ignore_errors=True)
 
+    # S9: one Update renamed in between the look and the read, and the next one just after the read: each goes in once,
+    # and the last is in the document.
+    s = session(Document(), Picture(PDF), "pdf")
+    with open(s.path, "wb") as f:
+        f.write(PDF)
+    s.seen = od.stamp(s.path)
+    three = pics[2]
+    with open(s.path + ".n", "wb") as f:
+        f.write(one)
+    os.replace(s.path + ".n", s.path)
+    raced = []
+
+    def after(p):
+        got = real_read(p)
+        with open(p + ".n", "wb") as f:
+            f.write(three)
+        os.replace(p + ".n", p)
+        return got
+
+    od.stamp, od.read_picture = racing, after
+    od.look(s)
+    od.stamp, od.read_picture = real_stamp, real_read
+    od.look(s)
+    od.look(s)
+    puts = [x.after[0].data for x in s.doc.undo.done]
+    case("S9.after", "An Update renamed in before the extension's read and the next one just after it: each goes in once, the last one last", puts == [two, three], "Undo steps: %s" % [pics.index(p) for p in puts])
+    shutil.rmtree(s.folder, ignore_errors=True)
+
     # S10: Update 3 times, Undo 3, Redo 3, then Update after one Undo: LibreOffice's own Undo and Redo walk the
     # pictures, and the crop comes back with the first.
     shape = Picture(PDF)
