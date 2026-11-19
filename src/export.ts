@@ -220,9 +220,10 @@ export function pictureAs(svg: string, f: { format: ExportFormat; margin: number
 // connection table (File > More Formats); csv: Home's Experiments list; model: a 3MF file's 3D model (src/model3mf.ts);
 // tex: chemfig code (chemfig.ts); info: the drawing's title, author and keywords, for a PDF's document information;
 // pages: a PDF's pages, each a standalone SVG of one page (an experiment page and its risk assessment), in place of svg.
+// eln: an ELN archive's files, each its path in the zip and its text (src/eln.ts elnArchive).
 // Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct"; csv?: string; model?: string; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
+  name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct" | "eln"; csv?: string; model?: string; eln?: [string, string][]; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean; quality?: number; info?: Properties; pages?: string[];
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });
