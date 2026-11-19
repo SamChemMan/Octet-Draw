@@ -1,6 +1,7 @@
 # Measurements: distance, angle and dihedral (issue 85)
 
-Branch `item/85-measurements`, from `release-1.2-mcp` b30f413. For 1.2 (Friday 20 November 2026) if Sam takes it.
+Branch `item/85-measurements`, from `release-1.2-mcp` b30f413, rebased on `release-1.1.3` f06d1b4. Ships in 1.1.3
+(Friday 20 November 2026): Sam, 19 November, every built item ships.
 
 Stefan's issue asks for objects that show the distance between two atoms, the angle at three and the dihedral
 across four, for teaching conformational analysis and for figures. Sam's comment of 9 November: distance, angle
@@ -172,7 +173,7 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - **D10. Names.** Tool: Measure. Menu: Structure > Measure > Distance, Angle, Dihedral. Actions and palette:
   Measure distance, Measure angle, Measure dihedral. ChemDraw's "Add 3D Property" names its query feature.
 - **D11. A measurement asked for twice is made once.**
-- **D12. Fixed decimals.** No setting for 1.2.
+- **D12. Fixed decimals.** No setting yet.
 
 ## Siblings (consistency pillar)
 
@@ -295,7 +296,7 @@ Checks are in `src/measurement.check.ts` (new) unless named.
 | `cargo check` (own target folder) for the menu | J4 |
 | `npm test` | all |
 
-## Cut (not in 1.2)
+## Cut (not in 1.1.3)
 
 - ChemDraw's other 3D properties: Line, Plane, Normal, Point (and its dialog), Centroid, Exclusion Sphere. Each
   needs points that are not atoms, with their own drawing and file forms. Not cheap. Sam put exclusion spheres out.
@@ -352,3 +353,11 @@ What the build changed in this plan, and why:
   dihedral keeps its sign; Mirror changes it.
 - The Measure tool's rule for the atoms a drag passes is `passAtom` (measurement.ts), so the stress check runs S1 to S4.
 - The stress list is `src/measurements-stress.check.ts`, with the cases other checks hold named at its top.
+- Rebased again on release-1.1.3 f06d1b4 (AI off, 1.1.3, and items #77/#100, #59, #83, #43, #60, #103, #48, #82). The
+  editor's `set` and drag view keep the release's Jablonski (`followLevels`) steps; measurements settle after them.
+- A drawing opened (the editor's `set` with `opened`) settles its measurements with no drawing before and its labels
+  kept, so a caption id the window's old drawing also had is not taken for a label moved by hand.
+- The automatic label place keeps a gap (0.2 bond lengths) from the measurement labels placed before it. In the dev
+  server a distance and then an angle on 3-methylpentane put "110.4°" against "3.23 Å", so they read as one line.
+- Plane, normal and centroid stay cut (see Cut). A distance between two groups needs a centroid, which needs a point
+  that is not an atom, with its own drawing and file forms.
