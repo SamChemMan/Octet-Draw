@@ -10390,7 +10390,9 @@ export default function Editor() {
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onCancel}
-        onLostPointerCapture={(e) => { if (gated(e.pointerType) && e.pointerId === owner.current) follow(undefined, [...gate.reset(), { act: "cancel" }]); }}
+        // The canvas lost a pen or a finger the gate still follows (the system took it): its press stops. Chromium also
+        // sends lostpointercapture after each pointerup, and to what a finger landed on when the canvas takes it over.
+        onLostPointerCapture={(e) => { if (e.target === e.currentTarget && e.pointerId === owner.current && (gate.pen?.id === e.pointerId || gate.fingers.some((f) => f.id === e.pointerId))) follow(undefined, [...gate.reset(), { act: "cancel" }]); }}
         onPointerLeave={() => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); }}
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.

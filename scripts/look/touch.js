@@ -61,11 +61,17 @@ const undo = async () => { key({ key: "z", code: "KeyZ", metaKey: true }); retur
 
 // ——— Sending events ———
 let ids = 20;
-const send = (type, x, y, o = {}) => svg.dispatchEvent(new PointerEvent(type, {
-  clientX: x, clientY: y, bubbles: true, cancelable: true, pointerId: o.id ?? 1, pointerType: o.type ?? "mouse", isPrimary: o.primary ?? true,
-  button: o.button ?? (type === "pointermove" ? -1 : 0), buttons: o.buttons ?? (type === "pointerup" || type === "pointercancel" ? 0 : 1),
-  pressure: o.pressure ?? (o.type === "pen" ? 0.4 + Math.random() * 1.3 : 0.5), tiltX: o.tiltX ?? (o.type === "pen" ? 60 : 0), tiltY: o.tiltY ?? 0, twist: o.twist ?? (o.type === "pen" ? 359 : 0), width: o.width ?? 1, height: o.height ?? 1,
-}));
+// After each pointerup the canvas gets lostpointercapture too, as a browser sends it when a pointer it captured lifts.
+const send = (type, x, y, o = {}) => {
+  const at = (t) => svg.dispatchEvent(new PointerEvent(t, {
+    clientX: x, clientY: y, bubbles: true, cancelable: true, pointerId: o.id ?? 1, pointerType: o.type ?? "mouse", isPrimary: o.primary ?? true,
+    button: o.button ?? (t === "pointermove" ? -1 : 0), buttons: o.buttons ?? (t === "pointerup" || t === "pointercancel" || t === "lostpointercapture" ? 0 : 1),
+    pressure: o.pressure ?? (o.type === "pen" ? 0.4 + Math.random() * 1.3 : 0.5), tiltX: o.tiltX ?? (o.type === "pen" ? 60 : 0), tiltY: o.tiltY ?? 0, twist: o.twist ?? (o.type === "pen" ? 359 : 0), width: o.width ?? 1, height: o.height ?? 1,
+  }));
+  const done = at(type);
+  if (type === "pointerup") at("lostpointercapture");
+  return done;
+};
 const kinds = { mouse: { type: "mouse", id: 1 }, pen: { type: "pen", id: 2 } };
 const who = (kind) => (kind === "touch" ? { type: "touch", id: ids++ } : kinds[kind]);
 // A drag from a to b in steps, a frame apart, as a hand moves. The mouse and the pen hover to the start first.
@@ -445,6 +451,14 @@ if (part("eraser")) {
   check("the Bond tool is in hand after the eraser end", /bond$/i.test(toolOn() ?? ""), toolOn());
   const back = await undo();
   check("one Undo brings back what the eraser end took", back === drawnBond, back);
+  // A quick tap: the eraser end lifts in the frame it pressed, before its press goes in.
+  await clear(); await pick(/bond$/i);
+  await stroke("mouse", [600, 420], [660, 420]);
+  send("pointermove", 630, 420, { ...e, buttons: 0 }); await frame();
+  send("pointerdown", 630, 420, { ...e, button: 5, buttons: 32 });
+  send("pointerup", 630, 420, { ...e, button: 5, buttons: 0 });
+  const quick = await settle();
+  check("a quick tap of the eraser end erases as the Eraser does", quick === eraser, `Eraser:\n${eraser}\nquick tap:\n${quick}`);
   // A rub across two bonds removes both, in one undo step.
   await clear(); await pick(/bond$/i);
   await stroke("mouse", [600, 380], [600, 440]); await stroke("mouse", [700, 380], [700, 440]);

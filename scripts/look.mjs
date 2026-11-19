@@ -3,7 +3,8 @@
 // the default address is http://localhost:1420. It loads the app in a WKWebView, goes through its panels, dialogs and
 // pages (scripts/look/sweep.js) and reads what the app's own watch says (src/lookwatch.ts, lines that start "look:").
 // The rules are in brand/BRAND.md (Controls). ui.check.ts reads the stylesheet; this reads the page as it is drawn.
-// npm run look -- <url>/?editor touch runs scripts/look/touch.js in its place: pen and touch on the canvas (issue #93).
+// npm run look -- <url>/?editor touch runs scripts/look/touch.js in its place: pen and touch on the canvas (issue #93),
+// then scripts/look/chrome-touch.mjs: real touch and pen input in headless Chrome, the engine of Windows' web view.
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +21,10 @@ try { await fetch(url); } catch { console.error(`look: no dev server at ${url}. 
 // own, the finger's before the pen's. <url>/?editor&look-only=pen,palm runs only the parts named (touch.js), and
 // look-session or look-coarse only that.
 const GROUPS = ["root,touch-drags,pinch,late,hold,cancel", "touch-siblings", "taps", "undo", "reach", "pen,pen-drags,eraser", "pen-siblings", "palm,coarse"];
-const pages = script === "touch" && !/look-(only|session|coarse)/.test(url) ? GROUPS.map((g) => `${url}${url.includes("?") ? "&" : "?"}look-only=${g}`) : [url];
+// look-only=chrome runs only the Chrome checks.
+const only = new URL(url).searchParams.get("look-only") ?? "";
+const chrome = script === "touch" && !/look-(session|coarse)/.test(url) && (!only || only.split(",").includes("chrome"));
+const pages = only === "chrome" ? [] : script === "touch" && !/look-(only|session|coarse)/.test(url) ? GROUPS.map((g) => `${url}${url.includes("?") ? "&" : "?"}look-only=${g}`) : [url];
 const seconds = script === "touch" ? 900 : 180;
 const result = { reached: [], missed: [], look: [], errors: [], parts: [] };
 for (const page of pages) {
@@ -31,6 +35,13 @@ for (const page of pages) {
   result.session ??= one.session;
   for (const k of ["reached", "missed", "look", "errors", "parts"]) result[k].push(...(one[k] ?? []));
   if (one.timeout) result.timeout = page;
+}
+if (chrome) {
+  const run = spawnSync(process.execPath, [here("chrome-touch.mjs"), url], { encoding: "utf8", timeout: 300000 });
+  let one;
+  try { one = JSON.parse(run.stdout.trim().split("\n").pop()); } catch { console.error(`look: the Chrome checks did not finish.\n${run.stdout}${run.stderr}`); process.exit(1); }
+  result.engine = [result.engine, one.engine].filter(Boolean).join(" and ");
+  for (const k of ["reached", "missed", "errors"]) result[k].push(...one[k]);
 }
 console.log(`look: ${result.engine}, at ${url}`);
 console.log(`${script === "touch" ? "Passed" : "Measured"} ${result.reached.length} ${script === "touch" ? "checks" : "places"}: ${result.reached.join("; ")}.`);

@@ -64,13 +64,22 @@ Sam put every built item in 1.1.3. The branch is rebased onto release-1.1.3 f06d
   from its box, a key goes in once (each ⌘Z was three Undos), a finger leaves as it lifts, a tap with Chain opens Add
   Chain (ChemDraw's), so the ten quick taps use Bond, and the lasso runs before Mass spec analysis hides the Actions
   panel the check reads.
+- Review of 00e1e7a: in Chrome (the engine of Windows' web view) a finger's tap drew nothing, and a finger drag that
+  started on a drawn object's element stopped. Chromium sends lostpointercapture after each pointerup, and to the
+  element a finger landed on when the canvas takes the finger's capture. The canvas's handler stopped the press for
+  both. It now stops a press only when the canvas itself lost a pointer the gate still follows. That also mends a
+  quick tap of the eraser end, which lifts before its press goes in. touch.js sends lostpointercapture after each
+  pointerup, as a browser does, and taps the eraser end quickly. scripts/look/chrome-touch.mjs sends real touch and
+  pen input to headless Chrome over the DevTools protocol: `npm run look -- <url>/?editor touch` runs it after the
+  WebKit pages, and `look-only=chrome` runs it alone.
 
 Results on f06d1b4 plus this branch:
 
 | Check | Result |
 | --- | --- |
 | C1 node src/touch.check.ts | passes |
-| C2 `npm run look -- <url>/?editor touch` (8 pages) | 119 checks pass, none fail. One full run stopped once at the time limit in the pen page while the window was covered (WebKit pauses frames); that page alone passes |
+| C2 `npm run look -- <url>/?editor touch` (8 pages) | 119 checks pass, none fail. One full run stopped once at the time limit in the pen page while the window was covered (WebKit pauses frames); that page alone passes. After the lost-capture fix, each page alone: 120 pass, none fail. On 00e1e7a with lostpointercapture after each pointerup, the taps page fails 2 (ten quick taps, a tap on an atom with Chain) |
+| C2 Chrome, real input (`look-only=chrome`) | 10 pass, none fail. On 00e1e7a 3 fail: a finger's tap, its tap on an atom, its drag that starts on a bond |
 | C3 mouse session, branch against f06d1b4 | the same drawing |
 | C4 40 paclitaxels, 2000 hover moves and a 2000-move box drag, 5 runs each, interleaved | medians: hover 948 ms against 946 ms, box drag 167 ms against 170 ms (noise) |
 | C5 `npm run look`, fine; coarse light and dark; `look-coarse` at 768 px tall | every control matches; 24 coarse checks pass |
