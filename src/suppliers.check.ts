@@ -90,7 +90,7 @@ assert.ok(searchesAt > 0 && editor.indexOf('find_suppliers: () => findFor("suppl
 assert.match(editor, /function findFor\(kind: Lookup\) \{\s+if \(!TAURI\)[^\n]*\n\s+if \(!settings\.onlineSearch\) return setNotice\(offNotice\(kind\), "info", \{ label: "Open Settings"/);
 assert.match(editor, /search_patents: \["Search Google Patents", "", <SearchGlyph letter="G" \/>\],\n\s+find_suppliers: \["Find suppliers", "", <Storefront size=\{18\} \/>\], find_hazards: \["Find hazards", "", <FirstAidKit size=\{18\} \/>\],/);
 assert.match(actions, /const searches = online \? \[[\s\S]*?"find_suppliers", false, true\), it\(<FirstAidKit size=\{18\} \/>, "Find hazards", "find_hazards", false, true\)\] : \[\];/);
-assert.match(actions, /find_suppliers: "search", find_hazards: "search"/);
+assert.match(actions, /find_suppliers: "search", find_hazards: "analysis"/);
 // The Properties panel: both buttons only with Online search on, each Stop while it runs; the Suppliers row with no
 // Add to drawing box; each count a Pick with its field; names as text.
 assert.match(panel, /\{online && <button className="prop-add" onClick=\{onSuppliers\}[^\n]*busy\.suppliers \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><Storefront size=\{16\} aria-hidden \/> Find suppliers<\/>/);

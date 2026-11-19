@@ -1,5 +1,5 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
+// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
 // offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
@@ -52,10 +52,56 @@ if (name) {
 if (!labelled("Add a caption")) key({ key: "a", code: "KeyA", metaKey: true });
 await measure("the Structure panel", !!(await until(() => labelled("Add a caption"), 4000)));
 
+// The colour rows' palette (every colour as a swatch), then Custom colour… with Save to colours under the picker.
+document.querySelector(".colour-row .colour-more")?.click();
+await measure("the colour palette", !!(await until(() => document.querySelector(".strip.list .menu-group.swatches"), 3000)));
+[...document.querySelectorAll(".strip.list .variant")].find((b) => /Custom colour/.test(b.textContent))?.click();
+await measure("the custom colour picker", !!(await until(() => document.querySelector(".colour-pop .picker-save"), 3000)));
+key({ key: "Escape" });
+await wait(600);
+
+// Choose Nickname (the = key over an atom): the user's nicknames and Octet's, with a field to find one.
+const oxygen = [...document.querySelectorAll("svg.canvas text")].find((t) => t.textContent.trim() === "O")?.getBoundingClientRect();
+if (oxygen) document.querySelector("svg.canvas")?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: oxygen.x + oxygen.width / 2, clientY: oxygen.y + oxygen.height / 2 }));
+await wait(300);
+window.dispatchEvent(new KeyboardEvent("keydown", { key: "=", code: "Equal", bubbles: true, cancelable: true }));
+await measure("the nickname list", !!(await until(() => document.querySelector(".nickname-menu .list-find"), 3000)));
+key({ key: "Escape" });
+await wait(600);
+
 // The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
 labelled("Show the Properties panel")?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
+await wait(600);
+
+// Attach Data's dialog, with a field typed in its grid (its empty row then comes under it), in light and in dark.
+labelled("Attach data…")?.click();
+const grid = await until(() => document.querySelector(".dialog .chart-table input"), 3000);
+if (grid) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(grid, "Batch");
+  grid.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait(300);
+  const value = document.querySelector(".dialog .chart-table textarea");
+  if (value) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(value, "B-001\nsecond line"); value.dispatchEvent(new Event("input", { bubbles: true })); }
+}
+await measure("Attach data", !!grid && document.querySelectorAll(".dialog .chart-table input").length === 2);
+document.documentElement.dataset.theme = "dark";
+await measure("Attach data, dark", !!grid);
+delete document.documentElement.dataset.theme;
+key({ key: "Escape" });
+await wait(600);
+
+// Export…: PDF with Pages > All pages, the pages as the preview, then One page again.
+document.querySelector(".export-button")?.click();
+await wait(400);
+(await until(() => document.querySelector('.export-menu [data-item="export"]'), 2000))?.click();
+const pagesRow = await until(() => labelled("Pages"), 4000);
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "All pages")?.click();
+await measure("Export… with all pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "One page")?.click();
+await wait(300);
+key({ key: "Escape" });
 await wait(600);
 
 // The spectrum panel: one tab, then two (each with its X, and the + after them).
@@ -77,6 +123,12 @@ const templates = await until(() => document.querySelector('.variant[aria-haspop
 await measure("a tool's menu", !!templates);
 templates?.click();
 await measure("the template library", !!(await until(() => document.querySelector(".segmented.library-kind"), 4000)));
+key({ key: "Escape" });
+await wait(600);
+// The Template tool's library, with the template in hand drawn large to choose where it attaches.
+const template = [...document.querySelectorAll(".tool")].find((t) => /templates$/i.test(t.getAttribute("aria-label") ?? ""));
+template?.click(); await wait(500); template?.click();
+await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
 key({ key: "Escape" });
 await wait(600);
 

@@ -3,6 +3,7 @@
 // CDXML, the hash no longer matches, and Octet reads the CDXML instead. Old .octet files are the JSON alone.
 // A .cdx file (decision 0009) works the same way: the drawing's JSON goes in a property of the CDX document, beside a
 // hash of the rest of the file.
+import { leftOf } from "./datafields.ts";
 import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml.ts";
 import { BASE64_MAGIC, cdxToXml, fromBase64 as bytesOf, toBase64, xmlToCdx } from "./cdx.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -74,7 +75,7 @@ export function readCdx(bytes: Uint8Array): Read {
       try { text = new TextDecoder("utf-8", { fatal: true }).decode(own); } catch { /* a damaged copy: read the CDX */ }
       const cut = text?.indexOf(" ") ?? -1;
       if (text && text.slice(0, cut) === hashBytes(rest)) {
-        try { return { mol: parse(text.slice(cut + 1)), lost: {} }; } catch { return fellBack(cdxRead(bytes)); }
+        try { const mol = parse(text.slice(cut + 1)); return { mol, lost: leftOf(mol) }; } catch { return fellBack(cdxRead(bytes)); }
       }
     }
   }
@@ -93,12 +94,12 @@ const programOf = (text: string) => /\sCreationProgram="([^"]*)"/.exec(/<CDXML\s
 // A copy Octet cannot read gives `fallback` (see Read).
 export function readOct(text: string, oct = false): Read {
   if (text.startsWith(BASE64_MAGIC)) return readCdx(bytesOf(text));
-  if (/^\s*\{/.test(text)) return { mol: parse(text), lost: {} };
+  if (/^\s*\{/.test(text)) { const mol = parse(text); return { mol, lost: leftOf(mol) }; }
   const at = text.lastIndexOf(MARK), read = () => { const r = fromCdxml(text); return { mol: { ...r.mol, style: r.style }, lost: r.lost }; };
   if (at >= 0) {
     const m = /^([0-9a-f]{16}) ([A-Za-z0-9+/=]+)-->\s*$/.exec(text.slice(at + MARK.length));
     if (m && hash(text.slice(0, at)) === m[1]) {
-      try { return { mol: parse(new TextDecoder("utf-8", { fatal: true }).decode(bytesOf(m[2]))), lost: {} }; } catch { return fellBack(read()); }
+      try { const mol = parse(new TextDecoder("utf-8", { fatal: true }).decode(bytesOf(m[2]))); return { mol, lost: leftOf(mol) }; } catch { return fellBack(read()); }
     }
   }
   const resaved = (at >= 0 || oct) && /ChemDraw/i.test(programOf(text));

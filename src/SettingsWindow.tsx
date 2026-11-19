@@ -13,11 +13,12 @@ import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch, TextField } from "./Fields";
 import { CHANGED_BY, MAX_COMMENT, PROPERTIES, changedBy, detailsOf, withDetails } from "./experiment";
-import type { Annotation } from "./render";
+import { GAP_ARROW_PT, type Annotation } from "./render";
+import { MAX_GAP, readGap } from "./conditions";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
 import { EXPORT_FORMATS, PICTURES, copyToClipboard, type ExportFormat } from "./export";
-import { BACKDROPS, DpiField } from "./ExportDialog";
+import { BACKDROPS, DpiField, PDF_PAGES } from "./ExportDialog";
 import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, LIMITS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import type { ObjectSettings } from "./edit";
 import type { AiApp } from "./Editor";
@@ -31,6 +32,7 @@ export type ModuleId = "general" | "ai" | "document" | "drawing" | "keys" | "app
 export type DrawingPrefs = {
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; pairBars: boolean;
   autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles"; massUnit: "g" | "mg";
+  dlNames: boolean; steroidNames: boolean; unsetMark: "" | "?" | "Ξ";
   riskNew: boolean; // a new experiment page gets a risk assessment (riskassess.ts)
   sequenceLabels: boolean; // how a document whose style does not say shows sequences: as residue labels
 };
@@ -39,6 +41,7 @@ export type FilePrefs = {
   clipboard: { office: boolean; pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
   quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
+  pdfPages: "one" | "document"; // Export… > PDF > Pages: one page cropped to the drawing, or a page for each document page it covers
 };
 const MAC = navigator.platform.startsWith("Mac"), LINUX = navigator.platform.startsWith("Linux");
 // Office object: on Windows only, Copy puts an Octet Drawing object first, which Word, PowerPoint and Excel keep and
@@ -47,7 +50,7 @@ const WINDOWS = navigator.platform.startsWith("Win");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
 const PICTURE = MAC ? "PDF, with the structure inside" : LINUX ? "PDF, PNG and SVG" : "EMF, with the structure inside";
 // 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides).
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { office: true, pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png" };
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { office: true, pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png", pdfPages: "one" };
 
 type Props = {
   module: ModuleId;
@@ -130,6 +133,10 @@ type Props = {
   onRemoveName: (name: string) => void;
   onExportNames: () => void;
   onImportNames: () => void;
+  // The user's own nicknames (Structure > Define Nickname…): each label to change or remove here, as in the = list.
+  nicknames: { label: string; smiles: string }[];
+  onRenameNickname: (from: string, to: string) => void;
+  onRemoveNickname: (label: string) => void;
   onClose: () => void;
 };
 
@@ -212,20 +219,23 @@ function OwnTemplates({ list, onRename, onRemove }: { list: { id: string; name: 
 }
 
 // The user's own dictionary: each name to change (it is kept when the field is left, if no other entry has it), its
-// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one.
-function OwnDictionary({ list, onRename, onRemove }: { list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void }) {
+// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one. The user's own
+// nicknames use it too (field "Nickname", at most 32 characters).
+function OwnDictionary({ list, onRename, onRemove, field = "Name", most = 80, empty = "To add a name, select a structure. Then right-click it and choose Add to dictionary." }: {
+  list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void; field?: string; most?: number; empty?: string;
+}) {
   const [names, setNames] = useState<Record<string, string>>({});
   const keep = (from: string) => {
     const to = names[from];
     if (to !== undefined) onRename(from, to);
     setNames(({ [from]: _, ...rest }) => rest);
   };
-  if (!list.length) return <p className="dictionary-empty">To add a name, select a structure. Then right-click it and choose Add to dictionary.</p>;
+  if (!list.length) return <p className="dictionary-empty">{empty}</p>;
   return (
     <div className="palette-editor dictionary-list">
       {list.map((n) => (
         <div key={n.name} className="palette-line">
-          <input className="palette-name" aria-label="Name" value={names[n.name] ?? n.name} maxLength={80} spellCheck={false}
+          <input className="palette-name" aria-label={field} value={names[n.name] ?? n.name} maxLength={most} spellCheck={false}
             onChange={(e) => setNames((x) => ({ ...x, [n.name]: e.target.value }))} onBlur={() => keep(n.name)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); setNames(({ [n.name]: _, ...rest }) => rest); } }} />
           <span className="dictionary-smiles" data-tip={n.smiles}>{n.smiles}</span>
@@ -378,7 +388,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "appearance", name: "Appearance", icon: <Swatches size={18} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
   { id: "files", name: "Import and export", icon: <Files size={18} />, words: "import export file clipboard" },
   { id: "warnings", name: "Warnings", icon: <Warning size={18} />, words: "warnings chemical check structure errors problems" },
-  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure" },
+  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure nicknames" },
   // The settings few people need, such as the rare formats in the File menu.
   { id: "pro", name: "Pro", icon: <Toolbox size={18} />, words: "pro advanced expert rare" },
 ] as { id: ModuleId; name: string; icon: React.ReactNode; words: string }[]).filter((m) => AI || m.id !== "ai");
@@ -548,9 +558,19 @@ export function SettingsWindow(p: Props) {
       d("drawing", "Rings", "Sprout rings on a click", "ring tool click atom sprout spiro bond option", <Switch on={p.drawing.sproutRings} label="Sprout rings on a click" onChange={(on) => p.onDrawing({ sproutRings: on })} />),
       d("drawing", "Reactions", "Map the rest of a reaction", "automatic reaction mapping atom map tool auto map pair", <Switch on={p.drawing.autoMap} label="Map the rest of a reaction" onChange={(on) => p.onDrawing({ autoMap: on })} />),
       d("drawing", "Stereochemistry", "Parentheses round R and S", "include parentheses stereochemistry show stereo cip labels r s e z brackets", <Switch on={p.drawing.stereoParens} label="Parentheses round R and S" onChange={(on) => p.onDrawing({ stereoParens: on })} />),
+      // Names Show Stereochemistry adds (stereonames.ts, after Prof. Stefan Schramm's PR #150). ChemDraw has none of them.
+      d("drawing", "Stereochemistry", "D and L names", "d l dl fischer amino acid sugar carbohydrate configuration stereochemistry show stereo", <Switch on={p.drawing.dlNames} label="D and L names" onChange={(on) => p.onDrawing({ dlNames: on })} />),
+      d("drawing", "Stereochemistry", "Steroid α and β", "steroid alpha beta α β face gonane nucleus stereochemistry show stereo", <Switch on={p.drawing.steroidNames} label="Steroid α and β" onChange={(on) => p.onDrawing({ steroidNames: on })} />),
+      d("drawing", "Stereochemistry", "Undefined stereocentres", "undefined unknown unspecified stereocentre configuration xi ξ question mark stereochemistry show stereo", (
+        <Segmented label="Undefined stereocentres" value={p.drawing.unsetMark} options={[["", "None"], ["?", "(?)", "Question mark"], ["Ξ", "(Ξ)", "Xi"]]} onChange={(v) => p.onDrawing({ unsetMark: v as "" | "?" | "Ξ" })} />
+      )),
       d("drawing", "Stereochemistry", "Hide abs flags", "hide absolute stereo flags enhanced stereochemistry abs", <Switch on={p.drawing.hideAbs} label="Hide abs flags" onChange={(on) => p.onDrawing({ hideAbs: on })} />),
       d("document", "Text", "Captions", "caption text font typeface", <FontPick label="Caption font" font={style.captionFont} fonts={FONTS} onPick={(v) => change({ captionFont: v })} className="select-field" />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
+      // The space between a reaction arrow and its conditions (0 to 100 pt). ChemDraw has no such setting.
+      d("document", "Text", "Conditions gap", "conditions gap arrow reaction reagents text space distance above below", (
+        <NumberField label="Conditions gap" unit="pt" lazy min={0} max={MAX_GAP} step={0.5} value={style.arrowGap ?? GAP_ARROW_PT} onChange={(n) => { const g = readGap(n); if (g !== undefined) change({ arrowGap: g === GAP_ARROW_PT ? undefined : g }); }} />
+      )),
       // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions): captions that read as
       // chemistry (Rh, CH3OH) count in the formula, names and warnings, and bonds join them.
       d("document", "Text", "Interpret chemically", "interpret chemically when possible captions text chemistry formula mass analysis bonds valence", <Switch on={style.interpret} label="Interpret chemically" onChange={(on) => change({ interpret: on })} />),
@@ -623,6 +643,7 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Resolution", "png tiff jpeg gif image resolution dpi ppi scale pixels size", <DpiField value={files.dpi} onChange={(dpi) => setFiles({ dpi })} />),
       d("files", "Export", "Background", "background transparent white page colour color png tiff jpeg gif", <Select label="Background" value={files.background} options={BACKDROPS} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "JPEG quality", "jpeg jpg quality compression", <NumberField label="JPEG quality" unit="%" min={1} max={100} step={5} value={files.quality} onChange={(n) => setFiles({ quality: Math.round(n) })} />),
+      d("files", "Export", "PDF pages", "pdf pages page document sheets multipage multi-page one page paper a4 letter", <Select label="PDF pages" value={files.pdfPages} options={PDF_PAGES} onChange={(v) => setFiles({ pdfPages: v as FilePrefs["pdfPages"] })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is Office's
       // own copy of it (a zip with an EMF) and a PDF on the Mac, an EMF on Windows, and a PDF, a PNG and an SVG on
@@ -697,8 +718,12 @@ export function SettingsWindow(p: Props) {
       d("pro", "Window", "Feedback button", "feedback button mail email send hide remove report", <Switch on={p.feedbackButton && !p.feedbackOff} label="Feedback button" disabled={p.feedbackOff} onChange={p.onFeedbackButton} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
+      // ChemDraw's List Nicknames: the user's own nicknames, renamed and removed here as in the = list.
+      d("dictionary", "Nicknames", "Your nicknames", "nicknames nickname define list labels abbreviations groups own rename remove smiles",
+        <OwnDictionary list={p.nicknames.map((n) => ({ name: n.label, smiles: n.smiles }))} onRename={p.onRenameNickname} onRemove={p.onRemoveNickname} field="Nickname" most={32}
+          empty="To add a nickname, select a group joined by one bond. Then choose Structure > Define Nickname." />, true),
     ].filter((x) => AI || x.module !== "ai");
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.feedbackButton, p.feedbackOff, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.feedbackButton, p.feedbackOff, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.nicknames, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

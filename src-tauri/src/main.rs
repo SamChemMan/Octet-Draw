@@ -935,6 +935,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
     ])?;
+    section.replace("Structure › Measure".into());
+    let measure = Submenu::with_items(app, "Measure", true, &[
+        &item("measure_distance", "Distance", "")?,
+        &item("measure_angle", "Angle", "")?,
+        &item("measure_dihedral", "Dihedral", "")?,
+    ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
     let structure = Submenu::with_items(app, "&Structure", true, &[
@@ -943,6 +949,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
         &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
+        // The wedges and hashes placed again from their stereocentres; no atom moves (chem.ts redrawStereo).
+        &item("redraw_stereo", "Redraw Stereo Bonds", "")?,
+        // The stereo projection tools (projection.ts, after Prof. Stefan Schramm's PR #150). ChemDraw has none of them.
+        &item("invert_here", "Invert Configuration Here", "")?,
+        &item("to_fischer", "Convert to Fischer Projection", "")?,
+        &item("to_wedges", "Convert to Wedge Drawing", "")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
         &item("bracket_properties", "Bracket Properties…", "")?,
@@ -958,6 +970,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("add_multicentre", "Add Multi-Centre Attachment", "")?,
         &item("add_variable", "Add Variable Attachment", "")?,
         &item("rlogic", "R-Logic Query…", "")?,
+        // Measurements of the selected atoms (issue 85), where ChemDraw has Add 3D Property: no shortcut, as ChemDraw.
+        &measure,
         &enhanced,
         &sep()?,
         &item("map_reaction", "Map Reaction Atoms", "")?,
@@ -973,6 +987,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,
+        // ChemDraw's Define Nickname…: the selected group kept by a label of the user's own (PR #146).
+        &item("define_nickname", "Define Nickname…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         // One-letter peptide, RNA and DNA codes, drawn through Name to Structure (issue 27).
         &item("insert_peptide", "Insert Peptide…", "")?,
@@ -1031,6 +1047,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
+        // ChemDraw's Attach Data: named fields on the selected structure (src/datafields.ts). No key, as in ChemDraw.
+        &item("attach_data", "Attach Data…", "")?,
         // ChemDraw's Annotate…: the Notes panel, at the note of the selection (or of the drawing). No key, as ChemDraw.
         &annotate,
         &sep()?,

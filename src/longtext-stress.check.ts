@@ -20,7 +20,7 @@ const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtex
 const { cutNotice } = await import("./notice.ts");
 const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve } = await import("./edit.ts");
 const { MAX_STEPS, addStop } = await import("./cycle.ts");
-const { isDataRole, readChart, retyped, NEW_ENERGY } = await import("./charts.ts");
+const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("./charts.ts");
 const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
 const { COMMENT, MAX_COMMENT, MAX_VALUE, oneLine } = await import("./experiment.ts");
 const { readRisk } = await import("./riskassess.ts");
@@ -258,6 +258,9 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
     assert.ok(got && readChart(JSON.parse(JSON.stringify(got.chart))), `${role}: kept`);
   }
   for (const role of ["title", "level:1", "vib:0:2", "key"]) assert.ok(!isDataRole(role), role);
+  // The chart dialog: a value's own name longer than the chart keeps is found, so the dialog says it was cut.
+  assert.ok(longNames({ paths: ["A"], rows: [["TS1", `12 (10) ${"n".repeat(81)}`]] }));
+  assert.ok(!longNames({ paths: ["A".repeat(200)], rows: [["S".repeat(200), `12 (10) ${"n".repeat(80)}`]] }));
   // Settings keep an experiment page's text of MAX_START characters for new pages.
   const start = serialize(withTexts(prose(MAX_TEXT))).padEnd(MAX_START, " ");
   assert.equal(readPurposes({ experimentStart: start }).experimentStart, start);
@@ -287,8 +290,14 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /const other = read\.foreign && !read\.fallback;/);
   assert.match(editor, /if \(read\.fallback\) setNotice\(`Octet cannot read its own copy of this drawing\. It opened the ChemDraw copy, without Octet's own extras\.\$\{more\}`, "error"\);/);
   assert.match(editor, /setFile\(path \? \{ path, saved: mol, lost: Object\.keys\(lost\)\.length \? lost : undefined \}/, "lost (with the copy counted) makes Save ask");
-  // The chart dialog's name cells take 80, as the chart keeps.
-  assert.match(src("./ChartDialog.tsx"), /maxLength=\{isName\(r, c\) \? 80 : 200\}/);
+  // The chart dialog's name cells take 80, as the chart keeps (Cells.tsx limit, by column and row), and a value's own
+  // name the chart cuts is said.
+  const chartDialog = src("./ChartDialog.tsx");
+  assert.match(chartDialog, /limit=\{\(c, r\) => \(c === 0 \|\| r === 0 \? 80 : 200\)\}/, "an energy diagram's paths and states");
+  assert.match(chartDialog, /limit=\{\(c\) => \(c === 0 \? 80 : 200\)\}/, "a sensitivity screen's conditions");
+  assert.match(chartDialog, /onDone\(data, energyRoles\(table\), longNames\(table\)\)/);
+  assert.match(editor, /if \(cut\) setNotice\(cutNotice\("A chart label", 80\)\);/);
+  assert.match(src("./Cells.tsx"), /maxLength=\{limit\(c, r\)\}[^]*maxLength=\{limit\(c, r\)\}/);
 });
 
 it("L9 a file another program changed opens from its CDXML as before: foreign, no fallback, nothing counted for it", () => {

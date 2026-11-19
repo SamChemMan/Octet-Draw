@@ -462,16 +462,21 @@ export function parseCell(text: string): { value: number; second?: number; name?
 }
 export const cellText = (value: number | null | undefined, second: number | null | undefined, name: string | null | undefined, places: number) =>
   value == null ? "" : [shown(value, places), second == null ? "" : `(${shown(second, places)})`, name ?? ""].filter(Boolean).join(" ");
-// Text copied from a spreadsheet as rows of cells.
-export function pastedRows(text: string): string[][] {
+// Text copied from a spreadsheet as rows of cells. inLines: it is pasted in a field of lines of text, where text with
+// no tab is that field's own (a value of several lines), not a table.
+export function pastedRows(text: string, most = MAX_STATES + 1, wide = MAX_PATHS + 1, chars = 200, inLines = false): string[][] {
+  if (inLines && !text.includes("\t")) return [];
   // Cut first: no more text than the largest table holds is looked at.
-  const lines = text.slice(0, (MAX_STATES + 1) * (MAX_PATHS + 1) * 202).replace(/\r\n?/g, "\n").split("\n");
+  const lines = text.slice(0, most * wide * (chars + 2)).replace(/\r\n?/g, "\n").split("\n");
   while (lines.length && !lines[lines.length - 1]) lines.pop();
-  const rows = lines.slice(0, MAX_STATES + 1).map((r) => r.split("\t").slice(0, MAX_PATHS + 1).map((x) => cut(plain(x), 200)));
+  const rows = lines.slice(0, most).map((r) => r.split("\t").slice(0, wide).map((x) => cut(plain(x), chars)));
   return rows.length > 1 || (rows[0]?.length ?? 0) > 1 ? rows : [];
 }
 // An energy diagram's table: the paths' names, and a row for each state (its name, then a cell for each path).
 export type EnergyTable = { paths: string[]; rows: string[][] };
+// Whether a value's own name in the table is longer than the chart keeps it (parseCell keeps 80 characters): the
+// chart dialog says so (docs/plans/long-text.md). Its fields hold a name, the paths' and the states', to 80.
+export const longNames = (t: EnergyTable) => t.rows.some((r) => r.slice(1).some((x) => (CELL.exec(cut(plain(x), 200))?.[3]?.length ?? 0) > 80));
 export const tableOfEnergy = (c: Pick<EnergyChart, "states" | "paths" | "places">): EnergyTable =>
   ({ paths: c.paths.map((p) => p.name), rows: c.states.map((s, k) => [s, ...c.paths.map((p) => cellText(p.energies[k], p.second?.[k], p.names?.[k], c.places))]) });
 // The table as a record's states and paths. A row with no energy and a path with none are left out. was: the record

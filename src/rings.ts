@@ -9,12 +9,17 @@ const neighbours = (g: Graph) => {
 };
 
 // The smallest ring through each ring bond (found by the shortest path between its ends without it), each ring once,
-// as its atoms in order around it.
+// as its atoms in order around it. Rings of more than 20 atoms are left out, so the search from each bond goes no
+// further than 19 bonds (a long chain costs its length, not its length squared).
 export function rings(g: Graph): number[][] {
   const adj = neighbours(g), out = new Map<string, number[]>();
   g.bonds.forEach((b, k) => {
-    const back = new Map<number, number>([[b.a, -1]]), queue = [b.a];
-    for (let q = 0; q < queue.length && !back.has(b.b); q++) for (const e of adj[queue[q]]) if (e.k !== k && !back.has(e.to)) { back.set(e.to, queue[q]); queue.push(e.to); }
+    // depth[q]: how many bonds queue[q] is from b.a.
+    const back = new Map<number, number>([[b.a, -1]]), queue = [b.a], depth = [0];
+    for (let q = 0; q < queue.length && !back.has(b.b); q++) {
+      if (depth[q] >= 19) break;
+      for (const e of adj[queue[q]]) if (e.k !== k && !back.has(e.to)) { back.set(e.to, queue[q]); queue.push(e.to); depth.push(depth[q] + 1); }
+    }
     if (!back.has(b.b)) return;
     const ring: number[] = [];
     for (let v = b.b; v !== -1; v = back.get(v)!) ring.push(v);

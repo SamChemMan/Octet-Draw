@@ -178,11 +178,12 @@ export const orderOf = (type: number) => (type === AROMATIC ? 1.5 : type === HBO
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
-// on: conditions text, kept centred above or below an arrow (by the arrow's id).
+// on: conditions text, kept centred above or below an arrow (by the arrow's id). gap: its own space between the arrow
+// and the text (pt, at the arrow's scale); unset is the document's (DocStyle.arrowGap).
 export type Caption = {
   id: number; text: string; x: number; y: number;
   bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right" | "justify"; under?: number[];
-  on?: { arrow: number; side: "above" | "below" };
+  on?: { arrow: number; side: "above" | "below"; gap?: number };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
   angle?: number; // turned anticlockwise about its anchor (the start, middle or end of its first baseline), in degrees (ChemDraw's RotationAngle)
@@ -215,8 +216,13 @@ export type Caption = {
   // On an experiment page: the text is this detail's value (experiment.ts FIELDS: "date", "notebook"), so the detail is
   // what the text says, wherever the text is moved to.
   field?: string;
+  // A measurement (measurement.ts): the distance between 2 atoms, the angle at the middle one of 3, or the dihedral
+  // across 4, in that order. The text is its value, worked out again as the atoms move; at is where its label was put
+  // by hand, in the measurement's own frame (measureFrame), so it rides with its atoms. Unset: Octet places it.
+  measure?: Measure;
   notes?: Annotation[]; // its notes, not drawn (annotate.ts)
 };
+export type Measure = { atoms: number[]; at?: [number, number] };
 export type StepFacts = { reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string };
 // Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
 // their arrow has changed length or direction since.
@@ -260,7 +266,11 @@ export type Arrow = {
   scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
   role?: PlotPart; // a page spectrum's part: its role and where Octet put it (pageplot.ts)
   notes?: Annotation[]; // its notes, not drawn (annotate.ts)
+  fromOn?: ArrowEnd; toOn?: ArrowEnd; // what a curved arrow's start and end are tied to, so they follow it (arrowlink.ts)
 };
+// What a curved arrow's end is tied to: an atom, a lone pair or radical dot on it (by the renderer's key: pair0 to
+// pair3, radical0, radical1), or the bond between two atoms. Atoms by their numbers.
+export type ArrowEnd = { atom: number; pair?: string } | { bond: [number, number] };
 // An arrowhead's size in line widths, as CDXML keeps it in hundredths (HeadSize, ArrowheadCenterSize, ArrowheadWidth):
 // how far back from the tip it reaches, how far back its notch is, and how far each barb stands off the shaft.
 export type HeadSize = { length: number; centre: number; width: number };
@@ -599,7 +609,12 @@ export const HIGHLIGHT = "#DCE4F6";
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[];
   // An experiment page whose details are text on the page (Octet 1.1.2; experiment.ts withHeader). A page without it,
   // from Octet 1.1.1, gets that text when it opens.
-  fields?: true };
+  fields?: true;
+  // Data fields on structures (issue 68, datafields.ts), in their order.
+  data?: DataField[] };
+// A data field (Object > Attach Data…): a name and a value on the structures that hold any of its atoms. Shown, its
+// value is the text of a caption tied to the structure (caption, by id); not shown, the field holds its value.
+export type DataField = { name: string; atoms: number[]; value?: string; caption?: number };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.
@@ -2180,12 +2195,13 @@ export const turnPx = (q: P, pivot: P, degrees: number): P => turnPoint(q, pivot
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
 // in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text
-// reaches above and below its baseline (px), for Variable line spacing.
+// reaches above and below its baseline (px), for Variable line spacing. arrowGap: the document's space between an arrow
+// and its conditions (pt).
 export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
   fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"]; wrap?: number }> = new Map(), measure?: (text: string, c: Caption, style: RunStyle) => number,
-  extent?: (text: string, c: Caption, style: RunStyle) => [number, number]): Placed[] {
+  extent?: (text: string, c: Caption, style: RunStyle) => [number, number], arrowGap = GAP_ARROW_PT): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
-  const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
+  const beside = new Map<string, number>(); // how far (px) from its arrow the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
   // Conditions placed by hand go first: the others on their side of the arrow stack out past them.
   const sorted = [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id), done = new Map<number, Placed[]>();
@@ -2221,12 +2237,13 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     } else if (arrow && hand) {
       [x, y] = [hand[0] * k, -hand[1] * k];
     } else if (arrow) {
-      // Conditions: centred on the arrow's middle, GAP_ARROW_PT (times the arrow's scale) clear of it, stacking away from it.
+      // Conditions: centred on the arrow's middle, their gap (times the arrow's scale) clear of it, stacking away from it:
+      // each starts at its own gap or past the text before it on its side, whichever is further.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
       const mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], len = Math.hypot(t[0] - s[0], t[1] - s[1]) || 1, u = [(t[0] - s[0]) / len, (t[1] - s[1]) / len];
-      const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * scaleOf(arrow) * pt + used;
+      const key = `${arrow.id} ${c.on!.side}`, gap = Math.max((c.on!.gap ?? arrowGap) * scaleOf(arrow) * pt, beside.get(key) ?? 0);
       const block = offs[offs.length - 1];
-      beside.set(key, used + block + (LINE + 0.2) * size);
+      beside.set(key, gap + block + (LINE + 0.2) * size);
       if (Math.abs(u[0]) >= 0.5) {
         // A mostly horizontal arrow: text above or below its middle.
         x = mid[0];
@@ -2262,7 +2279,7 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       const s: P = [arrow.from[0] * k, -arrow.from[1] * k], t: P = [arrow.to[0] * k, -arrow.to[1] * k], mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], above = c.on!.side === "above";
       const reach = Math.abs(t[0] - s[0]) >= 0.5 * Math.hypot(t[0] - s[0], t[1] - s[1]) ? (above ? mid[1] - frame[1] : frame[3] - mid[1]) : above ? mid[0] - frame[0] : frame[2] - mid[0];
       const key = `${arrow.id} ${c.on!.side}`;
-      beside.set(key, Math.max(beside.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow) * pt));
+      beside.set(key, Math.max(beside.get(key) ?? 0, reach + 0.2 * size));
     }
     const turned = c.angle ? ([[frame[0], frame[1]], [frame[2], frame[1]], [frame[2], frame[3]], [frame[0], frame[3]]] as P[]).map((q) => turnPx(q, [x, y], c.angle!)) : undefined;
     return [{

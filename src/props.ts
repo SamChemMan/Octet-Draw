@@ -410,7 +410,7 @@ function pka(c: Ctx): Properties["pka"] {
       return oh && arms.filter((bs) => bs.length).length === 1 && arms.every((bs) => bs.length < 2) ? site(i) : undefined;
     }],
     ["amine", [], (i) => // Alkylamine_primary, _secondary and _tertiary
-      sp3N(i) && !near(i) && !far(i) && !beta(i).some(([, b]) => [...d2(b), ...t3(b)].some((k) => c.el[k] === "C")) && !c.nb[i].some((a) => s1(a.j).some((k) => is(k, "C", true)))
+      sp3N(i) && H[i] < 3 && !near(i) && !far(i) && !beta(i).some(([, b]) => [...d2(b), ...t3(b)].some((k) => c.el[k] === "C")) && !c.nb[i].some((a) => s1(a.j).some((k) => is(k, "C", true)))
         ? { ...site(i), pkas: [[[10.28, 0.37], [11.02, 0.28], [10.55, 0.13]][H[i]]] } : undefined],
     ["amine", [[8.16, 2.52]], (i) => (amine(i) && s1(i).some((j) => is(j, "C", false)) ? site(i) : undefined)], // Amines_primary_secondary_tertiary
     ["phosphinic acid", [[2.97, 0.69]], (i) => { // Phosphinic_acid
@@ -446,7 +446,9 @@ function pka(c: Ctx): Properties["pka"] {
       const hit = test(i);
       if (!hit || [...hit.sites, ...hit.context].some((a) => taken[a])) continue;
       hit.sites.forEach((a, s) => {
-        const [value, sd] = (hit.pkas ?? pkas)[s];
+        const row = (hit.pkas ?? pkas)[s];
+        if (!row) return; // a site the row has no value for (ammonia's N on the alkylamine row) gives none
+        const [value, sd] = row;
         taken[a] = true;
         out.push({ atom: c.of[a], kind: hit.kind ?? (kind === "amine" ? AMINE[H[a]] : kind), pka: value, sd });
       });
