@@ -297,14 +297,21 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
     ["copy and paste", (m) => E.insertMol(m, E.extractSelection(m, new Set(E.fragments(m)[3]), new Set()), [1, 1])],
   ];
   const timed = (f: () => unknown) => { const t = performance.now(); f(); return performance.now() - t; };
+  // A comparison that fails is measured again before it counts, as in the stress check (the machine is busy).
+  const twice = <T,>(measure: () => T, ok: (t: T) => boolean, why: (t: T) => string): T => { const t = measure(); if (ok(t)) return t; const u = measure(); assert.ok(ok(u), why(u)); return u; };
   // The fields' own cost is measured against the same drawing with the same text under its structures (80 captions,
   // as compound numbers would be) and no fields: the text costs what any text under a structure costs.
   const { data: _, ...captioned } = fielded;
   for (const [what, f] of work) {
-    const a: number[] = [], b: number[] = [], c: number[] = [];
-    for (let r = 0; r < 60; r++) { a.push(timed(() => f(plain))); c.push(timed(() => f(captioned))); b.push(timed(() => f(fielded))); }
-    const ma = median(a.slice(10)), mb = median(b.slice(10)), mc = median(c.slice(10));
-    assert.ok(mb <= mc * 1.15 + 0.5, `${what}: ${mb.toFixed(2)} ms with fields, ${mc.toFixed(2)} ms with their text and no fields`);
+    // Interleaved, each run in the other order to the last, so none of the three is always last.
+    const [ma, mb, mc] = twice(() => {
+      const a: number[] = [], b: number[] = [], c: number[] = [];
+      for (let r = 0; r < 60; r++) {
+        const runs: [number[], Mol][] = [[a, plain], [c, captioned], [b, fielded]];
+        for (const [list, m] of r % 2 ? runs.reverse() : runs) list.push(timed(() => f(m)));
+      }
+      return [median(a.slice(10)), median(b.slice(10)), median(c.slice(10))];
+    }, ([, mb, mc]) => mb <= mc * 1.15 + 0.5, ([, mb, mc]) => `${what}: ${mb.toFixed(2)} ms with fields, ${mc.toFixed(2)} ms with their text and no fields`);
     console.log(`datafields.check: ${what} ${ma.toFixed(2)} ms with no fields, ${mc.toFixed(2)} ms with the text alone, ${mb.toFixed(2)} ms with 400 fields`);
   }
   const t = performance.now(), sd = chem.toSdf(fielded), took = performance.now() - t;
@@ -320,9 +327,11 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   const opened = chem.importStructure(withItems);
   assert.equal(opened.data!.length, count * 10);
   assert.deepEqual(values(opened, [0]).map((r) => r[0]), Array.from({ length: 10 }, (_, k) => `F${k}`));
-  const a: number[] = [], c: number[] = [];
-  for (let r = 0; r < 5; r++) { a.push(timed(() => chem.importStructure(without))); c.push(timed(() => chem.importStructure(withItems))); }
-  assert.ok(median(c) <= median(a) * 1.25 + 20, `${count} records open in ${median(c).toFixed(0)} ms with fields, ${median(a).toFixed(0)} ms without`);
-  console.log(`datafields.check: SDF export ${took.toFixed(0)} ms; ${count} records open in ${median(c).toFixed(0)} ms with fields, ${median(a).toFixed(0)} ms without`);
+  const [mo, mf] = twice(() => {
+    const a: number[] = [], c: number[] = [];
+    for (let r = 0; r < 5; r++) { a.push(timed(() => chem.importStructure(without))); c.push(timed(() => chem.importStructure(withItems))); }
+    return [median(a), median(c)];
+  }, ([mo, mf]) => mf <= mo * 1.25 + 20, ([mo, mf]) => `${count} records open in ${mf.toFixed(0)} ms with fields, ${mo.toFixed(0)} ms without`);
+  console.log(`datafields.check: SDF export ${took.toFixed(0)} ms; ${count} records open in ${mf.toFixed(0)} ms with fields, ${mo.toFixed(0)} ms without`);
 }
 console.log("datafields.check: ok");
