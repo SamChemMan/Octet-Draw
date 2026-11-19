@@ -476,8 +476,8 @@ by opening a file.
 
 - **FASTA with no ">" line.** A paste that no name or SMILES reads, and that is only residue letters over one line or
   more, opens the field as a FASTA record does: bases (A, C, G, T, U, either case) as DNA or RNA, else the 20 amino
-  acids in capitals as a peptide. Anything else (a lower-case protein, X or O, digits, dashes, one letter) is not read,
-  so the paste says what it said before. A header still reads as it did.
+  acids in capitals as a peptide; a * at the end is left out. Anything else (a lower-case protein, X or O, digits,
+  dashes, one letter) is not read, so the paste says what it said before. A header still reads as it did.
 - **How long a chain draws in full** is set by the builder's 1,000 atoms only. The 60 and 30 caps of 1.1.2 are gone
   from every path (the field, a paste, Name to Structure on a text or label, an AI app). The longest that fit: 249 Gly,
   52 dC, 50 rC or rU; any chain of 71 amino acids, 45 DNA or 43 RNA nucleotides (Trp, dG, rG are the largest). One

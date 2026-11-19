@@ -265,11 +265,12 @@ function fromFasta(fasta: string): string | undefined {
 const fastaKind = (codes: string): SeqKind => (/^[ACGTUN]+$/.test(codes) ? (codes.includes("U") ? "rna" : "dna") : "peptide");
 // A sequence with no ">" line: one line or more of residue letters and nothing else, told apart as a FASTA record is.
 // With no header to say it is a sequence, every letter must be one: bases (A, C, G, T or U, in either case), else a
-// peptide in capitals, each one of the 20 amino acids. At least two letters. Undefined for anything else (a word, a
-// damaged SMILES), so such a paste says what it said before.
+// peptide in capitals, each one of the 20 amino acids. A * at the end (a protein's stop) is left out. At least two
+// letters. Undefined for anything else (a word, a damaged SMILES), so such a paste says what it said before.
 function bareFasta(text: string): string | undefined {
-  if (text.length > MOST_TEXT || !/^[A-Za-z\s]+$/.test(text)) return undefined;
-  const typed = text.replace(/\s+/g, ""), codes = typed.toUpperCase();
+  const t = text.trim().replace(/\*$/, "");
+  if (t.length > MOST_TEXT || !/^[A-Za-z\s]+$/.test(t)) return undefined;
+  const typed = t.replace(/\s+/g, ""), codes = typed.toUpperCase();
   if (codes.length < 2) return undefined;
   if (/^[ACGTU]+$/.test(codes)) return sequenceText({ kind: fastaKind(codes), codes, start: false, end: false }).text;
   if (typed !== codes || [...codes].some((ch) => !CODES[ch])) return undefined;

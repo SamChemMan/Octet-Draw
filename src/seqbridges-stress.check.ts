@@ -1011,10 +1011,11 @@ await check("N34", "FASTA with no '>' line, pasted when no name or SMILES reads:
   assert.deepEqual(bare("ACGUACGU\nACGU"), { text: "rna: ACGUACGUACGU" });
   assert.deepEqual(bare("MALWMRLLPL\nLALLALWGPD"), { text: "peptide: MALWMRLLPLLALLALWGPD" });
   assert.deepEqual(bare("CYIQNCPLG"), { text: "peptide: CYIQNCPLG" });
+  assert.deepEqual(bare("MALWMRLLPL*\n"), { text: "peptide: MALWMRLLPL" }, "a stop at the end");
   assert.deepEqual(bare(">sp|P01178|OXYT_HUMAN\nCYIQNCPLG"), { text: "peptide: CYIQNCPLG" }, "a header still reads as before");
   // Not a sequence with no header: a protein in lower case (a misspelt name), a letter that is no amino acid or base,
   // digits, dashes, a damaged SMILES, one letter, nothing.
-  for (const t of ["cyiqncplg", "asprin", "HELLO", "ACDX", "Octet", "C1CC", "AC-GT", "1 atgc", "A", "", "  \n", "ACG*", "x".repeat(20_001)]) assert.equal(bare(t), undefined, JSON.stringify(t.slice(0, 20)));
+  for (const t of ["cyiqncplg", "asprin", "HELLO", "ACDX", "Octet", "C1CC", "AC-GT", "1 atgc", "A", "", "  \n", "AC*GT", "*", "x".repeat(20_001)]) assert.equal(bare(t), undefined, JSON.stringify(t.slice(0, 20)));
   // 1,000 bases with no header: the field reads them and they build as residue labels.
   const long = Array.from({ length: 1000 }, (_, k) => "ACGT"[(k * 7) % 4]).join(""), read = bare(long) as { text: string };
   assert.equal(read.text, `dna: ${long}`);
