@@ -256,12 +256,18 @@ test("S20 the dialog and the text take tokens only", () => {
   assert.doesNotMatch(readFileSync(new URL("render.ts", import.meta.url), "utf8"), /m\.data|\.data\?\./);
 });
 
-test("S21 turned and flipped structures", () => {
+test("S21 turned and flipped structures", async () => {
   const m = fielded(two(), 0, [["ID", "A"], ["mp", "5", true]]), P = atomsOf(m, 0);
   for (const t of [E.rotateAtoms(m, new Set(P), 90), E.flipAtoms(m, new Set(P), "horizontal"), E.flipAtoms(m, new Set(P), "vertical")]) {
     assert.deepEqual(all(t), all(m));
     assert.deepEqual(t.captions!.find((c) => c.id === t.data![1].caption)!.under, P);
   }
+  // The stereo projection tools: Convert to Wedge Drawing (its centres' H atoms go), Convert to Fischer Projection (H
+  // atoms come) and Invert Configuration Here keep the fields on the structure.
+  const { invertAt, toFischer, toWedges } = await import("./projection.ts"), { libraryItem } = await import("./library.ts");
+  const glucose = structuredClone(libraryItem("lib:D-Glucose (Fischer)")!.mol) as Mol, g = fielded(glucose, 0, [["ID", "G1"], ["mp", "146 °C", true]]);
+  const wedges = toWedges(g, new Set()).mol!, fischer = toFischer(wedges, new Set()).mol!, centre = g.atoms.findIndex((_, i) => chem.cipOf(g).atoms[i]);
+  for (const [what, x] of [["wedges", wedges], ["Fischer", fischer], ["inverted", invertAt(g, centre).mol!]] as const) assert.deepEqual(all(x), all(g), what);
 });
 
 // S22 to S24, S28: AI apps (scripts/headless).

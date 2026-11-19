@@ -294,7 +294,7 @@ const KEEP = yes("Turn each product to lie as its starting material, by the atom
 // here is refused, so a misspelt one does nothing.
 const MENU_COMMANDS = [
   "undo", "redo", "cut", "copy", "paste", "select_all", "invert_selection", "select_structure", "repeat", "join", "group", "ungroup", "group_integral", "centre_page", "bring_front", "send_back",
-  "clean_up", "clean_reaction", "map_reaction", "clear_reaction_map", "flip_h", "flip_v", "mirror_h", "mirror_v", "structure_perspective", "flatten", "clean_3d", "redraw_stereo",
+  "clean_up", "clean_reaction", "map_reaction", "clear_reaction_map", "flip_h", "flip_v", "mirror_h", "mirror_v", "structure_perspective", "flatten", "clean_3d", "redraw_stereo", "invert_here", "to_fischer", "to_wedges",
   "expand_label", "contract_label", "hydrogen_display", "aromatic_display", "show_stereo", "atom_numbers", "stereo_clear", "stereo_abs", "stereo_or", "stereo_and", "name_to_structure", "structure_to_name", "make_element", "interpret",
   "add_multicentre", "add_variable", "measure", "measure_distance", "measure_angle", "measure_dihedral", "define_rgroup", "expand_generic", "check_structure", "stoichiometry", "properties", "predict_1h", "predict_13c", "insert_peptide", "insert_rna", "insert_dna",
   "predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf",

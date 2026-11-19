@@ -951,6 +951,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
         // The wedges and hashes placed again from their stereocentres; no atom moves (chem.ts redrawStereo).
         &item("redraw_stereo", "Redraw Stereo Bonds", "")?,
+        // The stereo projection tools (projection.ts, after Prof. Stefan Schramm's PR #150). ChemDraw has none of them.
+        &item("invert_here", "Invert Configuration Here", "")?,
+        &item("to_fischer", "Convert to Fischer Projection", "")?,
+        &item("to_wedges", "Convert to Wedge Drawing", "")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
         &item("bracket_properties", "Bracket Properties…", "")?,
