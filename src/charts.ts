@@ -5,7 +5,7 @@
 import type { Figure } from "./spectrumplot.ts";
 import { SMALL, tint } from "./spectrumplot.ts";
 import { markupRuns } from "./experiment.ts";
-import { plainOf, styled } from "./richtext.ts";
+import { normalise, plainOf, styled, type TextRun } from "./richtext.ts";
 import { HIGHLIGHT_COLOURS, RING_FILLS } from "./docstyle.ts";
 import { widthOf } from "./arial.ts";
 
@@ -23,9 +23,18 @@ export type EnergyChart = Base & { kind: "energy"; states: string[]; paths: Ener
 // the yield from the standard conditions (%), on an axis for each condition changed. min is at the edge and max at the
 // centre, so a sensitive reaction covers a large area. second: a second value, joined by a dashed line.
 export type RadarChart = Base & { kind: "radar"; axes: { label: string; value: number; second?: number }[]; min: number; max: number; step: number; zones: boolean };
-export type Chart = EnergyChart | RadarChart;
-export const isChart = (p: { kind: string }): p is Chart => p.kind === "energy" || p.kind === "radar";
-export const chartName = (c: Chart) => (c.kind === "energy" ? "Energy diagram" : "Sensitivity screen");
+// A Jablonski diagram (issue 43): each state a bold level with its vibrational levels over it, and transitions between
+// them that stay on their levels when a level moves (pageplot.ts followLevels). A state's x is its level's ends and y
+// its height, and a transition's x is each end across, all fractions of the frame, which is the levels' box. vib: the
+// vibrational levels drawn over a state (0 to MAX_VIB), and the one each end of a transition sits on (0: the state's
+// own level). unit: the axis's title.
+export type JablonskiKind = "absorption" | "fluorescence" | "phosphorescence" | "ic" | "isc" | "vr";
+export type JState = { name: string; x: P; y: number; vib: number };
+export type JTransition = { from: number; to: number; kind: JablonskiKind; label: string; x: P; vib: P };
+export type JablonskiChart = Base & { kind: "jablonski"; states: JState[]; transitions: JTransition[]; axis: boolean; unit: string };
+export type Chart = EnergyChart | RadarChart | JablonskiChart;
+export const isChart = (p: { kind: string }): p is Chart => p.kind === "energy" || p.kind === "radar" || p.kind === "jablonski";
+export const chartName = (c: Chart) => (c.kind === "energy" ? "Energy diagram" : c.kind === "radar" ? "Sensitivity screen" : "Jablonski diagram");
 
 export const MAX_STATES = 60, MAX_PATHS = 12, MAX_AXES = 24, MAX_RINGS = 40;
 // A new path's colour: one path alone is in the document's ink.
@@ -188,11 +197,232 @@ export function radarFigure(c: RadarChart, em: number): Figure {
   }
   return fig;
 }
-// A chart's figure. Its text is text only: a state named P is not phosphorus in the drawing's formula.
-export function chartFigure(c: Chart, em: number): Figure {
-  const fig = c.kind === "energy" ? energyFigure(c, em) : radarFigure(c, em);
+// --- Jablonski diagram --------------------------------------------------------------------------------------------
+export const MAX_LEVELS = 24, MAX_TRANSITIONS = 64, MAX_VIB = 8;
+export const JABLONSKI_KINDS: readonly JablonskiKind[] = ["absorption", "fluorescence", "phosphorescence", "ic", "isc", "vr"];
+export const KIND_NAMES: Record<JablonskiKind, string> = { absorption: "Absorption", fluorescence: "Fluorescence", phosphorescence: "Phosphorescence", ic: "Internal conversion", isc: "Intersystem crossing", vr: "Vibrational relaxation" };
+// Each kind's label as a new transition gets it (scripted reads _A as a subscript).
+export const KIND_LABELS: Record<JablonskiKind, string> = { absorption: "hν_A", fluorescence: "hν_F", phosphorescence: "hν_P", ic: "IC", isc: "ISC", vr: "VR" };
+// IUPAC: a radiative transition is a straight arrow, a radiationless one wavy.
+export const radiative = (k: JablonskiKind) => k === "absorption" || k === "fluorescence" || k === "phosphorescence";
+// The default style's line width in bond lengths (0.6 pt over 14.4 pt), when the document's is not given.
+export const LINE = 0.6 / 14.4;
+// How far apart vibrational levels are: half the caption size, so they scale with the text.
+export const vibGap = (em: number) => em / 2;
+// A state's letter (S, T, D, Q), by which a new state finds its column and a new transition its kind.
+const letterOf = (name: string) => (name.trim()[0] ?? "").toUpperCase();
+// The lowest state (the ground state), or the lowest of those that pass.
+function lowest(states: Pick<JState, "y">[], ok: (k: number) => boolean = () => true): number {
+  let best = -1;
+  states.forEach((s, k) => { if (ok(k) && (best < 0 || s.y < states[best].y - 1e-9)) best = k; });
+  return best;
+}
+// A new transition's kind, from its states (D7): up is absorption; down within a letter is fluorescence to the ground
+// state and internal conversion otherwise; down to another letter is phosphorescence from the lowest state of its
+// letter to the ground state and intersystem crossing otherwise; within one state, vibrational relaxation.
+export function kindOf(states: Pick<JState, "name" | "y">[], from: number, to: number): JablonskiKind {
+  if (from === to) return "vr";
+  const a = states[from], b = states[to], ground = lowest(states);
+  if (b.y > a.y + 1e-9) return "absorption";
+  if (letterOf(a.name) === letterOf(b.name)) return to === ground ? "fluorescence" : "ic";
+  return to === ground && from === lowest(states, (k) => letterOf(states[k].name) === letterOf(a.name)) ? "phosphorescence" : "isc";
+}
+// The vibrational level each end of a new transition sits on: absorption to a higher one (Franck-Condon), emission to
+// the first over the ground state's level, a radiationless crossing to the top one (it keeps its energy), and
+// vibrational relaxation from the top one down.
+export function vibOf(kind: JablonskiKind, a: Pick<JState, "vib">, b: Pick<JState, "vib">): P {
+  return kind === "absorption" ? [0, Math.min(2, b.vib)] : kind === "vr" ? [a.vib, 0] : radiative(kind) ? [0, Math.min(1, b.vib)] : [0, b.vib];
+}
+// The transitions Kasha's rule gives (D6): absorption from the ground state to each excited state of its letter,
+// internal conversion down each letter, fluorescence from the lowest excited state of the ground state's letter,
+// intersystem crossing from it to the highest state of each other letter under it (else that letter's lowest), and
+// phosphorescence from the lowest state of each other letter to the ground state.
+export function defaultTransitions(states: JState[]): Omit<JTransition, "x">[] {
+  const ground = lowest(states);
+  if (ground < 0) return [];
+  const g = letterOf(states[ground].name), out: Omit<JTransition, "x">[] = [], up = (k: number) => states[k].y;
+  const add = (from: number, to: number) => { const kind = kindOf(states, from, to); out.push({ from, to, kind, label: KIND_LABELS[kind], vib: vibOf(kind, states[from], states[to]) }); };
+  const of = (l: string) => states.map((_, k) => k).filter((k) => k !== ground && letterOf(states[k].name) === l).sort((p, q) => up(p) - up(q));
+  const own = of(g), letters = [...new Set(states.map((s) => letterOf(s.name)))].filter((l) => l !== g);
+  for (const k of own) if (up(k) > up(ground) + 1e-9) add(ground, k);
+  for (const l of [g, ...letters]) { const list = l === g ? own : of(l); for (let i = list.length - 1; i > 0; i--) if (up(list[i]) > up(list[i - 1]) + 1e-9) add(list[i], list[i - 1]); }
+  const first = own[0];
+  if (first !== undefined && up(first) > up(ground) + 1e-9) add(first, ground);
+  for (const l of letters) {
+    const list = of(l), under = list.filter((k) => up(k) < up(first ?? ground) - 1e-9);
+    if (first !== undefined && list.length) add(first, under.length ? under[under.length - 1] : list[0]);
+    if (list.length && up(list[0]) > up(ground) + 1e-9) add(list[0], ground);
+  }
+  return out.slice(0, MAX_TRANSITIONS);
+}
+// Where a new transition goes across (fractions of the frame), where its levels leave the most room: between two
+// levels one over the other, the middle of the widest gap between the transitions already there; between two levels
+// side by side, from the end of one facing the other to the start of the other.
+export function roomFor(c: Pick<JablonskiChart, "states" | "transitions">, from: number, to: number, taken: number[] = c.transitions.flatMap((t) => t.x)): P {
+  const a = c.states[from], b = c.states[to], lo = Math.max(a.x[0], b.x[0]), hi = Math.min(a.x[1], b.x[1]);
+  if (hi > lo + 1e-6) {
+    const cuts = [lo, ...taken.filter((x) => x > lo + 1e-6 && x < hi - 1e-6).sort((p, q) => p - q), hi];
+    let at = 0;
+    for (let i = 1; i < cuts.length - 1; i++) if (cuts[i + 1] - cuts[i] > cuts[at + 1] - cuts[at] + 1e-9) at = i;
+    const x = (cuts[at] + cuts[at + 1]) / 2;
+    return [x, x];
+  }
+  const inset = (s: JState) => 0.1 * (s.x[1] - s.x[0]);
+  return a.x[1] <= b.x[0] + 1e-9 ? [a.x[1] - inset(a), b.x[0] + inset(b)] : [a.x[0] + inset(a), b.x[1] - inset(b)];
+}
+// Text as a name or a label draws it (D11): a name that is one capital and digits (S1, T12) has its digits as a
+// subscript; _x or _{xy} is a subscript and ^x or ^{xy} a superscript (\_ and \^ are the characters); a label that
+// starts with hν has hν in italic (h and ν are quantities).
+export function scripted(text: string): { text: string; runs?: TextRun[] } {
+  const one = /^([A-Z])(\d+)$/.exec(text);
+  if (one) return { text, runs: [{ text: one[1] }, { text: one[2], script: "sub" }] };
+  const runs: TextRun[] = [], chars = Array.from(text);
+  let i = 0;
+  if (text.startsWith("hν")) { runs.push({ text: "hν", italic: true }); i = 2; }
+  while (i < chars.length) {
+    const ch = chars[i];
+    if (ch === "\\" && (chars[i + 1] === "_" || chars[i + 1] === "^")) { runs.push({ text: chars[i + 1] }); i += 2; continue; }
+    if ((ch === "_" || ch === "^") && i + 1 < chars.length) {
+      const script = ch === "_" ? "sub" as const : "super" as const, close = chars[i + 1] === "{" ? chars.indexOf("}", i + 2) : -1;
+      const part = close > 0 ? chars.slice(i + 2, close).join("") : chars[i + 1];
+      if (part) runs.push({ text: part, script });
+      i = close > 0 ? close + 1 : i + 2;
+      continue;
+    }
+    runs.push({ text: ch });
+    i++;
+  }
+  const clean = normalise(runs);
+  return { text: plainOf(clean), ...(styled(clean) ? { runs: clean } : {}) };
+}
+// Text's width as drawn (em), a script at 0.7 of the size.
+const runsWidth = (t: { text: string; runs?: TextRun[] }) => (t.runs ?? [{ text: t.text }]).reduce((w, r) => w + widthOf(r.text, r.script ? 0.7 : 1), 0);
+// A wavy line's tail moved along it so that its wave ends on its axis where its head starts (R7): render.ts draws a
+// wave 0.2 bond lengths long (times the arrow's scale f) up to the notch of a line's small head, 8.75 line widths back
+// from the tip. line: the line width in bond lengths. The tail moves by a quarter of a wave at most.
+export function waveFit(from: P, to: P, line: number, f: number): P {
+  const d: P = [to[0] - from[0], to[1] - from[1]], L = Math.hypot(...d), notch = 8.75 * line * f, half = 0.1 * f;
+  if (L - notch <= half) return from;
+  const fitted = Math.round((L - notch) / half) * half + notch;
+  return [to[0] - (d[0] / L) * fitted, to[1] - (d[1] / L) * fitted];
+}
+// Whether the segment p-q passes through the box (left, bottom, right, top).
+function crosses(b: [number, number, number, number], p: P, q: P): boolean {
+  let t0 = 0, t1 = 1;
+  const d = [q[0] - p[0], q[1] - p[1]];
+  for (const [num, den] of [[p[0] - b[0], -d[0]], [b[2] - p[0], d[0]], [p[1] - b[1], -d[1]], [b[3] - p[1], d[1]]]) {
+    if (Math.abs(den) < 1e-12) { if (num < 0) return false; continue; }
+    const t = num / den;
+    if (den < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+// A transition's ends in the figure, before its wave is fitted: each on its vibrational level (none past the state's
+// last), inside its level by 0.2 em, or at its middle on a level too short for that. Undefined when it has no length.
+export function endsOf(c: Pick<JablonskiChart, "states" | "transitions" | "frame">, i: number, em: number): [P, P] | undefined {
+  const t = c.transitions[i], a = c.states[t?.from], b = c.states[t?.to], [W, H] = c.frame, g = vibGap(em), pad = 0.2 * em;
+  if (!a || !b) return undefined;
+  const across = (s: JState, x: number) => (s.x[1] - s.x[0] < (2 * pad) / W ? ((s.x[0] + s.x[1]) / 2) * W : Math.min(s.x[1] * W - pad, Math.max(s.x[0] * W + pad, x * W)));
+  const from: P = [across(a, t.x[0]), a.y * H + Math.min(t.vib[0], a.vib) * g], to: P = [across(b, t.x[1]), b.y * H + Math.min(t.vib[1], b.vib) * g];
+  return Math.hypot(to[0] - from[0], to[1] - from[1]) < 1e-6 ? undefined : [from, to];
+}
+// The figure, its frame's lower left corner at [0, 0]. em: the caption size in bond lengths; line: the line width in
+// bond lengths (at the record's text scale 1).
+export function jablonskiFigure(c: JablonskiChart, em: number, line = LINE): Figure {
+  const fig = empty(), [W, H] = c.frame, g = vibGap(em), f = c.text;
+  if (!c.states.length) return fig;
+  const levels = c.states.map((s) => ({ x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib }));
+  const segments: [P, P][] = [];
+  // Each level bold, and its vibrational levels plain over it (D10).
+  levels.forEach((l, k) => {
+    fig.lines.push({ from: [l.x0, l.y], to: [l.x1, l.y], style: "bold", role: `level:${k}` });
+    segments.push([[l.x0, l.y], [l.x1, l.y]]);
+    for (let i = 1; i <= l.vib; i++) { fig.lines.push({ from: [l.x0, l.y + i * g], to: [l.x1, l.y + i * g], role: `vib:${k}:${i}` }); segments.push([[l.x0, l.y + i * g], [l.x1, l.y + i * g]]); }
+  });
+  // Each state's name at the outer end of its level: left of a level in the left half, else right of it.
+  const middle = W / 2, names: number[] = [];
+  c.states.forEach((s, k) => {
+    const l = levels[k], left = (l.x0 + l.x1) / 2 <= middle + 1e-9, t = scripted(s.name);
+    fig.texts.push({ ...t, at: [left ? l.x0 - 0.3 * em : l.x1 + 0.3 * em, l.y - 0.35 * em], align: left ? "right" : "left", role: `state:${k}` });
+    if (left) names.push(l.x0 - 0.3 * em - runsWidth(t) * em);
+  });
+  // Each transition from its end on one level to its end on the other, inside each level, with a full head; a
+  // radiationless one wavy, its tail fitted to its wave (R7). Vibrational relaxation with no vibrational level to
+  // start from has no length and is not drawn.
+  const ends = c.transitions.map((t, i) => { const e = endsOf(c, i, em); return e && [radiative(t.kind) ? e[0] : waveFit(e[0], e[1], line, f), e[1]] as [P, P]; });
+  ends.forEach((e, i) => {
+    if (!e) return;
+    fig.lines.push({ from: e[0], to: e[1], end: "full", ...(radiative(c.transitions[i].kind) ? {} : { style: "wavy" as const }), role: `trans:${i}` });
+    segments.push(e);
+  });
+  // Each label beside its transition: right of a steep one (left when the right has no room), over a shallow one
+  // (under it when that has no room), at its middle, or else along it where it is clear of every line and every label
+  // placed before it (a level that crosses the middle).
+  // Each line's box, so a label's place is tested only against the lines it may meet.
+  const boxes: [number, number, number, number][] = [], reach = segments.map(([p, q]) => [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])]);
+  const order = c.transitions.map((_, i) => i).filter((i) => ends[i]).sort((p, q) => (ends[p]![0][0] + ends[p]![1][0]) - (ends[q]![0][0] + ends[q]![1][0]));
+  for (const i of order) {
+    const [p, q] = ends[i]!, t = scripted(c.transitions[i].label), w = runsWidth(t) * em;
+    if (!t.text.trim()) continue;
+    const steep = Math.abs(q[1] - p[1]) >= Math.abs(q[0] - p[0]), slope = steep ? 0 : Math.abs(q[1] - p[1]) / Math.max(1e-9, Math.abs(q[0] - p[0]));
+    const spots = [0.5, 0.35, 0.65, 0.2, 0.8].flatMap((k) => {
+      const m: P = [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+      return (steep ? [[m[0] + 0.3 * em, m[1] - 0.35 * em, "left"], [m[0] - 0.3 * em, m[1] - 0.35 * em, "right"]] : [[m[0], m[1] + 0.5 * em + (slope * w) / 2, "centre"], [m[0], m[1] - 1.25 * em - (slope * w) / 2, "centre"]]) as [number, number, "left" | "right" | "centre"][];
+    });
+    const boxOf = ([x, y, align]: (typeof spots)[number]): [number, number, number, number] => { const x0 = align === "left" ? x : align === "right" ? x - w : x - w / 2; return [x0 - 0.15 * em, y - 0.35 * em, x0 + w + 0.15 * em, y + 0.95 * em]; };
+    const clashes = (b: [number, number, number, number]) => segments.filter((s, k) => s !== ends[i] && b[0] <= reach[k][2] && b[2] >= reach[k][0] && b[1] <= reach[k][3] && b[3] >= reach[k][1] && crosses(b, s[0], s[1])).length + boxes.filter((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]).length;
+    // The first clear place, else the one with fewest clashes (the first of those).
+    let pick = 0, fewest = Infinity;
+    for (let k = 0; k < spots.length; k++) { const n = clashes(boxOf(spots[k])); if (n < fewest) { fewest = n; pick = k; } if (!n) break; }
+    const [x, y, align] = spots[pick];
+    boxes.push(boxOf(spots[pick]));
+    fig.texts.push({ ...t, at: [x, y], align, role: `label:${i}` });
+  }
+  // The axis: an arrow up at the left, clear of the names, from the foot to over the top vibrational level, its title
+  // at its top.
+  if (c.axis) {
+    const x = Math.min(0, ...levels.map((l) => l.x0), ...names) - 0.6 * em, top = Math.max(...levels.map((l) => l.y + l.vib * g)) + 0.8 * em, foot = Math.min(...levels.map((l) => l.y)) - 0.4 * em;
+    fig.lines.push({ from: [x, foot], to: [x, top], end: "full", role: "axis" });
+    if (c.unit) fig.texts.push({ ...marked(c.unit), at: [x, top + 0.35 * em], align: "centre", role: "axis-title" });
+  }
+  return fig;
+}
+// A Jablonski diagram's record with its states and transitions placed in the page's terms (absolute: bond lengths,
+// x across from the old frame's left and y up from its foot), as fractions of a frame that is their levels' box: the
+// frame's foot and left at the lowest level and the leftmost end, and the record's origin moved by as much. A side of
+// the frame stays 0.5 bond lengths at least, and its old length when every level is level with the others.
+export function framed(c: JablonskiChart, states: { name: string; x0: number; x1: number; y: number; vib: number }[], transitions: (Omit<JTransition, "x"> & { x: P })[]): JablonskiChart {
+  const left = Math.min(...states.map((s) => s.x0)), right = Math.max(...states.map((s) => s.x1)), foot = Math.min(...states.map((s) => s.y)), top = Math.max(...states.map((s) => s.y));
+  const W = right - left > 0.5 ? right - left : Math.max(0.5, c.frame[0]), H = top - foot > 0.5 ? top - foot : Math.max(0.5, c.frame[1]);
+  const fx = (x: number) => Math.min(1, Math.max(0, (x - left) / W)), r = (v: number) => Math.round(v * 1e9) / 1e9;
+  return { ...c, origin: [c.origin[0] + left, c.origin[1] + foot], frame: [W, H],
+    states: states.map((s) => ({ name: s.name, x: [r(fx(s.x0)), r(fx(s.x1))], y: r(Math.min(1, Math.max(0, (s.y - foot) / H))), vib: s.vib })),
+    transitions: transitions.map((t) => ({ ...t, x: [r(fx(t.x[0])), r(fx(t.x[1]))] })) };
+}
+// A new Jablonski diagram (D6): S0, S1, S2 and T1 with three vibrational levels each, singlets on the left and the
+// triplet on the right, and the six transitions of Kasha's rule.
+const STATES_NEW: JState[] = [
+  { name: "S0", x: [0, 1], y: 0, vib: 3 }, { name: "S1", x: [0, 0.45], y: 0.6, vib: 3 }, { name: "S2", x: [0, 0.45], y: 1, vib: 3 }, { name: "T1", x: [0.6, 1], y: 0.42, vib: 3 },
+];
+const ACROSS_NEW: P[] = [[0.04, 0.04], [0.15, 0.15], [0.26, 0.26], [0.37, 0.37], [0.43, 0.64], [0.82, 0.82]];
+export const NEW_JABLONSKI: Pick<JablonskiChart, "kind" | "title" | "states" | "transitions" | "axis" | "unit" | "frame"> = {
+  kind: "jablonski", title: "Jablonski diagram", states: STATES_NEW, axis: true, unit: "Energy", frame: [15, 7],
+  transitions: defaultTransitions(STATES_NEW).map((t, i) => ({ ...t, x: ACROSS_NEW[i] })),
+};
+
+// A Jablonski diagram's last figure for each record: a level moved reads the page against the record's figure, and
+// replot builds that figure again to tell what the user changed (pageplot.ts), on every pointer move of a drag.
+// Records are never changed in place, so a record is its figure's key. Figures are not changed after they are made.
+const drawn = new WeakMap<JablonskiChart, { em: number; line: number; fig: Figure }>();
+// A chart's figure. Its text is text only: a state named P is not phosphorus in the drawing's formula. line: the line
+// width in bond lengths.
+export function chartFigure(c: Chart, em: number, line = LINE): Figure {
+  if (c.kind === "jablonski") { const was = drawn.get(c); if (was && was.em === em && was.line === line) return was.fig; }
+  const fig = c.kind === "energy" ? energyFigure(c, em) : c.kind === "radar" ? radarFigure(c, em) : jablonskiFigure(c, em, line);
   fig.texts = fig.texts.filter((t) => t.text.trim()); // a name left empty is no caption (CDXML keeps none)
   for (const t of fig.texts) t.chemical = false;
+  if (c.kind === "jablonski") drawn.set(c, { em, line, fig });
   return fig;
 }
 // A figure's box (left, bottom, right, top), with its text as wide as it is drawn. measure: a text's width in em.
@@ -316,9 +546,18 @@ export function coverScale(c: Pick<RadarChart, "axes" | "min" | "max" | "step">)
 // brackets over a second value is that; text over a state's name, a path's name in the key, the axis title or a
 // condition's name is that name. redraw: the chart must be drawn again (a level moves). Undefined when the text is no
 // data: a value that is no number stays a label.
-export function retyped(c: Chart, role: string, text: string): { chart: Chart; redraw: boolean } | undefined {
+// On a Jablonski diagram, text over a state's name or a transition's label is that name or label (J5), drawn again
+// with its scripts when it was typed as plain text (rich: it has a style of its own, which stays as typed).
+export function retyped(c: Chart, role: string, text: string, rich = false): { chart: Chart; redraw: boolean } | undefined {
   const m = /^(value|second|name|keyname|axis):(\d+)(?::(\d+))?$/.exec(role), t = cut(plain(text), 80);
   if (!t) return undefined;
+  if (c.kind === "jablonski") {
+    const k = /^(state|label):(\d+)$/.exec(role), redraw = !rich && !!scripted(t).runs, i = k ? +k[2] : -1;
+    if (role === "axis-title") return { chart: { ...c, unit: t }, redraw: false };
+    if (k?.[1] === "state" && c.states[i]) return { chart: { ...c, states: c.states.map((s, j) => (j === i ? { ...s, name: t } : s)) }, redraw };
+    if (k?.[1] === "label" && c.transitions[i]) return { chart: { ...c, transitions: c.transitions.map((x, j) => (j === i ? { ...x, label: t } : x)) }, redraw };
+    return undefined;
+  }
   if (c.kind === "radar") return m?.[1] === "axis" && c.axes[+m[2]] ? { chart: { ...c, axes: c.axes.map((x, i) => (i === +m[2] ? { ...x, label: t } : x)) }, redraw: false } : undefined;
   if (role === "axis-title") return { chart: { ...c, unit: t }, redraw: false };
   const state = /^state:(\d+)$/.exec(role);
@@ -372,6 +611,17 @@ export function readChart(v: unknown): Chart | undefined {
     if (!Array.isArray(axes) || axes.length < 3 || axes.length > MAX_AXES || !axes.every((x) => x && str(x.label) && fin(x.value) && (x.second === undefined || fin(x.second)))) return undefined;
     if (!fin(o.min) || !fin(o.max) || !fin(o.step, 1e-6) || !(o.max > o.min) || (o.max - o.min) / o.step > MAX_RINGS || typeof o.zones !== "boolean") return undefined;
     return { ...base, kind: "radar", min: o.min, max: o.max, step: o.step, zones: o.zones, axes: axes.map((x) => ({ label: x.label as string, value: x.value as number, ...(x.second !== undefined ? { second: x.second as number } : {}) })) };
+  }
+  if (o.kind === "jablonski") {
+    const states = o.states as Record<string, unknown>[], ts = o.transitions as Record<string, unknown>[], n = Array.isArray(states) ? states.length : 0;
+    const whole = (v: unknown, hi: number) => Number.isInteger(v) && fin(v, 0, hi), part = (v: unknown) => fin(v, 0, 1);
+    if (!n || n > MAX_LEVELS || !states.every((s) => s && str(s.name) && pair(s.x, 0, 1) && (s.x as P)[0] < (s.x as P)[1] && part(s.y) && whole(s.vib, MAX_VIB))) return undefined;
+    if (!Array.isArray(ts) || ts.length > MAX_TRANSITIONS || !ts.every((t) => t && whole(t.from, n - 1) && whole(t.to, n - 1) && JABLONSKI_KINDS.includes(t.kind as JablonskiKind) && (t.from === t.to) === (t.kind === "vr")
+      && str(t.label) && pair(t.x, 0, 1) && Array.isArray(t.vib) && t.vib.length === 2 && t.vib.every((v) => whole(v, MAX_VIB)))) return undefined;
+    if (typeof o.axis !== "boolean" || !str(o.unit)) return undefined;
+    return { ...base, kind: "jablonski", axis: o.axis, unit: o.unit as string,
+      states: states.map((s) => ({ name: s.name as string, x: [...(s.x as P)] as P, y: s.y as number, vib: s.vib as number })),
+      transitions: ts.map((t) => ({ from: t.from as number, to: t.to as number, kind: t.kind as JablonskiKind, label: t.label as string, x: [...(t.x as P)] as P, vib: [...(t.vib as P)] as P })) };
   }
   return undefined;
 }

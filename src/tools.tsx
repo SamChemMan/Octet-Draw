@@ -380,6 +380,17 @@ const AttachmentRing = ({ children }: { children: React.ReactNode }) => (
 export const MultiAttachmentGlyph = () => <AttachmentRing><circle cx={128} cy={134} r={24} fill="currentColor" stroke="none" /></AttachmentRing>;
 export const VariableAttachmentGlyph = () => <AttachmentRing><path d="M93.8,228A100,100 0 0 1 41.4,84" strokeDasharray="16 36.8" /></AttachmentRing>;
 
+// A Jablonski diagram (Add Chart): a ground state across the foot, an excited singlet over it on the left and a
+// triplet on the right, absorption up and a wavy crossing between them.
+export const JablonskiGlyph = ({ size = 18 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M32,216H224M32,64H112M160,128H224" />
+    <path d="M64,208V84" />
+    <polyline points="44,104 64,76 84,104" />
+    <path d="M100,72q8,12 16,8t16,8t16,8t16,8" />
+  </Icon>
+);
+
 // Synthesis and Retrosynthesis: the cut chain under the arrow each draws (a reaction arrow, or a retrosynthetic one).
 export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
   <Icon>

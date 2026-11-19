@@ -26,6 +26,7 @@ import { colourOptions, PICK } from "./colours";
 import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
+import { JABLONSKI_KINDS, KIND_NAMES, radiative, type JablonskiKind } from "./charts";
 import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind, FREE_SYMBOLS, type FreeSymbol } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,7 +64,11 @@ export type LabelText = { bold: boolean; italic: boolean; underline: boolean; fo
 // Octet puts it, and its heads.
 export type CycleSide = { ends: "both" | "in" | "out"; inside?: boolean; moved: boolean; start: Head; end: Head; head: HeadShape; size: string };
 // A picked chart's look (charts.ts), for its controls in the panel. whole: the whole chart is picked, not one part.
-export type ChartLook = { whole: boolean } & ({ kind: "energy"; join: "line" | "dashed" | "curve"; axis: boolean; key: boolean; paths: { name: string; colour: string }[] } | { kind: "radar"; zones: boolean; min: number; max: number; step: number });
+// A Jablonski diagram's: vib, the picked levels' vibrational levels; links, the transitions the one picked level can
+// start (to each other state, and within itself), each with the kind it makes; transition, the picked transitions'
+// kind, and self when it is within one state.
+export type ChartLook = { whole: boolean } & ({ kind: "energy"; join: "line" | "dashed" | "curve"; axis: boolean; key: boolean; paths: { name: string; colour: string }[] } | { kind: "radar"; zones: boolean; min: number; max: number; step: number }
+  | { kind: "jablonski"; axis: boolean; vib?: number; links?: { to: string; name: string; kind: JablonskiKind }[]; transition?: JablonskiKind; self?: boolean });
 export type Context =
   // risk: an experiment page with no risk assessment yet, so it can have one (riskassess.ts).
   | { kind: "empty"; risk?: boolean }
@@ -148,13 +153,14 @@ export const formula = (f: string) => f.replace(/(?<=[A-Za-z)\]])\d+/g, (n) => n
 
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
 // list), each drawn as itself with its name. Colours are ColourPick's (ColourPicker.tsx), which works the same way.
-function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
-  const current = options.find((o) => o.id === value) ?? options[0];
+// glyph: what the button shows when it adds one of the options rather than choosing one (value matches none).
+function PickButton({ label, value, options, onPick, glyph }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void; glyph?: React.ReactNode }) {
+  const current = options.find((o) => o.id === value) ?? (glyph ? undefined : options[0]);
   return (
     <div className="pick">
-      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> }))]} onPick={onPick} className="chip pick-button" title={`${label}: ${current.name}`}>
+      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> }))]} onPick={onPick} className="chip pick-button" title={current ? `${label}: ${current.name}` : label}>
         <span className="pick-label" aria-hidden>{label}</span>
-        {current.glyph}
+        {current ? current.glyph : glyph}
       </Pick>
     </div>
   );
@@ -221,6 +227,28 @@ export function SizeButton({ size, sizes, run }: { size: number; sizes: number[]
 // An energy diagram's joins, and a sensitivity screen's scale, as the panel names them.
 const JOINS = [["line", "Lines"], ["dashed", "Dashed lines"], ["curve", "Curves"]] as const;
 const RANGE = [["min", "Edge"], ["max", "Centre"], ["step", "Step"]] as const;
+// A Jablonski diagram's transition as its kind is drawn: a straight arrow (radiative) or a wavy one (radiationless)
+// between two short levels, in the tool icons' stroke: absorption up, fluorescence down, phosphorescence down from a
+// level on the right, internal conversion down a short way, intersystem crossing across, and vibrational relaxation
+// down within one level.
+const TRANSITION_PATHS: Record<JablonskiKind, { levels: string; from: [number, number]; to: [number, number] }> = {
+  absorption: { levels: "M2 16h14M2 2h9", from: [6.5, 15], to: [6.5, 3] }, fluorescence: { levels: "M2 16h14M2 2h9", from: [6.5, 3], to: [6.5, 15] },
+  phosphorescence: { levels: "M2 16h14M9 6h7", from: [12.5, 7], to: [12.5, 15] }, ic: { levels: "M2 12h9M2 2h9", from: [6.5, 3], to: [6.5, 11] },
+  isc: { levels: "M2 4h6M10 13h6", from: [5, 5], to: [13, 12] }, vr: { levels: "M2 16h14M2 2h14", from: [9, 3], to: [9, 15] },
+};
+export function TransitionGlyph({ kind }: { kind: JablonskiKind }) {
+  const { levels, from, to } = TRANSITION_PATHS[kind], d = [to[0] - from[0], to[1] - from[1]], L = Math.hypot(d[0], d[1]), u = [d[0] / L, d[1] / L], n = [-u[1], u[0]];
+  const back = (k: number, w: number) => `${to[0] - u[0] * k + n[0] * w},${to[1] - u[1] * k + n[1] * w}`;
+  // A wave of 1.2 px over 3 px up to the head, as render.ts draws a wavy line.
+  const shaft = radiative(kind) ? `M${from[0]} ${from[1]}L${to[0] - u[0] * 2} ${to[1] - u[1] * 2}` : `M${Array.from({ length: 25 }, (_, i) => { const t = (i / 24) * (L - 2), w = 1.2 * Math.sin((2 * Math.PI * t) / 3); return `${from[0] + u[0] * t + n[0] * w} ${from[1] + u[1] * t + n[1] * w}`; }).join("L")}`;
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={levels} />
+      <path d={shaft} />
+      <path d={`M${back(3.2, 2.2)}L${to[0]},${to[1]}L${back(3.2, -2.2)}`} />
+    </svg>
+  );
+}
 // A join as its chip shows it: two levels, joined by a line, a dashed line or a curve, in the tool icons' stroke.
 function JoinGlyph({ kind }: { kind: "line" | "dashed" | "curve" }) {
   return (
@@ -323,7 +351,7 @@ const KIND_OF: Record<string, string> = {
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
-  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart",
+  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
@@ -578,8 +606,11 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // plate's origin does.
   if ("chart" in context && context.chart) {
     const c = context.chart;
-    items.unshift(it(<GridNine size={18} />, "Edit data…", "chart_edit"));
-    if (c.kind === "energy") items.push(small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")), ...(c.paths.length > 1 ? [small(it(<ListStar size={18} />, c.key ? "Hide the key" : "Show the key", "chart.key"))] : []));
+    // A Jablonski diagram has no data sheet: its data is edited where it is drawn (D5), and its own controls for a
+    // picked level or transition are under the rows.
+    if (c.kind !== "jablonski") items.unshift(it(<GridNine size={18} />, "Edit data…", "chart_edit"));
+    if (c.kind === "jablonski") items.push(small(it(<span className="glyph-text">S</span>, "Add a singlet", "chart.add.singlet")), small(it(<span className="glyph-text">T</span>, "Add a triplet", "chart.add.triplet")), small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")));
+    else if (c.kind === "energy") items.push(small(it(<LineVertical size={18} />, c.axis ? "Hide the axis" : "Show the axis", "chart.axis")), ...(c.paths.length > 1 ? [small(it(<ListStar size={18} />, c.key ? "Hide the key" : "Show the key", "chart.key"))] : []));
     else items.push(small(it(<ChartPieSlice size={18} />, c.zones ? "Hide the zones" : "Show the zones", "chart.zones")));
   }
   return items;
@@ -1149,6 +1180,20 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // How an energy diagram's levels are joined: each chip is drawn as its join.
         <div className="chips joins" role="group" aria-label="Joins">
           {JOINS.map(([id, name]) => <button key={id} className="chip" aria-pressed={chart.join === id} onClick={() => run(`chart.join.${id}`)} data-tip={name}><JoinGlyph kind={id} /></button>)}
+        </div>
+      )}
+      {chart?.kind === "jablonski" && chart.vib !== undefined && (
+        // A Jablonski diagram's picked levels: how many vibrational levels each draws.
+        <label className="scale-row">
+          <span className="tray-title">Vibrational levels</span>
+          <NumberField label="Vibrational levels" lazy min={0} max={8} step={1} value={chart.vib} onChange={(n) => run(`chart.vib.${Math.round(n)}`)} />
+        </label>
+      )}
+      {chart?.kind === "jablonski" && (chart.links?.length || chart.transition) && (
+        // A transition from the picked level to another (its kind from the two states), or the picked transitions' kind.
+        <div className="picks" role="group" aria-label="Transitions">
+          {!!chart.links?.length && <PickButton label="Add a transition" value="" glyph={<Plus size={18} />} options={chart.links.map((l) => ({ id: l.to, name: l.name, glyph: <TransitionGlyph kind={l.kind} /> }))} onPick={(to) => run(`chart.link.${to}`)} />}
+          {chart.transition && <PickButton label="Kind" value={chart.transition} options={JABLONSKI_KINDS.filter((k) => (k === "vr") === !!chart.self).map((k) => ({ id: k, name: KIND_NAMES[k], glyph: <TransitionGlyph kind={k} /> }))} onPick={(k) => run(`chart.kind.${k}`)} />}
         </div>
       )}
       {chart?.kind === "radar" && RANGE.map(([k, name]) => (

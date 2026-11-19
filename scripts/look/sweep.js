@@ -1,6 +1,7 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
 // drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
-// offer, every Settings page, the command palette) and lets the app's own watch (src/lookwatch.ts) measure each one.
+// offer, every Settings page, the command palette, a Jablonski diagram with a level and a transition picked) and lets
+// the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -94,6 +95,32 @@ await wait(600);
 // The command palette (this key opens it in a browser; the app has it in a menu).
 key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
 await measure("the command palette", !!(await until(() => document.querySelector(".command-palette"), 3000)));
+
+// A Jablonski diagram from the palette (picked whole), then one of its levels and one of its transitions picked alone
+// (a double-click, as on any part of a group), each with its own controls in the Actions panel.
+key({ key: "Escape" });
+await wait(500);
+[...document.querySelectorAll(".tool")].find((t) => /^select/i.test(t.getAttribute("aria-label") ?? ""))?.click();
+key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
+const find = await until(() => document.querySelector(".command-palette input"), 3000);
+if (find) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(find, "Jablonski diagram");
+  find.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait(400);
+  find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+}
+await measure("a Jablonski diagram", !!(await until(() => labelled("Add a singlet"), 4000)));
+// Each part's place on screen from the selection's marks, in the parts' order: S0 and its vibrational levels, S1 and
+// its (the fifth mark is S1), and so on, then the transitions (the twentieth is fluorescence).
+const world = document.getElementById("world"), marks = [...document.querySelectorAll(".selection-marks .arrow-mark")];
+const middle = (k) => { const ps = marks[k]?.getAttribute("points").trim().split(/\s+/).map((q) => new DOMPoint(...q.split(",").map(Number)).matrixTransform(world.getScreenCTM())); return ps && [(ps[0].x + ps[ps.length - 1].x) / 2, (ps[0].y + ps[ps.length - 1].y) / 2]; };
+const press = (type, [x, y]) => document.elementFromPoint(x, y)?.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, pointerId: 1, pointerType: "mouse", isPrimary: true }));
+const twice = async (p) => { for (let k = 0; k < 2; k++) { press("pointerdown", p); press("pointerup", p); await wait(80); } document.elementFromPoint(...p)?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: p[0], clientY: p[1], detail: 2 })); await wait(300); };
+const [level, transition] = [middle(4), middle(19)];
+if (level) await twice(level);
+await measure("a Jablonski diagram's level", !!(await until(() => labelled("Vibrational levels"), 3000)));
+if (transition) await twice(transition);
+await measure("a Jablonski diagram's transition", !!(await until(() => [...document.querySelectorAll(".pick-button")].some((b) => /^Kind/.test(b.getAttribute("aria-label") ?? "")), 3000)));
 
 out.look = window.__look;
 out.errors = window.__errors.slice(0, 10);

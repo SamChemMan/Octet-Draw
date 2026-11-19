@@ -8,7 +8,7 @@
 import type { Arrow, Caption, CurvePoint, Group, Mol } from "./render.ts";
 import { groupSelection } from "./edit.ts";
 import { addTitle, GREY, SMALL, spectrumFigure, traceColumns, type Figure, type LabelTurn } from "./spectrumplot.ts";
-import { chartFigure, chartName, fin as num, hex as colour, isChart, pair, readChart, retyped, str, type Chart } from "./charts.ts";
+import { chartFigure, chartName, endsOf, fin as num, framed, hex as colour, isChart, JABLONSKI_KINDS, KIND_LABELS, kindOf, MAX_LEVELS, MAX_TRANSITIONS, MAX_VIB, pair, readChart, retyped, roomFor, soundScale, str, vibGap, vibOf, type Chart, type JablonskiChart, type JablonskiKind, type JTransition } from "./charts.ts";
 import { keyOf, levels, measuredFigure, nameOf, xAt, type Analysed, type Analysis, type Measured } from "./measured.ts";
 import type { Kind } from "./jcamp.ts";
 import { frequency, isNucleus, NUCLEI, type Nucleus, type Signal } from "./nmr.ts";
@@ -33,8 +33,9 @@ export type SpectrumPlot = {
   kind: "predicted" | "measured"; nucleus: string; mhz: number; solvent: string; solventPeaks: boolean; range: P; frame: P; origin: P;
   scale: number; text: number; labels: LabelTurn; title: string; notice: boolean; signals?: PlotSignal[]; trace?: PlotTrace; roles: string[];
 };
-// What a build needs from the document: its caption size (pt), its bond length (pt), and a text's width in em.
-export type PlotEnv = { captionSize: number; bond: number; measure?: (t: string) => number };
+// What a build needs from the document: its caption size (pt), its bond length (pt), a text's width in em, and its
+// line width (pt; a Jablonski diagram fits its waves to its heads with it).
+export type PlotEnv = { captionSize: number; bond: number; measure?: (t: string) => number; line?: number };
 export const MAX_TRACE = 8192, MAX_LINES = 20000;
 // The smallest frame a resize gives (bond lengths).
 const MIN_W = 3, MIN_H = 0.5;
@@ -67,7 +68,7 @@ export function traceOf(m: Measured, a: Analysis, range: P, colour: (id: number)
 }
 // The figure a record gives at its frame, with its title and notice.
 export function plotFigure(p: Plot, env: PlotEnv): Figure {
-  if (isChart(p)) return chartFigure(p, (env.captionSize * p.text) / env.bond);
+  if (isChart(p)) return chartFigure(p, (env.captionSize * p.text) / env.bond, env.line !== undefined ? env.line / env.bond : undefined);
   const [W, H] = p.frame, em = (env.captionSize * p.text) / env.bond, sizes = { width: W, height: H, em, pt: p.scale / env.bond, labels: p.labels, measure: env.measure };
   let fig: Figure;
   if (p.trace) {
@@ -98,7 +99,7 @@ function madeOf(fig: Figure, at: P, text: number, captionSize: number): Made[] {
   };
   // A chart's zones go behind its lines.
   for (const c of fig.curves) if (c.back) curve(c);
-  for (const l of fig.lines) { const role = named(l.role), from = to(l.from); out.push({ role, arrow: { kind: "line", from, to: to(l.to), ...paint(l), ...(l.style ? { style: l.style } : {}), ...scaled, role: { role, at: from } } }); }
+  for (const l of fig.lines) { const role = named(l.role), from = to(l.from); out.push({ role, arrow: { kind: "line", from, to: to(l.to), ...paint(l), ...(l.style ? { style: l.style } : {}), ...(l.end ? { end: l.end } : {}), ...scaled, role: { role, at: from } } }); }
   for (const c of fig.curves) if (!c.back) curve(c);
   for (const t of fig.texts) {
     const role = named(t.role), q = to(t.at);
@@ -239,7 +240,8 @@ function rejoin(old: Map<string, Leader>, captions: Caption[], arrows: Arrow[], 
 // The props of a part the user can change, which a rebuild keeps.
 const CAPTION_KEEP = ["colour", "font", "bold", "italic", "underline", "text", "runs", "angle", "align", "lineHeight", "chemical", "order"] as const;
 const TWIN_KEEP = ["colour", "font", "bold", "italic", "underline", "order"] as const;
-const ARROW_KEEP = ["colour", "style", "width", "start", "end", "head", "headSize", "fill", "order"] as const;
+// kind: a chart's line made a reaction arrow stays one (D14).
+const ARROW_KEEP = ["kind", "colour", "style", "width", "start", "end", "head", "headSize", "fill", "order"] as const;
 // wrote: the part as Octet made it last, when the record's data changed: a prop the user left as Octet made it takes
 // the new record's (a value typed in Edit Data shows), and one the user changed stays.
 // A caption's text and its runs are one prop: text the user left takes the new text and runs; text the user changed
@@ -343,7 +345,7 @@ export function followCharts(was: Mol, now: Mol, env: PlotEnv): Mol {
     for (const c of now.captions ?? []) {
       const o = c.role && ids.has(c.id) ? before.get(c.id) : undefined;
       if (!o?.role || o.role.role !== c.role!.role || o.text === c.text) continue;
-      const change = retyped(record, c.role!.role, c.text);
+      const change = retyped(record, c.role!.role, c.text, !!c.runs?.length);
       if (!change) continue;
       record = change.chart;
       if (change.redraw) redraw.add(c.role!.role);
@@ -356,6 +358,211 @@ export function followCharts(was: Mol, now: Mol, env: PlotEnv): Mol {
     out = redraw.size ? drawn : { ...out, groups: out.groups!.map((x) => (x.id === g.id ? { ...x, plot: record } : x)) };
   }
   return out;
+}
+// --- Jablonski diagrams: transitions that stay on their levels (issue 43) -------------------------------------------
+type Absolute = { name: string; x0: number; x1: number; y: number; vib: number };
+type Line = { from: P; to: P };
+const minus = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+// A part of a Jablonski diagram moved on the page becomes the diagram's data (D2, D3), so its transitions stay on
+// their levels (R2). For each diagram this edit touched, whose record it did not change itself and that is not turned
+// or flipped: a level, or a vibrational level, whose place is not where Octet put it is read back as its state's
+// level (moved, stretched by one end, or laid flat again after a turn; at least 1 em long), and a transition whose
+// place is not Octet's as where it now runs (moved whole, it slides across; an end moved alone joins the level it is
+// dropped on, or keeps its state; reversed, it swaps its states). A level or a transition this edit deleted takes its
+// state or transition out, with every transition to or from it; the last state takes the record. The frame is then
+// the levels' box (no side over 1000 bond lengths), and the diagram is drawn again: each part read back where Octet
+// now puts it, and a name or a label that moved with its level or transition goes with it (the rest keep their
+// offsets). was: the drawing before the edit (in a drag, before the drag).
+export function followLevels(was: Mol, now: Mol, env: PlotEnv): Mol {
+  if (was === now || !now.groups?.some((g) => g.plot?.kind === "jablonski")) return now;
+  let out = now;
+  for (const g of now.groups) {
+    if (g.plot?.kind !== "jablonski") continue;
+    const og = was.groups?.find((x) => x.id === g.id);
+    if (!og || og.plot !== g.plot || (og.items === g.items && was.arrows === now.arrows && was.captions === now.captions)) continue;
+    out = settleLevels(was, out, og, env);
+  }
+  return out;
+}
+function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
+  const g = m.groups!.find((x) => x.id === og.id)!, p = g.plot as JablonskiChart, shift = plotShift(m, g);
+  if (!shift) return m;
+  const em = (env.captionSize * p.text) / env.bond, gap = vibGap(em), [W, H] = p.frame, tol = 2e-3, close = (a: P, b: P) => Math.abs(a[0] - b[0]) < tol && Math.abs(a[1] - b[1]) < tol;
+  const ids = new Set(g.items), arrows = new Map<string, Arrow>(), olds = new Set(og.items);
+  for (const a of m.arrows ?? []) if (ids.has(a.id) && a.role) arrows.set(a.role.role, a);
+  // Deleted by this edit: a level or a transition that was in the diagram and is not.
+  const here = new Set([...(m.arrows ?? []), ...(m.captions ?? [])].filter((x) => ids.has(x.id)).map((x) => x.id)), goneStates = new Set<number>(), goneTrans = new Set<number>();
+  for (const a of was.arrows ?? []) {
+    if (!olds.has(a.id) || here.has(a.id) || !a.role) continue;
+    const r = /^(level|trans):(\d+)$/.exec(a.role.role);
+    if (r) (r[1] === "level" ? goneStates : goneTrans).add(+r[2]);
+  }
+  // Where Octet put each line (in the figure, from the record's origin), and where it is now.
+  const fig = new Map(plotFigure(p, env).lines.map((l) => [l.role!, l as Line])), at = (q: P): P => [q[0] - p.origin[0] - shift[0], q[1] - p.origin[1] - shift[1]];
+  const own = (a: Arrow): Line => ({ from: at(a.from), to: at(a.to) }), settle = new Set<number>();
+  const states: Absolute[] = p.states.map((s) => ({ name: s.name, x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib }));
+  const moved: number[] = [];
+  states.forEach((s, k) => {
+    if (goneStates.has(k)) return;
+    const lines = [[`level:${k}`, 0], ...Array.from({ length: s.vib }, (_, i) => [`vib:${k}:${i + 1}`, (i + 1) * gap])] as [string, number][];
+    let read = false;
+    for (const [role, dy] of lines) {
+      const a = arrows.get(role), e = fig.get(role);
+      if (!a || !e) continue;
+      const l = own(a), mf = !close(l.from, e.from), mt = !close(l.to, e.to);
+      if (!mf && !mt) continue;
+      settle.add(a.id);
+      if (read) continue;
+      read = true;
+      // Both ends moved: moved whole, or turned (it lies flat again at its middle). One end: the other keeps the height.
+      const f: P = [l.from[0], l.from[1] - dy], t: P = [l.to[0], l.to[1] - dy], y = mf && mt ? (f[1] + t[1]) / 2 : mf ? t[1] : f[1];
+      let x0 = Math.min(f[0], t[0]), x1 = Math.max(f[0], t[0]);
+      if (x1 - x0 < em) {
+        if (mf !== mt) { const fixed = mf ? t[0] : f[0], end = mf ? f[0] : t[0]; [x0, x1] = end >= fixed ? [fixed, fixed + em] : [fixed - em, fixed]; }
+        else { const c = (x0 + x1) / 2; [x0, x1] = [c - em / 2, c + em / 2]; }
+      }
+      states[k] = { ...s, x0, x1, y };
+      moved.push(k);
+    }
+  });
+  // No side of the frame over 1000 bond lengths: a level moved past that stops there.
+  const still = states.filter((_, k) => !goneStates.has(k) && !moved.includes(k));
+  if (still.length) {
+    const L = 999, left = Math.min(...still.map((s) => s.x0)), right = Math.max(...still.map((s) => s.x1)), foot = Math.min(...still.map((s) => s.y)), top = Math.max(...still.map((s) => s.y));
+    for (const k of moved) {
+      const s = states[k], w = Math.min(s.x1 - s.x0, L), x0 = Math.min(Math.max(s.x0, right - L), left + L - w);
+      states[k] = { ...s, x0, x1: x0 + w, y: Math.min(Math.max(s.y, top - L), foot + L) };
+    }
+  }
+  // The level (or vibrational level) under a point, nearest first: within 0.6 em up or down and inside its ends.
+  const lineAt = (q: P): { k: number; i: number } | undefined => {
+    let best: { k: number; i: number; d: number } | undefined;
+    states.forEach((s, k) => {
+      if (goneStates.has(k) || q[0] < s.x0 - 0.2 * em || q[0] > s.x1 + 0.2 * em) return;
+      for (let i = 0; i <= s.vib; i++) { const d = Math.abs(q[1] - (s.y + i * gap)); if (d <= 0.6 * em && (!best || d < best.d)) best = { k, i, d }; }
+    });
+    return best && { k: best.k, i: best.i };
+  };
+  const inside = (k: number, x: number) => Math.min(states[k].x1, Math.max(states[k].x0, x));
+  const transitions: (Omit<JTransition, "x"> & { x: P })[] = p.transitions.map((t, i) => {
+    const out = { ...t, x: [t.x[0] * W, t.x[1] * W] as P, vib: [...t.vib] as P }, a = arrows.get(`trans:${i}`), e = fig.get(`trans:${i}`), drawn = endsOf(p, i, em);
+    if (!a || !e || !drawn || goneTrans.has(i)) return out;
+    const l = own(a), mf = !close(l.from, e.from), mt = !close(l.to, e.to);
+    if (!mf && !mt) return out;
+    settle.add(a.id);
+    if (close(l.from, e.to) && close(l.to, e.from)) return { ...out, from: t.to, to: t.from, x: [out.x[1], out.x[0]], vib: [t.vib[1], t.vib[0]] };
+    const d = minus(l.from, e.from);
+    if (mf && mt && close(d, minus(l.to, e.to))) return { ...out, x: [drawn[0][0] + d[0], drawn[1][0] + d[0]] };
+    const ends = [[mf, l.from, 0], [mt, l.to, 1]] as const;
+    for (const [m, q, j] of ends) {
+      if (!m) continue;
+      const hit = lineAt(q), other = j ? out.from : out.to;
+      if (hit && (hit.k !== other || t.kind === "vr")) { if (j) out.to = hit.k; else out.from = hit.k; out.vib[j] = hit.i; }
+      out.x[j] = q[0];
+    }
+    return out;
+  });
+  if (!settle.size && !goneStates.size && !goneTrans.size) return m;
+  // What is left of the diagram: its states and the transitions between them, renumbered.
+  const keptStates = states.map((_, k) => k).filter((k) => !goneStates.has(k));
+  if (!keptStates.length) return { ...m, groups: m.groups!.map((x) => { if (x.id !== g.id) return x; const { plot: _, ...plain } = x; return plain; }) };
+  const keptTrans = transitions.map((_, i) => i).filter((i) => !goneTrans.has(i) && !goneStates.has(transitions[i].from) && !goneStates.has(transitions[i].to));
+  const next = framed(p, keptStates.map((k) => states[k]), keptTrans.map((i) => { const t = transitions[i]; return { ...t, from: keptStates.indexOf(t.from), to: keptStates.indexOf(t.to), x: [inside(t.from, t.x[0]), inside(t.to, t.x[1])] as P }; }));
+  const rename = (r: string): string | undefined => {
+    const k = /^(level|state|vib):(\d+)(.*)$/.exec(r), t = /^(trans|label):(\d+)(.*)$/.exec(r);
+    if (k) { const j = keptStates.indexOf(+k[2]); return j < 0 ? undefined : `${k[1]}:${j}${k[3]}`; }
+    if (t) { const j = keptTrans.indexOf(+t[2]); return j < 0 ? undefined : `${t[1]}:${j}${t[3]}`; }
+    return r;
+  };
+  // Each part read back is where Octet puts it now (its offset the group's move). A name or a label this edit moved
+  // with its level or its transition goes with it: its offset loses that move.
+  const before = new Map([...(was.arrows ?? []), ...(was.captions ?? [])].filter((x) => olds.has(x.id)).map((x) => [x.id, x]));
+  const moveOf = (x: Arrow | Caption | undefined): P | undefined => { const o = x && before.get(x.id); return o && x ? ("from" in x ? minus(x.from, (o as Arrow).from) : [x.x - (o as Caption).x, x.y - (o as Caption).y]) : undefined; };
+  const anchors = new Map((m.arrows ?? []).filter((a) => ids.has(a.id) && a.role).map((a) => [a.role!.role, a]));
+  const settled: Mol = { ...m,
+    arrows: m.arrows!.map((a) => (settle.has(a.id) ? { ...a, role: { ...a.role!, at: minus(a.from, shift) } } : a)),
+    captions: m.captions?.map((c) => {
+      const r = c.role && ids.has(c.id) ? /^(state|label):(\d+)$/.exec(c.role.role) : null, anchor = r ? anchors.get(`${r[1] === "state" ? "level" : "trans"}:${r[2]}`) : undefined;
+      const dc = r ? moveOf(c) : undefined, da = moveOf(anchor);
+      if (!dc || !da || Math.hypot(...dc) < tol || !close(dc, da)) return c;
+      return { ...c, role: { ...c.role!, at: [c.role!.at[0] + dc[0], c.role!.at[1] + dc[1]] } };
+    }) };
+  const { kind: _k, title: _t, scale: _s, text: _x, roles: _r, ...data } = next;
+  return replot(settled, g.id, data, env, { rename });
+}
+// What of a Jablonski diagram is picked: the states (a level, a vibrational level or a name) and the transitions (an
+// arrow or its label).
+export function jablonskiPick(m: Mol, g: Group, picked: Iterable<number>): { states: number[]; transitions: number[] } {
+  const ids = new Set(picked), states = new Set<number>(), transitions = new Set<number>();
+  for (const x of [...(m.arrows ?? []), ...(m.captions ?? [])]) {
+    if (!ids.has(x.id) || !x.role || !g.items.includes(x.id)) continue;
+    const r = /^(level|vib|state|trans|label):(\d+)/.exec(x.role.role);
+    if (r) (r[1] === "trans" || r[1] === "label" ? transitions : states).add(+r[2]);
+  }
+  return { states: [...states].sort((a, b) => a - b), transitions: [...transitions].sort((a, b) => a - b) };
+}
+// A chart's own action, as the Actions panel runs it (chart.*): the new drawing, or what stops it. Each draws the chart
+// again and keeps what the user changed on the page. An energy diagram's joins, axis, key and a path's colour; a
+// sensitivity screen's zones and scale (one that would not hold every value is not taken); a Jablonski diagram's axis,
+// a singlet or a triplet added, the vibrational levels of the picked levels, the kind of the picked transitions, and a
+// transition added from the picked level (chart.link.<state>, or chart.link.self for vibrational relaxation). Show
+// also brings back a part deleted on the page. Undefined: not a chart action.
+export function chartAction(m: Mol, gid: number, command: string, picked: Iterable<number>, env: PlotEnv): { mol: Mol } | { notice: string } | undefined {
+  const g = m.groups?.find((x) => x.id === gid), c = g?.plot, [, what, a, b] = command.split(".");
+  if (!g || !c || !isChart(c) || !command.startsWith("chart.")) return undefined;
+  const redraw = (change: Partial<Chart>, revive?: RegExp, how: Replot = {}) => ({ mol: replot(m, gid, change, env, { ...how, ...(revive ? { revive: (r: string) => revive.test(r) } : {}) }) });
+  if (c.kind === "energy") {
+    if (what === "join" && (a === "line" || a === "dashed" || a === "curve")) return redraw({ join: a });
+    if (what === "axis") return redraw({ axis: !c.axis }, c.axis ? undefined : /^(axis|tick:|axis-title)/);
+    if (what === "key") return redraw({ key: !c.key }, c.key ? undefined : /^key/);
+    if (what === "colour" && c.paths[+a] && /^#[0-9a-f]{6}$/i.test(b)) return redraw({ paths: c.paths.map((x, i) => (i === +a ? { ...x, colour: b } : x)) });
+    return undefined;
+  }
+  if (c.kind === "radar") {
+    if (what === "zones") return redraw({ zones: !c.zones }, c.zones ? undefined : /^zone:/);
+    if (what === "scale" && (a === "min" || a === "max" || a === "step")) {
+      const next = { ...c, [a]: Number(command.split(".").slice(3).join(".")) };
+      return soundScale(next) ? redraw({ min: next.min, max: next.max, step: next.step }) : { notice: "The scale must hold every value." };
+    }
+    return undefined;
+  }
+  if (what === "axis") return redraw({ axis: !c.axis }, c.axis ? undefined : /^(axis|axis-title)$/);
+  const em = (env.captionSize * c.text) / env.bond, [W, H] = c.frame, gap = vibGap(em), pick = jablonskiPick(m, g, picked);
+  const abs = c.states.map((s) => ({ name: s.name, x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib })), across = c.transitions.map((t) => ({ ...t, x: [t.x[0] * W, t.x[1] * W] as P }));
+  const data = (x: JablonskiChart) => { const { kind: _k, title: _t, scale: _s, text: _x, roles: _r, ...d } = x; return d; };
+  if (what === "add" && (a === "singlet" || a === "triplet")) {
+    if (c.states.length >= MAX_LEVELS) return { notice: `A Jablonski diagram takes at most ${MAX_LEVELS} levels.` };
+    // Named with the next number of its letter, one step over the top state of its column (D8), as long as it.
+    const L = a === "singlet" ? "S" : "T", mine = c.states.map((_, k) => k).filter((k) => /^[A-Z]/.test(c.states[k].name) && c.states[k].name[0] === L);
+    const n = Math.max(-1, ...mine.map((k) => Number(/^[A-Z](\d+)$/.exec(c.states[k].name)?.[1] ?? 0))) + 1, ground = c.states.reduce((lo, s, k) => (s.y < c.states[lo].y ? k : lo), 0);
+    const column = mine.filter((k) => k !== ground), top = column.length ? column.reduce((hi, k) => (c.states[k].y > c.states[hi].y ? k : hi)) : undefined;
+    const ref = top !== undefined ? abs[top] : abs[ground], [x0, x1] = top !== undefined ? [ref.x0, ref.x1] : L === "S" ? [ref.x0, ref.x0 + 0.45 * (ref.x1 - ref.x0)] : [ref.x0 + 0.6 * (ref.x1 - ref.x0), ref.x1];
+    const added = framed(c, [...abs, { name: `${L}${Math.max(n, 1)}`, x0, x1, y: ref.y + Math.max(ref.vib, 3) * gap + 1.2 * em, vib: 3 }], across);
+    return redraw(data(added));
+  }
+  if (what === "vib") {
+    const n = Number(a);
+    if (!Number.isInteger(n) || n < 0 || n > MAX_VIB || command.split(".").length !== 3) return { notice: `Vibrational levels are 0 to ${MAX_VIB}.` };
+    if (!pick.states.length) return { notice: "Select a level first." };
+    return redraw({ states: c.states.map((s, k) => (pick.states.includes(k) ? { ...s, vib: n } : s)) });
+  }
+  if (what === "kind") {
+    const k = a as JablonskiKind;
+    if (!JABLONSKI_KINDS.includes(k) || command.split(".").length !== 3) return undefined;
+    if (!pick.transitions.length) return { notice: "Select a transition first." };
+    if (pick.transitions.some((i) => (c.transitions[i].from === c.transitions[i].to) !== (k === "vr"))) return { notice: "Vibrational relaxation is within one level, and every other kind between two." };
+    return redraw({ transitions: c.transitions.map((t, i) => (pick.transitions.includes(i) ? { ...t, kind: k, label: t.label === KIND_LABELS[t.kind] ? KIND_LABELS[k] : t.label } : t)) });
+  }
+  if (what === "link") {
+    const from = pick.states.length === 1 && !pick.transitions.length ? pick.states[0] : -1, to = a === "self" ? from : Number(a);
+    if (from < 0) return { notice: "Select one level first." };
+    if (!Number.isInteger(to) || !c.states[to] || command.split(".").length !== 3) return { notice: "There is no such level." };
+    if (c.transitions.length >= MAX_TRANSITIONS) return { notice: `A Jablonski diagram takes at most ${MAX_TRANSITIONS} transitions.` };
+    if (from === to && !c.states[from].vib) return { notice: "Vibrational relaxation needs vibrational levels." };
+    const kind = kindOf(c.states, from, to), t: JTransition = { from, to, kind, label: KIND_LABELS[kind], x: roomFor(c, from, to), vib: vibOf(kind, c.states[from], c.states[to]) };
+    return redraw({ transitions: [...c.transitions, t] });
+  }
+  return undefined;
 }
 // A page spectrum whose frame on the page (box, bond lengths: left, bottom, right, top) is dragged from `from` to
 // `to` by a resize handle: the plot grows by what the frame grows, and the side not dragged stays where it is.
@@ -393,7 +600,7 @@ export function readPart(v: unknown): PlotPart | undefined {
 }
 export function readPlot(v: unknown): Plot | undefined {
   const o = v as Record<string, unknown> | undefined;
-  if (o && (o.kind === "energy" || o.kind === "radar")) return readChart(o);
+  if (o && (o.kind === "energy" || o.kind === "radar" || o.kind === "jablonski")) return readChart(o);
   if (!o || (o.kind !== "predicted" && o.kind !== "measured") || !str(o.nucleus, 20) || !num(o.mhz, 0, 1e4) || !str(o.solvent, 40) || typeof o.solventPeaks !== "boolean"
     || !pair(o.range) || o.range[0] >= o.range[1] || !pair(o.frame, 0.01, 1000) || !pair(o.origin) || !num(o.scale, 0.01, 100) || !num(o.text, 0.01, 100)
     || !["auto", "horizontal", "vertical"].includes(o.labels as string) || !str(o.title, 400) || typeof o.notice !== "boolean"

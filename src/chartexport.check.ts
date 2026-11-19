@@ -16,8 +16,8 @@ import { widthOf } from "./arial.ts";
 import { duplicateSelection, EMPTY, extractSelection, fitSizes, insertMol, labelable, sprout, transformParts, withCaptionAtoms } from "./edit.ts";
 import { formulaCaption } from "./labels.ts";
 import { reorder } from "./order.ts";
-import { lonePlot, placePlot, plotShift, reframe, replot, rescale, type PlotEnv } from "./pageplot.ts";
-import { energyOfTable, energyRoles, NEW_ENERGY, NEW_RADAR, radarOfRows, radarRoles, rowsOfRadar, type Chart, type EnergyChart, type RadarChart } from "./charts.ts";
+import { followLevels, lonePlot, placePlot, plotShift, reframe, replot, rescale, type PlotEnv } from "./pageplot.ts";
+import { energyOfTable, energyRoles, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, radarOfRows, radarRoles, rowsOfRadar, type Chart, type EnergyChart, type JablonskiChart, type RadarChart } from "./charts.ts";
 import { toChemfig } from "./chemfig.ts";
 import { model3mf } from "./model3mf.ts";
 import { browser } from "../scripts/checkkit.ts";
@@ -284,6 +284,7 @@ function kept(what: string, back: Mol, m: Mol, tol: number) {
     // and what its text says: every value to two places, and names and a title with other italics.
     const box: [number, number, number, number] = [0, 0, 10, 10], wide: [number, number, number, number] = [0, 0, 13, 10], chart = g.plot as Chart;
     const change: Partial<Chart> = chart.kind === "radar" ? { zones: !chart.zones, axes: chart.axes.map((x, k) => (k === 0 ? { ...x, label: "Very high *c*" } : k === 3 ? { ...x, label: "No O₂" } : x)) }
+      : chart.kind === "jablonski" ? { unit: "*E* (eV)", states: chart.states.map((x, k) => (k === 1 ? { ...x, name: "S_1′", vib: 1 } : x)), transitions: chart.transitions.map((t, i) => (i === 3 ? { ...t, kind: "ic" as const } : t)) }
       : { join: "curve", key: false, places: 2, unit: "Δ*H* (kJ/mol)", states: chart.states.map((x, k) => (k === 1 ? "*TS*1" : x)) };
     for (const [edit, f] of [["a resize", (x: Mol, id: number) => reframe(x, id, box, wide, env)], ["Edit Data", (x: Mol, id: number) => replot(x, id, change, env)]] as const) {
       const after = f(back, b.id), before = f(m, g.id), gb = before.groups!.find((x) => x.id === g.id)!, ga = after.groups!.find((x) => x.id === b.id)!;
@@ -471,5 +472,74 @@ for (const [chart, change, rename, check] of [
   const back = transformParts(only(there.mol, gt), new Set(), new Set(gt.items), (q) => [q[0] - 0.8, q[1] + 0.8]), was = only(m0, g0);
   alike(`${name}: its lines in a document with other sizes`, marksOf(back).map(lineOf), marksOf(was).map(lineOf), JSON_FILE);
   alike(`${name}: its text in a document with other sizes`, byText(back.captions!).map((c) => [c.text, c.x, c.y, c.size]), byText(was.captions!).map((c) => [c.text, c.x, c.y, Math.round((c.size ?? style.captionSize) * k * 100) / 100]), JSON_FILE);
+}
+// --- A Jablonski diagram (issue 43) ---------------------------------------------------------------------------------
+// Its transitions are lines with a full head, straight or wavy, and its names and labels have subscripts and italic hν:
+// each is an ordinary arrow or text in the file, so no new writer. Octet's own files give back the record, the roles
+// and every part; another program's (and ChemDraw's save of ours) gives the same picture as a plain group, each
+// transition an arrow with its head (Octet reads a headed arrow with no Octet data as a reaction arrow).
+{
+  const jab: JablonskiChart = { ...NEW_JABLONSKI, origin: [-6.1, 3.3], scale: 1, text: 1, roles: [] }, followed = (m: Mol) => {
+    const g = chartOf(m), s1 = m.arrows!.find((a) => g.items.includes(a.id) && role(a) === "level:1")!, t = m.arrows!.find((a) => g.items.includes(a.id) && role(a) === "trans:4")!;
+    // S1 moved up (its transitions follow), ISC coloured and dashed, and a label typed with a style of its own.
+    const moved = followLevels(m, { ...m, arrows: m.arrows!.map((a) => (a.id === s1.id ? { ...a, from: [a.from[0], a.from[1] + 0.7], to: [a.to[0], a.to[1] + 0.7] } as Arrow : a)) }, env);
+    return { ...moved, arrows: moved.arrows!.map((a) => (a.id === t.id ? { ...a, colour: "#C42B2B", style: "dashed" as const } : a)), captions: moved.captions!.map((c) => (role(c) === "label:0" ? { ...c, text: "hν1", runs: [{ text: "hν", italic: true as const }, { text: "1", script: "super" as const }] } : c)) };
+  };
+  const jcases: [string, Mol][] = [["Jablonski diagram", on(jab)], ["Jablonski diagram, moved", moved(on(jab))], ["Jablonski diagram, scaled", scaled(on(jab))], ["Jablonski diagram, a level moved and parts restyled", followed(on(jab))],
+    ["Jablonski diagram beside a structure", on(jab, structure)], ["Jablonski diagram, turned", turned(on(jab))]];
+  // A headed line read with no Octet data is a reaction arrow with the same head: the same picture.
+  const asDrawn = (m: Mol): Mol => ({ ...m, arrows: m.arrows?.map((a) => (a.kind === "reaction" && !a.end ? { ...a, kind: "line" as const, end: "full" as const } : a)) });
+  for (const [name, m] of jcases) {
+    const xml = toCdxml(m, style), tree = parseXml(xml), heads = (root: Xml) => { let n = 0; const walk = (x: Xml) => x.kids.forEach((k) => { if (k.name === "arrow" && k.attrs.ArrowheadHead === "Full") n++; walk(k); }); walk(root); return n; };
+    const waves = (root: Xml) => { let n = 0; const walk = (x: Xml) => x.kids.forEach((k) => { if (k.name === "arrow" && k.attrs.LineType === "Wavy") n++; walk(k); }); walk(root); return n; };
+    const wanted = m.arrows!.filter((a) => a.end === "full").length, wavy = m.arrows!.filter((a) => a.style === "wavy").length;
+    for (const [how, root] of [["CDXML", tree], ["CDX", cdxToXml(xmlToCdx(tree))]] as const) {
+      assert.equal(heads(root), wanted, `${name}, ${how}: a full head on each transition and the axis`);
+      assert.equal(waves(root), wavy, `${name}, ${how}: the radiationless transitions are wavy`);
+    }
+    assert.ok(/face="32"/.test(xml) && /InterpretChemically="no"/.test(xml), `${name}: subscripts, and text only`);
+    assert.doesNotMatch(xml.replace(/ Octet="[^"]*"/g, ""), /plot|role|jablonski|level:|trans:/, `${name}: Octet's data outside the Octet attribute`);
+    const oct = writeOct(m, style), cdx = writeCdx(m, style);
+    kept(`${name}, .oct`, readOct(oct, true).mol, m, JSON_FILE);
+    kept(`${name}, .cdx`, readCdx(cdx).mol, m, JSON_FILE);
+    kept(`${name}, Octet's clipboard copy`, parse(serialize({ ...m, style })), m, JSON_FILE);
+    kept(`${name}, CDXML`, fromCdxml(xml).mol, m, FILE);
+    kept(`${name}, CDX from the CDXML`, readCdx(xmlToCdx(tree)).mol, m, FILE);
+    plainRead(`${name}, CDXML without Octet's data`, asDrawn(fromCdxml(noOctet(xml)).mol), m, FILE);
+    plainRead(`${name}, CDX without Octet's data`, asDrawn(readCdx(xmlToCdx(parseXml(noOctet(xml)))).mol), m, FILE);
+    // Text only, after every file and a paste: no atoms, no formula.
+    for (const [how, x] of [["on the page", m], ["after CDXML", fromCdxml(xml).mol], ["after .oct", readOct(oct, true).mol], ["pasted", insertMol(EMPTY, parse(serialize(extractSelection(m, new Set(m.atoms.map((_, i) => i)), new Set([...m.arrows!, ...m.captions!].map((y) => y.id))))), [0.8, -0.8]).mol]] as const) {
+      assert.ok(x.captions!.every((c) => c.chemical === false) && !x.captions!.some(formulaCaption), `${name}, ${how}: text read as chemistry`);
+      assert.equal(withCaptionAtoms(x, true).mol.atoms.length, m.atoms.length, `${name}, ${how}: S0, T1 or hν counted as atoms`);
+    }
+  }
+  // ChemDraw 22.2 opened this item's CDXML and saved it (17 November 2026): every arrow, head, wave, bold level,
+  // subscript and italic run, the one group and Interpret Chemically off stayed, and every Octet attribute went. That
+  // file's shape: the same CDXML with no Octet attribute, which reads back as above.
+  // Copy and paste, Duplicate: a second chart with its own record, and a level moved on the copy leaves the original.
+  const m0 = on(jab, structure), g0 = chartOf(m0), dup = duplicateSelection(m0, new Set(), new Set(g0.items)), copy = charts(dup.mol).find((g) => g.id !== g0.id)!;
+  assert.ok(copy?.plot && copy.items.every((id) => !g0.items.includes(id)), "Duplicate: a second Jablonski diagram");
+  const level = dup.mol.arrows!.find((a) => copy.items.includes(a.id) && role(a) === "level:3")!, after = followLevels(dup.mol, { ...dup.mol, arrows: dup.mol.arrows!.map((a) => (a.id === level.id ? { ...a, from: [a.from[0], a.from[1] - 1], to: [a.to[0], a.to[1] - 1] } as Arrow : a)) }, env);
+  assert.notDeepEqual(after.groups!.find((g) => g.id === copy.id)!.plot, copy.plot, "the copy's level moved");
+  assert.deepEqual(after.groups!.find((g) => g.id === g0.id), g0, "the original's record stays");
+  assert.ok(m0.arrows!.every((a) => after.arrows!.includes(a)) && m0.captions!.every((c) => after.captions!.includes(c)), "every part of the original stays");
+  const pasted = paste(m0, copyOf(m0, new Set(g0.items)));
+  assert.equal(charts(pasted.mol).length, 2, "pasted: a second chart");
+  // A level copied alone is a plain line.
+  const one = paste(m0, copyOf(m0, new Set([m0.arrows!.find((a) => g0.items.includes(a.id) && role(a) === "level:1")!.id])));
+  assert.ok([...one.items].every((id) => !one.mol.arrows!.find((a) => a.id === id)?.role) && charts(one.mol).length === 1, "a level pasted alone is plain");
+  // A hostile record in a file: the group stays a plain group, at once.
+  const hostile: [string, (p: Record<string, any>) => void][] = [["a transition to state 99", (p) => { p.transitions[0].to = 99; }], ["absorption within one state", (p) => { p.transitions[0].to = p.transitions[0].from; }],
+    ["100,000 transitions", (p) => { p.transitions = Array.from({ length: 100_000 }, () => p.transitions[0]); }], ["NaN", (p) => { p.states[0].y = "NaN"; }], ["a 5000 character name", (p) => { p.states[0].name = "S".repeat(5000); }], ["an unknown kind", (p) => { p.transitions[1].kind = "teleport"; }]];
+  for (const [what, spoil] of hostile) {
+    const m = on(jab), plot = JSON.parse(JSON.stringify(chartOf(m).plot));
+    spoil(plot);
+    const bad = { ...m, groups: m.groups!.map((g) => ({ ...g, plot })) } as Mol, t0 = performance.now();
+    for (const [how, x] of [[".oct", readOct(writeOct(bad, style), true).mol], ["CDXML", fromCdxml(toCdxml(bad, style)).mol], ["CDX", readCdx(writeCdx(bad, style)).mol]] as const) {
+      assert.ok(x.groups!.length === 1 && !x.groups![0].plot, `${what}, ${how}: the record is refused and the group stays`);
+      assert.equal(x.arrows!.length, m.arrows!.length, `${what}, ${how}: every part stays`);
+    }
+    assert.ok(performance.now() - t0 < 5000, `${what}: read at once`);
+  }
 }
 console.log("chartexport.check: ok");

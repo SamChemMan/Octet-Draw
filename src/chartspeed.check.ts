@@ -17,8 +17,8 @@ import { analyse, fromJcamp } from "./measured.ts";
 import { fragments } from "./edit.ts";
 import { widthOf } from "./arial.ts";
 import { onTop, reorder } from "./order.ts";
-import { placePlot, plotFigure, plotShift, readPlot, reframe, replot, rescale, signalKeys, traceOf, type Plot, type PlotEnv, type SpectrumPlot } from "./pageplot.ts";
-import { energyOfTable, energyRoles, figureBox, MAX_AXES, MAX_PATHS, MAX_RINGS, MAX_STATES, NEW_ENERGY, NEW_RADAR, radarOfRows, radarRoles, rowsOfRadar, type EnergyChart, type EnergyTable, type RadarChart } from "./charts.ts";
+import { followCharts, followLeaders, followLevels, placePlot, plotFigure, plotShift, readPlot, reframe, replot, rescale, signalKeys, traceOf, type Plot, type PlotEnv, type SpectrumPlot } from "./pageplot.ts";
+import { energyOfTable, energyRoles, figureBox, MAX_AXES, MAX_LEVELS, MAX_PATHS, MAX_RINGS, MAX_STATES, MAX_TRANSITIONS, MAX_VIB, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, radarOfRows, radarRoles, readChart, rowsOfRadar, type EnergyChart, type EnergyTable, type JablonskiChart, type JState, type RadarChart } from "./charts.ts";
 
 type P = [number, number];
 type Box = [number, number, number, number];
@@ -228,4 +228,80 @@ const [tt] = within([
   ["onTop, a spectrum resized among 2,000 objects", () => onTop(page, resized, fragments), 1], ["onTop, a caption moved beside the largest energy diagram", () => onTop(full, fullMoved, fragments), 5],
 ]);
 
+// --- Jablonski diagrams (issue 43): a level moved, at every edit and every pointer move of a drag ----------------
+// The default diagram, and the largest a file can hold: 24 states with 8 vibrational levels each and 64 transitions,
+// each with a label of its own (370 parts).
+const jStates: JState[] = Array.from({ length: MAX_LEVELS }, (_, k) => ({ name: k % 2 ? `T${k}` : `S${k}`, x: k === 0 ? [0, 1] : k % 2 ? [0.55, 1] : [0, 0.45], y: k / (MAX_LEVELS - 1), vib: MAX_VIB }));
+const jMost: JablonskiChart = { kind: "jablonski", title: "Most", states: jStates, axis: true, unit: "Energy", frame: [40, 60], ...place,
+  transitions: Array.from({ length: MAX_TRANSITIONS }, (_, i) => { const from = (i * 7) % MAX_LEVELS, to = ((i * 11 + 3) % MAX_LEVELS === from ? from + 1 : (i * 11 + 3) % MAX_LEVELS); return { from, to, kind: jStates[to].y > jStates[from].y ? "absorption" as const : i % 2 ? "ic" as const : "isc" as const, label: `k_{${i}}`, x: [jStates[from].x[0] + 0.05, jStates[to].x[0] + 0.05] as P, vib: [0, 1] as P }; }) };
+const j0 = onPage({ ...NEW_JABLONSKI, ...place }), jM = onPage(jMost);
+assert.ok(j0.parts === 34 && jM.parts === 370, `the diagrams' parts: ${j0.parts}, ${jM.parts}`);
+// S1's level moved up by a little more each time, as a drag's pointer moves do (followLevels, from the drawing before
+// the drag): the level is read back and the diagram drawn again.
+const levelMoved = (x: OnPage) => {
+  const id = x.m.arrows!.find((a) => a.role?.role === "level:1")!.id;
+  let k = 0;
+  return () => { k = (k + 1) % 20; const d = 0.01 * (k + 1); return followLevels(x.m, { ...x.m, arrows: x.m.arrows!.map((a) => (a.id === id ? { ...a, from: [a.from[0], a.from[1] + d], to: [a.to[0], a.to[1] + d] } as typeof a : a)) }, env); };
+};
+for (const x of [j0, jM]) assert.notDeepEqual(plotOf(levelMoved(x)(), x.gid), x.p, "the level is read back");
+// One nudge of a level picked on the default diagram (an arrow key held: each one is a whole edit).
+const nudged = (x: OnPage) => { let m = x.m; const id = m.arrows!.find((a) => a.role?.role === "level:3")!.id; return () => { const next = followLevels(m, { ...m, arrows: m.arrows!.map((a) => (a.id === id ? { ...a, from: [a.from[0], a.from[1] + 0.02], to: [a.to[0], a.to[1] + 0.02] } as typeof a : a)) }, env); m = next; return next; }; };
+const record = JSON.parse(JSON.stringify(jM.p));
+assert.ok(readChart(record), "the largest record is sound");
+// Measured on Sam's Mac (17 November 2026, with other work running): 0.19 ms for the default diagram's level move,
+// 5.6 ms for the largest's, 0.016 ms to read the largest record. The budgets are about five times those, and the
+// largest's is one frame (16 ms): a drag of its level keeps up with the pointer.
+const [tj0, tjM] = within([
+  ["a level moved on the default Jablonski diagram", levelMoved(j0), 1], ["a level moved on the largest Jablonski diagram (370 parts)", levelMoved(jM), 16],
+  ["a nudge of a level on the default Jablonski diagram", nudged(j0), 2], ["the largest Jablonski record read from a file", () => readChart(record), 0.1],
+]);
+// No Jablonski diagram on the page (R9): every edit pays one test of the groups. The editor's follow on each edit
+// (Editor.tsx set), with followLevels and without it, in turn: the median of 70 samples of each. On 40 paclitaxels and a
+// 500-residue peptide an atom moved (nothing else follows), and on the 2,000-object page with a spectrum and both other
+// charts a caption moved (the leaders and the charts' text are followed). And with one Jablonski diagram beside the 40
+// paclitaxels, an atom moved: its record is not read.
+const gl = globalThis as Record<string, unknown>;
+gl.document ??= { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
+gl.getComputedStyle ??= () => ({ getPropertyValue: () => "10" });
+gl.window ??= globalThis;
+gl.self ??= { location: { origin: "file://" } };
+gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+const chem = await import("./chem.ts");
+await chem.ready;
+const taxol = chem.indigoLayout("CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C");
+const taxols: Mol = { atoms: [], bonds: [] };
+for (let k = 0; k < 40; k++) {
+  const b = taxols.atoms.length;
+  taxols.atoms.push(...taxol.atoms.map((a) => ({ ...a, location: [a.location[0] + 20 * (k % 8), a.location[1] + 20 * Math.floor(k / 8), 0] as [number, number, number] })));
+  taxols.bonds.push(...taxol.bonds.map((x) => ({ ...x, atoms: [x.atoms[0] + b, x.atoms[1] + b] as [number, number] })));
+}
+const peptide = chem.indigoLayout("N[C@@H](C)C(=O)".repeat(500) + "O");
+assert.ok(taxols.atoms.length > 2400 && peptide.atoms.length > 2500, `${taxols.atoms.length} and ${peptide.atoms.length} atoms`);
+const atomMoved = (m: Mol) => () => ({ ...m, atoms: m.atoms.map((a, i) => (i === 7 ? { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] } : a)) });
+const withLevels = (was: Mol, now: () => Mol) => () => followCharts(was, followLevels(was, followLeaders(was, now()), env), env);
+const withoutLevels = (was: Mol, now: () => Mol) => () => followCharts(was, followLeaders(was, now()), env);
+const median = (t: number[]) => [...t].sort((p, q) => p - q)[t.length >> 1];
+function medians(a: () => unknown, b: () => unknown, runs: number): [number, number] {
+  for (let k = 0; k < 5; k++) { a(); b(); }
+  const ta: number[] = [], tb: number[] = [];
+  for (let r = 0; r < 70; r++) for (const [f, out] of r % 2 ? [[a, ta], [b, tb]] as const : [[b, tb], [a, ta]] as const) {
+    const t0 = performance.now();
+    for (let k = 0; k < runs; k++) f();
+    out.push((performance.now() - t0) / runs);
+  }
+  return [median(ta), median(tb)];
+}
+const withChart = onPage({ ...NEW_JABLONSKI, ...place, origin: [0, -30] }, taxols).m;
+const follows: [string, Mol, () => Mol][] = [["40 paclitaxels, an atom moved", taxols, atomMoved(taxols)], ["a 500-residue peptide, an atom moved", peptide, atomMoved(peptide)],
+  ["2,000 objects with a spectrum and two charts, a caption moved", page, () => moved], ["40 paclitaxels and a Jablonski diagram, an atom moved", withChart, atomMoved(withChart)]];
+const followed: string[] = [];
+for (const [what, was, now] of follows) {
+  // A miss on a busy machine gets two more goes: work that is slower is slower each time.
+  let ta = Infinity, tb = 0;
+  for (let go = 0; go < 3 && !(ta <= tb * 1.15 + 0.0005); go++) [ta, tb] = medians(withLevels(was, now), withoutLevels(was, now), 50);
+  assert.ok(ta <= tb * 1.15 + 0.0005, `${what}: the follow takes ${ms(ta)} ms with followLevels and ${ms(tb)} ms without it`);
+  followed.push(`${what} ${ms(ta)} against ${ms(tb)} ms`);
+}
+
+console.log(`chartspeed.check: Jablonski diagram, a level moved: default ${ms(tj0)} ms, largest ${ms(tjM)} ms; the follow with and without followLevels: ${followed.join("; ")}.`);
 console.log(`chartspeed.check: ok (resize: predicted spectrum ${ms(tp)} ms, measured ${ms(tm)} ms, default energy diagram ${ms(te0)} ms, default screen ${ms(tr0)} ms, largest energy diagram ${ms(teMost)} ms; Edit Data: default ${ms(td0)} ms, largest ${ms(tdMost)} ms; onTop on 2,000 objects ${ms(tt)} ms)`);

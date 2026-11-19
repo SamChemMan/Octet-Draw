@@ -53,8 +53,8 @@ import { acsText, countText, isNucleus, multiplicity, NUCLEI, NUCLEUS_LIST, nmrR
 import { placeFigure, withNotice } from "./spectrumplot";
 import { numbered, placeBeside } from "./beside";
 import { centreIn, dropClear, panInto, roomOf, type Span } from "./reveal";
-import { followCharts, followLeaders, labelLines, lonePlot, placePlot, plotFigure, plotName, plotShift, plotsIn, plotTop, reframe, replot, rescale, signalKeys, traceOf, type PlotEnv, type Replot, type SpectrumPlot } from "./pageplot";
-import { figureBox, isChart, NEW_ENERGY, NEW_RADAR, soundScale, type Chart } from "./charts";
+import { chartAction, followCharts, followLeaders, followLevels, jablonskiPick, labelLines, lonePlot, placePlot, plotFigure, plotName, plotShift, plotsIn, plotTop, reframe, replot, rescale, signalKeys, traceOf, type PlotEnv, type Replot, type SpectrumPlot } from "./pageplot";
+import { figureBox, isChart, kindOf as transitionKind, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, type Chart } from "./charts";
 import { ChartDialog, type ChartData } from "./ChartDialog";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, regroup, type Measured } from "./measured";
@@ -95,7 +95,7 @@ import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branc
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, type FreeSymbol } from "./render";
@@ -1084,11 +1084,13 @@ export default function Editor() {
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true) => {
-    // A page spectrum's label moved takes its leader with it (followLeaders), and a number or a name typed over a
+    // A page spectrum's label moved takes its leader with it (followLeaders), a Jablonski diagram's level or transition
+    // moved is its data, so its transitions stay on their levels (followLevels), and a number or a name typed over a
     // chart's is the chart's data (followCharts), in the same step. Hydrogens set by hand
     // that are no longer fewer than usual go (settleHydrogens).
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
-    mol = keepPlace(doc, settleHydrogens(followCharts(doc, followLeaders(doc, mol), plotEnv())));
+    const env = plotEnv();
+    mol = keepPlace(doc, settleHydrogens(followCharts(doc, followLevels(doc, followLeaders(doc, mol), env), env)));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
@@ -2825,9 +2827,13 @@ export default function Editor() {
     // Object > Add Chart: the chart's data in a dialog, then the chart on the page. Edit Data: the picked chart's.
     chart_energy: () => setDialog({ kind: "chart", chart: NEW_ENERGY }),
     chart_radar: () => setDialog({ kind: "chart", chart: NEW_RADAR }),
+    // A Jablonski diagram has no sheet (D5): the standard diagram goes on the page at once, and its data is edited
+    // where it is drawn.
+    chart_jablonski: () => applyChart(NEW_JABLONSKI),
     chart_edit: () => {
-      const g = pickedChart();
-      if (g) return setDialog({ kind: "chart", chart: g.plot as Chart, group: g.id });
+      const g = pickedChart(true);
+      if (g?.plot?.kind === "jablonski") return setNotice("A Jablonski diagram has no data sheet.", "info");
+      if (g && plotShift(doc, g)) return setDialog({ kind: "chart", chart: g.plot as Exclude<Chart, { kind: "jablonski" }>, group: g.id });
       // A chart that was rotated, flipped, or had most of its parts moved one by one is no longer where its record says
       // (pageplot.ts plotShift).
       setNotice(pickedChart(true) ? "Octet cannot edit this chart's data, because it was rotated, flipped or taken apart." : "Select a chart first.", "info");
@@ -3321,6 +3327,9 @@ export default function Editor() {
   // A drawing with no style (from another program, with Keep ChemDraw styles off) takes the style File > New gives.
   const newStyle = useMemo(() => styleFor(settings, settings.purpose), [settings.purpose, settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
   const style: DocStyle = useMemo(() => readStyle(doc.style ?? newStyle), [doc.style, newStyle]);
+  // What a page figure is drawn with: the document's caption size, bond length and line width, and its text's width.
+  // Here, before the drawing shown during a drag (shown), which takes a Jablonski diagram's levels back as data.
+  const plotEnv = (): PlotEnv => { const family = fontStack(style.captionFont); return { captionSize: style.captionSize, bond: style.bond, line: style.line, measure: (t) => textWidth(t, 1, false, false, family) }; };
   // The drawing as chemistry reads it (edit.ts withCaptionAtoms): the captions that count as chemistry (ChemDraw's
   // Interpret Chemically) as lone atoms after its own, for the formula and mass, names, copies and warnings.
   const chem = useMemo(() => withCaptionAtoms(doc, style.interpret), [doc, style.interpret]);
@@ -3355,7 +3364,7 @@ export default function Editor() {
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return dropped(ringDrop(drag), chairFree(drag), true);
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLeaders(doc, drag.working) : drag.working, drag.kind === "move" && drag.skip));
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip));
     if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
@@ -4818,8 +4827,6 @@ export default function Editor() {
     for (const g of plots) moved = rescale(moved, g.id, f, size, text, plotEnv());
     return moved;
   };
-  // What a page spectrum's build takes from the document style: its caption size and font, and its bond length.
-  const plotEnv = (): PlotEnv => { const family = fontStack(style.captionFont); return { captionSize: style.captionSize, bond: style.bond, measure: (t) => textWidth(t, 1, false, false, family) }; };
   // Commits a scale of what is chosen (working: the drag's copy, when there is one). The whole drawing scaled in
   // proportion with Labels and lines on changes the document's scale instead (IDEA-SCALE-8), so what is drawn next
   // matches: positions are in bond lengths, so each one moves to keep c in its place, sizes in points go with it,
@@ -5199,7 +5206,7 @@ export default function Editor() {
       return undefined;
     }
     if (!a) return undefined;
-    const barb = headBarb(a, frame, L);
+    const barb = chartLine(a) ? undefined : headBarb(a, frame, L);
     return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : (curved(a) || a.point) && near(bendPoint(a)) ? { id: a.id, which: "bend" }
       : barb && near([barb[0] / L, -barb[1] / L]) ? { id: a.id, which: "head" } : pointable(a) && !a.point && near(bendPoint(a)) ? { id: a.id, which: "add" } : undefined;
   };
@@ -5217,8 +5224,11 @@ export default function Editor() {
   };
   // The one pen curve picked, if it is one.
   const pickedCurve = () => (picked.size === 1 && !selection.size ? doc.arrows?.find((a) => picked.has(a.id) && a.kind === "curve" && a.curve) : undefined);
+  // A Jablonski diagram's level, vibrational level or transition: it is data (its place), so it takes only its end
+  // handles (D13).
+  const chartLine = (a: Arrow) => !!a.role && /^(level|vib|trans):/.test(a.role.role) && !!doc.groups?.some((g) => g.plot?.kind === "jablonski" && g.items.includes(a.id));
   // Straight arrows and lines that can take a point in their middle, to bend and branch from.
-  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro";
+  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro" && !chartLine(a);
   // The frame round the selection (px, y down) with its resize handles (resize.ts) and its rotation handle, by one
   // rule for every kind of selection: atoms, text, arrows, shapes, cycles, groups or a mix, as ChemDraw's selection
   // frame. It holds what is chosen as drawn (drawnBox), part of a group with the whole group. A lone straight arrow keeps its own
@@ -6806,6 +6816,13 @@ export default function Editor() {
     const c = contextBase(), g = (c.kind === "caption" && c.mode === "picked") || c.kind === "arrow" || c.kind === "selection" ? pickedChart() : undefined, p = g?.plot as Chart | undefined;
     if (!g || !p) return c;
     const whole = g.items.every((id) => picked.has(id));
+    if (p.kind === "jablonski") {
+      // A Jablonski diagram: the picked level's vibrational levels and the transitions it can start, or the picked
+      // transitions' kind.
+      const j = jablonskiPick(doc, g, picked), k = j.states.length === 1 && !j.transitions.length ? j.states[0] : undefined, kinds = [...new Set(j.transitions.map((i) => p.transitions[i].kind))];
+      const links = k === undefined ? [] : p.states.flatMap((s, i) => (i === k ? [] : [{ to: String(i), name: /^[A-Z]\d+$/.test(s.name) ? s.name[0] + [...s.name.slice(1)].map((d) => "₀₁₂₃₄₅₆₇₈₉"[+d]).join("") : s.name, kind: transitionKind(p.states, k, i) }])).concat(p.states[k].vib ? [{ to: "self", name: "Vibrational relaxation", kind: "vr" as const }] : []);
+      return { ...c, chart: { kind: "jablonski", whole, axis: p.axis, ...(j.states.length && !j.transitions.length ? { vib: p.states[j.states[0]].vib } : {}), ...(k !== undefined ? { links } : {}), ...(kinds.length === 1 && !j.states.length ? { transition: kinds[0], self: p.transitions[j.transitions[0]].from === p.transitions[j.transitions[0]].to } : {}) } } as Context;
+    }
     return { ...c, chart: p.kind === "energy" ? { kind: "energy", whole, join: p.join, axis: p.axis, key: p.key, paths: p.paths.map((x) => ({ name: x.name, colour: x.colour ?? style.colour })) } : { kind: "radar", whole, zones: p.zones, min: p.min, max: p.max, step: p.step } } as Context;
   };
   const contextBase = (): Context => {
@@ -7776,7 +7793,7 @@ export default function Editor() {
       if (g) { const left = [...picked].filter((id) => g.items.includes(id)); setPicked(new Set(whole || !left.length ? g.items : left)); }
       return;
     }
-    const frame: P = change.kind === "radar" ? [10, 10] : [Math.max(10, 3.4 * ((change as Chart & { kind: "energy" }).states?.length ?? 3) + 1), 12];
+    const frame: P = change.kind === "radar" ? [10, 10] : change.kind === "jablonski" ? change.frame! : [Math.max(10, 3.4 * ((change as Chart & { kind: "energy" }).states?.length ?? 3) + 1), 12];
     const record = { ...change, frame, origin: [0, 0], scale: 1, text: 1, roles: [] } as Chart, fig = plotFigure(record, env);
     const [m, items] = placePlot(doc, { ...record, origin: landing({ atoms: [], bonds: [] }, undefined, figureBox(fig, style.captionSize / style.bond, env.measure)) }, env, fig);
     set(m);
@@ -8072,7 +8089,7 @@ export default function Editor() {
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
-    chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
+    chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_jablonski: ["Jablonski diagram", "", <JablonskiGlyph />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
     join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
     arrange_left: ["Align left edges", `⌥⇧${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⌥⇧${MOD}C`, <AlignCenterHorizontal size={18} />],
@@ -8110,7 +8127,7 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", chart_jablonski: "add chart photophysics photochemistry excited state singlet triplet fluorescence phosphorescence intersystem crossing internal conversion energy level" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -8199,25 +8216,15 @@ export default function Editor() {
     // A picked chart's look, from the Actions panel: its joins, its axis, key or zones hidden or shown (Show also brings
     // back one deleted on the page), a sensitivity screen's scale (one that would not hold every value is not taken),
     // and a path's colour. Each draws the chart again and keeps what the user changed on the page.
+    // A Jablonski diagram's too: its axis, a singlet or a triplet added, the picked levels' vibrational levels, the
+    // picked transitions' kind, and a transition added from the picked level (chartAction).
     if (command.startsWith("chart.")) {
-      const g = pickedChart(), c = g?.plot as Chart | undefined, [, what, a, b, drag] = command.split(".");
-      if (!g || !c) return;
-      const redraw = (change: Partial<Chart>, revive?: RegExp, merge?: string) => {
-        const whole = g.items.every((id) => picked.has(id)), now = set(replot(doc, g.id, change, plotEnv(), revive ? { revive: (r) => revive.test(r) } : {}), true, merge).groups?.find((x) => x.id === g.id);
-        if (now) { const left = [...picked].filter((id) => now.items.includes(id)); setPicked(new Set(whole || !left.length ? now.items : left)); }
-      };
-      if (c.kind === "energy") {
-        if (what === "join" && (a === "line" || a === "dashed" || a === "curve")) return redraw({ join: a });
-        if (what === "axis") return redraw({ axis: !c.axis }, c.axis ? undefined : /^(axis|tick:|axis-title)/);
-        if (what === "key") return redraw({ key: !c.key }, c.key ? undefined : /^key/);
-        if (what === "colour" && c.paths[+a] && /^#[0-9a-f]{6}$/i.test(b)) return redraw({ paths: c.paths.map((x, i) => (i === +a ? { ...x, colour: b } : x)) }, undefined, drag ? "chart" : undefined);
-        return;
-      }
-      if (what === "zones") return redraw({ zones: !c.zones }, c.zones ? undefined : /^zone:/);
-      if (what === "scale" && (a === "min" || a === "max" || a === "step")) {
-        const next = { ...c, [a]: Number(command.split(".").slice(3).join(".")) };
-        return soundScale(next) ? redraw({ min: next.min, max: next.max, step: next.step }) : setNotice("The scale must hold every value.", "info");
-      }
+      const g = pickedChart(), drag = command.endsWith(".drag"), done = g && chartAction(doc, g.id, drag ? command.slice(0, -5) : command, picked, plotEnv());
+      if (!g || !done) return;
+      if ("notice" in done) return setNotice(done.notice, "info");
+      // The chart stays picked as it was: whole (with any part it gained), or the parts still there.
+      const whole = g.items.every((id) => picked.has(id)), now = set(done.mol, true, drag ? "chart" : undefined).groups?.find((x) => x.id === g.id);
+      if (now) { const left = [...picked].filter((id) => now.items.includes(id)); setPicked(new Set(whole || !left.length ? now.items : left)); }
       return;
     }
     const context = contextOf();
@@ -9237,7 +9244,7 @@ export default function Editor() {
       // Enter on a chart picked whole opens its data.
       if (e.key === "Enter" && !selection.size && picked.size > 1 && hovers.get().atom === undefined) {
         const g = pickedChart();
-        if (g && g.items.every((id) => picked.has(id))) { e.preventDefault(); return commands.current.chart_edit(); }
+        if (g && g.plot?.kind !== "jablonski" && g.items.every((id) => picked.has(id))) { e.preventDefault(); return commands.current.chart_edit(); }
       }
       // Enter on a picked caption types into it, as Enter on an atom types its label. On a picked peak label (both its
       // lines), into the line under the pointer, else its top line.
@@ -10294,7 +10301,7 @@ export default function Editor() {
               );
             }
             if ((!a || a.kind === "curve") && !wh) return null;
-            const barb = !wh && a ? headBarb(a, frame, L) : undefined;
+            const barb = !wh && a && !chartLine(a) ? headBarb(a, frame, L) : undefined;
             const points = wh ? [wh.at] : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
             return (
               <>

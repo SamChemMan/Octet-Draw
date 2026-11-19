@@ -533,7 +533,7 @@ assert.equal(steps.length, 0);
   // (structures alone is the structures kind: draw lists it with lines, plan 19.2.)
   await no("draw", {}, /^Octet changed nothing\. give lines, or structures\.$/);
   await no("draw", { lines: "ethanol -> water", structures: [{ text: "water" }], brief: "quick" }, /^Octet changed nothing\. give lines or structures, not both\.$/);
-  await no("draw", { kind: "scheme", start: [{ text: "water" }] }, /^Octet changed nothing\. kind: not one of structures, reaction, cycle, figure\.$/);
+  await no("draw", { kind: "scheme", start: [{ text: "water" }] }, /^Octet changed nothing\. kind: not one of structures, reaction, cycle, figure, chart\.$/);
   await no("draw", { kind: "structures", start: [{ text: "water" }], structures: [{ text: "water" }] }, /^Octet changed nothing\. arguments: start is not an argument of this tool\. advanced help of structures gives its arguments\.$/);
   await no("draw", { kind: "structures", structures: [{ name: "water" }] }, /^Octet changed nothing\. structures\[0\]: name is not an argument of this tool\. advanced help of structures gives its arguments\.$/);
   await no("change", {}, /^Octet changed nothing\. arguments: operations is missing\.$/);
@@ -541,7 +541,7 @@ assert.equal(steps.length, 0);
   await no("change", { operations: [{ ids: ["s1"] }] }, /operations\[0\]: op is missing/);
   await no("change", { operations: [{ op: "run_command", command: "undo" }] }, /operations\[0\]\.op: not one of draw, edit, /);
   await no("change", { operations: [{ op: "draw", structures: [{ text: "water" }] }] }, /operations\[0\]: kind is missing/);
-  await no("change", { operations: [{ op: "delete", ids: ["s1"] }, { op: "draw", kind: "table" }] }, /operations\[1\]\.kind: not one of structures, reaction, cycle, figure/);
+  await no("change", { operations: [{ op: "delete", ids: ["s1"] }, { op: "draw", kind: "table" }] }, /operations\[1\]\.kind: not one of structures, reaction, cycle, figure, chart/);
   await no("change", { operations: [{ op: "delete", ids: ["s1"] }], steps: [{}] }, /arguments: steps is not an argument of this tool\.$/);
   await no("change", { operations: [{ op: "move", ids: ["s1"], by: [1, 0] }] }, /^Octet changed nothing\. operations\[0\]: by is not an argument of this tool\. advanced help of move gives its arguments\.$/);
   await no("change", { operations: [{ op: "number", structure: "s1" }] }, /^Octet changed nothing\. operations\[0\]: number is missing\. advanced help of number gives its arguments\.$/);
@@ -1784,7 +1784,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   }
   for (const name of ["structures", "reaction", "cycle", "figure", ...tools[1].inputSchema.properties.operations.items.properties.op.enum.filter((o: string) => o !== "draw"), ...tools[4].inputSchema.properties.tool.enum.filter((o: string) => o !== "help")]) assert.ok(!(await call("advanced", { tool: "help", args: { of: name } })).isError, name);
   // With no name, or one Octet does not have, it says what it is of. batch and help are no names to ask of.
-  assert.match(text(await call("advanced", { tool: "help" })), /^Give of: a kind of draw \(structures, reaction, cycle, figure\), an operation of change \(edit, /);
+  assert.match(text(await call("advanced", { tool: "help" })), /^Give of: a kind of draw \(structures, reaction, cycle, figure, chart\), an operation of change \(edit, /);
   for (const name of ["batch", "help", "read_drawing"]) { const h = await call("advanced", { tool: "help", args: { of: name } }); assert.ok(h.isError && /^Octet has nothing named /.test(text(h)), name); }
   // The named transformations a compound's change takes as do (compound.ts) are in help: draw's list of changes names
   // do in one example and says where the rest are.
@@ -2414,7 +2414,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
   // (Not drawings new and use: they report no change, as they run outside the page's queue, plan 17.5.)
-  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 23);
+  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 24);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
   assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
   // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a
