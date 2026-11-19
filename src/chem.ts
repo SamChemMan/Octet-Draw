@@ -1184,6 +1184,21 @@ export function handsDrawn(m: Mol, hands: Map<number, number>): Mol {
   const bare = { ...m, bonds: m.bonds.map((b) => ((b.stereo === 1 || b.stereo === 6) && centres.has(b.atoms[0]) ? (({ stereo: _, ...rest }) => rest)(b) : b)) };
   return placeWedges(bare, hands, centres);
 }
+// Convert to Wedge Drawing (projection.ts): one wedge or hash for each of `centres` on m, a flat drawing, where
+// placeWedges puts them, with each centre's hand read from `from` (the same atoms and bonds drawn in depth, such as a
+// Fischer projection). hs: where a centre's H was drawn before it was taken away (else the centre stands in for it).
+export function wedgesFrom(m: Mol, from: Mol, centres: number[], hs = new Map<number, readonly number[]>()): Mol {
+  const at = bondedTo(m), hands = new Map<number, number>();
+  for (const c of centres) {
+    const around = [...at[c]].sort((p, q) => p - q), h0 = hs.get(c);
+    if (around.length < 3 || around.length > 4) continue;
+    const own: Mol = h0 && around.length === 3 ? { ...from, atoms: from.atoms.map((a, j) => (j === c ? { ...a, location: [h0[0], h0[1], h0[2] ?? 0] } : a)) } : from;
+    const z0 = own.atoms[c].location[2] ?? 0, h = handed(own, c, around, (j) => (own.atoms[j].location[2] ?? 0) - z0);
+    if (Math.abs(h) > 1e-6) hands.set(c, Math.sign(h));
+  }
+  // Indigo lists a structure's possible centres only where it has a wedge or Show Stereochemistry: read as if it had.
+  return placeWedges(m, hands, stereoFacts({ ...m, atoms: m.atoms.map((a) => ({ ...a, cip: true as const })) }).centres);
+}
 // Each label's group as Indigo reads it, kept by the label's text, so each label is read once. Not kept while Indigo
 // is loading. Cleared when it grows large.
 const labelGroups = new Map<string, Mol | undefined>();
@@ -1493,7 +1508,7 @@ function onDrawing(part: Mol, expanded: Mol, from: number[], labels: Labels, int
 // reads, a configuration kept from ChemDraw, and place relative to its first atom) and bonds (with their stereo and display: a wavy bond or a crossed
 // double bond has no label). Two structures with one key give the same labels, so labels kept by key are worked out
 // again only for the structures an edit changes, wherever they are on the page.
-function keyed(mol: Mol): { ids: number[]; bonds: number[]; key: string; part: () => Mol }[] {
+export function keyed(mol: Mol): { ids: number[]; bonds: number[]; key: string; part: () => Mol }[] {
   const groups = fragments(mol).map((g) => g.sort((a, b) => a - b)), of: number[] = [];
   groups.forEach((g, k) => g.forEach((i) => { of[i] = k; }));
   const bonds: number[][] = groups.map(() => []);

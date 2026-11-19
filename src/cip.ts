@@ -333,6 +333,18 @@ export function handOf(m: Mol, i: number, ranked: number[]): "R" | "S" | undefin
     return odd === undefined ? undefined : odd ? "S" : "R";
   } catch { return undefined; }
 }
+// The hand of atom i with its neighbours in a given order, as the drawing gives it: "R" when order[0] → order[1] →
+// order[2] turn clockwise seen with order[3] away (the CIP sense, for any order). -1 stands for the hydrogen of an atom
+// with three drawn neighbours. Undefined where the drawing sets none, or the order is not the atom's neighbours. The
+// stereo projection tools (projection.ts) and the D/L and steroid names (stereonames.ts) read hands with it.
+export function handIn(m: Mol, i: number, order: number[]): "R" | "S" | undefined {
+  try {
+    const c = chemOf(m), near = c.adj[i]?.map((e) => e.to) ?? [];
+    if (order.length !== 4 || near.length < 3 || near.length > 4 || new Set(near).size !== near.length || m.bonds.some((b) => b.display === "wavy" && b.atoms.includes(i))) return undefined;
+    const around = arrangement(m, i, near, false, false, dirsOf(m, c)), odd = around && parity(around, order);
+    return odd === undefined ? undefined : odd ? "S" : "R";
+  } catch { return undefined; }
+}
 
 // open: where given, gets each double bond that would be a unit but for its drawing (a substituent in line with the
 // bond, or two on one side), set cis.
