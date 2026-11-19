@@ -511,9 +511,13 @@ async function chemdraw(h: NonNullable<typeof host>) {
   try {
     for (const f of files) {
       const t0 = Date.now(), before = pids().join();
-      spawnSync("open", ["-g", "-a", app, join(work, f.name), "--args", "-ApplePersistenceIgnoreState", "YES"]);
+      // ChemDraw sometimes opens nothing the first time (once in 62, not seen again): stop it and try the file once more.
       let open = false;
-      for (let k = 0; k < 30 && !(open = docs().includes(f.name)); k++) spawnSync("sleep", ["2"]);
+      for (let tries = 0; tries < (started ? 2 : 1) && !open; tries++) {
+        if (tries) { console.log(`cdxmlcompat.check: ChemDraw did not open ${f.name} in a minute; trying again`); stop(); }
+        spawnSync("open", ["-g", "-a", app, join(work, f.name), "--args", "-ApplePersistenceIgnoreState", "YES"]);
+        for (let k = 0; k < 30 && !(open = docs().includes(f.name)); k++) spawnSync("sleep", ["2"]);
+      }
       if (!open) {
         console.log(`cdxmlcompat.check: ChemDraw did not open ${f.name} in a minute`);
         if (!started) { console.log("cdxmlcompat.check: ChemDraw was not started by this check; the rest did not run"); break; }

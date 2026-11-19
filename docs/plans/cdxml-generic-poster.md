@@ -63,6 +63,9 @@ Posters ChemDraw does not open:
 - A poster with a side of 25.4 mm or less (no printable area inside the half-inch margins) does not open, and
   ChemDraw then does not quit when asked. 10 x 10, 25 x 25 and 300 x 10 mm did not open; 25.42 x 25.42, 25.42 x 300
   and 25.5 x 25.5 mm opened at once.
+- A poster with a printable side of 42.3 pt or less (a page side of 40.3 mm or less) opens, but ChemDraw quits with
+  no message as it saves or closes about the fifth such poster in a session. 40.4 mm and more never did. So Octet
+  writes a poster only when each printable side is 45 pt or more (a page side of 41.3 mm).
 - A poster smaller than its drawing (all its objects, wherever they are) is made bigger as ChemDraw opens it. That
   took from a few seconds to over a minute, or did not end: a ring on 30 x 30, 32 x 32 and 35 x 35 mm pages, 300 x 30
   mm, two rings 22 bond lengths apart on 100 x 100 mm, and a bond 1.7 pt longer than the page. A ring on a 40 x 40 mm
@@ -91,8 +94,8 @@ Posters ChemDraw does not open:
 ### Pages (cdxml.ts)
 
 - Writer: a page that is not A4 or US Letter (either way round, to 1 mm) is written with DrawingSpace="poster",
-  Width and Height (the printable area, as the BoundingBox), when ChemDraw opens it: each printable side is more than
-  0 pt, and the drawing is at least 9 pt smaller than it each way (a margin for objects ChemDraw measures a little
+  Width and Height (the printable area, as the BoundingBox), when ChemDraw opens it: each printable side is 45 pt or
+  more (a page side of 41.3 mm, POSTER_MIN), and the drawing is at least 9 pt smaller than it each way (a margin for objects ChemDraw measures a little
   bigger; not measured). This covers Poster's A0, Slides, A3 to A0, Legal, Tabloid, the small pages and Custom. Any
   other page, and A4 and Letter pages portrait or landscape, are written as today, byte for byte.
 - Reader: the page size is read as today (the BoundingBox, which ChemDraw writes as the poster's size). A file from
@@ -118,8 +121,9 @@ Posters ChemDraw does not open:
 9. The catalytic cycle example (Ar and Ar′) and an MCP draw with {R}, {L} and {Ar}.
 10. A0 poster (empty and the lactams example): DrawingSpace="poster", Width and Height; ChemDraw's form reads back as
     A0 with the Poster purpose and scale 3.
-11. Pages ChemDraw does not open as a poster (a side of 25.4 mm or less, a drawing bigger than the page, or less than
-    9 pt smaller) are written as before; pages just bigger than that are posters, wherever the drawing is.
+11. Pages that are not written as a poster (a side under 41.3 mm, such as 25.5, 40 and 41.2 mm, a drawing bigger
+    than the page, or less than 9 pt smaller) are written as before; pages of 41.3 mm and bigger are posters,
+    wherever the drawing is.
 12. A4, Letter, A4 landscape, Letter landscape, an experiment page with its risk assessment on page 2, and the pages
     of case 11 that are not posters: this item's change leaves the CDXML the same, byte for byte. Both writers are
     cdxml.ts from the commit before this item, one with this item's commits applied, so no other change to cdxml.ts
@@ -134,6 +138,9 @@ Posters ChemDraw does not open:
 - In ChemDraw itself, Ar still shows a warning ("Chemical Interpretation is not possible for this label"). ChemDraw
   has no generic aryl label with that text.
 - A ChemDraw file with Ar on a bond and chemistry on is still argon in Octet.
+- A CDXML file Octet wrote before this item, with Interpret Chemically turned off on an Ar, OAr, Y or M(IV) label,
+  has no plain mark, so the label opens with chemistry on. The formula is the same. .oct and .cdx files keep the
+  setting, because they carry Octet's own copy.
 - Pages in ChemDraw follow its printer paper for A4 and Letter documents, as before.
 - A charge on a label ChemDraw keeps as text it cannot interpret (L+, R1+, L12-) is left off the node in ChemDraw's
   file; Octet reads the label back with the sign in its text and no charge, as 1.1.3 does.
