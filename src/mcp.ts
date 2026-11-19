@@ -36,7 +36,7 @@ import { refusal } from "./notice.ts";
 
 type P = [number, number];
 // What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
-export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "cml", "ct", "sln", "helm", "fasta", "chemfig", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "bmp"] as const;
+export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "cml", "ct", "sln", "helm", "fasta", "chemfig", "nmredata", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "bmp"] as const;
 export type FileFormat = (typeof FILE_FORMATS)[number];
 // Export's own options for a picture: its resolution, a clear background, and its width in mm.
 export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number; compact?: boolean }; // compact: chemfig on one line

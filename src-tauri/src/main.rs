@@ -810,6 +810,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
         &item("copy_helm", "HELM", if cfg!(target_os = "macos") { "Alt+CmdOrCtrl+E" } else { "" })?,
         &item("copy_fasta", "FASTA", "")?,
+        &item("copy_nmredata", "NMReDATA", "")?,
     ])?;
     section.replace("Edit".into());
     // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.

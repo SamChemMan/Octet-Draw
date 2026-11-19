@@ -7,8 +7,10 @@ import { guessNucleus, isNucleus, multiplicity, NUCLEI, shiftText } from "./nmr.
 import { FIT, fitCurve, inkOf, pageLabels, piecesOf, solventPeaks, ticks, traceColumns, type Figure, type LabelTurn, type PageLabel } from "./spectrumplot.ts";
 
 // A multiplet (for ¹H) or a peak: its range in x units, lo to hi. manual: the user drew its range (Shift-drag), so new
-// peak picking keeps it.
-export type Group = { id: number; lo: number; hi: number; manual?: true };
+// peak picking keeps it. given: what a file said of it (an NMReDATA peak list, nmredata.ts), used in place of what
+// analysis works out: its shift, multiplicity, J values (Hz), number of nuclei and range (an m's, lo to hi).
+export type Given = { shift?: number; name?: string; js?: number[]; n?: number; range?: [number, number] };
+export type Group = { id: number; lo: number; hi: number; manual?: true; given?: Given };
 // y: the trace, as its 16-bit levels stand for values from lo to hi (so it saves and opens again unchanged).
 // per: the integral of one nucleus (¹H), when the user set a multiplet's count.
 // box: where ChemDraw had the spectrum on its page (bond lengths, y up, x0 y0 x1 y1), written back there.
@@ -255,13 +257,16 @@ export function analyse(m: Measured, solvent = m.solvent ?? ""): Analysis {
         if (name === "m") js = [];
       } else name = "m";
     }
+    // What a file said wins, and a multiplet it named is the compound's (an aromatic H at 7.26 in CDCl₃ too).
+    const gv = g.given;
+    if (gv) { shift = gv.shift ?? shift; name = gv.name ?? name; js = gv.js ?? js; }
     // The solvent, water or TMS: a small group (a peak, or the solvent's own few lines) where one of theirs is.
-    const other = !h1 || own.length <= 5 ? marks.find((s) => own.every((p) => s.at.some((x) => Math.abs(x - p.x) <= Math.max(s.near, 1.5 / (mhz || 400)))))?.name : undefined;
+    const other = !gv && (!h1 || own.length <= 5) ? marks.find((s) => own.every((p) => s.at.some((x) => Math.abs(x - p.x) <= Math.max(s.near, 1.5 / (mhz || 400)))))?.name : undefined;
     return { ...g, peaks: own, shift, name, js, area, n: 0, ...(other ? { other } : {}) };
   });
   const counted = groups.filter((g) => !g.other && g.area > 0);
   const per = m.per ?? (traced(m) ? autoPer(counted.map((g) => g.area)) : Math.max(1e-30, ...counted.map((g) => g.area)));
-  for (const g of groups) g.n = per > 0 ? g.area / per : 0;
+  for (const g of groups) g.n = g.given?.n ?? (per > 0 ? g.area / per : 0);
   return { peaks, groups, per, base, noise };
 }
 // A peak's width at half its height (x units).
@@ -302,7 +307,7 @@ export function keepIds(fresh: Measured, old: Measured | undefined, next: number
   const groups = fresh.groups.map((g) => {
     const o = old.groups.find((x) => !used.has(x.id) && (x.lo + x.hi) / 2 >= g.lo && (x.lo + x.hi) / 2 <= g.hi);
     if (o) used.add(o.id);
-    return { ...g, id: o ? o.id : next++ };
+    return { ...g, id: o ? o.id : next++, ...(o?.given ? { given: o.given } : {}) };
   });
   return { ...fresh, groups };
 }
@@ -347,7 +352,8 @@ export function groupText(m: Measured, g: Analysed): string {
   if (!split(m)) return t(g.shift);
   // ³¹P as sticks: its shift, and the multiplet when F splits it. ¹H and ¹⁹F: the multiplet and the count.
   if (!traced(m)) return g.name && g.name !== "s" ? `${t(g.shift)} (${g.name}${js})` : t(g.shift);
-  const count = `${Math.max(1, Math.round(g.n))}${NUCLEI[n].el}`;
+  const count = `${Math.max(1, Math.round(g.n))}${NUCLEI[n].el}`, r = g.given?.range;
+  if (g.name === "m" && r) return `${t(r[1])}–${t(r[0])} (m, ${count})`;
   if (g.name === "m" && g.peaks.length > 1) return `${t(g.peaks[0].x)}–${t(g.peaks[g.peaks.length - 1].x)} (m, ${count})`;
   return `${t(g.shift)} (${g.name}${js}, ${count})`;
 }
@@ -418,8 +424,13 @@ const flip = (o: Record<string, string>) => Object.fromEntries(Object.entries(o)
 const X_UNIT = flip(X_TYPE), Y_UNIT = flip(Y_TYPE), DEFAULT_X: Record<Kind, string> = { nmr: "ppm", ir: "cm⁻¹", uv: "nm", ms: "m/z", other: "" };
 // A number short and exact enough for an attribute or a tag.
 const short = (v: number) => String(+v.toPrecision(12));
-// The step a peak table's sticks go on: 0.1, as ChemDraw's own mass spectra, or wider for a very wide range.
-const stickStep = (m: Pick<Measured, "xs">) => { let lo = Infinity, hi = -Infinity; for (const x of m.xs ?? []) { lo = Math.min(lo, x); hi = Math.max(hi, x); } return Math.max(0.1, (hi - lo) / 65535 || 0); };
+// The step a peak table's sticks go on: 0.1, as ChemDraw's own mass spectra, or wider for a very wide range. An NMR
+// peak list's go on 0.001 ppm (a 20,000th of a wider range), so they stay where they are.
+const stickStep = (m: Pick<Measured, "xs" | "kind">) => {
+  let lo = Infinity, hi = -Infinity;
+  for (const x of m.xs ?? []) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+  return m.kind === "nmr" ? Math.max(0.001, (hi - lo) / 20000 || 0) : Math.max(0.1, (hi - lo) / 65535 || 0);
+};
 
 // The trace on an even grid, low x to high: the points as they are (reversed when they run high to low); a peak
 // table's sticks in bins (the tallest in each); uneven points at as many even ones, by straight lines between them.
@@ -461,7 +472,11 @@ export function spectrumObject(m: Measured): { attrs: Record<string, string | un
     if (line.length === 16) { lines.push(line.join(" ")); line = []; }
   }
   if (line.length) lines.push(line.join(" "));
-  const own = { title: m.title || undefined, nucleus: m.nucleus, mhz: m.mhz, solvent: m.solvent, threshold: m.threshold, per: m.per, groups: m.groups.map((x) => (x.manual ? [x.lo, x.hi, 1] : [x.lo, x.hi])) };
+  const own = {
+    title: m.title || undefined, nucleus: m.nucleus, mhz: m.mhz, solvent: m.solvent, threshold: m.threshold, per: m.per, groups: m.groups.map((x) => (x.manual ? [x.lo, x.hi, 1] : [x.lo, x.hi])),
+    // A file's values for each multiplet in its place (0 for none), and a peak list's sticks, which Octet 1.1.2 ignores.
+    ...(m.groups.some((x) => x.given) ? { given: m.groups.map((x) => x.given ?? 0) } : {}), ...(m.sticks && m.kind === "nmr" ? { sticks: true } : {}),
+  };
   return {
     attrs: {
       XSpacing: short(g.step), XLow: short(g.low), XType: X_TYPE[m.xUnit] ?? (m.xUnit ? "Other" : undefined), YType: Y_TYPE[m.yUnit] ?? (m.kind === "nmr" || m.kind === "ms" ? "ArbitraryUnits" : m.yUnit ? "Other" : undefined),
@@ -494,7 +509,7 @@ export function fromSpectrumObject(attrs: Record<string, string | undefined>, te
     title: fine(o.title, 200) ? o.title : "", kind, xUnit: X_UNIT[attrs.XType ?? ""] ?? DEFAULT_X[kind], yUnit: Y_UNIT[attrs.YType ?? ""] ?? "", first, last, y,
     ...(nucleus ? { nucleus } : {}), ...(typeof o.mhz === "number" && o.mhz > 0 && o.mhz < 3000 ? { mhz: o.mhz } : {}), ...(fine(o.solvent, 40) && o.solvent ? { solvent: o.solvent } : {}),
   };
-  if (kind === "ms") {
+  if (kind === "ms" || (kind === "nmr" && o.sticks === true)) {
     let min = Infinity;
     for (const v of y) min = Math.min(min, v);
     const at: number[] = [];
@@ -508,8 +523,10 @@ export function fromSpectrumObject(attrs: Record<string, string | undefined>, te
   const threshold = typeof o.threshold === "number" && o.threshold >= 0 && o.threshold <= 1 ? o.threshold : undefined;
   const groups = Array.isArray(o.groups) && o.groups.length <= MAX_GROUPS ? (o.groups as unknown[]) : undefined;
   const sound = groups?.every((g) => Array.isArray(g) && (g.length === 2 || (g.length === 3 && g[2] === 1)) && g.slice(0, 2).every((v) => typeof v === "number" && Number.isFinite(v)) && g[0] <= g[1]);
-  // Octet's multiplets as they were; a line spectrum's sticks moved onto the grid, so it picks its own.
-  if (groups && sound && !m.sticks) m = { ...m, threshold: threshold ?? m.threshold, groups: (groups as number[][]).map((g, k) => ({ id: id + k, lo: g[0], hi: g[1], ...(g[2] ? { manual: true as const } : {}) })) };
+  // Octet's multiplets as they were, with a file's values; a mass spectrum's sticks moved onto the grid, so it picks
+  // its own.
+  const given = Array.isArray(o.given) && groups && o.given.length === groups.length ? o.given.map((v) => (v === 0 ? undefined : givenOf(v))) : undefined;
+  if (groups && sound && (!m.sticks || kind === "nmr")) m = { ...m, threshold: threshold ?? m.threshold, groups: (groups as number[][]).map((g, k) => ({ id: id + k, lo: g[0], hi: g[1], ...(g[2] ? { manual: true as const } : {}), ...(given?.[k] ? { given: given[k] } : {}) })) };
   else if (threshold !== undefined && threshold !== m.threshold) m = regroup(m, threshold, nextGroupId([m]));
   if (typeof o.per === "number" && Number.isFinite(o.per) && o.per > 0) m = { ...m, per: o.per };
   return m;
@@ -574,7 +591,7 @@ export function writeMeasured(m: Measured) {
     title: m.title, kind: m.kind, ...(m.nucleus ? { nucleus: m.nucleus } : {}), ...(m.mhz ? { mhz: m.mhz } : {}), ...(m.solvent ? { solvent: m.solvent } : {}),
     xUnit: m.xUnit, yUnit: m.yUnit, first: m.first, last: m.last, n: m.y.length, lo: q.lo, hi: q.hi, y: toBase64(bytesOf(q.q)),
     ...(m.xs ? { xs: toBase64(bytesOf(m.xs)) } : {}), ...(m.sticks ? { sticks: true } : {}),
-    threshold: m.threshold, groups: m.groups.map((g) => ({ id: g.id, lo: g.lo, hi: g.hi, ...(g.manual ? { manual: true } : {}) })), ...(m.per ? { per: m.per } : {}), ...(m.box ? { box: m.box } : {}),
+    threshold: m.threshold, groups: m.groups.map((g) => ({ id: g.id, lo: g.lo, hi: g.hi, ...(g.manual ? { manual: true } : {}), ...(g.given ? { given: g.given } : {}) })), ...(m.per ? { per: m.per } : {}), ...(m.box ? { box: m.box } : {}),
   };
 }
 const KINDS: Kind[] = ["nmr", "ir", "uv", "ms", "other"];
@@ -607,9 +624,10 @@ export function readMeasured(v: unknown): Measured {
   }
   const ids = new Set<number>();
   const groups = (d.groups as Record<string, unknown>[]).map((g): Group => {
-    if (typeof g !== "object" || !g || !Number.isInteger(g.id) || (g.id as number) < 1 || (g.id as number) > 1e9 || ids.has(g.id as number) || !num(g.lo) || !num(g.hi) || (g.lo as number) > (g.hi as number) || (g.manual !== undefined && g.manual !== true)) bad();
+    const given = g?.given === undefined ? undefined : givenOf(g.given);
+    if (typeof g !== "object" || !g || !Number.isInteger(g.id) || (g.id as number) < 1 || (g.id as number) > 1e9 || ids.has(g.id as number) || !num(g.lo) || !num(g.hi) || (g.lo as number) > (g.hi as number) || (g.manual !== undefined && g.manual !== true) || given === null) bad();
     ids.add(g.id as number);
-    return { id: g.id as number, lo: g.lo as number, hi: g.hi as number, ...(g.manual ? { manual: true as const } : {}) };
+    return { id: g.id as number, lo: g.lo as number, hi: g.hi as number, ...(g.manual ? { manual: true as const } : {}), ...(given ? { given } : {}) };
   });
   return {
     title: d.title as string, kind: d.kind as Kind, xUnit: d.xUnit as string, yUnit: d.yUnit as string, first: d.first as number, last: d.last as number,
@@ -617,4 +635,19 @@ export function readMeasured(v: unknown): Measured {
     ...(d.nucleus ? { nucleus: d.nucleus as string } : {}), ...(d.mhz ? { mhz: d.mhz as number } : {}), ...(d.solvent ? { solvent: d.solvent as string } : {}),
     ...(xs ? { xs } : {}), ...(d.sticks ? { sticks: true as const } : {}), ...(d.per ? { per: d.per as number } : {}), ...(d.box ? { box: [...(d.box as number[])] as Measured["box"] } : {}),
   };
+}
+
+// A file's values for a multiplet, checked as every file is (a saved drawing, or Octet's tag in a CDXML or CDX file):
+// finite shifts and J values within 10,000, at most 20 J values, a count up to 10,000, a name of at most 12 letters and
+// spaces. Null when it is not sound.
+export function givenOf(v: unknown): Given | null {
+  if (typeof v !== "object" || !v || Array.isArray(v)) return null;
+  const d = v as Record<string, unknown>, out: Given = {}, num = (x: unknown) => typeof x === "number" && Number.isFinite(x) && Math.abs(x) <= 10000;
+  if (Object.keys(d).some((k) => !["shift", "name", "js", "n", "range"].includes(k))) return null;
+  if (d.shift !== undefined) { if (!num(d.shift)) return null; out.shift = d.shift as number; }
+  if (d.name !== undefined) { if (typeof d.name !== "string" || !/^[A-Za-z ]{0,12}$/.test(d.name)) return null; out.name = d.name; }
+  if (d.js !== undefined) { if (!Array.isArray(d.js) || d.js.length > 20 || !d.js.every(num)) return null; out.js = [...d.js] as number[]; }
+  if (d.n !== undefined) { if (!num(d.n) || (d.n as number) < 0) return null; out.n = d.n as number; }
+  if (d.range !== undefined) { if (!Array.isArray(d.range) || d.range.length !== 2 || !d.range.every(num) || d.range[0] > d.range[1]) return null; out.range = [d.range[0], d.range[1]]; }
+  return out;
 }

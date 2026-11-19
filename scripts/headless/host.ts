@@ -34,6 +34,7 @@ import { reagentFormula } from "../../src/stoich.ts";
 import { toCt, toSln } from "../../src/textformats.ts";
 import { toFasta, toHelm } from "../../src/helm.ts";
 import { chemfig } from "../../src/chemfig.ts";
+import { writeNmredata } from "../../src/nmredata.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
@@ -235,6 +236,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "chemfig") { const d = drawn(m); return chemfig(m, d.frame, d.measure, { compact: o?.compact }).code || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
+      // NMReDATA as Export writes it, with the panel's default frequency and solvent (no tables here: no prediction).
+      if (format === "nmredata") return writeNmredata(chem, { spectra: doc.spectra, mhz: 400, solvent: "CDCl₃", version: JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version, predicting: true })?.text;
       if (format === "inchi") return toInchi(chem) || undefined;
       if (format === "mol" || format === "mol2000") return toMolfile(chem, format === "mol2000");
       if (format === "sdf") return toSdf(chem);
