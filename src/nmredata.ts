@@ -3,8 +3,9 @@
 // back. Octet writes version 1.1, level 0: each structure's molfile, then NMREDATA_ASSIGNMENT (a label, a shift and
 // the molfile's atom numbers, H<n> for atom n's implicit hydrogens) and one NMREDATA_1D_<isotope> peak list for each
 // nucleus. A nucleus with a measured spectrum linked to the structure gives its multiplets; the others Octet's
-// prediction, marked as predicted in four places (the 1D tag's Predicted= and Spectrum_Location=none, a comment on
-// each assignment line, and NMREDATA_ID). Octet reads versions 1.0 to 3.0: each nucleus's signals become a measured
+// prediction, marked as predicted in three places (the 1D tag's Predicted= and Spectrum_Location=none, and
+// NMREDATA_ID). An assignment line has one atom and no comment: Mnova 17 reads the fields between the label and the
+// last as shifts, and drops a hydrogen's line that has a comment. Octet reads versions 1.0 to 3.0: each nucleus's signals become a measured
 // peak list in the drawing, each signal a multiplet with the file's shift, multiplicity, J and count (measured.ts
 // Given), linked to the atoms its label names. Every file is hostile: one pass, limits on everything, a bad part left
 // out and counted, never half read.
@@ -106,12 +107,12 @@ function record(p: Mol, o: WriteOptions, solo: boolean, out: { predicted: Set<st
   };
   const hOn = (k: number) => hOf(k) + near[k].filter(isH).length;
   const peaks: Peaks[] = [], lines: Line[] = [];
-  // Labels as Mnova writes them: the atom number, H and the number for hydrogens, a and b after one used twice.
-  const pending: { signal: Signal; base: string; atoms: string[]; predicted: boolean }[] = [];
+  // Labels as Mnova writes them: the atom number, H and the number for hydrogens, a and b after one used twice. Each
+  // atom has a label and an assignment line of its own (Mnova reads the fields between the label and the last as
+  // shifts, so it cannot take two atoms on one line); a signal on several atoms lists their labels (L=H6,H10).
+  const pending: { signal: Signal; el: string; atoms: string[]; predicted: boolean }[] = [];
   const assign = (signal: Signal, atomTokens: string[], el: string, predicted: boolean) => {
-    if (!atomTokens.length) return;
-    const t = atomTokens[0];
-    pending.push({ signal, base: el === "H" && !t.startsWith("H") ? `H${t}` : t, atoms: [...new Set(atomTokens)], predicted });
+    if (atomTokens.length) pending.push({ signal, el, atoms: [...new Set(atomTokens)], predicted });
   };
   // Measured: each NMR spectrum with a multiplet linked to this structure's atoms.
   const measured = new Set<string>();
@@ -168,15 +169,17 @@ function record(p: Mol, o: WriteOptions, solo: boolean, out: { predicted: Set<st
   }
   // Each label once: a base used twice takes a, b, c and on to z, aa, ab (H1a, H1b for one CH2's two hydrogens).
   const letters = (k: number): string => (k < 26 ? "" : letters(Math.floor(k / 26) - 1)) + String.fromCharCode(97 + (k % 26));
-  const count = new Map<string, number>(), seen = new Map<string, number>();
-  for (const x of pending) count.set(x.base, (count.get(x.base) ?? 0) + 1);
-  for (const x of pending) {
-    const k = seen.get(x.base) ?? 0;
-    seen.set(x.base, k + 1);
-    const label = count.get(x.base)! > 1 ? `${x.base}${letters(k)}` : x.base;
-    x.signal.label = label;
-    lines.push({ label, shift: x.signal.range ? (x.signal.range[0] + x.signal.range[1]) / 2 : x.signal.shift, atoms: x.atoms, predicted: x.predicted });
+  const units = pending.flatMap((x) => x.atoms.map((t) => ({ x, t, base: x.el === "H" && !t.startsWith("H") ? `H${t}` : t })));
+  const count = new Map<string, number>(), seen = new Map<string, number>(), signalLabels = new Map<Signal, string[]>();
+  for (const u of units) count.set(u.base, (count.get(u.base) ?? 0) + 1);
+  for (const u of units) {
+    const k = seen.get(u.base) ?? 0;
+    seen.set(u.base, k + 1);
+    const label = count.get(u.base)! > 1 ? `${u.base}${letters(k)}` : u.base;
+    signalLabels.set(u.x.signal, [...(signalLabels.get(u.x.signal) ?? []), label]);
+    lines.push({ label, shift: u.x.signal.range ? (u.x.signal.range[0] + u.x.signal.range[1]) / 2 : u.x.signal.shift, atoms: [u.t], predicted: u.x.predicted });
   }
+  for (const [signal, labels] of signalLabels) signal.label = labels.join(",");
   const hs = atoms.map((_, k) => hOf(k)), smiles = (() => { try { const t = toSmiles(p); return /^[\x21-\x7e]+$/.test(t) && !/[\\;]/.test(t) ? t : ""; } catch { return ""; } })();
   const names = [...new Set(peaks.filter((x) => x.predicted).map((x) => x.nucleus))];
   let text = `${molfile}\n`;
@@ -189,7 +192,7 @@ function record(p: Mol, o: WriteOptions, solo: boolean, out: { predicted: Set<st
   if (smiles) text += item("NMREDATA_SMILES", [smiles]);
   const solvent = ascii(o.solvent);
   if (solvent) text += item("NMREDATA_SOLVENT", [solvent]);
-  if (lines.length) text += item("NMREDATA_ASSIGNMENT", lines.map((l) => `${l.label}, ${fixed(l.shift, 4)}, ${l.atoms.join(", ")}${l.predicted ? " ;predicted" : ""}`));
+  if (lines.length) text += item("NMREDATA_ASSIGNMENT", lines.map((l) => `${l.label}, ${fixed(l.shift, 4)}, ${l.atoms.join(", ")}`));
   for (const x of peaks) {
     const props = [`Larmor=${fixed(x.mhz, 2)}`, "Spectrum_Location=none", ...(x.decoupled ? ["Decoupled=1H"] : []), ...(x.predicted ? [`Predicted=Octet Draw ${ascii(o.version)} (HOSE codes, nmrshiftdb2)`] : [])];
     const sigs = x.signals.map((s) => [
@@ -337,19 +340,24 @@ export function readNmredata(input: string): Read {
           const f = fields(line), label = f[0], shift = number(f[1] ?? "");
           if (!label || label.length > LABEL || rec.assigned.has(label) || !Number.isFinite(shift) || Math.abs(shift) > SHIFT_MOST) { add("assignment"); continue; }
           const atoms: Atom[] = [], seen = new Set<string>();
+          // Mnova writes a label with two shifts (a CH2's two hydrogens) as label, shift, shift, atom: Octet keeps the
+          // first shift and counts the second.
+          let more = 0;
           for (const t of f.slice(2, 2 + LABEL_ATOMS)) {
+            if (/^-?\d+\.\d+$/.test(t) && !atoms.length) { more++; continue; }
             const m = /^(H?)(\d{1,7})$/i.exec(t), n = m ? Number(m[2]) : 0;
             if (!m || n < 1 || n > count) { add("assignment"); continue; }
             const key = `${m[1] ? "H" : ""}${n}`;
             if (!seen.has(key)) { seen.add(key); atoms.push({ n, implicit: !!m[1] }); }
           }
+          if (more) add("second shift", more);
           if (f.length > 2 + LABEL_ATOMS) add("assignment", f.length - 2 - LABEL_ATOMS);
           rec.assigned.set(label, { ...(shift !== UNKNOWN ? { shift } : {}), atoms });
         }
         add("assignment", lines.length - ASSIGNMENTS);
         continue;
       }
-      if (name === "J") { add("coupling list"); continue; }
+      if (name === "J") { if (lines.some((l) => l.trim())) add("coupling list"); continue; }
       if (name.startsWith("2D_")) { add("2D correlation", lines.filter((l) => !/^[A-Za-z][A-Za-z0-9_]*\s*=/.test(l)).length || 1); continue; }
       const iso = /^1D_(\d{1,3}[A-Z][a-z]?)$/.exec(name)?.[1];
       const props = new Map<string, string>();

@@ -50,6 +50,7 @@ function strict(text: string): void {
       const [body, comment] = l.split(" ;"), f = body.split(", ");
       assert.ok(/^[A-Za-z0-9']+$/.test(f[0]) && !labels.has(f[0]), `a unique plain label: ${f[0]}`);
       assert.match(f[1], /^-?\d+\.\d{4}$/, "a shift with four decimals");
+      assert.equal(f.length, 3, `one atom a line, as Mnova reads it: ${l}`);
       assert.ok(comment === undefined || comment === "predicted");
       for (const a of f.slice(2)) {
         const m = /^(H?)(\d+)$/.exec(a)!, n = Number(m[2]);
@@ -71,7 +72,7 @@ function strict(text: string): void {
         const j = f.find((x) => x.startsWith("J="));
         if (j) assert.match(j, /^J=\d+\.\d{2}(,\d+\.\d{2})*$/);
         const label = f.find((x) => x.startsWith("L="))?.slice(2);
-        if (label) assert.ok(labels.has(label), `${label} is in the assignment`);
+        if (label) for (const l of label.split(",")) assert.ok(labels.has(l), `${l} is in the assignment`);
       }
     }
   }
@@ -100,10 +101,10 @@ const w = writeNmredata(benzoate, opts)!;
 strict(w.text);
 sound(w.text, benzoate);
 assert.deepEqual(w.predicted, ["1H", "13C"]);
-// Marked four ways: Predicted= and Spectrum_Location=none in the 1D tag, ;predicted on each assignment line, the ID.
+// Marked three ways: Predicted= and Spectrum_Location=none in the 1D tag, and the ID (no comment on an assignment line).
 assert.match(w.text, /> {2}<NMREDATA_1D_1H>\nLarmor=400\.00\\\nSpectrum_Location=none\\\nPredicted=Octet Draw 1\.1\.3 \(HOSE codes, nmrshiftdb2\)\\\n/);
 assert.match(w.text, /> {2}<NMREDATA_1D_13C>\nLarmor=100\.58\\\nSpectrum_Location=none\\\nDecoupled=1H\\\nPredicted=/);
-assert.ok(w.text.split("\n").filter((l) => /^\w+, \d/.test(l)).every((l) => l.endsWith(" ;predicted\\")));
+assert.ok(w.text.split("\n").filter((l) => /^\w+, \d/.test(l)).every((l) => !l.includes(";")), "no comment on an assignment line: Mnova drops a hydrogen's line that has one");
 assert.match(w.text, /Comment=Octet Draw 1\.1\.3 predicted the 1H and 13C shifts/);
 assert.match(w.text, /Comment1=Contains information from nmrshiftdb2/);
 assert.match(w.text, /> {2}<NMREDATA_FORMULA>\nC9H10O2\\\n/);
@@ -128,7 +129,7 @@ const anisole = setLabel(chem.parseStructure("Cc1ccccc1"), 0, "OMe");
 const wa = writeNmredata(anisole, opts)!;
 strict(wa.text);
 sound(wa.text, anisole);
-assert.match(wa.text, /\nH8, 3\.\d{4}, H8 ;predicted\\/, "the OMe's CH3 is atom 8, after the ring");
+assert.match(wa.text, /\nH8, 3\.\d{4}, H8\\/, "the OMe's CH3 is atom 8, after the ring");
 // Explicit hydrogens: the ¹H labels name the H atoms themselves.
 const explicitH = chem.parseStructure("[H]OC([H])([H])C([H])([H])[H]");
 const we = writeNmredata(explicitH, opts)!;
@@ -417,5 +418,16 @@ assert.match(editor, /if \(!ct && isNmredata\(picked\[1\]\)\) return void \(awai
 assert.match(editor, /if \(isNmredata\(text\)\) \{\n\s+let r: ReturnType<typeof nmredataDrawing>;/);
 assert.match(editor, /for \(const f of files\.filter\(nmr\)\) await insertNmredata\(/);
 assert.equal(editor.match(/isNmredata\(text\)\) (return|\{ e\.preventDefault\(\); return) (void )?insertNmredata\(text, "the clipboard"\)/g)?.length, 2);
+
+// Mnova's form (tried in MestReNova 17.0.1 on 19 Nov): an empty NMREDATA_J, a label with two shifts (label, shift, shift,
+// atom), and a signal on several labels written L=a,b. None of it is lost or linked wrong.
+{
+  const molfile = "\n  test\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0\n    1.0000    0.0000    0.0000 C   0  0\n    2.0000    0.0000    0.0000 O   0  0\n  1  2  1  0\n  2  3  1  0\nM  END\n";
+  const sdf = `${molfile}>  <NMREDATA_VERSION>\n1.1\\\n\n>  <NMREDATA_ASSIGNMENT>\nH1, 1.2509, H1\\\nH2, 3.6100, 3.7000, H2\\\n\n>  <NMREDATA_J>\n\n>  <NMREDATA_1D_1H>\nLarmor=500.13\\\nSpectrum_Location=file:\\\n3.5800-3.7300, S=m, L=H2, N=2\\\n1.2509, S=t, J=7.00, L=H1,H2, N=5\\\n\n$$$$\n`;
+  const r = readNmredata(sdf);
+  assert.deepEqual(r.lost, { "second shift": 1 }, "an empty J list is not lost; Mnova's second shift is counted");
+  const d = nmredataDrawing(sdf, read, 1, "Mnova");
+  assert.deepEqual(d.mol.atoms.map((a) => a.peaks ?? []), [[2], [1, 2], []], "H1 and H2 link as Mnova wrote them, L=H1,H2 to both");
+}
 
 console.log(`nmredata.check: read 300,000 characters in ${readMs.toFixed(0)} ms, paclitaxel written in ${writeMs.toFixed(0)} ms ok`);
