@@ -24,7 +24,11 @@ const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("
 const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
 const { COMMENT, MAX_COMMENT, MAX_VALUE, oneLine } = await import("./experiment.ts");
 const { readRisk } = await import("./riskassess.ts");
-const { MAX_DATA, MAX_SHOWN, leftOf, rowsOf, setRows } = await import("./datafields.ts");
+const { MAX_DATA, MAX_EACH, MAX_SHOWN, MAX_VALUE: MAX_FIELD, SHOWN_OFF, leftOf, readSd, rowsOf, setRows } = await import("./datafields.ts");
+const { MAX_SIZE, sizeOf } = await import("./limits.ts");
+const { stampedWithin, MAX_ANNOTATIONS } = await import("./annotate.ts");
+const { PROPERTIES, withDetails } = await import("./experiment.ts");
+const { fragments } = await import("./edit.ts");
 const { MAX_GRIDS } = await import("./experiment.ts");
 const { MAX_NOTES, noteCount } = await import("./annotate.ts");
 const { nicknameProblem } = await import("./labels.ts");
@@ -278,10 +282,10 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
   assert.ok(longNames({ paths: ["A"], rows: [["TS1", `12 (10) ${"n".repeat(81)}`]] }));
   assert.ok(!longNames({ paths: ["A".repeat(200)], rows: [["S".repeat(200), `12 (10) ${"n".repeat(80)}`]] }));
   // A data field's shown value: a file keeps it shown up to MAX_SHOWN characters, so the editor cuts typing there. One
-  // longer is counted as left out when the file opens.
+  // longer opens with its Show off, its value whole (L11).
   const shown = setRows(ETHANOL, [0, 1, 2], [{ name: "Batch", value: prose(MAX_SHOWN), show: true }]), id = shown.data![0].caption!, again = parse(serialize(shown));
   assert.deepEqual([again.data?.[0].caption, leftOf(again)], [id, {}]);
-  assert.deepEqual(leftOf(parse(serialize({ ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(MAX_SHOWN + 1) } : c)) }))), { character: 1 });
+  assert.deepEqual(leftOf(parse(serialize({ ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(MAX_SHOWN + 1) } : c)) }))), { [SHOWN_OFF]: 1 });
   // Settings keep an experiment page's text of MAX_START characters for new pages.
   const start = serialize(withTexts(prose(MAX_TEXT))).padEnd(MAX_START, " ");
   assert.equal(readPurposes({ experimentStart: start }).experimentStart, start);
@@ -311,16 +315,16 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /!d\.group\.every\(\(i\) => doc\.atoms\[i\]\) \|\| groupTooBig\(doc, new Set\(d\.group\)\)\) return;\n\s+setDialog\(undefined\);\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, nicknames: withNickname/);
   assert.equal(editor.match(/>= MAX_CURVE\) return setNotice\(`A curve holds up to \$\{MAX_CURVE\.toLocaleString\("en-GB"\)\} points\.`, "info"\)/g)?.length, 2, "Pen and Edit Curve");
   assert.match(editor, /c\.nodes\.length >= MAX_STEPS\) return setNotice\(`A cycle holds up to \$\{MAX_STEPS\} steps\.`, "info"\)/);
-  assert.match(editor, /const over = opened \? undefined : overLimit\(risked\);\n\s+if \(over && !overLimit\(doc\)\) \{ setNotice\(over, "info"\); return doc; \}/);
+  assert.match(editor, /const over = opened \? undefined : overLimit\(risked, doc\);\n\s+refused\.current = !!over;\n\s+if \(over\) \{ setNotice\(over, "info"\); return doc; \}/);
   assert.match(editor, /all\.length <= MAX_START \? all : undefined;\n\s+if \(all && !start\) setNotice\(/);
   // A file opened from its CDXML because its own copy failed says so, keeps its style, and Save asks first.
   assert.match(editor, /const other = read\.foreign && !read\.fallback;/);
   assert.match(editor, /if \(read\.fallback\) setNotice\(lostNotice\(lost, "opened"\), "error"\);/);
-  assert.match(editor, /const sayLost = \(lost: Record<string, number>\) => \{ if \(Object\.keys\(lost\)\.length\) setNotice\(lostNotice\(lost, "added"\)\); \};/);
+  assert.match(editor, /const sayLost = \(lost: Record<string, number>\) => \{ if \(Object\.keys\(lost\)\.length\) setNotice\(lostNotice\(lost, "added"\), Object\.keys\(losses\(lost\)\)\.length \? "error" : "info"\); \};/);
   assert.match(editor, /<p className="dialog-note">\{replaceNote\(dialog\.lost\)\}<\/p>/);
   // Generated keys (a spectrum's multiplets or signals) keep MAX_TEXT, the lines that fit, with the notice.
   assert.equal(editor.match(/kept = fitKey\(runs\);/g)?.length, 2, "the predicted and the measured key");
-  assert.match(editor, /setFile\(path \? \{ path, saved: mol, lost: Object\.keys\(lost\)\.length \? lost : undefined \}/, "lost (with the copy counted) makes Save ask");
+  assert.match(editor, /setFile\(path \? \{ path, saved: mol, lost: Object\.keys\(lossy\)\.length \? lossy : undefined \}/, "lost (with the copy counted) makes Save ask; a field no longer shown does not");
   // The chart dialog's name cells take 80, as the chart keeps (Cells.tsx limit, by column and row), and a value's own
   // name the chart cuts is said.
   const chartDialog = src("./ChartDialog.tsx");
@@ -370,33 +374,48 @@ const chemdrawShown = (n: number) => {
   const m = { ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(n) } : c)) };
   return { m, xml: toCdxml(m, style).replace(/(<CDXML[^>]*?)\s+Octet="[^"]*"/, "$1") };
 };
-it("L11 a shown data field of more than MAX_SHOWN characters is cut to MAX_SHOWN by every reader, counted, and saves and opens again clean", () => {
-  const { m, xml } = chemdrawShown(5000), full = prose(5000), kept = cutText(full, MAX_SHOWN);
+it("L11 a shown data field of more than MAX_SHOWN characters opens with Show off, its value whole, as Attached data does, and saves and opens again clean", () => {
+  const { m, xml } = chemdrawShown(5000), full = prose(5000), value = { name: "Procedure", atoms: [0, 1, 2], value: full };
   assert.ok(!/<CDXML[^>]*Octet=/.test(xml), "ChemDraw's file, no Octet extras");
-  // ChemDraw's CDXML (and its CDX): the field stays shown, its text cut, and Octet says how many characters it left out.
-  for (const [name, r] of [["cdxml", fromCdxml(xml)], ["cdx", fromCdxml(cdxToXml(xmlToCdx(parseXml(xml))))]] as const) {
-    const f = r.mol.data?.[0], c = r.mol.captions?.find((x) => x.id === f?.caption);
-    assert.equal(c?.text, kept, `${name}: shown, cut to MAX_SHOWN`);
-    assert.deepEqual(r.lost, { character: full.length - kept.length }, name);
-    // Saved by Octet, it opens again with nothing left out, so Save does not ask to Replace.
-    for (const again of [readOct(writeOct(r.mol, style), true), readOct(serialize({ ...r.mol, style })), readCdx(writeCdx(r.mol, style))]) {
-      assert.deepEqual(again.lost, {}, `${name}: opens again clean`);
-      assert.equal(again.mol.captions?.find((x) => x.id === again.mol.data?.[0].caption)?.text, kept, `${name}: still shown`);
-    }
-    // Edit attached data…, then Save with nothing changed: the same drawing, the field still shown on the page.
+  // The Attached data dialog: a value over MAX_SHOWN has its Show off, and says nothing (DataDialog.tsx long).
+  assert.match(src("./DataDialog.tsx"), /const long = \(r: number\) => cells\[r\]\[1\]\.length > MAX_SHOWN;/);
+  assert.deepEqual(setRows(ETHANOL, [0, 1, 2], [{ name: "Procedure", value: full, show: true }]).data, [value], "Save with Show on keeps the value, not shown");
+  const own = parse(serialize(m)), old = parse(serialize({ ...ETHANOL, captions: [{ id: 1, x: 0, y: -2, text: full, property: { attrs: { ChemicalPropertyType: "23", Name: "Procedure" }, atoms: [0, 1, 2] } }] } as Mol));
+  // Every reader: ChemDraw's CDXML and its CDX, Octet's own fields, and 1.1.2's form (the property on its text).
+  for (const [name, r] of [["cdxml", fromCdxml(xml)], ["cdx", fromCdxml(cdxToXml(xmlToCdx(parseXml(xml))))], ["own", { mol: own, lost: leftOf(own) }], ["1.1.2", { mol: old, lost: leftOf(old) }]] as const) {
+    assert.deepEqual(r.mol.data, [value], `${name}: the whole value, not shown`);
+    assert.deepEqual(r.mol.captions ?? [], [], `${name}: its text is not on the page`);
+    assert.deepEqual(r.lost, { [SHOWN_OFF]: 1 }, name);
+    // Said when it opens, as information: nothing is lost, so Save does not ask before it replaces the file.
+    assert.equal(lostNotice(r.lost, "opened"), "A shown value holds up to 2,000 characters. Octet turned off Show for 1 data field.");
+    assert.equal(lostText(r.lost), "");
+    assert.equal(replaceNote(r.lost), "Save As keeps the original file.");
+    // Saved by Octet, in every form, it opens again the same, with nothing said.
+    for (const [form, read] of Object.entries(forms)) { const again = read(r.mol); assert.deepEqual([again.mol.data, again.lost], [[value], {}], `${name}, ${form}`); }
+    for (const [form, read] of Object.entries(chemdraw)) { const again = read(r.mol); assert.deepEqual([again.mol.data, again.lost], [[value], {}], `${name}, ${form}`); }
+    // Edit attached data…, then Save with nothing changed: the same drawing.
     const rows = rowsOf(r.mol, [0, 1, 2]);
-    assert.deepEqual(rows.map((x) => x.show), [true]);
+    assert.deepEqual(rows.map((x) => [x.value.length, x.show]), [[5000, false]]);
     assert.equal(setRows(r.mol, [0, 1, 2], rows), r.mol, `${name}: Save in Attached data changes nothing`);
   }
-  // Octet's own file with such a field (from a version that let it be made), and 1.1.2's form (the property on its
-  // text): shown, cut and counted as characters, not as a data field left out.
-  const own = parse(serialize(m));
-  assert.equal(own.captions!.find((c) => c.id === own.data![0].caption)?.text, kept);
-  assert.deepEqual(leftOf(own), { character: full.length - kept.length });
-  const old = { ...ETHANOL, captions: [{ id: 1, x: 0, y: -2, text: full, property: { attrs: { ChemicalPropertyType: "23", Name: "Procedure" }, atoms: [0, 1, 2] } }] } as Mol;
-  const o = parse(serialize(old));
-  assert.deepEqual([o.data?.[0].caption, o.captions![0].text, leftOf(o)], [1, kept, { character: full.length - kept.length }]);
-  // At MAX_SHOWN nothing is cut.
+  const notice = src("./Editor.tsx");
+  assert.match(notice, /setNotice\(lostNotice\(lost, "added"\), Object\.keys\(losses\(lost\)\)\.length \? "error" : "info"\)/, "only a field no longer shown is information");
+  // A value that ends in line breaks: kept as a value is (no empty lines at its end), and the same each time.
+  const ended = fromCdxml(chemdrawShown(5000).xml.replace(/(<s[^>]*>)([^<]*)<\/s>/, (_, s, t) => `${s}${t}&#10;&#10;</s>`));
+  assert.deepEqual(ended.mol.data, [value]);
+  assert.equal(setRows(ended.mol, [0, 1, 2], rowsOf(ended.mol, [0, 1, 2])), ended.mol);
+  // A shown value of MAX_SHOWN or fewer that ends in a line break typed on the page stays shown, and opens again and
+  // Saves in Attached data with nothing changed the same.
+  const typed = setRows(ETHANOL, [0, 1, 2], [{ name: "Batch", value: "OCT-1", show: true }]), sid = typed.data![0].caption!;
+  const short = { ...typed, captions: typed.captions!.map((c) => (c.id === sid ? { ...c, text: "OCT-1\n" } : c)) };
+  assert.equal(setRows(short, [0, 1, 2], rowsOf(short, [0, 1, 2])), short, "Save with nothing changed");
+  const back = parse(serialize(short));
+  assert.equal(back.captions!.find((c) => c.id === back.data![0].caption)!.text, "OCT-1\n");
+  assert.equal(setRows(back, [0, 1, 2], rowsOf(back, [0, 1, 2])), back);
+  // Over MAX_VALUE (as no field holds): the field is left out, counted, and its text stays on the page as plain text.
+  const huge = fromCdxml(chemdrawShown(MAX_FIELD + 10).xml);
+  assert.deepEqual([huge.mol.data, huge.mol.captions?.[0].text.length, huge.lost], [undefined, MAX_FIELD + 10, { "data field": 1 }]);
+  // At MAX_SHOWN nothing changes.
   const at = fromCdxml(chemdrawShown(MAX_SHOWN).xml);
   assert.deepEqual(at.lost, {});
   assert.equal(at.mol.captions!.find((c) => c.id === at.mol.data![0].caption)!.text.length, MAX_SHOWN);
@@ -419,7 +438,8 @@ it("L12 reagent tables: overLimit counts them (MAX_GRIDS), and a CDXML with more
 });
 
 it("L13 data fields and notes: overLimit counts them (MAX_DATA, MAX_NOTES), so paste, duplicate and a second SD import say so", () => {
-  const fields = (n: number): Mol => ({ ...ETHANOL, data: Array.from({ length: n }, (_, k) => ({ name: `F${k}`, atoms: [0], value: "1" })) });
+  // Fields on 20 structures (one atom each), as a structure holds MAX_EACH.
+  const fields = (n: number): Mol => ({ atoms: Array.from({ length: 20 }, (_, k) => ({ label: "C", location: [k, 0, 0] as [number, number, number] })), bonds: [], data: Array.from({ length: n }, (_, k) => ({ name: `F${k}`, atoms: [k % 20], value: "1" })) });
   assert.equal(overLimit(fields(MAX_DATA)), undefined);
   assert.equal(overLimit(fields(MAX_DATA + 1)), "A drawing holds up to 10,000 data fields.");
   // Past MAX_DATA the file leaves the rest out: so the editor never makes more.
@@ -480,7 +500,7 @@ it("L16 at the most nicknames Octet keeps (and dictionary names and template set
   assert.match(editor, /if \(smiles\.length > 2000\) smiles = "";/);
   // New set… (the dialog, and the library's New set) at MOST_SETS: Octet says so, as for a template file, and adds none.
   assert.match(editor, /const askSet = \(then: \(set: string\) => void\) => \(settings\.templateSets\.length >= MOST_SETS \? setNotice\(FULL_SETS, "info"\)/);
-  assert.match(editor, /add: \(name: string\) => \(settings\.templateSets\.length >= MOST_SETS \? setNotice\(FULL_SETS, "info"\)/);
+  assert.match(editor, /add: \(name: string\) => \{ if \(settings\.templateSets\.length >= MOST_SETS\) \{ setNotice\(FULL_SETS, "info"\); return false; \}/);
   assert.match(src("./templates.ts"), /FULL_SETS = `You have \$\{MOST_SETS\} template sets, the most Octet keeps\. Remove a set first\.`/);
 });
 
@@ -495,9 +515,167 @@ it("L17 the caption box holds what the text it edits holds: a shown value MAX_SH
   assert.equal(cutNotice("A shown value", MAX_SHOWN), "A shown value holds up to 2,000 characters. Octet left out the rest.");
 });
 
+// A drawing with n notes: texts of 1,000 notes each (the most on one object).
+const noted = (n: number): Mol => withTexts(...Array.from({ length: Math.ceil(n / 1000) }, (_, k) => ({ text: `t${k}`, notes: Array.from({ length: Math.min(1000, n - 1000 * k) }, (_, j) => ({ keyword: NOTE, content: `${j}` })) })));
+// A ChemDraw file's CDXML of a drawing (Octet's own extras taken out).
+const theirs = (m: Mol) => toCdxml(m, style).replace(/(<CDXML[^>]*?)\s+Octet="[^"]*"/, "$1");
+
+it("L18 a structure holds MAX_EACH data fields: a bond that joins two structures and Attach Data's Save past it are refused, paste and duplicate are not, and every reader keeps it, counted", () => {
+  const c = (x: number, y = 0) => ({ label: "C", location: [x, y, 0] as [number, number, number] });
+  const was: Mol = { atoms: [c(0), c(1), c(5), c(6)], bonds: [{ atoms: [0, 1], type: 1 }, { atoms: [2, 3], type: 1 }],
+    data: [...Array.from({ length: 800 }, (_, k) => ({ name: `A${k}`, atoms: [0, 1], value: "1" })), ...Array.from({ length: 800 }, (_, k) => ({ name: `B${k}`, atoms: [2, 3], value: "2" }))] };
+  assert.equal(overLimit(was), undefined);
+  // A bond drawn between the two structures: 1,600 fields on one.
+  const joined: Mol = { ...was, bonds: [...was.bonds, { atoms: [1, 2], type: 1 }] };
+  assert.equal(overLimit(joined, was), "A structure holds up to 1,000 data fields.");
+  // Paste and duplicate: the copies are structures of their own, each with its 800.
+  const copied: Mol = { atoms: [...was.atoms, ...was.atoms.map((a) => c(a.location[0], 5))], bonds: [...was.bonds, ...was.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + 4, b.atoms[1] + 4] as [number, number] }))],
+    data: [...was.data!, ...was.data!.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + 4) }))] };
+  assert.equal(overLimit(copied, was), undefined);
+  // Attach Data's Save keeps every row it is given (none is dropped), so the editor refuses more than MAX_EACH with the
+  // notice; the dialog's grid has MAX_EACH rows at most.
+  const rows = Array.from({ length: MAX_EACH + 1 }, (_, k) => ({ name: `R${k}`, value: "v", show: k === 0 }));
+  const saved = setRows(ETHANOL, [0, 1, 2], rows);
+  assert.equal(saved.data!.length, MAX_EACH + 1);
+  assert.equal(overLimit(saved, ETHANOL), "A structure holds up to 1,000 data fields.");
+  assert.match(src("./DataDialog.tsx"), /const MOST: \[number, number\] = \[MAX_EACH, 3\];/);
+  assert.doesNotMatch(src("./datafields.ts"), /\.slice\(0, MAX_EACH\)/, "setRows drops no row");
+  // Readers: Octet's own file and its CDXML, ChemDraw's attached data (shown fields), and an SD record.
+  const own = readOct(serialize({ ...joined, style }));
+  assert.deepEqual([own.mol.data!.length, own.lost], [MAX_EACH, { "data field": 600 }]);
+  const cd = fromCdxml(theirs(saved));
+  assert.deepEqual([cd.mol.data!.length, cd.lost], [MAX_EACH, { "data field": 1 }]);
+  const oct = readOct(writeOct(joined, style), true);
+  assert.deepEqual([oct.mol.data!.length, oct.lost], [MAX_EACH, { "data field": 600 }]);
+  const record = `x\n  Octet\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n${Array.from({ length: MAX_EACH + 1 }, (_, k) => `> <F${k}>\nv\n\n`).join("")}$$$$\n`;
+  const sd = readSd(record);
+  assert.deepEqual([sd.records[0].items.length, sd.left], [MAX_EACH, 1]);
+});
+
+it("L19 a drawing holds what saves within 64 MB (MAX_SIZE): long texts past it are refused, a reader leaves them out, counted, and a drawing within it saves in every form", () => {
+  const texts = (n: number, t: string): Mol => ({ atoms: [], bonds: [], captions: Array.from({ length: n }, (_, k) => ({ id: k + 1, text: t, x: k % 100, y: -Math.floor(k / 100) })) });
+  // The fault: 1,400 texts of MAX_TEXT were within every count, and Save and the recovery copy refused the drawing.
+  assert.equal(overLimit(texts(1400, prose(MAX_TEXT)), texts(0, "")), "A drawing holds up to 64 MB.");
+  // sizeOf is over what every writer makes of each kind of thing, with the costliest characters (", a style run each).
+  const q = '"'.repeat(1000), runs = (t: string) => [...t].map((ch, k) => ({ text: ch, bold: true, italic: true, underline: true, script: k % 2 ? "sub" as const : "super" as const, font: "Times New Roman", size: 13.5, colour: "#123456" }));
+  const at = (k: number): [number, number, number] => [(k % 300) * 1.2345678, -Math.floor(k / 300) * 1.2345678, 0];
+  const three: Mol = { atoms: [0, 1, 2].map((k) => ({ label: "C", location: [3 * k, 0, 0] as [number, number, number] })), bonds: [] };
+  const hex = (n: number) => Array.from({ length: 2 * n }, (_, k) => "0123456789ABCDEF"[(k * 7919) % 16]).join("");
+  const parts: [string, Mol][] = [
+    ["texts of \"", texts(50, q)], ["texts of €", texts(50, "€".repeat(1000))], ["a style run each", { ...texts(20, "ab".repeat(250)), captions: texts(20, "ab".repeat(250)).captions!.map((c) => ({ ...c, runs: runs(c.text) })) }],
+    ["atoms", { atoms: Array.from({ length: 1000 }, (_, k) => ({ label: "C", location: at(k) })), bonds: [] }],
+    ["charged atoms", { atoms: Array.from({ length: 300 }, (_, k) => ({ label: "N", location: at(k), charge: -3, isotope: 15, radical: 2, map: 99, colour: "#123456", enhanced: "or9", pairs: 2, circled: true, partial: "+" as const, hmark: "dot" as const, attach: "star" as const, shade: 0.5 })), bonds: [] }],
+    ["labels with runs", { atoms: Array.from({ length: 200 }, (_, k) => ({ label: "N", location: at(k), text: '"'.repeat(40), runs: Array.from({ length: 40 }, (_, j) => ({ text: '"', ...(j % 2 ? { bold: true as const } : { italic: true as const }), colour: "#123456" })) })), bonds: [] }],
+    ["bonds", { atoms: Array.from({ length: 300 }, (_, k) => ({ label: "C", location: at(k) })), bonds: Array.from({ length: 1200 }, (_, k) => ({ atoms: [k % 300, (k + 1 + Math.floor(k / 300) * 7) % 300] as [number, number], type: 2, stereo: 1, colour: "#123456" })) }],
+    ["curves", { atoms: [], bonds: [], arrows: Array.from({ length: 5 }, (_, k) => ({ id: k + 1, kind: "curve" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number], curve: { points: Array.from({ length: 1000 }, (_, j) => ({ at: [j * 0.123456789, Math.sin(j) * 3.21] as [number, number], ...(j % 3 ? { c1: [j * 0.1234567, 1.234567] as [number, number], c2: [j * 0.17654321, -1.234567] as [number, number] } : {}) })) } })) }],
+    ["table cells", { atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [40, -100], table: { cells: Array.from({ length: 50 }, () => Array.from({ length: 20 }, () => q.slice(0, 500))) } }] }],
+    ["notes", withTexts(...Array.from({ length: 5 }, () => ({ text: "a", notes: Array.from({ length: 100 }, () => ({ keyword: NOTE, content: q })) })))],
+    ["values on three structures", { ...three, data: Array.from({ length: 50 }, (_, k) => ({ name: `F${k}`, atoms: [0, 1, 2], value: q })) }],
+    ["a picture", { atoms: [], bonds: [], shapes: [{ id: 1, kind: "picture", from: [0, 0], to: [10, 10], picture: { PNG: hex(1 << 19) } }] }],
+  ];
+  for (const [name, m] of parts) {
+    const most = Math.max(Buffer.byteLength(writeOct(m, style)), writeCdx(m, style).length, Buffer.byteLength(serialize({ ...m, style })));
+    assert.ok(most <= sizeOf(m), `${name}: ${most} bytes written, ${sizeOf(m)} worked out`);
+  }
+  // At the limit: texts of " (the costliest character) up to MAX_SIZE save as .oct, .cdx and the recovery copy, each
+  // within the 64 MB Octet saves (main.rs MAX_BYTES). One more text is refused.
+  const t = '"'.repeat(MAX_TEXT), one = sizeOf(texts(1, t)) - sizeOf(texts(0, t)), n = Math.floor((MAX_SIZE - sizeOf(texts(0, t))) / one), full = texts(n, t);
+  assert.equal(overLimit(full), undefined);
+  assert.equal(overLimit(texts(n + 1, t), full), "A drawing holds up to 64 MB.");
+  for (const [form, size] of [["oct", Buffer.byteLength(writeOct(full, style))], ["cdx", writeCdx(full, style).length], ["recovery", Buffer.byteLength(serialize({ ...full, style }))]] as const) assert.ok(size <= 64 * 2 ** 20, `${form}: ${size} bytes`);
+  // A ChemDraw file with more: the texts past MAX_SIZE are left out, the last first, and counted.
+  const r = fromCdxml(theirs(texts(400, prose(MAX_TEXT))));
+  const kept = r.mol.captions!.length;
+  assert.ok(kept < 400 && sizeOf(r.mol) <= MAX_SIZE);
+  assert.deepEqual(r.lost, { text: 400 - kept });
+  // Notes past it go first (the last first), then texts (H1), then data fields.
+  const many = readOct(serialize({ ...withTexts(...Array.from({ length: 10 }, () => ({ text: "a", notes: Array.from({ length: 1000 }, () => ({ keyword: NOTE, content: prose(MAX_CONTENT) })) }))), style }));
+  assert.ok(sizeOf(many.mol) <= MAX_SIZE && (many.lost.annotation ?? 0) > 0 && !many.lost.text && many.mol.captions!.length === 10, JSON.stringify(many.lost));
+  // overLimit keeps the editor fast: on a large drawing, an edit's count costs a small part of what fragments() does once.
+  const N = 20_000, big: Mol = { atoms: Array.from({ length: N }, (_, k) => ({ label: "C", location: at(k) })), bonds: Array.from({ length: N }, (_, k) => k).filter((k) => (k + 1) % 20).map((k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })),
+    captions: texts(2000, "The mixture was stirred at 25 °C for 2 h.").captions, data: Array.from({ length: 2000 }, (_, k) => ({ name: `F${k % 2}`, atoms: Array.from({ length: 20 }, (_, j) => (k >> 1) * 20 + j), value: "12345" })) };
+  overLimit(big);
+  const edits = Array.from({ length: 30 }, (_, k) => (k % 3 === 0 ? { ...big, atoms: big.atoms.map((a, i) => (i === k ? { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] } : a)) } : k % 3 === 1 ? { ...big, captions: big.captions!.map((c, i) => (i === k ? { ...c, text: `${c.text}x` } : c)) } : { ...big, bonds: [...big.bonds] }));
+  const counted = ms(() => { for (const m of edits) overLimit(m, big); }) / edits.length, frag = ms(() => { for (const m of edits) fragments(m); }) / edits.length;
+  assert.ok(counted < frag / 2 + 0.5, `overLimit ${counted.toFixed(2)} ms an edit, fragments ${frag.toFixed(2)} ms`);
+  console.log(`longtext-stress: L19 overLimit on ${N} atoms, 2,000 texts, 2,000 fields: ${counted.toFixed(2)} ms an edit (fragments: ${frag.toFixed(2)} ms)`);
+});
+
+it("L20 each limit holds on its own: a drawing past one takes edits that add none of it, and the readers and Save keep the comment and Last changed by within the notes", () => {
+  // A drawing opened past one count (10,002 notes): an edit that adds a text is made; one that adds a note, or atoms
+  // past theirs, is refused.
+  const over = noted(MAX_NOTES + 2);
+  assert.equal(overLimit(over), "A drawing holds up to 10,000 notes.");
+  assert.equal(overLimit({ ...over, captions: [...over.captions!, { id: 99_999, text: "new", x: 0, y: 5 }] }, over), undefined);
+  assert.equal(overLimit({ ...over, annotations: [{ keyword: NOTE, content: "one more" }] }, over), "A drawing holds up to 10,000 notes.");
+  assert.equal(overLimit({ ...over, atoms: Array.from({ length: 100_001 }, () => ({ label: "C", location: [0, 0, 0] as [number, number, number] })) }, over), "A drawing holds up to 100,000 atoms.");
+  // A ChemDraw file with 10,000 notes, a comment and who saved it last: within MAX_NOTES, the rest counted.
+  const r = fromCdxml(theirs(noted(MAX_NOTES)).replace("<CDXML", '<CDXML Comment="A comment" ModificationUserName="sam"'));
+  assert.equal(noteCount(r.mol), MAX_NOTES);
+  assert.deepEqual(r.lost, { comment: 1, annotation: 1 });
+  // Save adds Last changed by only within the notes limits, so the file opens whole.
+  const author = withDetails(undefined, { author: "Sam" }, PROPERTIES)!, atLimit = { ...noted(MAX_NOTES - 1), annotations: author };
+  assert.equal(noteCount(atLimit), MAX_NOTES);
+  assert.equal(stampedWithin(atLimit, "sam"), atLimit);
+  const room = { ...noted(MAX_NOTES - 2), annotations: author };
+  assert.equal(noteCount(stampedWithin(room, "sam")), MAX_NOTES);
+  assert.equal(src("./Editor.tsx").match(/stampedWithin\(doc, systemName\)/g)?.length, 2, "Save and Save Copy As");
+});
+
+it("L21 the drawing and each object hold MAX_ANNOTATIONS: Document Properties and Save add none past it, and a file with more keeps its properties", () => {
+  const full: Mol = { ...ETHANOL, annotations: Array.from({ length: MAX_ANNOTATIONS }, (_, k) => ({ keyword: NOTE, content: `${k}` })) };
+  const titled: Mol = { ...full, annotations: withDetails(full.annotations, { title: "Big" }, PROPERTIES) };
+  assert.equal(titled.annotations!.length, MAX_ANNOTATIONS + 1);
+  assert.equal(overLimit(titled, full), "A drawing or an object holds up to 1,000 notes.");
+  const authored: Mol = { ...ETHANOL, annotations: [...full.annotations!.slice(1), ...withDetails(undefined, { author: "Sam" }, PROPERTIES)!] };
+  assert.equal(stampedWithin(authored, "sam"), authored);
+  assert.equal(stampedWithin({ ...authored, annotations: authored.annotations!.slice(1) }, "sam").annotations!.length, MAX_ANNOTATIONS);
+  // A file with more (Octet 1.1.2 could make it; the recovery copy was then damaged and the .oct opened from its CDXML
+  // without the Title): its own copy opens, with the Title, and the note left out is counted.
+  for (const read of [readOct(serialize({ ...titled, style })), readOct(writeOct(titled, style), true)]) {
+    assert.deepEqual([read.mol.annotations!.length, read.mol.annotations!.at(-1), read.lost, read.fallback], [MAX_ANNOTATIONS, { keyword: "Title", content: "Big" }, { annotation: 1 }, undefined]);
+  }
+});
+
+it("L22 an insert set refuses selects nothing new: every caller that selects what it added asks whether set made the edit", () => {
+  const editor = src("./Editor.tsx");
+  assert.match(editor, /const landPart = [^\n]*set\(r\.mol, true, undefined, drop\); if \(refused\.current\) return;/);
+  // File > Import a structure (place), Image to Structure, the copy-as-reaction keys, Option-drag, the Pen, a frame,
+  // an arrow, a shape or table, a measurement, a side arrow, a text, a chart or spectrum added, and Tab's arrow.
+  assert.equal(editor.match(/if \(refused\.current\) \{ revealNext\.current = false; return doc; \}/g)?.length, 2, "place");
+  assert.match(editor, /set\(r\.mol, true\);\n\s+if \(refused\.current\) return;\n\s+revealNext\.current = true;\n\s+const sh = /, "Image to Structure");
+  assert.match(editor, /set\(mol\);\n\s+if \(refused\.current\) return true;\n\s+revealNext\.current = true;\n\s+if \(hot !== undefined\)/, "the copy-as-reaction keys");
+  assert.match(editor, /if \(refused\.current && drag\.was\) reselect\(\.\.\.drag\.was\);/, "Option-drag keeps the originals selected");
+  assert.match(editor, /\.\.\.\(copies \? \{ was: \[atoms0, picks0\] as \[Set<number>, Set<number>\] \} : \{\}\)/);
+  assert.match(editor, /const made = set\(labelEnd\(mol, id\)\);\n\s+if \(refused\.current\) return;/, "a new text");
+  assert.match(editor, /if \(r\.made && refused\.current\) return;/, "a measurement");
+  assert.ok((editor.match(/refused\.current/g)?.length ?? 0) >= 22, "every caller");
+});
+
+it("L23 a ChemDraw file with more than 10,000 texts: the notes on the texts left out are counted too", () => {
+  const n = 10_001, m: Mol = { atoms: [], bonds: [], captions: Array.from({ length: n }, (_, k) => ({ id: k + 1, text: `${k}`, x: k % 100, y: -Math.floor(k / 100), ...(k === n - 1 ? { notes: [{ keyword: NOTE, content: "a" }, { keyword: NOTE, content: "b" }] } : {}) })) };
+  const r = fromCdxml(theirs(m));
+  assert.equal(r.mol.captions!.length, 10_000);
+  assert.deepEqual(r.lost, { text: 1, annotation: 2 });
+});
+
+it("L24 the settings and a reagent table keep what their readers keep: New set at 50 stays on its set, attachment points and typed cells say so", () => {
+  const editor = src("./Editor.tsx"), library = src("./TemplateLibrary.tsx");
+  // The library's own New set: at MOST_SETS nothing is added and the library does not switch to the name typed.
+  assert.match(library, /else if \(!p\.onSets\?\.add\(n\.value\)\) return;\n\s+setCategory\(/);
+  assert.match(library, /add: \(name: string\) => boolean;/);
+  // A template's attachment point: the settings keep 500, each by a name of up to 300 characters (settings.ts).
+  assert.match(src("./settings.ts"), /k\.length <= 300[^]*\.slice\(0, 500\)\)/);
+  assert.match(editor, /if \(kind\.length > 300\) return setNotice\("Octet cannot keep the attachment point of a template with so long a name\.", "info"\);/);
+  assert.match(editor, /if \(Object\.keys\(settings\.anchors\)\.length >= 500\) return setNotice\("Octet keeps the attachment points of up to 500 templates\.", "info"\);/);
+  // A reagent table's texts typed over its cells: 400 (stoich.ts readCells).
+  assert.match(src("./stoich.ts"), /n\+\+ < 400/);
+  assert.match(editor, /typedOver >= 400\) return setNotice\("A reagent table holds up to 400 typed cells\.", "info"\);/);
+});
+
 // --- H1 to H6: hostile files at the new limits read fast and in bounded memory -----------------------------------------
 
-it("H1 a .oct JSON of 60 MB (3,000 texts of MAX_TEXT, at the file size limit) reads in time linear in its size", () => {
+it("H1 a .oct JSON of 60 MB (3,000 texts of MAX_TEXT, at the file size limit) reads in time linear in its size, and keeps the texts Octet saves (MAX_SIZE)", () => {
   // Each text its own (no two the same), so nothing is shared.
   const text = prose(MAX_TEXT - 6), own = (k: number) => `${String(k).padStart(5, "0")} ${text}`;
   const file = (n: number) => JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: Array.from({ length: n }, (_, k) => ({ text: own(k), x: k, y: 0 })) });
@@ -507,7 +685,11 @@ it("H1 a .oct JSON of 60 MB (3,000 texts of MAX_TEXT, at the file size limit) re
   const tSmall = Math.min(ms(() => parse(small)), ms(() => parse(small))), heap0 = heap();
   let m: Mol | undefined;
   const tBig = ms(() => { m = parse(big); }), grown = heap() - heap0;
-  assert.equal(m!.captions!.length, 3000);
+  // As a .oct it would be over 64 MB (a text's character takes up to 9 bytes there): the texts past MAX_SIZE are left
+  // out, the last first, and counted, so the drawing that opens saves.
+  const kept = m!.captions!.length;
+  assert.ok(kept >= 300 && sizeOf(m!) <= MAX_SIZE, `${kept} texts kept`);
+  assert.deepEqual([m!.captions![kept - 1].text.slice(0, 5), leftOf(m!)], [String(kept - 1).padStart(5, "0"), { text: 3000 - kept }]);
   assert.ok(tBig < 15_000, `read in ${tBig.toFixed(0)} ms`);
   assert.ok(tBig < 40 * tSmall + 2000, `ten times the size in ${(tBig / tSmall).toFixed(1)} times the time (${tSmall.toFixed(0)} ms, ${tBig.toFixed(0)} ms)`);
   assert.ok(grown < 4 * big.length / 1e6, `heap grew ${grown.toFixed(0)} MB for a ${(big.length / 1e6).toFixed(0)} MB file`);

@@ -27,7 +27,8 @@ import type { StereoText } from "./stereonames.ts";
 import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub, type DataField } from "./render.ts";
-import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, shownText, withProperties } from "./datafields.ts";
+import { ATTACHED, cleanName, cleanValue, longShown, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, SHOWN_OFF, withProperties } from "./datafields.ts";
+import { MAX_ATOMS, MAX_OBJECTS, withinEach, withinSize } from "./limits.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -1393,7 +1394,7 @@ export function pictureHex(v: string): string | undefined {
   return new TextDecoder().decode(out);
 }
 const HEX_CODES = Array.from("0123456789ABCDEF", (c) => c.charCodeAt(0));
-const MAX_ATOMS = 100_000, MAX_OBJECTS = 10_000, MAX_LABEL = 40;
+const MAX_LABEL = 40;
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,3})?$/;
 const real = (s?: string) => { const t = s?.trim(); if (!t || !NUMBER.test(t)) return undefined; const v = Number(t); return Math.abs(v) < 1e7 ? v : undefined; };
 const reals = (s: string | undefined, n: number) => { const v = (s ?? "").trim().split(/\s+/).slice(0, n).map(real); return v.length === n && v.every((x) => x !== undefined) ? (v as number[]) : undefined; };
@@ -1517,6 +1518,9 @@ function withinCounts(m: Mol, lose: (what: string, n: number) => void): Mol {
     return list.slice(MAX_OBJECTS).map((x) => x.id);
   };
   const ids = new Set([...past(m.captions, "text"), ...past(m.arrows, "arrow"), ...past(m.shapes, "shape"), ...past(m.cycles, "cycle")]);
+  // Their notes go with them (a group's that goes too is counted after: fromCdxml).
+  const notes = [m.captions, m.arrows, m.shapes, m.cycles].reduce((n, l) => n + (l ?? []).reduce((k, x) => k + (ids.has(x.id) ? x.notes?.length ?? 0 : 0), 0), 0);
+  if (notes) lose("annotation", notes);
   let out = ids.size ? deleteGraphics(m, ids) : m;
   if ((m.data?.length ?? 0) > (out.data?.length ?? 0)) lose("data field", m.data!.length - (out.data?.length ?? 0));
   if ((out.grids?.length ?? 0) > MAX_GRIDS) out = { ...out, grids: out.grids!.slice(0, MAX_GRIDS) };
@@ -1743,17 +1747,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       });
     }
     if (list.length > MAX_DATA) lose("data field", list.length - MAX_DATA);
-    // A shown field's text holds MAX_SHOWN characters (shownText); one past MAX_DATA is plain text.
-    const ids = new Set(shown.map((f) => f.caption)), kept = list.slice(0, MAX_DATA), showing = new Set(kept.map((f) => f.caption));
-    mol.captions = mol.captions?.map((c) => {
-      if (!ids.has(c.id)) return c;
-      const { property: _, ...rest } = c, plain = { ...rest, chemical: false as const };
-      if (!showing.has(c.id)) return plain;
-      const s = shownText(plain);
-      if (s.cut) lose("character", s.cut);
-      return s.caption;
-    });
-    mol.data = remapData(kept.map(({ datum: _, ...f }) => f), (i) => i);
+    // A shown field's text too long to show is turned into a value after (longShown).
+    const ids = new Set(shown.map((f) => f.caption));
+    mol.captions = mol.captions?.map((c) => { if (!ids.has(c.id)) return c; const { property: _, ...rest } = c; return { ...rest, chemical: false as const }; });
+    mol.data = remapData(list.slice(0, MAX_DATA).map(({ datum: _, ...f }) => f), (i) => i);
   }
   // An object's notes: the annotation elements in the element it was read from.
   const notesOf = (x: Xml | undefined) => {
@@ -3006,11 +3003,12 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // ChemDraw's document comment (the root's Comment) is the drawing's comment, before any annotation. One that is too
   // long is left out and counted, as an annotation is.
   const comment = root.attrs.Comment === undefined ? "" : cleanComment(root.attrs.Comment);
-  if (comment.length > MAX_COMMENT || (comment && own.length >= MAX_ANNOTATIONS)) lose("comment");
-  else if (comment) own.unshift({ keyword: COMMENT, content: comment });
+  // The comment and Last changed by count in the drawing's notes (MAX_NOTES), as every annotation does.
+  if (comment.length > MAX_COMMENT || (comment && (own.length >= MAX_ANNOTATIONS || notesRead >= MAX_NOTES))) lose("comment");
+  else if (comment) { own.unshift({ keyword: COMMENT, content: comment }); notesRead++; }
   // ChemDraw's ModificationUserName is who saved it last (Last changed by), after the comment.
   const by = root.attrs.ModificationUserName === undefined ? "" : oneLine(root.attrs.ModificationUserName);
-  if (by && own.length >= MAX_ANNOTATIONS) lose("annotation");
+  if (by && (own.length >= MAX_ANNOTATIONS || notesRead >= MAX_NOTES)) lose("annotation");
   else if (by) own.splice(comment && own[0]?.keyword === COMMENT ? 1 : 0, 0, { keyword: CHANGED_BY, content: by });
   if (own.length) mol.annotations = own;
   if (kept.length) mol.groups = kept;
@@ -3020,9 +3018,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   readFields(ix);
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
-  const out = withinCounts(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), lose);
+  // A shown field too long to show is a value (longShown), and a structure has MAX_EACH fields at most (withinEach).
+  const shown = longShown(withinCounts(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), lose));
+  if (shown.off) lose(SHOWN_OFF, shown.off);
+  if (shown.left) lose("data field", shown.left);
+  if (shown.notes) lose("annotation", shown.notes);
+  const each = withinEach(shown.mol);
+  if (each.left) lose("data field", each.left);
   // A group of one thing goes, and its annotations with it.
-  const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(out);
+  const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(each.mol);
   if (gone > 0) lose("annotation", gone);
-  return { mol: out, style, lost };
+  // At most 64 MB, as Octet saves (limits.ts): the texts, notes and data fields past it are left out, counted.
+  return { mol: withinSize(each.mol, lose), style, lost };
 }

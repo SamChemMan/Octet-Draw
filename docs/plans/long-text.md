@@ -48,21 +48,24 @@ made to keep it.
 | Reagent table text cell | 200 (`oneLine`) | stoich.ts cuts | `writeGridCell` cut with no notice | Kept, with the notice |
 | Experiment detail on the page | 200 (`oneLine`) | experiment.ts cuts the detail | A detail's text typed on the page was cut with no notice | Kept: the text is cut to 200 with the notice |
 | Chart label | 80 | charts.ts drops the chart record | Text typed over a chart's label, and names in the chart dialog, were cut with no notice | Kept: cut with the notice on the page. In the chart dialog (`Cells.tsx` `limit`, by column and row) the paths' and states' names and the conditions take 80, and a value's own name the chart cuts is said on Apply (`charts.ts` `longNames`) |
-| Data field shown (release-1.1.3, issue 68) | 2,000 (`datafields.ts` MAX_SHOWN, the Attached data dialog's Show) | datafields.ts readData left the field out and counted it as a data field; cdxml.ts and fromProperties read it whole (20,000), so it opened again with "Octet left out 1 data field." and the dialog's Save took it off the page | Its text on the page is a caption (20,000) | Kept: the caption box holds 2,000 there, and a text typed past it is cut with "A shown value holds up to 2,000 characters." Every reader (`cdxml.ts` readFields, `datafields.ts` readData and fromProperties) keeps the field shown with the first 2,000 characters (`shownText`) and counts the rest: "Octet left out 3,000 characters." A value not shown keeps 10,000, as before |
+| Data field shown (release-1.1.3, issue 68) | 2,000 (`datafields.ts` MAX_SHOWN, the Attached data dialog's Show) | datafields.ts readData left the field out and counted it as a data field; cdxml.ts and fromProperties read it whole (20,000), so it opened again with "Octet left out 1 data field." and the dialog's Save took it off the page | Its text on the page is a caption (20,000) | Kept: the caption box holds 2,000 there, and a text typed past it is cut with "A shown value holds up to 2,000 characters." Every reader (cdxml.ts, file.ts with Octet's own fields and 1.1.2's form) does what the dialog does for a long value (`datafields.ts` longShown): the field keeps the whole text as its value (up to MAX_VALUE, 10,000, as any field's; one longer is left out whole and counted, and its text stays on the page), Show is off, and its text goes from the page. Nothing is lost, so the notice is information and Save does not ask: "A shown value holds up to 2,000 characters. Octet turned off Show for 1 data field." (`SHOWN_OFF`, `oct.ts` lostNotice and losses). Attached data's Save with nothing changed gives the same drawing, a value that ends in a line break too |
 | Kept group (Contract Label) | 256 atoms, 512 bonds | file.ts refuses; cdxml.ts drops the group | Contract Label took any group | Kept: Contract Label says "Select a group of 256 atoms or fewer." `contractLabel` contracts no larger group, for any caller. Define Nickname (release-1.1.3) says the same (`chem.ts` `nicknameGroup`), and saves no nickname |
 | A nickname's SMILES | 2,000 | nicknames.ts readNicknames drops it at the next start | Define Nickname on a large group | Kept: `nicknameGroup` says "Octet cannot keep this group as a nickname." |
 | A nickname's label; nicknames | One word of 32, no control character; 500 | readNicknames drops a label with a control character; a label on an atom holds no < or > (`keptLabel`); `withNickname` adds none past 500 | Define Nickname took < and > and control characters, and at 500 said the nickname was defined, saved none and contracted the group | Kept: `nicknameProblem` says "A nickname cannot hold < or > or a hidden character." (Define Nickname, and a rename in Settings); at 500 Define Nickname says "Octet keeps up to 500 nicknames. Remove one in Settings > Dictionary to add another." and changes nothing |
-| Dictionary names; a name's SMILES; template sets; the name history's SMILES | 2,000; 4,000; 50; 2,000 | settings.ts, names.ts `withOwnName`, templates.ts `addSet` | Add to Dictionary said a name was kept when the dictionary was full or the SMILES too long; an import did not say what it left out; New set at 50 put the template in a set the settings do not keep; a long SMILES dropped a name from the history at the next start | Kept: Add to Dictionary says "Your dictionary holds up to 2,000 names." (Save off) or "This structure is too large for the dictionary."; an import says how many it left out; New set says "You have 50 template sets, the most Octet keeps. Remove a set first." (as a template file does); the history keeps a long SMILES's name alone |
+| Dictionary names; a name's SMILES; template sets; the name history's SMILES | 2,000; 4,000; 50; 2,000 | settings.ts, names.ts `withOwnName`, templates.ts `addSet` | Add to Dictionary said a name was kept when the dictionary was full or the SMILES too long; an import did not say what it left out; New set at 50 put the template in a set the settings do not keep (the library's own New set also opened the set it did not make); a long SMILES dropped a name from the history at the next start | Kept: Add to Dictionary says "Your dictionary holds up to 2,000 names." (Save off) or "This structure is too large for the dictionary."; an import says how many it left out; New set says "You have 50 template sets, the most Octet keeps. Remove a set first." (as a template file does) and the library stays on its set; the history keeps a long SMILES's name alone |
+| A template's attachment point (Attach by) | 500 templates, a name of 300 | settings.ts drops the rest at the next start | Attach by on any number of built-in or named templates | Kept: past either, Octet keeps none and says "Octet keeps the attachment points of up to 500 templates." or "Octet cannot keep the attachment point of a template with so long a name." |
+| A reagent table's texts typed over its cells | 400 | stoich.ts readCells drops the rest | Text typed over any number of cells | Kept: the 401st is not made, with "A reagent table holds up to 400 typed cells." |
 | A spectrum's key (Add to drawing > Key) | 20,000, as a caption | file.ts refuses | A measured spectrum of up to 2,000 multiplets, or a large structure's predicted signals | Kept: the key keeps the lines that fit in 20,000 characters, with the notice |
 | Cycle steps | 64 | file.ts refuses | A click on an arc adds a step, with no cap | Kept: `resplice` adds none past 64; the click says "A cycle holds up to 64 steps." |
 | Side arrow's structure | 512 atoms | cycle.ts refuses the cycle, so the file | A larger structure at a side arrow | Raised to 100,000 (every index is checked; reading stays linear) |
 | Pen curve | 1,000 points | file.ts refuses; cdxml.ts drops | Each click adds a point | Kept: the Pen stops at 1,000 with "A curve holds up to 1,000 points." |
-| Atoms, bonds | 100,000, 400,000 | file.ts, cdxml.ts refuse | Paste, duplicate | Kept: an edit past either is not made, with "A drawing holds up to 100,000 atoms." (`file.ts` overLimit, in the editor's `set`) |
+| Atoms, bonds | 100,000, 400,000 | file.ts, cdxml.ts refuse | Paste, duplicate | Kept: an edit past either is not made, with "A drawing holds up to 100,000 atoms." (`limits.ts` overLimit, in the editor's `set`). Each limit holds on its own: a drawing opened past one (another program's) takes an edit that does not make that count larger, and every other limit still holds. An insert set refuses selects nothing new (every caller asks `refused`), and an Option-drag keeps the originals selected |
 | Texts, arrows, shapes, cycles, ring fills, groups | 10,000 each | file.ts refuses; cdxml.ts took 40,000 in all, so a ChemDraw file with 10,001 texts opened and its .oct did not | Paste, duplicate | Kept, as atoms. cdxml.ts leaves out those past 10,000 of each kind and counts them (`withinCounts`), with a data field whose text or a table whose arrow goes with them |
 | Reagent tables | 100 (`experiment.ts` MAX_GRIDS) | file.ts refuses; cdxml.ts took any number | Analyse Stoichiometry, paste, duplicate, Insert (only `newGrids` kept 100) | Kept: `overLimit` counts them ("A drawing holds up to 100 reagent tables."); cdxml.ts leaves out those past 100, counted |
 | Data fields (release-1.1.3) | 10,000 (`datafields.ts` MAX_DATA) | readData leaves the rest out and counts them | Paste, duplicate, a second SD import, Attach Data | Kept: `overLimit` counts them ("A drawing holds up to 10,000 data fields.") |
+| Data fields on one structure (release-1.1.3) | 1,000 (`datafields.ts` MAX_EACH) | cdxml.ts counted only the fields not shown; readSd cuts a record; file.ts kept any number | A bond that joins two structures (800 and 800), Attach Data's Save (its grid had 1,001 rows, and setRows cut to 1,000 with no notice) | Kept: `limits.ts` overLimit counts the most on one structure ("A structure holds up to 1,000 data fields."), setRows keeps every row, the dialog's grid has 1,000 rows. Every reader keeps 1,000 on each structure (`withinEach`), counted. Paste and duplicate make structures of their own |
 | Experiment page text kept for new pages | 200,000 characters | docstyle.ts drops it at the next start | Use for New Documents on a long page | Kept: Octet says it cannot keep this page's text, and keeps the style |
-| Notes | 10,000 a note, 200 a keyword, 1,000 an object, 10,000 a drawing | annotate.ts; file.ts keeps 10,000 in a drawing (`capNotes`), with no notice | Fields take 10,000; `withNote`; paste and Option-drag took a drawing past 10,000 | `overLimit` counts them ("A drawing holds up to 10,000 notes."); file.ts counts those it leaves out ("annotations") |
+| Notes | 10,000 a note, 200 a keyword, 1,000 an object, 10,000 a drawing | annotate.ts; file.ts keeps 10,000 in a drawing (`capNotes`), with no notice, and refused a list of more than 1,000 on one object (so the recovery copy was damaged); cdxml.ts read the comment and Last changed by past 10,000 | Fields take 10,000; `withNote`; paste and Option-drag took a drawing past 10,000; Document Properties (`withDetails`) and Save's Last changed by (`stamped`) took the drawing past 1,000 | `overLimit` counts them ("A drawing holds up to 10,000 notes.") and the most on one object ("A drawing or an object holds up to 1,000 notes."); Save adds Last changed by only within both (`annotate.ts` stampedWithin). file.ts keeps the first 1,000 on an object (a document's properties and details first; four times as many is damaged) and counts the rest ("annotations"); cdxml.ts counts the comment and Last changed by in the 10,000, and the notes of a text, arrow or shape it leaves out past 10,000 |
 | Document comment | 10,000 | experiment.ts | Field takes 10,000 | None needed |
 | Details (sheet) | 200 | experiment.ts | The sheet refuses more | None needed |
 | Lane, plasmid, region, marker names; polymer label | 40, 80, 80, 80, 20 | cdxml.ts, query.ts | Fields take as many | None needed |
@@ -71,7 +74,7 @@ made to keep it.
 | Spectra, notes on one object | 16, 1,000 | file.ts | One spectrum a key, `withNote` | None needed (reagent tables above) |
 | CDX text styles | 16-bit byte offsets: 65,535 bytes a text | cdx.ts | – | MAX_TEXT units are at most 60,000 bytes of UTF-8. The writer no longer spreads a text's bytes into a call (an engine's argument limit). |
 | MOL, SDF, SMILES Octet writes, read back | 1,000 atoms, 300,000 characters, 20,000 of SMILES; an alias 40 characters, no < or > | chem.ts (Indigo runs on the main thread), with the reason ("It has more than 1,000 atoms.") | Export of a drawing larger than that | Kept: a speed limit with its reason, not this item's. An alias is a label (40, as Octet writes it). |
-| File, clipboard type | 64 MB | Rust | – | None |
+| File, clipboard type, recovery copy | 64 MB (main.rs MAX_BYTES) | Rust: Save, the recovery copy and Open refuse more | Long texts: 1,400 texts of 20,000 characters were within every count, and Save and the recovery copy refused the drawing. The other counts are not within it either (measured on the writers, the largest form, a .oct, in MB): 100,000 atoms 25 to 38 (with a charge and other properties, up to 190), 400,000 bonds 45, 10,000 texts of one character 2.4, 10,000 arrows 5.6, 10,000 curves of 1,000 points 2,530, 10,000 tables of 2,000 empty cells 530, 10,000 data fields 1.8, 12 MB of pictures 56, 16 spectra 38 (as .cdx 43). So no count can be kept to 64 MB by a limit on text alone. A character takes 2.5 bytes (plain text) to 8.8 (") in a .oct, a style run with every style 310 | Kept: `limits.ts` sizeOf works out the most bytes the drawing takes in its largest form from lengths and counts (each thing's measured most, rounded up: a character 9, a run 320, an atom 400 and 1,600 more with a charge or another property, a bond 130, a curve point 270, a table cell's character 17, a picture's byte 4.7, a spectrum's point 12), and `overLimit` refuses an edit that takes it past 63 MB ("A drawing holds up to 64 MB."). A drawing within it saves as .oct, CDXML and CDX and keeps its recovery copy (L19). Readers leave out notes past it (the last first), then texts, then data fields, counted (`withinSize`); structures, pictures and curves stay. sizeOf keeps each list's part, so an edit counts only what it changed: 0.3 to 1 ms an edit on 20,000 atoms, 2,000 texts and 2,000 fields (fragments() takes 2.6 ms) |
 | Nesting | CDXML and CDX 64 deep; JSON: only the shapes Octet knows are walked | cdxml.ts, cdx.ts, file.ts | Octet writes under 10 deep | None |
 
 ## Why 20,000
@@ -109,19 +112,32 @@ chart labels, the comment, risk texts, names (a live name of 20,000 characters, 
 - L10: 1.1.2 files: a .oct with a 2,500-character caption opens whole from JSON; one with 25,000 from CDXML, cut and
   counted.
 - L11: a shown data field of 5,000 characters in ChemDraw's CDXML and CDX, in Octet's own fields and in 1.1.2's form:
-  shown, cut to 2,000 and counted as characters; saved, it opens again with nothing left out, and Attached data's Save
-  with nothing changed gives the same drawing.
+  the whole value, Show off, its text off the page, said as information (Save does not ask); saved in every form, it
+  opens again the same with nothing said, and Attached data's Save with nothing changed gives the same drawing (with a
+  value that ends in a line break too). Over 10,000: left out, counted, its text kept.
 - L12, L13: `overLimit` at and past 100 reagent tables, 10,000 data fields and 10,000 notes; a CDXML with 101 tables
   opens with 100, counted; a file with 10,005 notes opens with 10,000 and counts 5.
 - L14: a ChemDraw file with 10,001 texts, arrows and shapes opens with 10,000 of each, counted, and saves and opens again.
 - L15, L16: nicknames with < or > or a control character refused; at 500 nicknames, 2,000 dictionary names or 50
   template sets, nothing is added and Octet says so (source).
 - L17: the caption box's limit is the text's (`textMost`): a shown value 2,000, a chart label 80, a detail 200.
+- L18: 1,000 data fields on one structure: a bond that joins two structures of 800 and Attach Data's Save of 1,001 are
+  refused, paste and duplicate are not; .oct, CDXML (shown fields) and SD readers keep 1,000, counted.
+- L19: 64 MB: 1,400 texts of 20,000 refused; sizeOf over what every writer makes of each kind; texts of " up to
+  MAX_SIZE save as .oct, .cdx and the recovery copy within 64 MB; readers leave out past it, counted; overLimit's cost
+  an edit on a large drawing.
+- L20: each limit on its own (a drawing with 10,002 notes takes a new text, not a note or 100,001 atoms); a ChemDraw
+  file with 10,000 notes, a comment and ModificationUserName opens with 10,000; Save adds no Last changed by past it.
+- L21: 1,000 annotations on the drawing: Document Properties past it refused, Save adds none; a file with 1,001 opens
+  from its own copy with its Title.
+- L22, L24: the callers that select what an insert added ask whether set made it; New set at 50, attachment points and
+  typed cells (source).
+- L23: notes on the texts cdxml.ts leaves out past 10,000 are counted.
 
 ## Stress list
 
 - H1: a .oct JSON of 60 MB: 3,000 captions of 20,000 characters (the limit, at the file size limit): read in time
-  linear in size, heap growth bounded.
+  linear in size, heap growth bounded, and the texts past MAX_SIZE left out, counted (as a .oct it would be over 64 MB).
 - H2: a CDXML with one text of 60 million characters: cut to 20,000, counted, fast.
 - H3: 10,001 captions; 100,001 atoms: refused fast.
 - H4: JSON nested 100,000 deep; CDXML nested 10,000 deep: refused fast, no stack overflow.
@@ -143,9 +159,12 @@ while typing in a text of 20,000 characters (H6 times the layout alone: under 0.
   before it replaces the file.
 - When you contract a label or define a nickname for a group of more than 256 atoms, Octet says to select a smaller
   group.
-- When you paste, duplicate, import or analyse stoichiometry past what a drawing holds (10,000 texts, arrows, shapes,
-  data fields or notes, or 100 reagent tables), Octet makes no change and says why.
-- When you open a ChemDraw file with more than a drawing holds, or with a shown data field of more than 2,000
-  characters, Octet opens what fits and says what it left out. Saved again, the drawing opens with nothing left out.
+- When you paste, duplicate, import, join two structures or add text past what a drawing holds (10,000 texts, arrows,
+  shapes, data fields or notes, 1,000 data fields on a structure, 100 reagent tables, or 64 MB in all), Octet makes no
+  change and says why.
+- When you open a ChemDraw file with more than a drawing holds, Octet opens what fits and says what it left out. Saved
+  again, the drawing opens with nothing left out.
+- When you open a file with a shown data field of more than 2,000 characters, Octet keeps the whole value and turns
+  off Show for it, as Attached data does, and says so.
 - When you define a nickname with < or >, or you have 500 nicknames already, Octet says why and changes nothing. Add
   to Dictionary at 2,000 names and New set at 50 sets do the same.

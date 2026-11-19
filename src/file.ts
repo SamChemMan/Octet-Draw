@@ -4,7 +4,8 @@ import { readGap } from "./conditions.ts";
 import { MAX_TEXT, normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
-import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, MAX_NOTES, noteCount } from "./annotate.ts";
+import { capNotes, isNote, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, noteCount } from "./annotate.ts";
+import { MAX_ATOMS, MAX_OBJECTS, overLimit, withinEach, withinSize } from "./limits.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
 import { settleMeasures, soundMeasure } from "./measurement.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
@@ -15,30 +16,18 @@ import { readTie, tieable } from "./arrowlink.ts";
 import { keyOf, readMeasured, writeMeasured } from "./measured.ts";
 import { readPart, readPlot, type PlotPart } from "./pageplot.ts";
 import { readRisk } from "./riskassess.ts";
-import { fromProperties, markLeft, MAX_DATA, readData, withProperties, writeData } from "./datafields.ts";
+import { fromProperties, longShown, markLeft, readData, SHOWN_OFF, withProperties, writeData } from "./datafields.ts";
 import { MAX_GRIDS } from "./experiment.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const FORMAT = "octet";
 export const VERSION = 1;
 // app: the Octet that wrote the file (from 1.1.0; files from 1.0.x have none).
-const MAX_ATOMS = 100_000;
 const DISPLAYS: Display[] = ["bold", "dashed", "hashed", "wavy", "dative", "hollow", "either", "aromatic"];
-// Texts, arrows, shapes, cycles, ring fills and groups, each. A text's length is MAX_TEXT (richtext.ts).
-const MAX_CAPTIONS = 10_000;
-// Why an edit would make a drawing this reader refuses or opens with less (more atoms, bonds, objects of a kind,
-// reagent tables, data fields or notes than it takes), as the editor says it; undefined when it is within every count
-// (docs/plans/long-text.md).
-export function overLimit(m: Mol): string | undefined {
-  const most = (n: number, what: string) => `A drawing holds up to ${n.toLocaleString("en-GB")} ${what}.`;
-  if (m.atoms.length > MAX_ATOMS) return most(MAX_ATOMS, "atoms");
-  if (m.bonds.length > 4 * MAX_ATOMS) return most(4 * MAX_ATOMS, "bonds");
-  for (const [k, what] of [["captions", "texts"], ["arrows", "arrows"], ["shapes", "shapes"], ["cycles", "cycles"], ["fills", "ring fills"], ["groups", "groups"]] as const) if ((m[k]?.length ?? 0) > MAX_CAPTIONS) return most(MAX_CAPTIONS, what);
-  if ((m.grids?.length ?? 0) > MAX_GRIDS) return most(MAX_GRIDS, "reagent tables");
-  if ((m.data?.length ?? 0) > MAX_DATA) return most(MAX_DATA, "data fields");
-  if (noteCount(m) > MAX_NOTES) return most(MAX_NOTES, "notes");
-  return undefined;
-}
+// Texts, arrows, shapes, cycles, ring fills and groups, each (limits.ts). A text's length is MAX_TEXT (richtext.ts).
+const MAX_CAPTIONS = MAX_OBJECTS;
+// What the editor keeps a drawing within, so that this reader takes every drawing it makes (limits.ts).
+export { overLimit };
 const HEADS: Head[] = ["none", "full", "left", "right"];
 
 // A label's kept group (Contract Label's, or a residue label's): its atoms (element, place, charge) and bonds (order,
@@ -193,6 +182,7 @@ function copySet(to: object, from: Record<string, unknown>, keys: string[]) {
 export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
+  notesCut = 0;
   const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown; data?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
@@ -422,23 +412,37 @@ export function parse(text: string): Mol {
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each. Cycles
   // as this version keeps them, and π rings from 1.0.x as ligand() orders them. Hydrogens set by hand only where they
   // are fewer than usual (settleHydrogens).
-  // Data fields (datafields.ts): a sound entry is kept and the rest left out, so the drawing opens.
-  // A shown field's text over MAX_SHOWN is cut, in Octet's own fields and in 1.1.2's (fromProperties), and counted.
+  // Data fields (datafields.ts): a sound entry is kept and the rest left out, so the drawing opens. A shown field too
+  // long to show is turned into a value (longShown), in Octet's own fields and in 1.1.2's (fromProperties).
   const fields = readData(d.data, out.atoms.length, out.captions ?? []);
   if (fields.data) out.data = fields.data;
-  const shown = fromProperties(out), settled = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(shown.mol) : shown.mol))), undefined, true);
-  // At most 10,000 notes (annotate.ts capNotes): a file from before the editor kept that limit; the rest are counted.
-  const kept = capNotes(settled);
-  return markLeft(kept, { "data field": fields.left, character: fields.cut + shown.cut, annotation: noteCount(settled) - noteCount(kept) });
+  const settled = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(fromProperties(out)) : fromProperties(out)))), undefined, true);
+  const shown = longShown(settled), each = withinEach(shown.mol);
+  // At most 10,000 notes (annotate.ts capNotes) and 64 MB (limits.ts): a file from before the editor kept those limits.
+  // What goes is counted.
+  const lost: Record<string, number> = { "data field": fields.left + shown.left + each.left, annotation: notesCut + shown.notes, [SHOWN_OFF]: shown.off };
+  const lose = (what: string, n: number) => { lost[what] = (lost[what] ?? 0) + n; };
+  const capped = capNotes(each.mol);
+  lose("annotation", noteCount(each.mol) - noteCount(capped));
+  return markLeft(withinSize(capped, lose), lost);
 }
 
 // An object's notes, if any: checked as annotations are (a bad list makes the drawing damaged).
 const notesIn = (v: unknown) => { const notes = v === undefined ? [] : readAnnotations(v); return notes.length ? { notes } : {}; };
-// Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them.
+// The annotations parse left out past MAX_ANNOTATIONS on one object (counted, then set to 0 by each parse).
+let notesCut = 0;
+// Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them. A list of more than
+// MAX_ANNOTATIONS (a file from before the editor kept that limit) keeps the document's properties and details and the
+// first notes that fit, in their order, and the rest are counted.
 function readAnnotations(v: unknown): Annotation[] {
   const ok = (s: unknown, most: number) => typeof s === "string" && s.length <= most && !/[\u0000-\u0009\u000b-\u001f\u007f]/.test(s);
-  if (!Array.isArray(v) || v.length > MAX_ANNOTATIONS || !v.every((a) => ok(a?.keyword, MAX_KEYWORD) && ok(a?.content, MAX_CONTENT))) throw new Error("This drawing is damaged.");
-  return v.map((a) => ({ keyword: a.keyword, content: a.content }));
+  if (!Array.isArray(v) || v.length > 4 * MAX_ANNOTATIONS || !v.every((a) => ok(a?.keyword, MAX_KEYWORD) && ok(a?.content, MAX_CONTENT))) throw new Error("This drawing is damaged.");
+  const all = v.map((a) => ({ keyword: a.keyword as string, content: a.content as string }));
+  if (all.length <= MAX_ANNOTATIONS) return all;
+  let room = MAX_ANNOTATIONS - all.filter((a) => !isNote(a)).length;
+  const kept = all.filter((a) => !isNote(a) || room-- > 0);
+  notesCut += all.length - kept.length;
+  return kept;
 }
 
 // Captions, checked and read into the drawing (their ids come first, from 1).

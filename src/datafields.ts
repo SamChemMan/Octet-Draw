@@ -7,7 +7,6 @@
 // and the forms the files keep.
 import { addCaption, deleteGraphics, fragments } from "./edit.ts";
 import type { Caption, DataField, Mol } from "./render.ts";
-import { cutRuns, cutText, plainOf } from "./richtext.ts";
 
 // A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to 10,000
 // characters; one over 2,000 cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000
@@ -37,13 +36,32 @@ export function cleanValue(s: string): string | undefined {
 export const fieldCaptions = (m: Pick<Mol, "data">) => new Set((m.data ?? []).flatMap((f) => (f.caption === undefined ? [] : [f.caption])));
 // The field a caption shows, by its place in the list; -1 when it shows none.
 export const fieldOfCaption = (m: Pick<Mol, "data">, id: number) => m.data?.findIndex((f) => f.caption === id) ?? -1;
-// A shown field's text as Octet keeps it, read from any file: MAX_SHOWN characters at most, with its runs, as the editor
-// cuts it (docs/plans/long-text.md). cut: how many characters went (the reader says so).
-export function shownText(c: Caption): { caption: Caption; cut: number } {
-  if (c.text.length <= MAX_SHOWN) return { caption: c, cut: 0 };
-  const runs = c.runs && cutRuns(c.runs, MAX_SHOWN), text = runs ? plainOf(runs) : cutText(c.text, MAX_SHOWN);
-  return { caption: { ...c, text, ...(runs ? { runs } : {}) }, cut: c.text.length - text.length };
+// A shown field read from any file whose text is over MAX_SHOWN is not shown, as Attach Data turns its Show off: the
+// field keeps the whole text as its value (one over MAX_VALUE is left out whole, as any field's value is, and its text
+// stays on the page as plain text), and the text goes from the page (docs/plans/long-text.md). off: the fields no
+// longer shown, said when the drawing opens (SHOWN_OFF); left: the fields left out; notes: the notes that were on the
+// texts that went.
+export function longShown(m: Mol): { mol: Mol; off: number; left: number; notes: number } {
+  if (!m.data?.some((f) => f.caption !== undefined)) return { mol: m, off: 0, left: 0, notes: 0 };
+  const byId = new Map((m.captions ?? []).map((c) => [c.id, c])), gone = new Set<number>();
+  let left = 0, notes = 0;
+  const data = m.data.flatMap((f): DataField[] => {
+    const c = f.caption === undefined ? undefined : byId.get(f.caption);
+    if (!c || c.text.length <= MAX_SHOWN) return [f];
+    const value = cleanValue(c.text);
+    if (value === undefined) { left++; return []; }
+    gone.add(c.id);
+    notes += c.notes?.length ?? 0;
+    return [{ name: f.name, atoms: f.atoms, value }];
+  });
+  if (!gone.size && !left) return { mol: m, off: 0, left: 0, notes: 0 };
+  const mol = { ...m, data: data.length ? data : undefined };
+  return { mol: gone.size ? deleteGraphics(mol, gone) : mol, off: gone.size, left, notes };
 }
+// What a reader gives in its count of what it left out (oct.ts lostNotice) for a field whose Show it turned off
+// (longShown): said when the drawing opens, but nothing is lost, so Save does not ask before it replaces the file.
+export const SHOWN_OFF = "shown data field";
+export const shownOffText = (n: number) => `A shown value holds up to ${MAX_SHOWN.toLocaleString("en-GB")} characters. Octet turned off Show for ${n === 1 ? "1 data field" : `${n.toLocaleString("en-GB")} data fields`}.`;
 // A field's value: its caption's text when it is shown.
 export const valueOf = (m: Pick<Mol, "captions">, f: DataField) => (f.caption === undefined ? f.value ?? "" : m.captions?.find((c) => c.id === f.caption)?.text ?? "");
 // The fields of a structure (any of its atoms), by their places in the list, in list order.
@@ -85,14 +103,17 @@ export const rowsOf = (m: Mol, atoms: Iterable<number>): DataRow[] => fieldsOn(m
 // shown row's value is its caption's text: a new one is tied under the structure, in the document's caption style; a
 // row no longer shown loses its caption. A field the structure shares with another (it was split) is first copied, so
 // the other keeps it as it was. A value too long to show is not shown. The same drawing comes back when nothing changes.
+// No row is left out for being past MAX_EACH: the editor refuses a structure with more (limits.ts overLimit), and says so.
 export function setRows(m: Mol, structure: number[], rows: DataRow[]): Mol {
   const s = new Set(structure);
   const clean = rows.flatMap((r) => {
     const name = cleanName(r.name).slice(0, MAX_NAME), value = cleanValue(r.value) ?? cleanValue(r.value.slice(0, MAX_VALUE)) ?? "";
     return name ? [{ ...r, name, value, show: r.show && value.length <= MAX_SHOWN }] : [];
-  }).slice(0, MAX_EACH);
+  });
+  // A value as it is cleaned is the same value: a shown text that ends in a line break is not changed by Save.
+  const same = (value: string, was: string) => value === was || value === cleanValue(was);
   const now = rowsOf(m, s);
-  if (clean.length === now.length && clean.every((r, k) => r.key === now[k].key && r.name === now[k].name && r.value === now[k].value && r.show === now[k].show)) return m;
+  if (clean.length === now.length && clean.every((r, k) => r.key === now[k].key && r.name === now[k].name && same(r.value, now[k].value) && r.show === now[k].show)) return m;
   const data = [...(m.data ?? [])], mine = fieldsOn(m, s), at = mine.length ? mine[0] : data.length;
   const captions = new Map((m.captions ?? []).map((c) => [c.id, c]));
   // Each field of this structure as this structure's own: a field it shares with another structure stays there (with
@@ -113,7 +134,7 @@ export function setRows(m: Mol, structure: number[], rows: DataRow[]): Mol {
     const base = { name: r.name, atoms: was?.atoms ?? atoms };
     if (!r.show) { made.push({ ...base, value: r.value }); continue; }
     if (was?.caption !== undefined && captions.has(was.caption)) {
-      if (captions.get(was.caption)!.text !== r.value) out = { ...out, captions: out.captions!.map((c) => (c.id === was.caption ? withText(c, r.value) : c)) };
+      if (!same(r.value, captions.get(was.caption)!.text)) out = { ...out, captions: out.captions!.map((c) => (c.id === was.caption ? withText(c, r.value) : c)) };
       made.push({ ...base, caption: was.caption });
       continue;
     }
@@ -148,23 +169,19 @@ export function withProperties(m: Mol): Mol {
   return { ...m, captions: m.captions?.map((c) => { const f = shown.get(c.id); return f ? { ...c, property: { attrs: { ChemicalPropertyType: ATTACHED, Name: f.name }, atoms: f.atoms } } : c; }) };
 }
 // As read from a file: a caption with an attached-data property is a shown field (one no field names comes after the
-// others), and the property itself is the field's, so the caption loses it. A field's text is never chemistry, and is
-// cut to MAX_SHOWN (shownText). cut: the characters cut.
-export function fromProperties(m: Mol): { mol: Mol; cut: number } {
+// others), and the property itself is the field's, so the caption loses it. A field's text is never chemistry. A text
+// too long to show is turned into a value by longShown, after.
+export function fromProperties(m: Mol): Mol {
   const attached = (c: Caption) => c.property?.attrs.ChemicalPropertyType === ATTACHED;
-  if (!m.captions?.some(attached)) return { mol: m, cut: 0 };
+  if (!m.captions?.some(attached)) return m;
   const named = fieldCaptions(m), data = [...(m.data ?? [])];
-  let cut = 0;
   const captions = m.captions.map((c) => {
     if (!attached(c)) return c;
-    const { property: _, ...rest } = c, plain = { ...rest, chemical: false as const };
-    if (named.has(c.id) || data.length >= MAX_DATA) return plain;
-    data.push({ name: cleanName(c.property!.attrs.Name ?? "").slice(0, MAX_NAME) || NO_NAME, atoms: [...c.property!.atoms], caption: c.id });
-    const s = shownText(plain);
-    cut += s.cut;
-    return s.caption;
+    if (!named.has(c.id) && data.length < MAX_DATA) data.push({ name: cleanName(c.property!.attrs.Name ?? "").slice(0, MAX_NAME) || NO_NAME, atoms: [...c.property!.atoms], caption: c.id });
+    const { property: _, ...rest } = c;
+    return { ...rest, chemical: false as const };
   });
-  return { mol: { ...m, captions, data: data.length ? data : undefined }, cut };
+  return { ...m, captions, data: data.length ? data : undefined };
 }
 
 // Octet's own file: the fields as written, a shown one naming its caption by its place in the list (as groups do).
@@ -176,12 +193,12 @@ export function writeData(m: Mol, captions: Caption[]): ({ name: string; atoms: 
   });
 }
 // Octet's own file's fields, read as hostile: an entry that is not sound is left out (and counted), and the drawing
-// opens. At most MAX_DATA. captions: the drawing's captions as read, in the file's order; a shown field's text is cut
-// there to MAX_SHOWN (shownText), and cut counts the characters.
-export function readData(v: unknown, atoms: number, captions: Caption[]): { data?: DataField[]; left: number; cut: number } {
-  if (!Array.isArray(v)) return { left: v === undefined ? 0 : 1, cut: 0 };
+// opens. At most MAX_DATA. captions: the drawing's captions as read, in the file's order. A shown field's text too
+// long to show is turned into a value by longShown, after.
+export function readData(v: unknown, atoms: number, captions: Caption[]): { data?: DataField[]; left: number } {
+  if (!Array.isArray(v)) return { left: v === undefined ? 0 : 1 };
   const data: DataField[] = [], taken = new Set<number>();
-  let left = Math.max(0, v.length - MAX_DATA), cut = 0;
+  let left = Math.max(0, v.length - MAX_DATA);
   for (const x of v.slice(0, MAX_DATA) as Record<string, unknown>[]) {
     const name = typeof x?.name === "string" && x.name.length <= MAX_NAME ? cleanName(x.name) : "", list = x?.atoms;
     const sound = name && Array.isArray(list) && list.length && list.length <= atoms && list.every((i) => Number.isInteger(i) && i >= 0 && i < atoms);
@@ -189,14 +206,9 @@ export function readData(v: unknown, atoms: number, captions: Caption[]): { data
     const shown = Number.isInteger(at) && at >= 0 && at < captions.length && !taken.has(at);
     if (!sound || (value === undefined) === !shown) { left++; continue; }
     const ids = [...new Set(list as number[])];
-    if (!shown) { data.push({ name, atoms: ids, value }); continue; }
-    const s = shownText(captions[at]);
-    captions[at] = s.caption;
-    cut += s.cut;
-    taken.add(at);
-    data.push({ name, atoms: ids, caption: s.caption.id });
+    if (shown) { taken.add(at); data.push({ name, atoms: ids, caption: captions[at].id }); } else data.push({ name, atoms: ids, value });
   }
-  return { ...(data.length ? { data } : {}), left, cut };
+  return { ...(data.length ? { data } : {}), left };
 }
 
 // SD files. A record's data items come after its molfile's M  END: "> <name>", the value's lines, and an empty line.
