@@ -33,13 +33,17 @@ const MOST_HAZARDS: usize = 1024 * 1024;
 const MOST_SMILES: usize = 4000;
 // A compound's depositors: 0.2 MB for aspirin, 5 MB for acetic acid (most of it governments), 18 November 2026.
 const MOST_SOURCES: usize = 16 * 1024 * 1024;
-const SOURCES_TIME: Duration = Duration::from_secs(30);
+// Acetic acid's 5 MB took 27 s on 19 November 2026 (PubChem sends about 200 KB a second); Stop is there for the user
+// who does not want to wait.
+const SOURCES_TIME: Duration = Duration::from_secs(120);
 // A supplier's name, its link and how many suppliers: the longest name seen was 49 characters, the longest link 124.
 const MOST_NAME: usize = 120;
 const MOST_LINK: usize = 2000;
 const MOST_SUPPLIERS: usize = 1000;
 pub const UNREACHED: &str = "Octet cannot reach PubChem.";
 pub const STOPPED: &str = "Stopped.";
+// A request whose time ran out: PubChem answered too slowly, which is not a lost connection.
+pub const SLOW: &str = "PubChem is slow to answer. Try again later.";
 pub const SEVERAL: &str = "PubChem has more than one structure for this name. Type a more exact name.";
 
 // A standard InChIKey: 14 letters, 10 letters and one, with hyphens.
@@ -133,7 +137,7 @@ fn client(version: &str) -> Result<reqwest::Client, String> {
 // It waits its turn first (paced). stop: Stop ends it, between chunks or while it waits for one.
 async fn answer(request: reqwest::RequestBuilder, most: usize, stop: Option<&Stop>) -> Result<Option<String>, String> {
     until(stop, paced()).await?;
-    let mut response = until(stop, request.send()).await?.map_err(|_| UNREACHED.to_string())?;
+    let mut response = until(stop, request.send()).await?.map_err(failed)?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -141,13 +145,18 @@ async fn answer(request: reqwest::RequestBuilder, most: usize, stop: Option<&Sto
         return Err(UNREACHED.into());
     }
     let mut body = Vec::new();
-    while let Some(chunk) = until(stop, response.chunk()).await?.map_err(|_| UNREACHED.to_string())? {
+    while let Some(chunk) = until(stop, response.chunk()).await?.map_err(failed)? {
         body.extend_from_slice(&chunk);
         if body.len() > most {
             return Err(UNREACHED.into());
         }
     }
     String::from_utf8(body).map(Some).map_err(|_| UNREACHED.to_string())
+}
+
+// A request's error as the user is told it: SLOW when its time ran out, else UNREACHED.
+fn failed(e: reqwest::Error) -> String {
+    (if e.is_timeout() { SLOW } else { UNREACHED }).to_string()
 }
 
 // The pace: every PubChem request in the app waits until 250 ms after the one before, however many windows ask, so
@@ -169,7 +178,8 @@ async fn paced() {
     }
 }
 
-// A window's lookup in flight that Stop can end: its window, its kind ("suppliers" or "hazards"), whether it is
+// A window's lookup in flight that Stop can end: its window, its kind ("suppliers", "hazards" from the Properties
+// panel or "risk" from a risk assessment), whether it is
 // stopped, and the task to wake when it is. It leaves the list when the lookup ends.
 struct Flight {
     id: u64,
@@ -230,7 +240,7 @@ async fn until<F: Future>(stop: Option<&Stop>, f: F) -> Result<F::Output, String
     .await
 }
 
-// Stop in the Properties panel, a cancelled AI call, or the panel closing: the window's lookups of that kind end.
+// Stop in the Properties panel, or the panel closing: the window's lookups of that kind end.
 #[tauri::command]
 pub fn pubchem_stop(window: WebviewWindow, kind: String) {
     stop_flights(window.label(), Some(&kind));
@@ -272,11 +282,12 @@ pub fn cid_of(answer: &str) -> Option<&str> {
     answer.lines().next().map(str::trim).filter(|c| (1..=12).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_digit()))
 }
 
-// Runs only when the user presses Find hazards in the Properties panel (or the risk assessment's), and Stop ends it.
+// Runs only when the user presses Find hazards in the Properties panel (by: "hazards"), whose Stop ends it, or in a
+// risk assessment (by: "risk"), which the panel's Stop leaves running.
 #[tauri::command]
-pub async fn pubchem_hazards(app: AppHandle, window: WebviewWindow, key: String) -> Result<Option<String>, String> {
+pub async fn pubchem_hazards(app: AppHandle, window: WebviewWindow, key: String, by: String) -> Result<Option<String>, String> {
     let version = crate::search::online(&app)?;
-    let stop = Stop::new(window.label(), "hazards");
+    let stop = Stop::new(window.label(), if by == "risk" { "risk" } else { "hazards" });
     hazards(&key, &version, Some(&stop)).await
 }
 
@@ -344,8 +355,8 @@ struct Source {
     record: Option<String>,
 }
 
-// Runs only when the user presses Find suppliers (or chooses it in the Search menu or the palette), or an AI app asks
-// for suppliers, and Stop ends it. The links it gives are the only supplier links open_link opens.
+// Runs only when the user presses Find suppliers (or chooses it in the Search menu, the Actions panel or the palette),
+// and Stop ends it. The links it gives are the only supplier links open_link opens.
 #[tauri::command]
 pub async fn pubchem_suppliers(app: AppHandle, window: WebviewWindow, key: String) -> Result<Option<Suppliers>, String> {
     let version = crate::search::online(&app)?;
@@ -690,8 +701,11 @@ mod tests {
         assert_eq!(get(serve("500 Internal Server Error", Vec::new(), Duration::ZERO), MOST_SOURCES, None, t).unwrap_err(), UNREACHED);
         assert_eq!(get(serve("404 Not Found", b"{}".to_vec(), Duration::ZERO), MOST_SOURCES, None, t).unwrap(), None, "no such compound");
         assert_eq!(get(serve("200 OK", vec![0xff, 0xfe, 0x00], Duration::ZERO), MOST_SOURCES, None, t).unwrap_err(), UNREACHED, "not UTF-8");
-        // A slow network: the time runs out.
-        assert_eq!(get(serve("200 OK", vec![b' '; 1 << 20], Duration::from_millis(200)), MOST_SOURCES, None, Duration::from_millis(500)).unwrap_err(), UNREACHED);
+        // A slow network: the time runs out, and the user is told PubChem is slow, not that it cannot be reached.
+        assert_eq!(get(serve("200 OK", vec![b' '; 1 << 20], Duration::from_millis(200)), MOST_SOURCES, None, Duration::from_millis(500)).unwrap_err(), SLOW);
+        // No server at all: a lost connection.
+        let gone = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        assert_eq!(get(format!("http://{gone}/"), MOST_SOURCES, None, t).unwrap_err(), UNREACHED);
         // Stop during a slow download: it ends within a chunk.
         let stop = Stop::new("w-test-serve", "suppliers");
         std::thread::spawn(|| {
@@ -773,13 +787,16 @@ mod tests {
             let mut f = std::pin::pin!(until(Some(stop), std::future::pending::<()>()));
             f.as_mut().poll(&mut cx).is_pending()
         };
-        assert!(poll_once(&b) && poll_once(&c));
+        // A risk assessment's hazards: the Properties panel's Stop leaves it running.
+        let risk = Stop::new("w-test-1", "risk");
+        assert!(poll_once(&b) && poll_once(&c) && poll_once(&risk));
         assert_eq!(stop_flights("w-test-1", Some("hazards")), 1, "b waits with its waker");
         assert!(!poll_once(&b));
+        assert!(poll_once(&risk));
         closed("w-test-2");
         assert!(!poll_once(&c));
         // A finished lookup leaves the list.
-        drop((a, b, c));
+        drop((a, b, c, risk));
         assert!(FLIGHTS.lock().unwrap().iter().all(|f| !f.owner.starts_with("w-test-")));
         // A lookup with nothing to stop it runs to its end.
         assert_eq!(tauri::async_runtime::block_on(until(None, async { 7 })).unwrap(), 7);

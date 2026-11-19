@@ -50,6 +50,11 @@ export function withSuppliers(values: PropertyValues, found: Found[]): PropertyV
 // What the user is told when a lookup cannot run or fails. Stopped: nothing.
 export const offNotice = (kind: Lookup) => `To find ${kind}, turn on Online search in Settings.`;
 export const UNREACHED_NOTICE = "Octet cannot reach PubChem. Check the network connection.";
+// PubChem's time ran out (a common reagent's list of sources is large): said as Rust gives it (pubchem.rs SLOW).
+export const SLOW = "PubChem is slow to answer. Try again later.";
+export const NO_KEY = "PubChem cannot look up this structure.";
+// The notice for a lookup's error.
+export const failedNotice = (e: string) => (e === SLOW ? SLOW : UNREACHED_NOTICE);
 export const STOPPED = "Stopped.";
 export const OFF = "Online search is off in Settings.";
 

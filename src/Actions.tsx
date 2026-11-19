@@ -14,7 +14,7 @@ import {
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
-  Storefront, WarningDiamond,
+  Storefront, FirstAidKit,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -402,7 +402,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
     it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true),
     // PubChem's suppliers and GHS hazards for the structures, in the Properties panel (issue 114).
-    it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<WarningDiamond size={18} />, "Find hazards", "find_hazards", false, true)] : [];
+    it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<FirstAidKit size={18} />, "Find hazards", "find_hazards", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
   const turnsAndFlips = [...turnings, ...flips, ...mirrors];

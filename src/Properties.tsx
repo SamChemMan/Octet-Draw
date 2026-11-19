@@ -10,7 +10,7 @@
 // the browser. While either lookup runs its button is Stop. Names off: Add to drawing writes the values without their
 // names (issue 77; ChemDraw's empty Property Labels word does the same).
 import { useLayoutEffect, useMemo, useState } from "react";
-import { ArrowSquareOut, CaretDown, Check, CopySimple, Stop, Storefront, WarningDiamond } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretDown, Check, CopySimple, FirstAidKit, Stop, Storefront } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import { useMovable } from "./movable";
 import { Select } from "./Select";
@@ -110,7 +110,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
       <div className="prop-foot">
         <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
         <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
-        {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length && !busy.hazards} aria-label={busy.hazards ? "Stop finding hazards" : undefined} data-tip={busy.hazards ? "Stop finding hazards" : "Find the GHS hazards in PubChem"}>{busy.hazards ? <><Stop size={16} aria-hidden /> Stop</> : <><WarningDiamond size={16} aria-hidden /> Find hazards</>}</button>}
+        {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length && !busy.hazards} aria-label={busy.hazards ? "Stop finding hazards" : undefined} data-tip={busy.hazards ? "Stop finding hazards" : "Find the GHS hazards in PubChem"}>{busy.hazards ? <><Stop size={16} aria-hidden /> Stop</> : <><FirstAidKit size={16} aria-hidden /> Find hazards</>}</button>}
         {online && <button className="prop-add" onClick={onSuppliers} disabled={!groups.length && !busy.suppliers} aria-label={busy.suppliers ? "Stop finding suppliers" : undefined} data-tip={busy.suppliers ? "Stop finding suppliers" : "Find the suppliers in PubChem"}>{busy.suppliers ? <><Stop size={16} aria-hidden /> Stop</> : <><Storefront size={16} aria-hidden /> Find suppliers</>}</button>}
         <span className="prop-decimals">
           <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>

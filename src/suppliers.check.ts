@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { Structure } from "./chem.ts";
 import { propertyReport, propertyValues } from "./proprows.ts";
-import { askEach, offNotice, STOPPED, suppliersOf, suppliersText, wanted, withSuppliers, type Suppliers } from "./suppliers.ts";
+import { askEach, failedNotice, NO_KEY, offNotice, SLOW, STOPPED, suppliersOf, suppliersText, UNREACHED_NOTICE, wanted, withSuppliers, type Suppliers } from "./suppliers.ts";
 
 // The answer from Rust, checked again: good entries kept, others dropped, a wrong shape refused.
 const aspirin: Suppliers = { cid: 2244, suppliers: [{ name: "abcr GmbH", url: "https://abcr.example.com/5" }, { name: "Sigma-Aldrich", url: "https://www.sigmaaldrich.com/p/20" }] };
@@ -88,13 +88,13 @@ assert.match(main, /pubchem::closed\(&label\);/);
 const searchesAt = editor.indexOf("...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES)");
 assert.ok(searchesAt > 0 && editor.indexOf('find_suppliers: () => findFor("suppliers")') > searchesAt && editor.indexOf('find_hazards: () => findFor("hazards")') > searchesAt);
 assert.match(editor, /function findFor\(kind: Lookup\) \{\s+if \(!TAURI\)[^\n]*\n\s+if \(!settings\.onlineSearch\) return setNotice\(offNotice\(kind\), "info", \{ label: "Open Settings"/);
-assert.match(editor, /search_patents: \["Search Google Patents", "", <SearchGlyph letter="G" \/>\],\n\s+find_suppliers: \["Find suppliers", "", <Storefront size=\{18\} \/>\], find_hazards: \["Find hazards", "", <WarningDiamond size=\{18\} \/>\],/);
-assert.match(actions, /const searches = online \? \[[\s\S]*?"find_suppliers", false, true\), it\(<WarningDiamond size=\{18\} \/>, "Find hazards", "find_hazards", false, true\)\] : \[\];/);
+assert.match(editor, /search_patents: \["Search Google Patents", "", <SearchGlyph letter="G" \/>\],\n\s+find_suppliers: \["Find suppliers", "", <Storefront size=\{18\} \/>\], find_hazards: \["Find hazards", "", <FirstAidKit size=\{18\} \/>\],/);
+assert.match(actions, /const searches = online \? \[[\s\S]*?"find_suppliers", false, true\), it\(<FirstAidKit size=\{18\} \/>, "Find hazards", "find_hazards", false, true\)\] : \[\];/);
 assert.match(actions, /find_suppliers: "search", find_hazards: "search"/);
 // The Properties panel: both buttons only with Online search on, each Stop while it runs; the Suppliers row with no
 // Add to drawing box; each count a Pick with its field; names as text.
 assert.match(panel, /\{online && <button className="prop-add" onClick=\{onSuppliers\}[^\n]*busy\.suppliers \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><Storefront size=\{16\} aria-hidden \/> Find suppliers<\/>/);
-assert.match(panel, /busy\.hazards \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><WarningDiamond/);
+assert.match(panel, /busy\.hazards \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><FirstAidKit/);
 assert.match(panel, /\{row\.key === "suppliers" \? <span aria-hidden \/> : \(/);
 assert.match(panel, /<Pick key=\{k\} label=\{v\} value="" className="prop-link" find="Find a supplier"/);
 assert.match(editor, /onSupplier=\{\(url\) => void invoke\("open_link", \{ name: `supplier:\$\{url\}` \}\)/);
@@ -102,9 +102,25 @@ assert.match(editor, /onVendors=\{\(cid\) => void invoke\("open_link", \{ name: 
 // One call each; asked only on a press (findSuppliers, through lookUp); Stop asks Rust to end the request.
 assert.equal(editor.split('"pubchem_suppliers"').length, 2, "one call");
 assert.match(editor, /function findSuppliers\(\) \{\s+if \(!properties \|\| !TAURI\) return;\s+if \(busy\.suppliers\) return stopLookup\("suppliers"\);/);
-assert.match(editor, /void invoke\("pubchem_stop", \{ kind \}\)/);
+assert.match(editor, /stopping\.current\[kind\] = invoke\("pubchem_stop", \{ kind \}\)/);
+// A Stop just pressed reaches Rust before the next run asks; an old request does not clear the next run's row.
+assert.match(editor, /await stopping\.current\[kind\];/);
+assert.match(editor, /\.finally\(\(\) => \{ if \(runs\.current\.suppliers === run\) setAskingKey/);
+// No structure with a key: a notice, not silence. A slow PubChem: its own notice.
+assert.match(editor, /async function lookUp\(kind: Lookup, keys: \(string \| undefined\)\[\]\) \{\s+if \(!keys\.some\(Boolean\)\) return setNotice\(NO_KEY, "info"\);/);
+assert.equal(NO_KEY, "PubChem cannot look up this structure.");
+assert.equal(failedNotice(SLOW), SLOW);
+assert.equal(failedNotice("Octet cannot reach PubChem."), UNREACHED_NOTICE);
+assert.match(read("../src-tauri/src/pubchem.rs"), new RegExp(`pub const SLOW: &str = "${SLOW.replace(/\./g, "\\.")}";`), "the same words in Rust");
+// The risk assessment's hazards are their own kind: the panel's Stop leaves them, and a stopped one is no failure.
+assert.match(editor, /const e = await askHazards\(key, "risk"\);[\s\S]{0,120}else if \(e !== STOPPED\) \{ failed\+\+;/);
+assert.match(read("../src-tauri/src/pubchem.rs"), /Stop::new\(window\.label\(\), if by == "risk" \{ "risk" \} else \{ "hazards" \}\)/);
 assert.match(editor, /settings\.onlineSearch && ghsKeys\?\.structures\[k\] === s/);
 for (const [name, text] of [["Properties.tsx", panel], ["suppliers.ts", mine], ["Menu.tsx", menu]] as const) assert.doesNotMatch(text, /innerHTML|dangerouslySetInnerHTML|eval\(/, name);
-// Pick's field over its own options: only past 12.
-assert.match(menu, /const own = p\.find && p\.groups\.reduce\(\(n, g\) => n \+ g\.length, 0\) > 12 \? p\.groups\.flat\(\) : undefined/);
+// Pick's field over its own options: only past 12, all groups but the last, which stays below (Open in PubChem). The
+// list keeps its height as the field narrows it, and the field takes the focus however the list opened.
+assert.match(menu, /const own = p\.find && p\.groups\.slice\(0, -1\)\.flat\(\)\.length > 12 \? p\.groups\.slice\(0, -1\)\.flat\(\) : undefined/);
+assert.match(menu, /\[\.\.\.\(found\.length \? \[found\] : \[\]\), p\.groups\[p\.groups\.length - 1\]\]/);
+assert.match(menu, /shown = own \? p\.groups : groups/);
+assert.match(menu, /<input className="list-find" autoFocus placeholder/);
 console.log("suppliers.check: ok");

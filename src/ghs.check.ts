@@ -69,7 +69,7 @@ assert.deepEqual(["GHS02", "GHS03", "GHS04", "GHS07"].map((c) => PICTOGRAMS[c].n
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), panel = readFileSync(new URL("Properties.tsx", import.meta.url), "utf8");
 assert.equal(editor.split('"pubchem_hazards"').length, 2, "one call");
 assert.match(editor, /function findHazards\(\) \{[^}]*?TAURI\) return;[\s\S]{0,300}void lookUp\("hazards", found\.keys\);/);
-assert.match(editor, /const askHazards = \(key: string\) => \{[\s\S]{0,200}"pubchem_hazards"/);
+assert.match(editor, /const askHazards = \(key: string, by: "hazards" \| "risk" = "hazards"\) => \{[\s\S]{0,200}"pubchem_hazards", \{ key, by \}/);
 assert.match(editor, /onHazards=\{findHazards\}/);
 assert.match(panel, /\{online && <button className="prop-add" onClick=\{onHazards\}/);
 assert.match(editor, /online=\{settings\.onlineSearch\}\s+onHazards/);
