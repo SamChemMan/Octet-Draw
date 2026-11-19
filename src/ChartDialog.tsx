@@ -6,7 +6,7 @@
 // (joins, axis, key, zones, scale, colours) is in the Actions panel when the chart is picked.
 import { useState } from "react";
 import { Dialog } from "./Dialog";
-import { coverScale, energyOfTable, energyRoles, MAX_AXES, MAX_PATHS, MAX_STATES, parseCell, pastedRows, radarOfRows, radarRoles, rowsOfRadar, spare, tableOfEnergy, type Chart, type EnergyChart, type RadarChart } from "./charts";
+import { coverScale, cut, energyOfTable, energyRoles, MAX_AXES, MAX_PATHS, MAX_STATES, parseCell, pastedRows, radarOfRows, radarRoles, rowsOfRadar, spare, tableOfEnergy, type Chart, type EnergyChart, type RadarChart } from "./charts";
 
 // What a chart shows, without its place on the page.
 export type ChartData = Omit<EnergyChart, "frame" | "origin" | "scale" | "text" | "roles"> | Omit<RadarChart, "frame" | "origin" | "scale" | "text" | "roles">;
@@ -20,6 +20,8 @@ function Cells({ label, cells, head, most, placeholder, onChange }: { label: str
     ? r === 0 ? `Path ${c}` : c === 0 ? `State ${r}` : `${cells[r][0] || `State ${r}`}, ${cells[0][c] || `Path ${c}`}`
     : c === 0 ? `Condition ${r + 1}` : `${cells[r][0] || `Condition ${r + 1}`}, value`);
   const change = (next: string[][]) => onChange(spare(next, most, head));
+  // A name (a path's, a state's or a condition's) is 80 characters at most, as the chart keeps it (charts.ts str).
+  const isName = (r: number, c: number) => (head && r === 0) || c === 0;
   return (
     <div className="chart-table" role="group" aria-label={label} style={{ gridTemplateColumns: `repeat(${cols}, minmax(72px, 1fr))` }}
       onKeyDown={(e) => {
@@ -44,13 +46,13 @@ function Cells({ label, cells, head, most, placeholder, onChange }: { label: str
           if (r >= most[0] || c >= most[1] || (c >= cols && !head) || (headed && r === 0 && c === 0)) return;
           while (next.length <= r) next.push(Array(next[0].length).fill(""));
           if (c >= next[0].length) for (const line of next) while (line.length <= c) line.push("");
-          next[r][c] = text;
+          next[r][c] = isName(r, c) ? cut(text, 80) : text;
         }));
         change(next);
       }}>
       {cells.map((row, r) => row.map((text, c) => (head && r === 0 && c === 0 ? <span key="corner" /> : (
         <span key={`${r}:${c}`} className="unit-field text">
-          <input aria-label={name(r, c)} data-r={r} data-c={c} data-first={c === 1 && r === (head ? 1 : 0) ? "" : undefined} value={text} maxLength={200} spellCheck={false} placeholder={placeholder(r, c)}
+          <input aria-label={name(r, c)} data-r={r} data-c={c} data-first={c === 1 && r === (head ? 1 : 0) ? "" : undefined} value={text} maxLength={isName(r, c) ? 80 : 200} spellCheck={false} placeholder={placeholder(r, c)}
             onChange={(e) => change(cells.map((line, i) => (i === r ? line.map((x, j) => (j === c ? e.target.value : x)) : line)))} />
         </span>
       ))))}

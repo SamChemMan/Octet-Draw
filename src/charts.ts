@@ -553,6 +553,8 @@ export function coverScale(c: Pick<RadarChart, "axes" | "min" | "max" | "step">)
 // data: a value that is no number stays a label.
 // On a Jablonski diagram, text over a state's name or a transition's label is that name or label (J5), drawn again
 // with its scripts when it was typed as plain text (rich: it has a style of its own, which stays as typed).
+// The roles whose text retyped takes as data: it keeps 80 characters of it, as the record holds (str).
+export const isDataRole = (role: string) => role === "axis-title" || /^(?:(?:value|second|name|keyname|axis):\d+(?::\d+)?|(?:state|label):\d+)$/.test(role);
 export function retyped(c: Chart, role: string, text: string, rich = false): { chart: Chart; redraw: boolean } | undefined {
   const m = /^(value|second|name|keyname|axis):(\d+)(?::(\d+))?$/.exec(role), t = cut(plain(text), 80);
   if (!t) return undefined;

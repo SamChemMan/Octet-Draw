@@ -12,7 +12,7 @@
 // with Select picks one part (a section, a substance, a box to tick, a place to type, a pictogram), and Delete removes
 // it from the record (removed), so it stays removed when the reagent table changes or Find hazards runs again.
 import type { Arrow, Caption, CurvePoint, Group, Mol, Shape } from "./render.ts";
-import { plainOf, runsOf, wrap, type TextRun } from "./richtext.ts";
+import { MAX_TEXT, plainOf, runsOf, wrap, type TextRun } from "./richtext.ts";
 import { PICTOGRAMS, type Ghs } from "./ghs.ts";
 import { formulaRuns, MARGIN, oneLine, type Sheet, type Slot } from "./experiment.ts";
 
@@ -29,12 +29,14 @@ const FOUND = [true, "unclassified", "none"] as const;
 // codes). removed: the parts the user deleted, by key ("sub:3", "sec:waste", "pic:3:GHS07"). texts: the texts the user
 // typed over Octet's, by key ("head:waste", "label:fume"). auto: Octet added it to a new experiment page by itself.
 export type Risk = { substances: Substance[]; ticks: string[]; significant?: boolean; removed?: string[]; texts?: Record<string, TextRun[]>; auto?: true };
-export const MAX_SUBSTANCES = 40, MAX_CODES = 60, MAX_REMOVED = 300, MAX_TEXTS = 200, MAX_TEXT = 2000;
+// A text's length is a caption's (richtext.ts MAX_TEXT): the user types it on the page as one.
+export const MAX_SUBSTANCES = 40, MAX_CODES = 60, MAX_REMOVED = 300, MAX_TEXTS = 200;
+export { MAX_TEXT };
 const KEY = /^[a-z][a-z0-9:]{0,39}$/, PART_KEY = /^[a-z][A-Za-z0-9:]{0,59}$/;
-// Runs read as hostile: known styles only, MAX_TEXT characters in all.
+// Runs read as hostile: known styles only, MAX_TEXT characters in all, so as many runs at most.
 const RUN_KEYS = ["text", "bold", "italic", "underline", "script", "font", "size", "colour"];
 function readRuns(v: unknown): TextRun[] | undefined {
-  if (!Array.isArray(v) || v.length > 200) return undefined;
+  if (!Array.isArray(v) || v.length > MAX_TEXT) return undefined;
   const ok = (x: Record<string, unknown>) => typeof x === "object" && !!x && typeof x.text === "string" && Object.keys(x).every((k) => RUN_KEYS.includes(k))
     && [x.bold, x.italic, x.underline].every((b) => b === undefined || b === true) && (x.script === undefined || x.script === "sub" || x.script === "super")
     && (x.font === undefined || (typeof x.font === "string" && x.font.length <= 100)) && (x.size === undefined || (typeof x.size === "number" && Number.isFinite(x.size) && x.size >= 0.1 && x.size <= 999))

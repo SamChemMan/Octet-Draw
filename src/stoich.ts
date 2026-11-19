@@ -11,6 +11,7 @@
 
 import type { Grid, GridConditions, GridOwnRow, GridRole } from "./render.ts";
 import { oneLine } from "./experiment.ts";
+import { MAX_TEXT } from "./richtext.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 import { LIQUIDS, type Liquid } from "./liquids.ts";
 
@@ -296,13 +297,15 @@ export function formulaWeight(text: string): number | undefined {
   return w !== undefined && i === s.length && w > 0 ? w : undefined;
 }
 
-// A saved grid read as a hostile file is: typed amounts finite and not negative under known fields, keys short, at most
+// A saved grid read as a hostile file is: typed amounts finite and not negative under known fields, keys a text long, at most
 // 60 components and the rows Octet has, and a layout only when it is "rows"; undefined when it is damaged. The fields
 // added after 1.1.2 are each checked alone, and one that is wrong is left out with the grid kept: roles and taken at
 // most 60, each a reactant's key with a value from its list; conc a number above 0 and at most 1000 mol/L; conditions
 // the four names only, each one line of at most 200 characters (experiment.ts oneLine); step only true.
 const FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
-const KEY = /^(?:[rp]\d{1,2}|[rp]:[^\n\r]{1,80})$/;
+// A column's key names a compound by its formula or by all the text it is written as, in quotes, so it is as long as a
+// text and can have line breaks (and #2 on the next one the same): docs/plans/long-text.md.
+const KEY = new RegExp(`^(?:[rp]\\d{1,2}|[rp]:[^]{1,${MAX_TEXT + 8}})$`);
 export const GRID_ROW_IDS = ["formula", "mw", "role", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "conc", "purity", "expected", "expectedMoles", "measured", "yield"];
 export const ROLES: GridRole[] = ["reactant", "catalyst", "solvent"];
 export const CONDITIONS = [["temperature", "Temperature"], ["time", "Time"], ["atmosphere", "Atmosphere"], ["other", "Other"]] as const;

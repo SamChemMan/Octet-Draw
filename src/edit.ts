@@ -5,7 +5,7 @@ import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
+import { cutText, plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
 import { bracketPath, routeOf } from "./render.ts";
@@ -332,9 +332,14 @@ export function withValence(a: Atom, valence: number, used: number): Atom {
 // (helm.ts linkResidues); the editor's hook says why not, and gives the drawing back unchanged.
 export const labelHooks: { relabel?: (m: Mol, i: number, text: string) => Mol | undefined; link?: (m: Mol, i: number, j: number) => Mol | undefined } = {};
 const portedAt = (m: Mol, i: number) => !!m.atoms[i]?.inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
+// A label's length at most, as Octet's files hold it (file.ts, cdxml.ts). A label holds no < or >, and no control
+// character but a line break.
+export const MAX_LABEL = 40;
+// A label's text as Octet keeps it: its lines (Option-Return as it is typed), each trimmed, empty ones left out, a tab
+// a space, < and > and other control characters left out, and at most MAX_LABEL characters (docs/plans/long-text.md).
+export const keptLabel = (text: string) => cutText(text.replace(/\t/g, " ").replace(/[<>\u0000-\u0009\u000b-\u001f]/g, "").split("\n").map((s) => s.trim()).filter(Boolean).join("\n"), MAX_LABEL).trimEnd();
 export function setLabel(m: Mol, i: number, text: string): Mol {
-  // A label of more than one line (Option-Return as it is typed) keeps its lines, each trimmed, empty ones left out.
-  const t = text.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+  const t = keptLabel(text);
   if (portedAt(m, i) && t !== m.atoms[i].text) {
     const r = labelHooks.relabel?.(m, i, t);
     if (r) return r;
@@ -1439,8 +1444,10 @@ export function labelPlacer(m: Mol, i: number, frag: Mol, way?: P): (q: [number,
 // The group stays with the label (inner), so Expand Label gives it back whatever the label says. A group bonded to the
 // rest more than once (a residue in a chain: its N on one side, its C=O on the other) keeps each bond, moved onto the
 // label with the kept atom it joins (its port), as a residue label is drawn (sequence.ts).
-export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
-  const order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
+// A label keeps a group of at most 256 atoms and 512 bonds, as a ChemDraw file's (file.ts innerIn).
+export const groupTooBig = (m: Mol, group: Set<number>) => group.size > 256 || m.bonds.filter((b) => group.has(b.atoms[0]) && group.has(b.atoms[1])).length > 512;
+export function contractLabel(m: Mol, keep: number, group: Set<number>, given: string): Mol {
+  const text = keptLabel(given), order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
   const inner: Mol = {
     atoms: order.map((k) => { const { inner: _, text: __, ...a } = m.atoms[k]; return a; }),
     bonds: m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })),
@@ -2232,7 +2239,10 @@ export function nearestOnCurve(c: Curve, p: P): { seg: number; t: number; d: num
 }
 // A point added on segment seg at t, splitting it (de Casteljau) so the curve keeps its shape. A straight segment
 // gets a corner point and stays straight.
+// A curve holds up to MAX_CURVE points, as Octet's files do (file.ts readCurve): neither adds one past it.
+export const MAX_CURVE = 1000;
 export function splitCurve(c: Curve, seg: number, t: number): Curve {
+  if (c.points.length >= MAX_CURVE) return c;
   const n = c.points.length, a = c.points[seg], b = c.points[(seg + 1) % n], [p0, p1, p2, p3] = segment(c, seg);
   const pts = c.points.map((q) => ({ ...q }));
   let mid: CurvePoint;
@@ -2265,7 +2275,7 @@ export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p:
 }
 // A point taken out (a curve keeps at least two), or one added at the end (a straight segment to it).
 export const removeCurvePoint = (c: Curve, i: number): Curve => (c.points.length <= 2 ? c : { ...c, points: c.points.filter((_, k) => k !== i), ...(c.points.length <= 3 ? { closed: undefined } : {}) });
-export const appendCurvePoint = (c: Curve, p: P): Curve => ({ ...c, points: [...c.points, { at: p }] });
+export const appendCurvePoint = (c: Curve, p: P): Curve => (c.points.length >= MAX_CURVE ? c : { ...c, points: [...c.points, { at: p }] });
 // A curve arrow with new points: its ends follow its first and last points.
 export const withCurve = (c: Curve): Partial<Arrow> => ({ curve: c, from: c.points[0].at, to: c.points[c.points.length - 1].at });
 export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
@@ -2643,9 +2653,12 @@ export function clearTable(sh: Shape): Partial<Shape> {
   const cells = sh.table?.cells ?? [[""]], keep = counts(cells);
   return { table: { ...sh.table!, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
 }
-// A table with one cell's text set, its box grown to fit the text if it no longer does.
-export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number, caption?: number): Partial<Shape> {
-  const cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
+// A table cell's text at most, as Octet's files hold it (file.ts and cdxml.ts readTable), with no tab.
+export const MAX_CELL = 500;
+// A table with one cell's text set (a tab or other control character but a line break a space, MAX_CELL characters at
+// most), its box grown to fit the text if it no longer does.
+export function setTableCell(sh: Shape, r: number, c: number, given: string, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const text = cutText(given.replace(/[\u0000-\u0009\u000b-\u001f]/g, " "), MAX_CELL), cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
   const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table: { ...sh.table, cells } };
 }

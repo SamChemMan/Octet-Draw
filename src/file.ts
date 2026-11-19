@@ -1,6 +1,6 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
-import { normalise, plainOf, type TextRun } from "./richtext.ts";
+import { MAX_TEXT, normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD } from "./annotate.ts";
@@ -19,7 +19,17 @@ export const VERSION = 1;
 // app: the Octet that wrote the file (from 1.1.0; files from 1.0.x have none).
 const MAX_ATOMS = 100_000;
 const DISPLAYS: Display[] = ["bold", "dashed", "hashed", "wavy", "dative", "hollow", "either", "aromatic"];
-const MAX_CAPTIONS = 10_000, MAX_TEXT = 2_000;
+// Texts, arrows, shapes, cycles, ring fills and groups, each. A text's length is MAX_TEXT (richtext.ts).
+const MAX_CAPTIONS = 10_000;
+// Why an edit would make a drawing this reader refuses (more atoms, bonds or objects of a kind than it takes), as the
+// editor says it; undefined when it is within every count (docs/plans/long-text.md).
+export function overLimit(m: Mol): string | undefined {
+  const most = (n: number, what: string) => `A drawing holds up to ${n.toLocaleString("en-GB")} ${what}.`;
+  if (m.atoms.length > MAX_ATOMS) return most(MAX_ATOMS, "atoms");
+  if (m.bonds.length > 4 * MAX_ATOMS) return most(4 * MAX_ATOMS, "bonds");
+  for (const [k, what] of [["captions", "texts"], ["arrows", "arrows"], ["shapes", "shapes"], ["cycles", "cycles"], ["fills", "ring fills"], ["groups", "groups"]] as const) if ((m[k]?.length ?? 0) > MAX_CAPTIONS) return most(MAX_CAPTIONS, what);
+  return undefined;
+}
 const HEADS: Head[] = ["none", "full", "left", "right"];
 
 // A label's kept group (Contract Label's, or a residue label's): its atoms (element, place, charge) and bonds (order,
@@ -102,9 +112,10 @@ const scaled = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? { scale: x
 const isScale = (v: unknown) => v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= 0.01 && v <= 100);
 // Sizes in points: 0.1 to 999, so a scaled document's text keeps its size.
 const isSize = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0.1 && v <= 999;
-// A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
+// A caption's runs, if they are sound: up to MAX_TEXT (each has a character), each with text and only known styles,
+// joining to the caption's text.
 function readRuns(v: unknown, text: string): TextRun[] | undefined {
-  if (!Array.isArray(v) || !v.length || v.length > 2000) return undefined;
+  if (!Array.isArray(v) || !v.length || v.length > MAX_TEXT) return undefined;
   const ok = (r: Record<string, unknown>) => typeof r === "object" && r && typeof r.text === "string" && r.text.length <= MAX_TEXT
     && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
     && (r.script === undefined || r.script === "sub" || r.script === "super") && (r.font === undefined || fontName(r.font))

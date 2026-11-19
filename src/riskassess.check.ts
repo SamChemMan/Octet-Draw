@@ -292,7 +292,7 @@ assert.equal(riskGroup(parse(JSON.stringify(raw))), undefined);
   const good2 = riskGroup(p)!.risk;
   assert.deepEqual(readRisk(JSON.parse(JSON.stringify(good2))), good2);
   for (const bad of [{ ...good2, texts: [] }, { ...good2, texts: { "Bad Key": [{ text: "x" }] } }, { ...good2, texts: { head: [{ text: "x", onclick: "y" }] } },
-    { ...good2, texts: { head: [{ text: "x", colour: "red" }] } }, { ...good2, texts: { head: [{ text: "x".repeat(2001) }] } }, { ...good2, texts: { head: "x" } },
+    { ...good2, texts: { head: [{ text: "x", colour: "red" }] } }, { ...good2, texts: { head: [{ text: "x".repeat(20_001) }] } }, { ...good2, texts: { head: "x" } },
     { ...good2, texts: Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`k${i}`, [{ text: "x" }]])) }, { ...good2, removed: "sub:1" },
     { ...good2, removed: ["<script>"] }, { ...good2, removed: Array.from({ length: 301 }, (_, i) => `sub:${i}`) }, { ...good2, auto: "yes" }]) assert.equal(readRisk(bad), undefined, JSON.stringify(bad).slice(0, 80));
   assert.equal(readRisk({ ...good2, texts: { head: [{ text: "a\u0000b\nc" }] } })!.texts!.head[0].text, "ab\nc", "control characters go, new lines stay");

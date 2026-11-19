@@ -2,6 +2,23 @@
 // <s> elements). A caption without runs is one run in the caption's own style.
 export type RunStyle = { bold?: true; italic?: true; underline?: true; script?: "sub" | "super"; font?: string; size?: number; colour?: string };
 export type TextRun = RunStyle & { text: string };
+// A text's length at most, in UTF-16 units: what Octet's readers take and what the text box keeps
+// (docs/plans/long-text.md). CDX keeps a text's styles at 16-bit byte offsets, and 20,000 units are at most 60,000
+// bytes of UTF-8.
+export const MAX_TEXT = 20_000;
+// The first n UTF-16 units of a text, never half a character.
+export const cutText = (t: string, n: number) => (t.length <= n ? t : t.slice(0, Math.max(0, n)).replace(/[\ud800-\udbff]$/, ""));
+// The first n UTF-16 units of some runs, never half a character.
+export function cutRuns(runs: TextRun[], n: number): TextRun[] {
+  const out: TextRun[] = [];
+  let left = n;
+  for (const r of runs) {
+    if (left <= 0) break;
+    out.push({ ...r, text: cutText(r.text, left) });
+    left -= r.text.length;
+  }
+  return normalise(out);
+}
 
 const KEYS = ["bold", "italic", "underline", "script", "font", "size", "colour"] as const;
 export const sameStyle = (a: RunStyle, b: RunStyle) => KEYS.every((k) => a[k] === b[k]);

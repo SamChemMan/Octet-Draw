@@ -17,7 +17,7 @@ import {
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
-import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
+import { cutText, labelStyle, MAX_TEXT, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
@@ -1328,7 +1328,7 @@ export function pictureHex(v: string): string | undefined {
   return new TextDecoder().decode(out);
 }
 const HEX_CODES = Array.from("0123456789ABCDEF", (c) => c.charCodeAt(0));
-const MAX_ATOMS = 100_000, MAX_OBJECTS = 10_000, MAX_TEXT = 2_000, MAX_LABEL = 40;
+const MAX_ATOMS = 100_000, MAX_OBJECTS = 10_000, MAX_LABEL = 40;
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,3})?$/;
 const real = (s?: string) => { const t = s?.trim(); if (!t || !NUMBER.test(t)) return undefined; const v = Number(t); return Math.abs(v) < 1e7 ? v : undefined; };
 const reals = (s: string | undefined, n: number) => { const v = (s ?? "").trim().split(/\s+/).slice(0, n).map(real); return v.length === n && v.every((x) => x !== undefined) ? (v as number[]) : undefined; };
@@ -2121,10 +2121,14 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const colour = colourOf(t.attrs.color);
       return void addShape({ kind: "symbol", symbol: p!.symbol, from: [kept[0], kept[1]], to: [kept[2], kept[3]], ...(isNum(p!.angle, -360, 360) && p!.angle ? { angle: p!.angle as number } : {}), id: newId(t), ...(colour ? { colour } : {}), z: zOf(t) }, t, group);
     }
-    let room = MAX_TEXT;
+    // At most MAX_TEXT characters (richtext.ts); those past it are counted.
+    let room = MAX_TEXT, over = 0;
     for (const s of t.kids) {
-      if (s.name !== "s" || room <= 0) continue;
-      const text = cleanText(s.text).slice(0, room), named = fontOf(fonts.get(int(s.attrs.font) ?? -1)), f = int(s.attrs.face) ?? 0, size = real(s.attrs.size), colour = colourOf(s.attrs.color ?? "3");
+      if (s.name !== "s") continue;
+      const all = cleanText(s.text), text = all.length > room ? cutText(all, room) : all;
+      over += all.length - text.length;
+      if (!text && all) continue;
+      const named = fontOf(fonts.get(int(s.attrs.font) ?? -1)), f = int(s.attrs.face) ?? 0, size = real(s.attrs.size), colour = colourOf(s.attrs.color ?? "3");
       if (s.attrs.font && fonts.has(int(s.attrs.font) ?? -1) && !named.font) lose("font");
       room -= text.length;
       const base = { ...(named.bold || f & 1 ? { bold: true as const } : {}), ...(named.italic || f & 2 ? { italic: true as const } : {}), ...(f & 4 ? { underline: true as const } : {}),
@@ -2135,6 +2139,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const text = runs.map((r) => r.text).join("");
     // Text with nothing to show: left out, and not in the notice, as the user cannot see it (REL-28).
     if (!text.replace(/[\s\ufffc]/g, "")) return;
+    if (over) lose("character", over);
     const shared = <K extends keyof RunStyle>(k: K) => (runs.every((r) => r[k] === runs[0][k]) ? runs[0][k] : undefined);
     const cf = int(t.attrs.CaptionFace) ?? 0, cs = real(t.attrs.CaptionSize);
     const whole: RunStyle = octet

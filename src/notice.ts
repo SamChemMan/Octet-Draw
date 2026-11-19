@@ -39,5 +39,8 @@ export function failure(what: string, e: unknown): string {
   return !why ? what : why.startsWith("Octet cannot") ? why : `${what} ${why}`;
 }
 
+// What Octet says when it cuts text typed or pasted at a limit (docs/plans/long-text.md): what: "A text", "A label".
+export const cutNotice = (what: string, most: number) => `${what} holds up to ${most.toLocaleString("en-GB")} characters. Octet left out the rest.`;
+
 // A saved file's name, from its path on any system.
 export const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;

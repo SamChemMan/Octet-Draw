@@ -15,12 +15,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS } from "./labels";
 import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
-import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
+import { MAX_PRINT_PAGES, MAX_PURPOSES, MAX_START, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
-import { parse, serialize } from "./file";
+import { overLimit, parse, serialize } from "./file";
 import { allNotes, annotationsOf, isNote, NOTE, noteTargets, withNote, withoutNotes, type Target } from "./annotate";
 import { Notes, type NoteField, type NoteRow } from "./Notes";
 import {
@@ -29,6 +29,7 @@ import {
   addShape, addSymbol, markNear, moveMark, moveSign, setSign, signKind, setSignKind, dropCharge, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
+  groupTooBig, MAX_CELL, MAX_CURVE, MAX_LABEL,
 } from "./edit";
 import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
@@ -57,7 +58,7 @@ import { placeFigure, withNotice } from "./spectrumplot";
 import { numbered, placeBeside } from "./beside";
 import { centreIn, dropClear, panInto, roomOf, type Span } from "./reveal";
 import { chartAction, followCharts, followLeaders, followLevels, jablonskiPick, labelLines, lonePlot, placePlot, plotFigure, plotName, plotShift, plotsIn, plotTop, reframe, replot, rescale, signalKeys, traceOf, type PlotEnv, type Replot, type SpectrumPlot } from "./pageplot";
-import { figureBox, isChart, kindOf as transitionKind, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, type Chart } from "./charts";
+import { figureBox, isChart, isDataRole, kindOf as transitionKind, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, type Chart } from "./charts";
 import { ChartDialog, type ChartData } from "./ChartDialog";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, nucleusText, regroup, type Measured } from "./measured";
@@ -66,7 +67,7 @@ import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, parseXml, toCdxml, union, type CdxmlOptions } from "./cdxml";
-import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
+import { FALLBACK, isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
 import { WhatsNew } from "./WhatsNew";
@@ -86,7 +87,7 @@ import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints,
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
-import { FIELDS as DETAILS, PROPERTIES, detailsOf, stamped, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
+import { FIELDS as DETAILS, MAX_VALUE, PROPERTIES, detailsOf, stamped, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
@@ -95,7 +96,7 @@ import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, rea
 import { clearScheme, interpret, mapScheme, rolesOf, turnScheme, type Part, type Role } from "./interpret";
 import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
-import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
+import { addBranch, addSide, addStop, angleAbout, MAX_STEPS, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
@@ -129,7 +130,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, cutRuns, cutText, edited, labelStyle, lines as richLines, MAX_TEXT, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
@@ -143,7 +144,7 @@ import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
-import { failure, fileName, refusal, type NoticeKind } from "./notice";
+import { cutNotice, failure, fileName, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, keepPlace, movedAt, staticTable, rowOf as gridRowOf, setRole, shiftView, shownCell, stepGrids, TABLE, tableOf } from "./gridview";
@@ -1133,6 +1134,10 @@ export default function Editor() {
     const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), next = expPage && mol.style === doc.style ? syncDetails(doc, renumber(newGrids(doc, ordered)), sheetOf(style)) : ordered;
     // Its risk assessment takes in what was typed in it, and lays it out again (riskassess.ts syncRisk).
     const risked = expPage && mol.style === doc.style ? syncRisk(doc, next, sheetOf(style)) : next;
+    // An edit that would make more atoms or objects than a file holds is not made, so every drawing saves and opens
+    // again whole (docs/plans/long-text.md). A drawing opened is within them.
+    const over = opened ? undefined : overLimit(risked);
+    if (over && !overLimit(doc)) { setNotice(over, "info"); return doc; }
     lastSet.current = risked;
     dispatch({ type: "set", mol: risked, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
@@ -1982,7 +1987,9 @@ export default function Editor() {
   // On an experiment page, its text is kept too (experiment.ts templateOf): the details' names and values but the
   // date, the headings and boxes. New experiment pages start with it.
   const keepForNew = (d: DocStyle) => {
-    const start = expPage ? serialize(templateOf(withoutNotes(doc))) : undefined;
+    // Settings keep up to MAX_START characters of it (docstyle.ts): a page with more keeps its style only, and says so.
+    const all = expPage ? serialize(templateOf(withoutNotes(doc))) : undefined, start = all && all.length <= MAX_START ? all : undefined;
+    if (all && !start) setNotice("This page's text is too long to keep for new pages. Octet keeps its style.");
     setSettings((s) => {
       const id = purposeOf(s, d.purpose) ? d.purpose! : QUICK, { purpose: _, ...plain } = d, kept = id === QUICK ? plain : { ...d, purpose: id };
       return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept, ...(start && p.kind === "experiment" ? { start } : {}) } : p)) }
@@ -2225,8 +2232,10 @@ export default function Editor() {
       const read = readFile(path, text);
       if (bare) read.mol = withoutNotes(read.mol);
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
-      // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
-      const opened = withFields(wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign)));
+      // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style. A drawing
+      // opened from the CDXML of a file Octet wrote (fallback) has Octet's own style.
+      const other = read.foreign && !read.fallback;
+      const opened = withFields(wholeGroups(asOpened(other && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!other)));
       // (A style file that is not a drawing is named so, not this file: --convert opens it first on its own.)
       let mol = opened;
       if (styleText) { let m; try { m = restyledFrom(opened, styleText); } catch { /* not a drawing */ } if (!m) return { failed: "This file has no document settings." }; mol = m; }
@@ -2247,8 +2256,11 @@ export default function Editor() {
       if (mol.spectra?.length) { openSpectrum(spectrumKeyOf(mol.spectra[0]), [...fragments(mol)].sort((p, q) => q.length - p.length)[0] ?? [], mol); setSpectrumShow("measured"); setChosenGroup(undefined); }
       // Once for each open: a file Octet wrote that ChemDraw saved since has lost Octet's own extras (issue 19).
       // With things left out too it stays an error, as sayLost's notice is.
-      const left = Object.keys(lost).length > 0;
-      if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
+      const left = Object.keys(lost).length > 0, { [FALLBACK]: _, ...rest } = lost, more = Object.keys(rest).length ? ` Octet left out ${lostText(rest)}.` : "";
+      // A file whose own copy Octet cannot read opened from its CDXML (docs/plans/long-text.md): said once, as an
+      // error, and Save asks before it writes over the file (its lost counts the copy).
+      if (read.fallback) setNotice(`Octet cannot read its own copy of this drawing. It opened the ChemDraw copy, without Octet's own extras.${more}`, "error");
+      else if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
       else sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
       return left ? { lost: lostText(lost) } : {};
@@ -3139,6 +3151,8 @@ export default function Editor() {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
       if (group.size < 2 || !links.length) return setNotice("Select a group joined to the rest of the structure.", "info");
+      // A label keeps up to 256 atoms, as Octet's files and ChemDraw's do.
+      if (groupTooBig(doc, group)) return setNotice("Select a group of 256 atoms or fewer.", "info");
       // Joined on more than one side (a residue in a chain): its name when it is an amino acid, a nucleoside or a
       // phosphate, with each outside bond capped as the free compound has it (OH on C or P, H on N or O).
       if (links.length > 1) {
@@ -4695,7 +4709,15 @@ export default function Editor() {
     setWriting(undefined);
     if (!w) return;
     // A name typed as LaTeX's, \delta, is its character, δ (escapes.ts, Stefan Schramm's idea in PR 42).
-    const typed = expandRuns(w.runs ?? [{ text: w.value }], keptText(doc.captions?.find((c) => c.id === w.id)?.text)), text = plainOf(typed).replace(/\s+$/, "");
+    const was = w.id !== undefined ? doc.captions?.find((c) => c.id === w.id) : undefined, written = expandRuns(w.runs ?? [{ text: w.value }], keptText(was?.text));
+    // What the text holds (docs/plans/long-text.md): a chart's label 80 characters and an experiment's detail 200, as
+    // their records keep them, any other text MAX_TEXT. A tab is a space, and no other control character but a line
+    // break is kept. More is cut, and Octet says so.
+    const chartLabel = !!was?.role && isDataRole(was.role.role) && !!doc.groups?.some((g) => g.plot && isChart(g.plot) && g.items.includes(was.id));
+    const [most, what] = chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"] : [MAX_TEXT, "A text"];
+    const clean = written.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "") })), over = plainOf(clean).length > most;
+    if (over) setNotice(cutNotice(what, most));
+    const typed = over ? cutRuns(clean, most) : clean, text = plainOf(typed).replace(/\s+$/, "");
     // Runs are kept only when some text has a style of its own; trailing space goes from them as from the text. A colour
     // all the text has becomes the caption's own (shareColour), so it is kept as a colour picked for the whole caption.
     const own = "colour" in w.style ? w.style.colour : doc.captions?.find((c) => c.id === w.id)?.colour;
@@ -5010,6 +5032,7 @@ export default function Editor() {
     if (!to && c) {
       const a = angleAbout(c, from), gap = breakAt(doc, c, a, 10 / (c.radius * L * views.get().zoom));
       if (gap === undefined && c.nodes.length && !clearAt(cycleLayout, c.id, a)) return;
+      if (gap === undefined && c.nodes.length >= MAX_STEPS) return setNotice(`A cycle holds up to ${MAX_STEPS} steps.`, "info");
       return clicked(gap !== undefined ? removeStop(doc, c.id, gap, relay) : addStop(doc, c.id, a, [], relay));
     }
     // The new cycle is not picked, so the next clicks on its circle break it (and do not land on its frame's handles).
@@ -6966,7 +6989,9 @@ export default function Editor() {
   // Text typed over a cell that is not an amount (gridWrites): a row's name (its own row's name), a value in a row of
   // the user's own, or text over the value worked out. Empty takes it off, and the value worked out shows again.
   const writeGridCell = (w: GridCell, typed: string) => {
+    // A cell's text is one line of MAX_VALUE characters, as the table keeps it: more is cut, with a notice.
     const text = oneLine(typed).trim();
+    if (typed.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().length > MAX_VALUE) setNotice(cutNotice("A table cell", MAX_VALUE));
     // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too, so the
     // scheme and the table say the same.
     const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
@@ -9275,6 +9300,7 @@ export default function Editor() {
       const c = doc.arrows?.find((a) => a.id === editPress.current && a.curve);
       if (!c?.curve) return;
       const near = nearestOnCurve(c.curve, at), on = near.d * L * views.get().zoom < 8;
+      if (((t.arrow === c.id && on) || t.arrow === undefined) && c.curve.points.length >= MAX_CURVE) return setNotice(`A curve holds up to ${MAX_CURVE.toLocaleString("en-GB")} points.`, "info");
       if (t.arrow === c.id && on) return set(updateArrow(doc, c.id, withCurve(splitCurve(c.curve, near.seg, near.t))), true);
       if (t.arrow === undefined) return set(updateArrow(doc, c.id, withCurve(appendCurvePoint(c.curve, at))), true);
       return;
@@ -9567,6 +9593,8 @@ export default function Editor() {
         return at && changeGrid(drag.arrow, () => ({ at, free: true }));
       }
       case "pen":
+        // A curve holds up to MAX_CURVE points, as Octet's files do.
+        if ((pen?.length ?? 0) >= MAX_CURVE) return setNotice(`A curve holds up to ${MAX_CURVE.toLocaleString("en-GB")} points.`, "info");
         setPenAt(drag.at);
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
       case "map": {
@@ -11024,6 +11052,9 @@ export default function Editor() {
         const commit = () => {
           if (!labelOpen.current) return;
           labelOpen.current = false;
+          // A label holds MAX_LABEL characters and no < or > (setLabel keeps it so): Octet says what it left out.
+          if (/[<>]/.test(text)) setNotice("A label cannot hold < or >. Octet left them out.");
+          else if (text.length > MAX_LABEL) setNotice(cutNotice("A label", MAX_LABEL));
           if (text || !editing.blank) set(runs(dress(tint(ids.reduce((m, i) => setLabel(m, i, text), doc)))), !!editing.all, editing.merge);
           if (text) lastLabel.current = text;
           setEditing(undefined);
@@ -11035,6 +11066,8 @@ export default function Editor() {
           <RichBox
             className="label-box"
             label="Atom label"
+            max={MAX_LABEL}
+            onCut={() => setNotice(cutNotice("A label", MAX_LABEL))}
             returnNewLine={settings.labelReturnNewLine}
             runs={editing.runs ?? [{ text: editing.value }]}
             version={editing.version ?? 0}
@@ -11114,7 +11147,13 @@ export default function Editor() {
               width, height: t.heights[cell.r] * L * z, ...textFace(sh, size), color: sh.colour ?? style.colour,
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * t.f * L * z}px`,
             }}
-            onChange={(e) => setCell({ ...cell, value: e.target.value })}
+            // A table cell holds 500 characters and no tab, as Octet's files do: a tab (a row pasted from a spreadsheet)
+            // is a space, and more is cut, with a notice (docs/plans/long-text.md).
+            onChange={(e) => {
+              const v = e.target.value.replace(/[\u0000-\u0009\u000b-\u001f]/g, " ");
+              if (v.length > MAX_CELL) setNotice(cutNotice("A table cell", MAX_CELL));
+              setCell({ ...cell, value: cutText(v, MAX_CELL) });
+            }}
             onKeyDown={(e) => {
               const i = cell.r * cols + cell.c;
               if (e.key === "Tab") {
@@ -11148,6 +11187,8 @@ export default function Editor() {
           <>
           <RichBox
             key={writing.at ? writing.at.join(" ") : undefined} // a new box for each caption Tab starts
+            max={MAX_TEXT}
+            onCut={() => setNotice(cutNotice("A text", MAX_TEXT))}
             returnNewLine={!settings.captionOptionReturn}
             runs={writing.runs ?? [{ text: writing.value }]}
             version={writing.version ?? 0}
@@ -11947,7 +11988,7 @@ export default function Editor() {
             set(m, true);
             setDialog(undefined);
           }}>
-          <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
+          <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.replace(/[<>]/g, "").slice(0, MAX_LABEL) })} /></span></label>
           <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-8} max={8} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
           <label className="dialog-row"><span>Isotope</span><NumberField label="Isotope (mass number)" min={1} max={300} step={1} placeholder="Natural" value={dialog.isotope ? Number(dialog.isotope) : undefined}
             onChange={(n) => setDialog({ ...dialog, isotope: String(Math.round(n)) })} onClear={() => setDialog({ ...dialog, isotope: "" })} /></label>
@@ -12004,7 +12045,7 @@ export default function Editor() {
             setSelection(new Set());
             setDialog(undefined);
           }}>
-          <label className="dialog-row"><span>Label</span><span className="unit-field text"><input aria-label="Label" value={dialog.text} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, text: e.target.value.slice(0, 40) })} /></span></label>
+          <label className="dialog-row"><span>Label</span><span className="unit-field text"><input aria-label="Label" value={dialog.text} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, text: e.target.value.replace(/[<>]/g, "").slice(0, MAX_LABEL) })} /></span></label>
           {dialog.warn && dialog.warn === dialog.text.trim() && <p className="dialog-note">{dialog.warn} is not the selected group. Select Contract again to use it.</p>}
         </Dialog>
       )}</Exit>
