@@ -48,6 +48,36 @@ branches).
 Gap confirmed. The build stage reviews the working-tree diff against this plan, keeps what meets it, adds the missing
 parts and proves all of it. It does not start again.
 
+## Finish for release 1.1.3 (19 Nov)
+
+Sam put every built item in 1.1.3. The branch is rebased onto release-1.1.3 f06d1b4 (1.2 with the AI switch off).
+
+- Conflicts: the `.editor` rule (the release's `--ruler` stays, the touch-action moves to `:root` as planned), the keys
+  import (`menuKeysVersion`) and `shapeAt` (the release's free symbols are hit in their box; the line test takes the
+  reach).
+- The release's hit code: a reagent table's line (`gridLineAt`, 3 px) and the centre mark's snap to an atom (8 px)
+  take the reach too. touch.check now fails on any px value over the zoom in Editor.tsx without `reach.current`, except
+  the few that snap, place a mark or start a drag, so a hit test merged later (item/85-measurements' `measureAt`)
+  fails there until it takes the reach.
+- touch.js had never run in full. Its fixes: each group of checks runs in a page of its own (a finger only pans once
+  a pen is used, and the web view keeps the settings), the tools' options are set first, strokes on a bond find it
+  from its box, a key goes in once (each ⌘Z was three Undos), a finger leaves as it lifts, a tap with Chain opens Add
+  Chain (ChemDraw's), so the ten quick taps use Bond, and the lasso runs before Mass spec analysis hides the Actions
+  panel the check reads.
+
+Results on f06d1b4 plus this branch:
+
+| Check | Result |
+| --- | --- |
+| C1 node src/touch.check.ts | passes |
+| C2 `npm run look -- <url>/?editor touch` (8 pages) | 119 checks pass, none fail. One full run stopped once at the time limit in the pen page while the window was covered (WebKit pauses frames); that page alone passes |
+| C3 mouse session, branch against f06d1b4 | the same drawing |
+| C4 40 paclitaxels, 2000 hover moves and a 2000-move box drag, 5 runs each, interleaved | medians: hover 948 ms against 946 ms, box drag 167 ms against 170 ms (noise) |
+| C5 `npm run look`, fine; coarse light and dark; `look-coarse` at 768 px tall | every control matches; 24 coarse checks pass |
+| C6 `git diff f06d1b4 --stat` | no format, MCP, settings or Rust file |
+| C7 npm test | 190 of 190 check files pass. A run at a load average near 38 (other agents) put three timing checks over their limits (dictionary, layout, lowinmac-stress); each passes alone and in the next full run |
+| C8 real tablet | not run: no hardware here |
+
 ## What ChemDraw does
 
 Sources checked: ~/octet-research/notes/chemdraw26-inventory.md (3.2 Context menus; View zoom, lines 444-448; Eraser),
@@ -307,12 +337,14 @@ Linux touch screen, if one is to hand: steps 4 to 7. Mac with a Wacom or Sidecar
 3. Commit in small commits; run C1 to C7; fix against the job each failure breaks.
 4. Close every server, look run and window started from this worktree.
 
-## What's New (draft lines)
+## What's New (1.1.3)
 
 - When you draw with a pen on a tablet, the pen draws as the mouse does. Its eraser end erases, and its side button
   opens the Actions menu.
+- When you draw on a touch screen with one finger, the finger draws as the mouse does.
 - To move or zoom the drawing on a touch screen, drag or pinch with two fingers.
 - To open the Actions menu with a finger, touch and hold.
-- After you use a pen in a window, a finger only moves and zooms the drawing there, so your hand can rest on the
-  screen.
+- When you use a pen in a window, a finger after it only moves and zooms the drawing there, so your hand can rest on
+  the screen.
+- When you point with a pen or a finger, it reaches atoms, bonds, text and handles from further away than the mouse.
 - When you use a tablet with its keyboard off, the tools and the options in menus are larger.
