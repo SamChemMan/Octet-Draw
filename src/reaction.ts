@@ -81,7 +81,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   type Part = Extract<Step, { kind: "structure" | "text" | "arrow" }>;
   const item = (step: Step): Item => { const c = corners(step.box), xs = c.map(along), ys = c.map(across); return { step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 }; };
   const items: Item[] = drawn.parts.map((p) => item({ kind: "structure", atoms: p.atoms, box: p.box }));
-  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) items.push(item({ kind: c.text.trim() === "+" && !drawn.owners.has(c.id) ? "plus" : "text", id: c.id, box: b })); }
+  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle && !c.measure) items.push(item({ kind: c.text.trim() === "+" && !drawn.owners.has(c.id) ? "plus" : "text", id: c.id, box: b })); }
   for (const s of plusShapes(m)) if (!drawn.owners.has(s.id)) items.push(item({ kind: "plus", id: s.id, box: shapeBox(s), shape: true }));
   // Straight arrows: one that points the same way can be a step of the reaction; one that points another way (the
   // other reaction of C ← A → B) ends the row where it stands.
@@ -337,7 +337,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   // Its captions: the plus signs and text in the row, each arrow's conditions, the numbers and names under its
   // structures, and the text its parts carry.
   const inRow = new Set(atoms), own = new Set([...steps, ...condSteps].flatMap((s) => (s.kind === "plus" || s.kind === "text" ? [s.id] : [])).concat(carries.flatMap((k) => k.captions)));
-  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i)))).map((c) => c.id);
+  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i))) || (c.measure && c.measure.atoms.every((i) => inRow.has(i)))).map((c) => c.id);
   return { steps, arrows: arrowIds, atoms, captions, carried: [...new Set([...steps.flatMap((s) => (s.kind === "plus" && s.shape ? [s.id] : [])), ...carries.flatMap((k) => [...k.arrows, ...k.shapes, ...k.ends.map((e) => e[0])])])], conditions };
 }
 // A reaction wrapped onto lines (as Clean Up Reaction wraps one wider than the page) reads as one reaction: a line that
@@ -794,7 +794,7 @@ function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, in
     if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
   }
   // (A name or number under a structure goes with it; it is not counted apart.)
-  for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
+  for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle && !x.measure)) {
     const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
     if (d) things.push({ was: captionBox(c.id), now: shift(captionBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
   }

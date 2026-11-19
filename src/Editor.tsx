@@ -28,11 +28,12 @@ import {
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, moveSign, setSign, signKind, setSignKind, dropCharge, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
-  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
+  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, cleanedFor, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
 import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
+import { arcPoints, kindOf as measureKind, measureInk, measureName, measureText, measureValue, passAtom, settleMeasures, structuresOf } from "./measurement";
 import { model3mf } from "./model3mf";
 import { elnArchive, elnRecords } from "./eln";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -99,10 +100,10 @@ import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branc
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, bracketPath, routeOf } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, setPseudoReader, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -314,6 +315,9 @@ type Drag =
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
+  // Measuring with the Measure tool: the atoms passed so far (2 a distance, 3 an angle, 4 a dihedral) and the pointer.
+  // clean: the drawing with their structures cleaned up in 3D (measurement.ts cleanedFor), for the value shown.
+  | { kind: "measure"; atoms: number[]; start: [number, number]; to?: P; clean?: { key: string; mol: Mol } }
   // Turning the selection by its rotation handle: about its centre, from the angle the drag started at.
   | { kind: "turn"; centre: P; middles: Map<number, P>; start: number; degrees: number; working: Mol }
   // Moving the centre the selection turns about (Option-drag on the centre mark). Not moved, it is an Option-click.
@@ -1128,7 +1132,9 @@ export default function Editor() {
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
     const env = plotEnv();
     mol = keepPlace(doc, settleHydrogens(opened ? mol : followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
-    const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
+    // Measurements follow their atoms (measurement.ts), once the multi-centre points are where their atoms are. A
+    // drawing opened keeps its labels where the file has them.
+    const fitted = settleMeasures(opened ? undefined : doc, placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol)), undefined, opened);
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
     // page (experiment.ts syncDetails).
@@ -2936,6 +2942,13 @@ export default function Editor() {
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
+    // Structure > Measure (issue 85, where ChemDraw has Add 3D Property): the distance between 2 selected atoms, the
+    // angle at 3, the dihedral across 4.
+    ...Object.fromEntries((["distance", "angle", "dihedral"] as const).map((kind, k) => [`measure_${kind}`, () => {
+      const atoms = [...selection].filter((i) => i < doc.atoms.length);
+      if (atoms.length !== k + 2) return setNotice(`Select ${k + 2} atoms to measure ${kind === "angle" ? "an angle" : `a ${kind}`}.`, "info");
+      measureAtoms(atoms, "chain");
+    }])),
     // Align (⇧⌥⌘ L, C, R, T, M, B) and Distribute (⇧⌥⌘ H, V), as ChemDraw's Object menu: every selected structure,
     // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
     // two at the ends.
@@ -3609,7 +3622,7 @@ export default function Editor() {
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return dropped(ringDrop(drag), chairFree(drag), true);
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" || drag.kind === "turn" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip));
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return settleMeasures(doc, placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" || drag.kind === "turn" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip)));
     if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
@@ -4368,6 +4381,32 @@ export default function Editor() {
     if (m !== doc) set(m, true);
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
+  // Where a measurement's lines stop short of an atom (bond lengths): clear of its label, or a little way off a bare
+  // vertex, so the dashes read apart from the bonds.
+  const measureTrim = (i: number) => { const b = drawing.label[i]; return b ? Math.max(b[2] - b[0], b[3] - b[1]) / 2 / L + 0.08 : 0.15; };
+  // The measurement whose line or arc is at a point, within 4 px.
+  const measureAt = (p: P) => {
+    const r = 4 / L / views.get().zoom, seg = (a: P, b: P) => { const d: P = [b[0] - a[0], b[1] - a[1]], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1] || 1))); return Math.hypot(p[0] - a[0] - t * d[0], p[1] - a[1] - t * d[1]); };
+    for (const c of [...(doc.captions ?? [])].reverse()) {
+      if (!c.measure) continue;
+      const ink = measureInk(doc, c.measure.atoms, measureTrim), pts = ink.arc ? arcPoints(ink.arc) : [];
+      if (ink.lines.some(([a, b]) => seg(a, b) <= r) || pts.some((q, k) => k > 0 && seg(pts[k - 1], q) <= r)) return c.id;
+    }
+    return undefined;
+  };
+  // The structures (by their first atom) some atoms are in, as a key.
+  const structureKeys = (atoms: number[]) => structuresOf(doc, atoms).map((g) => g[0]).sort((p, q) => p - q).join(" ");
+  // Makes a measurement of these atoms (measurement.ts addMeasure): the Measure tool's, in the order passed, and the
+  // menu's, the Actions panel's and the palette's, along their bonds. A structure drawn flat is cleaned up in 3D first,
+  // in the same step, and glides there. The new measurement (or the same one there already) is picked.
+  const measureAtoms = (atoms: number[], order: "pick" | "chain") => {
+    const r = addMeasure(doc, atoms, order);
+    if (typeof r === "string") return setNotice(r);
+    if (r.tooBig) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
+    if (r.made) { if (r.cleaned.length) glideTo(r.mol); else set(r.mol, true); }
+    setSelection(new Set());
+    setPicked(new Set([r.id]));
+  };
   const captionAt = (p: P) => {
     const at: P = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
     // A turned caption: the point turned back about its pivot, against its own box.
@@ -4549,6 +4588,9 @@ export default function Editor() {
     if (caption !== undefined) return { caption };
     const arrow = arrowAt(p) ?? shapeAt(p);
     if (arrow !== undefined) return { arrow };
+    // A measurement's line or arc picks the measurement, as its text does (a bond under it comes first).
+    const measured = t.bond === undefined ? measureAt(p) : undefined;
+    if (measured !== undefined) return { caption: measured };
     const arc = cycleAt(p);
     if (arc) return { cycle: arc.cycle, step: arc.step, ...(arc.branch !== undefined ? { branch: arc.branch, part: arc.part } : {}) };
     const inside = t.bond === undefined ? (tool === "select" ? highlightAt(p) ?? plateAt(p)?.id ?? plasmidAt(p)?.id : undefined) ?? (tool === "select" || tool === "orbital" ? orbitalAt(p) : undefined) : undefined;
@@ -4580,7 +4622,7 @@ export default function Editor() {
   // and the captions attached to it (under it). For frames, aligning, snapping and the group frame.
   // Part of a structure gives only its own atoms and the bonds between them (inkOfAtoms).
   const withCaptions = (atoms: Iterable<number>): Box | undefined => {
-    const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i))).map((c) => c.id));
+    const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i)) || c.measure?.atoms.every((i) => set.has(i))).map((c) => c.id));
     return union([...[inkOfAtoms(shown, drawing.ink, drawing.label, set, L, drawing.electrons)].filter((b): b is Box => !!b), ...placed.filter((c) => under.has(c.id)).map((c) => c.box)]);
   };
   // Atoms and objects as drawn (px, y down): the atoms with their labels and the text under them, and the text, arrows,
@@ -4717,7 +4759,7 @@ export default function Editor() {
         // A caption that already held markup kept as typed (an escape, or Undo of the change) is not changed again.
         // New text typed over a number Octet gave makes it the user's (numbering.ts renumber), and over live values
         // stops them following the structure (liveValues).
-        const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined, ...(old.property?.attrs.rows ? { property: undefined } : {}) } : {}) }));
+        const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined, ...(old.property?.attrs.rows ? { property: undefined } : {}), ...(old.measure ? { measure: undefined } : {}) } : {}) }));
         if (!(expPage && markupCaption(old))) marked(m, w.id);
       }
       return setPicked(new Set([w.id]));
@@ -4956,7 +4998,7 @@ export default function Editor() {
       for (const b of c.branches ?? []) for (const x of ["in", "out"] as const) if ((b.id !== branch || x !== part) && b[x]?.atoms?.some((i) => atoms.includes(i))) m = setEnd(m, id, b.id, x, { atoms: undefined });
       return set(setEnd(m, id, branch, part, { atoms, along: undefined, reach: undefined }), true);
     }
-    const text = h.caption !== undefined ? doc.captions?.find((x) => x.id === h.caption && !x.under && !x.on && !x.cycle) : undefined;
+    const text = h.caption !== undefined ? doc.captions?.find((x) => x.id === h.caption && !x.under && !x.on && !x.cycle && !x.measure) : undefined;
     if (text) return set(updateCaption(made.m, text.id, { cycle }), true);
     set(made.m);
     openWriting({ value: "", cycle, style: { ...textStyle } });
@@ -5071,7 +5113,7 @@ export default function Editor() {
     // A structure selected only in part lines up by that part and moves whole (partBox), as ChemDraw.
     for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const part = partBox(doc, g, selection), b = part ? undefined : withCaptions(g); add(g, [], part ?? (b && box(b))); }
     for (const c of cycles) { const b = drawnBox([], new Set([c.id])); add([], [c.id], b && box(b)); }
-    for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle) add([], [c.id], box(c.box)); }
+    for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle && !cap.measure) add([], [c.id], box(c.box)); }
     for (const a of doc.arrows ?? []) if (picked.has(a.id)) {
       const [f, t] = a.curve ? curveBox(a.curve) : [a.from, a.to];
       add([], [a.id], [Math.min(f[0], t[0]), Math.min(f[1], t[1]), Math.max(f[0], t[0]), Math.max(f[1], t[1])]);
@@ -5089,7 +5131,7 @@ export default function Editor() {
   // objects with their groups, or the whole drawing when nothing is selected. whole: it is the whole drawing (nothing
   // selected, or all).
   const chosen = () => {
-    const none = !selection.size && !picked.size, objects = [...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])];
+    const none = !selection.size && !picked.size, objects = [...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && !c.measure), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])];
     const [atoms, items] = none ? [new Set(doc.atoms.map((_, i) => i)), new Set([...(doc.captions ?? []), ...objects].map((x) => x.id))] : withGroups(selection, picked);
     return { atoms, items, whole: none || (atoms.size === doc.atoms.length && objects.every((x) => items.has(x.id))) };
   };
@@ -5168,7 +5210,7 @@ export default function Editor() {
   // does not count: a structure with its number under it flips in place.
   const selectionMiddle = (): P => {
     const { atoms, items } = chosen(), objects = new Set(items);
-    for (const c of doc.captions ?? []) if (c.under || c.on || c.cycle) objects.delete(c.id);
+    for (const c of doc.captions ?? []) if (c.under || c.on || c.cycle || c.measure) objects.delete(c.id);
     const b = union([...[...atoms].filter((i) => i < doc.atoms.length).map((i): Box => { const [x, y] = pos(doc, i); return [x * L, -y * L, x * L, -y * L]; }), ...[drawnBox([], objects)].filter((x): x is Box => !!x)]);
     return b ? [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L] : [0, 0];
   };
@@ -5240,7 +5282,7 @@ export default function Editor() {
     for (const caption of base.captions ?? []) {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
       // A cycle's text follows it, but for an intermediate written as text, which moves as a structure would.
-      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
+      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.measure && caption.measure.atoms.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
       // (A reagent's text is at its arrow's start, a product's at its end.)
       const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
@@ -5262,7 +5304,7 @@ export default function Editor() {
     const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
     const moves = (id: number) => {
       const c = textOf.get(id);
-      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
+      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.measure && c.measure.atoms.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
     };
     const things = [...arrows.filter((a) => !isOrbital(a)), ...(doc.shapes ?? [])], span = (v: GridView) => tableSpan(v) as Box;
     const movingBox = union([...(atoms0.size ? [ink(atoms0)] : []), ...placed.filter((c) => c.id !== DRAFT && moves(c.id)).map((c) => up(c.box)), ...things.filter((a) => picks0.has(a.id)).map(ends), ...gridViews.filter((v) => picks0.has(TABLE(v.arrow))).map(span)].filter((b): b is Box => !!b));
@@ -5864,6 +5906,8 @@ export default function Editor() {
     }
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
+    // Measure: a press on an atom starts the drag through the atoms to measure; anywhere else it does nothing.
+    if (tool === "measure") return t.atom !== undefined ? setDrag({ kind: "measure", atoms: [t.atom], start: screen }) : undefined;
     // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
     const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
     if (end) return setDrag({ kind: "arrow", from: end.line[end.end], start: screen, target: t, make: { kind: "cut" }, longer: { id: end.line.id, end: end.end } });
@@ -5996,6 +6040,17 @@ export default function Editor() {
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
+      case "measure": {
+        // The atoms passed, in order (measurement.ts passAtom).
+        if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        stopHold();
+        const list = drag.atoms, atoms = passAtom(list, hitAt(p).atom);
+        if (atoms === list) return setDrag({ ...drag, to: p });
+        // The value shown is the one the measurement will have: from the structures cleaned up in 3D where they are flat.
+        const key = atoms.length > 1 ? structureKeys(atoms) : "";
+        const clean = !key ? undefined : drag.clean?.key === key ? drag.clean : { key, mol: cleanedFor(doc, atoms).mol };
+        return setDrag({ ...drag, atoms, to: p, clean });
+      }
       case "ring": {
         // The ring's first bond follows the pointer, as the bond tool's does (on to an atom there, if any). A chair
         // faces the drag, across the page or up and down. From a bond, the pointer picks the ring's side (and a
@@ -7291,7 +7346,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           ...valuesPicked(),
@@ -7366,7 +7421,8 @@ export default function Editor() {
     if (t === "drawing") return "Drawing";
     const g = m.groups?.find((x) => x.id === t), c = !g ? m.captions?.find((x) => x.id === t) : undefined;
     if (g) return groupTitle(m, g);
-    if (c) { const line = c.text.split("\n")[0].trim(); return line.length > 24 ? `${line.slice(0, 23)}…` : line || "Text"; }
+    // A measurement is named as the screen reader names it: "Distance 2.54 Å".
+    if (c) { const line = (c.measure ? measureName(c) : c.text).split("\n")[0].trim(); return line.length > 24 ? `${line.slice(0, 23)}…` : line || "Text"; }
     const n = nounOf(m, t) ?? "object";
     return n.charAt(0).toUpperCase() + n.slice(1);
   };
@@ -7384,7 +7440,8 @@ export default function Editor() {
       }
     };
     each("d", "drawing", "Drawing", "the drawing");
-    if (targets.length === 1) each("s", targets[0], noteName(doc, targets[0]), noteName(doc, targets[0]).toLowerCase());
+    // (Its name in "Note on …" loses only a capital that starts a word, so "Distance 2.54 Å" keeps its Å and THF its capitals.)
+    if (targets.length === 1) each("s", targets[0], noteName(doc, targets[0]), noteName(doc, targets[0]).replace(/^[A-Z](?=[a-z])/, (x) => x.toLowerCase()));
     else if (targets.length) {
       const values = new Set(targets.map((t) => annotationsOf(doc, t)?.find((a) => a.keyword === NOTE)?.content ?? ""));
       fields.push({ key: `s:${NOTE_KEY}`, label: `${targets.length} objects`, name: "Note on the selected objects", keyword: NOTE, nth: 0, targets, value: values.size === 1 ? [...values][0] : "", ...(values.size > 1 ? { mixed: true } : {}) });
@@ -8649,6 +8706,7 @@ export default function Editor() {
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <MultiAttachmentGlyph />], add_variable: ["Add variable attachment", "", <VariableAttachmentGlyph />],
+    measure_distance: ["Measure distance", "", <DistanceGlyph size={18} />], measure_angle: ["Measure angle", "", <AngleGlyph size={18} />], measure_dihedral: ["Measure dihedral", "", <DihedralGlyph size={18} />],
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], expand_generic_sdf: ["Expand generic structure to SDF…", "", <Database size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
@@ -9235,8 +9293,9 @@ export default function Editor() {
           captions: doc.captions?.map((c) => {
             const at = moves.get(c.id);
             if (!at) return c;
-            if (what === "detach") { const { under: _, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
-            const under = structureAbove(at, 4);
+            if (what === "detach") { const { under: _, measure: _m, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
+            // A measurement already follows its own atoms.
+            const under = !c.measure && structureAbove(at, 4);
             return under ? { ...c, under, align: undefined } : c;
           }),
         }, true);
@@ -9360,7 +9419,7 @@ export default function Editor() {
     // (attachBeside). One that is already a cycle's, or not beside a step, was only picked.
     if (tool === "cycle" && cycleChoice === "side" && (t.atom !== undefined || t.bond !== undefined || t.caption !== undefined)) {
       const atom = t.atom ?? (t.bond !== undefined ? doc.bonds[t.bond].atoms[0] : undefined), atoms = atom !== undefined ? fragments(doc).find((g) => g.includes(atom)) : undefined;
-      const free = atoms ? !doc.cycles?.some((c) => cycleAtoms(c).some((i) => atoms.includes(i))) : doc.captions?.some((x) => x.id === t.caption && !x.cycle && !x.under && !x.on);
+      const free = atoms ? !doc.cycles?.some((c) => cycleAtoms(c).some((i) => atoms.includes(i))) : doc.captions?.some((x) => x.id === t.caption && !x.cycle && !x.under && !x.on && !x.measure);
       const m = free ? attachBeside(doc, atoms ? { atoms } : { text: t.caption }, { box: dropBox, bond: style.bond }) : doc;
       return m !== doc ? void set(m) : undefined;
     }
@@ -9628,6 +9687,11 @@ export default function Editor() {
       case "pen":
         setPenAt(drag.at);
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
+      case "measure": {
+        // Let go: 2 atoms make a distance, 3 an angle, 4 a dihedral, in the order passed (measureAtoms).
+        if (drag.atoms.length > 1) measureAtoms(drag.atoms, "pick");
+        return;
+      }
       case "map": {
         // Dropped on another atom: the two are mapped to each other. A click on a mapped atom takes its number off.
         const to = drag.to ? hitAt(drag.to).atom : drag.atom;
@@ -10119,8 +10183,18 @@ export default function Editor() {
   const captionMark = (id: number, key: string, cls: string) => {
     const c = placed.find((x) => x.id === id);
     if (!c) return null;
-    const pad = 0.12 * L, b = c.frame ?? c.box;
-    return <rect key={key} className={cls} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={pad} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} />;
+    const pad = 0.12 * L, b = c.frame ?? c.box, m = shown.captions?.find((x) => x.id === id)?.measure;
+    const rect = <rect key={key} className={cls} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={pad} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} />;
+    if (!m) return rect;
+    // A measurement's mark takes in its lines too, as an arrow's mark runs along it.
+    const ink = measureInk(shown, m.atoms, measureTrim), line = (q: P[]) => q.map(([x, y]) => `${x * L},${-y * L}`).join(" ");
+    return (
+      <g key={key}>
+        {rect}
+        {ink.lines.map((q, k) => <polyline key={k} className={`arrow-mark ${cls}`} points={line(q)} strokeWidth={0.36 * L} />)}
+        {ink.arc && <polyline className={`arrow-mark ${cls}`} points={line(arcPoints(ink.arc))} strokeWidth={0.36 * L} />}
+      </g>
+    );
   };
   // An arrow's mark: a wide soft line along it.
   const arrowMark = (id: number, key: string, cls: string) => {
@@ -10664,6 +10738,15 @@ export default function Editor() {
           </g>
         );
       })}
+      {/* Measurements' lines (measurement.ts): dashed where no bond joins two of the atoms, and an angle's arc, in the
+          measurement's colour at the document's line width, under the structures. */}
+      {(shown.captions ?? []).map((c) => {
+        if (!c.measure || c.id === writing?.id) return null;
+        const ink = measureInk(shown, c.measure.atoms, measureTrim), px = (q: P): P => [q[0] * L, -q[1] * L], f = (n: number) => Math.round(n * 100) / 100;
+        const d = ink.lines.flatMap(([a, b]) => dashes([px(a), px(b)], 0.15 * L, 0.1 * L)).map(([a, b]) => `M${f(a[0])} ${f(a[1])}L${f(b[0])} ${f(b[1])}`).join("")
+          + (ink.arc ? arcPoints(ink.arc).map((q, k) => `${k ? "L" : "M"}${f(q[0] * L)} ${f(-q[1] * L)}`).join("") : "");
+        return d ? <path key={`ms${c.id}`} className="measure-lines" d={d} fill="none" stroke={c.colour ? textInk(c.colour) : "var(--ink)"} strokeWidth={frame.line} /> : null;
+      })}
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
       {problemMarks()}
     </>
@@ -10927,6 +11010,22 @@ export default function Editor() {
                 <circle cx={a[0] * L} cy={-a[1] * L} r={0.32 * L} />
                 <line x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeDasharray={`${0.18 * L} ${0.14 * L}`} />
                 {on !== undefined && on !== drag.atom && <circle cx={b[0] * L} cy={-b[1] * L} r={0.32 * L} />}
+              </g>
+            );
+          })()}
+          {drag?.kind === "measure" && (() => {
+            // Measuring: the atoms passed so far ringed, the measurement's lines between them, a dashed line on to the
+            // pointer while it can take another atom, and the value the measurement will have beside the pointer.
+            const atoms = drag.atoms.filter((i) => i < doc.atoms.length), last = atoms.length ? pos(doc, atoms[atoms.length - 1]) : undefined, kind = measureKind(atoms.length);
+            const ink = atoms.length > 1 ? measureInk(doc, atoms, measureTrim) : undefined, on = drag.to && hitAt(drag.to).atom, free = drag.to && last && atoms.length < 4 && (on === undefined || on === atoms[atoms.length - 1]) ? drag.to : undefined;
+            const dash = `${0.18 * L} ${0.14 * L}`, px = (q: P) => `${q[0] * L},${-q[1] * L}`;
+            return (
+              <g className="mapping measuring" aria-hidden>
+                {atoms.map((i) => <circle key={i} cx={pos(doc, i)[0] * L} cy={-pos(doc, i)[1] * L} r={0.32 * L} />)}
+                {ink?.lines.map(([a, b], k) => <line key={k} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeDasharray={dash} />)}
+                {ink?.arc && <polyline points={arcPoints(ink.arc).map(px).join(" ")} />}
+                {free && last && Math.hypot(free[0] - last[0], free[1] - last[1]) > 0.35 && <line x1={last[0] * L} y1={-last[1] * L} x2={free[0] * L} y2={-free[1] * L} strokeDasharray={dash} />}
+                {kind && drag.to && <text className="turn-angle" x={drag.to[0] * L + 12 / view.zoom} y={-drag.to[1] * L - 12 / view.zoom} style={{ fontSize: 12 / view.zoom }}>{measureText(kind, measureValue(drag.clean?.mol ?? doc, atoms))}</text>}
               </g>
             );
           })()}
